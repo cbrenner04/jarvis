@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
+import { DaemonAlreadyRunningError, DaemonHandoffFailedError } from "../daemon/daemon-lifecycle.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { CliDeps } from "./deps.ts";
 import { connectWithAutoStart } from "./stale-dispatch.ts";
@@ -92,6 +92,30 @@ describe("connectWithAutoStart", () => {
       startDaemon: async () => {
         startCount += 1;
         throw new DaemonAlreadyRunningError("/tmp/test.sock");
+      },
+    }) as CliDeps;
+
+    const client = await connectWithAutoStart(deps, "/tmp/test.sock");
+    expect(startCount).toBe(1);
+    expect(connectAttempts).toBe(2);
+    client.close();
+  });
+
+  test("handles DaemonHandoffFailedError by retrying connect without second start", async () => {
+    let startCount = 0;
+    let connectAttempts = 0;
+
+    const deps = createPartialDeps({
+      connectIpcClient: async () => {
+        connectAttempts += 1;
+        if (connectAttempts <= 1) {
+          throw new Error("ECONNREFUSED");
+        }
+        return createMockIpc();
+      },
+      startDaemon: async () => {
+        startCount += 1;
+        throw new DaemonHandoffFailedError("/tmp/test.sock");
       },
     }) as CliDeps;
 

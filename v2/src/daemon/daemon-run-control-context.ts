@@ -50,6 +50,13 @@ export type RunControlHandlerContextDeps = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   /** Kill settlement seams: bounded wait clock and survivor observation (production: 30s poll, `ps`). */
   killSettlement?: KillSettlementDeps;
+  /**
+   * Run ids a drained-but-not-yet-exited predecessor generation still reports live, observed over
+   * its private endpoint (see `daemon-drain-observer.ts`). `list` folds these into its own
+   * `isLive` computation so a run the predecessor still holds keeps reporting live at the stable
+   * public address until the predecessor actually drains.
+   */
+  externalLiveRunIds?: () => ReadonlySet<string>;
 };
 
 export type KillSettlementDeps = {
@@ -80,6 +87,7 @@ export type RunControlHandlerContext = {
   settleState: PromotionSettleState;
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   killSettlement: KillSettlementDeps | undefined;
+  externalLiveRunIds: (() => ReadonlySet<string>) | undefined;
 };
 
 export function createRunControlHandlerContext(deps: RunControlHandlerContextDeps): RunControlHandlerContext {
@@ -129,6 +137,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
 
   return {
     killSettlement: deps.killSettlement,
+    externalLiveRunIds: deps.externalLiveRunIds,
     registry,
     activeRuns,
     waitAbortControllers,

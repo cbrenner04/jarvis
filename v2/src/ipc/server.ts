@@ -54,7 +54,12 @@ function dispatchRequest(
   if (customHandler) {
     const abortController = new AbortController();
     activeRequests?.set(id, abortController);
-    Promise.resolve(customHandler(frame, abortController.signal))
+    // The executor form runs the handler synchronously but converts a synchronous throw into a
+    // rejection, so it answers `internal_error` below instead of escaping into the socket `data`
+    // listener's decode catch, which destroys the connection.
+    new Promise<Awaited<ReturnType<RpcHandler>>>((resolve) => {
+      resolve(customHandler(frame, abortController.signal));
+    })
       .then((response) => {
         if (abortController.signal.aborted || socket.destroyed) return;
         if (response.kind === "response") {
@@ -422,7 +427,13 @@ function createIpcServerClose(
   activeSockets: Set<Socket>,
   setAcceptingConnections: (accepting: boolean) => void,
 ): IpcServer["close"] {
+  let closed = false;
   return async (options) => {
+    // Handoff releases this server from an RPC handler and the daemon's own full shutdown may
+    // also call it; a second call must be a no-op rather than re-closing a stopped Node server
+    // or re-running the unlink race below against whoever now owns the path.
+    if (closed) return;
+    closed = true;
     setAcceptingConnections(false);
     const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
     try {

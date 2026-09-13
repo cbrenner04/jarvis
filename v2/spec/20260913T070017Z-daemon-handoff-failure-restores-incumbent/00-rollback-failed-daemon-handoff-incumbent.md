@@ -40,10 +40,6 @@ Treat the interval from accepted changeover through successor readiness as a han
 - [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves that when no commit or rollback request arrives before the liveness-fallback deadline, the incumbent rolls back after finding no live daemon at the stable public address; it fails against the pre-fix code, which never resolves an unanswered pending handoff.
 - [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
-## Verification
-
-- `bun run typecheck`, `bun run test:v2`, and the added changeover integration file pass. `bun run test:integration:v2` remains red only in two pre-existing `generation-drain-and-exit.sandbox-unrunnable.test.ts` cases; the same failures reproduce at merge-base `980a086afc89823d989484fd4f4a41238c39c3e9`.
-
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — define the incumbent-owned pending/committed/rolled-back handoff states, identity issuance and mismatch rejection, bind-before-admit ordering, rollback-vs-release-in-progress ordering, rebind-failure handling, and the liveness-fallback deadline.

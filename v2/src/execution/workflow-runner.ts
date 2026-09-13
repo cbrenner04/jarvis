@@ -163,12 +163,16 @@ function nonCompleteWorkflowStepStatus(cause: WriteLoopOutcomeKind): RunStatus {
  * Settle a workflow step's durable row when the step ended non-`complete` after its write loop had
  * already settled the row.
  *
- * A workflow write step is settled `completed` by the write loop before the workflow's publication
- * tail runs (`prepareWorkflowStep` sets `publishCompletion: false`, so the loop does not keep the
- * row `in-progress`). The linked-implement finalizers then convert that outcome to `contract_miss`
- * or `blocked` — and `executeWorkflow` used to return on that without touching the row or the log.
- * The result was a durable `completed` row with no commit tail, no PR, and no diagnostic anywhere:
- * a direct violation of the completion-honesty contract, since `completed` implies PR evidence.
+ * A workflow write step's row is settled by the write loop before the workflow's publication tail
+ * runs: `completed` immediately for any row that is not the workflow's resolved completion row
+ * (`prepareWorkflowStep` sets `publishCompletion: false`), or left `in-progress` for the completion
+ * row itself (`isCompletionRow: true`), pending that tail's evidence. The linked-implement
+ * finalizers can then convert the step's outcome to `contract_miss` or `blocked` — and
+ * `executeWorkflow` used to return on that without touching the row or the log. The result was a
+ * durable `completed` row with no commit tail, no PR, and no diagnostic anywhere: a direct
+ * violation of the completion-honesty contract, since `completed` implies PR evidence. The same gap
+ * applies to a deferred `in-progress` completion row: it implies a publication tail is still coming,
+ * which never happens once the step itself has already ended non-`complete`.
  *
  * Settling here makes the row say what actually happened. A phantom run id (the routing-failure
  * outcome mints one that was never persisted) resolves to no row and is skipped; a row already
@@ -183,10 +187,11 @@ function settleNonCompleteWorkflowStep(
   const cause: WriteLoopOutcomeKind = result.kind;
   const run = store.loadRun(result.runId);
   if (run === null) return;
-  // Only the lie is corrected: a row reading `completed` under a step that did not complete. Every
-  // other status belongs to the write loop and must survive untouched — notably `budget-exhausted`
-  // and `paused`, which are deliberately non-terminal so the next dispatch resumes the step.
-  if (run.status !== "completed") return;
+  // Only the lie is corrected: a row reading `completed`, or left deferred `in-progress` awaiting a
+  // publication tail that will now never run, under a step that did not complete. Every other
+  // status belongs to the write loop and must survive untouched — notably `budget-exhausted` and
+  // `paused`, which are deliberately non-terminal so the next dispatch resumes the step.
+  if (run.status !== "completed" && run.status !== "in-progress") return;
   const status = nonCompleteWorkflowStepStatus(cause);
   const message = result.routingFailure ?? result.invocationFailureMessage ?? `workflow step ended ${cause}`;
   store.commitTerminalRunSettlement({
@@ -594,6 +599,7 @@ async function runWorkflowStep(
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
   reviewPassCommitDeps: ReviewPassCommitDeps | undefined,
+  isCompletionCandidateStep: boolean,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "review-debate" || step.behavior === "review") {
     return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [step.verdictPath], () =>
@@ -623,8 +629,16 @@ async function runWorkflowStep(
       onStepRunCreated,
       freshDispatch,
       touchedStepsInExecution,
+      // A linked implement step never dispatches its own bare-stepId row (only link-suffixed
+      // rows); pass the candidacy through so only the terminal link can become the completion row.
+      isCompletionCandidateStep,
     );
   }
+
+  // A shrink pass always runs after a successful implement completion (unless suppressed), so an
+  // implement step's own row is never the completion row when shrink will supersede it; only the
+  // shrink row (`runShrinkAfterImplementComplete`) is.
+  const isCompletionRow = isCompletionCandidateStep && !(step.role === "implement" && !step.suppressShrink);
 
   const preparedStep = prepareWorkflowStep(
     step,
@@ -634,6 +648,7 @@ async function runWorkflowStep(
     telemetry,
     freshDispatch,
     touchedStepsInExecution,
+    isCompletionRow,
   );
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);
@@ -796,6 +811,7 @@ async function runPreparedLinkedWriteStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
+  isCompletionRow: boolean,
   requiredIntegrationScope?: string,
 ): Promise<WorkflowStepOutcome> {
   const preparedLink = prepareWorkflowStep(
@@ -806,6 +822,7 @@ async function runPreparedLinkedWriteStep(
     telemetry,
     freshDispatch,
     touchedStepsInExecution,
+    isCompletionRow,
   );
   if (preparedLink.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedLink.runId);
@@ -886,6 +903,7 @@ async function runLinkedImplementStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
+  isCompletionCandidateStep: boolean,
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
@@ -919,6 +937,11 @@ async function runLinkedImplementStep(
       expectedArtifactPath: routing.active.path,
     };
 
+    // Only the terminal link can be the workflow's completion row; a non-terminal link is always
+    // superseded by the next link's write loop, which is the documented, unchanged immediate-settle
+    // case (`v2/docs/write-behavior.md`).
+    const linkIsCompletionRow = isCompletionCandidateStep && routing.isTerminal;
+
     const outcome = await runPreparedLinkedWriteStep(
       linkStep,
       stepIndex,
@@ -929,6 +952,7 @@ async function runLinkedImplementStep(
       onStepRunCreated,
       freshDispatch,
       touchedStepsInExecution,
+      linkIsCompletionRow,
       routing.active.requiredIntegrationScope,
     );
 
@@ -995,6 +1019,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (args.steps.some(needsChainedSpecMaterialization)) await materializeChainedImplementSpecs(args.steps);
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
     const reviewPassCommitDeps = buildReviewPassCommitDeps(args, workflowSnapshot);
+    // The last write-behavior step in the workflow: when nothing durable follows it, its resolved
+    // completion row (its hidden `~shrink` row when one exists, else its own row, or its terminal
+    // linked pass) is the only row the publication tail settles with PR evidence or a terminal
+    // cause. Resolved once, up front, so each dispatch below can tell the write loop whether it
+    // produces that row.
+    const completionStep = [...args.steps].reverse().find(isWriteStep);
+    const lastStep = args.steps[args.steps.length - 1];
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
@@ -1013,6 +1044,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
       }
 
+      const isCompletionCandidateStep = isCompletionRowOwningStep(step, completionStep, lastStep);
+
       const stepResult = await runWorkflowStep(
         step,
         stepIndex,
@@ -1025,6 +1058,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         args.freshDispatch,
         touchedStepsInExecution,
         reviewPassCommitDeps,
+        isCompletionCandidateStep,
       );
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
@@ -1068,6 +1102,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           args.onStepRunCreated,
           args.freshDispatch,
           touchedStepsInExecution,
+          isCompletionCandidateStep,
         );
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
         lastResult = shrinkResult;
@@ -1102,8 +1137,6 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
 
     let publicationSpecPath: string | undefined;
-    const completionStep = [...args.steps].reverse().find(isWriteStep);
-    const lastStep = args.steps[args.steps.length - 1];
     const isReviewLastStep = lastStep?.behavior === "review" || lastStep?.behavior === "review-debate";
     const writeStepRun = completionStep
       ? store.findRunByProjectBranch({
@@ -1726,6 +1759,24 @@ function isDurableWorkflowStep(step: AnyWorkflowStep): boolean {
   );
 }
 
+/**
+ * True when `step` is the workflow's resolved completion step (the last write-behavior step) and
+ * nothing after it independently owns a durable completion row of its own — either because `step`
+ * is also the workflow's actual last step, or because everything after it is non-durable. Mirrors
+ * the publication tail's own redirect condition (`!isDurableWorkflowStep(lastStep)`), so a trailing
+ * durable review-debate or reviewed-intent review step keeps owning its own completion settlement
+ * instead of the write step's terminal row (its shrink row, or terminal linked pass) being deferred
+ * with nothing left ever settling it.
+ */
+function isCompletionRowOwningStep(
+  step: AnyWorkflowStep,
+  completionStep: WriteWorkflowStep | undefined,
+  lastStep: AnyWorkflowStep | undefined,
+): boolean {
+  if (completionStep === undefined || step.stepId !== completionStep.stepId) return false;
+  return lastStep === undefined || lastStep.stepId === completionStep.stepId || !isDurableWorkflowStep(lastStep);
+}
+
 /** Persist the seed set a landing consumes so intent-finalization resume replays the same consumption. */
 function snapshotLandingInputs(landing: PublicationLanding | undefined): { landingInputs?: PublicationInputs } {
   const inputs = landing !== undefined && landing.kind !== "none" ? landing.inputs : undefined;
@@ -1951,6 +2002,7 @@ function prepareWorkflowStep(
   telemetry: WorkflowTelemetryContext | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
+  isCompletionRow: boolean,
 ): PreparedWorkflowStep {
   const existingRun = store.findRunByProjectBranch({
     project: step.worktree.projectName,
@@ -2019,6 +2071,7 @@ function prepareWorkflowStep(
         : {}),
       ...(freshDispatch !== undefined ? { freshDispatch } : {}),
       publishCompletion: false,
+      isCompletionRow,
     },
   };
 }
@@ -2033,6 +2086,7 @@ async function runShrinkAfterImplementComplete(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
+  isCompletionRow: boolean,
 ): Promise<WriteLoopResult> {
   const { ...shrinkBase } = step;
   const shrinkStep = {
@@ -2051,6 +2105,7 @@ async function runShrinkAfterImplementComplete(
     telemetry,
     freshDispatch,
     touchedStepsInExecution,
+    isCompletionRow,
   );
   if (preparedStep.kind === "completed") {
     onStepRunCreated?.(stepIndex, preparedStep.runId);

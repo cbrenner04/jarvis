@@ -11357,6 +11357,38 @@ index 1234567..abcdefg 100644
       }
     });
 
+    test("publishCompletion false with no completion-row signal settles completed immediately", async () => {
+      // A `publishCompletion: false` dispatch with no `isCompletionRow` signal has no owning
+      // publication tail; it must keep settling `completed` at its own boundary, not strand
+      // `in-progress` forever.
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "publish-off-no-completion-row-signal";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => completeWrite(worktreePath),
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            stepRules: "Return done.",
+            bindings: simulatedBindings(["done"]),
+            publishCompletion: false,
+          }),
+        );
+
+        expect(result.kind).toBe("complete");
+        expect(result.runStatus).toBe("completed");
+        expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("completed");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
     function writeImplementLinkedSpec(
       worktreePath: string,
       specDir: string,

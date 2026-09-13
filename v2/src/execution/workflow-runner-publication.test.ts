@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import { openStateStore } from "../persistence/state-store.ts";
+import { openLogReader, openLogSink, type LogSink } from "../persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
@@ -481,6 +481,59 @@ describe("executeWorkflow completion publication", () => {
         readyFinalizer: async () => {},
       });
       expect(result.kind).toBe("complete");
+      const settledRow = store.loadRun(result.runId);
+      expect(settledRow).toMatchObject({
+        status: "completed",
+        prNumber,
+        prUrl,
+        terminalCause: "complete",
+      });
+      expect(settledRow?.finishedAt).not.toBeNull();
+    });
+  });
+
+  test("the completion row stays in-progress and evidence-free at its own boundary, settling only once the publication tail supplies evidence", async () => {
+    const step = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "completion-row-defers-to-tail",
+      suppressShrink: true,
+    });
+    const prNumber = 321;
+    const prUrl = "https://github.com/owner/repo/pull/321";
+    let boundarySnapshot: ReturnType<StateStore["loadRun"]> | undefined;
+
+    await withStateStore(async (store) => {
+      // A minimal LogSink reading the durable row back at the exact moment the write loop commits
+      // its own boundary — before the workflow tail's own `setRunStatus` reset, which would mask a
+      // pre-fix `completed` boundary as `in-progress` if observed any later.
+      const logSink: LogSink = {
+        append: (runId, event) => {
+          if (event.kind === "boundary_committed" && boundarySnapshot === undefined) {
+            boundarySnapshot = store.loadRun(runId);
+          }
+        },
+        close: () => {},
+      };
+
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({ prNumber, prUrl }),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(boundarySnapshot).toMatchObject({
+        status: "in-progress",
+        prNumber: null,
+        prUrl: null,
+        terminalCause: null,
+        finishedAt: null,
+      });
+
       const settledRow = store.loadRun(result.runId);
       expect(settledRow).toMatchObject({
         status: "completed",

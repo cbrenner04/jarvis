@@ -17,15 +17,15 @@ No daemon-owned logic decides when the executable tree has stably diverged from 
 
 ## Acceptance criteria
 
-- [ ] A unit test feeds the same divergent digest on two consecutive samples and asserts `startHandoff` is called once with loaded and observed digests; it fails against the pre-fix code where no trigger exists.
-- [ ] A unit test proves one divergent sample followed by the loaded digest does not call `startHandoff`.
-- [ ] A unit test proves two different divergent samples do not call `startHandoff` until one value repeats consecutively.
-- [ ] A unit test proves no second `startHandoff` call occurs while the first is unresolved, even across further matching samples.
-- [ ] A unit test proves after a `rolled_back` result the next single matching sample does not trigger, but two fresh matching samples do.
-- [ ] A unit test proves a `startHandoff` rejection is treated the same as `rolled_back`: the in-flight flag clears, the candidate resets, one fresh matching sample does not retrigger, two fresh matching samples do, and the sampling loop keeps running with no unhandled rejection.
-- [ ] A unit test proves a sample that throws or resolves to `"unknown"` clears any pending candidate and never calls `startHandoff`.
-- [ ] `shouldTriggerHandoff` and `shouldSampleNow` are exported pure functions, each unit-tested in both truth directions (trigger vs. no-trigger; sample vs. skip).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A unit test feeds the same divergent digest on two consecutive samples and asserts `startHandoff` is called once with loaded and observed digests; it fails against the pre-fix code where no trigger exists.
+- [x] A unit test proves one divergent sample followed by the loaded digest does not call `startHandoff`.
+- [x] A unit test proves two different divergent samples do not call `startHandoff` until one value repeats consecutively.
+- [x] A unit test proves no second `startHandoff` call occurs while the first is unresolved, even across further matching samples.
+- [x] A unit test proves after a `rolled_back` result the next single matching sample does not trigger, but two fresh matching samples do.
+- [x] A unit test proves a `startHandoff` rejection is treated the same as `rolled_back`: the in-flight flag clears, the candidate resets, one fresh matching sample does not retrigger, two fresh matching samples do, and the sampling loop keeps running with no unhandled rejection.
+- [x] A unit test proves a sample that throws or resolves to `"unknown"` clears any pending candidate and never calls `startHandoff`.
+- [x] `shouldTriggerHandoff` and `shouldSampleNow` are exported pure functions, each unit-tested in both truth directions (trigger vs. no-trigger; sample vs. skip).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

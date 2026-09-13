@@ -41,8 +41,9 @@ function expectLinkedImplementFinalization(
   expect(
     openLogReader(logsPath)
       .tail(runId)
-      .find((record) => record.event.kind === event.kind)?.event,
-  ).toEqual(event);
+      .filter((record) => record.event.kind === event.kind)
+      .map((record) => record.event),
+  ).toEqual([event]);
 }
 
 describe("executeWorkflow review-debate dispatch", () => {
@@ -752,12 +753,21 @@ describe("executeWorkflow linked implement routing", () => {
       linkedIndexRouting: true,
     };
 
+    const logsPath = join(home.jarvisRoot, "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+
     await withStateStore(async (store) => {
-      const result = await executeWorkflow({ steps: [implementStep], stateStore: store });
+      const result = await executeWorkflow({ steps: [implementStep], stateStore: store, logSink });
       expect(result.kind).toBe("blocked");
       expect(result.routingFailure).toContain("implement.link_out_of_tree");
       // Nothing was persisted under this id, so settlement finds no row and must not throw.
       expect(store.loadRun(result.runId)).toBeNull();
+      logSink.close();
+      expect(
+        openLogReader(logsPath)
+          .tail(result.runId)
+          .filter((record) => record.event.kind === "linked_implement_finalization"),
+      ).toEqual([]);
     });
   });
 

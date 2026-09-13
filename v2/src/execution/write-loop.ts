@@ -34,6 +34,8 @@ import {
 } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
+  type DraftContractRepromptContext,
+  type DraftContractRepromptEvent,
   dualConstraintRepromptDetail,
   type LandingContractRepromptEvent,
   type LogSink,
@@ -403,6 +405,10 @@ export type WriteLoopInput = WriteExecuteInput & {
   landingContractReprompt?: { violation: string; offendingFile: string };
   /** Reprompt context for the next plan-draft iteration after a staged Markdown lint miss. */
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
+  /** One-shot repair context for an eligible plan-draft normalizer miss. */
+  draftContractReprompt?: DraftContractRepromptContext;
+  /** Durable evidence that this run's one plan-draft contract repair is spent. */
+  draftContractRepromptSpent?: true;
   /** Reprompt context for the next implement iteration after a surviving-mutation miss. */
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
   /** Test seam overriding diff-derived mutation verification during implement complete. */
@@ -461,6 +467,51 @@ export function findStagedMarkdownLintRepromptFromLog(
   return latest === undefined
     ? undefined
     : { ruleId: latest.ruleId, offendingFile: latest.offendingFile, message: latest.violation };
+}
+
+type DraftContractRepromptState = {
+  spent: boolean;
+  pending?: DraftContractRepromptContext;
+};
+
+/** Reconstructs the one-shot plan-draft repair allowance and any interrupted repair. */
+export function findDraftContractRepromptStateFromLog(
+  logRecords: readonly PersistedRecord[] | undefined,
+): DraftContractRepromptState {
+  if (logRecords === undefined) return { spent: false };
+  let eventIndex = -1;
+  let reprompt: DraftContractRepromptEvent | undefined;
+  for (let index = 0; index < logRecords.length; index += 1) {
+    const event = logRecords[index]?.event;
+    if (event?.kind === "draft_contract_reprompt") {
+      eventIndex = index;
+      reprompt = event;
+    }
+  }
+  if (reprompt === undefined) return { spent: false };
+  let repairAttemptId: string | undefined;
+  let repairSettled = false;
+  for (const record of logRecords.slice(eventIndex + 1)) {
+    if (record.event.kind === "iteration_started") repairAttemptId = record.event.attemptId;
+    if (record.event.kind === "boundary_committed" && record.event.attemptId === repairAttemptId) {
+      repairSettled = true;
+    }
+  }
+  const pending = repairSettled ? undefined : { contractId: reprompt.contractId, detail: reprompt.detail };
+  return { spent: true, ...(pending !== undefined ? { pending } : {}) };
+}
+
+function isEligibleDraftContractReprompt(
+  args: WriteLoopInput,
+  result: StepRunResult,
+): result is Extract<StepRunResult, { kind: "contract_miss" }> & { failureReason: string } {
+  return (
+    result.kind === "contract_miss" &&
+    args.promptId === PLAN_DRAFT_PROMPT_ID &&
+    result.failedContractId === "artifact.exists" &&
+    result.failureReason !== undefined &&
+    result.failureReason !== "plan.draft.shape"
+  );
 }
 
 /** Last in-loop surviving-mutation reprompt from a run's persisted log tail (resume after pause). */
@@ -1225,6 +1276,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let pendingLandingReprompt = args.landingContractReprompt;
     let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;
     let pendingSurvivingMutationReprompt = args.survivingMutationReprompt;
+    const durableDraftReprompt = findDraftContractRepromptStateFromLog(
+      priorLogRecordsFromSink(args.logSink, prepared.runId),
+    );
+    let pendingDraftContractReprompt = args.draftContractReprompt ?? durableDraftReprompt.pending;
+    let draftContractRepromptSpent =
+      args.draftContractRepromptSpent === true ||
+      durableDraftReprompt.spent ||
+      pendingDraftContractReprompt !== undefined;
 
     store.setRunStatus(runId, "in-progress");
 
@@ -1235,6 +1294,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
       resumedAttemptId = null;
+      const isDraftContractRepair = pendingDraftContractReprompt !== undefined;
 
       args.logSink?.append(runId, { kind: "iteration_started", attemptId });
 
@@ -1253,6 +1313,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         "bounded",
         pendingLandingReprompt,
         pendingStagedMarkdownLintReprompt,
+        pendingDraftContractReprompt,
         pendingSurvivingMutationReprompt,
       );
       if (settled.kind === "aborted") {
@@ -1310,6 +1371,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       closeSessionLog(sessionLog, "completed");
       const stepResult = settled.result;
       iterationsConsumed += 1;
+      if (isDraftContractRepair) pendingDraftContractReprompt = undefined;
 
       const { result } = stepResult;
 
@@ -1344,6 +1406,42 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           attemptId,
           responseText: truncateLogText(result.blockerReprompt.responseText),
         });
+      }
+
+      if (
+        isEligibleDraftContractReprompt(args, result) &&
+        !draftContractRepromptSpent &&
+        iterationsConsumed < maxIterations
+      ) {
+        try {
+          await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+        } catch (error) {
+          return iterationCommitFailed(
+            args,
+            store,
+            runId,
+            attemptId,
+            iterationsConsumed,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+        const context = { contractId: result.failedContractId, detail: result.failureReason };
+        args.logSink?.append(runId, { kind: "draft_contract_reprompt", attemptId, ...context });
+        store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+        args.logSink?.append(runId, {
+          kind: "boundary_committed",
+          attemptId,
+          outcomeKind: "progress",
+          runStatus: "in-progress",
+        });
+        pendingDraftContractReprompt = context;
+        draftContractRepromptSpent = true;
+        if (args.signal?.aborted) return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        if (args.pauseSignal?.aborted) {
+          store.setRunStatus(runId, "paused");
+          return finishLoop(args, runId, "paused", iterationsConsumed, true);
+        }
+        continue;
       }
 
       if (result.kind === "progress") {
@@ -2268,6 +2366,7 @@ async function awaitIteration(
   settlementPolicy: IterationSettlementPolicy = "bounded",
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
+  draftContractReprompt?: DraftContractRepromptContext,
   survivingMutationReprompt?: SurvivingMutationRepromptContext,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
@@ -2327,6 +2426,7 @@ async function awaitIteration(
       sessionLog,
       landingContractReprompt,
       stagedMarkdownLintReprompt,
+      draftContractReprompt,
       survivingMutationReprompt,
       gateTracker,
     ),
@@ -2756,6 +2856,7 @@ function buildWriteExecuteInput(
   sessionLog: SessionLog,
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
+  draftContractReprompt?: DraftContractRepromptContext,
   survivingMutationReprompt?: SurvivingMutationRepromptContext,
   gateTracker?: ReturnType<typeof createIterationActiveGateTracker>,
 ): WriteExecuteInput {
@@ -2808,10 +2909,12 @@ function buildWriteExecuteInput(
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
+    ...(draftContractReprompt !== undefined ? { draftContractReprompt } : {}),
     ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
     ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
     ...(args.externalSpecReadOnly === true ? { externalSpecReadOnly: true as const } : {}),
+    ...(args.completionValidator !== undefined ? { completionValidator: args.completionValidator } : {}),
     ...(gateTracker !== undefined
       ? {
           onAgentShellCommand: (command: string) => {

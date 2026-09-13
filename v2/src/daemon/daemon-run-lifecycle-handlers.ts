@@ -21,6 +21,7 @@ import {
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
 import {
+  findDraftContractRepromptStateFromLog,
   findLandingContractRepromptFromLog,
   findStagedMarkdownLintRepromptFromLog,
   findSurvivingMutationRepromptFromLog,
@@ -300,7 +301,7 @@ export function createRunLifecycleHandlers(
   const killSettlement = resolveKillSettlement(ctx.killSettlement);
   const logsPath = ctx.logsPath;
 
-  const reconstructDirectWriteResume = (run: Run): ResolvedWriteLoopInput => {
+  const reconstructDirectWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
     if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
     const input = run.queuedInput;
     if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
@@ -311,13 +312,23 @@ export function createRunLifecycleHandlers(
       keystoneDirectiveReprompt: _keystoneDirectiveReprompt,
       ...baseInput
     } = input as WriteLoopInput & Record<string, unknown>;
-    return resolveWriteLoopBindings(baseInput, writeLoopBindingSourceDeps);
+    const draftContractReprompt = findDraftContractRepromptStateFromLog(logRecords);
+    return resolveWriteLoopBindings(
+      {
+        ...baseInput,
+        ...(draftContractReprompt.pending !== undefined
+          ? { draftContractReprompt: draftContractReprompt.pending }
+          : {}),
+        ...(draftContractReprompt.spent ? { draftContractRepromptSpent: true as const } : {}),
+      },
+      writeLoopBindingSourceDeps,
+    );
   };
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat snapshot-step guard chain plus one conditional-spread write-loop input literal; nesting inside the binding-source factory adds the increments
   const reconstructWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
     const snapshot = run.workflowSnapshot;
-    if (!snapshot) return reconstructDirectWriteResume(run);
+    if (!snapshot) return reconstructDirectWriteResume(run, logRecords);
     const stepId = run.stepId;
     const step = stepId ? findSnapshotStepForRunStepId(snapshot.steps, stepId) : undefined;
 
@@ -344,6 +355,7 @@ export function createRunLifecycleHandlers(
     const hiddenShrink = isHiddenShrinkStepId(stepId);
     const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
     const stagedMarkdownLintReprompt = findStagedMarkdownLintRepromptFromLog(logRecords);
+    const draftContractReprompt = findDraftContractRepromptStateFromLog(logRecords);
     const survivingMutationReprompt =
       run.status === "paused" ? findSurvivingMutationRepromptFromLog(logRecords) : undefined;
     return resolveWriteLoopBindings(
@@ -375,6 +387,10 @@ export function createRunLifecycleHandlers(
         ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
         ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
         ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
+        ...(draftContractReprompt.pending !== undefined
+          ? { draftContractReprompt: draftContractReprompt.pending }
+          : {}),
+        ...(draftContractReprompt.spent ? { draftContractRepromptSpent: true as const } : {}),
         ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
       },
       writeLoopBindingSourceDeps,

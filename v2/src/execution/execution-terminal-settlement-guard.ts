@@ -141,7 +141,7 @@ const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] =
   { file: "workflow-runner-resume.ts", functionName: "runReviewMutationCommitAndPublish", status: "in-progress" },
   { file: "workflow-runner-resume.ts", functionName: "replayMutationFinalization", status: "in-progress" },
   { file: "write-loop.ts", functionName: "executeWriteLoop", status: "in-progress", count: 3 },
-  { file: "write-loop.ts", functionName: "executeWriteLoop", status: "paused", count: 5 },
+  { file: "write-loop.ts", functionName: "executeWriteLoop", status: "paused", count: 6 },
   { file: "write-loop.ts", functionName: "executeWriteLoop", status: "budget-soft-stopped" },
   { file: "write-loop.ts", functionName: "_commitRepromptProgressBoundary", status: "paused" },
 ];

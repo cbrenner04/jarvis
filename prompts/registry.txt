@@ -27,6 +27,7 @@ write/execute.md
 write/principles.md
 write/token-reprompt.md
 write/blocker-reprompt.md
+write/draft-contract-reprompt.md
 write/landing-contract-reprompt.md
 write/staged-markdown-lint-reprompt.md
 write/ready-repair.md

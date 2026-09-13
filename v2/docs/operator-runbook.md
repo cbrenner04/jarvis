@@ -398,6 +398,8 @@ Key TUI bindings: **`j`**/↓/↑ walk the painted tree; **`e`** expands/collaps
 
 `list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait). `contract_miss` rows also expose `error.contractMissDetail` when the run log's chronologically last `contract_miss_detail` event carries `failureReason` (plan-draft normalizer text, for example); `jarvis run log` remains the full excerpt. Omitted when the log tail cannot be read (store-only / no `logReader`).
 
+A plan-draft `contract_miss` with a normalizer `failureReason` (not `plan.draft.blocker` or bare `plan.draft.shape`) means the harness already tried one automatic in-loop repair (`draft_contract_reprompt` in `jarvis run log`) and the drafter still couldn't satisfy the contract — treat it as a real drafting failure, not a missed retry. `plan.draft.blocker`, bare-missing-tree `plan.draft.shape`, and every non-plan-draft `artifact.exists` miss are never eligible for this repair and still settle immediately. If the daemon or process dies mid-repair, `jarvis run resume` replays that same pending repair exactly once — it is never skipped and never granted a second time.
+
 Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)).
 
 #### Operator notifications

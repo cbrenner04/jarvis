@@ -65,6 +65,11 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       add("branch", event.branch);
       addQuoted("stopReason", event.stopReason);
       break;
+    case "linked_implement_finalization":
+      add("producer", event.producer);
+      add("reason", event.reason);
+      add("outcomeKind", event.outcomeKind);
+      break;
   }
 
   return parts.join(" ");

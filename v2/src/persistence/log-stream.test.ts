@@ -40,6 +40,24 @@ describe("log-stream", () => {
     expect(event.failureReason).toBe("plan.draft.shape");
   });
 
+  it("linked_implement_finalization survives a durable log round-trip", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    const event: LogEvent = {
+      kind: "linked_implement_finalization",
+      producer: "routing",
+      reason: "malformed_link",
+      outcomeKind: "blocked",
+    };
+    sink.append("run-1", event);
+    sink.close();
+
+    const records = reader.tail("run-1");
+    expect(records).toHaveLength(1);
+    expect(records[0]?.event).toEqual(event);
+  });
+
   it("persists structured records with round-trip kind and payload fields", () => {
     const sink = openLogSink(storagePath);
     const reader = openLogReader(storagePath);

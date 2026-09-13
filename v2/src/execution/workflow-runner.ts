@@ -745,6 +745,7 @@ function linkedImplementRoutingFailureOutcome(
   totalIterationsConsumed: number,
   stepIndex: number,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  logSink: LogSink | undefined,
   existingRunId?: string,
 ): WorkflowStepOutcome {
   // When routing fails *after* a link's write loop already ran, that link has a real durable row —
@@ -762,6 +763,19 @@ function linkedImplementRoutingFailureOutcome(
       resumable: false,
       implementReviewEligible: false,
     };
+  }
+  if (
+    existingRunId !== undefined &&
+    (routing.errorKind === "link_unreadable" ||
+      routing.errorKind === "malformed_link" ||
+      routing.errorKind === "link_out_of_tree")
+  ) {
+    logSink?.append(existingRunId, {
+      kind: "linked_implement_finalization",
+      producer: "routing",
+      reason: routing.errorKind,
+      outcomeKind: "blocked",
+    });
   }
   return {
     kind: "blocked",
@@ -825,6 +839,7 @@ function finalizeLinkedImplementPass(
   routing: Extract<LinkedIndexRoutingResult, { ok: true }>,
   beforeIndexContent: string,
   indexPath: string,
+  logSink: LogSink | undefined,
 ): WorkflowStepOutcome | undefined {
   const afterIndexContent = readFileSync(indexPath, "utf8");
   const finalized = completeLinkedSubspec(
@@ -835,11 +850,14 @@ function finalizeLinkedImplementPass(
   );
   if (!finalized.ok) {
     writeFileSync(indexPath, beforeIndexContent, "utf8");
-    return {
-      ...stepped,
-      kind: finalized.errorKind === "link_incomplete" ? "contract_miss" : "blocked",
-      routingFailure: `implement.${finalized.errorKind}`,
-    };
+    const outcomeKind = finalized.errorKind === "link_incomplete" ? "contract_miss" : "blocked";
+    logSink?.append(stepped.runId, {
+      kind: "linked_implement_finalization",
+      producer: "pass_finalization",
+      reason: finalized.errorKind,
+      outcomeKind,
+    });
+    return { ...stepped, kind: outcomeKind, routingFailure: `implement.${finalized.errorKind}` };
   }
   writeFileSync(indexPath, finalized.indexContent, "utf8");
   if (finalized.isTerminal) {
@@ -886,7 +904,13 @@ async function runLinkedImplementStep(
     }
     const routing = resolveActiveLinkedSubspec(indexPath, linkedProjectRoot);
     if (!routing.ok) {
-      return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);
+      return linkedImplementRoutingFailureOutcome(
+        routing,
+        totalIterationsConsumed,
+        stepIndex,
+        onStepRunCreated,
+        logSink,
+      );
     }
 
     const linkStep: WriteWorkflowStep = {
@@ -922,11 +946,12 @@ async function runLinkedImplementStep(
         totalIterationsConsumed,
         stepIndex,
         onStepRunCreated,
+        logSink,
         stepped.runId,
       );
     }
 
-    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, indexPath);
+    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, indexPath, logSink);
     if (finalized !== undefined) {
       return finalized;
     }

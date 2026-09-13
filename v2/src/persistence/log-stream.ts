@@ -255,6 +255,13 @@ export type IntentFinalizationEvent = {
   stopReason?: string;
 };
 
+type LinkedImplementFinalizationEvent = {
+  kind: "linked_implement_finalization";
+  producer: "pass_finalization" | "routing";
+  reason: "link_incomplete" | "index_routing_mutated" | "link_unreadable" | "malformed_link" | "link_out_of_tree";
+  outcomeKind: "contract_miss" | "blocked";
+};
+
 type LogEventWithoutLoopFinished =
   | IterationStartedEvent
   | BoundaryCommittedEvent
@@ -280,7 +287,8 @@ type LogEventWithoutLoopFinished =
   | ContractMissDetailEvent
   | BlockerTextDetailEvent
   | CoverageAdvisoryEvent
-  | IntentFinalizationEvent;
+  | IntentFinalizationEvent
+  | LinkedImplementFinalizationEvent;
 
 export type LogEvent = LogEventWithoutLoopFinished | LogLoopFinishedEvent;
 

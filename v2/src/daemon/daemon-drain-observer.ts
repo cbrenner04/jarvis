@@ -118,7 +118,7 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
   };
 }
 
-export type RunOwnershipDirectory = {
+type RunOwnershipDirectory = {
   /** The direct predecessor's cached row for `runId`, or `undefined` while it is not reported live. */
   ownerRow(runId: string): DaemonListRunRow | undefined;
   /** Stops polling. Idempotent. */

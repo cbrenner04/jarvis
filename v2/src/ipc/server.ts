@@ -54,7 +54,12 @@ function dispatchRequest(
   if (customHandler) {
     const abortController = new AbortController();
     activeRequests?.set(id, abortController);
-    Promise.resolve(customHandler(frame, abortController.signal))
+    // The executor form runs the handler synchronously but converts a synchronous throw into a
+    // rejection, so it answers `internal_error` below instead of escaping into the socket `data`
+    // listener's decode catch, which destroys the connection.
+    new Promise<Awaited<ReturnType<RpcHandler>>>((resolve) => {
+      resolve(customHandler(frame, abortController.signal));
+    })
       .then((response) => {
         if (abortController.signal.aborted || socket.destroyed) return;
         if (response.kind === "response") {

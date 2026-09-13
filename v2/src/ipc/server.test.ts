@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connectIpcClient } from "./client.ts";
 import {
   DaemonSocketBindFailureError,
   DaemonSocketInUseError,
@@ -265,6 +266,63 @@ test("startIpcServer refuses to unlink a live peer socket", async () => {
       expect(existsSync(path)).toBe(true);
     } finally {
       await incumbent.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a handler that throws synchronously answers internal_error and keeps the connection open", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-throw-"));
+  const path = join(dir, "daemon.sock");
+  try {
+    const server = await startIpcServer(path, {
+      boom: () => {
+        throw new Error("machine config missing");
+      },
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+    try {
+      const client = await connectIpcClient(path, 2_000);
+      try {
+        client.send({ kind: "request", id: "r1", method: "boom" });
+        expect(await client.nextFrame()).toEqual({
+          kind: "error",
+          id: "r1",
+          code: "internal_error",
+          message: "machine config missing",
+        });
+        // Same connection, next request: the throw did not cost the client its socket.
+        client.send({ kind: "request", id: "r2", method: "health" });
+        expect(await client.nextFrame()).toEqual({ kind: "response", id: "r2", result: { ok: true } });
+      } finally {
+        client.close();
+      }
+    } finally {
+      await server.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a malformed frame still closes the connection", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-malformed-"));
+  const path = join(dir, "daemon.sock");
+  try {
+    const server = await startIpcServer(path, {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+    try {
+      const client = await connectIpcClient(path, 2_000);
+      try {
+        client.send({ kind: "not-a-kind", id: "r1" });
+        await expect(client.nextFrame()).rejects.toThrow("connection closed");
+      } finally {
+        client.close();
+      }
+    } finally {
+      await server.close();
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });

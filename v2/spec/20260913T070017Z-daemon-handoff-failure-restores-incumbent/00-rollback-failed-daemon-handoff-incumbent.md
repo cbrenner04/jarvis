@@ -38,7 +38,7 @@ Treat the interval from accepted changeover through successor readiness as a han
 - [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves a commit or rollback request carrying an unknown or stale handoff identity is rejected and leaves ownership unchanged.
 - [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves an idle incumbent with no active runs survives while its handoff is pending instead of exiting on drain-exit.
 - [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves that when no commit or rollback request arrives before the liveness-fallback deadline, the incumbent rolls back after finding no live daemon at the stable public address; it fails against the pre-fix code, which never resolves an unanswered pending handoff.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Verification
 

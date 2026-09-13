@@ -4627,6 +4627,23 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(result.status).toBe("reset");
   });
 
+  test("resetStaleWorkspace retires a clean multi-commit lane squash-merged into base", async () => {
+    const branch = "impl/multi-commit-squash-lane";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "squash-one.txt");
+    await commitInWorktree(worktreePath, "squash-two.txt");
+    await advanceBase("multi-squash-advance.md");
+    await realAsyncSubprocessRunner.runAsync("git", ["merge", "--squash", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "squash lane"], projectRoot);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(genericRefusalReason(result)).toBe("");
+    expect(result.status).toBe("reset");
+  });
+
   test("resetStaleWorkspace still refuses a non-descendant lane with an unlanded commit", async () => {
     const branch = "impl/unlanded-behind-base";
     const worktreePath = await setupWorktreeAndBranch(branch);

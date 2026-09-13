@@ -449,6 +449,44 @@ describe("executeWorkflow implement patch light review", () => {
     });
   });
 
+  test("a failing light review settles the implement step's deferred shrink completion row", async () => {
+    const implementStep = createStep({ stepId: "implement", role: "implement", branchName: "light-review-fails" });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPatchLightReviewStep({
+      branchName: implementStep.worktree.branchName,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createLightReviewBindingFactory(
+        async () => ({ kind: "error", exitCode: 1, stderr: "boom" }) as const,
+      ),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).not.toBe("complete");
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun?.status).not.toBe("in-progress");
+      expect(shrinkRun?.status).not.toBe("completed");
+      expect(store.listRuns().filter((row) => row.status === "in-progress")).toEqual([]);
+    });
+  });
+
   test("labels only review passes that commit changes", async () => {
     const implementStep = createStep({
       stepId: "implement",

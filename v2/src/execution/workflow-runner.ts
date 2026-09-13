@@ -941,7 +941,8 @@ async function runLinkedImplementStep(
     // Only the terminal link can be the workflow's completion row; a non-terminal link is always
     // superseded by the next link's write loop, which is the documented, unchanged immediate-settle
     // case (`v2/docs/write-behavior.md`).
-    const linkIsCompletionRow = isCompletionCandidateStep && routing.isTerminal;
+    // Like the plain path, a shrink pass supersedes the terminal link whenever shrink is not suppressed.
+    const linkIsCompletionRow = isCompletionCandidateStep && routing.isTerminal && step.suppressShrink === true;
 
     const outcome = await runPreparedLinkedWriteStep(
       linkStep,
@@ -1012,6 +1013,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let totalIterationsConsumed = 0;
     let lastResult: WorkflowStepOutcome | undefined;
     let lastStepId = "";
+    // The deferred `in-progress` completion row, once a completion-owning step has completed. A later
+    // non-durable step (e.g. a light review) that ends non-`complete` leaves no publication tail to
+    // settle it, so that return path settles it too.
+    let deferredCompletionRunId: string | undefined;
     let completionAgent: string | undefined;
     let shrinkNarrative: string | undefined;
     let boundaryTelemetryFailure: string | undefined;
@@ -1077,6 +1082,18 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
       if (stepResult.kind !== "complete") {
         settleNonCompleteWorkflowStep(store, args.logSink, stepResult, totalIterationsConsumed);
+        if (
+          deferredCompletionRunId !== undefined &&
+          deferredCompletionRunId !== stepResult.runId &&
+          store.loadRun(deferredCompletionRunId)?.status === "in-progress"
+        ) {
+          settleNonCompleteWorkflowStep(
+            store,
+            args.logSink,
+            { ...stepResult, runId: deferredCompletionRunId },
+            totalIterationsConsumed,
+          );
+        }
         return {
           kind: stepResult.kind,
           stepIndex,
@@ -1133,6 +1150,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           };
         }
       }
+      if (isCompletionCandidateStep && lastResult.kind === "complete") deferredCompletionRunId = lastResult.runId;
     }
 
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");

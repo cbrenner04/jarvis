@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
-import { openStateStore } from "../persistence/state-store";
+import { openStateStore, type StateStore } from "../persistence/state-store";
 import { withHandoffIdentity } from "../testing/handoff-identity";
 import {
   flushBackgroundRuns,
@@ -27,6 +27,7 @@ import {
   startDaemonRuntime,
   startDrainExitLoop,
 } from "./daemon";
+import type { DaemonListRunRow } from "./daemon-wire";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 const testDaemons = createTestDaemonLifecycle();
@@ -51,6 +52,32 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, boundMs: num
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, stepMs));
   }
+}
+
+/** Seeds an in-progress run standing in for a draining predecessor's owned work. */
+function seedPredecessorRun(store: StateStore): string {
+  return store.createRun({
+    project: "predecessor-project",
+    specRef: "spec-ref",
+    worktreePath: "/tmp/predecessor-worktree",
+    branch: "predecessor-branch",
+    specPath: "/tmp/predecessor-worktree/spec.md",
+    status: "in-progress",
+  });
+}
+
+/** A fully-formed owner row for `runId`, standing in for a predecessor's `list_owned` response. */
+function predecessorOwnerRowFixture(runId: string, overrides: Partial<DaemonListRunRow> = {}): DaemonListRunRow {
+  return {
+    runId,
+    project: "predecessor-project",
+    branch: "predecessor-branch",
+    status: "in-progress",
+    isLive: true,
+    createdAt: 1,
+    dismissedAt: null,
+    ...overrides,
+  };
 }
 
 /** Whether `socketPath`'s `list` currently reports `runId` as live; `false` on any RPC failure. */
@@ -332,25 +359,8 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       rmSync(dbPath, { force: true });
 
       const store = openStateStore(dbPath);
-      const runId = store.createRun({
-        project: "predecessor-project",
-        specRef: "spec-ref",
-        worktreePath: "/tmp/predecessor-worktree",
-        branch: "predecessor-branch",
-        specPath: "/tmp/predecessor-worktree/spec.md",
-        status: "in-progress",
-      });
-
-      const ownerRow = {
-        runId,
-        project: "predecessor-project",
-        branch: "predecessor-branch",
-        status: "in-progress" as const,
-        isLive: true,
-        createdAt: 1,
-        dismissedAt: null,
-        prNumber: 4242,
-      };
+      const runId = seedPredecessorRun(store);
+      const ownerRow = predecessorOwnerRowFixture(runId, { prNumber: 4242 });
 
       let stopCalls = 0;
       const daemon = await startDaemonRuntime(socketPath, store, undefined, {
@@ -391,23 +401,8 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       rmSync(dbPath, { force: true });
 
       const store = openStateStore(dbPath);
-      const runId = store.createRun({
-        project: "predecessor-project",
-        specRef: "spec-ref",
-        worktreePath: "/tmp/predecessor-worktree",
-        branch: "predecessor-branch",
-        specPath: "/tmp/predecessor-worktree/spec.md",
-        status: "in-progress",
-      });
-      const ownerRow = {
-        runId,
-        project: "predecessor-project",
-        branch: "predecessor-branch",
-        status: "in-progress" as const,
-        isLive: true,
-        createdAt: 1,
-        dismissedAt: null,
-      };
+      const runId = seedPredecessorRun(store);
+      const ownerRow = predecessorOwnerRowFixture(runId);
 
       const exitCodes: number[] = [];
       // Standing in for the real `process.exit`, which would kill the test runner; the cast
@@ -465,14 +460,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       // The run store is shared across daemon generations under one JARVIS_HOME
       // (`v2/docs/daemon-host.md`); one store instance stands in for that here.
       const store = openStateStore(dbPath);
-      const runId = store.createRun({
-        project: "predecessor-project",
-        specRef: "spec-ref",
-        worktreePath: "/tmp/predecessor-worktree",
-        branch: "predecessor-branch",
-        specPath: "/tmp/predecessor-worktree/spec.md",
-        status: "in-progress",
-      });
+      const runId = seedPredecessorRun(store);
 
       const predecessor = await startDaemonRuntime(predSocketPath, store, undefined, {
         privateSocketPath: predPrivateSocketPath,

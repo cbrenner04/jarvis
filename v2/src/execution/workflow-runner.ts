@@ -192,7 +192,8 @@ function settleNonCompleteWorkflowStep(
   // publication tail that will now never run, under a step that did not complete. Every other
   // status belongs to the write loop and must survive untouched — notably `budget-exhausted` and
   // `paused`, which are deliberately non-terminal so the next dispatch resumes the step.
-  if (run.status !== "completed" && !isDeferredCompletionRow(run)) return;
+  // A resumable outcome (a kill, pause, or budget stop) leaves an `in-progress` row to its own settlement.
+  if (run.status !== "completed" && (result.resumable === true || !isDeferredCompletionRow(run))) return;
   const status = nonCompleteWorkflowStepStatus(cause);
   const message = result.routingFailure ?? result.invocationFailureMessage ?? `workflow step ended ${cause}`;
   store.commitTerminalRunSettlement({

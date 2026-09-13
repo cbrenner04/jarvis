@@ -469,7 +469,7 @@ export function findStagedMarkdownLintRepromptFromLog(
     : { ruleId: latest.ruleId, offendingFile: latest.offendingFile, message: latest.violation };
 }
 
-export type DraftContractRepromptState = {
+type DraftContractRepromptState = {
   spent: boolean;
   pending?: DraftContractRepromptContext;
 };

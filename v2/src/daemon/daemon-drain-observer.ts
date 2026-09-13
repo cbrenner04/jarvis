@@ -18,6 +18,14 @@ export type DrainObserver = {
   liveRunIds(): ReadonlySet<string>;
   /** Stops polling. Idempotent. */
   stop(): void;
+  /**
+   * Resolves once the first tick establishes an authoritative live set — a successful `list`, or
+   * the predecessor's socket reading `absent`/`stale` (nothing to observe). Never rejects; a
+   * repeatedly-transient predecessor simply leaves it pending, which a bounded caller (see
+   * `daemon-handoff-route-readiness.ts`) races against its own deadline. Optional so a
+   * `DrainObserver`-shaped test double need not implement it.
+   */
+  firstSettlement?: Promise<void>;
 };
 
 /** Union of live run ids across every observed predecessor, real or legacy keyed-socket. */
@@ -85,6 +93,16 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
   let live = new Set<string>();
   let stopped = false;
   let loop: PollLoopHandle | undefined;
+  let resolveFirstSettlement: (() => void) | undefined;
+  const firstSettlement = new Promise<void>((resolve) => {
+    resolveFirstSettlement = resolve;
+  });
+  let firstSettlementResolved = false;
+  const markFirstSettlement = (): void => {
+    if (firstSettlementResolved) return;
+    firstSettlementResolved = true;
+    resolveFirstSettlement?.();
+  };
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
@@ -94,11 +112,15 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
       live = new Set();
       stopped = true;
       loop?.clear();
+      markFirstSettlement();
       return;
     }
     try {
       const ids = await listLiveRunIds(socketPath, rpcTimeoutMs);
-      if (!stopped) live = new Set(ids);
+      if (!stopped) {
+        live = new Set(ids);
+        markFirstSettlement();
+      }
     } catch {
       // Transient RPC failure while the socket itself is still live: retain the last known set.
     }
@@ -115,5 +137,6 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
       stopped = true;
       loop?.clear();
     },
+    firstSettlement,
   };
 }

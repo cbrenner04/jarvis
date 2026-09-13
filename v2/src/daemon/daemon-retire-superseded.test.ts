@@ -223,3 +223,10 @@ test("shouldShutdownNow: retiring daemon exits only once no run is active", () =
   // Explicit stop always exits, regardless of retiring/active state.
   expect(shouldShutdownNow(true, false, true)).toBe(true);
 });
+
+test("shouldShutdownNow: an intermediate stays up while it owns downstream routed work", () => {
+  // Retiring + idle + routed work → stays up (inverting the !hasRoutedWork guard would exit here).
+  expect(shouldShutdownNow(false, true, false, false, true)).toBe(false);
+  // Retiring + idle + no routed work → exits, matching the pre-existing no-args-5 behavior.
+  expect(shouldShutdownNow(false, true, false, false, false)).toBe(true);
+});

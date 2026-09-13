@@ -43,6 +43,15 @@ import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } 
 import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
 import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
 import {
+  createRouteReadinessGate,
+  DEFAULT_ROUTE_READINESS_TIMEOUT_MS,
+  gateRunControlHandler,
+  gateStreamHandler,
+  hasRoutedResponsibility,
+  type RouteCandidate,
+  resolveRouteOwnership,
+} from "./daemon-handoff-route-readiness.ts";
+import {
   createNotificationListHandler,
   createNotificationWaitHandler,
   NotificationWaitRegistry,
@@ -291,17 +300,21 @@ export function workflowInvocationIsLive(
 }
 
 /**
- * The daemon shuts down when a stop was explicitly requested, or when it is
- * retiring (superseded) and no run is still active. A retiring daemon with an
- * active run stays up until that run settles.
+ * The daemon shuts down when a stop was explicitly requested, or when it is retiring (superseded),
+ * no run is still active, and it owns no downstream routing responsibility. An intermediate
+ * generation stays up while it is the chain's only path to a still-live predecessor's routed run
+ * or is forwarding a request on a downstream caller's behalf (see
+ * `daemon-handoff-route-readiness.ts`'s `hasRoutedResponsibility`) — exiting early would strand a
+ * successor two hops back that only ever addresses its direct predecessor.
  */
 export function shouldShutdownNow(
   shutdownRequested: boolean,
   isRetiring: boolean,
   hasActiveRuns: boolean,
   handoffPending = false,
+  hasRoutedWork = false,
 ): boolean {
-  return shutdownRequested || (isRetiring && !hasActiveRuns && !handoffPending);
+  return shutdownRequested || (isRetiring && !hasActiveRuns && !handoffPending && !hasRoutedWork);
 }
 
 /**
@@ -1050,6 +1063,19 @@ type DaemonStartupDeps = {
   observePredecessorDrain?: typeof observePredecessorDrain;
   /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   handoffFallbackMs?: number;
+  /**
+   * Bounds the one-time wait for `predecessorSocketPath`'s first route snapshot before this
+   * generation serves public `start`/`resume`/`wait`/`pause`/`kill`/`stream-open`. Defaults to
+   * `DEFAULT_ROUTE_READINESS_TIMEOUT_MS`. See `daemon-handoff-route-readiness.ts`.
+   */
+  routeReadinessTimeoutMs?: number;
+  /**
+   * Run ids this generation is currently forwarding a caller's request for on behalf of a
+   * downstream successor, over its own private hop. Defaults to always `0` — no subspec yet
+   * forwards a request — but an intermediate generation must not retire while this is nonzero
+   * (see `shouldShutdownNow`'s `hasRoutedWork`).
+   */
+  forwardedRunRequestCount?: () => number;
 };
 
 export async function recoverReconciledRuns(
@@ -1092,19 +1118,30 @@ export async function recoverReconciledRuns(
   return { resumed };
 }
 
+/** One legacy peer's drain observer, kept paired with its socket path for route-ownership attribution. */
+type LegacyDrainObserver = { socketPath: string; observer: DrainObserver };
+
 /**
  * Every drain observer this generation owns: the real handoff predecessor (if any) plus one per
  * live legacy digest-keyed peer discovered on the same address space (see
- * 03-legacy-keyed-daemon-migration.md). Combined via `unionLiveRunIds` for `externalLiveRunIds`.
+ * 03-legacy-keyed-daemon-migration.md). `all` (predecessor first, legacy peers after, matching
+ * prior enumeration order) feeds `unionLiveRunIds` for `externalLiveRunIds`; `predecessor` and
+ * `legacy` are kept separately so route ownership (see `daemon-handoff-route-readiness.ts`) can
+ * tell a direct predecessor's route from a legacy duplicate.
  */
 function buildDrainObservers(
   predecessorSocketPath: string | undefined,
   legacyPeerSocketPaths: readonly string[],
   observeDrain: typeof observePredecessorDrain,
-): DrainObserver[] {
-  const socketPaths =
-    predecessorSocketPath === undefined ? legacyPeerSocketPaths : [predecessorSocketPath, ...legacyPeerSocketPaths];
-  return socketPaths.map((peerSocketPath) => observeDrain(peerSocketPath));
+): { all: DrainObserver[]; predecessor: DrainObserver | undefined; legacy: LegacyDrainObserver[] } {
+  const predecessor = predecessorSocketPath === undefined ? undefined : observeDrain(predecessorSocketPath);
+  const legacy = legacyPeerSocketPaths.map((socketPath) => ({ socketPath, observer: observeDrain(socketPath) }));
+  const legacyObservers = legacy.map((entry) => entry.observer);
+  return {
+    all: predecessor === undefined ? legacyObservers : [predecessor, ...legacyObservers],
+    predecessor,
+    legacy,
+  };
 }
 
 async function daemonAnswersAt(socketPath: string): Promise<boolean> {
@@ -1197,7 +1234,39 @@ export async function startDaemonRuntime(
   // migration.md). Enumeration is pure and synchronous, so this is safe before either server binds.
   const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
   const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
-  const drainObservers = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
+  const {
+    all: drainObservers,
+    predecessor: predecessorDrainObserver,
+    legacy: legacyDrainObservers,
+  } = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
+
+  // Gates public start/resume/wait/pause/kill/stream-open until this generation has a usable
+  // handoff route snapshot from its direct predecessor, or route setup has conclusively failed
+  // (see `daemon-handoff-route-readiness.ts`). No predecessor at all is trivially ready.
+  const routeReadinessGate = createRouteReadinessGate(
+    startupDeps.predecessorSocketPath,
+    predecessorDrainObserver?.firstSettlement,
+    startupDeps.routeReadinessTimeoutMs ?? DEFAULT_ROUTE_READINESS_TIMEOUT_MS,
+  );
+  const forwardedRunRequestCount = startupDeps.forwardedRunRequestCount ?? (() => 0);
+  // This generation must stay up while it is the chain's only path to a routed downstream run —
+  // the direct predecessor's own live routes always outrank a legacy duplicate (see
+  // `resolveRouteOwnership`) — or is forwarding a request on a downstream caller's behalf.
+  const hasRoutedWork = (): boolean => {
+    const candidates: RouteCandidate[] = [];
+    if (startupDeps.predecessorSocketPath !== undefined && predecessorDrainObserver !== undefined) {
+      for (const runId of predecessorDrainObserver.liveRunIds()) {
+        candidates.push({ kind: "predecessor", socketPath: startupDeps.predecessorSocketPath, runId });
+      }
+    }
+    for (const { socketPath: legacySocketPath, observer } of legacyDrainObservers) {
+      for (const runId of observer.liveRunIds()) {
+        candidates.push({ kind: "legacy", socketPath: legacySocketPath, runId });
+      }
+    }
+    return hasRoutedResponsibility(resolveRouteOwnership(candidates).size, forwardedRunRequestCount());
+  };
+  const gatedTailStreamHandler = gateStreamHandler(tailStreamHandler, routeReadinessGate);
 
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
@@ -1253,7 +1322,7 @@ export async function startDaemonRuntime(
     },
     wasSuperseded: () => superseded,
     bindPublicServer: async () => {
-      server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+      server = await bindIpcServer(socketPath, handlers, gatedTailStreamHandler);
     },
     probePublicServer: () => daemonAnswersAt(socketPath),
     ...(startupDeps.handoffFallbackMs === undefined ? {} : { fallbackMs: startupDeps.handoffFallbackMs }),
@@ -1268,13 +1337,20 @@ export async function startDaemonRuntime(
     handoff_commit: handoffHandlers.handoff_commit,
     handoff_rollback: handoffHandlers.handoff_rollback,
     ...runControlHandlers,
+    // Owner-sensitive/admission methods: fail closed with `run_routing_unavailable` until this
+    // generation's route readiness gate settles (see `daemon-handoff-route-readiness.ts`).
+    start: gateRunControlHandler(runControlHandlers.start, routeReadinessGate),
+    resume: gateRunControlHandler(runControlHandlers.resume, routeReadinessGate),
+    wait: gateRunControlHandler(runControlHandlers.wait, routeReadinessGate),
+    pause: gateRunControlHandler(runControlHandlers.pause, routeReadinessGate),
+    kill: gateRunControlHandler(runControlHandlers.kill, routeReadinessGate),
   };
 
   try {
     if (startupDeps.privateSocketPath !== undefined) {
-      privateServer = await bindIpcServer(startupDeps.privateSocketPath, handlers, tailStreamHandler);
+      privateServer = await bindIpcServer(startupDeps.privateSocketPath, handlers, gatedTailStreamHandler);
     }
-    server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+    server = await bindIpcServer(socketPath, handlers, gatedTailStreamHandler);
   } catch (err) {
     if (err instanceof DaemonSocketBindFailureError) {
       console.error(formatDaemonBindFailureLogLine(err));
@@ -1365,7 +1441,7 @@ export async function startDaemonRuntime(
   // deterministic-daemon-test guard forbids one) or a full daemon.
   const drainExitLoop = startDrainExitLoop({
     shouldShutdown: () =>
-      shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns(), handoffHandlers.isPending()),
+      shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns(), handoffHandlers.isPending(), hasRoutedWork()),
     close,
     processExit,
   });

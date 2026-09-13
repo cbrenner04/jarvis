@@ -25,9 +25,9 @@ Before the successor serves public run admission or owner-sensitive requests, it
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-handoff-route-readiness.test.ts` proves immediate post-changeover `start`, `resume`, owner-sensitive `wait`, and `kill --force` fail closed until route readiness settles; it fails against the pre-fix empty `externalLiveRunIds` window.
-- [ ] `v2/src/daemon/daemon-handoff-route-readiness.test.ts` proves a C → B → A chain routes A-owned work through B, applies deterministic nearest-hop duplicate precedence, and keeps B alive while it owns A's route or a forwarded request; it fails against the pre-fix one-hop observer and local-active-only retirement guard.
-- [ ] `v2/src/daemon/daemon-handoff-route-readiness.test.ts` proves a successor interoperates with an outgoing daemon exposing only current `list`, RPC, and `stream-open` forms; it fails against a protocol extension required at handoff.
+- [x] `v2/src/daemon/daemon-handoff-route-readiness.test.ts` proves immediate post-changeover `start`, `resume`, owner-sensitive `wait`, and `kill --force` fail closed until route readiness settles; it fails against the pre-fix empty `externalLiveRunIds` window.
+- [x] `v2/src/daemon/daemon-handoff-route-readiness.test.ts` proves a C → B → A chain routes A-owned work through B, applies deterministic nearest-hop duplicate precedence, and keeps B alive while it owns A's route or a forwarded request; it fails against the pre-fix one-hop observer and local-active-only retirement guard.
+- [x] `v2/src/daemon/daemon-handoff-route-readiness.test.ts` proves a successor interoperates with an outgoing daemon exposing only current `list`, RPC, and `stream-open` forms; it fails against a protocol extension required at handoff.
 
 ## Documentation updates
 

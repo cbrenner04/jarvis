@@ -6,16 +6,20 @@ test("parseChangeoverResult rejects a missing envelope", () => {
   expect(parseChangeoverResult(null)).toBeUndefined();
 });
 
-test("parseChangeoverResult rejects a malformed envelope (privateSocketPath not a string)", () => {
-  expect(parseChangeoverResult({ ok: true, privateSocketPath: 1 })).toBeUndefined();
-  expect(parseChangeoverResult({ ok: true })).toBeUndefined();
-  expect(parseChangeoverResult({ privateSocketPath: "/tmp/daemon-abc.sock" })).toBeUndefined();
+test("parseChangeoverResult rejects a malformed envelope", () => {
+  expect(parseChangeoverResult({ ok: true, privateSocketPath: 1, handoffId: "handoff-1" })).toBeUndefined();
+  expect(parseChangeoverResult({ ok: true, privateSocketPath: "/tmp/daemon-abc.sock" })).toBeUndefined();
+  expect(parseChangeoverResult({ ok: true, privateSocketPath: "/tmp/daemon-abc.sock", handoffId: "" })).toBeUndefined();
+  expect(parseChangeoverResult({ privateSocketPath: "/tmp/daemon-abc.sock", handoffId: "handoff-1" })).toBeUndefined();
 });
 
 test("parseChangeoverResult accepts a well-shaped envelope", () => {
-  expect(parseChangeoverResult({ ok: true, privateSocketPath: "/tmp/daemon-abc.sock" })).toEqual({
+  expect(
+    parseChangeoverResult({ ok: true, privateSocketPath: "/tmp/daemon-abc.sock", handoffId: "handoff-1" }),
+  ).toEqual({
     ok: true,
     privateSocketPath: "/tmp/daemon-abc.sock",
+    handoffId: "handoff-1",
   });
 });
 

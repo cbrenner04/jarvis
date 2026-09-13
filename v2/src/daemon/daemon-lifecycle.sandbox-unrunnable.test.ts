@@ -49,6 +49,7 @@ describe("daemon-lifecycle", () => {
   describe("startDaemon", () => {
     test("does not attempt changeover when nothing occupies the address", async () => {
       let changeoverCalls = 0;
+      let resolutionCalls = 0;
       const socketProber: SocketProber = { probe: async () => false };
       const processProber: ProcessProber = { isAlive: () => true };
 
@@ -62,9 +63,13 @@ describe("daemon-lifecycle", () => {
             changeoverCalls += 1;
             return { kind: "handoff-failed" };
           },
+          requestHandoffResolution: async () => {
+            resolutionCalls += 1;
+          },
         }),
       ).rejects.toThrow(DaemonReadinessTimeoutError);
       expect(changeoverCalls).toBe(0);
+      expect(resolutionCalls).toBe(0);
     });
 
     test("throws DaemonHandoffFailedError when the occupying peer's changeover request fails", async () => {
@@ -81,15 +86,24 @@ describe("daemon-lifecycle", () => {
 
     test("throws DaemonHandoffFailedError when the occupying peer never releases the address", async () => {
       const socketProber: SocketProber = { probe: async () => true };
+      const resolutions: unknown[][] = [];
 
       await expect(
         startDaemon("/fake/socket", {
           socketProber,
           readinessTimeoutMs: 1000,
-          requestChangeover: async () => ({ kind: "changeover", privateSocketPath: "/fake/private.sock" }),
+          requestChangeover: async () => ({
+            kind: "changeover",
+            privateSocketPath: "/fake/private.sock",
+            handoffId: "handoff-1",
+          }),
+          requestHandoffResolution: async (...args) => {
+            resolutions.push(args);
+          },
           changeoverReleaseTimeoutMs: 50,
         }),
       ).rejects.toThrow(DaemonHandoffFailedError);
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
     });
 
     test("proceeds past occupancy once changeover succeeds and the address is released", async () => {
@@ -109,10 +123,150 @@ describe("daemon-lifecycle", () => {
           processProber,
           readinessTimeoutMs: 100,
           daemonScript: "/fake/script",
-          requestChangeover: async () => ({ kind: "changeover", privateSocketPath: "/fake/private.sock" }),
+          requestChangeover: async () => ({
+            kind: "changeover",
+            privateSocketPath: "/fake/private.sock",
+            handoffId: "handoff-1",
+          }),
         }),
       ).rejects.toThrow(DaemonReadinessTimeoutError);
       expect(probeCount).toBeGreaterThan(1);
+    });
+
+    test("requests rollback with the carried identity when successor bind fails", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const socketPath = join(tmpDir, "daemon.sock");
+        const logPath = join(tmpDir, "daemon.log");
+        let probeCount = 0;
+        const resolutions: unknown[][] = [];
+
+        await expect(
+          startDaemon(socketPath, {
+            socketProber: { probe: async () => ++probeCount === 1 },
+            processProber: { isAlive: () => false },
+            daemonScript: "/fake/script",
+            logPath,
+            requestChangeover: async () => ({
+              kind: "changeover",
+              privateSocketPath: "/fake/private.sock",
+              handoffId: "handoff-1",
+            }),
+            requestHandoffResolution: async (...args) => {
+              resolutions.push(args);
+            },
+            onSpawn: () => {
+              writeFileSync(
+                logPath,
+                `${formatDaemonBindFailureLogLine(new DaemonSocketBindFailureError(socketPath, "EADDRINUSE"))}\n`,
+                { flag: "a" },
+              );
+            },
+          }),
+        ).rejects.toBeInstanceOf(DaemonSocketBindFailureError);
+        expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("requests rollback with the carried identity when readiness probes never succeed", async () => {
+      let probeCount = 0;
+      const resolutions: unknown[][] = [];
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber: { probe: async () => ++probeCount === 1 },
+          processProber: { isAlive: () => true },
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          requestChangeover: async () => ({
+            kind: "changeover",
+            privateSocketPath: "/fake/private.sock",
+            handoffId: "handoff-1",
+          }),
+          requestHandoffResolution: async (...args) => {
+            resolutions.push(args);
+          },
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+    });
+
+    test("requests rollback with the carried identity when startup throws after cutoff", async () => {
+      let probeCount = 0;
+      const resolutions: unknown[][] = [];
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber: { probe: async () => ++probeCount === 1 },
+          daemonScript: "/fake/script",
+          requestChangeover: async () => ({
+            kind: "changeover",
+            privateSocketPath: "/fake/private.sock",
+            handoffId: "handoff-1",
+          }),
+          requestHandoffResolution: async (...args) => {
+            resolutions.push(args);
+          },
+          onSpawn: () => {
+            throw new Error("startup failed");
+          },
+        }),
+      ).rejects.toThrow("startup failed");
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+    });
+
+    test("requests commit exactly once with the carried identity after readiness", async () => {
+      let probeCount = 0;
+      const resolutions: unknown[][] = [];
+      const metadata = await startDaemon("/fake/socket", {
+        socketProber: { probe: async () => probeCount++ !== 1 },
+        processProber: { isAlive: () => true },
+        daemonScript: "/fake/script",
+        requestChangeover: async () => ({
+          kind: "changeover",
+          privateSocketPath: "/fake/private.sock",
+          handoffId: "handoff-1",
+        }),
+        requestHandoffResolution: async (...args) => {
+          resolutions.push(args);
+        },
+      });
+
+      expect(metadata.socketPath).toBe("/fake/socket");
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+    });
+
+    test("does not ask the incumbent again when startup throws after readiness commit", async () => {
+      let probeCount = 0;
+      const resolutions: unknown[][] = [];
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber: { probe: async () => probeCount++ !== 1 },
+            processProber: { isAlive: () => true },
+            daemonScript: "/fake/script",
+            pidPath: tmpDir,
+            requestChangeover: async () => ({
+              kind: "changeover",
+              privateSocketPath: "/fake/private.sock",
+              handoffId: "handoff-1",
+            }),
+            requestHandoffResolution: async (...args) => {
+              resolutions.push(args);
+            },
+          }),
+        ).rejects.toThrow();
+        expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     test("throws DaemonReadinessTimeoutError if socket never becomes ready", async () => {

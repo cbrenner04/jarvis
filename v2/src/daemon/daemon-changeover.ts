@@ -3,7 +3,9 @@ import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { parseChangeoverResult } from "./daemon-wire.ts";
 
 /** Outcome of asking a live public-address peer to hand off. */
-type ChangeoverRequestOutcome = { kind: "changeover"; privateSocketPath: string } | { kind: "handoff-failed" };
+type ChangeoverRequestOutcome =
+  | { kind: "changeover"; privateSocketPath: string; handoffId: string }
+  | { kind: "handoff-failed" };
 
 export type RequestChangeover = (
   socketPath: string,
@@ -34,7 +36,7 @@ export async function requestChangeoverFromPublicPeer(
       const response = await transport.request("changeover", undefined, { timeoutMs });
       const parsed = parseChangeoverResult(response);
       if (parsed === undefined) return { kind: "handoff-failed" };
-      return { kind: "changeover", privateSocketPath: parsed.privateSocketPath };
+      return { kind: "changeover", privateSocketPath: parsed.privateSocketPath, handoffId: parsed.handoffId };
     } finally {
       transport.close();
     }

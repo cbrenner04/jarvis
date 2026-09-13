@@ -94,14 +94,22 @@ export function parseStatusResult(value: unknown):
 }
 
 /** Parse a daemon `changeover` success payload; returns `undefined` when malformed. */
-export function parseChangeoverResult(value: unknown): { ok: true; privateSocketPath: string } | undefined {
+export function parseChangeoverResult(
+  value: unknown,
+): { ok: true; privateSocketPath: string; handoffId: string } | undefined {
   if (
     typeof value === "object" &&
     value !== null &&
     (value as { ok?: unknown }).ok === true &&
-    typeof (value as { privateSocketPath?: unknown }).privateSocketPath === "string"
+    typeof (value as { privateSocketPath?: unknown }).privateSocketPath === "string" &&
+    typeof (value as { handoffId?: unknown }).handoffId === "string" &&
+    (value as { handoffId: string }).handoffId.length > 0
   ) {
-    return { ok: true, privateSocketPath: (value as { privateSocketPath: string }).privateSocketPath };
+    return {
+      ok: true,
+      privateSocketPath: (value as { privateSocketPath: string }).privateSocketPath,
+      handoffId: (value as { handoffId: string }).handoffId,
+    };
   }
   return undefined;
 }

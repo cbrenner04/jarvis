@@ -67,6 +67,14 @@ type DaemonMetadata = {
   socketPath: string;
 };
 
+type HandoffResolution = "commit" | "rollback";
+
+type RequestHandoffResolution = (
+  privateSocketPath: string,
+  handoffId: string,
+  resolution: HandoffResolution,
+) => Promise<void>;
+
 export type ProcessProber = {
   isAlive(pid: number): boolean;
 };
@@ -96,6 +104,20 @@ async function probeSocket(socketPath: string, timeoutMs: number): Promise<boole
     }
   } catch {
     return false;
+  }
+}
+
+async function requestHandoffResolution(
+  privateSocketPath: string,
+  handoffId: string,
+  resolution: HandoffResolution,
+): Promise<void> {
+  const client = await connectIpcClient(privateSocketPath);
+  const transport = createRpcTransport(client);
+  try {
+    await transport.request(`handoff_${resolution}`, { handoffId }, { timeoutMs: 2_000 });
+  } finally {
+    transport.close();
   }
 }
 
@@ -178,6 +200,8 @@ export async function startDaemon(
     changeoverTimeoutMs?: number;
     /** Bounds how long to wait for the occupant to actually release the address after a successful changeover reply. Defaults to 5000ms. */
     changeoverReleaseTimeoutMs?: number;
+    /** Resolves an accepted handoff against the predecessor's private endpoint. */
+    requestHandoffResolution?: RequestHandoffResolution;
   },
 ): Promise<DaemonMetadata> {
   const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
@@ -185,91 +209,113 @@ export async function startDaemon(
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
-  let predecessorSocketPath: string | undefined;
-  const alreadyUp = await socketProber.probe(socketPath, 500);
-  if (alreadyUp) {
-    // Replaces the old immediate refusal: an occupied public address is a handoff, not a rejection.
-    // Either failure mode below — an unanswered/errored request, or a request the occupant accepted
-    // but never actually released — fails startup without ever unlinking the occupant's socket.
-    const requestChangeover = options?.requestChangeover ?? requestChangeoverFromPublicPeer;
-    const outcome = await requestChangeover(socketPath, { timeoutMs: options?.changeoverTimeoutMs ?? 2_000 });
-    if (outcome.kind === "handoff-failed") {
-      throw new DaemonHandoffFailedError(socketPath);
-    }
-    const released = await waitForPublicRelease(socketPath, options?.changeoverReleaseTimeoutMs ?? 5_000, socketProber);
-    if (!released) {
-      throw new DaemonHandoffFailedError(socketPath);
-    }
-    // The outgoing generation's own private endpoint, so the spawned successor can observe its
-    // drain (see `daemon-drain-observer.ts`) rather than treating its already-admitted work as
-    // gone the moment it stops holding the public address.
-    predecessorSocketPath = outcome.privateSocketPath;
-  }
-
-  const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
-
-  const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
-  const logOffsetBytes =
-    options?.logPath !== undefined && existsSync(options.logPath) ? statSync(options.logPath).size : 0;
-
-  const proc = spawn("bun", [daemonScript], {
-    detached: true,
-    stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
-    env: {
-      ...process.env,
-      DAEMON_SOCKET_PATH: socketPath,
-      ...(options?.privateSocketPath === undefined ? {} : { DAEMON_PRIVATE_SOCKET_PATH: options.privateSocketPath }),
-      ...(predecessorSocketPath === undefined ? {} : { DAEMON_PREDECESSOR_SOCKET_PATH: predecessorSocketPath }),
-      ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
-    },
-  });
-
-  // Close parent's copy of the log fd
-  if (logFd !== undefined) {
+  let handoff: { privateSocketPath: string; handoffId: string } | undefined;
+  let handoffResolutionRequested = false;
+  const resolveHandoff = async (resolution: HandoffResolution): Promise<void> => {
+    if (handoff === undefined || handoffResolutionRequested) return;
+    handoffResolutionRequested = true;
     try {
-      closeSync(logFd);
+      await (options?.requestHandoffResolution ?? requestHandoffResolution)(
+        handoff.privateSocketPath,
+        handoff.handoffId,
+        resolution,
+      );
     } catch {
-      // Ignore close errors
+      // The incumbent's bounded fallback resolves a lost settlement request.
     }
-  }
+  };
 
-  if (proc.pid === undefined) {
-    throw new Error("Failed to spawn daemon process: pid is undefined");
-  }
-  const pid = proc.pid;
-  options?.onSpawn?.(pid);
-  proc.unref();
+  try {
+    const alreadyUp = await socketProber.probe(socketPath, 500);
+    if (alreadyUp) {
+      // Replaces the old immediate refusal: an occupied public address is a handoff, not a rejection.
+      // Either failure mode below — an unanswered/errored request, or a request the occupant accepted
+      // but never actually released — fails startup without ever unlinking the occupant's socket.
+      const requestChangeover = options?.requestChangeover ?? requestChangeoverFromPublicPeer;
+      const outcome = await requestChangeover(socketPath, { timeoutMs: options?.changeoverTimeoutMs ?? 2_000 });
+      if (outcome.kind === "handoff-failed") {
+        throw new DaemonHandoffFailedError(socketPath);
+      }
+      handoff = { privateSocketPath: outcome.privateSocketPath, handoffId: outcome.handoffId };
+      const released = await waitForPublicRelease(
+        socketPath,
+        options?.changeoverReleaseTimeoutMs ?? 5_000,
+        socketProber,
+      );
+      if (!released) {
+        throw new DaemonHandoffFailedError(socketPath);
+      }
+    }
 
-  const pidDir = options?.pidPath === undefined ? undefined : dirname(options.pidPath);
-  if (options?.pidPath !== undefined && pidDir !== undefined && !existsSync(pidDir)) {
-    throw new Error(`PID file directory does not exist: ${pidDir}`);
-  }
+    const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
 
-  const startTime = Date.now();
-  while (Date.now() - startTime < readinessTimeoutMs) {
-    if (!processProber.isAlive(pid)) {
-      if (options?.logPath !== undefined) {
-        const bindFailure = await readBindFailureFromLog(options.logPath, logOffsetBytes);
-        if (bindFailure !== undefined) {
-          throw bindFailure;
+    const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
+    const logOffsetBytes =
+      options?.logPath !== undefined && existsSync(options.logPath) ? statSync(options.logPath).size : 0;
+
+    const proc = spawn("bun", [daemonScript], {
+      detached: true,
+      stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
+      env: {
+        ...process.env,
+        DAEMON_SOCKET_PATH: socketPath,
+        ...(options?.privateSocketPath === undefined ? {} : { DAEMON_PRIVATE_SOCKET_PATH: options.privateSocketPath }),
+        ...(handoff === undefined ? {} : { DAEMON_PREDECESSOR_SOCKET_PATH: handoff.privateSocketPath }),
+        ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
+      },
+    });
+
+    // Close parent's copy of the log fd
+    if (logFd !== undefined) {
+      try {
+        closeSync(logFd);
+      } catch {
+        // Ignore close errors
+      }
+    }
+
+    if (proc.pid === undefined) {
+      throw new Error("Failed to spawn daemon process: pid is undefined");
+    }
+    const pid = proc.pid;
+    options?.onSpawn?.(pid);
+    proc.unref();
+
+    const pidDir = options?.pidPath === undefined ? undefined : dirname(options.pidPath);
+    if (options?.pidPath !== undefined && pidDir !== undefined && !existsSync(pidDir)) {
+      throw new Error(`PID file directory does not exist: ${pidDir}`);
+    }
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < readinessTimeoutMs) {
+      if (!processProber.isAlive(pid)) {
+        if (options?.logPath !== undefined) {
+          const bindFailure = await readBindFailureFromLog(options.logPath, logOffsetBytes);
+          if (bindFailure !== undefined) {
+            throw bindFailure;
+          }
         }
+        throw new Error(`Daemon process ${pid} died during startup`);
       }
-      throw new Error(`Daemon process ${pid} died during startup`);
-    }
-    const up = await socketProber.probe(socketPath, 100);
-    if (up) {
-      // Recorded only once this daemon is actually serving. Writing it at spawn time let a
-      // doomed start (one that never binds) overwrite a healthy daemon's pid with a dead one,
-      // which made `daemon status` report `stopped` for a daemon that was answering fine.
-      if (options?.pidPath !== undefined) {
-        writeFileSync(options.pidPath, String(pid));
+      const up = await socketProber.probe(socketPath, 100);
+      if (up) {
+        await resolveHandoff("commit");
+        // Recorded only once this daemon is actually serving. Writing it at spawn time let a
+        // doomed start (one that never binds) overwrite a healthy daemon's pid with a dead one,
+        // which made `daemon status` report `stopped` for a daemon that was answering fine.
+        if (options?.pidPath !== undefined) {
+          writeFileSync(options.pidPath, String(pid));
+        }
+        return { pid, socketPath };
       }
-      return { pid, socketPath };
+      await new Promise((r) => setTimeout(r, 50));
     }
-    await new Promise((r) => setTimeout(r, 50));
-  }
 
-  throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+    throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+  } catch (error) {
+    await resolveHandoff("rollback");
+    throw error;
+  }
 }
 
 async function terminateProcess(pid: number, killTimeoutMs: number, processProber: ProcessProber): Promise<void> {

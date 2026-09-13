@@ -228,6 +228,8 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   // Renamed: recovery no longer resolves through dispatch, so the title no longer describes fan-out pairing.
   "selects the named non-first fan-out result for plan recovery",
   "refuses fan-out recovery when the named branch has no paired result",
+  // Broadened to cover the added handoffId field alongside the existing privateSocketPath check.
+  "parseChangeoverResult rejects a malformed envelope (privateSocketPath not a string)",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

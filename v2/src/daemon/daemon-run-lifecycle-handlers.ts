@@ -75,6 +75,7 @@ import {
   type RunResumeAdmission,
   resolveRunResumeAdmission,
 } from "./daemon-run-resume-admission.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import {
   KILL_SETTLEMENT_BOUND_MS,
@@ -131,36 +132,32 @@ function isSettledRunStatus(status: RunStatus): boolean {
   return isTerminalRunStatus(status) || status === "paused";
 }
 
-/** Filter durable rows before list pays per-row loadRun/tail cost. Durable store is unchanged. */
-function retainListedRuns(runs: Run[]): Run[] {
+function retainComposedRunRows(runs: DaemonListRunRow[]): DaemonListRunRow[] {
   const keptIds = new Set<string>();
   const keptInvocationIds = new Set<string>();
   let terminalKept = 0;
 
   for (const run of runs) {
-    const invocationId = run.workflowSnapshot?.invocationId;
+    const invocationId = run.workflow?.invocationId;
     if (!isTerminalRunStatus(run.status)) {
-      keptIds.add(run.id);
+      keptIds.add(run.runId);
       if (invocationId !== undefined) keptInvocationIds.add(invocationId);
       continue;
     }
     if (terminalKept < LIST_TERMINAL_RUN_LIMIT) {
-      keptIds.add(run.id);
+      keptIds.add(run.runId);
       terminalKept++;
       if (invocationId !== undefined) keptInvocationIds.add(invocationId);
     }
   }
 
   for (const run of runs) {
-    if (keptIds.has(run.id)) continue;
-    if (!isTerminalRunStatus(run.status)) continue;
-    const invocationId = run.workflowSnapshot?.invocationId;
-    if (invocationId !== undefined && keptInvocationIds.has(invocationId)) {
-      keptIds.add(run.id);
-    }
+    if (keptIds.has(run.runId) || !isTerminalRunStatus(run.status)) continue;
+    const invocationId = run.workflow?.invocationId;
+    if (invocationId !== undefined && keptInvocationIds.has(invocationId)) keptIds.add(run.runId);
   }
 
-  return runs.filter((run) => keptIds.has(run.id));
+  return runs.filter((run) => keptIds.has(run.runId));
 }
 /** Confirmed publication evidence, so `completed` is falsifiable from `run list` alone. */
 function runListPrEvidence(run: Run): { prNumber?: number; prUrl?: string } {
@@ -172,7 +169,7 @@ function runListPrEvidence(run: Run): { prNumber?: number; prUrl?: string } {
 
 function runListReviewFields(snapshot: WorkflowSnapshot | undefined): {
   reviewPasses?: number;
-  reviewBehavior?: string;
+  reviewBehavior?: "debate" | "light";
 } {
   return {
     ...(snapshot?.reviewPasses !== undefined ? { reviewPasses: snapshot.reviewPasses } : {}),
@@ -684,15 +681,14 @@ export function createRunLifecycleHandlers(
     liveRunIds: Set<string>,
   ) => {
     if (fullRun === undefined || snapshot === undefined) return {};
-    return {
-      workflow: workflowRowSnapshot(
-        fullRun,
-        workflowRuns,
-        liveRunIds,
-        ctx.reviewDebateProgressByInvocation,
-        workflowEntryRollupStatus(fullRun, workflowRuns),
-      ),
-    };
+    const workflow = workflowRowSnapshot(
+      fullRun,
+      workflowRuns,
+      liveRunIds,
+      ctx.reviewDebateProgressByInvocation,
+      workflowEntryRollupStatus(fullRun, workflowRuns),
+    );
+    return workflow === undefined ? {} : { workflow };
   };
 
   const buildRunListRow = (
@@ -702,7 +698,7 @@ export function createRunLifecycleHandlers(
     reportedStatus: RunStatus,
     workflowRuns: Map<string, Map<string, LoadedRun>>,
     liveRunIds: Set<string>,
-  ) => {
+  ): DaemonListRunRow => {
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
     const logTail = logReader?.tail(run.id) ?? [];
     const terminalRecord = findTerminalLogRecord(logTail);
@@ -749,47 +745,49 @@ export function createRunLifecycleHandlers(
   const listHandler: RpcHandler = (frame) => {
     const listParams = frame.params as ListRpcParams | undefined;
     const includeDismissed = listParams?.includeDismissed === true;
-    const isNotDismissed = (run: Run): boolean => includeDismissed || (run.dismissedAt ?? null) === null;
-    const applyRetention = (runs: Run[]): Run[] =>
-      listRpcRequestIsFiltered(listParams)
-        ? runs
-            .filter((run) => runMatchesListRpcParams(run, listParams))
-            .slice(0, listParams?.limit ?? FILTERED_LIST_DEFAULT_LIMIT)
-        : retainListedRuns(runs);
-    // Dismissal filter runs ahead of retention/filtered slicing: a dismissed run must not
-    // consume a terminal-retention slot or a filtered-limit slot.
-    const projectedRuns = applyRetention(store.listRuns().filter(isNotDismissed));
     const liveRunIds = new Set<string>();
 
     for (const activeRun of activeRuns.values()) {
       liveRunIds.add(activeRun.runId);
     }
-    // A run a draining predecessor generation still holds keeps reporting live at the stable
-    // public address until the predecessor actually drains (see `daemon-drain-observer.ts`).
+    // Compatibility for direct callers that still inject only predecessor live ids.
     for (const runId of ctx.externalLiveRunIds?.() ?? []) {
       liveRunIds.add(runId);
     }
 
-    // Fold in dismissed siblings so the workflow index sees a complete invocation even when one
-    // step run was filtered out above; siblings are indexed, not themselves listed.
-    const indexInputRuns = new Map(projectedRuns.map((run) => [run.id, run]));
-    for (const run of projectedRuns) {
-      const fullRun = store.loadRun(run.id);
-      const invocationId = fullRun?.workflowSnapshot?.invocationId;
-      if (invocationId === undefined) continue;
-      for (const sibling of store.findRunsByInvocationId(invocationId)) {
-        if (!indexInputRuns.has(sibling.id)) indexInputRuns.set(sibling.id, sibling);
-      }
-    }
-    const { fullRuns, workflowRuns } = indexListedRuns([...indexInputRuns.values()]);
+    const durableRuns = store.listRuns();
+    const { fullRuns, workflowRuns } = indexListedRuns(durableRuns);
 
-    const runList = projectedRuns.map((run) => {
+    const localRows: DaemonListRunRow[] = durableRuns.map((run) => {
       const fullRun = fullRuns.get(run.id);
       const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const reportedStatus = reportedRunStatus(run, fullRun);
 
       return buildRunListRow(run, fullRun, isLive, reportedStatus, workflowRuns, liveRunIds);
     });
+
+    const composedById = new Map(localRows.map((row) => [row.runId, row]));
+    for (const route of ctx.externalRunRoutes?.() ?? []) {
+      const local = composedById.get(route.runId);
+      if (local?.isLive === true) continue;
+      if (route.row !== undefined) {
+        composedById.set(route.runId, route.row);
+      } else if (local !== undefined) {
+        composedById.set(route.runId, { ...local, isLive: route.isLive });
+      }
+    }
+
+    const composed = [...composedById.values()].sort(
+      (a, b) => b.createdAt - a.createdAt || a.runId.localeCompare(b.runId),
+    );
+    const visible = composed.filter((run) => includeDismissed || (run.dismissedAt ?? null) === null);
+    const runList = listRpcRequestIsFiltered(listParams)
+      ? visible
+          .filter((run) =>
+            runMatchesListRpcParams({ ...run, specPath: store.loadRun(run.runId)?.specPath ?? "" }, listParams),
+          )
+          .slice(0, listParams?.limit ?? FILTERED_LIST_DEFAULT_LIMIT)
+      : retainComposedRunRows(visible);
 
     return { kind: "response", result: { runs: runList } };
   };

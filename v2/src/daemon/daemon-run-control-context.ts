@@ -17,6 +17,7 @@ import type {
   WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
 import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./daemon.ts";
+import type { ObservedRunRoute } from "./daemon-drain-observer.ts";
 import type { NotificationWaitRegistry } from "./daemon-notification-wait.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
@@ -57,6 +58,8 @@ export type RunControlHandlerContextDeps = {
    * public address until the predecessor actually drains.
    */
   externalLiveRunIds?: () => ReadonlySet<string>;
+  /** Owner-authoritative rows selected from reachable draining routes. */
+  externalRunRoutes?: () => readonly ObservedRunRoute[];
 };
 
 export type KillSettlementDeps = {
@@ -88,6 +91,7 @@ export type RunControlHandlerContext = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   killSettlement: KillSettlementDeps | undefined;
   externalLiveRunIds: (() => ReadonlySet<string>) | undefined;
+  externalRunRoutes: (() => readonly ObservedRunRoute[]) | undefined;
 };
 
 export function createRunControlHandlerContext(deps: RunControlHandlerContextDeps): RunControlHandlerContext {
@@ -138,6 +142,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
   return {
     killSettlement: deps.killSettlement,
     externalLiveRunIds: deps.externalLiveRunIds,
+    externalRunRoutes: deps.externalRunRoutes,
     registry,
     activeRuns,
     waitAbortControllers,

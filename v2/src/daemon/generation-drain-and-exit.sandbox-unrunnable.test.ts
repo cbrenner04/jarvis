@@ -1,7 +1,7 @@
 // Real-socket coverage for outgoing-generation drain observation and self-exit.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client";
@@ -17,7 +17,6 @@ import {
   startRun,
   toIpcHandlers,
 } from "../testing/run-control";
-import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
 import {
@@ -29,7 +28,6 @@ import {
 } from "./daemon";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
-const testDaemons = createTestDaemonLifecycle();
 const healthHandler = () => ({ kind: "response" as const, result: { ok: true } });
 
 async function health(socketPath: string): Promise<unknown> {
@@ -108,6 +106,8 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         changeover: handoff.changeover,
         ...ipcHandlers,
       });
+      let successor: Awaited<ReturnType<typeof startDaemonRuntime>> | undefined;
+      let successorStore: ReturnType<typeof openStateStore> | undefined;
 
       try {
         const clientA = await connectIpcClient(incumbentPrivate);
@@ -128,11 +128,14 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         }
 
         process.env.JARVIS_HOME = tempHome;
-        const successor = await testDaemons.start(publicSocketPath, {
+        incumbentHandlers.setRetiring();
+        await incumbentPublicServer.close();
+        successorStore = openStateStore(dbPath);
+        successor = await startDaemonRuntime(publicSocketPath, successorStore, undefined, {
           privateSocketPath: successorPrivate,
-          readinessTimeoutMs: 15_000,
+          predecessorSocketPath: incumbentPrivate,
+          enumerateOtherDaemonSockets: () => [],
         });
-        expect(successor.socketPath).toBe(publicSocketPath);
         expect(await health(publicSocketPath)).toEqual({ ok: true });
 
         // Project A's own run triggered the upgrade; project B's unrelated in-flight run is
@@ -152,6 +155,8 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         expect(loadRunOrThrow(incumbentStore, runIdB).status).toBe("completed");
       } finally {
         fakeExecutor.abortAll();
+        await successor?.close();
+        successorStore?.close();
         await incumbentPrivateServer.close();
         await incumbentPublicServer.close();
         incumbentStore.close();
@@ -206,6 +211,8 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         changeover: handoff.changeover,
         ...ipcHandlers,
       });
+      let successor: Awaited<ReturnType<typeof startDaemonRuntime>> | undefined;
+      let successorStore: ReturnType<typeof openStateStore> | undefined;
 
       const exitCodes: number[] = [];
       const drainExitLoop = startDrainExitLoop({
@@ -225,15 +232,30 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         expect(outgoingHandlers.hasActiveRuns()).toBe(true);
 
         process.env.JARVIS_HOME = tempHome;
-        const successor = await testDaemons.start(publicSocketPath, {
+        outgoingHandlers.setRetiring();
+        await outgoingPublicServer.close();
+        successorStore = openStateStore(dbPath);
+        successor = await startDaemonRuntime(publicSocketPath, successorStore, undefined, {
           privateSocketPath: successorPrivate,
-          pidPath,
-          readinessTimeoutMs: 15_000,
+          predecessorSocketPath: outgoingPrivate,
+          enumerateOtherDaemonSockets: () => [],
         });
+        writeFileSync(pidPath, String(process.pid));
 
-        // The successor's own `list` reports the still-in-flight predecessor-held run as live —
-        // drain observation over the handoff channel, not silence.
-        expect(await waitFor(() => isRunLiveAt(publicSocketPath, runId), 3_000)).toBe(true);
+        // The stable public address returns the predecessor-owned row exactly once while the
+        // successor serves, with liveness preserved from the outgoing owner's row.
+        expect(
+          await waitFor(async () => {
+            const listClient = await connectIpcClient(publicSocketPath);
+            try {
+              const rows = await listRuns(listClient);
+              const ownedRows = rows?.filter((row) => row.runId === runId) ?? [];
+              return ownedRows.length === 1 && ownedRows[0]?.isLive === true;
+            } finally {
+              listClient.close();
+            }
+          }, 3_000),
+        ).toBe(true);
 
         // Retiring with one admitted run still active: must not exit yet.
         await new Promise((resolve) => setTimeout(resolve, 150));
@@ -250,7 +272,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         expect(existsSync(outgoingPrivate)).toBe(false);
 
         // The public artifacts belong to the successor, untouched by the outgoing generation's exit.
-        expect(Number(readFileSync(pidPath, "utf-8").trim())).toBe(successor.pid);
+        expect(Number(readFileSync(pidPath, "utf-8").trim())).toBe(process.pid);
         expect(await health(publicSocketPath)).toEqual({ ok: true });
 
         // The successor stops reporting the run live once the predecessor has actually drained.
@@ -258,6 +280,8 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       } finally {
         drainExitLoop.stop();
         fakeExecutor.abortAll();
+        await successor?.close();
+        successorStore?.close();
         try {
           await outgoingPrivateServer.close();
         } catch {

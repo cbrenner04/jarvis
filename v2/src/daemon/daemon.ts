@@ -41,7 +41,7 @@ import {
 } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
-import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
+import { type DrainObserver, type ObservedRunRoute, observePredecessorDrain } from "./daemon-drain-observer.ts";
 import {
   createRouteReadinessGate,
   DEFAULT_ROUTE_READINESS_TIMEOUT_MS,
@@ -50,6 +50,7 @@ import {
   hasRoutedResponsibility,
   type RouteCandidate,
   resolveRouteOwnership,
+  resolveRunRoutes,
 } from "./daemon-handoff-route-readiness.ts";
 import {
   createNotificationListHandler,
@@ -1054,8 +1055,8 @@ type DaemonStartupDeps = {
   privateSocketPath?: string;
   /**
    * The outgoing generation's private endpoint, learned from a successful `changeover` reply.
-   * When set, this daemon polls it for the predecessor's live run set (see
-   * `daemon-drain-observer.ts`) so `list` keeps reporting those runs live until it drains. Every
+   * When set, this daemon polls it for the predecessor's owner-row route snapshot (see
+   * `daemon-drain-observer.ts`) so `list` preserves the owner's rows until it drains. Every
    * live legacy digest-keyed peer discovered via `enumerateOtherDaemonSockets` is drained the
    * same way, without needing to be named here.
    */
@@ -1125,7 +1126,7 @@ type LegacyDrainObserver = { socketPath: string; observer: DrainObserver };
  * Every drain observer this generation owns: the real handoff predecessor (if any) plus one per
  * live legacy digest-keyed peer discovered on the same address space (see
  * 03-legacy-keyed-daemon-migration.md). `all` (predecessor first, legacy peers after, matching
- * prior enumeration order) feeds `unionLiveRunIds` for `externalLiveRunIds`; `predecessor` and
+ * prior enumeration order) feeds stable-chain route composition; `predecessor` and
  * `legacy` are kept separately so route ownership (see `daemon-handoff-route-readiness.ts`) can
  * tell a direct predecessor's route from a legacy duplicate.
  */
@@ -1170,11 +1171,22 @@ export async function startDaemonRuntime(
   const logsPath = startupDeps.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
+  const observeDrain = startupDeps.observePredecessorDrain ?? observePredecessorDrain;
+  const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
+  const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
+  const {
+    all: drainObservers,
+    predecessor: predecessorDrainObserver,
+    legacy: legacyDrainObservers,
+  } = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
   const processExit = startupDeps.processExit ?? process.exit;
   const reconciliationLogSink = createLogSink(logsPath);
   let reconciledRunIds: string[];
   try {
-    reconciledRunIds = await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
+    // A draining generation owns the shared durable rows; its route snapshot, not this
+    // generation's process probe, decides their status until a later standalone restart.
+    reconciledRunIds =
+      drainObservers.length === 0 ? await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance) : [];
   } finally {
     reconciliationLogSink.close();
   }
@@ -1227,19 +1239,10 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
-  const observeDrain = startupDeps.observePredecessorDrain ?? observePredecessorDrain;
   // A live pre-stable digest-keyed daemon has no public address and no handoff RPC, so it is
   // treated as a legacy outgoing generation: its keyed socket becomes a private successor-only
   // endpoint, drained the same way as a real handoff predecessor (see 03-legacy-keyed-daemon-
   // migration.md). Enumeration is pure and synchronous, so this is safe before either server binds.
-  const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
-  const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
-  const {
-    all: drainObservers,
-    predecessor: predecessorDrainObserver,
-    legacy: legacyDrainObservers,
-  } = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
-
   // Gates public start/resume/wait/pause/kill/stream-open until this generation has a usable
   // handoff route snapshot from its direct predecessor, or route setup has conclusively failed
   // (see `daemon-handoff-route-readiness.ts`). No predecessor at all is trivially ready.
@@ -1249,22 +1252,38 @@ export async function startDaemonRuntime(
     startupDeps.routeReadinessTimeoutMs ?? DEFAULT_ROUTE_READINESS_TIMEOUT_MS,
   );
   const forwardedRunRequestCount = startupDeps.forwardedRunRequestCount ?? (() => 0);
+  const routeCandidates = (): RouteCandidate[] => {
+    const candidates: RouteCandidate[] = [];
+    if (startupDeps.predecessorSocketPath !== undefined && predecessorDrainObserver !== undefined) {
+      const routes =
+        predecessorDrainObserver.runRoutes?.() ??
+        [...predecessorDrainObserver.liveRunIds()].map((runId) => ({ runId, isLive: true }));
+      for (const route of routes) {
+        candidates.push({
+          kind: "predecessor",
+          socketPath: startupDeps.predecessorSocketPath,
+          runId: route.runId,
+          route,
+        });
+      }
+    }
+    for (const { socketPath: legacySocketPath, observer } of legacyDrainObservers) {
+      const routes = observer.runRoutes?.() ?? [...observer.liveRunIds()].map((runId) => ({ runId, isLive: true }));
+      for (const route of routes) {
+        candidates.push({ kind: "legacy", socketPath: legacySocketPath, runId: route.runId, route });
+      }
+    }
+    return candidates;
+  };
+  const routedRunRows = (): readonly ObservedRunRoute[] =>
+    [...resolveRunRoutes(routeCandidates()).values()].flatMap((candidate) =>
+      candidate.route === undefined ? [] : [candidate.route],
+    );
   // This generation must stay up while it is the chain's only path to a routed downstream run —
   // the direct predecessor's own live routes always outrank a legacy duplicate (see
   // `resolveRouteOwnership`) — or is forwarding a request on a downstream caller's behalf.
   const hasRoutedWork = (): boolean => {
-    const candidates: RouteCandidate[] = [];
-    if (startupDeps.predecessorSocketPath !== undefined && predecessorDrainObserver !== undefined) {
-      for (const runId of predecessorDrainObserver.liveRunIds()) {
-        candidates.push({ kind: "predecessor", socketPath: startupDeps.predecessorSocketPath, runId });
-      }
-    }
-    for (const { socketPath: legacySocketPath, observer } of legacyDrainObservers) {
-      for (const runId of observer.liveRunIds()) {
-        candidates.push({ kind: "legacy", socketPath: legacySocketPath, runId });
-      }
-    }
-    return hasRoutedResponsibility(resolveRouteOwnership(candidates).size, forwardedRunRequestCount());
+    return hasRoutedResponsibility(resolveRouteOwnership(routeCandidates()).size, forwardedRunRequestCount());
   };
   const gatedTailStreamHandler = gateStreamHandler(tailStreamHandler, routeReadinessGate);
 
@@ -1292,7 +1311,7 @@ export async function startDaemonRuntime(
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
     reconciledRunIds,
-    externalLiveRunIds: () => unionLiveRunIds(drainObservers),
+    externalRunRoutes: routedRunRows,
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined
       ? {}
@@ -1362,7 +1381,7 @@ export async function startDaemonRuntime(
 
   // Cut admission on each legacy peer after our server is listening, best-effort and
   // non-blocking. A peer that does not answer is skipped rather than failing startup; drain
-  // observation above already tracks its live run set regardless of whether this RPC lands.
+  // observation above already tracks its owner-row snapshot regardless of whether this RPC lands.
   const supersedePeer = startupDeps.supersedePeerDaemon ?? supersedePeerDaemon;
   (async () => {
     for (const peerSocketPath of legacyPeerSocketPaths) {

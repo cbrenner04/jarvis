@@ -1,4 +1,5 @@
 import type { RpcHandler, StreamHandler } from "../ipc/server.ts";
+import type { ObservedRunRoute } from "./daemon-drain-observer.ts";
 
 /** Error code returned to a gated public method while route setup is unready or has conclusively failed. */
 const RUN_ROUTING_UNAVAILABLE_CODE = "run_routing_unavailable";
@@ -96,7 +97,7 @@ type RouteHopKind = "predecessor" | "legacy";
 
 type RouteHop = { kind: RouteHopKind; socketPath: string };
 
-export type RouteCandidate = RouteHop & { runId: string };
+export type RouteCandidate = RouteHop & { runId: string; route?: ObservedRunRoute };
 
 function routeHopRank(kind: RouteHopKind): number {
   return kind === "predecessor" ? 0 : 1;
@@ -109,16 +110,25 @@ function routeHopRank(kind: RouteHopKind): number {
  * order first so a tie within the same hop kind always resolves to the same winner regardless of
  * `enumerateOtherDaemonSockets`'s directory-read order.
  */
-export function resolveRouteOwnership(candidates: readonly RouteCandidate[]): Map<string, RouteHop> {
-  const owners = new Map<string, RouteHop>();
+export function resolveRunRoutes(candidates: readonly RouteCandidate[]): Map<string, RouteCandidate> {
+  const owners = new Map<string, RouteCandidate>();
   const ordered = [...candidates].sort((a, b) => a.socketPath.localeCompare(b.socketPath));
   for (const candidate of ordered) {
     const current = owners.get(candidate.runId);
     if (current === undefined || routeHopRank(candidate.kind) < routeHopRank(current.kind)) {
-      owners.set(candidate.runId, { kind: candidate.kind, socketPath: candidate.socketPath });
+      owners.set(candidate.runId, candidate);
     }
   }
   return owners;
+}
+
+export function resolveRouteOwnership(candidates: readonly RouteCandidate[]): Map<string, RouteHop> {
+  return new Map(
+    [...resolveRunRoutes(candidates)].map(([runId, route]) => [
+      runId,
+      { kind: route.kind, socketPath: route.socketPath },
+    ]),
+  );
 }
 
 /**

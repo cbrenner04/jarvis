@@ -53,15 +53,25 @@ function manualPollLoop(): { schedulePollLoop: SchedulePollLoop; tick: () => Pro
 describe("observePredecessorDrain", () => {
   test("reports the predecessor's live run ids from list", async () => {
     const loop = manualPollLoop();
+    const ownerRow = {
+      runId: "run-1",
+      project: "p",
+      branch: "b",
+      createdAt: 1,
+      status: "paused" as const,
+      isLive: false,
+      dismissedAt: null,
+    };
     const observer = observePredecessorDrain("irrelevant.sock", {
       schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => "live",
-      listLiveRunIds: async () => ["run-1"],
+      listRunRows: async () => [ownerRow],
     });
     try {
       expect(observer.liveRunIds().size).toBe(0);
       await loop.tick();
-      expect(observer.liveRunIds().has("run-1")).toBe(true);
+      expect(observer.runRoutes?.()).toEqual([{ runId: "run-1", isLive: false, row: ownerRow }]);
+      expect(observer.liveRunIds().has("run-1")).toBe(false);
     } finally {
       observer.stop();
     }
@@ -70,13 +80,22 @@ describe("observePredecessorDrain", () => {
   test("retains the last known live set across a transient list RPC failure", async () => {
     const loop = manualPollLoop();
     let listCalls = 0;
+    const ownerRow = {
+      runId: "run-1",
+      project: "owner-project",
+      branch: "owner-branch",
+      createdAt: 1,
+      status: "in-progress" as const,
+      isLive: true,
+      dismissedAt: null,
+    };
     const observer = observePredecessorDrain("irrelevant.sock", {
       schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => "live",
-      listLiveRunIds: async () => {
+      listRunRows: async () => {
         listCalls += 1;
         if (listCalls === 2) throw new Error("timed out");
-        return ["run-1"];
+        return [ownerRow];
       },
     });
     try {
@@ -87,6 +106,7 @@ describe("observePredecessorDrain", () => {
       await loop.tick();
       expect(listCalls).toBe(2);
       expect(observer.liveRunIds().has("run-1")).toBe(true);
+      expect(observer.runRoutes?.()[0]?.row).toEqual(ownerRow);
       await loop.tick();
       expect(listCalls).toBe(3);
       expect(observer.liveRunIds().has("run-1")).toBe(true);
@@ -173,11 +193,15 @@ describe("observePredecessorDrain", () => {
   socketTest("parses a real socket's well-formed list response into live run ids", async () => {
     const socketPath = join(tmpdir(), `jarvis-drain-observer-real-list-${process.pid}-${Date.now()}.sock`);
     rmSync(socketPath, { force: true });
+    let receivedParams: unknown;
     const server = await startIpcServer(socketPath, {
-      list: () => ({
-        kind: "response",
-        result: { runs: [{ runId: "run-1", project: "p", branch: "b", status: "in-progress", isLive: true }] },
-      }),
+      list: (frame) => {
+        receivedParams = frame.params;
+        return {
+          kind: "response",
+          result: { runs: [{ runId: "run-1", project: "p", branch: "b", status: "in-progress", isLive: true }] },
+        };
+      },
     });
     const loop = manualPollLoop();
     const observer = observePredecessorDrain(socketPath, {
@@ -189,6 +213,8 @@ describe("observePredecessorDrain", () => {
       // response must parse and surface the run id, not be treated as malformed.
       await loop.tick();
       expect(observer.liveRunIds().has("run-1")).toBe(true);
+      expect(observer.runRoutes?.()[0]?.row?.project).toBe("p");
+      expect(receivedParams).toEqual({ sinceMs: 0, limit: Number.MAX_SAFE_INTEGER, includeDismissed: true });
     } finally {
       observer.stop();
       await server.close();

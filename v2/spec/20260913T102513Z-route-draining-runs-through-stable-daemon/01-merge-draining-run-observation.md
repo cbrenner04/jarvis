@@ -25,14 +25,14 @@ The stable daemon keeps route authority from a reachable owner's returned row in
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-run-routing.test.ts` proves the stable list returns one draining-owned row, preserves differing owner fields, and reports `isLive: true` only when the owner reports it; it fails against the pre-fix successor-local projection.
-- [ ] `v2/src/daemon/daemon-run-routing.test.ts` proves a paused active row and a completed workflow sibling remain owner-routable without being promoted to public `isLive`; it fails against the pre-fix `isLive`-only owner witness.
-- [ ] `v2/src/daemon/generation-drain-and-exit.sandbox-unrunnable.test.ts` proves a real stable public address returns the outgoing generation's live run exactly once while the incoming generation serves.
-- [ ] `v2/src/daemon/daemon-run-routing.test.ts` proves filtered, dismissed, and retention-sensitive list requests apply to the merged view rather than omitting or duplicating draining rows.
-- [ ] `v2/src/daemon/daemon-drain-observer.test.ts` stays green (transient-failure and endpoint-loss observation behavior preserved).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-run-routing.test.ts` proves the stable list returns one draining-owned row, preserves differing owner fields, and reports `isLive: true` only when the owner reports it; it fails against the pre-fix successor-local projection.
+- [x] `v2/src/daemon/daemon-run-routing.test.ts` proves a paused active row and a completed workflow sibling remain owner-routable without being promoted to public `isLive`; it fails against the pre-fix `isLive`-only owner witness.
+- [x] `v2/src/daemon/generation-drain-and-exit.sandbox-unrunnable.test.ts` proves a real stable public address returns the outgoing generation's live run exactly once while the incoming generation serves.
+- [x] `v2/src/daemon/daemon-run-routing.test.ts` proves filtered, dismissed, and retention-sensitive list requests apply to the merged view rather than omitting or duplicating draining rows.
+- [x] `v2/src/daemon/daemon-drain-observer.test.ts` stays green (transient-failure and endpoint-loss observation behavior preserved).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

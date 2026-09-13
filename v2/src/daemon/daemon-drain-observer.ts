@@ -1,7 +1,7 @@
 import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { probeSocketLiveness, type SocketLiveness } from "../ipc/server.ts";
-import { parseListRuns } from "./daemon-wire.ts";
+import { type DaemonListRunRow, parseListRuns } from "./daemon-wire.ts";
 
 /**
  * A liveness verdict that means the predecessor's private endpoint is gone — nothing is
@@ -14,12 +14,14 @@ export function drainObservationEndsOnLiveness(liveness: SocketLiveness): boolea
 }
 
 export type DrainObserver = {
+  /** Owner-authoritative rows from the most recent confirmed route snapshot. */
+  runRoutes?(): readonly ObservedRunRoute[];
   /** Run ids the predecessor reported live as of the most recent successful poll; empty once drained. */
   liveRunIds(): ReadonlySet<string>;
   /** Stops polling. Idempotent. */
   stop(): void;
   /**
-   * Resolves once the first tick establishes an authoritative live set — a successful `list`, or
+   * Resolves once the first tick establishes an authoritative route snapshot — a successful `list`, or
    * the predecessor's socket reading `absent`/`stale` (nothing to observe). Never rejects; a
    * repeatedly-transient predecessor simply leaves it pending, which a bounded caller (see
    * `daemon-handoff-route-readiness.ts`) races against its own deadline. Optional so a
@@ -28,7 +30,14 @@ export type DrainObserver = {
   firstSettlement?: Promise<void>;
 };
 
-/** Union of live run ids across every observed predecessor, real or legacy keyed-socket. */
+export type ObservedRunRoute = {
+  runId: string;
+  isLive: boolean;
+  /** Present for real owner snapshots; omitted only by the legacy live-id test seam. */
+  row?: DaemonListRunRow;
+};
+
+/** Compatibility projection for callers that only need public liveness. */
 export function unionLiveRunIds(observers: readonly Pick<DrainObserver, "liveRunIds">[]): ReadonlySet<string> {
   const union = new Set<string>();
   for (const observer of observers) {
@@ -37,13 +46,19 @@ export function unionLiveRunIds(observers: readonly Pick<DrainObserver, "liveRun
   return union;
 }
 
-async function defaultListLiveRunIds(socketPath: string, timeoutMs: number): Promise<readonly string[]> {
+async function defaultListRunRows(socketPath: string, timeoutMs: number): Promise<readonly DaemonListRunRow[]> {
   const client = await connectIpcClient(socketPath);
   const transport = createRpcTransport(client);
   try {
-    const listed = parseListRuns(await transport.request("list", undefined, { timeoutMs }));
+    const listed = parseListRuns(
+      await transport.request(
+        "list",
+        { sinceMs: 0, limit: Number.MAX_SAFE_INTEGER, includeDismissed: true },
+        { timeoutMs },
+      ),
+    );
     if (listed === undefined) throw new Error("malformed list response");
-    return listed.runs.filter((row) => row.isLive).map((row) => row.runId);
+    return listed.runs;
   } finally {
     transport.close();
   }
@@ -69,6 +84,8 @@ function scheduleRealPollLoop(onTick: () => Promise<void>, intervalMs: number): 
 
 type DrainObserverDeps = {
   probeLiveness?: (socketPath: string) => Promise<SocketLiveness>;
+  listRunRows?: (socketPath: string, timeoutMs: number) => Promise<readonly DaemonListRunRow[]>;
+  /** Compatibility seam for existing unit tests; production always observes full rows. */
   listLiveRunIds?: (socketPath: string, timeoutMs: number) => Promise<readonly string[]>;
   pollIntervalMs?: number;
   rpcTimeoutMs?: number;
@@ -76,21 +93,21 @@ type DrainObserverDeps = {
 };
 
 /**
- * Polls a predecessor generation's private endpoint for its live run set, so the successor can
- * keep reporting those runs as live until the predecessor drains. A liveness probe (cheap, short
+ * Polls a predecessor generation's private endpoint for owner-authoritative run rows, so the
+ * successor can compose them without rebuilding owner fields. A liveness probe (cheap, short
  * timeout) gates each tick: `absent`/`stale` means the predecessor's process has actually exited,
- * so observation ends there and the live set clears. A `list` RPC failure while the socket itself
+ * so observation ends there and the route snapshot clears. A `list` RPC failure while the socket itself
  * still reads `live` — a timeout under load, a malformed reply — is a stall, not a drain: the
- * last known live set is retained and the next tick retries. This is advisory throughout; it
+ * last confirmed route snapshot is retained and the next tick retries. This is advisory throughout; it
  * never throws out of the polling loop and never fails the caller.
  */
 export function observePredecessorDrain(socketPath: string, deps: DrainObserverDeps = {}): DrainObserver {
   const probeLiveness = deps.probeLiveness ?? probeSocketLiveness;
-  const listLiveRunIds = deps.listLiveRunIds ?? defaultListLiveRunIds;
+  const listRunRows = deps.listRunRows ?? (deps.listLiveRunIds === undefined ? defaultListRunRows : undefined);
   const pollIntervalMs = deps.pollIntervalMs ?? 500;
   const rpcTimeoutMs = deps.rpcTimeoutMs ?? 1_000;
 
-  let live = new Set<string>();
+  let routes: readonly ObservedRunRoute[] = [];
   let stopped = false;
   let loop: PollLoopHandle | undefined;
   let resolveFirstSettlement: (() => void) | undefined;
@@ -109,16 +126,19 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
     const liveness = await probeLiveness(socketPath);
     if (stopped) return;
     if (drainObservationEndsOnLiveness(liveness)) {
-      live = new Set();
+      routes = [];
       stopped = true;
       loop?.clear();
       markFirstSettlement();
       return;
     }
     try {
-      const ids = await listLiveRunIds(socketPath, rpcTimeoutMs);
+      const nextRoutes =
+        listRunRows === undefined
+          ? ((await deps.listLiveRunIds?.(socketPath, rpcTimeoutMs))?.map((runId) => ({ runId, isLive: true })) ?? [])
+          : (await listRunRows(socketPath, rpcTimeoutMs)).map((row) => ({ runId: row.runId, isLive: row.isLive, row }));
       if (!stopped) {
-        live = new Set(ids);
+        routes = nextRoutes;
         markFirstSettlement();
       }
     } catch {
@@ -132,7 +152,8 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
   if (stopped) loop.clear();
 
   return {
-    liveRunIds: () => live,
+    runRoutes: () => routes,
+    liveRunIds: () => new Set(routes.filter((route) => route.isLive).map((route) => route.runId)),
     stop: () => {
       stopped = true;
       loop?.clear();

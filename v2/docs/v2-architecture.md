@@ -230,6 +230,7 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a `blo
 
 ### Interface
 
+- **Stable-chain versus cross-socket aggregation.** The daemon serving the stable public address composes owner-winning `list` rows across its reachable draining chain before applying the request view. This is an intra-chain boundary only: the CLI and TUI still discover coexisting sockets and perform their existing cross-socket merge and deduplication.
 - **Daemon-first.** A persistent daemon owns run state and exposes a programmatic
   API from day one; the CLI, TUI, and any future web UI are thin clients over it.
   This kills the multi-window problem immediately (runs detach from terminals)

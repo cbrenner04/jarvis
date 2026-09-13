@@ -23,6 +23,7 @@ import {
   type Pipeline,
   type PipelineContext,
   type PipelineStageRecord,
+  parseElapsedSeconds,
   RUN_STATUSES,
   reconciliationStableStageStatus,
   reopenPredecessorAllowsStatus,
@@ -3582,16 +3583,87 @@ describe("isOwnerAlive", () => {
     expect(await isOwnerAlive(`${process.pid}:1000`, async () => 1000)).toBe(true);
   });
 
-  test("same pid with a different start epoch is dead", async () => {
-    expect(await isOwnerAlive(`${process.pid}:1000`, async () => 2000)).toBe(false);
+  test("same pid started clearly after the recorded epoch (reuse) is dead", async () => {
+    expect(await isOwnerAlive(`${process.pid}:1000`, async () => 1000 + 7 * 60_000)).toBe(false);
   });
 
-  test("a live pid whose start epoch cannot be read is treated as alive", async () => {
+  test("an inconclusive start epoch leaves a live pid alive", async () => {
     expect(await isOwnerAlive(`${process.pid}:1000`, async () => null)).toBe(true);
+    expect(await isOwnerAlive(`${process.pid}:1000`, async () => 3000)).toBe(true);
+    expect(await isOwnerAlive(`${process.pid}:10000000`, async () => 1000)).toBe(true);
+    expect(await isOwnerAlive(`${process.pid}:1000`, async () => 1000 + 5 * 3_600_000 + 1000)).toBe(true);
+    expect(await isOwnerAlive(`${process.pid}:0`, async () => 1000 + 7 * 60_000)).toBe(true);
   });
 
-  test("a dead pid is dead regardless of epoch readability", async () => {
+  test("only a pid confirmed gone (ESRCH) is dead regardless of epoch", async () => {
     expect(await isOwnerAlive("999999999:1000", async () => 1000)).toBe(false);
+    expect(await isOwnerAlive("999999999:1000", async () => null)).toBe(false);
+  });
+
+  test("parseElapsedSeconds reads every ps etime shape", () => {
+    expect(parseElapsedSeconds("  00:07\n")).toBe(7);
+    expect(parseElapsedSeconds("12:34")).toBe(754);
+    expect(parseElapsedSeconds("01:02:03")).toBe(3723);
+    expect(parseElapsedSeconds("2-01:02:03")).toBe(176_523);
+    expect(parseElapsedSeconds("Sat Sep 12 17:25:34 2026")).toBeNull();
+  });
+});
+
+/** Zone differing from this process's current UTC offset. */
+function foreignTimeZone(): string {
+  return new Date().getTimezoneOffset() === -840 ? "Pacific/Pago_Pago" : "Pacific/Kiritimati";
+}
+
+/** Spawns a child resolving a foreign zone; returns its recorded owner identity while it stays alive. */
+async function spawnForeignZoneOwner(): Promise<{ identity: string; stop: () => void }> {
+  const modulePath = join(import.meta.dir, "state-store.ts");
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `const m = await import(${JSON.stringify(modulePath)}); console.log(m.CURRENT_OWNER_IDENTITY); setInterval(() => {}, 1000);`,
+    ],
+    { env: { ...process.env, TZ: foreignTimeZone() }, stdout: "pipe", stderr: "inherit" },
+  );
+  const reader = child.stdout.getReader();
+  let text = "";
+  while (!text.includes("\n")) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += new TextDecoder().decode(value);
+  }
+  reader.releaseLock();
+  return { identity: text.trim(), stop: () => child.kill() };
+}
+
+describe("owner identity across timezones", () => {
+  test("a cross-process liveness read agrees with an identity recorded under a different zone", async () => {
+    const owner = await spawnForeignZoneOwner();
+    try {
+      expect(owner.identity).toMatch(/^\d+:[1-9]\d*$/);
+      expect(await isOwnerAlive(owner.identity)).toBe(true);
+    } finally {
+      owner.stop();
+    }
+  });
+
+  test("beginRunReconciliation does not orphan a run whose owner recorded under a different zone", async () => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    const owner = await spawnForeignZoneOwner();
+    const seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: owner.identity });
+    const sweepStore = openStateStore(TEST_DB_PATH, { currentIdentity: "22222:2000000" });
+    try {
+      const runId = seedRun(seedStore);
+      seedStore.recordAttemptStart(runId);
+      const admitted = await sweepStore.beginRunReconciliation();
+      expect(admitted).not.toContain(runId);
+      expect(loadRunOrThrow(sweepStore, runId).status).not.toBe("killed");
+    } finally {
+      owner.stop();
+      seedStore.close();
+      sweepStore.close();
+      removeOrchestrationStore(TEST_DB_PATH);
+    }
   });
 });
 

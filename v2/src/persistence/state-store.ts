@@ -1514,15 +1514,25 @@ export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
 /** Bounds the `ps` probe so a hung or missing `ps` can't block module init indefinitely. */
 const PS_PROBE_TIMEOUT_MS = 2000;
 
+/** Parses `ps -o etime=` (`[[dd-]hh:]mm:ss`) into elapsed seconds; `null` when unparseable. */
+export function parseElapsedSeconds(etime: string): number | null {
+  const match = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(etime.trim());
+  if (!match) return null;
+  const [, days, hours, minutes, seconds] = match;
+  return ((Number(days ?? 0) * 24 + Number(hours ?? 0)) * 60 + Number(minutes)) * 60 + Number(seconds);
+}
+
+/**
+ * Start epoch (ms) derived as `now - elapsed`: zone-independent, unlike parsing `ps -o lstart=`,
+ * which renders local time without a zone. Second-resolution, so comparisons use a tolerance.
+ */
 async function readProcessStartEpoch(pid: number): Promise<number | null> {
   try {
-    const stdout = await realAsyncSubprocessRunner.runAsync("ps", ["-o", "lstart=", "-p", String(pid)], process.cwd(), {
+    const stdout = await realAsyncSubprocessRunner.runAsync("ps", ["-o", "etime=", "-p", String(pid)], process.cwd(), {
       timeoutMs: PS_PROBE_TIMEOUT_MS,
     });
-    const trimmed = stdout.trim();
-    if (!trimmed) return null;
-    const epoch = Date.parse(trimmed);
-    return Number.isNaN(epoch) ? null : epoch;
+    const elapsed = parseElapsedSeconds(stdout);
+    return elapsed === null ? null : Date.now() - elapsed * 1000;
   } catch {
     return null;
   }
@@ -1536,10 +1546,25 @@ async function computeCurrentOwnerIdentity(): Promise<string> {
 /** This process's `<pid>:<start-epoch>` identity, captured once at module init. */
 export const CURRENT_OWNER_IDENTITY = await computeCurrentOwnerIdentity();
 
+/** Absorbs second-resolution `etime` truncation and probe latency. */
+const START_EPOCH_TOLERANCE_MS = 5000;
+const QUARTER_HOUR_MS = 15 * 60 * 1000;
+
 /**
- * Default liveness probe: a recorded owner is alive iff its pid exists and that
- * pid's start epoch matches the recorded one. An existing pid whose epoch can't
- * be read is treated as alive (skip the row rather than risk killing a live run).
+ * Whether a read start epoch proves the pid was reused since `recorded`. Only a start clearly
+ * later than recorded counts; an earlier start, or a gap shaped like a whole zone offset (legacy
+ * `lstart` identities parsed in another zone), is inconclusive and resolves alive.
+ */
+function startEpochProvesReuse(recorded: number, current: number): boolean {
+  const gap = current - recorded;
+  if (gap <= START_EPOCH_TOLERANCE_MS) return false;
+  const offsetRemainder = gap % QUARTER_HOUR_MS;
+  return Math.min(offsetRemainder, QUARTER_HOUR_MS - offsetRemainder) > START_EPOCH_TOLERANCE_MS;
+}
+
+/**
+ * Default liveness probe: only `ESRCH` or a start epoch proving pid reuse means dead. An existing
+ * pid whose epoch can't be read or doesn't conclusively disagree is alive (skip rather than kill).
  */
 export async function isOwnerAlive(
   identity: string,
@@ -1557,8 +1582,9 @@ export async function isOwnerAlive(
     return true;
   }
   const currentEpoch = await readStartEpoch(pid);
-  if (currentEpoch === null) return true;
-  return currentEpoch === Number(epochPart);
+  const recordedEpoch = Number(epochPart);
+  if (currentEpoch === null || !Number.isFinite(recordedEpoch) || recordedEpoch === 0) return true;
+  return !startEpochProvesReuse(recordedEpoch, currentEpoch);
 }
 
 function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | null }): Attempt {

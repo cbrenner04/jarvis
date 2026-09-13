@@ -293,7 +293,7 @@ test("notification_wait abort drops armed waiter without late resolve", async ()
   expect(
     store.loadDeliveredNotificationIncident({
       incidentId: `run:${laterRunId}`,
-      transition: "blocked",
+      transition: `blocked:${store.loadRun(laterRunId)?.statusChangedAt ?? DERIVATION_RECENT_MS}`,
     }),
   ).not.toBeNull();
 });

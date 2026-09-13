@@ -29,7 +29,7 @@ Keep a real-process test only when the OS/git/process boundary is the behavior u
 ### v2 run-command routing
 
 - **`bun run test:v2`** — agent-runnable v2 tests only (`v2/**/*.test.ts` except `*.sandbox-unrunnable.test.ts`). This is the sandbox-agent-facing slice.
-- **`bun run test:integration:v2`** — v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/`; runs serially (no `--parallel`). Use outside the coding-agent sandbox.
+- **`bun run test:integration:v2`** — v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/`; runs serially (no `--parallel`). Use outside the coding-agent sandbox. Implement agents do not run it: the harness runs it outside the sandbox at finalization (via the ready gate's test scope, or as required integration), so a criterion naming it (alone or with `typecheck` / `test:v2`) is ticked once the in-sandbox checks pass, and its `EPERM` failures are never a blocker.
 - **`bun run test`** — aggregate gate; still collects all v2 tests including sandbox-unrunnable files.
 
 The v2 integration slice is derived from the filename convention: a `*.sandbox-unrunnable.test.ts` file automatically routes to the integration slice without requiring edits to the slice-boundary test.

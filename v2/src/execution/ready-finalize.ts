@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
@@ -93,6 +93,10 @@ export type ReadyFinalizerSeams = {
   runRequiredIntegration?: RequiredIntegrationRunner;
   runMutationVerification?: MutationVerificationRunner;
   runRuntimeSmokeVerification?: RuntimeSmokeVerificationRunner;
+  /** Whether the worktree's package.json defines `script`; required integration is skipped when it does not. */
+  hasPackageScript?: (worktreePath: string, script: string) => boolean;
+  /** Base-scoped test scope the default ready gate runs (`JARVIS_READY_TEST_SCOPE`). */
+  resolveReadyTestScope?: (worktreePath: string, baseRef: string) => Promise<"full" | string[]>;
 };
 
 export type ReadyFinalizationResult = {
@@ -1032,15 +1036,47 @@ async function getChangedPathsWithResolvability(
   }
 }
 
+async function resolveReadyTestScope(
+  runner: AsyncSubprocessRunner,
+  worktreePath: string,
+  baseRef: string,
+): Promise<ReturnType<typeof resolveCiTestScope>> {
+  const { paths: changedPaths, baseResolvable } = await getChangedPathsWithResolvability(runner, worktreePath, baseRef);
+  return resolveCiTestScope(changedPaths, baseResolvable);
+}
+
 async function deriveReadyGateChildEnv(
   runner: AsyncSubprocessRunner,
   worktreePath: string,
   baseRef: string,
 ): Promise<NodeJS.ProcessEnv> {
-  const { paths: changedPaths, baseResolvable } = await getChangedPathsWithResolvability(runner, worktreePath, baseRef);
-  const scope = resolveCiTestScope(changedPaths, baseResolvable);
+  const scope = await resolveReadyTestScope(runner, worktreePath, baseRef);
   const testScope = scope === "full" ? "full" : scope.join(" ");
   return { ...process.env, JARVIS_READY_TIER: "full", JARVIS_READY_TEST_SCOPE: testScope };
+}
+
+function defaultHasPackageScript(worktreePath: string, script: string): boolean {
+  try {
+    const pkg: unknown = JSON.parse(readFileSync(join(worktreePath, "package.json"), "utf8"));
+    const scripts = typeof pkg === "object" && pkg !== null ? (pkg as { scripts?: unknown }).scripts : undefined;
+    return typeof scripts === "object" && scripts !== null && script in scripts;
+  } catch {
+    return false;
+  }
+}
+
+/** Required integration runs only when the worktree defines the script and the default ready gate did not already
+ * run it (its base-scoped test scope is `full` or names the script). */
+async function shouldRunRequiredIntegration(
+  input: ReadyFinalizeInput & { requiredIntegrationScope: string },
+  resolveGateScope: (worktreePath: string, baseRef: string) => Promise<"full" | string[]>,
+  hasPackageScript: (worktreePath: string, script: string) => boolean,
+): Promise<boolean> {
+  if (!hasPackageScript(input.worktreePath, input.requiredIntegrationScope)) return false;
+  const defaultGate = input.readyCommand === undefined || input.readyCommand.trim() === DEFAULT_READY_COMMAND;
+  if (input.skipReadyGate || !defaultGate) return true;
+  const scope = await resolveGateScope(input.worktreePath, input.baseRef);
+  return scope !== "full" && !scope.includes(input.requiredIntegrationScope);
 }
 
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
@@ -1143,6 +1179,10 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     seams?.runRequiredIntegration ?? createDefaultRunRequiredIntegration(asyncSubprocessRunner);
   const runMutationVerification = seams?.runMutationVerification;
   const runRuntimeSmokeVerification = seams?.runRuntimeSmokeVerification;
+  const hasPackageScript = seams?.hasPackageScript ?? defaultHasPackageScript;
+  const resolveGateScope =
+    seams?.resolveReadyTestScope ??
+    ((worktreePath: string, baseRef: string) => resolveReadyTestScope(asyncSubprocessRunner, worktreePath, baseRef));
 
   return async (input) => {
     if (!input.skipReadyGate) {
@@ -1152,7 +1192,14 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
         readyCommand: input.readyCommand,
       });
     }
-    if (input.requiredIntegrationScope) {
+    if (
+      input.requiredIntegrationScope &&
+      (await shouldRunRequiredIntegration(
+        { ...input, requiredIntegrationScope: input.requiredIntegrationScope },
+        resolveGateScope,
+        hasPackageScript,
+      ))
+    ) {
       await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, {
         signal: input.signal,
         processGroups: input.verifierProcessGroups,

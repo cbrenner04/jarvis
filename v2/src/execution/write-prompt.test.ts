@@ -62,6 +62,17 @@ describe("write prompt", () => {
     expect(body).not.toContain("skip `bun run test` only when");
   });
 
+  test("implement.rules ticks harness-run out-of-sandbox suites and never blocks on their sandbox failures", () => {
+    const body = loadPromptRegistry().getById("implement.rules").body;
+
+    expect(body).toContain(
+      "cannot run inside the agent sandbox and are run by the harness outside it, do not run them",
+    );
+    expect(body).toContain("is ticked once your in-sandbox checks pass");
+    expect(body).toContain("are never a reason to append `## Blocker`");
+    expect(body).not.toMatch(/\bbun\b|test:integration/);
+  });
+
   test("implement.prompt.body includes no-hard-wrap after global.terse", () => {
     const rendered = renderStepPrompt("implement.prompt.body", {
       SPEC_PATH: "spec/example/index.md",

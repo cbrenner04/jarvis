@@ -8,6 +8,7 @@ import { isRecord } from "../../../shared/is-record.ts";
 import {
   completeLinkedSubspec,
   type LinkedIndexRoutingResult,
+  requiredIntegrationScopeForTerminalSubspec,
   resolveActiveLinkedSubspec,
   resolvePinnedLinkedSubspec,
 } from "../../../shared/linked-subspec-routing.ts";
@@ -697,6 +698,16 @@ function resolveLinkedImplementIndexPath(step: WriteWorkflowStep, worktreePath: 
     return step.specPath;
   }
   return resolveInWorktree(worktreePath, step.specPath);
+}
+
+/** Implement finalization runs the integration suite when any criterion in the spec tree names it. */
+function implementRequiredIntegrationScope(
+  step: WriteWorkflowStep,
+  worktreePath: string,
+): { requiredIntegrationScope?: string } {
+  if (step.role !== "implement") return {};
+  const scope = requiredIntegrationScopeForTerminalSubspec(resolveLinkedImplementIndexPath(step, worktreePath));
+  return scope !== undefined ? { requiredIntegrationScope: scope } : {};
 }
 
 function resolveLinkedImplementRoutingRoot(step: WriteWorkflowStep, worktreePath: string): string {
@@ -1500,6 +1511,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
                 ...(specTemplate ? { specTemplate } : {}),
                 ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
+                ...implementRequiredIntegrationScope(completionStep, worktreePath),
               },
             );
             totalIterationsConsumed = publication.iterationsConsumed;

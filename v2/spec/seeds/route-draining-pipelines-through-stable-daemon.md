@@ -4,6 +4,10 @@ name: route-draining-pipelines-through-stable-daemon
 
 # Route draining pipelines through the stable daemon
 
+## Split guidance
+
+Split into two ready-intents: (a) one pipeline namespace served by the stable daemon — `pipeline list` and pipeline-id prefix resolution answered by the stable daemon merging its direct predecessor's pipelines, with no per-socket completeness requirement (repro 2026-09-13: `pipeline resume <prefix>` refused `pipeline_id_set_incomplete` while a predecessor socket was exiting); (b) route pipeline verbs to a still-draining owner. Since #3863 a dead owner's pipeline is adopted, so (b) only removes a bounded wait and may be deferred. Rewrite the Problem to the post-#3863 state.
+
 ## Prerequisites
 
 - Daemon upgrades hand off one stable public address: the incoming generation admits new work, the outgoing generation admits nothing new, finishes its owned work, and exits when idle.

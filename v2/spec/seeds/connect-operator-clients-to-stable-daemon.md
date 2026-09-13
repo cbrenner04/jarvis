@@ -4,6 +4,10 @@ name: connect-operator-clients-to-stable-daemon
 
 # Connect every operator client to the stable daemon
 
+## Split guidance
+
+Split into two ready-intents: (a) `daemon status` honesty — status decides and prints on one version identity and never reports `stopped` for a reachable daemon (independent, run first); (b) remove client daemon-socket discovery (CLI deps, TUI, structural guard), gated on the draining run/pipeline routing lanes landing. Drop the `init --check` criterion: `daemon.pid`/`daemon.sock` are the stable paths again.
+
 ## Prerequisites
 
 - Daemon upgrades hand off one stable public address: the incoming generation admits new work, the outgoing generation admits nothing new, finishes its owned work, and exits when idle.

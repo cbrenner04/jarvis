@@ -1,4 +1,5 @@
 import { connectIpcClient } from "../ipc/client.ts";
+import { RpcError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { probeSocketLiveness, type SocketLiveness } from "../ipc/server.ts";
 import { type DaemonListRunRow, parseListRuns } from "./daemon-wire.ts";
@@ -33,6 +34,17 @@ async function defaultListLiveRunIds(socketPath: string, timeoutMs: number): Pro
   const client = await connectIpcClient(socketPath);
   const transport = createRpcTransport(client);
   try {
+    // `live_run_ids` reads no store; `list` (full projection) is the fallback for a legacy peer without it.
+    try {
+      const reply = (await transport.request("live_run_ids", undefined, { timeoutMs })) as { runIds?: unknown } | null;
+      const runIds = reply?.runIds;
+      if (!Array.isArray(runIds) || !runIds.every((id) => typeof id === "string")) {
+        throw new Error("malformed live_run_ids response");
+      }
+      return runIds;
+    } catch (error) {
+      if (!(error instanceof RpcError && error.code === "unknown_method")) throw error;
+    }
     const listed = parseListRuns(await transport.request("list", undefined, { timeoutMs }));
     if (listed === undefined) throw new Error("malformed list response");
     return listed.runs.filter((row) => row.isLive).map((row) => row.runId);

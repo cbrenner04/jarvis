@@ -1,7 +1,7 @@
 // Real-socket coverage for the handoff changeover protocol at the stable public address.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, linkSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client";
@@ -19,7 +19,7 @@ import {
   DEFAULT_DAEMON_READINESS_TIMEOUT_MS,
   HANDOFF_RESOLUTION_TIMEOUT_MS,
 } from "./daemon-changeover";
-import { DaemonHandoffFailedError, startDaemon } from "./daemon-lifecycle";
+import { DaemonHandoffFailedError, DaemonReadinessTimeoutError, startDaemon } from "./daemon-lifecycle";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 const testDaemons = createTestDaemonLifecycle();
@@ -158,6 +158,21 @@ async function startWork(socketPath: string, projectName: string): Promise<strin
   });
   if (frame.kind !== "response") throw new Error(`start failed: ${JSON.stringify(frame)}`);
   return ((frame as ResponseFrame).result as { runId: string }).runId;
+}
+
+/** A successor that binds `--socket` but never answers, so `startDaemon` times out and kills it. */
+function silentSuccessorScript(): { path: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-silent-successor-"));
+  const path = join(dir, "silent-successor.ts");
+  writeFileSync(
+    path,
+    `import { createServer } from "node:net";
+const socketPath = process.argv[process.argv.indexOf("--socket") + 1];
+createServer(() => {}).listen(socketPath);
+setInterval(() => {}, 1_000);
+`,
+  );
+  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 describe("daemon handoff changeover (real sockets)", () => {
@@ -483,6 +498,53 @@ describe("daemon handoff changeover (real sockets)", () => {
         expect(budgetMs).toBeGreaterThan(5_500);
         const rollback = await request(incumbent.privateSocketPath, "handoff_rollback", { handoffId });
         expect((rollback as ResponseFrame).result).toEqual({ ok: true, state: "rolled_back" });
+      } finally {
+        await incumbent.close();
+      }
+    },
+    20_000,
+  );
+
+  socketTest(
+    "a successor killed after binding the public path leaves the incumbent serving and admitting there",
+    async () => {
+      const incumbent = await startIncumbent("killed-successor", { fallbackMs: 30_000 });
+      const successor = silentSuccessorScript();
+      try {
+        const start = startDaemon(incumbent.publicSocketPath, {
+          daemonScript: successor.path,
+          privateSocketPath: join(tmpdir(), `jarvis-silent-private-${process.pid}-${Date.now()}.sock`),
+          readinessTimeoutMs: 1_000,
+        });
+        await expect(start).rejects.toBeInstanceOf(DaemonReadinessTimeoutError);
+        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+        expect(incumbent.exitCodes).toEqual([]);
+        await startWork(incumbent.publicSocketPath, "admitted-after-killed-successor");
+      } finally {
+        successor.cleanup();
+        await incumbent.close();
+      }
+    },
+    20_000,
+  );
+
+  socketTest(
+    "fallback rolls back, not commits, when a dead successor left only a stale public socket file",
+    async () => {
+      const incumbent = await startIncumbent("stale-fallback", { fallbackMs: 300 });
+      try {
+        await beginChangeover(incumbent);
+        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 3_000)).toBe(true);
+        // A successor bound the public path and died without unlinking it: the file stays, nothing answers.
+        const dead = await startIpcServer(incumbent.publicSocketPath, {});
+        const keep = `${incumbent.publicSocketPath}.keep`;
+        linkSync(incumbent.publicSocketPath, keep);
+        await dead.close();
+        renameSync(keep, incumbent.publicSocketPath);
+        expect(existsSync(incumbent.publicSocketPath)).toBe(true);
+        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 5_000)).toBe(true);
+        expect(incumbent.exitCodes).toEqual([]);
+        await startWork(incumbent.publicSocketPath, "admitted-after-stale-fallback");
       } finally {
         await incumbent.close();
       }

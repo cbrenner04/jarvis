@@ -105,6 +105,7 @@ export type RunLifecycleHandlers = {
   start: RpcHandler;
   list: RpcHandler;
   listOwned: RpcHandler;
+  liveRunIds: RpcHandler;
   pause: RpcHandler;
   resume: RpcHandler;
   kill: RpcHandler;
@@ -821,6 +822,19 @@ export function createRunLifecycleHandlers(
     return { kind: "response", result: { runs: runList } };
   };
 
+  /**
+   * Live run ids only (`live_run_ids`): this daemon's `activeRuns` plus the runs it forwards from a
+   * draining predecessor (`externalLiveRunIds`) — the same live set `list` folds in, with no store
+   * read. Drain observers poll this instead of `list`, whose full projection blocks the event loop
+   * for about a second on a long run history and starved a handing-off incumbent's readiness loop.
+   */
+  const liveRunIdsHandler: RpcHandler = () => {
+    const runIds = new Set<string>();
+    for (const activeRun of activeRuns.values()) runIds.add(activeRun.runId);
+    for (const runId of ctx.externalLiveRunIds?.() ?? []) runIds.add(runId);
+    return { kind: "response", result: { runIds: [...runIds] } };
+  };
+
   /** Shared applied/refused projection for a single-id `dismissRun`/`undismissRun` outcome. */
   const respondRunDismissal = (
     dismissal: ReturnType<StateStore["dismissRun"]>,
@@ -1222,6 +1236,7 @@ export function createRunLifecycleHandlers(
     start: startHandler,
     list: listHandler,
     listOwned: listOwnedHandler,
+    liveRunIds: liveRunIdsHandler,
     pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,

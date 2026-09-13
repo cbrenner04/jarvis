@@ -74,7 +74,7 @@ Same shape for write, review-debate, and plan steps — only `workflow`, `step_i
 
 ### `work_boundary_recorded`
 
-**Implemented** at the write-loop / workflow-runner completion boundary (outside `commitCompletionBoundary` and orchestration SQLite). Distinct from observability `boundary_committed` — different consumer, different file, different name. Required: `run_id`, `attempt_id`, `outcome_kind`, `run_status`, `commit_sha`, `files_changed` (integer count of paths differing between the completion commit's base tree and completion tree; name-only diff with rename detection off — no path list in schema version 1).
+**Implemented** at the write-loop / workflow-runner completion boundary (outside `commitCompletionBoundary` and orchestration SQLite). Distinct from observability `boundary_committed` — different consumer, different file, different name. Required: `run_id`, `attempt_id`, `outcome_kind`, `run_status`, `commit_sha`, `files_changed` (integer count of paths differing between the completion commit's base tree and completion tree; name-only diff with rename detection off — no path list in schema version 1). `run_status` is the row's status when the commit is recorded: a workflow completion row reads `in-progress` there, because the publication tail settles it afterwards.
 
 Emission is gated on an attached telemetry block; the sink path is the injected `sinkPath` when supplied, otherwise `~/.jarvis/telemetry.jsonl`. Append is **at-least-once** (best-effort): a crash before publish may drop a row; a crash after emit may duplicate one. An append failure is surfaced separately on the returned result and does not alter boundary control flow or orchestration state.
 

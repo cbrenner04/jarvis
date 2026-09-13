@@ -242,7 +242,11 @@ test("pipeline-attributed paused run emits run-paused while its stage stays runn
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "run-paused", runId })]);
 });
 
-function expectResumableStopNotifiesTwice(status: "paused" | "budget-soft-stopped", kind: string): void {
+function expectResumableStopNotifiesTwice(
+  status: "paused" | "budget-soft-stopped" | "blocked" | "failed",
+  kind: string,
+  prefix: string = status,
+): void {
   setSystemTime(new Date(1_000_000));
   const runId = store.createRun({
     project: "demo",
@@ -250,11 +254,14 @@ function expectResumableStopNotifiesTwice(status: "paused" | "budget-soft-stoppe
     worktreePath: "/tmp/w",
     branch: status,
     specPath: "spec.md",
+    ...(status === "failed"
+      ? { workflowSnapshot: { invocationId: "inv-ad-hoc", steps: [{ stepId: "plan", role: "plan" as const }] } }
+      : {}),
   });
   store.setRunStatus(runId, status);
   const [first] = deriveOperatorIncidents(store);
   if (first === undefined) throw new Error("expected first stop incident");
-  expect(first).toMatchObject({ kind, runId, transition: `${status}:1000000` });
+  expect(first).toMatchObject({ kind, runId, transition: `${prefix}:1000000` });
   store.tryRecordNotificationDelivery({ incidentId: first.incidentId, transition: first.transition, deliveredAt: 1 });
   expect(deriveOperatorIncidents(store)).toEqual([]);
 
@@ -266,7 +273,7 @@ function expectResumableStopNotifiesTwice(status: "paused" | "budget-soft-stoppe
 
   expect(store.loadRun(runId)?.attemptCount).toBe(0);
   expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ kind, runId, transition: `${status}:1001000` }),
+    expect.objectContaining({ kind, runId, transition: `${prefix}:1001000` }),
   ]);
 }
 
@@ -276,6 +283,14 @@ test("pause, resume, pause without a new attempt notifies twice", () => {
 
 test("soft-stop, resume, soft-stop notifies twice", () => {
   expectResumableStopNotifiesTwice("budget-soft-stopped", "run-budget-soft-stopped");
+});
+
+test("block, resume, block notifies twice", () => {
+  expectResumableStopNotifiesTwice("blocked", "run-blocked");
+});
+
+test("ad-hoc workflow fail, resume, fail notifies twice", () => {
+  expectResumableStopNotifiesTwice("failed", "run-ad-hoc-terminal", "terminal:failed");
 });
 
 test("queued and in-progress runs emit nothing", () => {

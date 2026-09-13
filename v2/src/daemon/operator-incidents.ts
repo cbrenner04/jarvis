@@ -122,9 +122,13 @@ function previewPipelineIncidentKeys(
   return keys;
 }
 
-/** Resumable stops reuse their row; the status-write timestamp separates each stop from the last. */
+/** Resumed runs reuse their row; the status-write timestamp separates each settlement from the last. */
+function statusChangeTransition(run: Run, prefix: string): string {
+  return `${prefix}:${run.statusChangedAt ?? run.createdAt}`;
+}
+
 function resumableStopTransition(run: Run): string {
-  return `${run.status}:${run.statusChangedAt ?? run.createdAt}`;
+  return statusChangeTransition(run, run.status);
 }
 
 function previewRunIncidentKeys(
@@ -141,13 +145,13 @@ function previewRunIncidentKeys(
     return [{ incidentId: runIncidentId(run.id), transition: resumableStopTransition(run) }];
   }
   if (run.status === "blocked") {
-    return [{ incidentId: runIncidentId(run.id), transition: "blocked" }];
+    return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, "blocked") }];
   }
   if (run.status === "paused") {
     return [{ incidentId: runIncidentId(run.id), transition: resumableStopTransition(run) }];
   }
   if (run.workflowSnapshot !== undefined && !pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
-    return [{ incidentId: runIncidentId(run.id), transition: `terminal:${run.status}` }];
+    return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, `terminal:${run.status}`) }];
   }
   return [];
 }
@@ -369,7 +373,7 @@ function collectRunIncidents(
       continue;
     }
     if (run.status === "blocked") {
-      pushRunIncident(incidents, run, "run-blocked", "blocked");
+      pushRunIncident(incidents, run, "run-blocked", statusChangeTransition(run, "blocked"));
       continue;
     }
     if (run.status === "paused") {
@@ -381,7 +385,7 @@ function collectRunIncidents(
       !pipelineAttributedRunIds.has(run.id) &&
       isTerminalRunStatus(run.status)
     ) {
-      pushRunIncident(incidents, run, "run-ad-hoc-terminal", `terminal:${run.status}`);
+      pushRunIncident(incidents, run, "run-ad-hoc-terminal", statusChangeTransition(run, `terminal:${run.status}`));
     }
   }
   return incidents;

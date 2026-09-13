@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isBackingOff,
   type ScheduleDigestSampling,
+  selfHandoffBackoffMs,
   shouldSampleNow,
   shouldTriggerHandoff,
   startStableDigestTrigger,
@@ -45,6 +47,23 @@ describe("stable digest predicates", () => {
     expect(shouldTriggerHandoff("first", "loaded", "second")).toBe(false);
     expect(shouldTriggerHandoff("loaded", "loaded", "loaded")).toBe(false);
     expect(shouldTriggerHandoff("unknown", "loaded", "unknown")).toBe(false);
+  });
+
+  test("backoff is 1m doubling per consecutive failure, capped at 30m", () => {
+    expect(selfHandoffBackoffMs(0)).toBe(0);
+    expect(selfHandoffBackoffMs(1)).toBe(60_000);
+    expect(selfHandoffBackoffMs(2)).toBe(120_000);
+    expect(selfHandoffBackoffMs(5)).toBe(960_000);
+    expect(selfHandoffBackoffMs(6)).toBe(1_800_000);
+    expect(selfHandoffBackoffMs(20)).toBe(1_800_000);
+  });
+
+  test("backs off only the failed digest and only until retryAt", () => {
+    const failure = { digest: "changed", failures: 1, retryAt: 100 };
+    expect(isBackingOff(failure, "changed", 99)).toBe(true);
+    expect(isBackingOff(failure, "changed", 100)).toBe(false);
+    expect(isBackingOff(failure, "other", 99)).toBe(false);
+    expect(isBackingOff(undefined, "changed", 0)).toBe(false);
   });
 
   test("samples only while no handoff is in flight", () => {
@@ -140,7 +159,9 @@ describe("startStableDigestTrigger", () => {
   test("a rollback requires two fresh matching samples before retry", async () => {
     const loop = manualSamplingLoop();
     let calls = 0;
+    let clock = 0;
     startStableDigestTrigger("loaded", {
+      now: () => clock,
       sample: async () => "changed",
       startHandoff: async () => {
         calls += 1;
@@ -152,6 +173,7 @@ describe("startStableDigestTrigger", () => {
     await loop.tick();
     await loop.tick();
     expect(calls).toBe(1);
+    clock = selfHandoffBackoffMs(1);
     await loop.tick();
     expect(calls).toBe(1);
     await loop.tick();
@@ -161,7 +183,9 @@ describe("startStableDigestTrigger", () => {
   test("a rejected handoff resets the candidate and leaves the sampling loop usable", async () => {
     const loop = manualSamplingLoop();
     let calls = 0;
+    let clock = 0;
     startStableDigestTrigger("loaded", {
+      now: () => clock,
       sample: async () => "changed",
       startHandoff: async () => {
         calls += 1;
@@ -174,6 +198,7 @@ describe("startStableDigestTrigger", () => {
     await loop.tick();
     await loop.tick();
     expect(calls).toBe(1);
+    clock = selfHandoffBackoffMs(1);
     await loop.tick();
     expect(calls).toBe(1);
     await loop.tick();
@@ -199,5 +224,60 @@ describe("startStableDigestTrigger", () => {
     await loop.tick();
     await loop.tick();
     expect(calls).toBe(0);
+  });
+
+  test("a failed digest waits out exponential backoff even with fresh matching samples, then retries", async () => {
+    const loop = manualSamplingLoop();
+    let calls = 0;
+    let clock = 0;
+    startStableDigestTrigger("loaded", {
+      now: () => clock,
+      sample: async () => "changed",
+      startHandoff: async () => {
+        calls += 1;
+        return "rolled_back";
+      },
+      scheduleSampling: loop.scheduleSampling,
+    });
+
+    await loop.tick();
+    await loop.tick();
+    expect(calls).toBe(1);
+
+    // Two fresh matching samples inside the 1m window do not retry.
+    clock = 59_999;
+    await loop.tick();
+    await loop.tick();
+    expect(calls).toBe(1);
+
+    clock = 60_000;
+    await loop.tick();
+    expect(calls).toBe(2);
+
+    // Second failure doubles the window from the failure time.
+    clock = 60_000 + 119_999;
+    await loop.tick();
+    await loop.tick();
+    expect(calls).toBe(2);
+    clock = 60_000 + 120_000;
+    await loop.tick();
+    expect(calls).toBe(3);
+  });
+
+  test("a different divergent digest is not held by another digest's backoff", async () => {
+    const loop = manualSamplingLoop();
+    const observed: string[] = [];
+    startStableDigestTrigger("loaded", {
+      now: () => 0,
+      sample: sequenceSampler(["first", "first", "second", "second"]),
+      startHandoff: async (_loaded, digest) => {
+        observed.push(digest);
+        return "rolled_back";
+      },
+      scheduleSampling: loop.scheduleSampling,
+    });
+
+    for (let i = 0; i < 4; i++) await loop.tick();
+    expect(observed).toEqual(["first", "second"]);
   });
 });

@@ -147,6 +147,7 @@ type Harness = {
 async function startIncumbent(
   name: string,
   buildDeps: (paths: { publicSocketPath: string; privateSocketPath: string }) => Record<string, unknown> = () => ({}),
+  optIn = true,
 ): Promise<Harness> {
   const root = mkdtempSync(join(tmpdir(), `jarvis-self-handoff-${name}-`));
   const publicSocketPath = join(root, "daemon.sock");
@@ -175,6 +176,7 @@ async function startIncumbent(
     processExit: (code: number) => {
       throw new Error(`unexpected daemon exit ${code}`);
     },
+    ...(optIn ? { enableSelfHandoff: true } : {}),
     selfHandoffSamplingIntervalMs: 20,
     ...extraDeps,
   });
@@ -204,6 +206,37 @@ async function startIncumbent(
 }
 
 describe("daemon self-handoff (real sockets)", () => {
+  socketTest(
+    "a runtime started without the self-handoff opt-in never samples or spawns a successor",
+    async () => {
+      let samples = 0;
+      let successorCalls = 0;
+      const harness = await startIncumbent(
+        "no-opt-in",
+        () => ({
+          sampleExecutableDigest: async () => {
+            samples += 1;
+            return "changed-no-opt-in";
+          },
+          startSelfHandoffSuccessor: async () => {
+            successorCalls += 1;
+            return "committed" as const;
+          },
+        }),
+        false,
+      );
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(samples).toBe(0);
+        expect(successorCalls).toBe(0);
+        expect(await isSuperseded(harness.privateSocketPath)).toBe(false);
+      } finally {
+        await harness.close();
+      }
+    },
+    15_000,
+  );
+
   socketTest(
     "a stable digest divergence starts a successor with no client request, and the already-admitted run stays live under the outgoing generation",
     async () => {

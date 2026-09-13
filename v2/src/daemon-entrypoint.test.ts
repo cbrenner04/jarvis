@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { daemonEntrypointArgs, withoutDaemonAddressEnv } from "./daemon/daemon-lifecycle";
-import { parseEntrypointArgs, resolveHandoffOptions, shouldWatchOwnerPid } from "./daemon-entrypoint";
+import {
+  parseEntrypointArgs,
+  resolveHandoffOptions,
+  resolveSelfHandoffOptions,
+  shouldWatchOwnerPid,
+} from "./daemon-entrypoint";
 
 const entrypoint = new URL("./daemon-entrypoint.ts", import.meta.url).pathname;
 
@@ -42,6 +47,22 @@ describe("entrypoint addressing", () => {
 
   test("resolveHandoffOptions omits unset handoff addresses", () => {
     expect(resolveHandoffOptions(parseEntrypointArgs(daemonEntrypointArgs({ socketPath: "p.sock" })))).toEqual({});
+  });
+
+  test("the entrypoint always opts into self-handoff; test hooks are omitted unless passed", () => {
+    expect(resolveSelfHandoffOptions(parseEntrypointArgs(["--socket", "p.sock"]))).toEqual({ enableSelfHandoff: true });
+    const withHooks = resolveSelfHandoffOptions(
+      parseEntrypointArgs([
+        "--socket",
+        "p.sock",
+        "--test-self-handoff-digest-file",
+        "digest",
+        "--test-self-handoff-interval-ms",
+        "50",
+      ]),
+    );
+    expect(withHooks.selfHandoffSamplingIntervalMs).toBe(50);
+    expect(typeof withHooks.sampleExecutableDigest).toBe("function");
   });
 
   test("the daemon spawn env carries no daemon address to inherit", () => {

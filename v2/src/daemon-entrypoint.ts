@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { startDaemonRuntime } from "./daemon/daemon";
 
 type EntrypointArgs = {
@@ -5,6 +6,8 @@ type EntrypointArgs = {
   privateSocketPath?: string;
   predecessorSocketPath?: string;
   testOwnerPid?: number;
+  testSelfHandoffDigestFile?: string;
+  testSelfHandoffIntervalMs?: number;
 };
 
 const FLAG_KEYS: Record<string, keyof EntrypointArgs> = {
@@ -12,7 +15,11 @@ const FLAG_KEYS: Record<string, keyof EntrypointArgs> = {
   "--private-socket": "privateSocketPath",
   "--predecessor-socket": "predecessorSocketPath",
   "--test-owner-pid": "testOwnerPid",
+  "--test-self-handoff-digest-file": "testSelfHandoffDigestFile",
+  "--test-self-handoff-interval-ms": "testSelfHandoffIntervalMs",
 };
+
+const NUMERIC_KEYS: ReadonlySet<keyof EntrypointArgs> = new Set(["testOwnerPid", "testSelfHandoffIntervalMs"]);
 
 // Pure: reads the daemon's addressing from argv. Addresses are never read from env, because env is
 // inherited by every child the daemon spawns (agents, gates, tests) and would let them reach it.
@@ -25,8 +32,8 @@ export function parseEntrypointArgs(argv: readonly string[]): EntrypointArgs {
     const key = FLAG_KEYS[argv[i] ?? ""];
     const value = argv[i + 1];
     if (key === undefined || value === undefined || value === "") continue;
-    if (key === "testOwnerPid") parsed.testOwnerPid = Number(value);
-    else parsed[key] = value;
+    if (NUMERIC_KEYS.has(key)) (parsed as Record<string, unknown>)[key] = Number(value);
+    else (parsed as Record<string, unknown>)[key] = value;
     i++;
   }
   return parsed;
@@ -40,6 +47,27 @@ export function resolveHandoffOptions(args: EntrypointArgs): {
   return {
     ...(args.privateSocketPath === undefined ? {} : { privateSocketPath: args.privateSocketPath }),
     ...(args.predecessorSocketPath === undefined ? {} : { predecessorSocketPath: args.predecessorSocketPath }),
+  };
+}
+
+// Opts the production daemon into autonomous self-handoff. Test-only hooks: `--test-self-handoff-digest-file`
+// samples the file's trimmed contents instead of the executable tree; `--test-self-handoff-interval-ms`
+// shortens the sampling interval.
+export function resolveSelfHandoffOptions(args: EntrypointArgs): {
+  enableSelfHandoff: true;
+  sampleExecutableDigest?: () => Promise<string>;
+  selfHandoffSamplingIntervalMs?: number;
+} {
+  const digestFile = args.testSelfHandoffDigestFile;
+  const intervalMs = args.testSelfHandoffIntervalMs;
+  return {
+    enableSelfHandoff: true,
+    ...(digestFile === undefined
+      ? {}
+      : { sampleExecutableDigest: async () => (await readFile(digestFile, "utf8")).trim() }),
+    ...(intervalMs === undefined || !Number.isFinite(intervalMs) || intervalMs <= 0
+      ? {}
+      : { selfHandoffSamplingIntervalMs: intervalMs }),
   };
 }
 
@@ -73,7 +101,10 @@ if (import.meta.main) {
     }, 100).unref();
   }
 
-  startDaemonRuntime(args.socketPath, undefined, undefined, resolveHandoffOptions(args)).catch((err) => {
+  startDaemonRuntime(args.socketPath, undefined, undefined, {
+    ...resolveHandoffOptions(args),
+    ...resolveSelfHandoffOptions(args),
+  }).catch((err) => {
     console.error("Fatal daemon error:", err);
     process.exit(1);
   });

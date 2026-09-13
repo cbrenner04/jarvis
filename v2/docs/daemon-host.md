@@ -94,7 +94,9 @@ When `listen` still fails after bounded occupancy reclaim, the child logs `JARVI
 
 ### Autonomous self-handoff on stable source change
 
-A daemon generation also initiates its own handoff, with no client request: `startDaemonRuntime` samples its own executable tree digest (`getExecutableTreeDigest`) on a timer (`selfHandoffSamplingIntervalMs` startup dep, default 30s) and, once triggered, drives the same `startDaemon` spawn → changeover → readiness → commit/rollback path a client-invoked handoff uses — dialing its own public socket as an ordinary IPC client for the `changeover` RPC. This is not a new handoff protocol: the successor never distinguishes a self-initiated `changeover` from a client-initiated one, and the incumbent's IPC server keeps servicing its own event loop throughout rather than blocking on the self-call.
+A daemon generation also initiates its own handoff, with no client request: when opted in (`enableSelfHandoff` startup dep — off by default, set only by the production `daemon-entrypoint.ts`, so embedded/test runtimes never spawn a real successor), `startDaemonRuntime` samples its own executable tree digest (`getExecutableTreeDigest`) on a timer (`selfHandoffSamplingIntervalMs` startup dep, default 30s) and, once triggered, drives the same `startDaemon` spawn → changeover → readiness → commit/rollback path a client-invoked handoff uses — dialing its own public socket as an ordinary IPC client for the `changeover` RPC. This is not a new handoff protocol: the successor never distinguishes a self-initiated `changeover` from a client-initiated one, and the incumbent's IPC server keeps servicing its own event loop throughout rather than blocking on the self-call.
+
+**What it follows.** The digest is taken over tracked executable paths at the committed `HEAD` of the checkout the daemon runs from (normally the primary checkout). Uncommitted edits do not trigger it; any commit, branch checkout, or rebase in that checkout does — the daemon hands itself to that code. Keep the daemon's checkout on `main`.
 
 **Two-sample stability.** A digest divergent from the loaded one only becomes a trigger candidate once the *same* divergent digest is observed on two consecutive samples; a loaded or differently-divergent sample replaces the candidate instead. This absorbs a source tree caught mid-write. A sample that throws or resolves `unknown` clears the candidate and never triggers. Skipped entirely when the daemon's own loaded digest is `unknown` — no baseline to diverge from.
 
@@ -102,11 +104,13 @@ A daemon generation also initiates its own handoff, with no client request: `sta
 
 **Drain preservation.** Self-handoff cuts admission exactly like a client `changeover`: runs already admitted keep executing under the outgoing generation and reach their normal outcomes; the outgoing generation exits on its own once idle (see [Daemon retirement on supersession](#daemon-retirement-on-supersession)).
 
-**Rollback and retry.** A `startDaemon` rejection (spawn error, `DaemonHandoffFailedError`, `DaemonReadinessTimeoutError`, or any other failure short of a settled outcome) is treated identically to a resolved rollback: the in-flight flag clears, the candidate resets, and admission is restored through the same rollback path a client-initiated handoff uses. A retry needs two fresh matching samples — a single post-rollback sample never retriggers.
+**Rollback and retry.** A `startDaemon` rejection (spawn error, `DaemonHandoffFailedError`, `DaemonReadinessTimeoutError`, or any other failure short of a settled outcome) is treated identically to a resolved rollback: the in-flight flag clears, the candidate resets, and admission is restored through the same rollback path a client-initiated handoff uses. A retry needs two fresh matching samples — a single post-rollback sample never retriggers — and, for the same digest, exponential backoff since the failure (1m, doubling per consecutive failure, capped at 30m; `selfHandoffBackoffMs`/`isBackingOff`). A different divergent digest is not held by another digest's backoff.
+
+**Successor paths.** The default successor closure derives its pid, log, and digest-keyed private socket paths from the incumbent's own public socket directory, not module-level `~/.jarvis` constants.
 
 **Logged cause.** The initiating generation logs one process-log line at trigger time naming the loaded and observed digests as the self-handoff cause.
 
-Implementation: the two-sample trigger and its predicates (`shouldTriggerHandoff`, `shouldSampleNow`) live in `v2/src/daemon/stable-digest-trigger.ts`; wiring (sampler, pending-handoff and admission-cut guards, logging) lives in `startDaemonRuntime` (`v2/src/daemon/daemon.ts`).
+Implementation: the two-sample trigger and its predicates (`shouldTriggerHandoff`, `shouldSampleNow`, `selfHandoffBackoffMs`, `isBackingOff`) live in `v2/src/daemon/stable-digest-trigger.ts`; wiring (sampler, pending-handoff and admission-cut guards, logging) lives in `startDaemonRuntime` (`v2/src/daemon/daemon.ts`).
 
 ### Socket discovery
 

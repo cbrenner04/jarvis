@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import {
@@ -31,7 +31,7 @@ import {
   type RpcHandler,
   startIpcServer,
 } from "../ipc/server";
-import { DAEMON_LOG_PATH, DAEMON_PID_PATH, daemonPathsByDigest, jarvisHome } from "../paths.ts";
+import { daemonPathsByDigest, jarvisHome } from "../paths.ts";
 import {
   type LogReader,
   type LogSink,
@@ -1052,6 +1052,11 @@ type DaemonStartupDeps = {
   observePredecessorDrain?: typeof observePredecessorDrain;
   /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   handoffFallbackMs?: number;
+  /**
+   * Opts this runtime into autonomous self-handoff sampling. Off by default so embedded/test
+   * runtimes never spawn a real successor; only the production entrypoint sets it.
+   */
+  enableSelfHandoff?: boolean;
   /** Digest sampler for self-handoff triggering; defaults to sampling this process's own executable tree. */
   sampleExecutableDigest?: () => Promise<string>;
   /**
@@ -1356,14 +1361,17 @@ export async function startDaemonRuntime(
   const spawnSelfHandoffSuccessor =
     startupDeps.startSelfHandoffSuccessor ??
     (async (_loaded: string, observed: string): Promise<"committed" | "rolled_back"> => {
+      // Paths derive from this daemon's own public socket directory, not module-level jarvis-home
+      // constants, so a daemon bound under another home hands off within that home.
+      const home = dirname(socketPath);
       await startDaemon(socketPath, {
-        pidPath: DAEMON_PID_PATH,
-        logPath: DAEMON_LOG_PATH,
-        privateSocketPath: daemonPathsByDigest(observed).socketPath,
+        pidPath: join(home, "daemon.pid"),
+        logPath: join(home, "daemon.log"),
+        privateSocketPath: daemonPathsByDigest(observed, home).socketPath,
       });
       return "committed";
     });
-  if (loadedExecutableDigest !== "unknown") {
+  if (startupDeps.enableSelfHandoff === true && loadedExecutableDigest !== "unknown") {
     selfHandoffTrigger = startStableDigestTrigger(loadedExecutableDigest, {
       sample: sampleExecutableDigest,
       startHandoff: async (loaded, observed) => {

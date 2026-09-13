@@ -75,6 +75,18 @@ test("a direct predecessor's differing live run appears exactly once with the ow
   expect(matching[0]?.project).toBe("owner-project");
 });
 
+test("a cached owner row reporting isLive: false still lists as isLive: true through the stable handler", async () => {
+  const runId = seedInProgressRun("local-project", "local-branch");
+  const owner = ownerRowFixture(runId, { isLive: false });
+  const handlers = handlersWithOwnerRow((id) => (id === runId ? owner : undefined));
+
+  const runs = await listRunsDirect(handlers);
+  const matching = runs?.filter((row) => row.runId === runId) ?? [];
+
+  expect(matching).toHaveLength(1);
+  expect(matching[0]?.isLive).toBe(true);
+});
+
 test("a filtered list request selects or excludes a run using its local durable fields, not the differing owner row", async () => {
   const runId = seedInProgressRun("local-project", "local-branch");
   const owner = ownerRowFixture(runId, { project: "owner-project" });

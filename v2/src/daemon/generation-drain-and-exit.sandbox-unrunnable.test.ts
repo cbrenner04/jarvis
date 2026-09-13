@@ -447,7 +447,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
   );
 
   socketTest(
-    "the successor's list keeps resolving normally once its predecessor exits and its ownership directory goes empty",
+    "against a real predecessor, the successor's stable list returns the owner's live run exactly once through the ownership directory alone, and loses it once the predecessor exits",
     async () => {
       const predSocketPath = join(tmpdir(), `jarvis-owner-drain-pred-${process.pid}-${Date.now()}.sock`);
       const predPrivateSocketPath = join(tmpdir(), `jarvis-owner-drain-pred-private-${process.pid}-${Date.now()}.sock`);
@@ -460,34 +460,58 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       // The run store is shared across daemon generations under one JARVIS_HOME
       // (`v2/docs/daemon-host.md`); one store instance stands in for that here.
       const store = openStateStore(dbPath);
-      const runId = seedPredecessorRun(store);
+      const fakeExecutor = createFakeWriteLoopExecutor();
+
+      // The advisory `unionLiveRunIds` path (`observePredecessorDrain`) is neutralized on the
+      // successor: it always reports an empty live set. Any `isLive: true` this test observes
+      // can therefore only have come from the ownership directory's real `list_owned` poll of
+      // the predecessor below, not from the advisory union — telling the two paths apart, since
+      // `isLive` alone reads the same through either one.
+      const neverLiveAdvisory = () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined });
 
       const predecessor = await startDaemonRuntime(predSocketPath, store, undefined, {
         privateSocketPath: predPrivateSocketPath,
+        writeLoopExecutor: fakeExecutor.executor,
+        hasMemoryHeadroom: () => true,
       });
       const successor = await startDaemonRuntime(succSocketPath, store, undefined, {
         predecessorSocketPath: predPrivateSocketPath,
+        observePredecessorDrain: neverLiveAdvisory,
       });
 
       try {
-        // The ownership directory is genuinely populated: the run appears live through the
-        // successor's own stable `list` while the predecessor is reachable.
+        const predClient = await connectIpcClient(predPrivateSocketPath);
+        const runId = await startRun(predClient, mockWriteLoopInput());
+        predClient.close();
+        if (typeof runId !== "string") throw new Error("expected the run to admit on the predecessor");
+
+        // Genuinely live in the predecessor's own `activeRuns` — real `list_owned` data, not a
+        // stubbed directory.
         expect(await waitFor(() => isRunLiveAt(succSocketPath, runId), 3_000)).toBe(true);
+
+        const listClient = await connectIpcClient(succSocketPath);
+        const rows = await listRuns(listClient);
+        listClient.close();
+        const matching = rows?.filter((row) => row.runId === runId) ?? [];
+        expect(matching).toHaveLength(1);
+        expect(matching[0]?.isLive).toBe(true);
 
         await predecessor.close();
 
         // Once the predecessor is gone, the ownership directory's poll to it fails and clears —
-        // the run stops reporting live through the successor.
+        // the owner-only data (and, with advisory neutralized, the only source of `isLive` here)
+        // is gone with it.
         expect(await waitFor(async () => !(await isRunLiveAt(succSocketPath, runId)), 3_000)).toBe(true);
 
         // `list` — and an unrelated handler — keep resolving normally; neither depends on the
         // drained predecessor staying reachable.
-        const listClient = await connectIpcClient(succSocketPath);
-        const rows = await listRuns(listClient);
-        listClient.close();
-        expect(rows?.some((row) => row.runId === runId)).toBe(true);
+        const afterListClient = await connectIpcClient(succSocketPath);
+        const afterRows = await listRuns(afterListClient);
+        afterListClient.close();
+        expect(afterRows?.some((row) => row.runId === runId)).toBe(true);
         expect(await health(succSocketPath)).toEqual({ ok: true });
       } finally {
+        fakeExecutor.abortAll();
         await successor.close();
         store.close();
         for (const path of [predSocketPath, predPrivateSocketPath, succSocketPath, dbPath]) {

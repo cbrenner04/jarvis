@@ -795,10 +795,18 @@ export function createRunLifecycleHandlers(
 
     // Owner-row substitution runs after selection, on the already-chosen candidates only: it
     // never changes which runs were selected, only which fields a selected run reports. With no
-    // ownership directory populated (`ctx.ownerRow` unset), this is a no-op — same cost and
-    // output as before (see `daemon-drain-observer.ts`'s `observeRunOwnership`).
+    // predecessor configured (`ctx.ownerRow` unset), this is skipped entirely — same cost and
+    // output as before (see `daemon-drain-observer.ts`'s `observeRunOwnership`). `isLive` is
+    // forced rather than trusted from the owner row: the owner's own `list_owned` always reports
+    // `true`, but that must hold here even if a future owner projection ever didn't.
     const ownerRowFor = ctx.ownerRow;
-    const runs = ownerRowFor === undefined ? runList : runList.map((row) => ownerRowFor(row.runId) ?? row);
+    const runs =
+      ownerRowFor === undefined
+        ? runList
+        : runList.map((row) => {
+            const owned = ownerRowFor(row.runId);
+            return owned === undefined ? row : { ...owned, isLive: true };
+          });
 
     return { kind: "response", result: { runs } };
   };

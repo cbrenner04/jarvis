@@ -1262,7 +1262,11 @@ export async function startDaemonRuntime(
     daemonSocketPath: socketPath,
     reconciledRunIds,
     externalLiveRunIds: () => unionLiveRunIds(drainObservers),
-    ownerRow: ownershipDirectory.ownerRow,
+    // Unset (never even called) with no direct predecessor: `list` then skips substitution
+    // entirely, matching the documented no-predecessor fast path exactly (see
+    // `daemon-run-lifecycle-handlers.ts`'s `listHandler`). A configured-but-currently-empty
+    // directory still wires `ownerRow` through, since it can populate later.
+    ...(startupDeps.predecessorSocketPath === undefined ? {} : { ownerRow: ownershipDirectory.ownerRow }),
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined
       ? {}

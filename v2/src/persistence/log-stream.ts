@@ -157,6 +157,16 @@ type BlockerRepromptEvent = {
   responseText: string;
 };
 
+/** Emitted before one eligible plan-draft contract repair is admitted. */
+export type DraftContractRepromptEvent = {
+  kind: "draft_contract_reprompt";
+  attemptId: string;
+  contractId: string;
+  detail: string;
+};
+
+export type DraftContractRepromptContext = Omit<DraftContractRepromptEvent, "kind" | "attemptId">;
+
 /** Emitted when intent-split landing-shape validation fails and the write loop schedules a reprompt. */
 export type LandingContractRepromptEvent = {
   kind: "landing_contract_reprompt";
@@ -261,6 +271,7 @@ type LogEventWithoutLoopFinished =
   | InvalidTokenDetailEvent
   | TokenRepromptEvent
   | BlockerRepromptEvent
+  | DraftContractRepromptEvent
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
   | SurvivingMutationRepromptEvent

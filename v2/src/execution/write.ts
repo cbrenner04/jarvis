@@ -25,7 +25,11 @@ import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { hasGenuineBlocker, parseSpec, RESERVED_HARNESS_BLOCKER_MARKER } from "../../../shared/spec-parser.ts";
-import { dualConstraintRepromptDetail, type SurvivingMutationRepromptContext } from "../persistence/log-stream.ts";
+import {
+  type DraftContractRepromptContext,
+  dualConstraintRepromptDetail,
+  type SurvivingMutationRepromptContext,
+} from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -273,6 +277,7 @@ export type WriteExecuteInput = {
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
+  draftContractReprompt?: DraftContractRepromptContext;
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
   /** Admitted external plan implement: grant adapter read access to `specReadRoot` only. */
   externalPlanSpec?: true;
@@ -418,14 +423,19 @@ function appendHarnessDiagnosticsSection(prompt: string, diagnostics: readonly s
   return `${prompt}\n\n${buildHarnessNormalizerDiagnosticsSection(diagnostics)}`;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: staged-tree preservation, blocker-clearing, and the reprompt/lint/draft prompt-selection chain are each one guard; the added draft-contract-reprompt branch pushed this over the limit
 async function executePlanDraftWrite(
   args: WriteExecuteInput,
   worktreePath: string,
   stagingPath: string,
 ): Promise<StepRunResult> {
   const specDir = stagingPath;
+  const draftContractReprompt = args.draftContractReprompt;
   const reprompt = args.stagedMarkdownLintReprompt;
-  const preserveStage = reprompt !== undefined || (existsSync(specDir) && hasPreservablePlanDraftStageContent(specDir));
+  const preserveStage =
+    draftContractReprompt !== undefined ||
+    reprompt !== undefined ||
+    (existsSync(specDir) && hasPreservablePlanDraftStageContent(specDir));
   if (!preserveStage) {
     rmSync(specDir, { recursive: true, force: true });
   }
@@ -443,29 +453,41 @@ async function executePlanDraftWrite(
   let prompt: string;
   try {
     prompt =
-      reprompt !== undefined
+      draftContractReprompt !== undefined
         ? appendHarnessDiagnosticsSection(
             renderPromptForStep({
-              stepPromptId: "write.staged-markdown-lint-reprompt",
+              stepPromptId: "write.draft-contract-reprompt",
               placeholders: {
-                RULE_ID: reprompt.ruleId,
-                OFFENDING_FILE: reprompt.offendingFile,
+                CONTRACT_ID: draftContractReprompt.contractId,
+                CONTRACT_DETAIL: draftContractReprompt.detail,
                 STAGING_DIR: args.expectedArtifactPath,
-                VIOLATION: reprompt.message,
               },
             }),
             harnessDiagnostics,
           )
-        : buildPlanDraftPrompt({
-            name,
-            intent: args.intentSeed ?? "",
-            specGuidance: readSpecGuidance(),
-            workDirLabel: args.promptPlaceholders?.WORKDIR ?? worktreePath,
-            targetDir,
-            specDir,
-            stepRules: args.stepRules,
-            harnessNormalizerDiagnostics: harnessDiagnostics,
-          });
+        : reprompt !== undefined
+          ? appendHarnessDiagnosticsSection(
+              renderPromptForStep({
+                stepPromptId: "write.staged-markdown-lint-reprompt",
+                placeholders: {
+                  RULE_ID: reprompt.ruleId,
+                  OFFENDING_FILE: reprompt.offendingFile,
+                  STAGING_DIR: args.expectedArtifactPath,
+                  VIOLATION: reprompt.message,
+                },
+              }),
+              harnessDiagnostics,
+            )
+          : buildPlanDraftPrompt({
+              name,
+              intent: args.intentSeed ?? "",
+              specGuidance: readSpecGuidance(),
+              workDirLabel: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+              targetDir,
+              specDir,
+              stepRules: args.stepRules,
+              harnessNormalizerDiagnostics: harnessDiagnostics,
+            });
   } catch (err) {
     if (err instanceof PromptRenderingError) {
       return {

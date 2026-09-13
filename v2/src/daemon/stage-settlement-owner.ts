@@ -30,17 +30,16 @@ function publicationBaseRetargetFromLogRecords(
   return undefined;
 }
 
-/** Log-derived operator failure detail for a failed entry run; undefined leaves the durable-row projection in charge. */
+/** Log-derived operator failure detail for a failed run; undefined leaves the durable-row projection in charge. */
 function failureDetailFromLogs(
   store: StateStore,
-  entryRunId: string,
-  loadLogRecords: ((entryRunId: string) => PersistedRecord[]) | undefined,
+  runId: string,
+  loadLogRecords: (runId: string) => PersistedRecord[],
 ): unknown {
-  if (loadLogRecords === undefined) return undefined;
-  const entryRun = store.loadRun(entryRunId);
-  if (entryRun === null) return undefined;
-  const logRecords = loadLogRecords(entryRunId);
-  return composeRunOperatorError(entryRun, findTerminalLogRecord(logRecords), logRecords);
+  const run = store.loadRun(runId);
+  if (run === null) return undefined;
+  const logRecords = loadLogRecords(runId);
+  return composeRunOperatorError(run, findTerminalLogRecord(logRecords), logRecords);
 }
 
 /** Settle every `running` stage linked to `entryRunId` (or only `stageTargets`) from its durable rows. */
@@ -60,11 +59,13 @@ export function settleStagesForEntryRun(
   if (entryRun !== null && !isTerminalRunStatus(entryRun.status)) return { kind: "live" };
   const logRecords = deps.loadLogRecords?.(entryRunId) ?? [];
   const publicationBaseRetarget = publicationBaseRetargetFromLogRecords(logRecords);
-  const failureDetail = failureDetailFromLogs(deps.store, entryRunId, deps.loadLogRecords);
+  const { loadLogRecords } = deps;
   return deps.store.settleLinkedStagesFromEntryRun(entryRunId, {
     ...(stageTargets !== undefined ? { stageTargets } : {}),
     ...(publicationBaseRetarget !== undefined ? { publicationBaseRetarget } : {}),
-    ...(failureDetail !== undefined ? { failureDetail } : {}),
+    ...(loadLogRecords !== undefined
+      ? { failureDetailForRun: (runId: string) => failureDetailFromLogs(deps.store, runId, loadLogRecords) }
+      : {}),
   });
 }
 

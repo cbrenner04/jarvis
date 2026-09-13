@@ -402,3 +402,36 @@ test("implement.recover refuses worktree_claimed without dispatch", async () => 
     fixture.cleanup();
   }
 });
+
+test("only the first step-0 run is the entry: shrink rows neither re-point nor leak the workflow promise", async () => {
+  // Linked-implement link rows and the hidden shrink row also report step index 0. Treating each as
+  // the entry left the real entry's promise registered forever and settled stages for the last row.
+  const branch = "workflow-entry-first-row";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("implement", branch, doneWithArtifactBindingFactory);
+  const { ctx, lifecycle } = workflowAdmission();
+  const settledFor: string[] = [];
+  const settleSpy = spyOn(stateStore, "settleLinkedStagesFromEntryRun").mockImplementation((entryRunId) => {
+    settledFor.push(entryRunId);
+    return { kind: "no-entry-run" };
+  });
+  try {
+    const response = await lifecycle.start(
+      requestFrame("s-entry", "start", { steps: [step] }),
+      new AbortController().signal,
+    );
+    expect(response.kind).toBe("response");
+    const runId = (response as { result: { runId: string } }).result.runId;
+    const invocationId = stateStore.loadRun(runId)?.workflowSnapshot?.invocationId as string;
+    // The workflow's own tracked promise resolves after its terminal `finally` (deregistration + settlement).
+    await ctx.workflowPromisesByEntryRunId.get(runId);
+
+    const rows = stateStore.findRunsByInvocationId(invocationId);
+    expect(rows.map((row) => row.stepId)).toEqual(["implement", "implement~shrink"]);
+    expect(runId).toBe(rows[0]?.id as string);
+    expect(rows.filter((row) => ctx.workflowPromisesByEntryRunId.has(row.id))).toEqual([]);
+    expect(settledFor).toEqual([runId]);
+  } finally {
+    settleSpy.mockRestore();
+  }
+});

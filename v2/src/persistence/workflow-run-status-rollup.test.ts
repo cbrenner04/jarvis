@@ -296,3 +296,57 @@ describe("rollupWorkflowRunStatus", () => {
     expect(status).toBe("failed");
   });
 });
+
+describe("rollupWorkflowRunStatus linked-implement rows", () => {
+  const snapshot = createSnapshot({
+    steps: [
+      { stepId: "implement", role: "implement", durable: true },
+      { stepId: "implement-review", role: "review", behavior: "review", durable: true },
+    ],
+  });
+  const links = [
+    createRun({ id: "link-0", stepId: "implement~link-0", status: "completed", createdAt: 1 }),
+    createRun({ id: "link-1", stepId: "implement~link-1", status: "completed", createdAt: 2 }),
+  ];
+  const rollup = (siblingRuns: Run[]) =>
+    rollupWorkflowRunStatus({ entryRun: links[0] as Run, workflowSnapshot: snapshot, siblingRuns, isLive: false });
+
+  test("a failed later step is reached past completed link rows", () => {
+    expect(rollup([...links, createRun({ id: "review", stepId: "implement-review", status: "failed" })])).toBe(
+      "failed",
+    );
+  });
+
+  test("completed links and review roll up completed", () => {
+    expect(rollup([...links, createRun({ id: "review", stepId: "implement-review", status: "completed" })])).toBe(
+      "completed",
+    );
+  });
+
+  test("no implement row rolls up killed", () => {
+    expect(rollup([createRun({ id: "review", stepId: "implement-review", status: "completed" })])).toBe("killed");
+  });
+
+  test("any failed link row fails the step over a later completed one", () => {
+    const failedFirst = [{ ...(links[0] as Run), status: "failed" as const }, links[1] as Run];
+    expect(rollup([...failedFirst, createRun({ id: "review", stepId: "implement-review", status: "completed" })])).toBe(
+      "failed",
+    );
+  });
+
+  // Implement-only snapshot: no later step can mask a partial linked implement as `killed`.
+  const implementOnly = createSnapshot({ steps: [{ stepId: "implement", role: "implement", durable: true }] });
+  const rollupImplementOnly = (siblingRuns: Run[]) =>
+    rollupWorkflowRunStatus({ entryRun: links[0] as Run, workflowSnapshot: implementOnly, siblingRuns, isLive: false });
+
+  test("a completed link row with no shrink or later-step row rolls up killed", () => {
+    // The daemon died between link-0 and link-1: a partial implement must not settle `succeeded`.
+    expect(rollupImplementOnly([links[0] as Run])).toBe("killed");
+    expect(rollupImplementOnly(links)).toBe("killed");
+  });
+
+  test("a completed shrink row is evidence linked routing finished", () => {
+    const shrink = createRun({ id: "shrink", stepId: "implement~shrink", status: "completed", createdAt: 3 });
+    expect(rollupImplementOnly([...links, shrink])).toBe("completed");
+  });
+});

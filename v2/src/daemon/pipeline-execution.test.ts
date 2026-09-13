@@ -535,9 +535,9 @@ function restartSweepRollupWedgeRuns(
   };
 }
 
-function restartSweepTerminalLogFor(entryRunId: string) {
+function restartSweepTerminalLogFor(failedRunId: string) {
   const terminalRecord: PersistedRecord = {
-    runId: entryRunId,
+    runId: failedRunId,
     seq: 1,
     ts: "2026-01-01T00:00:00.000Z",
     event: {
@@ -549,7 +549,7 @@ function restartSweepTerminalLogFor(entryRunId: string) {
   };
   return {
     terminalRecord,
-    loadLogRecords: (runId: string) => (runId === entryRunId ? [terminalRecord] : []),
+    loadLogRecords: (runId: string) => (runId === failedRunId ? [terminalRecord] : []),
   };
 }
 
@@ -1768,7 +1768,7 @@ describe("pipeline activation after restart", () => {
       },
     });
 
-    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(entryRunId);
+    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(reviewRunId);
 
     let dispatchCalled = false;
     const dispatch: PipelineWorkflowDispatch = async () => {
@@ -1800,9 +1800,9 @@ describe("pipeline activation after restart", () => {
     expect(dispatchCalled).toBe(false);
     const s1 = stages().find((s) => s.stageId === "s1");
     expect(s1?.status).toBe("failed");
-    const entryRun = store.loadRun(entryRunId);
-    if (entryRun === null) throw new Error("expected entry run");
-    expect(s1?.failureDetail).toEqual(composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord));
+    const failedRun = store.loadRun(reviewRunId);
+    if (failedRun === null) throw new Error("expected failed review run");
+    expect(s1?.failureDetail).toEqual(composeRunOperatorError(failedRun, terminalRecord as TerminalLogRecord));
     expect(terminalPublicationCalls).toBe(0);
   });
 
@@ -1820,7 +1820,7 @@ describe("pipeline activation after restart", () => {
       patch: { status: "running", workflowInvocationId: entryRunId },
     });
 
-    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(entryRunId);
+    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(reviewRunId);
 
     let dispatchCalled = false;
     const dispatch: PipelineWorkflowDispatch = async () => {
@@ -1852,9 +1852,9 @@ describe("pipeline activation after restart", () => {
     expect(dispatchCalled).toBe(false);
     const s1 = stages().find((s) => s.stageId === "s1");
     expect(s1?.status).toBe("failed");
-    const entryRun = store.loadRun(entryRunId);
-    if (entryRun === null) throw new Error("expected entry run");
-    expect(s1?.failureDetail).toEqual(composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord));
+    const failedRun = store.loadRun(reviewRunId);
+    if (failedRun === null) throw new Error("expected failed review run");
+    expect(s1?.failureDetail).toEqual(composeRunOperatorError(failedRun, terminalRecord as TerminalLogRecord));
     expect(terminalPublicationCalls).toBe(0);
     const pipeline = store.loadPipeline(PIPELINE_ID);
     if (!pipeline) throw new Error("expected pipeline");
@@ -2029,7 +2029,7 @@ describe("pipeline activation after restart", () => {
       patch: { status: "running", workflowInvocationId: entryRunId },
     });
 
-    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(entryRunId);
+    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(reviewRunId);
 
     const dispatchOrder: number[] = [];
     const dispatch: PipelineWorkflowDispatch = async (steps) => {
@@ -2062,10 +2062,10 @@ describe("pipeline activation after restart", () => {
     expect(firstOutcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
     const s1AfterSettle = stages().find((s) => s.stageId === "s1");
     expect(s1AfterSettle?.status).toBe("failed");
-    const entryRun = store.loadRun(entryRunId);
-    if (entryRun === null) throw new Error("expected entry run");
+    const failedRun = store.loadRun(reviewRunId);
+    if (failedRun === null) throw new Error("expected failed review run");
     expect(s1AfterSettle?.failureDetail).toEqual(
-      composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord),
+      composeRunOperatorError(failedRun, terminalRecord as TerminalLogRecord),
     );
     const pipelineAfterSettle = store.loadPipeline(PIPELINE_ID);
     if (!pipelineAfterSettle) throw new Error("expected pipeline");

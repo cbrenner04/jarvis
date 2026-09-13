@@ -421,3 +421,85 @@ describe("settleLinkedStagesFromEntryRunWith", () => {
     expect(writes.every((write) => write.requiredStatus === "running")).toBe(true);
   });
 });
+
+describe("settleLinkedStagesFromEntryRunWith failure cause", () => {
+  test("stage failure detail names the sibling row that failed the rollup", () => {
+    const snapshot = {
+      invocationId: "inv-1",
+      steps: [
+        { stepId: "implement", role: "implement" as const },
+        { stepId: "implement-review", role: "review" as const, behavior: "review" as const },
+      ],
+    };
+    const runs = [
+      entryRun({ id: "link-0", stepId: "implement~link-0", workflowSnapshot: snapshot }),
+      entryRun({ id: "link-1", stepId: "implement~link-1", workflowSnapshot: snapshot, createdAt: 2 }),
+      entryRun({
+        id: "review",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+        status: "failed",
+        createdAt: 3,
+      }),
+    ];
+    const row: Record<string, unknown> = {
+      stageId: "s1",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: "link-0",
+    };
+    const pipeline = { id: "p1", definition: { name: "p", stages: [] }, stages: [row] };
+    const store = {
+      loadRun: (runId: string) => runs.find((run) => run.id === runId) ?? null,
+      findRunsByInvocationId: () => runs,
+      loadPipeline: () => pipeline,
+      listPipelines: () => [pipeline],
+      updateStage: (args: { patch: Record<string, unknown> }) => {
+        Object.assign(row, args.patch);
+        return true;
+      },
+    } as unknown as LinkedStageSettlementStore;
+
+    const outcome = settleLinkedStagesFromEntryRunWith(store, "link-0", {
+      failureDetailForRun: (runId) =>
+        runId === "review" ? { reason: "completion_commit_failed" } : { reason: "harness_failure" },
+    });
+
+    expect(outcome).toMatchObject({ kind: "settled", rollupStatus: "failed" });
+    expect(row).toMatchObject({ status: "failed", failureDetail: { reason: "completion_commit_failed" } });
+  });
+
+  test("a missing-step killed rollup does not report the completed entry row's status", () => {
+    const snapshot = {
+      invocationId: "inv-2",
+      steps: [
+        { stepId: "plan", role: "plan" as const },
+        { stepId: "review", role: "review" as const, behavior: "review" as const },
+      ],
+    };
+    const run = entryRun({ id: "plan-run", stepId: "plan", workflowSnapshot: snapshot });
+    const row: Record<string, unknown> = {
+      stageId: "s1",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: "plan-run",
+    };
+    const pipeline = { id: "p2", definition: { name: "p", stages: [] }, stages: [row] };
+    const store = {
+      loadRun: (runId: string) => (runId === "plan-run" ? run : null),
+      findRunsByInvocationId: () => [run],
+      loadPipeline: () => pipeline,
+      listPipelines: () => [pipeline],
+      updateStage: (args: { patch: Record<string, unknown> }) => Object.assign(row, args.patch) && true,
+    } as unknown as LinkedStageSettlementStore;
+
+    settleLinkedStagesFromEntryRunWith(store, "plan-run", {
+      failureDetailForRun: () => ({ reason: "harness_failure" }),
+    });
+
+    expect(row).toMatchObject({
+      status: "failed",
+      failureDetail: { entryRunStatus: "killed", reason: "resumable_kill" },
+    });
+  });
+});

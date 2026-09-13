@@ -160,7 +160,18 @@ async function startIncumbent(
     openLogSink: () => fakeSink(),
     enumerateOtherDaemonSockets: () => [],
     hasMemoryHeadroom: () => true,
-    writeLoopExecutor: fakeExecutor.executor,
+    // Settling the fake executor drives the same terminal-settlement call the real write loop
+    // makes on success, so a test can observe a run reach "completed" through actual execution
+    // rather than asserting a status it wrote itself.
+    writeLoopExecutor: async (input, signal, pauseSignal) => {
+      await fakeExecutor.executor(input, signal, pauseSignal);
+      const run = store.findRunByProjectBranch({
+        project: input.worktree.projectName,
+        branch: input.worktree.branchName,
+        stepId: input.stepId ?? null,
+      });
+      if (run !== null) store.commitTerminalRunSettlement({ runId: run.id, status: "completed" });
+    },
     processExit: (code: number) => {
       throw new Error(`unexpected daemon exit ${code}`);
     },
@@ -211,7 +222,6 @@ describe("daemon self-handoff (real sockets)", () => {
 
         harness.fakeExecutor.settleAll();
         await flushBackgroundRuns(3);
-        harness.store.setRunStatus(harness.anchorRunId, "completed");
         expect(loadRunOrThrow(harness.store, harness.anchorRunId).status).toBe("completed");
       } finally {
         await harness.close();

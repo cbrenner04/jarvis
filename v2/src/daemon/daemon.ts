@@ -1242,15 +1242,12 @@ export async function startDaemonRuntime(
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
 
-  // Teardown backstop for the self-handoff sampling loop (see below): stopped here so both a
-  // client-initiated `changeover` and this generation's own `supersede` cut sampling immediately,
-  // not only once `close()` eventually runs. The per-tick `isRetiring()` check is the primary
-  // cutoff; this closes the narrower race where a tick is already past that check.
+  // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
+  // it fires on any admission cut, client-initiated or self-triggered, without permanently
+  // stopping the interval, so a rollback that reopens admission lets sampling resume and retry.
+  // `close()` is the only place that permanently stops it, at real teardown.
   let selfHandoffTrigger: { stop(): void } | undefined;
-  const setRetiring = (): void => {
-    setRetiringRaw();
-    selfHandoffTrigger?.stop();
-  };
+  const setRetiring = setRetiringRaw;
 
   // Recorded separately from `retiring`: a handoff's own `changeover` sets `retiring` too, but only
   // a real `supersede` must stop rollback from reopening admission (see `wasSuperseded` below).
@@ -1370,11 +1367,11 @@ export async function startDaemonRuntime(
     selfHandoffTrigger = startStableDigestTrigger(loadedExecutableDigest, {
       sample: sampleExecutableDigest,
       startHandoff: async (loaded, observed) => {
-        console.error(`Self-handoff triggered: loaded digest ${loaded}, observed digest ${observed}`);
         // A client-initiated handoff already cut admission and is negotiating with its own
         // successor; spawning a second successor here would race it for the same private
         // socket. Treated the same as any other `startHandoff` non-commit outcome.
         if (handoffHandlers.isPending()) return "rolled_back";
+        console.error(`Self-handoff triggered: loaded digest ${loaded}, observed digest ${observed}`);
         return spawnSelfHandoffSuccessor(loaded, observed);
       },
       scheduleSampling: (onTick) => {

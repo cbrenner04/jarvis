@@ -1,7 +1,7 @@
 import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { probeSocketLiveness, type SocketLiveness } from "../ipc/server.ts";
-import { parseListRuns } from "./daemon-wire.ts";
+import { type DaemonListRunRow, parseListRuns } from "./daemon-wire.ts";
 
 /**
  * A liveness verdict that means the predecessor's private endpoint is gone — nothing is
@@ -111,6 +111,94 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
 
   return {
     liveRunIds: () => live,
+    stop: () => {
+      stopped = true;
+      loop?.clear();
+    },
+  };
+}
+
+type RunOwnershipDirectory = {
+  /** The direct predecessor's cached row for `runId`, or `undefined` while it is not reported live. */
+  ownerRow(runId: string): DaemonListRunRow | undefined;
+  /** Stops polling. Idempotent. */
+  stop(): void;
+};
+
+async function defaultListOwnedRuns(socketPath: string, timeoutMs: number): Promise<readonly DaemonListRunRow[]> {
+  const client = await connectIpcClient(socketPath);
+  const transport = createRpcTransport(client);
+  try {
+    const listed = parseListRuns(await transport.request("list_owned", undefined, { timeoutMs }));
+    if (listed === undefined) throw new Error("malformed list_owned response");
+    return listed.runs;
+  } finally {
+    transport.close();
+  }
+}
+
+type RunOwnershipDirectoryDeps = {
+  probeLiveness?: (socketPath: string) => Promise<SocketLiveness>;
+  listOwnedRuns?: (socketPath: string, timeoutMs: number) => Promise<readonly DaemonListRunRow[]>;
+  pollIntervalMs?: number;
+  rpcTimeoutMs?: number;
+  schedulePollLoop?: SchedulePollLoop;
+};
+
+/**
+ * Polls the direct handoff predecessor's private `list_owned` endpoint (never a legacy
+ * digest-keyed peer — those stay on the advisory `unionLiveRunIds` path) for its owner-local run
+ * rows, so a caller can substitute the predecessor's authoritative row for a run it still owns.
+ * Unlike `observePredecessorDrain`'s advisory live-id set, any poll failure — a `list_owned` RPC
+ * error, or a liveness probe reading `absent`/`stale` — clears every cached row rather than
+ * retaining the last snapshot: a stale owner row must never be served once the owner has stopped
+ * confirming it. `predecessorSocketPath === undefined` (no real handoff predecessor) returns a
+ * directory that never holds any row and never polls.
+ */
+export function observeRunOwnership(
+  predecessorSocketPath: string | undefined,
+  deps: RunOwnershipDirectoryDeps = {},
+): RunOwnershipDirectory {
+  if (predecessorSocketPath === undefined) {
+    return { ownerRow: () => undefined, stop: () => undefined };
+  }
+
+  const probeLiveness = deps.probeLiveness ?? probeSocketLiveness;
+  const listOwnedRuns = deps.listOwnedRuns ?? defaultListOwnedRuns;
+  const pollIntervalMs = deps.pollIntervalMs ?? 500;
+  const rpcTimeoutMs = deps.rpcTimeoutMs ?? 1_000;
+
+  let rowsByRunId = new Map<string, DaemonListRunRow>();
+  let stopped = false;
+  let loop: PollLoopHandle | undefined;
+
+  const tick = async (): Promise<void> => {
+    if (stopped) return;
+    const liveness = await probeLiveness(predecessorSocketPath);
+    if (stopped) return;
+    if (drainObservationEndsOnLiveness(liveness)) {
+      rowsByRunId = new Map();
+      stopped = true;
+      loop?.clear();
+      return;
+    }
+    try {
+      const rows = await listOwnedRuns(predecessorSocketPath, rpcTimeoutMs);
+      if (!stopped) rowsByRunId = new Map(rows.map((row) => [row.runId, row]));
+    } catch {
+      // Stricter than `observePredecessorDrain`'s transient-failure retention: a poll failure here
+      // clears every cached row rather than keeping a snapshot the owner is no longer confirming.
+      if (!stopped) rowsByRunId = new Map();
+    }
+  };
+
+  loop = (deps.schedulePollLoop ?? scheduleRealPollLoop)(tick, pollIntervalMs);
+  // A drain observed during the very first tick clears the loop before `loop` was assigned, so
+  // honour that here rather than leaving a real timer running behind a `stopped` directory.
+  if (stopped) loop.clear();
+
+  return {
+    ownerRow: (runId) => rowsByRunId.get(runId),
     stop: () => {
       stopped = true;
       loop?.clear();

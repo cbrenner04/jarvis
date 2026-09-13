@@ -41,7 +41,12 @@ import {
 } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
-import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
+import {
+  type DrainObserver,
+  observePredecessorDrain,
+  observeRunOwnership,
+  unionLiveRunIds,
+} from "./daemon-drain-observer.ts";
 import { startDaemon } from "./daemon-lifecycle.ts";
 import {
   createNotificationListHandler,
@@ -659,7 +664,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  * Run-control handler factory: lifecycle, workflow admission, pipeline RPCs, and control seams.
  *
  * @param deps - {@link RunControlHandlerDeps}
- * @returns Handler map — lifecycle (`start`, `list`, `pause`, `resume`, `kill`, `wait`, `dismiss`,
+ * @returns Handler map — lifecycle (`start`, `list`, `list_owned`, `pause`, `resume`, `kill`, `wait`, `dismiss`,
  *   `undismiss`), workflow admission (`check_workflow_start_claim`, `implement.recover`),
  *   pipeline (`pipeline_start`, `pipeline_approve`, `pipeline_reject`, `pipeline_resume`,
  *   `pipeline_recover`, `pipeline_dismiss`, `pipeline_undismiss`, `pipeline_list`,
@@ -696,6 +701,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const {
     start: startHandler,
     list: listHandler,
+    listOwned: listOwnedHandler,
     pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
@@ -746,6 +752,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     "implement.recover": implementRecoverHandler,
     check_workflow_start_claim: checkWorkflowStartClaimHandler,
     list: listHandler,
+    list_owned: listOwnedHandler,
     pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
@@ -1050,6 +1057,8 @@ type DaemonStartupDeps = {
    */
   predecessorSocketPath?: string;
   observePredecessorDrain?: typeof observePredecessorDrain;
+  /** Direct-predecessor-only ownership routing; never fed legacy peer sockets. Defaults to `observeRunOwnership`. */
+  observeRunOwnership?: typeof observeRunOwnership;
   /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   handoffFallbackMs?: number;
   /**
@@ -1215,6 +1224,11 @@ export async function startDaemonRuntime(
   const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
   const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
   const drainObservers = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
+  // Ownership routing (for a future authoritative-owner `list` merge) is direct-predecessor only:
+  // never fed from `legacyPeerSocketPaths`, unlike `drainObservers` above.
+  const ownershipDirectory = (startupDeps.observeRunOwnership ?? observeRunOwnership)(
+    startupDeps.predecessorSocketPath,
+  );
 
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
@@ -1412,6 +1426,7 @@ export async function startDaemonRuntime(
     handoffHandlers.close();
     _closeRunControlHandlers();
     for (const observer of drainObservers) observer.stop();
+    ownershipDirectory.stop();
     await server.close();
     if (privateServer !== undefined) {
       await privateServer.close();

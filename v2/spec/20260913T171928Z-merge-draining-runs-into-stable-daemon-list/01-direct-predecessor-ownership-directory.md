@@ -22,12 +22,12 @@ The daemon's private endpoint answers an owner-local list projection scoped to i
 
 ## Acceptance criteria
 
-- [ ] `daemon-drain-observer.test.ts` proves the ownership directory holds a run's row only while the predecessor's poll reports it live, and clears that entry immediately on a poll RPC failure or on `absent`/`stale` liveness, with no retained stale snapshot; it fails against the pre-fix advisory `unionLiveRunIds`, which carries no row data and retains on transient RPC failure.
-- [ ] `daemon-private-endpoint-bind.test.ts` proves only `predecessorSocketPath` feeds the ownership directory and enumerated legacy peers never do, even though legacy peers remain wired into `observePredecessorDrain`/`supersede` unchanged; it fails against a naive implementation that sources ownership from the same combined socket list `buildDrainObservers` produces today.
-- [ ] A test proves the owner-local private projection returns every currently-live row with no limit/dismissal/retention applied, independent of the public `list` handler's selection rules.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `daemon-drain-observer.test.ts` proves the ownership directory holds a run's row only while the predecessor's poll reports it live, and clears that entry immediately on a poll RPC failure or on `absent`/`stale` liveness, with no retained stale snapshot; it fails against the pre-fix advisory `unionLiveRunIds`, which carries no row data and retains on transient RPC failure.
+- [x] `daemon-private-endpoint-bind.test.ts` proves only `predecessorSocketPath` feeds the ownership directory and enumerated legacy peers never do, even though legacy peers remain wired into `observePredecessorDrain`/`supersede` unchanged; it fails against a naive implementation that sources ownership from the same combined socket list `buildDrainObservers` produces today.
+- [x] A test proves the owner-local private projection returns every currently-live row with no limit/dismissal/retention applied, independent of the public `list` handler's selection rules.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

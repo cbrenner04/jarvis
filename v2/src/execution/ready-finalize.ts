@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";

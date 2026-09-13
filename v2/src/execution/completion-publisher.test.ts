@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { type CompletionPublisherInput, createCompletionPublisher } from "./completion-publisher.ts";
+import {
+  AmbiguousOpenPrError,
+  type CompletionPublisherInput,
+  createCompletionPublisher,
+} from "./completion-publisher.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
 
 describe("createCompletionPublisher", () => {
@@ -1113,6 +1117,34 @@ describe("createCompletionPublisher", () => {
 
     await expect(publisher(baseInput)).rejects.toThrow("git log failed");
   });
+  it("refuses when two open PRs match the same branch and base, naming both", async () => {
+    // The sibling test below uses two PRs on *different* bases, which filters to a single match and
+    // never reaches the ambiguity guard. This one supplies two open PRs on the same base, which is
+    // the only shape with no safe default to pick.
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([
+            { number: 27, baseRefName: "main", isDraft: true },
+            { number: 28, baseRefName: "main", isDraft: true },
+          ]);
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await expect(publisher(baseInput)).rejects.toBeInstanceOf(AmbiguousOpenPrError);
+    await expect(publisher(baseInput)).rejects.toThrow(/#27, #28/);
+    await expect(publisher(baseInput)).rejects.toThrow(/resolve to one before publishing/);
+  });
+
   it("confirms a selected PR by number when the branch carries more than one open PR", async () => {
     // A branch can carry two open PRs to different bases at once. `pr list --state open` filtered
     // to our base selects #27; `pr view <branch>` honors no base filter and answers the other open

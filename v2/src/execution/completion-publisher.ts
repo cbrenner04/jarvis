@@ -195,7 +195,7 @@ export class OpenPrNotDraftError extends Error {
 }
 
 /** Raised when `gh pr create` reports no diff between branch and base; a reused branch with no publishable commits. */
-export class NoPublishableCommitsError extends Error {
+class NoPublishableCommitsError extends Error {
   constructor(branch: string, baseRef: string) {
     super(`No publishable commits between ${branch} and ${baseRef}: nothing to open a PR from.`);
     this.name = "NoPublishableCommitsError";

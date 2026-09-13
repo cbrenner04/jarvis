@@ -1,5 +1,6 @@
 import { lstatSync, rmSync } from "node:fs";
 import { createServer, type Server, Socket } from "node:net";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { isRecord } from "../../../shared/is-record.ts";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
@@ -421,6 +422,58 @@ export async function removeStaleSocketPath(
   }
 }
 
+/**
+ * True when this process can connect to a throwaway listener it binds beside `socketPath`. Bun's
+ * `connect()` reports both a listener-less socket file (kernel ECONNREFUSED) and a sandbox-denied
+ * connect to a live socket (kernel EPERM) as ENOENT; only a caller whose own connect in the same
+ * directory succeeds can trust ENOENT on an existing socket file to mean nothing is listening.
+ */
+async function canConnectBeside(socketPath: string): Promise<boolean> {
+  const controlPath = join(dirname(socketPath), `.probe-${process.pid}-${Math.random().toString(36).slice(2, 8)}.sock`);
+  const control = createServer((socket) => socket.destroy());
+  try {
+    await new Promise<void>((resolve, reject) => {
+      control.once("error", reject);
+      control.listen(controlPath, () => resolve());
+    });
+  } catch {
+    rmSync(controlPath, { force: true });
+    return false;
+  }
+  try {
+    return (await probeSocketDetailed(controlPath, EXTENDED_LIVENESS_PROBE_TIMEOUT_MS)).peerConnected;
+  } finally {
+    await new Promise<void>((resolve) => control.close(() => resolve()));
+    rmSync(controlPath, { force: true });
+  }
+}
+
+/**
+ * Remove a socket file a dead daemon left behind, never one a live daemon serves.
+ *
+ * Bun reads a listener-less socket file as ENOENT (`absent`), so the proven-`stale` reclaim alone
+ * never fires for a SIGKILLed Bun daemon's leftover. Removal requires: the path is a socket file,
+ * the probe does not read `live`, an `absent` verdict is corroborated by a successful control
+ * connect beside it (a sandboxed caller's ENOENT is not), and `answers` (when given, a real RPC
+ * round-trip) fails. Returns true when the file was removed.
+ */
+export async function removeUnansweredSocketPath(
+  socketPath: string,
+  answers: (path: string) => Promise<boolean> = async () => false,
+): Promise<boolean> {
+  try {
+    if (!lstatSync(socketPath).isSocket()) return false;
+  } catch {
+    return false;
+  }
+  const liveness = await probeSocketLiveness(socketPath);
+  if (liveness === "live") return false;
+  if (liveness === "absent" && !(await canConnectBeside(socketPath))) return false;
+  if (await answers(socketPath)) return false;
+  rmSync(socketPath, { force: true });
+  return true;
+}
+
 type SocketIdentity = { dev: number; ino: number } | undefined;
 
 function readSocketIdentity(socketPath: string): SocketIdentity {
@@ -494,6 +547,12 @@ function listenForIpcServer(
             const reprobe = (await probeDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS)).liveness;
             if (reprobe === "stale") {
               rmSync(socketPath, { force: true });
+              attemptListen(false);
+              return;
+            }
+            // Bun's ENOENT for a dead daemon's leftover reads `absent`; reclaim it only when a
+            // control connect proves this caller could have reached a live listener there.
+            if (reprobe === "absent" && (await removeUnansweredSocketPath(socketPath))) {
               attemptListen(false);
               return;
             }

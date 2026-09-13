@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { connectIpcClient } from "../ipc/client";
 import type { IpcFrame } from "../ipc/types";
+import { orchestrationStorePath } from "../paths";
+import { openStateStore } from "../persistence/state-store";
 import { canUseUnixSockets } from "../testing/unix-socket";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -55,6 +57,27 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, boundMs: num
   }
 }
 
+function seedRunHistory(home: string, count: number): void {
+  const store = openStateStore(orchestrationStorePath(home));
+  for (let i = 0; i < count; i++) {
+    store.createRun({
+      project: "p",
+      specRef: `s${i}`,
+      worktreePath: `/w/${i}`,
+      branch: `b${i}`,
+      specPath: `/s/${i}`,
+      status: "blocked",
+      workflowSnapshot: {
+        invocationId: `inv-${i}`,
+        steps: [
+          { stepId: "implement", role: "implement", stepRules: "x".repeat(3_000) },
+          { stepId: "review", role: "review", behavior: "review" },
+        ],
+      },
+    });
+  }
+}
+
 describe("daemon self-handoff (real processes)", () => {
   socketTest(
     "a changed observed digest hands the public socket to a real successor and the incumbent exits",
@@ -64,6 +87,9 @@ describe("daemon self-handoff (real processes)", () => {
       const home = mkdtempSync(join(tmpdir(), "jsh-home-"));
       const sockDir = mkdtempSync(join(tmpdir(), "jsh-sock-"));
       mkdirSync(join(home, "state"), { recursive: true });
+      // A realistic run history makes the incumbent's full `list` projection take on the order of a
+      // second. Successor drain polling must not starve the incumbent's handoff readiness loop.
+      seedRunHistory(home, 15_000);
       const publicSocketPath = join(sockDir, "daemon.sock");
       const pidPath = join(sockDir, "daemon.pid");
       const digestFile = join(home, "digest");
@@ -111,8 +137,10 @@ describe("daemon self-handoff (real processes)", () => {
 
         // No runs to drain: the retired incumbent exits.
         expect(await waitFor(() => incumbentExited, 15_000)).toBe(true);
-        expect(await answersHealth(publicSocketPath)).toBe(true);
+        // The successor must outlive its spawning incumbent, not merely be alive at the instant it exits.
+        await new Promise((r) => setTimeout(r, 5_000));
         expect(successorPid !== undefined && isAlive(successorPid)).toBe(true);
+        expect(await answersHealth(publicSocketPath)).toBe(true);
       } finally {
         for (const pid of [readPid(pidPath), incumbentPid]) {
           if (pid !== undefined && isAlive(pid)) process.kill(pid, "SIGKILL");

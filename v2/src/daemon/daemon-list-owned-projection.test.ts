@@ -96,3 +96,23 @@ test("list_owned excludes a durably in-progress row this daemon never admitted i
   const ownedRows = await listOwnedRunsDirect(handlers);
   expect(ownedRows?.find((row) => row.runId === orphanRunId)).toBeUndefined();
 });
+
+test("live_run_ids reports only currently-live run ids, without the list projection", async () => {
+  const liveRunId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "p1" }));
+  if (liveRunId === undefined) throw new Error("run did not start");
+  const terminalRunId = stateStore.createRun({
+    project: "proj",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "br",
+    specPath: "/tmp/spec.md",
+    status: "completed",
+  });
+
+  const response = await handlers.live_run_ids(
+    { kind: "request", id: "l1", method: "live_run_ids" },
+    new AbortController().signal,
+  );
+  expect(response).toEqual({ kind: "response", result: { runIds: [liveRunId] } });
+  expect(terminalRunId).not.toBe(liveRunId);
+});

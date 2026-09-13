@@ -6,7 +6,7 @@ import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
-import { parseDaemonBindFailureLogLine } from "../ipc/server.ts";
+import { parseDaemonBindFailureLogLine, removeUnansweredSocketPath } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
@@ -136,13 +136,30 @@ async function requestHandoffResolution(
   }
 }
 
-/** Kills a spawned successor that must not serve; a no-op once it has exited. */
-function killSpawnedSuccessor(proc: { kill: (signal: NodeJS.Signals) => boolean }): void {
+/** Bounds how long a killed successor's exit is awaited before its public socket is judged. */
+const KILLED_SUCCESSOR_EXIT_TIMEOUT_MS = 2_000;
+
+/**
+ * Kills a spawned successor that must not serve and waits for it to exit; a no-op once it has
+ * exited. SIGKILL leaves any public socket it bound on disk, so once the successor is confirmed
+ * dead that file is removed if nothing answers on it — otherwise the incumbent's rollback rebind
+ * hits EADDRINUSE forever.
+ */
+async function killSpawnedSuccessor(
+  proc: ReturnType<typeof spawn>,
+  socketPath: string,
+  answers: (path: string) => Promise<boolean>,
+): Promise<void> {
+  const exited = (): boolean => proc.exitCode !== null || proc.signalCode !== null;
   try {
     proc.kill("SIGKILL");
   } catch {
     // already exited
   }
+  const deadline = Date.now() + KILLED_SUCCESSOR_EXIT_TIMEOUT_MS;
+  while (!exited() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+  if (!exited()) return;
+  await removeUnansweredSocketPath(socketPath, answers);
 }
 
 async function readBindFailureFromLog(logPath: string, logOffsetBytes = 0, timeoutMs = 500) {
@@ -392,7 +409,9 @@ export async function startDaemon(
     throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
   } catch (error) {
     // A successor that did not win the handoff must not bind late and serve behind a failed start.
-    if (handoff !== undefined && !handoffCommitted && spawned !== undefined) killSpawnedSuccessor(spawned);
+    if (handoff !== undefined && !handoffCommitted && spawned !== undefined) {
+      await killSpawnedSuccessor(spawned, socketPath, (path) => socketProber.probe(path, 500));
+    }
     await resolveHandoff("rollback");
     throw error;
   }

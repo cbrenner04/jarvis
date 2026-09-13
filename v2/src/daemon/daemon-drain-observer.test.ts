@@ -172,6 +172,34 @@ describe("observePredecessorDrain", () => {
     }
   });
 
+  socketTest("prefers a real socket's live_run_ids over its full list projection", async () => {
+    const socketPath = join(tmpdir(), `jarvis-drain-observer-live-ids-${process.pid}-${Date.now()}.sock`);
+    rmSync(socketPath, { force: true });
+    let listCalls = 0;
+    const server = await startIpcServer(socketPath, {
+      live_run_ids: () => ({ kind: "response", result: { runIds: ["run-live"] } }),
+      list: () => {
+        listCalls++;
+        return { kind: "response", result: { runs: [] } };
+      },
+    });
+    const loop = manualPollLoop();
+    const observer = observePredecessorDrain(socketPath, {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+    });
+    try {
+      await loop.tick();
+      expect(observer.liveRunIds().has("run-live")).toBe(true);
+      expect(listCalls).toBe(0);
+    } finally {
+      observer.stop();
+      await server.close();
+      rmSync(socketPath, { force: true });
+    }
+  });
+
+  // A server without `live_run_ids` (legacy keyed peer) exercises the `list` fallback.
   socketTest("parses a real socket's well-formed list response into live run ids", async () => {
     const socketPath = join(tmpdir(), `jarvis-drain-observer-real-list-${process.pid}-${Date.now()}.sock`);
     rmSync(socketPath, { force: true });

@@ -29,6 +29,7 @@ import {
   formatDaemonBindFailureLogLine,
   type IpcServer,
   type RpcHandler,
+  removeUnansweredSocketPath,
   startIpcServer,
 } from "../ipc/server";
 import { daemonPathsByDigest, jarvisHome } from "../paths.ts";
@@ -702,6 +703,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     start: startHandler,
     list: listHandler,
     listOwned: listOwnedHandler,
+    liveRunIds: liveRunIdsHandler,
     pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
@@ -753,6 +755,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     check_workflow_start_claim: checkWorkflowStartClaimHandler,
     list: listHandler,
     list_owned: listOwnedHandler,
+    live_run_ids: liveRunIdsHandler,
     pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
@@ -1128,8 +1131,12 @@ function buildDrainObservers(
   legacyPeerSocketPaths: readonly string[],
   observeDrain: typeof observePredecessorDrain,
 ): DrainObserver[] {
+  // The predecessor's private socket is itself digest-keyed, so enumeration finds it again as a
+  // "legacy" peer; observing it twice doubled the polling load on the handing-off incumbent.
   const socketPaths =
-    predecessorSocketPath === undefined ? legacyPeerSocketPaths : [predecessorSocketPath, ...legacyPeerSocketPaths];
+    predecessorSocketPath === undefined
+      ? legacyPeerSocketPaths
+      : [predecessorSocketPath, ...legacyPeerSocketPaths.filter((path) => path !== predecessorSocketPath)];
   return socketPaths.map((peerSocketPath) => observeDrain(peerSocketPath));
 }
 
@@ -1291,7 +1298,14 @@ export async function startDaemonRuntime(
     },
     wasSuperseded: () => superseded,
     bindPublicServer: async () => {
-      server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+      try {
+        server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+      } catch (error) {
+        // Rollback runs only after the successor failed to commit; a dead successor's leftover socket
+        // file (unanswered) is reclaimable, a live answering daemon never is.
+        if (!(await removeUnansweredSocketPath(socketPath, daemonAnswersAt))) throw error;
+        server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+      }
     },
     probePublicServer: () => daemonAnswersAt(socketPath),
     ...(startupDeps.handoffFallbackMs === undefined ? {} : { fallbackMs: startupDeps.handoffFallbackMs }),
@@ -1394,7 +1408,13 @@ export async function startDaemonRuntime(
         // socket. Treated the same as any other `startHandoff` non-commit outcome.
         if (handoffHandlers.isPending()) return "rolled_back";
         console.error(`Self-handoff triggered: loaded digest ${loaded}, observed digest ${observed}`);
-        return spawnSelfHandoffSuccessor(loaded, observed);
+        try {
+          return await spawnSelfHandoffSuccessor(loaded, observed);
+        } catch (error) {
+          // `startDaemon` kills a successor that never committed; without this line that death is silent.
+          console.error("Self-handoff failed:", error);
+          throw error;
+        }
       },
       scheduleSampling: (onTick) => {
         const timer = setInterval(() => {

@@ -7,6 +7,7 @@ import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import {
   completeLinkedSubspec,
+  type LinkedIndexErrorKind,
   type LinkedIndexRoutingResult,
   resolveActiveLinkedSubspec,
   resolvePinnedLinkedSubspec,
@@ -21,7 +22,12 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import { type IntentFinalizationEvent, type LogSink, priorLogRecordsFromSink } from "../persistence/log-stream.ts";
+import {
+  type IntentFinalizationEvent,
+  type LinkedImplementFinalizationEvent,
+  type LogSink,
+  priorLogRecordsFromSink,
+} from "../persistence/log-stream.ts";
 import {
   type Attempt,
   openStateStore,
@@ -740,11 +746,30 @@ function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktre
   return landed.specPath;
 }
 
+/**
+ * Maps a routing error kind to `linked_implement_finalization`'s `reason` field for the reused-run
+ * branch, or `undefined` for kinds that branch never produces (`resolvePinnedLinkedSubspec` only
+ * ever returns `link_unreadable`, `malformed_link`, or `link_out_of_tree`).
+ */
+function linkedImplementRoutingFinalizationReason(
+  errorKind: LinkedIndexErrorKind,
+): LinkedImplementFinalizationEvent["reason"] | undefined {
+  switch (errorKind) {
+    case "link_unreadable":
+    case "malformed_link":
+    case "link_out_of_tree":
+      return errorKind;
+    default:
+      return undefined;
+  }
+}
+
 function linkedImplementRoutingFailureOutcome(
   routing: Extract<LinkedIndexRoutingResult, { ok: false }>,
   totalIterationsConsumed: number,
   stepIndex: number,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  logSink: LogSink | undefined,
   existingRunId?: string,
 ): WorkflowStepOutcome {
   // When routing fails *after* a link's write loop already ran, that link has a real durable row —
@@ -762,6 +787,19 @@ function linkedImplementRoutingFailureOutcome(
       resumable: false,
       implementReviewEligible: false,
     };
+  }
+  // Only the reused-run branch (a real durable row) has an id `jarvis run log` can reach; the
+  // fresh-run branch's minted id was never persisted, so it stays unlogged here.
+  if (existingRunId !== undefined) {
+    const reason = linkedImplementRoutingFinalizationReason(routing.errorKind);
+    if (reason !== undefined) {
+      logSink?.append(existingRunId, {
+        kind: "linked_implement_finalization",
+        producer: "routing",
+        reason,
+        outcomeKind: "blocked",
+      });
+    }
   }
   return {
     kind: "blocked",
@@ -825,6 +863,7 @@ function finalizeLinkedImplementPass(
   routing: Extract<LinkedIndexRoutingResult, { ok: true }>,
   beforeIndexContent: string,
   indexPath: string,
+  logSink: LogSink | undefined,
 ): WorkflowStepOutcome | undefined {
   const afterIndexContent = readFileSync(indexPath, "utf8");
   const finalized = completeLinkedSubspec(
@@ -835,11 +874,14 @@ function finalizeLinkedImplementPass(
   );
   if (!finalized.ok) {
     writeFileSync(indexPath, beforeIndexContent, "utf8");
-    return {
-      ...stepped,
-      kind: finalized.errorKind === "link_incomplete" ? "contract_miss" : "blocked",
-      routingFailure: `implement.${finalized.errorKind}`,
-    };
+    const outcomeKind = finalized.errorKind === "link_incomplete" ? "contract_miss" : "blocked";
+    logSink?.append(stepped.runId, {
+      kind: "linked_implement_finalization",
+      producer: "pass_finalization",
+      reason: finalized.errorKind,
+      outcomeKind,
+    });
+    return { ...stepped, kind: outcomeKind, routingFailure: `implement.${finalized.errorKind}` };
   }
   writeFileSync(indexPath, finalized.indexContent, "utf8");
   if (finalized.isTerminal) {
@@ -886,7 +928,13 @@ async function runLinkedImplementStep(
     }
     const routing = resolveActiveLinkedSubspec(indexPath, linkedProjectRoot);
     if (!routing.ok) {
-      return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);
+      return linkedImplementRoutingFailureOutcome(
+        routing,
+        totalIterationsConsumed,
+        stepIndex,
+        onStepRunCreated,
+        logSink,
+      );
     }
 
     const linkStep: WriteWorkflowStep = {
@@ -922,11 +970,12 @@ async function runLinkedImplementStep(
         totalIterationsConsumed,
         stepIndex,
         onStepRunCreated,
+        logSink,
         stepped.runId,
       );
     }
 
-    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, indexPath);
+    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, indexPath, logSink);
     if (finalized !== undefined) {
       return finalized;
     }

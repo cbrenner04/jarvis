@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
@@ -484,10 +485,14 @@ describe("executeWorkflow linked implement routing", () => {
       linkedIndexRouting: true,
     };
 
+    const logsPath = join(home.jarvisRoot, "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+
     await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [implementStep],
         stateStore: store,
+        logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
@@ -502,6 +507,113 @@ describe("executeWorkflow linked implement routing", () => {
       expect(run?.status).toBe("blocked");
       expect(run?.terminalCause).toBe("contract_miss");
       expect(run?.terminalFailureDetail?.message).toContain("implement.link_incomplete");
+
+      // The event is only fetchable if the run id it's appended under durably resolves.
+      expect(store.loadRun(result.runId)).not.toBeNull();
+      logSink.close();
+      const persisted = openLogReader(logsPath)
+        .tail(result.runId)
+        .find((record) => record.event.kind === "linked_implement_finalization");
+      expect(persisted?.event).toEqual({
+        kind: "linked_implement_finalization",
+        producer: "pass_finalization",
+        reason: "link_incomplete",
+        outcomeKind: "contract_miss",
+      });
+    });
+  });
+
+  test("settles the step row and logs when a linked implement pass ends blocked on a mutated index", async () => {
+    // The write step itself must not touch the index's routing checkboxes — only
+    // `completeLinkedSubspec` may advance them, after validating the completed link.
+    const planWorktree = mkdtempSync(join(tmpdir(), "mutated-index-plan-"));
+    roots.push(planWorktree);
+    const specDir = join(planWorktree, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    writeFileSync(indexPath, "- [ ] [Sub](./00-work.md)\n", "utf8");
+    writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "mutated-index";
+    const worktreePath = join(home.jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "README.md"), "implement only\n", "utf8");
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: indexPath,
+        expectedArtifactPath: join(specDir, "00-work.md"),
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          // Ticks the criterion (write loop completes) but also self-advances the index's
+          // checkbox, which `completeLinkedSubspec` refuses as `index_routing_mutated`.
+          writeFileSync(
+            join(cwd, "spec/feature/00-work.md"),
+            "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n",
+            "utf8",
+          );
+          writeFileSync(join(cwd, "spec/feature/index.md"), "- [x] [Sub](./00-work.md)\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }),
+      }),
+      specReadRoot: planWorktree,
+      worktree: {
+        projectRoot: planWorktree,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    const logsPath = join(home.jarvisRoot, "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("blocked");
+
+      const run = store.listRuns().find((row) => row.stepId === "implement~link-0");
+      expect(run).toBeDefined();
+      expect(run?.status).toBe("blocked");
+      expect(run?.terminalCause).toBe("blocked");
+      expect(run?.terminalFailureDetail?.message).toContain("implement.index_routing_mutated");
+
+      // The event is only fetchable if the run id it's appended under durably resolves.
+      expect(store.loadRun(result.runId)).not.toBeNull();
+      logSink.close();
+      const persisted = openLogReader(logsPath)
+        .tail(result.runId)
+        .find((record) => record.event.kind === "linked_implement_finalization");
+      expect(persisted?.event).toEqual({
+        kind: "linked_implement_finalization",
+        producer: "pass_finalization",
+        reason: "index_routing_mutated",
+        outcomeKind: "blocked",
+      });
     });
   });
 
@@ -563,10 +675,14 @@ describe("executeWorkflow linked implement routing", () => {
       linkedIndexRouting: true,
     };
 
+    const logsPath = join(home.jarvisRoot, "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+
     await withStateStore(async (store) => {
       const result = await executeWorkflow({
         steps: [implementStep],
         stateStore: store,
+        logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
@@ -580,6 +696,19 @@ describe("executeWorkflow linked implement routing", () => {
       expect(result.runId).toBe(String(linkRun?.id));
       expect(linkRun?.status).toBe("blocked");
       expect(linkRun?.terminalCause).toBe("blocked");
+
+      // The event is only fetchable if the run id it's appended under durably resolves.
+      expect(store.loadRun(result.runId)).not.toBeNull();
+      logSink.close();
+      const persisted = openLogReader(logsPath)
+        .tail(result.runId)
+        .find((record) => record.event.kind === "linked_implement_finalization");
+      expect(persisted?.event).toEqual({
+        kind: "linked_implement_finalization",
+        producer: "routing",
+        reason: "malformed_link",
+        outcomeKind: "blocked",
+      });
     });
   });
 

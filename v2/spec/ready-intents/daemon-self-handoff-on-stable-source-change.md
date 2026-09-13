@@ -21,7 +21,7 @@ A daemon captures its executable digest at startup and status can compare it wit
 
 - The daemon periodically samples the executable tree digest and initiates its existing generation handoff without a client request after the same digest differs from the loaded digest on two consecutive samples.
 - One divergent sample followed by the loaded digest, or by a different divergent digest, does not trigger handoff.
-- At most one self-handoff attempt runs at a time; another source change is left for the successor's next sampling cycle.
+- At most one self-handoff attempt runs at a time. After a failed successor rolls back, the restored incumbent may retry the same divergent digest only after a fresh pair of matching divergent samples.
 - The incumbent records the loaded and observed digests in its process log when it initiates self-handoff.
 
 ## Decisions
@@ -30,6 +30,7 @@ A daemon captures its executable digest at startup and status can compare it wit
 - Keep sampling and successor startup asynchronous so IPC and admitted work remain responsive.
 - Reuse the existing cutoff, private-endpoint drain, and outgoing-generation exit protocol unchanged.
 - Treat successor readiness failure as a completed attempt only after rollback restores incumbent service; do not kill or restart in place.
+- Reset the two-sample candidate when a failed self-handoff rolls back, so pre-failure samples cannot trigger the retry.
 
 ## Acceptance criteria
 
@@ -39,11 +40,12 @@ A daemon captures its executable digest at startup and status can compare it wit
 - [ ] A test proves an in-flight run admitted before self-handoff completes normally under the outgoing generation without interruption.
 - [ ] A test proves no second handoff starts while the first is in flight.
 - [ ] A test proves successor startup failure restores incumbent admission through the prerequisite rollback behavior.
+- [ ] A test proves a rolled-back incumbent does not reuse its pre-failure digest samples, but retries that same divergent digest after two fresh matching samples.
 - [ ] A test proves the initiating generation's process log records both the loaded and observed digests as the self-handoff cause.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/daemon-host.md` — autonomous digest sampling, two-sample stability, bounded handoff, drain preservation, rollback, and recorded cause.
+- `v2/docs/daemon-host.md` — autonomous digest sampling, two-sample stability, bounded handoff, drain preservation, rollback retry reset, and recorded cause.
 - `v2/docs/operator-runbook.md` — merged executable changes take effect after automatic handoff and drain; explain `daemon status` loaded/current output during convergence.
 - `v2/docs/v1-behaviors.md` — record autonomous v2 daemon generation replacement.

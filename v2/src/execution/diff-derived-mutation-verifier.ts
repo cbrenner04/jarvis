@@ -720,6 +720,17 @@ function deriveGuardMutations(
       let operand: ts.Node = node.operand;
       while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
       if (admitted && ts.isPrefixUnaryExpression(operand) && operand.operator === ts.SyntaxKind.ExclamationToken) {
+        // One logical toggle is one candidate, so the chained `!`s are not re-derived. Abandoning the
+        // whole subtree here would also drop an independent guard nested inside the operand
+        // (`!!foo(!bar)` loses `!bar`), so descend past the chain and keep visiting from the first
+        // non-negation node instead of returning outright.
+        let inner: ts.Node = operand;
+        while (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken) {
+          let next: ts.Node = inner.operand;
+          while (ts.isParenthesizedExpression(next)) next = next.expression;
+          inner = next;
+        }
+        visit(inner);
         return;
       }
     }

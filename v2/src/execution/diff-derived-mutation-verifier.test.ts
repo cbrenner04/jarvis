@@ -1830,11 +1830,30 @@ index 1234567..abcdefg 100644
     const originalContent = "!!x;";
     const mutatedContents: string[] = [];
 
-    const result = await verifyDiffSource("src/toggle.ts", diff, originalContent, mutatedContents);
+    // Force a surviving mutation so the derived `mutation` string is observable: the pre-fix regex
+    // also yielded one candidate here (`!!` fails its identifier class, so it matched the inner
+    // `!x`) and the same mutated content, so candidate count and file bytes cannot discriminate the
+    // implementations. Only the span the candidate claims can.
+    const result = await verifyDiffSource("src/toggle.ts", diff, originalContent, mutatedContents, async () => true);
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toBe("guard-flip: !!x → !x");
+    }
+    expect(mutatedContents).toEqual(["!x;"]);
+  });
+
+  it("keeps an independent guard nested inside a double-negated operand", async () => {
+    // Collapsing `!!` to one candidate must not abandon the operand subtree: `!bar` is its own
+    // toggle, not part of the outer chain. Fails against a bare `return` after the chain check.
+    const content = "if (!!foo(!bar)) return;";
+    const mutations: string[] = [];
+
+    const result = await verifyAddedSource("src/chained-guard.ts", [[content]], content, mutations);
 
     expect(result.kind).toBe("pass");
-    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
-    expect(mutatedContents).toEqual(["!x;"]);
+    if (result.kind === "pass") expect(result.candidateCount).toBe(2);
+    expect(mutations).toContain(content.replace("!bar", "bar"));
   });
 
   it("derives a nested guard candidate inside another negated expression", async () => {

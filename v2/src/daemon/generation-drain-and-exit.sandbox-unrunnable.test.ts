@@ -381,4 +381,132 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
     },
     15_000,
   );
+
+  socketTest(
+    "an idle retiring generation exits without waiting on its own predecessor's ownership directory",
+    async () => {
+      const socketPath = join(tmpdir(), `jarvis-exit-independent-of-ownership-${process.pid}-${Date.now()}.sock`);
+      const dbPath = join(tmpdir(), `jarvis-exit-independent-of-ownership-${process.pid}-${Date.now()}.sqlite`);
+      rmSync(socketPath, { force: true });
+      rmSync(dbPath, { force: true });
+
+      const store = openStateStore(dbPath);
+      const runId = store.createRun({
+        project: "predecessor-project",
+        specRef: "spec-ref",
+        worktreePath: "/tmp/predecessor-worktree",
+        branch: "predecessor-branch",
+        specPath: "/tmp/predecessor-worktree/spec.md",
+        status: "in-progress",
+      });
+      const ownerRow = {
+        runId,
+        project: "predecessor-project",
+        branch: "predecessor-branch",
+        status: "in-progress" as const,
+        isLive: true,
+        createdAt: 1,
+        dismissedAt: null,
+      };
+
+      const exitCodes: number[] = [];
+      // Standing in for the real `process.exit`, which would kill the test runner; the cast
+      // matches the seam's `never` return type without actually terminating anything.
+      const processExit = ((code: number) => {
+        exitCodes.push(code);
+      }) as unknown as (code: number) => never;
+      await startDaemonRuntime(socketPath, store, undefined, {
+        predecessorSocketPath: "irrelevant-for-this-seam.sock",
+        // Never drains on its own: this generation's own predecessor keeps reporting the run
+        // live for the whole test, so an exit condition wrongly gated on that directory going
+        // empty would never fire.
+        observeRunOwnership: () => ({
+          ownerRow: (id) => (id === runId ? ownerRow : undefined),
+          stop: () => undefined,
+        }),
+        processExit,
+      });
+
+      try {
+        // The ownership directory is populated and merging through `list` — proof it never
+        // empties on its own during this test.
+        const rows = await listRuns(await connectIpcClient(socketPath));
+        expect(rows?.find((row) => row.runId === runId)?.isLive).toBe(true);
+
+        const supersedeClient = await connectIpcClient(socketPath);
+        supersedeClient.send({ kind: "request", id: "s1", method: "supersede" });
+        await supersedeClient.nextFrame();
+        supersedeClient.close();
+
+        // No active run of its own: it exits promptly despite its predecessor's ownership
+        // directory still reporting a live row above.
+        expect(await waitFor(() => exitCodes.length > 0, 3_000)).toBe(true);
+        expect(exitCodes).toEqual([0]);
+      } finally {
+        store.close();
+        rmSync(socketPath, { force: true });
+        rmSync(dbPath, { force: true });
+      }
+    },
+    15_000,
+  );
+
+  socketTest(
+    "the successor's list keeps resolving normally once its predecessor exits and its ownership directory goes empty",
+    async () => {
+      const predSocketPath = join(tmpdir(), `jarvis-owner-drain-pred-${process.pid}-${Date.now()}.sock`);
+      const predPrivateSocketPath = join(tmpdir(), `jarvis-owner-drain-pred-private-${process.pid}-${Date.now()}.sock`);
+      const succSocketPath = join(tmpdir(), `jarvis-owner-drain-succ-${process.pid}-${Date.now()}.sock`);
+      const dbPath = join(tmpdir(), `jarvis-owner-drain-${process.pid}-${Date.now()}.sqlite`);
+      for (const path of [predSocketPath, predPrivateSocketPath, succSocketPath, dbPath]) {
+        rmSync(path, { force: true });
+      }
+
+      // The run store is shared across daemon generations under one JARVIS_HOME
+      // (`v2/docs/daemon-host.md`); one store instance stands in for that here.
+      const store = openStateStore(dbPath);
+      const runId = store.createRun({
+        project: "predecessor-project",
+        specRef: "spec-ref",
+        worktreePath: "/tmp/predecessor-worktree",
+        branch: "predecessor-branch",
+        specPath: "/tmp/predecessor-worktree/spec.md",
+        status: "in-progress",
+      });
+
+      const predecessor = await startDaemonRuntime(predSocketPath, store, undefined, {
+        privateSocketPath: predPrivateSocketPath,
+      });
+      const successor = await startDaemonRuntime(succSocketPath, store, undefined, {
+        predecessorSocketPath: predPrivateSocketPath,
+      });
+
+      try {
+        // The ownership directory is genuinely populated: the run appears live through the
+        // successor's own stable `list` while the predecessor is reachable.
+        expect(await waitFor(() => isRunLiveAt(succSocketPath, runId), 3_000)).toBe(true);
+
+        await predecessor.close();
+
+        // Once the predecessor is gone, the ownership directory's poll to it fails and clears —
+        // the run stops reporting live through the successor.
+        expect(await waitFor(async () => !(await isRunLiveAt(succSocketPath, runId)), 3_000)).toBe(true);
+
+        // `list` — and an unrelated handler — keep resolving normally; neither depends on the
+        // drained predecessor staying reachable.
+        const listClient = await connectIpcClient(succSocketPath);
+        const rows = await listRuns(listClient);
+        listClient.close();
+        expect(rows?.some((row) => row.runId === runId)).toBe(true);
+        expect(await health(succSocketPath)).toEqual({ ok: true });
+      } finally {
+        await successor.close();
+        store.close();
+        for (const path of [predSocketPath, predPrivateSocketPath, succSocketPath, dbPath]) {
+          rmSync(path, { force: true });
+        }
+      }
+    },
+    15_000,
+  );
 });

@@ -21,11 +21,11 @@ If constructing or polling the ownership directory fails at daemon startup, `lis
 
 ## Acceptance criteria
 
-- [ ] `daemon-stable-run-list.test.ts` proves that when the ownership directory's poll to `predecessorSocketPath` fails at startup (unreachable socket), `list` and an unrelated handler still start and resolve using local behavior, with no routing-wide refusal; it fails against a naive implementation where directory setup is awaited synchronously during `startDaemonRuntime` and its rejection propagates.
-- [ ] `generation-drain-and-exit.sandbox-unrunnable.test.ts` proves an idle retiring generation exits without waiting on its own predecessor's ownership directory, and separately proves the successor's `list` keeps resolving normally after its predecessor exits and its ownership directory goes empty.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `daemon-stable-run-list.test.ts` proves that when the ownership directory's poll to `predecessorSocketPath` fails at startup (unreachable socket), `list` and an unrelated handler still start and resolve using local behavior, with no routing-wide refusal; it fails against a naive implementation where directory setup is awaited synchronously during `startDaemonRuntime` and its rejection propagates.
+- [x] `generation-drain-and-exit.sandbox-unrunnable.test.ts` proves an idle retiring generation exits without waiting on its own predecessor's ownership directory, and separately proves the successor's `list` keeps resolving normally after its predecessor exits and its ownership directory goes empty.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

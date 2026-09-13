@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { IpcServer, RpcHandler } from "../ipc/server.ts";
+import type { LogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect } from "../testing/run-control.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, startDaemonRuntime } from "./daemon.ts";
 import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
@@ -91,4 +93,53 @@ test("a run id present in the ownership directory but absent from local durable 
 
   const runs = await listRunsDirect(handlers);
   expect(runs?.some((row) => row.runId === orphanRunId)).toBe(false);
+});
+
+function fakeReader(): LogReader {
+  return { tail: () => [], async *follow() {} };
+}
+
+test("an unreachable predecessor socket at startup never blocks list or an unrelated handler from starting", async () => {
+  const runId = seedInProgressRun("local-project", "local-branch");
+  let boundHandlers: Record<string, RpcHandler> | undefined;
+  const fakeServer = async (socketPath: string, handlers?: Record<string, RpcHandler>): Promise<IpcServer> => {
+    boundHandlers = handlers;
+    return { socketPath, close: async () => undefined };
+  };
+
+  // Nothing has ever listened at this path: the ownership directory's poll to it fails exactly
+  // like a real unreachable predecessor. A naive implementation that awaits directory setup
+  // synchronously during startup and lets a connect failure propagate would reject here instead
+  // of resolving.
+  const unreachablePredecessorSocketPath = join(
+    tmpdir(),
+    `jarvis-unreachable-predecessor-${process.pid}-${Date.now()}.sock`,
+  );
+
+  const runtime = await startDaemonRuntime("/fake/public.sock", stateStore, fakeReader(), {
+    openLogSink: () => ({ append: () => undefined, close: () => undefined }),
+    startIpcServer: fakeServer,
+    enumerateOtherDaemonSockets: () => [],
+    predecessorSocketPath: unreachablePredecessorSocketPath,
+  });
+
+  expect(boundHandlers?.list).toBeDefined();
+  expect(boundHandlers?.health).toBeDefined();
+
+  const listResponse = await boundHandlers?.list?.(
+    { kind: "request", id: "l1", method: "list" },
+    new AbortController().signal,
+  );
+  expect(listResponse?.kind).toBe("response");
+  const runs =
+    listResponse?.kind === "response" ? (listResponse.result as { runs?: DaemonListRunRow[] })?.runs : undefined;
+  expect(runs?.some((row) => row.runId === runId)).toBe(true);
+
+  const healthResponse = await boundHandlers?.health?.(
+    { kind: "request", id: "h1", method: "health" },
+    new AbortController().signal,
+  );
+  expect(healthResponse).toEqual({ kind: "response", result: { ok: true } });
+
+  await runtime.close();
 });

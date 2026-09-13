@@ -793,7 +793,14 @@ export function createRunLifecycleHandlers(
       return buildRunListRow(run, fullRun, isLive, reportedStatus, workflowRuns, liveRunIds);
     });
 
-    return { kind: "response", result: { runs: runList } };
+    // Owner-row substitution runs after selection, on the already-chosen candidates only: it
+    // never changes which runs were selected, only which fields a selected run reports. With no
+    // ownership directory populated (`ctx.ownerRow` unset), this is a no-op — same cost and
+    // output as before (see `daemon-drain-observer.ts`'s `observeRunOwnership`).
+    const ownerRowFor = ctx.ownerRow;
+    const runs = ownerRowFor === undefined ? runList : runList.map((row) => ownerRowFor(row.runId) ?? row);
+
+    return { kind: "response", result: { runs } };
   };
 
   /**

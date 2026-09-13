@@ -322,4 +322,63 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
     },
     15_000,
   );
+
+  socketTest(
+    "the stable list handler substitutes the outgoing owner's row, exactly once, over its own reprojection",
+    async () => {
+      const socketPath = join(tmpdir(), `jarvis-owner-merge-${process.pid}-${Date.now()}.sock`);
+      const dbPath = join(tmpdir(), `jarvis-owner-merge-${process.pid}-${Date.now()}.sqlite`);
+      rmSync(socketPath, { force: true });
+      rmSync(dbPath, { force: true });
+
+      const store = openStateStore(dbPath);
+      const runId = store.createRun({
+        project: "predecessor-project",
+        specRef: "spec-ref",
+        worktreePath: "/tmp/predecessor-worktree",
+        branch: "predecessor-branch",
+        specPath: "/tmp/predecessor-worktree/spec.md",
+        status: "in-progress",
+      });
+
+      const ownerRow = {
+        runId,
+        project: "predecessor-project",
+        branch: "predecessor-branch",
+        status: "in-progress" as const,
+        isLive: true,
+        createdAt: 1,
+        dismissedAt: null,
+        prNumber: 4242,
+      };
+
+      let stopCalls = 0;
+      const daemon = await startDaemonRuntime(socketPath, store, undefined, {
+        predecessorSocketPath: "irrelevant-for-this-seam.sock",
+        observeRunOwnership: () => ({
+          ownerRow: (id) => (id === runId ? ownerRow : undefined),
+          stop: () => {
+            stopCalls += 1;
+          },
+        }),
+      });
+
+      try {
+        const rows = await listRuns(await connectIpcClient(socketPath));
+        const matching = rows?.filter((row) => row.runId === runId) ?? [];
+        // The daemon's own local reprojection has no PR data for this run; only the substituted
+        // owner row does. This fails against the pre-fix per-daemon projection.
+        expect(matching).toHaveLength(1);
+        expect(matching[0]?.isLive).toBe(true);
+        expect(matching[0]?.prNumber).toBe(4242);
+      } finally {
+        await daemon.close();
+        expect(stopCalls).toBeGreaterThan(0);
+        store.close();
+        rmSync(socketPath, { force: true });
+        rmSync(dbPath, { force: true });
+      }
+    },
+    15_000,
+  );
 });

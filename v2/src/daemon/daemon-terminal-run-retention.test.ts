@@ -239,3 +239,44 @@ test("a force-settled workflow step ages out only once every sibling in its invo
   expect(runs?.some((row) => row.runId === step1Id)).toBe(false);
   expect(runs?.some((row) => row.runId === step2Id)).toBe(false);
 });
+
+test("the no-predecessor path performs no owner-row lookups and no extra per-row log read", async () => {
+  for (let index = 0; index < 5; index++) {
+    seedRun(stateStore, { status: "completed", createdAt: index });
+  }
+
+  function countingHandlers(ownerRow?: (runId: string) => undefined): { handlers: Handlers; calls: () => number } {
+    let tailCalls = 0;
+    const handlers = createRunControlHandlers({
+      stateStore,
+      logReader: {
+        tail: (_runId: string) => {
+          tailCalls += 1;
+          return [];
+        },
+        async *follow() {},
+      },
+      writeLoopExecutor: async () => {},
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      ...(ownerRow !== undefined ? { ownerRow } : {}),
+    });
+    return { handlers, calls: () => tailCalls };
+  }
+
+  // No `ownerRow` dep at all — the true no-predecessor path (see `observeRunOwnership` in
+  // `daemon-drain-observer.ts`, which is the only production source of that dep).
+  const noPredecessor = countingHandlers();
+  const noPredecessorRuns = await listRunsDirect(noPredecessor.handlers);
+  expect(noPredecessorRuns).toHaveLength(5);
+
+  // `ownerRow` configured but the directory is empty (predecessor route present, nothing cached
+  // yet) — must cost exactly the same as no route at all, proving substitution never reads logs
+  // beyond what local projection already does.
+  const emptyDirectory = countingHandlers(() => undefined);
+  const emptyDirectoryRuns = await listRunsDirect(emptyDirectory.handlers);
+  expect(emptyDirectoryRuns).toHaveLength(5);
+
+  expect(emptyDirectory.calls()).toBe(noPredecessor.calls());
+});

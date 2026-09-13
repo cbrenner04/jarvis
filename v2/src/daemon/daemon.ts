@@ -1231,7 +1231,7 @@ export async function startDaemonRuntime(
   const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
   const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
   const drainObservers = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
-  // Ownership routing (for a future authoritative-owner `list` merge) is direct-predecessor only:
+  // Ownership routing feeds `list`'s authoritative-owner-row merge and is direct-predecessor only:
   // never fed from `legacyPeerSocketPaths`, unlike `drainObservers` above.
   const ownershipDirectory = (startupDeps.observeRunOwnership ?? observeRunOwnership)(
     startupDeps.predecessorSocketPath,
@@ -1262,6 +1262,7 @@ export async function startDaemonRuntime(
     daemonSocketPath: socketPath,
     reconciledRunIds,
     externalLiveRunIds: () => unionLiveRunIds(drainObservers),
+    ownerRow: (runId: string) => ownershipDirectory.ownerRow(runId),
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined
       ? {}

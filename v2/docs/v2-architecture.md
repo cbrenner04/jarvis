@@ -581,7 +581,9 @@ Run orchestration verbs over the daemon's IPC interface:
   all durable run rows merged with in-memory liveness. A run's `isLive=true`
   only while its loop Promise is executing. Allows a client to distinguish a live
   run from a crashed daemon's stale row — the canonical use case for
-  durable-plus-liveness merge.
+  durable-plus-liveness merge. A draining direct predecessor's authoritative row
+  is substituted behind this same boundary, transparent to callers: see
+  [`daemon-host.md`](daemon-host.md#daemon-retirement-on-supersession).
 - **`wait({runId}): {runStatus, loopOutcomeKind?, iterationsConsumed?,
   resumable?}`** — Long-running one-shot RPC for a run's next invocation
   boundary. In-progress runs resolve on the next terminal log signal after the

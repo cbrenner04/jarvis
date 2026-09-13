@@ -1262,7 +1262,7 @@ export async function startDaemonRuntime(
     daemonSocketPath: socketPath,
     reconciledRunIds,
     externalLiveRunIds: () => unionLiveRunIds(drainObservers),
-    ownerRow: (runId: string) => ownershipDirectory.ownerRow(runId),
+    ownerRow: ownershipDirectory.ownerRow,
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined
       ? {}

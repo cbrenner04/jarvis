@@ -25,12 +25,8 @@ No daemon-owned logic decides when the executable tree has stably diverged from 
 - [x] A unit test proves a `startHandoff` rejection is treated the same as `rolled_back`: the in-flight flag clears, the candidate resets, one fresh matching sample does not retrigger, two fresh matching samples do, and the sampling loop keeps running with no unhandled rejection.
 - [x] A unit test proves a sample that throws or resolves to `"unknown"` clears any pending candidate and never calls `startHandoff`.
 - [x] `shouldTriggerHandoff` and `shouldSampleNow` are exported pure functions, each unit-tested in both truth directions (trigger vs. no-trigger; sample vs. skip).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - None: internal building block with no consumer yet; docs land with wiring in 01.
-
-## Blocker
-
-`bun run typecheck` and `bun run test:v2` pass. `DAEMON_PRIVATE_SOCKET_PATH= bun run test:integration:v2` repeatedly fails two pre-existing drain assertions in `generation-drain-and-exit.sandbox-unrunnable.test.ts`; a focused serial run reproduces both failures.

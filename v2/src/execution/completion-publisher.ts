@@ -1,3 +1,4 @@
+import { errorMessage } from "../../../shared/error-message.ts";
 import { branchExistsOnOriginAsync, getBaseBranch } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
@@ -165,16 +166,119 @@ type PrEvidence = {
   url: string;
 };
 
-async function findMatchingPr(
+type OpenPrRecord = { number: number; baseRefName: string; isDraft?: boolean };
+
+/** Raised when a branch carries more than one open PR matching the same base; no safe default to pick. */
+export class AmbiguousOpenPrError extends Error {
+  readonly numbers: readonly number[];
+
+  constructor(branch: string, baseRef: string, numbers: readonly number[]) {
+    super(
+      `Branch ${branch} has ${numbers.length} open PRs targeting ${baseRef} (${numbers.map((n) => `#${n}`).join(", ")}); resolve to one before publishing.`,
+    );
+    this.name = "AmbiguousOpenPrError";
+    this.numbers = numbers;
+  }
+}
+
+/** Raised when the matching open PR has already left draft state; reusing it would misrepresent it. */
+export class OpenPrNotDraftError extends Error {
+  readonly number: number;
+
+  constructor(number: number, branch: string) {
+    super(
+      `PR #${number} for branch ${branch} is open but not a draft (expected draft). Mark it draft again, or close/merge it, before publishing.`,
+    );
+    this.name = "OpenPrNotDraftError";
+    this.number = number;
+  }
+}
+
+/** Raised when `gh pr create` reports no diff between branch and base; a reused branch with no publishable commits. */
+export class NoPublishableCommitsError extends Error {
+  constructor(branch: string, baseRef: string) {
+    super(`No publishable commits between ${branch} and ${baseRef}: nothing to open a PR from.`);
+    this.name = "NoPublishableCommitsError";
+  }
+}
+
+async function listMatchingOpenPrs(
   gh: GhCommand,
   cwd: string,
   branch: string,
   baseRef: string,
-  state: "open" | "merged",
-): Promise<number | undefined> {
-  const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", state, "--json", "number,baseRefName"]);
-  const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
-  return prs.find((pr) => pr.baseRefName === baseRef)?.number;
+): Promise<OpenPrRecord[]> {
+  const prListJson = await gh(cwd, [
+    "pr",
+    "list",
+    "--head",
+    branch,
+    "--state",
+    "open",
+    "--json",
+    "number,baseRefName,isDraft",
+  ]);
+  const prs = JSON.parse(prListJson) as OpenPrRecord[];
+  return prs.filter((pr) => pr.baseRefName === baseRef);
+}
+
+/**
+ * Resolve the open PR matching branch/base, ignoring merged/closed history. Returns `undefined`
+ * when none matches. Refuses when more than one matches (no safe default) or when the sole match
+ * has left draft state (reusing it would misrepresent it as still in progress).
+ */
+export async function resolveOpenDraftPr(
+  gh: GhCommand,
+  cwd: string,
+  branch: string,
+  baseRef: string,
+): Promise<PrEvidence | undefined> {
+  const matches = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
+  if (matches.length === 0) return undefined;
+  if (matches.length > 1) {
+    throw new AmbiguousOpenPrError(
+      branch,
+      baseRef,
+      matches.map((pr) => pr.number),
+    );
+  }
+
+  const match = matches[0];
+  if (match === undefined) return undefined;
+  if (match.isDraft === false) {
+    throw new OpenPrNotDraftError(match.number, branch);
+  }
+
+  return confirmPr(gh, cwd, branch, baseRef, match.number);
+}
+
+async function createDraftPr(
+  gh: GhCommand,
+  cwd: string,
+  baseRef: string,
+  branch: string,
+  specPath: string,
+  creationTitle: string,
+): Promise<void> {
+  try {
+    await gh(cwd, [
+      "pr",
+      "create",
+      "--draft",
+      "--base",
+      baseRef,
+      "--title",
+      creationTitle,
+      "--body",
+      `Spec: ${specPath}`,
+    ]);
+  } catch (error) {
+    const message = errorMessage(error);
+    if (/no commits between/i.test(message)) {
+      throw new NoPublishableCommitsError(branch, baseRef);
+    }
+    throw error;
+  }
 }
 
 async function findOrCreatePr(
@@ -185,27 +289,10 @@ async function findOrCreatePr(
   specPath: string,
   creationTitle: string,
 ): Promise<PrEvidence> {
-  const openPr = await findMatchingPr(gh, cwd, branch, baseRef, "open");
-  if (openPr !== undefined) {
-    return confirmPr(gh, cwd, branch, baseRef, openPr);
-  }
+  const existing = await resolveOpenDraftPr(gh, cwd, branch, baseRef);
+  if (existing !== undefined) return existing;
 
-  const mergedPr = await findMatchingPr(gh, cwd, branch, baseRef, "merged");
-  if (mergedPr !== undefined) {
-    return confirmPr(gh, cwd, branch, baseRef, mergedPr);
-  }
-
-  await gh(cwd, [
-    "pr",
-    "create",
-    "--draft",
-    "--base",
-    baseRef,
-    "--title",
-    creationTitle,
-    "--body",
-    `Spec: ${specPath}`,
-  ]);
+  await createDraftPr(gh, cwd, baseRef, branch, specPath, creationTitle);
 
   return confirmPr(gh, cwd, branch, baseRef);
 }
@@ -217,12 +304,12 @@ async function confirmPr(
   baseRef: string,
   expectedNumber?: number,
 ): Promise<PrEvidence> {
-  // Confirm by number once `findMatchingPr` has selected one. `gh pr view <branch>` resolves its
-  // own notion of "the" PR for a branch and honors no state filter, so on a branch carrying more
-  // than one PR it can return a different PR than the state-filtered list selected — a closed PR
-  // beside a merged one, for instance. Comparing one lookup against a differently-scoped lookup
-  // then fails on branches whose PR history is longer than one, which is every branch a pipeline
-  // has been re-run on. Addressing the PR by number has no such disagreement to resolve.
+  // Confirm by number once `resolveOpenDraftPr` has selected one. `gh pr view <branch>` resolves
+  // its own notion of "the" PR for a branch and honors no state filter, so on a branch carrying
+  // more than one PR it can return a different PR than the open/base-filtered list selected — an
+  // open PR on another base, for instance. Comparing one lookup against a differently-scoped
+  // lookup then fails on branches whose PR history is longer than one, which is every branch a
+  // pipeline has been re-run on. Addressing the PR by number has no such disagreement to resolve.
   const selector = expectedNumber === undefined ? branch : String(expectedNumber);
   const prViewJson = await gh(cwd, ["pr", "view", selector, "--json", "number,url,baseRefName"]);
   const pr = JSON.parse(prViewJson) as { number: number; url: string; baseRefName: string };

@@ -409,10 +409,7 @@ describe("createCompletionPublisher", () => {
     expect(result.prUrl).toBe("https://github.com/user/repo/pull/99");
   });
 
-  it.each([
-    [true, "draft title"],
-    [false, "ready title"],
-  ])("reuses an open PR without changing its title", async (isDraft, title) => {
+  it("reuses an open draft PR without changing its title", async () => {
     const ghCalls: string[] = [];
     const publisher = createCompletionPublisher({
       git: async (_cwd, args) => {
@@ -423,7 +420,7 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 99, baseRefName: "main", isDraft, title }]);
+          return JSON.stringify([{ number: 99, baseRefName: "main", isDraft: true, title: "draft title" }]);
         }
         if (args[0] === "pr" && args[1] === "view") {
           return viewPr(99, "https://github.com/user/repo/pull/99");
@@ -437,6 +434,74 @@ describe("createCompletionPublisher", () => {
     await publisher({ ...baseInput, creationTitle: "replacement title" });
 
     expect(ghCalls.some((call) => call.startsWith("pr create") || call.startsWith("pr edit"))).toBe(false);
+  });
+
+  it("refuses to reuse a matching open PR that is not a draft", async () => {
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 99, baseRefName: "main", isDraft: false, title: "ready title" }]);
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow(
+      "PR #99 for branch feature-branch is open but not a draft (expected draft). Mark it draft again, or close/merge it, before publishing.",
+    );
+  });
+
+  it("refuses when the branch carries more than one open PR matching the same base", async () => {
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([
+            { number: 12, baseRefName: "main", isDraft: true },
+            { number: 34, baseRefName: "main", isDraft: true },
+          ]);
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow("#12, #34");
+  });
+
+  it("surfaces a named error when gh pr create finds no publishable commits", async () => {
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") {
+          throw new Error("GraphQL: No commits between main and feature-branch (createPullRequest)");
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await expect(publisher(baseInput)).rejects.toThrow(
+      "No publishable commits between feature-branch and main: nothing to open a PR from.",
+    );
   });
 
   it("ignores open PRs with different base", async () => {
@@ -947,7 +1012,7 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 
-  it("returns a merged PR without creating a second PR when the branch already has a merged PR", async () => {
+  it("creates a fresh draft PR when the branch's only PR history is merged/closed", async () => {
     const ghCalls: string[] = [];
 
     const publisher = createCompletionPublisher({
@@ -959,16 +1024,13 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
-          if (args.includes("--state") && args.includes("open")) {
-            return JSON.stringify([]); // No open PRs
-          }
-          if (args.includes("--state") && args.includes("merged")) {
-            return JSON.stringify([{ number: 88, baseRefName: "main" }]); // Merged PR found
-          }
-          return JSON.stringify([]);
+          expect(args).toContain("open");
+          expect(args).not.toContain("merged");
+          return JSON.stringify([]); // No open PRs; a merged #88 exists but is never queried
         }
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/99";
         if (args[0] === "pr" && args[1] === "view") {
-          return viewPr(88, "https://github.com/user/repo/pull/88");
+          return viewPr(99, "https://github.com/user/repo/pull/99");
         }
         return "";
       },
@@ -978,9 +1040,10 @@ describe("createCompletionPublisher", () => {
 
     const result = await publisher(baseInput);
 
-    expect(result.prNumber).toBe(88);
-    expect(result.prUrl).toBe("https://github.com/user/repo/pull/88");
-    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    expect(result.prNumber).toBe(99);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/99");
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
+    expect(ghCalls.filter((c) => c.startsWith("pr list")).length).toBe(1);
   });
 
   it("awaits push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
@@ -1026,16 +1089,7 @@ describe("createCompletionPublisher", () => {
 
     await publisher(baseInput);
 
-    expect(events).toEqual([
-      "push",
-      "head",
-      "pr-lookup",
-      "pr-lookup",
-      "pr-create",
-      "pr-confirm",
-      "fetch-body",
-      "write-body",
-    ]);
+    expect(events).toEqual(["push", "head", "pr-lookup", "pr-create", "pr-confirm", "fetch-body", "write-body"]);
   });
 
   it("fails refresh when attribution git read is rejected", async () => {
@@ -1059,11 +1113,11 @@ describe("createCompletionPublisher", () => {
 
     await expect(publisher(baseInput)).rejects.toThrow("git log failed");
   });
-  it("confirms a selected PR by number when the branch carries more than one PR", async () => {
-    // Reproduces cbrenner04/chess-mvp-yolo-2 `intent/04-persistence-and-resume`, which carried a
-    // MERGED #27 beside a CLOSED #32. `pr list --state merged` selects #27; `pr view <branch>`
-    // honors no state filter and answers #32, so confirming by branch compared two differently
-    // scoped lookups and failed a run whose work was complete.
+  it("confirms a selected PR by number when the branch carries more than one open PR", async () => {
+    // A branch can carry two open PRs to different bases at once. `pr list --state open` filtered
+    // to our base selects #27; `pr view <branch>` honors no base filter and answers the other open
+    // PR (#50), so confirming by branch compared two differently scoped lookups and would pick the
+    // wrong PR. Confirming by number has no such disagreement to resolve.
     const ghCalls: string[][] = [];
     const publisher = createCompletionPublisher({
       git: async (_cwd, args) => {
@@ -1074,14 +1128,16 @@ describe("createCompletionPublisher", () => {
       gh: async (_cwd, args) => {
         ghCalls.push([...args]);
         if (args[0] === "pr" && args[1] === "list") {
-          const merged = args.includes("merged");
-          return JSON.stringify(merged ? [{ number: 27, baseRefName: "main" }] : []);
+          return JSON.stringify([
+            { number: 27, baseRefName: "main", isDraft: true },
+            { number: 50, baseRefName: "release", isDraft: true },
+          ]);
         }
         if (args[0] === "pr" && args[1] === "view") {
-          // Answering by branch yields the unrelated closed PR; answering by number yields #27.
+          // Answering by branch yields the unrelated other-base PR; answering by number yields #27.
           return args[2] === "27"
             ? viewPr(27, "https://github.com/user/repo/pull/27")
-            : viewPr(32, "https://github.com/user/repo/pull/32");
+            : viewPr(50, "https://github.com/user/repo/pull/50", "release");
         }
         return "";
       },

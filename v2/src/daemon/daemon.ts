@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import {
@@ -31,7 +31,7 @@ import {
   type RpcHandler,
   startIpcServer,
 } from "../ipc/server";
-import { jarvisHome } from "../paths.ts";
+import { daemonPathsByDigest, jarvisHome } from "../paths.ts";
 import {
   type LogReader,
   type LogSink,
@@ -42,6 +42,7 @@ import {
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
 import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
+import { startDaemon } from "./daemon-lifecycle.ts";
 import {
   createNotificationListHandler,
   createNotificationWaitHandler,
@@ -72,6 +73,7 @@ import {
 } from "./operator-notification-sweep.ts";
 import type { KillSurvivor } from "./run-kill-outcome.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
+import { startStableDigestTrigger } from "./stable-digest-trigger.ts";
 
 export { reconcileOrphanedRuns };
 
@@ -1050,6 +1052,21 @@ type DaemonStartupDeps = {
   observePredecessorDrain?: typeof observePredecessorDrain;
   /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   handoffFallbackMs?: number;
+  /**
+   * Opts this runtime into autonomous self-handoff sampling. Off by default so embedded/test
+   * runtimes never spawn a real successor; only the production entrypoint sets it.
+   */
+  enableSelfHandoff?: boolean;
+  /** Digest sampler for self-handoff triggering; defaults to sampling this process's own executable tree. */
+  sampleExecutableDigest?: () => Promise<string>;
+  /**
+   * Starts and awaits a self-handoff successor for an observed digest; defaults to the real
+   * `startDaemon` spawn -> changeover -> readiness -> commit/rollback path against a digest-keyed
+   * private endpoint. A rejection propagates unchanged, same as any other `startHandoff` failure.
+   */
+  startSelfHandoffSuccessor?: (loaded: string, observed: string) => Promise<"committed" | "rolled_back">;
+  /** Self-handoff sampling interval; defaults to 30s. Same injection seam as `startDrainExitLoop`'s `intervalMs`. */
+  selfHandoffSamplingIntervalMs?: number;
 };
 
 export async function recoverReconciledRuns(
@@ -1205,7 +1222,7 @@ export async function startDaemonRuntime(
     wakeNotificationWaiters,
     close: _closeRunControlHandlers,
     continueContinuablePipelines,
-    setRetiring,
+    setRetiring: setRetiringRaw,
     hasActiveRuns,
     isRetiring,
     pipelineExecutionDeps: _pipelineExecutionDeps,
@@ -1229,6 +1246,13 @@ export async function startDaemonRuntime(
       ? {}
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
+
+  // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
+  // it fires on any admission cut, client-initiated or self-triggered, without permanently
+  // stopping the interval, so a rollback that reopens admission lets sampling resume and retry.
+  // `close()` is the only place that permanently stops it, at real teardown.
+  let selfHandoffTrigger: { stop(): void } | undefined;
+  const setRetiring = setRetiringRaw;
 
   // Recorded separately from `retiring`: a handoff's own `changeover` sets `retiring` too, but only
   // a real `supersede` must stop rollback from reopening admission (see `wasSuperseded` below).
@@ -1329,6 +1353,46 @@ export async function startDaemonRuntime(
   }, NOTIFICATION_SWEEP_INTERVAL_MS);
   notificationSweepTimer.unref();
 
+  // Autonomous self-handoff: a merged source change leaves this daemon's loaded executable digest
+  // stably diverged from the tree on disk, so it starts its own successor with no client request.
+  // Skipped when the loaded digest is unknown — there is no baseline to diverge from.
+  const sampleExecutableDigest =
+    startupDeps.sampleExecutableDigest ?? (() => getExecutableTreeDigest(import.meta.dir, realAsyncSubprocessRunner));
+  const spawnSelfHandoffSuccessor =
+    startupDeps.startSelfHandoffSuccessor ??
+    (async (_loaded: string, observed: string): Promise<"committed" | "rolled_back"> => {
+      // Paths derive from this daemon's own public socket directory, not module-level jarvis-home
+      // constants, so a daemon bound under another home hands off within that home.
+      const home = dirname(socketPath);
+      await startDaemon(socketPath, {
+        pidPath: join(home, "daemon.pid"),
+        logPath: join(home, "daemon.log"),
+        privateSocketPath: daemonPathsByDigest(observed, home).socketPath,
+      });
+      return "committed";
+    });
+  if (startupDeps.enableSelfHandoff === true && loadedExecutableDigest !== "unknown") {
+    selfHandoffTrigger = startStableDigestTrigger(loadedExecutableDigest, {
+      sample: sampleExecutableDigest,
+      startHandoff: async (loaded, observed) => {
+        // A client-initiated handoff already cut admission and is negotiating with its own
+        // successor; spawning a second successor here would race it for the same private
+        // socket. Treated the same as any other `startHandoff` non-commit outcome.
+        if (handoffHandlers.isPending()) return "rolled_back";
+        console.error(`Self-handoff triggered: loaded digest ${loaded}, observed digest ${observed}`);
+        return spawnSelfHandoffSuccessor(loaded, observed);
+      },
+      scheduleSampling: (onTick) => {
+        const timer = setInterval(() => {
+          if (isRetiring()) return;
+          void onTick();
+        }, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);
+        timer.unref?.();
+        return { stop: () => clearInterval(timer) };
+      },
+    });
+  }
+
   const signalHandler = () => {
     shutdownRequested = true;
   };
@@ -1342,6 +1406,7 @@ export async function startDaemonRuntime(
     closed = true;
     drainExitLoop.stop();
     clearInterval(notificationSweepTimer);
+    selfHandoffTrigger?.stop();
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
     handoffHandlers.close();

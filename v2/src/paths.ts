@@ -19,13 +19,15 @@ export function orchestrationStorePath(jarvisHomeDir?: string): string {
 export const ORCHESTRATION_STORE_PATH = orchestrationStorePath();
 
 /** Digest-keyed daemon paths: socket, PID, and log paths keyed by executable tree digest. */
-export function daemonPathsByDigest(digest: string): {
+export function daemonPathsByDigest(
+  digest: string,
+  home: string = jarvisHome(),
+): {
   socketPath: string;
   pidPath: string;
   logPath: string;
 } {
   const key = digest.slice(0, 16);
-  const home = jarvisHome();
   return {
     socketPath: join(home, `daemon-${key}.sock`),
     pidPath: join(home, `daemon-${key}.pid`),

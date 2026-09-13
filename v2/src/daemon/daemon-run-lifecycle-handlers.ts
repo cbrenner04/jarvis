@@ -104,6 +104,7 @@ type RunLifecycleHandlerDeps = {
 export type RunLifecycleHandlers = {
   start: RpcHandler;
   list: RpcHandler;
+  listOwned: RpcHandler;
   pause: RpcHandler;
   resume: RpcHandler;
   kill: RpcHandler;
@@ -794,6 +795,32 @@ export function createRunLifecycleHandlers(
     return { kind: "response", result: { runs: runList } };
   };
 
+  /**
+   * Owner-local projection served on the private endpoint (`list_owned`): every row this process
+   * itself currently admits as live, scoped to its own `activeRuns`/store — no dismissal, no
+   * retention, no `limit`, and no fold of `ctx.externalLiveRunIds` (a further predecessor's rows
+   * this daemon is only forwarding are not this daemon's own ownership). The run ownership
+   * directory (`daemon-drain-observer.ts`) polls this to build an authoritative owner route for
+   * the stable `list` handler.
+   */
+  const listOwnedHandler: RpcHandler = () => {
+    const liveRunIds = new Set<string>();
+    for (const activeRun of activeRuns.values()) {
+      liveRunIds.add(activeRun.runId);
+    }
+
+    const liveRuns = store.listRuns().filter((run) => run.status === "in-progress" && liveRunIds.has(run.id));
+    const { fullRuns, workflowRuns } = indexListedRuns(liveRuns);
+
+    const runList = liveRuns.map((run) => {
+      const fullRun = fullRuns.get(run.id);
+      const reportedStatus = reportedRunStatus(run, fullRun);
+      return buildRunListRow(run, fullRun, true, reportedStatus, workflowRuns, liveRunIds);
+    });
+
+    return { kind: "response", result: { runs: runList } };
+  };
+
   /** Shared applied/refused projection for a single-id `dismissRun`/`undismissRun` outcome. */
   const respondRunDismissal = (
     dismissal: ReturnType<StateStore["dismissRun"]>,
@@ -1194,6 +1221,7 @@ export function createRunLifecycleHandlers(
   return {
     start: startHandler,
     list: listHandler,
+    listOwned: listOwnedHandler,
     pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,

@@ -7,9 +7,11 @@ import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   drainObservationEndsOnLiveness,
   observePredecessorDrain,
+  observeRunOwnership,
   type SchedulePollLoop,
   unionLiveRunIds,
 } from "./daemon-drain-observer.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
@@ -204,6 +206,142 @@ describe("observePredecessorDrain", () => {
     });
     observer.stop();
     observer.stop();
+  });
+});
+
+/** Minimal `list_owned` row fixture — only the fields these tests inspect matter. */
+function ownedRow(runId: string): DaemonListRunRow {
+  return { runId, project: "p", branch: "b", status: "in-progress", isLive: true, createdAt: 0 };
+}
+
+describe("observeRunOwnership", () => {
+  test("holds a run's owner row only while the predecessor's poll reports it live", async () => {
+    const loop = manualPollLoop();
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => [ownedRow("run-1")],
+    });
+    try {
+      expect(directory.ownerRow("run-1")).toBeUndefined();
+      await loop.tick();
+      expect(directory.ownerRow("run-1")?.runId).toBe("run-1");
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("clears a run's entry once the predecessor no longer reports it in list_owned", async () => {
+    const loop = manualPollLoop();
+    let rows: DaemonListRunRow[] = [ownedRow("run-1")];
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => rows,
+    });
+    try {
+      await loop.tick();
+      expect(directory.ownerRow("run-1")).toBeDefined();
+      rows = [];
+      await loop.tick();
+      expect(directory.ownerRow("run-1")).toBeUndefined();
+    } finally {
+      directory.stop();
+    }
+  });
+
+  // Contrast with `observePredecessorDrain`'s advisory `unionLiveRunIds`, which carries no row
+  // data and retains its last known live set across a transient `list` RPC failure (see the
+  // "retains the last known live set" test above): a poll failure here must never leave a stale
+  // owner row observable, so this directory clears everything instead.
+  test("clears every cached row on a list_owned RPC failure, unlike the advisory live-id observer's retention", async () => {
+    const loop = manualPollLoop();
+    let listCalls = 0;
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => {
+        listCalls += 1;
+        if (listCalls === 2) throw new Error("timed out");
+        return [ownedRow("run-1")];
+      },
+    });
+    try {
+      await loop.tick();
+      expect(directory.ownerRow("run-1")).toBeDefined();
+      await loop.tick();
+      expect(listCalls).toBe(2);
+      expect(directory.ownerRow("run-1")).toBeUndefined();
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("clears every cached row once the predecessor's socket reads absent or stale", async () => {
+    const loop = manualPollLoop();
+    let liveness: SocketLiveness = "live";
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => liveness,
+      listOwnedRuns: async () => [ownedRow("run-1")],
+    });
+    try {
+      await loop.tick();
+      expect(directory.ownerRow("run-1")).toBeDefined();
+      liveness = "absent";
+      await loop.tick();
+      expect(directory.ownerRow("run-1")).toBeUndefined();
+      expect(loop.cleared()).toBe(true);
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("stop() called while a list_owned RPC is in flight discards that RPC's result", async () => {
+    const loop = manualPollLoop();
+    let releaseList: ((rows: readonly DaemonListRunRow[]) => void) | undefined;
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: () =>
+        new Promise<readonly DaemonListRunRow[]>((resolve) => {
+          releaseList = resolve;
+        }),
+    });
+    try {
+      const inFlight = loop.tick();
+      await Promise.resolve();
+      expect(releaseList).toBeDefined();
+      directory.stop();
+      releaseList?.([ownedRow("run-1")]);
+      await inFlight;
+      expect(directory.ownerRow("run-1")).toBeUndefined();
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("with no predecessor socket path, holds no row and never polls", () => {
+    let scheduled = false;
+    const directory = observeRunOwnership(undefined, {
+      schedulePollLoop: () => {
+        scheduled = true;
+        return { clear: () => undefined };
+      },
+    });
+    expect(directory.ownerRow("run-1")).toBeUndefined();
+    expect(scheduled).toBe(false);
+    directory.stop();
+  });
+
+  test("stop() is idempotent and safe to call multiple times", () => {
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: manualPollLoop().schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => [],
+    });
+    directory.stop();
+    directory.stop();
   });
 });
 

@@ -113,3 +113,58 @@ test("wires a real handoff predecessor into drain observation alongside any lega
   expect(observedSocketPaths).toEqual(["/fake/predecessor.sock", "/fake/legacy.sock"]);
   await runtime.close();
 });
+
+test("feeds only predecessorSocketPath into ownership routing, never a legacy peer socket", async () => {
+  const ownershipSocketPaths: (string | undefined)[] = [];
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: fakeServer([], []),
+    predecessorSocketPath: "/fake/predecessor.sock",
+    enumerateOtherDaemonSockets: () => ["/fake/legacy.sock"],
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    observeRunOwnership: (predecessorSocketPath) => {
+      ownershipSocketPaths.push(predecessorSocketPath);
+      return { ownerRow: () => undefined, stop: () => undefined };
+    },
+  });
+
+  // A naive implementation sourcing ownership from `buildDrainObservers`'s combined socket list
+  // would call this once per socket, including the legacy peer; only the direct predecessor may.
+  expect(ownershipSocketPaths).toEqual(["/fake/predecessor.sock"]);
+  await runtime.close();
+});
+
+test("ownership routing gets no socket path when only legacy peers are discovered, with no real predecessor", async () => {
+  const ownershipSocketPaths: (string | undefined)[] = [];
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: fakeServer([], []),
+    enumerateOtherDaemonSockets: () => ["/fake/legacy-a.sock", "/fake/legacy-b.sock"],
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    observeRunOwnership: (predecessorSocketPath) => {
+      ownershipSocketPaths.push(predecessorSocketPath);
+      return { ownerRow: () => undefined, stop: () => undefined };
+    },
+  });
+
+  expect(ownershipSocketPaths).toEqual([undefined]);
+  await runtime.close();
+});
+
+test("stops the ownership directory on close", async () => {
+  let stopped = false;
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: fakeServer([], []),
+    predecessorSocketPath: "/fake/predecessor.sock",
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      stop: () => {
+        stopped = true;
+      },
+    }),
+  });
+
+  await runtime.close();
+  expect(stopped).toBe(true);
+});

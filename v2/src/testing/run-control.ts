@@ -117,3 +117,10 @@ export async function listRunsDirect(
   expect(response.kind).toBe("response");
   return response.kind === "response" ? (response.result as ListRunsResult)?.runs : undefined;
 }
+
+/** The owner-local `list_owned` projection served on the private endpoint (see `01-direct-predecessor-ownership-directory.md`). */
+export async function listOwnedRunsDirect(handlers: RunControlHandlers): Promise<DaemonListRunRow[] | undefined> {
+  const response = await handlers.list_owned(requestFrame("lo1", "list_owned"), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  return response.kind === "response" ? (response.result as ListRunsResult)?.runs : undefined;
+}

@@ -503,7 +503,7 @@ Three `full-review` pipelines driven seed → PR. Per-lane tracing:
 | `guard-flip-derivation-crash-is-contained` | [#3817](https://github.com/cbrenner04/jarvis/pull/3817) | [#3827](https://github.com/cbrenner04/jarvis/pull/3827) | [#3834](https://github.com/cbrenner04/jarvis/pull/3834) | stranded by a load-manufactured `ready_gate_out_of_scope`; review found two vacuous criteria and one real defect |
 | `implement-publication-tail` → `publication-resolves-open-draft-pr-for-branch` | [#3816](https://github.com/cbrenner04/jarvis/pull/3816) | [#3828](https://github.com/cbrenner04/jarvis/pull/3828) | [#3835](https://github.com/cbrenner04/jarvis/pull/3835) | slot refusal, then `completion_commit_failed`; hand-finished |
 | → `linked-implement-finalization-logs-non-complete-returns` | (same) | [#3829](https://github.com/cbrenner04/jarvis/pull/3829) | [#3836](https://github.com/cbrenner04/jarvis/pull/3836) | `completion_commit_failed`; hand-finished |
-| → `workflow-write-step-settles-after-publication-evidence` | (same) | [#3830](https://github.com/cbrenner04/jarvis/pull/3830) | parked | `gate_invocation_refused` / `slot_contention`, commit intact |
+| → `workflow-write-step-settles-after-publication-evidence` | (same) | [#3830](https://github.com/cbrenner04/jarvis/pull/3830) | [#3842](https://github.com/cbrenner04/jarvis/pull/3842) (hand-finished) | slot refusal, then a false `ready_gate_out_of_scope`; 9/9 criteria ticked over a red `test:v2`; review found four defects |
 
 **The fan-out shape worked exactly as documented.** `implement-publication-tail` split into three lanes whose `## Prerequisites` were all already-true facts about `main`, so all three gates were approved back to back and dispatched in parallel with no consumption race. Reading the prerequisites before approving is what makes that safe, and it cost nothing here.
 
@@ -533,3 +533,14 @@ Recorded because the first version of this section got it wrong. Both remaining 
 - if it publishes cleanly, the discriminator is **falsified** and the seed must be corrected before anyone builds on it.
 
 Either outcome is worth recording explicitly. The seed was written to say "confirm the mechanism before changing the fence" precisely because the refused list matching nothing on disk is not explained by the collapsed-allowset hypothesis alone.
+
+### 2026-09-13 (operator session 2) — landing #3842
+
+**The lane ticked 9/9 criteria, including "`test:v2` passes", over a suite that was red in three files.** It was stranded `ready_gate_out_of_scope` naming `daemon-run-failure-capture.test.ts`; that file is 12/12 on `main` and 11/12 on the branch, so the exoneration was false (seed [[out-of-scope-probe-blames-main-for-the-lane-s-own-regression]]). Hand-finish found, in order:
+
+- **Teardown races, three files.** Deferring the completion row lengthens the publication tail past fixed `flushBackgroundRuns(n)` counts, so the store closed under a live tail (`Cannot use a closed database`, attributed to the *next* test). Not a production defect: each workflow settles when awaited. Fixed by awaiting settlement.
+- **Telemetry contract.** `work_boundary_recorded` now records `run_status: in-progress` for the completion row, because the commit is recorded before the tail settles it. Documented in `telemetry-capture.md`.
+- **Kill settlement regression.** Widening `settleNonCompleteWorkflowStep` to every `in-progress` row settled a killed step `failed` before the kill landed (6 `daemon-workflow-start` failures). Narrowed to rows whose last attempt was `done`/`no-work` and whose result is not resumable.
+- **Two stranding defects, found by subagent review, not by any gate.** A linked implement's terminal link deferred even when shrink superseded it (row `in-progress` forever), and a failing light review after shrink left the deferred shrink row `in-progress` forever. Both fixed with regression tests proven to fail on revert.
+
+A second review pass then caught that resumable outcomes (kill, pause, budget stop) could still fail the deferred row. That makes three review rounds and six defects on one lane after it self-reported complete. **The runner's stop-at-first-failing-file behaviour cost three gate cycles:** run every `v2/src` test file in parallel (`xargs -P 6`) to get the full failure set before fixing any. Note the seed's stated mechanism for the out-of-scope case (a new `loadRun` in `settleFailedWorkflowRun`) is wrong; the cause was the leaked retry workflow, corrected in the seed.

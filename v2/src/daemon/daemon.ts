@@ -11,7 +11,6 @@ import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../
 import {
   type AgentModelConfig,
   isLoadError,
-  type LoadError,
   resolveExecutableRole,
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
@@ -40,13 +39,7 @@ import {
   openLogReader,
   openLogSink,
 } from "../persistence/log-stream.ts";
-import {
-  isTerminalRunStatus,
-  openStateStore,
-  type Run,
-  type RunStatus,
-  type StateStore,
-} from "../persistence/state-store.ts";
+import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
 import {
   createNotificationListHandler,
@@ -67,7 +60,7 @@ import {
   type RunControlHandlerContextDeps,
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
-import { reconcileOrphanedRuns, reconciliationTerminalStatus } from "./daemon-run-reconciliation.ts";
+import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -1123,6 +1116,7 @@ async function daemonAnswersAt(socketPath: string): Promise<boolean> {
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: startup wires handoff rollback, listeners, and recovery in one ordered sequence
 export async function startDaemonRuntime(
   socketPath: string,
   stateStore?: StateStore,

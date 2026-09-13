@@ -1398,7 +1398,11 @@ describe("executeWorkflow review dispatch", () => {
     const workspace = initGitWorkspace("review-mutation-resume-reverify-");
     const logsPath = join(workspace, "resume.jsonl");
     try {
-      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      writeFileSync(
+        join(workspace, "spec.md"),
+        "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n- [x] `bun run test:integration:v2` passes\n",
+        "utf8",
+      );
       execFileSync("git", ["add", "spec.md"], { cwd: workspace });
       execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
       const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
@@ -1480,6 +1484,7 @@ describe("executeWorkflow review dispatch", () => {
             finalizerCalls += 1;
             expect(input.worktreePath).toBe(workspace);
             expect(input.baseRef).toBe(baseRef);
+            expect(input.requiredIntegrationScope).toBe("test:integration:v2");
             if (finalizerCalls === 1) {
               throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
             }

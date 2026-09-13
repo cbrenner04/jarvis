@@ -749,6 +749,8 @@ describe("createReadyFinalizer", () => {
   it("skips the ready gate but completes remaining finalization when admitted", async () => {
     const calls: string[] = [];
     const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
       runReadyGate: async () => {
         throw new ReadyGateError("missing-ready", undefined, "ENOENT");
       },
@@ -1198,6 +1200,8 @@ index 1234567..abcdefg 100644
 
   it("classifies required-integration failure with exit 124 as timed out", async () => {
     const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
       runReadyGate: async () => {},
       ghReadyFlip: async () => {},
       asyncSubprocessRunner: {
@@ -1305,6 +1309,8 @@ index 1234567..abcdefg 100644
   it("rejects required v2 integration scope failure before publisher finalization", async () => {
     let flipCalls = 0;
     const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
       runReadyGate: async () => {},
       runRequiredIntegration: async () => {
         throw new ReadyGateError("bun run test:integration:v2", 1, "integration test failed\n");
@@ -1322,6 +1328,8 @@ index 1234567..abcdefg 100644
   it("runs required integration scope after ready gate and before flip", async () => {
     const calls: string[] = [];
     const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
       runReadyGate: async () => {
         calls.push("gate");
       },
@@ -1374,6 +1382,8 @@ index 1234567..abcdefg 100644
     };
 
     const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
       runReadyGate: async () => {},
       asyncSubprocessRunner: mockRunner,
       ghReadyFlip: async () => {},
@@ -1384,6 +1394,91 @@ index 1234567..abcdefg 100644
     expect(calls).toHaveLength(1);
     expect(calls[0]?.signal).toBe(signal);
     expect(calls[0]?.processGroup).toBeDefined();
+  });
+
+  it("runs required integration only when the script exists and the default ready gate scope does not cover it", async () => {
+    const cases: Array<{
+      readyCommand?: string;
+      skipReadyGate?: boolean;
+      gateScope: "full" | string[];
+      hasScript: boolean;
+      runs: boolean;
+    }> = [
+      { gateScope: ["test:v2", "test:integration:v2"], hasScript: true, runs: false },
+      { gateScope: "full", hasScript: true, runs: false },
+      { gateScope: ["test:v2"], hasScript: true, runs: true },
+      { gateScope: [], hasScript: false, runs: false },
+      { readyCommand: "npm run verify", gateScope: "full", hasScript: false, runs: false },
+      { readyCommand: "npm run verify", gateScope: "full", hasScript: true, runs: true },
+      { skipReadyGate: true, gateScope: "full", hasScript: true, runs: true },
+    ];
+    for (const testCase of cases) {
+      let integrationCalls = 0;
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        runRequiredIntegration: async () => {
+          integrationCalls += 1;
+        },
+        hasPackageScript: (_worktreePath, script) => testCase.hasScript && script === "test:integration:v2",
+        resolveReadyTestScope: async () => testCase.gateScope,
+        ghReadyFlip: async () => {},
+      });
+      await finalizer({
+        ...input,
+        requiredIntegrationScope: "test:integration:v2",
+        ...(testCase.readyCommand !== undefined ? { readyCommand: testCase.readyCommand } : {}),
+        ...(testCase.skipReadyGate !== undefined ? { skipReadyGate: testCase.skipReadyGate } : {}),
+      });
+      expect({ ...testCase, runs: integrationCalls === 1 }).toEqual(testCase);
+    }
+  });
+
+  it("default gate-scope resolution skips required integration when the v2 diff already scopes it into ready", async () => {
+    for (const [changed, runs] of [
+      ["v2/src/a.ts\n", false],
+      ["v2/docs/a.md\n", true],
+    ] as const) {
+      const integration: string[] = [];
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        hasPackageScript: () => true,
+        asyncSubprocessRunner: {
+          async runAsync(cmd, args) {
+            if (cmd === "git" && args?.[0] === "diff") return changed;
+            if (cmd === "bun" && args?.[1] === "test:integration:v2") integration.push("run");
+            return "";
+          },
+        },
+        ghReadyFlip: async () => {},
+      });
+      await finalizer({ ...input, requiredIntegrationScope: "test:integration:v2" });
+      expect({ changed, runs: integration.length === 1 }).toEqual({ changed, runs });
+    }
+  });
+
+  it("detects the required integration script from the worktree package.json", async () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "ready-finalize-pkg-"));
+    try {
+      let integrationCalls = 0;
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        runRequiredIntegration: async () => {
+          integrationCalls += 1;
+        },
+        resolveReadyTestScope: async () => [],
+        ghReadyFlip: async () => {},
+      });
+      const run = () => finalizer({ ...input, worktreePath, requiredIntegrationScope: "test:integration:v2" });
+      await run();
+      writeFileSync(join(worktreePath, "package.json"), JSON.stringify({ scripts: { "test:v2": "x" } }));
+      await run();
+      expect(integrationCalls).toBe(0);
+      writeFileSync(join(worktreePath, "package.json"), JSON.stringify({ scripts: { "test:integration:v2": "x" } }));
+      await run();
+      expect(integrationCalls).toBe(1);
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
   });
 
   it("skips required integration scope when not specified", async () => {
@@ -1452,7 +1547,12 @@ index 1234567..abcdefg 100644
         return "";
       },
     };
-    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {},
+    });
 
     await finalizer({
       ...input,
@@ -1482,6 +1582,8 @@ index 1234567..abcdefg 100644
       },
     };
     const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
       asyncSubprocessRunner: mockRunner,
       ghReadyFlip: async () => {
         flipCalls += 1;

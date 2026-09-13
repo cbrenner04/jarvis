@@ -5,7 +5,10 @@ import { errorMessage } from "../../../shared/error-message.ts";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { resolvePinnedLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
+import {
+  requiredIntegrationScopeForTerminalSubspec,
+  resolvePinnedLinkedSubspec,
+} from "../../../shared/linked-subspec-routing.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import {
   findSnapshotStepForRunStepId,
@@ -1473,6 +1476,8 @@ type ReviewMutationResumeContext = ExternalSpecGitScope & {
   invocationId: string;
   /** `intent-stage` when the sibling write step lands to `.jarvis-intent-stage/`; `plain` otherwise. */
   landingKind: "intent-stage" | "plain";
+  /** Sibling write step role; `implement` rows re-derive required integration scope at publication. */
+  writeRole?: string;
   completionAgent: string | undefined;
   creationTitleHint: string | undefined;
 };
@@ -1625,6 +1630,7 @@ export function resolveReviewMutationLineageContext(run: Run, store: StateStore)
       specPath: writeRun.specPath,
       invocationId: snapshot.invocationId,
       landingKind: writeStep?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
+      ...(writeStep?.role !== undefined ? { writeRole: writeStep.role } : {}),
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
       ...persistedExternalSpecGitScope(writeRun, writeStep),
@@ -1699,6 +1705,7 @@ function resolveOrdinaryWriteResumeContext(
       specPath: run.specPath,
       invocationId: snapshot?.invocationId ?? run.id,
       landingKind: step?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
+      ...(step?.role !== undefined ? { writeRole: step.role } : {}),
       completionAgent,
       creationTitleHint: snapshot?.creationTitle,
       ...persistedExternalSpecGitScope(run, step),
@@ -1897,6 +1904,16 @@ async function deriveReviewMutationResumeBodySummary(
     ...externalSpecGitScope(context),
   });
   return { bodySummary, specTemplate: true };
+}
+
+/** Implement rows re-derive required integration from the terminal subspec, matching fresh workflow publication. */
+function reviewMutationRequiredIntegrationScope(context: ReviewMutationResumeContext): {
+  requiredIntegrationScope?: string;
+} {
+  if (context.writeRole !== "implement") return {};
+  const specPath = isAbsolute(context.specPath) ? context.specPath : join(context.worktreePath, context.specPath);
+  const scope = requiredIntegrationScopeForTerminalSubspec(specPath);
+  return scope !== undefined ? { requiredIntegrationScope: scope } : {};
 }
 
 function mutationRepairLoopInput(
@@ -2111,6 +2128,7 @@ async function runMutationRepairAttempt(
     ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
     ...(body.specTemplate ? { specTemplate: true } : {}),
     ...externalSpecGitScope(context),
+    ...reviewMutationRequiredIntegrationScope(context),
   });
   if (
     publication.failure?.kind === "surviving_mutation_failed" &&
@@ -2336,6 +2354,7 @@ async function runReviewMutationCommitAndPublish(
       ...(bodySummary !== undefined ? { bodySummary } : {}),
       ...(specTemplate ? { specTemplate } : {}),
       ...externalSpecGitScope(context),
+      ...reviewMutationRequiredIntegrationScope(context),
     },
   );
 

@@ -14,6 +14,23 @@ export function extractRequiredIntegrationScope(acceptanceCriteria: AcceptanceCr
   return undefined;
 }
 
+/** Required integration scope at implement finalization: the terminal subspec's criteria — the last linked subspec of
+ * an index (the final routed link), or the spec file itself when it links none. Unreadable files yield undefined.
+ */
+export function requiredIntegrationScopeForTerminalSubspec(specPath: string): string | undefined {
+  try {
+    const content = readFileSync(specPath, "utf8");
+    const terminal = parseSpec(content).linkedSubspecs.at(-1);
+    const body =
+      terminal === undefined
+        ? content
+        : readFileSync(isAbsolute(terminal.path) ? terminal.path : resolve(specPath, "..", terminal.path), "utf8");
+    return extractRequiredIntegrationScope(parseSpec(body).acceptanceCriteria);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Whether `body` has any non-human-only acceptance criterion left unchecked.
  * A body with no acceptance criteria at all counts as complete.
  */

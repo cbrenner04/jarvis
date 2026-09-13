@@ -6,6 +6,7 @@ import {
   advanceLinkedSubspecCheckbox,
   completeLinkedSubspec,
   findModifiedLinkedCheckbox,
+  requiredIntegrationScopeForTerminalSubspec,
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
 
@@ -57,6 +58,20 @@ describe("shared linked-subspec routing", () => {
       "two.md": "# Two\n\n## Acceptance criteria\n\n- [x] Done\n",
     });
     expect(resolveActiveLinkedSubspec(join(dir, "index.md"), dir)).toMatchObject({ errorKind: "already_complete" });
+  });
+
+  test("required integration scope comes from the terminal subspec only", () => {
+    const gate = "- [x] `bun run test:integration:v2` passes\n";
+    const dir = setup("# Tree\n\n- [x] [One](one.md)\n- [x] [Two](two.md)\n", {
+      "one.md": `# One\n\n## Acceptance criteria\n\n${gate}`,
+      "two.md": "# Two\n\n## Acceptance criteria\n\n- [x] Done\n",
+      "single.md": `# Single\n\n## Acceptance criteria\n\n${gate}`,
+    });
+    expect(requiredIntegrationScopeForTerminalSubspec(join(dir, "index.md"))).toBeUndefined();
+    writeFileSync(join(dir, "two.md"), `# Two\n\n## Acceptance criteria\n\n${gate}`);
+    expect(requiredIntegrationScopeForTerminalSubspec(join(dir, "index.md"))).toBe("test:integration:v2");
+    expect(requiredIntegrationScopeForTerminalSubspec(join(dir, "single.md"))).toBe("test:integration:v2");
+    expect(requiredIntegrationScopeForTerminalSubspec(join(dir, "missing.md"))).toBeUndefined();
   });
 
   test("computes isTerminal from remaining criteria, not selected-link position", () => {

@@ -18,6 +18,7 @@ import { jarvisHome } from "../paths.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import { ReadyGateError } from "./ready-finalize.ts";
 import { createStep, roots } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { IMPLEMENT_WRITE_STEP_RULES } from "./write-loop-input.ts";
@@ -48,6 +49,82 @@ function writeExternalPlanFixture(
 }
 
 describe("executeWorkflow external linked implement routing", () => {
+  test("implement finalization receives the terminal subspec required integration scope; red integration settles ready_gate_failed", async () => {
+    for (const failIntegration of [false, true]) {
+      const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(
+        "Org/Harness-Verified-Integration",
+        `harness-verified-${failIntegration}`,
+      );
+      roots.push(projectRoot, specReadRoot);
+      writeFileSync(indexPath, "- [ ] [Work](./00-work.md)\n", "utf8");
+      const integrationLine = "- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.";
+      writeFileSync(firstSubspecPath, `# Work\n\n## Acceptance criteria\n\n- [ ] Work\n${integrationLine}\n`, "utf8");
+      const finalizedScopes: Array<string | undefined> = [];
+      const step: WriteWorkflowStep = {
+        ...createStep({
+          stepId: "implement",
+          role: "implement",
+          branchName: "harness-verified-integration",
+          promptId: "implement.prompt.body",
+          stepRules: IMPLEMENT_WRITE_STEP_RULES,
+          specPath: realpathSync(indexPath),
+          expectedArtifactPath: realpathSync(indexPath),
+          suppressShrink: true,
+          createBinding: ({ agentId, adapterModel }) => ({
+            id: `${agentId}/${adapterModel}`,
+            metadata: { agent: agentId, model: adapterModel },
+            invoke: async () => {
+              writeFileSync(firstSubspecPath, readFileSync(firstSubspecPath, "utf8").replaceAll("- [ ]", "- [x]"));
+              writeFileSync(join(projectRoot, "feature.ts"), "export const feature = true;\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" } as const;
+            },
+          }),
+        }),
+        externalPlanSpec: true,
+        specReadRoot: realpathSync(specReadRoot),
+        linkedIndexRouting: true,
+        worktree: {
+          projectRoot,
+          projectName: "demo",
+          branchName: "harness-verified-integration",
+          baseRef: "HEAD",
+          git: false,
+          localPath: projectRoot,
+        },
+        withExternalWorktree: async <T>(
+          _args: { branchName: string; projectName: string },
+          run: (worktree: ExternalWorktree) => Promise<T> | T,
+        ): Promise<WithExternalWorktreeResult<T>> => ({
+          worktree: { path: projectRoot, reused: true },
+          lock: { kind: "acquired" },
+          value: await run({ path: projectRoot, reused: true }),
+        }),
+      };
+      try {
+        await withStateStore(async (store) => {
+          const result = await executeWorkflow({
+            steps: [step],
+            stateStore: store,
+            completionCommitter: async () => ({ commitSha: "commit-1" }),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async (input) => {
+              finalizedScopes.push(input.requiredIntegrationScope);
+              if (failIntegration) throw new ReadyGateError("bun run test:integration:v2", 1, "red");
+            },
+          });
+          expect(result.kind).toBe(failIntegration ? "ready_gate_failed" : "complete");
+        });
+        expect(finalizedScopes.length).toBeGreaterThan(0);
+        expect(new Set(finalizedScopes)).toEqual(new Set(["test:integration:v2"]));
+        expect(readFileSync(firstSubspecPath, "utf8")).not.toContain("## Blocker");
+        expect(readFileSync(indexPath, "utf8")).toContain("- [x] [Work](./00-work.md)");
+      } finally {
+        rmSync(projectRoot, { recursive: true, force: true });
+        rmSync(specReadRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
   test("commits only code from an external linked implement", async () => {
     const projectKey = "Org/External-Git-Surfaces";
     const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(

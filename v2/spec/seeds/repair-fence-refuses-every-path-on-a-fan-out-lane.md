@@ -24,7 +24,11 @@ That is the **entire** tracked set of `v1/spec/completed/**/verdict-*.md` files 
 - **Not a stale base ref.** Those files last changed in `07e770208` (2026-06-19) and have been on `main` for three months, so no plausible base makes them appear in a `base…HEAD` diff.
 - **Not actual staged state.** At settle time the refused paths are in neither lane's `merge-base…HEAD` diff, not present in `git diff --cached` on either worktree, and not dirty in `git status`.
 
-## The discriminator
+## Discriminator falsified (2026-09-13, same session)
+
+The section below proposed fan-out as the discriminator on 2 refusing lanes vs 1 non-refusing. The **third fan-out lane then settled `ready_gate_out_of_scope`**, not the fence refusal — so fan-out does not predict this shape, and the hypothesis is 2 of 3 at best. Read the next section as the observation that motivated the seed, not as a finding. What still holds: two lanes refused against the entire 305-file frozen-`v1` verdict corpus, those paths were absent from both lanes' diff, index and worktree, and resume replays the stored refusal instantly instead of re-deriving. See [[out-of-scope-probe-blames-main-for-the-lane-s-own-regression]] for what that third lane did instead.
+
+## The discriminator (falsified — kept for context)
 
 The lanes that hit this are the two **fan-out** lanes of one pipeline — the shape whose spec lives in a *prior stage's* worktree and is copied into the implement worktree. The same pipeline's **single-lane** chained implement (`guard-flip-derivation-crash-is-contained`) reached its gate in the same session and did **not** hit the fence; the third fan-out lane never reached the gate (it was refused for gate-slot contention first). So: every fan-out lane that reached the gate refused; the non-fan-out lane that reached the gate did not. Small sample (2 vs 1), but it is the sharpest signal available and is where diagnosis should start.
 

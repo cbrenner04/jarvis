@@ -463,7 +463,7 @@ Publication rows select one closed landing hook: `intent-stage`, `plan-tree`, or
 
 ## Publication idempotency
 
-When a split's output branch (`intent/<slug>` or `plan/<name>`) already has a merged PR on the base ref, `findOrCreatePr` treats that merged PR as evidence of an already-published split and returns it as an idempotent success without creating a second PR. The check is keyed on the branch name and base ref, not file content or run id. If the merged PR's branch was deleted after merge and recreated from base, re-publication returns the original merged PR and does not open a duplicate. Only merged PRs are short-circuited; an open PR on the same branch uses the existing reuse path unchanged.
+`findOrCreatePr` resolves by open PRs only, keyed on branch name and base ref; merged and closed history is never consulted. Zero matching open PRs creates a fresh draft and confirms it by number. Exactly one matching open PR is reused unchanged (no retitle, no draft-state change). More than one matching open PR refuses with a named ambiguous-match error listing both numbers. A matching open PR that has left draft state refuses before body refresh with a named error naming the PR number, branch, expected draft state, and recovery (mark it draft again, or close/merge it). If the branch's only PR history is merged or closed — for example a reused branch name whose prior PR already merged — publication opens a fresh draft rather than reusing the dead PR as evidence. `gh pr create` failing with "No commits between" (a reused branch with no diff beyond its old closed/merged PR) surfaces as a named no-publishable-commits error instead of the raw GitHub string.
 
 ## Pipeline terminal publication
 

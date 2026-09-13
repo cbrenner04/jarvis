@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
@@ -35,6 +35,8 @@ export type ReadyFinalizeInput = {
   worktreePath: string;
   branch: string;
   baseRef: string;
+  /** PR number this publication call resolved as the current open draft; the default flip targets it. */
+  prNumber?: number;
   requiredIntegrationScope?: string;
   signal?: AbortSignal;
   /** Records each finalization spawn's process group on the owning run row. */
@@ -66,6 +68,8 @@ export type ReadyGate = (
   },
 ) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
+/** Flips a draft ready by PR number rather than branch, so GitHub can't pick a different PR for the branch. */
+export type GhReadyFlipByNumber = (prNumber: number | undefined, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
@@ -82,7 +86,7 @@ type RuntimeSmokeVerificationRunner = (
 
 export type ReadyFinalizerSeams = {
   runReadyGate?: ReadyGate;
-  ghReadyFlip?: GhReadyFlip;
+  ghReadyFlip?: GhReadyFlipByNumber;
   delay?: Delay;
   retryNotice?: RetryNotice;
   asyncSubprocessRunner?: AsyncSubprocessRunner;
@@ -1104,8 +1108,8 @@ function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): Req
   };
 }
 
-async function defaultGhReadyFlip(branch: string, worktreePath: string): Promise<void> {
-  await realAsyncSubprocessRunner.runAsync("gh", ["pr", "ready", branch], worktreePath);
+async function defaultGhReadyFlip(prNumber: number | undefined, worktreePath: string): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync("gh", ["pr", "ready", String(prNumber)], worktreePath);
 }
 
 function ghFlipCombinedOutput(error: unknown): string {
@@ -1164,7 +1168,7 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
       throw new RuntimeSmokeFailedError(runtimeSmokeOutcome.command, runtimeSmokeOutcome.observation);
     }
     try {
-      await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
+      await flipWithRetry(() => ghReadyFlip(input.prNumber, input.worktreePath), delay, retryNotice);
     } catch (error) {
       if (runtimeSmokeOutcome !== undefined) {
         throw new ReadyFlipError(error instanceof Error ? error : new Error(String(error)), runtimeSmokeOutcome);

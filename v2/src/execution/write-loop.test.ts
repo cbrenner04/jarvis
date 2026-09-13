@@ -3636,6 +3636,24 @@ describe("write loop", () => {
       expect(observedReadyCommand).toBe("npm run verify");
     });
 
+    test("passes the published PR number to the ready finalizer", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      let observedPrNumber: number | undefined;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        completionPublisher: async () => ({ prNumber: 99 }),
+        readyFinalizer: async (finalizeInput) => {
+          observedPrNumber = finalizeInput.prNumber;
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(observedPrNumber).toBe(99);
+    });
+
     test("routes markdown-only workflow prompts around the ready gate", async () => {
       const calls: string[] = [];
       const readyFinalizer = createReadyFinalizer({

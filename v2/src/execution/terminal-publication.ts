@@ -1,7 +1,11 @@
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { OpenPrNotDraftError, resolveOpenDraftPr } from "./completion-publisher.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
-import { type GhReadyFlip, type ReadyGate, ReadyGateError } from "./ready-finalize.ts";
+import { type GhReadyFlip, type GhReadyFlipByNumber, type ReadyGate, ReadyGateError } from "./ready-finalize.ts";
+
+/** Raw `gh` command runner used for pre-flip open-draft resolution (`gh pr list` / `gh pr view`). */
+type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 
 export type TerminalPublicationInput = {
   terminalAction: PipelineTerminalAction;
@@ -31,7 +35,9 @@ export class TerminalPublicationError extends Error {
 
 type TerminalPublicationSeams = {
   runReadyGate?: ReadyGate;
-  ghReadyFlip?: GhReadyFlip;
+  /** Raw `gh` command runner for the pre-flip open-draft re-resolution; independent of `ghReadyFlip`. */
+  gh?: GhCommand;
+  ghReadyFlip?: GhReadyFlipByNumber;
   ghMerge?: GhReadyFlip;
   ghClose?: GhReadyFlip;
   ghDelete?: GhReadyFlip;
@@ -39,7 +45,8 @@ type TerminalPublicationSeams = {
 
 type PublicationDeps = {
   runReadyGate: ReadyGate;
-  ghReadyFlip: GhReadyFlip;
+  gh: GhCommand;
+  ghReadyFlip: GhReadyFlipByNumber;
   ghMerge: GhReadyFlip;
   ghClose: GhReadyFlip;
   ghDelete: GhReadyFlip;
@@ -124,14 +131,57 @@ async function runReadyGateOrFail(
   }
 }
 
+/**
+ * Re-resolves the branch's current open draft immediately before flipping, instead of trusting
+ * the persisted `prNumber` this call was handed — that number can predate a terminal action
+ * running long after an earlier publication reused the branch. Refuses directly with a
+ * `TerminalPublicationError` on an open non-draft or no open draft at all, before `gh pr ready`
+ * runs and before `failTerminalPublication`'s close/delete cleanup, which would destroy the PR
+ * evidence this refusal's recovery text points the operator back to.
+ */
+async function resolveReadyFlipTarget(
+  input: TerminalPublicationInput,
+  prNumber: number,
+  prUrl: string,
+  deps: PublicationDeps,
+): Promise<number> {
+  let resolved: { number: number; url: string } | undefined;
+  try {
+    resolved = await resolveOpenDraftPr(deps.gh, input.worktreePath, input.branch, input.baseRef);
+  } catch (error) {
+    if (error instanceof OpenPrNotDraftError) {
+      throw new TerminalPublicationError(
+        input.terminalAction,
+        { operation: "gh pr ready", message: error.message },
+        prNumber,
+        prUrl,
+      );
+    }
+    throw error;
+  }
+  if (resolved === undefined) {
+    throw new TerminalPublicationError(
+      input.terminalAction,
+      {
+        operation: "gh pr ready",
+        message: `No open draft PR found for branch ${input.branch} targeting ${input.baseRef}: nothing to flip ready.`,
+      },
+      prNumber,
+      prUrl,
+    );
+  }
+  return resolved.number;
+}
+
 async function runReadyFlipOrFail(
   input: TerminalPublicationInput,
   prNumber: number,
   prUrl: string,
   deps: PublicationDeps,
 ): Promise<void> {
+  const resolvedPrNumber = await resolveReadyFlipTarget(input, prNumber, prUrl, deps);
   try {
-    await deps.ghReadyFlip(input.branch, input.worktreePath);
+    await deps.ghReadyFlip(resolvedPrNumber, input.worktreePath);
   } catch (error) {
     await failTerminalPublication(
       input,
@@ -187,6 +237,14 @@ async function defaultGhPr(subcommand: "ready" | "merge", branch: string, worktr
   await realAsyncSubprocessRunner.runAsync("gh", ["pr", subcommand, branch], worktreePath);
 }
 
+async function defaultGhReadyFlipByNumber(prNumber: number | undefined, worktreePath: string): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync("gh", ["pr", "ready", String(prNumber)], worktreePath);
+}
+
+async function defaultGhCommand(cwd: string, args: readonly string[]): Promise<string> {
+  return (await realAsyncSubprocessRunner.runAsync("gh", [...args], cwd)).trim();
+}
+
 async function defaultRunReadyGate(): Promise<void> {
   throw new Error("runReadyGate seam is required for ready and merge terminal actions");
 }
@@ -196,7 +254,8 @@ const noopGh: GhReadyFlip = async () => {};
 export function createExecuteTerminalPublication(seams?: TerminalPublicationSeams) {
   const deps: PublicationDeps = {
     runReadyGate: seams?.runReadyGate ?? defaultRunReadyGate,
-    ghReadyFlip: seams?.ghReadyFlip ?? ((branch, worktreePath) => defaultGhPr("ready", branch, worktreePath)),
+    gh: seams?.gh ?? defaultGhCommand,
+    ghReadyFlip: seams?.ghReadyFlip ?? defaultGhReadyFlipByNumber,
     ghMerge: seams?.ghMerge ?? ((branch, worktreePath) => defaultGhPr("merge", branch, worktreePath)),
     ghClose: seams?.ghClose ?? noopGh,
     ghDelete: seams?.ghDelete ?? noopGh,

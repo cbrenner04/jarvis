@@ -16,6 +16,7 @@ type OperatorIncidentKind =
   | "publication-failure"
   | "run-blocked"
   | "run-budget-soft-stopped"
+  | "run-paused"
   | "run-ad-hoc-terminal";
 
 /** One operator-actionable incident at derived altitude. */
@@ -121,6 +122,11 @@ function previewPipelineIncidentKeys(
   return keys;
 }
 
+/** Resumable stops reuse their row; the status-write timestamp separates each stop from the last. */
+function resumableStopTransition(run: Run): string {
+  return `${run.status}:${run.statusChangedAt ?? run.createdAt}`;
+}
+
 function previewRunIncidentKeys(
   run: Run,
   suppressedInvocationIds: ReadonlySet<string>,
@@ -132,10 +138,13 @@ function previewRunIncidentKeys(
   }
 
   if (run.status === "budget-soft-stopped") {
-    return [{ incidentId: runIncidentId(run.id), transition: "budget-soft-stopped" }];
+    return [{ incidentId: runIncidentId(run.id), transition: resumableStopTransition(run) }];
   }
   if (run.status === "blocked") {
     return [{ incidentId: runIncidentId(run.id), transition: "blocked" }];
+  }
+  if (run.status === "paused") {
+    return [{ incidentId: runIncidentId(run.id), transition: resumableStopTransition(run) }];
   }
   if (run.workflowSnapshot !== undefined && !pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
     return [{ incidentId: runIncidentId(run.id), transition: `terminal:${run.status}` }];
@@ -356,11 +365,15 @@ function collectRunIncidents(
     }
 
     if (run.status === "budget-soft-stopped") {
-      pushRunIncident(incidents, run, "run-budget-soft-stopped", "budget-soft-stopped");
+      pushRunIncident(incidents, run, "run-budget-soft-stopped", resumableStopTransition(run));
       continue;
     }
     if (run.status === "blocked") {
       pushRunIncident(incidents, run, "run-blocked", "blocked");
+      continue;
+    }
+    if (run.status === "paused") {
+      pushRunIncident(incidents, run, "run-paused", resumableStopTransition(run));
       continue;
     }
     if (

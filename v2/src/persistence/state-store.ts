@@ -167,6 +167,8 @@ export type Run = {
   reconciledAt?: number | null;
   /** Unix epoch ms stamped by terminal status writes outside a completion boundary (`setRunStatus`, `commitGuardedKill`, `commitTerminalRunSettlement`); cleared when `setRunStatus` writes a non-terminal status. */
   finishedAt?: number | null;
+  /** Unix epoch ms of the latest status write after creation; null on rows never re-settled or pre-migration. */
+  statusChangedAt?: number | null;
   /** Process group id of the run's in-flight ready-gate test tree; null when no gate is in flight. */
   readyGatePgid?: number | null;
   readyGateRepairFence?: ReadyGateRepairFenceProvenance | null;
@@ -1095,7 +1097,8 @@ const SCHEMA = `
     dismissed_at INTEGER,
     terminal_cause TEXT,
     terminal_failure_detail TEXT,
-    operator_failure_record TEXT
+    operator_failure_record TEXT,
+    status_changed_at INTEGER
   );
   CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -1171,7 +1174,8 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   dismissed_at AS dismissedAt,
   terminal_cause AS terminalCause,
   terminal_failure_detail AS terminalFailureDetailJson,
-  operator_failure_record AS operatorFailureRecordJson`;
+  operator_failure_record AS operatorFailureRecordJson,
+  status_changed_at AS statusChangedAt`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -1264,6 +1268,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "runs", "terminal_cause", "TEXT");
   addColumnIfMissing(db, "runs", "terminal_failure_detail", "TEXT");
   addColumnIfMissing(db, "runs", "operator_failure_record", "TEXT");
+  addColumnIfMissing(db, "runs", "status_changed_at", "INTEGER");
   if (!tableExists(db, "pipelines")) {
     db.exec(`
       CREATE TABLE pipelines (
@@ -1745,6 +1750,7 @@ class StateStoreImpl implements StateStore {
     // Stores stamped `031-baseline-squash` before these columns existed skip `upgradeFromLegacyEra`;
     // the stamp is not proof every baseline column is present.
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
+    addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
@@ -2547,21 +2553,26 @@ class StateStoreImpl implements StateStore {
         this.validateTerminalCause(settlementEvidence.terminalCause);
         const finishedAt = Date.now();
         this.db
-          .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ?, finished_at = ? WHERE id = ?")
-          .run(args.runStatus, finishedAt, attempt.runId);
+          .prepare(
+            "UPDATE runs SET attempt_count = attempt_count + 1, status = ?, finished_at = ?, status_changed_at = ? WHERE id = ?",
+          )
+          .run(args.runStatus, finishedAt, finishedAt, attempt.runId);
         this.writeTerminalSettlementEvidence(attempt.runId, settlementEvidence);
         return;
       }
 
       this.db
-        .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ? WHERE id = ?")
-        .run(args.runStatus, attempt.runId);
+        .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ?, status_changed_at = ? WHERE id = ?")
+        .run(args.runStatus, Date.now(), attempt.runId);
     })();
   }
 
   setRunStatus(runId: string, status: RunStatus): void {
-    const finishedAt = isTerminalRunStatus(status) ? Date.now() : null;
-    this.db.prepare("UPDATE runs SET status = ?, finished_at = ? WHERE id = ?").run(status, finishedAt, runId);
+    const changedAt = Date.now();
+    const finishedAt = isTerminalRunStatus(status) ? changedAt : null;
+    this.db
+      .prepare("UPDATE runs SET status = ?, finished_at = ?, status_changed_at = ? WHERE id = ?")
+      .run(status, finishedAt, changedAt, runId);
   }
 
   commitGuardedKill(runId: string): void {
@@ -2570,7 +2581,9 @@ class StateStoreImpl implements StateStore {
       if (!row) throw new Error(`Run ${runId} not found`);
       if (isBoundaryTerminalRunStatus(row.status)) return;
       const finishedAt = Date.now();
-      this.db.prepare("UPDATE runs SET status = 'killed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
+      this.db
+        .prepare("UPDATE runs SET status = 'killed', finished_at = ?, status_changed_at = ? WHERE id = ?")
+        .run(finishedAt, finishedAt, runId);
     })();
   }
 
@@ -2585,8 +2598,8 @@ class StateStoreImpl implements StateStore {
 
       const finishedAt = Date.now();
       this.db
-        .prepare("UPDATE runs SET status = ?, finished_at = ? WHERE id = ?")
-        .run(args.status, finishedAt, args.runId);
+        .prepare("UPDATE runs SET status = ?, finished_at = ?, status_changed_at = ? WHERE id = ?")
+        .run(args.status, finishedAt, finishedAt, args.runId);
 
       this.writeTerminalSettlementEvidence(args.runId, args);
     };

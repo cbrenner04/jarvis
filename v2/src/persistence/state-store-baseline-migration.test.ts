@@ -424,4 +424,24 @@ describe("state store baseline migration", () => {
       store.close();
     }
   });
+
+  test("stamped baseline databases repair a missing status_changed_at column and status writes stamp it", () => {
+    const ids = createPreSquashFixtureDb(legacyDbPath);
+    const raw = new Database(legacyDbPath);
+    raw.exec("DELETE FROM _migrations");
+    raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES ('031-baseline-squash', ?)").run(Date.now());
+    const columnsBefore = raw.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
+    raw.close();
+    expect(columnsBefore.some((column) => column.name === "status_changed_at")).toBe(false);
+
+    const store = openStateStore(legacyDbPath);
+    try {
+      expect(store.loadRun(ids.runId)?.statusChangedAt).toBeNull();
+      const before = Date.now();
+      store.setRunStatus(ids.runId, "paused");
+      expect(store.loadRun(ids.runId)?.statusChangedAt).toBeGreaterThanOrEqual(before);
+    } finally {
+      store.close();
+    }
+  });
 });

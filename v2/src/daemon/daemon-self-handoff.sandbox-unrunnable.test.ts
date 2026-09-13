@@ -59,18 +59,21 @@ async function isSupersededOrUnavailable(socketPath: string): Promise<boolean> {
   }
 }
 
-/** Plays the successor's half of the real changeover protocol and commits it, without spawning a
- * process: requests `changeover` from the incumbent's public socket, then answers `handoff_commit`
- * on the private endpoint it was handed. */
-async function fakeSuccessor(publicSocketPath: string): Promise<"committed" | "rolled_back"> {
+/** Requests `changeover` from the incumbent's public socket and returns the private endpoint and
+ * handoff id it was handed, shared by every fake successor below. */
+async function acceptChangeover(publicSocketPath: string): Promise<{ privateSocketPath: string; handoffId: string }> {
   const changeoverFrame = await request(publicSocketPath, "changeover");
   if (changeoverFrame.kind !== "response") {
     throw new Error(`changeover failed: ${JSON.stringify(changeoverFrame)}`);
   }
-  const { privateSocketPath, handoffId } = (changeoverFrame as ResponseFrame).result as {
-    privateSocketPath: string;
-    handoffId: string;
-  };
+  return (changeoverFrame as ResponseFrame).result as { privateSocketPath: string; handoffId: string };
+}
+
+/** Plays the successor's half of the real changeover protocol and commits it, without spawning a
+ * process: accepts the changeover, then answers `handoff_commit` on the private endpoint it was
+ * handed. */
+async function fakeSuccessor(publicSocketPath: string): Promise<"committed" | "rolled_back"> {
+  const { privateSocketPath, handoffId } = await acceptChangeover(publicSocketPath);
   const settleFrame = await request(privateSocketPath, "handoff_commit", { handoffId });
   if (settleFrame.kind !== "response") {
     throw new Error(`handoff settle failed: ${JSON.stringify(settleFrame)}`);
@@ -84,14 +87,7 @@ async function fakeSuccessor(publicSocketPath: string): Promise<"committed" | "r
  * transaction it was handed (exactly as `startDaemon`'s own failure path does) before surfacing
  * the failure as a rejection. */
 async function fakeFailingSuccessor(publicSocketPath: string): Promise<never> {
-  const changeoverFrame = await request(publicSocketPath, "changeover");
-  if (changeoverFrame.kind !== "response") {
-    throw new Error(`changeover failed: ${JSON.stringify(changeoverFrame)}`);
-  }
-  const { privateSocketPath, handoffId } = (changeoverFrame as ResponseFrame).result as {
-    privateSocketPath: string;
-    handoffId: string;
-  };
+  const { privateSocketPath, handoffId } = await acceptChangeover(publicSocketPath);
   await request(privateSocketPath, "handoff_rollback", { handoffId });
   throw new Error("simulated successor startup failure");
 }

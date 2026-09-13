@@ -31,14 +31,18 @@ Treat the interval from accepted changeover through successor readiness as a han
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` gains a regression that fails against the pre-fix one-way retiring state by sending a rollback request directly to the incumbent's private endpoint after cutoff, then proves the incumbent again answers and accepts new work at the stable public address.
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves work admitted by the incumbent before the failed handoff remains live throughout rollback and reaches its normal outcome.
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves a commit request keeps the stable public listener with the successor while the incumbent remains non-admitting at its private endpoint, and a late rollback sent after commit does not reopen it.
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves repeated matching rollback requests leave exactly one admitting public listener.
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves a commit or rollback request carrying an unknown or stale handoff identity is rejected and leaves ownership unchanged.
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves an idle incumbent with no active runs survives while its handoff is pending instead of exiting on drain-exit.
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves that when no commit or rollback request arrives before the liveness-fallback deadline, the incumbent rolls back after finding no live daemon at the stable public address; it fails against the pre-fix code, which never resolves an unanswered pending handoff.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` gains a regression that fails against the pre-fix one-way retiring state by sending a rollback request directly to the incumbent's private endpoint after cutoff, then proves the incumbent again answers and accepts new work at the stable public address.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves work admitted by the incumbent before the failed handoff remains live throughout rollback and reaches its normal outcome.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves a commit request keeps the stable public listener with the successor while the incumbent remains non-admitting at its private endpoint, and a late rollback sent after commit does not reopen it.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves repeated matching rollback requests leave exactly one admitting public listener.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves a commit or rollback request carrying an unknown or stale handoff identity is rejected and leaves ownership unchanged.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves an idle incumbent with no active runs survives while its handoff is pending instead of exiting on drain-exit.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` proves that when no commit or rollback request arrives before the liveness-fallback deadline, the incumbent rolls back after finding no live daemon at the stable public address; it fails against the pre-fix code, which never resolves an unanswered pending handoff.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+
+## Verification
+
+- `bun run typecheck`, `bun run test:v2`, and the added changeover integration file pass. `bun run test:integration:v2` remains red only in two pre-existing `generation-drain-and-exit.sandbox-unrunnable.test.ts` cases; the same failures reproduce at merge-base `980a086afc89823d989484fd4f4a41238c39c3e9`.
 
 ## Documentation updates
 

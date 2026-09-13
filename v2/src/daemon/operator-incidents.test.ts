@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -56,6 +56,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSystemTime();
   store.close();
   removeOrchestrationStore(dbPath);
 });
@@ -189,4 +190,110 @@ test("pipeline and stage incidents emit project from entry runs and null when un
   const awaitingIncident = awaitingIncidents[0];
   if (awaitingIncident === undefined) throw new Error("expected awaiting approval incident");
   expect(JSON.parse(serializeOperatorIncident(awaitingIncident))).toMatchObject({ project: null });
+});
+
+function seedPausedRun(
+  branch: string,
+  workflowSnapshot?: { invocationId: string; steps: { stepId: string; role: "plan" }[] },
+): string {
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/worktree",
+    branch,
+    specPath: "spec.md",
+    ...(workflowSnapshot !== undefined ? { stepId: "plan", workflowSnapshot } : {}),
+  });
+  store.commitCompletionBoundary({
+    attemptId: store.recordAttemptStart(runId),
+    runStatus: "paused",
+    outcomeKind: "missing_blocker",
+  });
+  return runId;
+}
+
+function linkRunningStage(entryRunId: string, status: "running" | "failed"): string {
+  const pipelineId = store.createPipeline({
+    definition: { name: "linked", stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }] },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "plan",
+    patch: {
+      status,
+      workflowInvocationId: entryRunId,
+      ...(status === "failed" ? { failureDetail: { message: "failed" } } : {}),
+    },
+  });
+  return pipelineId;
+}
+
+test("ad-hoc paused run emits run-paused", () => {
+  const runId = seedPausedRun("ad-hoc");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "run-paused", runId, cause: "paused", project: "demo" }),
+  ]);
+});
+
+test("pipeline-attributed paused run emits run-paused while its stage stays running", () => {
+  const snapshot = { invocationId: "inv-paused", steps: [{ stepId: "plan", role: "plan" as const }] };
+  const runId = seedPausedRun("attributed", snapshot);
+  linkRunningStage(runId, "running");
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "run-paused", runId })]);
+});
+
+function expectResumableStopNotifiesTwice(status: "paused" | "budget-soft-stopped", kind: string): void {
+  setSystemTime(new Date(1_000_000));
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: status,
+    specPath: "spec.md",
+  });
+  store.setRunStatus(runId, status);
+  const [first] = deriveOperatorIncidents(store);
+  if (first === undefined) throw new Error("expected first stop incident");
+  expect(first).toMatchObject({ kind, runId, transition: `${status}:1000000` });
+  store.tryRecordNotificationDelivery({ incidentId: first.incidentId, transition: first.transition, deliveredAt: 1 });
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  setSystemTime(new Date(1_000_500));
+  store.setRunStatus(runId, "in-progress");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+  setSystemTime(new Date(1_001_000));
+  store.setRunStatus(runId, status);
+
+  expect(store.loadRun(runId)?.attemptCount).toBe(0);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind, runId, transition: `${status}:1001000` }),
+  ]);
+}
+
+test("pause, resume, pause without a new attempt notifies twice", () => {
+  expectResumableStopNotifiesTwice("paused", "run-paused");
+});
+
+test("soft-stop, resume, soft-stop notifies twice", () => {
+  expectResumableStopNotifiesTwice("budget-soft-stopped", "run-budget-soft-stopped");
+});
+
+test("queued and in-progress runs emit nothing", () => {
+  const queuedRunId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "q",
+    specPath: "spec.md",
+  });
+  patchRunRow(queuedRunId, { status: "queued" });
+  store.createRun({ project: "demo", specRef: "HEAD", worktreePath: "/tmp/w", branch: "p", specPath: "spec.md" });
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("paused run under a failed stage's invocation is suppressed", () => {
+  const entryRunId = seedWorkflowStageEntryRun("demo", "inv-failed", "plan");
+  seedPausedRun("sibling", { invocationId: "inv-failed", steps: [{ stepId: "plan", role: "plan" }] });
+  const pipelineId = linkRunningStage(entryRunId, "failed");
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
 });

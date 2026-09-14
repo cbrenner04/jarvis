@@ -6,7 +6,24 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshotRealHome } from "./real-home-guard.ts";
+import { diffRealHomeSnapshots, type RealHomeSnapshot, snapshotRealHome } from "./real-home-guard.ts";
+
+test("sessions/ diff reports the entry new in after, not the entry already present in before", () => {
+  // Inverting `!beforeSessions.has(entry)` to `beforeSessions.has(entry)` would flip this: the
+  // pre-existing entry would wrongly be reported and the genuinely new one would be missed.
+  const before: RealHomeSnapshot = {
+    sessionEntries: ["existing.log"],
+    specEntries: [],
+    telemetry: null,
+  };
+  const after: RealHomeSnapshot = {
+    sessionEntries: ["existing.log", "leaked-session.log"],
+    specEntries: [],
+    telemetry: null,
+  };
+
+  expect(diffRealHomeSnapshots(before, after)).toEqual(["sessions/leaked-session.log"]);
+});
 
 test("specs/ walk recurses past the first level: entries below SPECS_WALK_MAX_DEPTH are still listed", () => {
   const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-boundary-test-"));

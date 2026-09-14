@@ -1,6 +1,6 @@
 import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { jarvisHome } from "../paths.ts";
 
 export type SessionLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 
@@ -15,7 +15,7 @@ export type SessionLogOptions = {
 };
 
 function defaultSessionsDir(): string {
-  return join(homedir(), ".jarvis", "sessions");
+  return join(jarvisHome(), "sessions");
 }
 
 function splitLines(text: string): string[] {

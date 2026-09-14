@@ -84,6 +84,16 @@ async function rejectsConnect(): Promise<never> {
 
 const PREDECESSOR_SOCKET_PATH = "/private/predecessor.sock";
 
+/** Routes every run to `owner` with an inert local handler, for tests that only exercise forwarding. */
+function forwardingRunHandlers(owner: ReturnType<typeof ownerClient>) {
+  return createStableRunHandlers(localHandlers([]), {
+    predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+    ownsRunLocally: () => false,
+    resolvePredecessorOwner: async () => true,
+    connectOwnerClient: async () => owner.client,
+  });
+}
+
 describe("stable run unary routing", () => {
   test("defers initial-empty ownership until refresh and routes to the direct owner", async () => {
     const refresh = deferred<boolean>();
@@ -195,12 +205,7 @@ describe("stable run unary routing", () => {
 
   test("pause preserves complete params and owner application errors unchanged", async () => {
     const owner = ownerClient({ kind: "error", code: "owner_refusal", message: "owner says no" });
-    const handlers = createStableRunHandlers(localHandlers([]), {
-      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
-      ownsRunLocally: () => false,
-      resolvePredecessorOwner: async () => true,
-      connectOwnerClient: async () => owner.client,
-    });
+    const handlers = forwardingRunHandlers(owner);
     const params = { runId: "run-1", futureField: { preserved: true } };
 
     expect(await handlers.pause(frame("pause", params), new AbortController().signal)).toEqual({
@@ -240,12 +245,7 @@ describe("stable run unary routing", () => {
 
   test("an already-cancelled request closes its private transport without sending", async () => {
     const owner = ownerClient();
-    const handlers = createStableRunHandlers(localHandlers([]), {
-      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
-      ownsRunLocally: () => false,
-      resolvePredecessorOwner: async () => true,
-      connectOwnerClient: async () => owner.client,
-    });
+    const handlers = forwardingRunHandlers(owner);
     const controller = new AbortController();
     controller.abort();
 
@@ -342,6 +342,20 @@ const noopLocalHandler: StreamHandler = async (_streamId, _payload, _onData, onC
 };
 
 const STABLE_TAIL_PREDECESSOR_SOCKET_PATH = "/private/predecessor-tail.sock";
+
+/** Routes every run to `owner` with `localHandler` (default: inert), for tests that exercise
+ * forwarding rather than the local-vs-owner decision. */
+function forwardingTailHandler(
+  owner: ReturnType<typeof streamOwnerClient>,
+  localHandler: StreamHandler = noopLocalHandler,
+): StreamHandler {
+  return createStableTailStreamHandler(localHandler, {
+    predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+    ownsRunLocally: () => false,
+    resolvePredecessorOwner: async () => true,
+    connectOwnerClient: async () => owner.client,
+  });
+}
 
 describe("stable tail stream routing", () => {
   test("a run this generation owns stays local without resolving predecessor ownership", async () => {
@@ -468,12 +482,7 @@ describe("stable tail stream routing", () => {
 
   test("forwards the original payload unchanged and relays owner records in arrival order, ending normally on owner stream-end", async () => {
     const owner = streamOwnerClient();
-    const handler = createStableTailStreamHandler(noopLocalHandler, {
-      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
-      ownsRunLocally: () => false,
-      resolvePredecessorOwner: async () => true,
-      connectOwnerClient: async () => owner.client,
-    });
+    const handler = forwardingTailHandler(owner);
 
     const onData: unknown[] = [];
     let closed = 0;
@@ -506,12 +515,7 @@ describe("stable tail stream routing", () => {
 
   test("an owner error stream-end rejects with the owner's message instead of closing successfully", async () => {
     const owner = streamOwnerClient();
-    const handler = createStableTailStreamHandler(noopLocalHandler, {
-      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
-      ownsRunLocally: () => false,
-      resolvePredecessorOwner: async () => true,
-      connectOwnerClient: async () => owner.client,
-    });
+    const handler = forwardingTailHandler(owner);
 
     let closed = 0;
     const pending = handler(
@@ -531,12 +535,7 @@ describe("stable tail stream routing", () => {
 
   test("owner disconnect mid-follow rejects instead of closing successfully", async () => {
     const owner = streamOwnerClient();
-    const handler = createStableTailStreamHandler(noopLocalHandler, {
-      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
-      ownsRunLocally: () => false,
-      resolvePredecessorOwner: async () => true,
-      connectOwnerClient: async () => owner.client,
-    });
+    const handler = forwardingTailHandler(owner);
 
     let closed = 0;
     const onData: unknown[] = [];
@@ -560,12 +559,7 @@ describe("stable tail stream routing", () => {
 
   test("caller cancellation aborts the owner connection and ends the caller stream without error", async () => {
     const owner = streamOwnerClient();
-    const handler = createStableTailStreamHandler(noopLocalHandler, {
-      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
-      ownsRunLocally: () => false,
-      resolvePredecessorOwner: async () => true,
-      connectOwnerClient: async () => owner.client,
-    });
+    const handler = forwardingTailHandler(owner);
 
     const controller = new AbortController();
     let closed = 0;
@@ -590,12 +584,7 @@ describe("stable tail stream routing", () => {
 
   test("an already-cancelled caller closes the owner connection without sending", async () => {
     const owner = streamOwnerClient();
-    const handler = createStableTailStreamHandler(noopLocalHandler, {
-      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
-      ownsRunLocally: () => false,
-      resolvePredecessorOwner: async () => true,
-      connectOwnerClient: async () => owner.client,
-    });
+    const handler = forwardingTailHandler(owner);
 
     const controller = new AbortController();
     controller.abort();

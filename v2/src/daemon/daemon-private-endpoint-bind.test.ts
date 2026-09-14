@@ -39,6 +39,25 @@ function fakeServer(boundPaths: string[], closedPaths: string[]) {
   };
 }
 
+/** Resolves every runId to the predecessor at `/fake/predecessor.sock` and records each attempted
+ * owner connection into `ownerConnectAttempts`, throwing so the caller sees a distinct forwarding
+ * attempt rather than a coincidental success. */
+function alwaysPredecessorOwnedDeps(ownerConnectAttempts: string[]) {
+  return {
+    predecessorSocketPath: "/fake/predecessor.sock",
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      resolveOwner: async () => true,
+      stop: () => undefined,
+    }),
+    connectRunOwnerClient: async (socketPath: string) => {
+      ownerConnectAttempts.push(socketPath);
+      throw new Error("no real owner in this test");
+    },
+  };
+}
+
 test("binds only the public socket when no private path is injected", async () => {
   const boundPaths: string[] = [];
   const closedPaths: string[] = [];
@@ -181,20 +200,8 @@ test("binds direct-owner routing only on the stable endpoint so private calls ca
       return { socketPath, close: async () => undefined };
     },
     privateSocketPath: "/fake/private.sock",
-    predecessorSocketPath: "/fake/predecessor.sock",
     enumerateOtherDaemonSockets: () => [],
-    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
-    // Resolves every runId to the predecessor: a routing handler would forward, the local handler
-    // never consults this at all.
-    observeRunOwnership: () => ({
-      ownerRow: () => undefined,
-      resolveOwner: async () => true,
-      stop: () => undefined,
-    }),
-    connectRunOwnerClient: async (socketPath) => {
-      ownerConnectAttempts.push(socketPath);
-      throw new Error("no real owner in this test");
-    },
+    ...alwaysPredecessorOwnedDeps(ownerConnectAttempts),
   });
 
   const privatePause = boundHandlers.get("/fake/private.sock")?.pause;
@@ -252,20 +259,8 @@ test("binds direct-owner stream routing only on the stable endpoint so private t
       return { socketPath, close: async () => undefined };
     },
     privateSocketPath: "/fake/private.sock",
-    predecessorSocketPath: "/fake/predecessor.sock",
     enumerateOtherDaemonSockets: () => [],
-    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
-    // Resolves every runId to the predecessor: a routing handler would forward, the local handler
-    // never consults this at all.
-    observeRunOwnership: () => ({
-      ownerRow: () => undefined,
-      resolveOwner: async () => true,
-      stop: () => undefined,
-    }),
-    connectRunOwnerClient: async (socketPath) => {
-      ownerConnectAttempts.push(socketPath);
-      throw new Error("no real owner in this test");
-    },
+    ...alwaysPredecessorOwnedDeps(ownerConnectAttempts),
   });
 
   const privateStream = boundStreamHandlers.get("/fake/private.sock");

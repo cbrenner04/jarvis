@@ -23,4 +23,4 @@ name: telemetry-caps-exit-reason-blobs
 
 ## Prerequisites
 
-- Session logs default to `join(jarvisHome(), "sessions")`, so tests exercising session-log content stay isolated from the real home.
+- Requires `session-logs-honor-jarvis-home` merged: session logs default to `join(jarvisHome(), "sessions")`, so tests exercising session-log content stay isolated from the real home.

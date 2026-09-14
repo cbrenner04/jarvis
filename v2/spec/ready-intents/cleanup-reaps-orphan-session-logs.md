@@ -24,5 +24,5 @@ The session-log reaper (`cleanup.sessionLogRetentionDays`, default 14) needs a t
 
 ## Prerequisites
 
-- Session logs default to `join(jarvisHome(), "sessions")`, so tests exercising session-log content stay isolated from the real home.
-- Telemetry rows cap `exit_reason` and `warnings` with the full text retained in the session log.
+- Requires `session-logs-honor-jarvis-home` merged: session logs default to `join(jarvisHome(), "sessions")`, so tests exercising session-log content stay isolated from the real home.
+- Requires `telemetry-caps-exit-reason-blobs` merged: telemetry rows cap `exit_reason` and `warnings` with the full text retained in the session log.

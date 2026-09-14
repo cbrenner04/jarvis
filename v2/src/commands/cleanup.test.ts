@@ -23,7 +23,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
-import { type SocketLiveness, startIpcServer } from "../ipc/server.ts";
+import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
@@ -3610,11 +3610,21 @@ describe("cleanup: legacy daemon artifact reaping", () => {
     const daemonClient: DaemonClient = async () => [];
     const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
     const preservedArtifacts = [...liveArtifacts, ...ambiguousArtifacts];
+    // A killed daemon's leftover socket is real dead residue, but on this platform Bun's connect()
+    // reports it (like any non-socket path) as ENOENT/absent, never ECONNREFUSED — see
+    // daemon-dead-socket-reclaim.sandbox-unrunnable.test.ts. Force "stale" for the dead unit's
+    // socket only; the live and ambiguous units are real listeners, so the real probe still
+    // exercises their classification.
+    const legacyDaemonArtifactDeps = {
+      isProcessAlive: () => false,
+      probeSocketLiveness: (path: string): Promise<SocketLiveness> =>
+        path === deadArtifacts[0] ? Promise.resolve("stale" as const) : probeSocketLiveness(path),
+    };
 
     try {
       let dryRunStdout = "";
       const dryRunCode = await runCleanupCommand(
-        { dryRun: true },
+        { dryRun: true, legacyDaemonArtifactDeps },
         registry,
         jarvisRoot,
         realAsyncSubprocessRunner,
@@ -3636,7 +3646,7 @@ describe("cleanup: legacy daemon artifact reaping", () => {
 
       let applyStdout = "";
       const applyCode = await runCleanupCommand(
-        { promptConfirm: async () => true },
+        { promptConfirm: async () => true, legacyDaemonArtifactDeps },
         registry,
         jarvisRoot,
         realAsyncSubprocessRunner,

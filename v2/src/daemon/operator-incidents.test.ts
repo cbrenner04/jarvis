@@ -593,3 +593,36 @@ test("ad-hoc run without an invocation still emits its terminal incident", () =>
     expect.objectContaining({ kind: "run-ad-hoc-terminal", runId, transition: "terminal:completed:1000000" }),
   ]);
 });
+
+test("review settled, publication not yet dispatched, still live emits nothing", () => {
+  const THREE_STEP = {
+    invocationId: "inv-three-step",
+    steps: [
+      { stepId: "plan", role: "plan" as const },
+      { stepId: "review", role: "review" as const },
+      { stepId: "publication", role: "publication" as const },
+    ],
+  };
+  const seed = (stepId: string): string => {
+    const runId = store.createRun({
+      project: "demo",
+      specRef: "HEAD",
+      worktreePath: "/tmp/w",
+      branch: "three-step",
+      specPath: "s.md",
+      stepId,
+      workflowSnapshot: THREE_STEP,
+    });
+    store.setRunStatus(runId, "completed");
+    return runId;
+  };
+  const entryRunId = seed("plan");
+  seed("review");
+  const live = { isWorkflowInvocationLive: (id: string) => id === entryRunId };
+  expect(deriveOperatorIncidents(store, Date.now(), live)).toEqual([]);
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  seed("publication");
+  expect(deriveOperatorIncidents(store, Date.now(), live)).toEqual([]);
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId: entryRunId, cause: "completed" })]);
+});

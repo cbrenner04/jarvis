@@ -1810,6 +1810,14 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
+    // Guarded: fixture and pre-migration stores can open without a `workflow_snapshot` column.
+    if (tableHasColumn(this.db, "runs", "workflow_snapshot")) {
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS runs_workflow_invocation_id
+          ON runs (json_extract(workflow_snapshot, '$.invocationId'))
+          WHERE workflow_snapshot IS NOT NULL
+      `);
+    }
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
@@ -2953,8 +2961,7 @@ class StateStoreImpl implements StateStore {
            WHERE status IN (${statusPlaceholders})
              AND (
                status NOT IN (${TERMINAL_RUN_STATUSES_SQL})
-               OR finished_at IS NULL
-               OR finished_at >= ?
+               OR COALESCE(finished_at, status_changed_at, created_at) >= ?
              )
            ORDER BY created_at DESC, rowid DESC`,
         )

@@ -5555,12 +5555,26 @@ describe("incident candidate list queries", () => {
     expect(second.map((run) => run.id).sort()).toEqual(first.map((run) => run.id).sort());
   });
 
-  test("listIncidentCandidateRuns retains terminal runs with null finished_at", () => {
-    const runId = seedRun(store);
-    patchRunRow(runId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
+  test("listIncidentCandidateRuns bounds terminal runs with null finished_at by status_changed_at, then created_at", () => {
+    const oldRunId = seedRun(store);
+    patchRunRow(oldRunId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
+    const recentRunId = seedRun(store);
+    patchRunRow(recentRunId, { status: "completed", finishedAt: null, createdAt: RECENT_MS });
+    const resettledRunId = seedRun(store);
+    patchRunRow(resettledRunId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE runs SET status_changed_at = ? WHERE id = ?").run(RECENT_MS, resettledRunId);
+    } finally {
+      raw.close();
+    }
 
-    const candidates = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS });
-    expect(candidates.map((run) => run.id)).toContain(runId);
+    const candidateIds = store
+      .listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS })
+      .map((run) => run.id);
+    expect(candidateIds).not.toContain(oldRunId);
+    expect(candidateIds).toContain(recentRunId);
+    expect(candidateIds).toContain(resettledRunId);
   });
 
   test("listIncidentCandidatePipelines excludes terminal pipelines settled before sinceMs", () => {

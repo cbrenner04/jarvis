@@ -91,12 +91,20 @@ function collectCandidateIncidentIds(
   return [...incidentIds];
 }
 
-function loadDeliveredIncidentKeys(store: StateStore, incidentIds: readonly string[]): Set<string> {
-  const delivered = new Set<string>();
+type DeliveredLedger = { keys: Set<string>; transitionsByIncident: Map<string, string[]> };
+
+function loadDeliveredLedger(store: StateStore, incidentIds: readonly string[]): DeliveredLedger {
+  const keys = new Set<string>();
+  const transitionsByIncident = new Map<string, string[]>();
   for (const row of store.listNotificationDeliveriesForIncidentIds(incidentIds)) {
-    delivered.add(deliveredIncidentKey(row.incidentId, row.transition));
+    keys.add(deliveredIncidentKey(row.incidentId, row.transition));
+    transitionsByIncident.set(row.incidentId, [...(transitionsByIncident.get(row.incidentId) ?? []), row.transition]);
   }
-  return delivered;
+  return { keys, transitionsByIncident };
+}
+
+function loadDeliveredIncidentKeys(store: StateStore, incidentIds: readonly string[]): Set<string> {
+  return loadDeliveredLedger(store, incidentIds).keys;
 }
 
 /** Reopened failed stages reuse their row; the settlement time separates each failure from the last. */
@@ -254,22 +262,60 @@ function findInvocationEntryRun(rows: readonly Run[]): Run | undefined {
   );
 }
 
-/** Group every candidate terminal workflow row's invocation with all of its durable rows. */
+function statusWriteMs(run: Run): number {
+  return run.statusChangedAt ?? run.finishedAt ?? run.createdAt;
+}
+
+function transitionTimestamp(transition: string): number {
+  return Number(transition.slice(transition.lastIndexOf(":") + 1));
+}
+
+/**
+ * True when the ledger already holds a terminal delivery for this invocation at or after the latest
+ * status write among its candidate rows. The latest-settled row is inside the recency window whenever
+ * any row is, so that write is the invocation-wide latest; only invocations whose entry row is itself
+ * a candidate can be judged this way — the rest load their siblings.
+ */
+function isInvocationDeliveredThrough(
+  ledger: DeliveredLedger,
+  candidateRows: readonly Run[],
+  latestWriteMs: number,
+): boolean {
+  const entryStepId = candidateRows[0]?.workflowSnapshot?.steps[0]?.stepId;
+  const entryRun = candidateRows.find((run) => run.stepId === entryStepId);
+  if (entryRun === undefined) return false;
+  const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
+  return transitions.some(
+    (transition) => transition.startsWith("terminal:") && transitionTimestamp(transition) >= latestWriteMs,
+  );
+}
+
+/**
+ * Group every candidate terminal workflow row's invocation with all of its durable rows, skipping
+ * invocations the ledger shows delivered through their latest visible settlement so the per-tick
+ * sibling load stays proportional to undelivered work, not to history inside the recency window.
+ */
 function collectWorkflowInvocations(
   store: StateStore,
   runs: readonly Run[],
+  ledger: DeliveredLedger,
   suppressedInvocationIds: ReadonlySet<string>,
   pipelineAttributedRunIds: ReadonlySet<string>,
 ): WorkflowInvocationRows[] {
-  const invocationIds = new Set<string>();
+  const candidateRowsByInvocation = new Map<string, Run[]>();
   for (const run of runs) {
     const invocationId = run.workflowSnapshot?.invocationId;
     if (
       invocationId !== undefined &&
       isInvocationRollupCandidate(run, suppressedInvocationIds, pipelineAttributedRunIds)
     ) {
-      invocationIds.add(invocationId);
+      candidateRowsByInvocation.set(invocationId, [...(candidateRowsByInvocation.get(invocationId) ?? []), run]);
     }
+  }
+  const invocationIds = new Set<string>();
+  for (const [invocationId, candidateRows] of candidateRowsByInvocation) {
+    const latestWriteMs = Math.max(...candidateRows.map(statusWriteMs));
+    if (!isInvocationDeliveredThrough(ledger, candidateRows, latestWriteMs)) invocationIds.add(invocationId);
   }
   if (invocationIds.size === 0) return [];
 
@@ -290,12 +336,7 @@ function collectWorkflowInvocations(
 
 /** The invocation's settlement time: its latest status write across every row. */
 function invocationSettledAt(rows: readonly Run[]): number {
-  let settledAt = 0;
-  for (const run of rows) {
-    const at = run.statusChangedAt ?? run.finishedAt ?? run.createdAt;
-    if (at > settledAt) settledAt = at;
-  }
-  return settledAt;
+  return Math.max(...rows.map(statusWriteMs));
 }
 
 type InvocationTerminal = { status: RunStatus; transition: string; sinceMs: number };
@@ -586,7 +627,8 @@ export function deriveOperatorIncidents(
   const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;
   const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
   const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
-  const delivered = loadDeliveredIncidentKeys(store, collectCandidateIncidentIds(candidatePipelines, candidateRuns));
+  const ledger = loadDeliveredLedger(store, collectCandidateIncidentIds(candidatePipelines, candidateRuns));
+  const delivered = ledger.keys;
 
   const activePipelines = candidatePipelines.filter(
     (pipeline) => !onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline)),
@@ -623,6 +665,7 @@ export function deriveOperatorIncidents(
   const invocations = collectWorkflowInvocations(
     store,
     candidateRuns,
+    ledger,
     suppressedInvocationIds,
     pipelineAttributedRunIds,
   );

@@ -16,7 +16,7 @@ import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts"
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { resolveSpecsHome } from "../config/specs-home.ts";
-import { jarvisHome, managedWorktreePath } from "../paths.ts";
+import { jarvisHome, managedWorktreePath, specsHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import {
@@ -172,7 +172,7 @@ function publish(
 
 type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[]; sourceRoot: string };
 function externalSpecsDir(jarvisRoot: string, projectKey: string, segment: string): string {
-  return join(jarvisRoot, "specs", projectSafeId(projectKey), segment);
+  return join(specsHome(projectKey, jarvisRoot), segment);
 }
 function resolveRealpathHome(home: string): string {
   try {
@@ -321,9 +321,9 @@ function resolveIntentInput(
   if (!project) return { error: `intent: no registered project matches ${input.cwd}` };
   const config = projectConfig(input.configPath, project);
   const plan = machineModePlan(input.configPath);
-  const specsHome = resolveSpecsHome(config, plan);
-  if (!specsHome.ok) return { error: `intent: ${specsHome.error}` };
-  const publishGit = specsHome.specsHome === "repo";
+  const specsHomeResolution = resolveSpecsHome(config, plan);
+  if (!specsHomeResolution.ok) return { error: `intent: ${specsHomeResolution.error}` };
+  const publishGit = specsHomeResolution.specsHome === "repo";
   const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")), !publishGit);
   if ("error" in seed) return seed;
   if (!seed.slug) return { error: "intent: seed does not produce a slug" };
@@ -356,7 +356,7 @@ function intentSource(
     const localPath = join(root, "intent-work", projectSafeId(project.key), seed.slug);
     const durableDir = publishGit
       ? join(targetDir, "ready-intents")
-      : join(root, "specs", projectSafeId(project.key), "ready-intents");
+      : join(specsHome(project.key, root), "ready-intents");
     const identity = {
       invocationId: input.invocationId ?? crypto.randomUUID(),
       project: project.key,
@@ -626,9 +626,9 @@ function planSource(
     if (!project) return { error: `plan: no registered project matches ${input.cwd}` };
     const config = projectConfig(input.configPath, project);
     const modePlan = machineModePlan(input.configPath);
-    const specsHome = resolveSpecsHome(config, modePlan);
-    if (!specsHome.ok) return { error: `plan: ${specsHome.error}` };
-    const git = specsHome.specsHome === "repo";
+    const specsHomeResolution = resolveSpecsHome(config, modePlan);
+    if (!specsHomeResolution.ok) return { error: `plan: ${specsHomeResolution.error}` };
+    const git = specsHomeResolution.specsHome === "repo";
     const resolvedReady = resolvePlanReadyIntentInput(input, project, git, deps);
     if ("error" in resolvedReady) return { error: resolvedReady.error };
     const { ready, readyIntentPath, landingInputPath, landingSourceRoot } = resolvedReady;
@@ -644,7 +644,7 @@ function planSource(
     const cwd = managedWorktreePath(root, project.key, branch);
     const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
     const specDir = join(target, `${timestamp}-${ready.name}`);
-    const externalPlanPath = join(root, "specs", projectSafeId(project.key), "plans", ready.name);
+    const externalPlanPath = join(specsHome(project.key, root), "plans", ready.name);
     const durableSpecPath = git ? specDir : externalPlanPath;
     const source: WriteWorkflowSourceStep = {
       behavior: "write",

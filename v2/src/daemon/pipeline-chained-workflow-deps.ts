@@ -6,7 +6,7 @@ import { type ResolveSpecsHomeResult, resolveSpecsHome } from "../config/specs-h
 import type { BuildImplementWorkflowStepsDeps } from "../execution/implement-workflow-steps.ts";
 import type { PlanWorkflowDeps } from "../execution/publication-workflow-steps.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
-import { jarvisHome, worktreesRoot } from "../paths.ts";
+import { jarvisHome, specsHome, worktreesRoot } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 
 function isUnderPath(child: string, parent: string): boolean {
@@ -58,7 +58,7 @@ export function createChainedStageProjectMatch(context: PipelineContext): (path:
       if (
         isUnderPath(resolved, join(worktreesRoot(jarvisRoot), key)) ||
         isUnderPath(resolved, join(jarvisRoot, "intent-work", safeId)) ||
-        isUnderPath(resolved, join(jarvisRoot, "specs", safeId))
+        isUnderPath(resolved, specsHome(key, jarvisRoot))
       ) {
         return { key, root: admissionRoot };
       }

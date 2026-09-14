@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { projectSafeId } from "../../shared/project-safe-id.ts";
 import { defaultTelemetrySinkPath } from "./execution/work-boundary-telemetry.ts";
 import {
   DAEMON_PID_PATH,
@@ -10,6 +11,8 @@ import {
   MACHINE_CONFIG_PATH,
   ORCHESTRATION_STORE_PATH,
   orchestrationStorePath,
+  specsHome,
+  specsRoot,
 } from "./paths.ts";
 
 const REAL_HOME = join(homedir(), ".jarvis");
@@ -48,6 +51,24 @@ describe("paths", () => {
     } finally {
       process.env.JARVIS_HOME = isolated;
     }
+  });
+
+  test("specsRoot() is <jarvis-home>/specs", () => {
+    expect(specsRoot()).toBe(join(jarvisHome(), "specs"));
+  });
+
+  test("specsRoot(jarvisRoot) honors the passed-in root", () => {
+    const customRoot = join(jarvisHome(), "custom-home");
+    expect(specsRoot(customRoot)).toBe(join(customRoot, "specs"));
+  });
+
+  test("specsHome(projectKey) is <jarvis-home>/specs/<projectSafeId>", () => {
+    expect(specsHome("owner/repo")).toBe(join(jarvisHome(), "specs", projectSafeId("owner/repo")));
+  });
+
+  test("specsHome(projectKey, jarvisRoot) honors the passed-in root", () => {
+    const customRoot = join(jarvisHome(), "custom-home");
+    expect(specsHome("owner/repo", customRoot)).toBe(join(customRoot, "specs", projectSafeId("owner/repo")));
   });
 });
 

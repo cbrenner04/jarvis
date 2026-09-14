@@ -28,7 +28,7 @@ import {
 } from "../execution/implement-workflow-steps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { jarvisHome, managedWorktreePath, worktreesRoot as worktreesRootPath } from "../paths.ts";
+import { jarvisHome, managedWorktreePath, specsHome, worktreesRoot as worktreesRootPath } from "../paths.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 import {
   type ArchivePublicationResult,
@@ -1117,7 +1117,7 @@ function discoverExternalPlanStrandedArtifacts(
     const projectConfig = readProjectConfigRecord(project, configPath);
     if (projectConfig === undefined || !planSourcePublishesExternally(projectConfig)) continue;
 
-    const plansHome = join(jarvisHome(), "specs", safeId, "plans");
+    const plansHome = join(specsHome(project), "plans");
     if (!existsSync(plansHome)) continue;
     try {
       for (const child of readdirSync(plansHome, { withFileTypes: true })) {
@@ -1155,7 +1155,7 @@ function discoverExternalQueueStrandedArtifacts(
     const projectConfig = readProjectConfigRecord(project, configPath);
     if (projectConfig === undefined || !planSourcePublishesExternally(projectConfig)) continue;
     for (const [dirName, queue] of EXTERNAL_QUEUES) {
-      const home = join(jarvisHome(), "specs", safeId, dirName);
+      const home = join(specsHome(project), dirName);
       if (!existsSync(home)) continue;
       try {
         for (const child of readdirSync(home, { withFileTypes: true })) {

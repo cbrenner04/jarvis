@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { jarvisHome } from "../../shared/paths.ts";
+import { projectSafeId } from "../../shared/project-safe-id.ts";
 
 export { jarvisHome };
 
@@ -40,4 +41,14 @@ export function worktreesRoot(jarvisRoot: string): string {
 /** The managed worktree for a `(project, branch)` key; the only place the layout is spelled out. */
 export function managedWorktreePath(jarvisRoot: string, projectName: string, branchName: string): string {
   return join(worktreesRoot(jarvisRoot), projectName, branchName);
+}
+
+/** Root of every project's external specs home under a jarvis home. */
+export function specsRoot(jarvisRoot: string = jarvisHome()): string {
+  return join(jarvisRoot, "specs");
+}
+
+/** A project's external specs home; the only place the layout is spelled out. */
+export function specsHome(projectKey: string, jarvisRoot: string = jarvisHome()): string {
+  return join(specsRoot(jarvisRoot), projectSafeId(projectKey));
 }

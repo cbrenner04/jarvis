@@ -3,8 +3,12 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessOptions,
+  type AsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
+import { lintStagedMarkdown, STAGED_MARKDOWN_LINT_TIMEOUT_MS } from "./staged-markdown-lint.ts";
 
 const FIXTURES_DIR = join(import.meta.dir, "fixtures", "staged-markdown-lint");
 const HARNESS_ROOT = resolveHarnessRoot(resolve(import.meta.dir, "../../.."));
@@ -87,6 +91,35 @@ describe("staged-markdown-lint", () => {
       if (result.kind === "invocation_error") {
         expect(result.message).toContain("ENOENT");
       }
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  test("bounds the linter spawn with a timeout, abort signal, and recorded process group", async () => {
+    const { worktreePath, stagingRoot } = stageFixture("lint-clean.md");
+    const seen: AsyncSubprocessOptions[] = [];
+    const recorded: string[] = [];
+    const controller = new AbortController();
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (_cmd, _args, _cwd, options) => {
+        if (options !== undefined) seen.push(options);
+        options?.processGroup?.onGroupId?.(77);
+        throw new AsyncSubprocessError("Command timed out", undefined, "", "", "ETIMEDOUT");
+      },
+    };
+    try {
+      const result = await lintStagedMarkdown(stagingRoot, {
+        harnessRootOverride: HARNESS_ROOT,
+        worktreePath,
+        runner,
+        signal: controller.signal,
+        processGroups: { record: (id) => recorded.push(`record:${id}`), clear: (id) => recorded.push(`clear:${id}`) },
+      });
+      expect(result.kind).toBe("invocation_error");
+      expect(seen[0]?.timeoutMs).toBe(STAGED_MARKDOWN_LINT_TIMEOUT_MS);
+      expect(seen[0]?.signal).toBe(controller.signal);
+      expect(recorded).toEqual(["record:77", "clear:77"]);
     } finally {
       rmSync(worktreePath, { recursive: true, force: true });
     }

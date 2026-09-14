@@ -242,6 +242,13 @@ type CoverageAdvisoryEvent = {
   responseText: string;
 };
 
+/** Emitted when the coverage advisory's bounded coverage run timed out or was aborted; the advisory is skipped. */
+type CoverageAdvisorySkippedEvent = {
+  kind: "coverage_advisory_skipped";
+  attemptId: string;
+  reason: "timeout" | "aborted";
+};
+
 /**
  * Emitted on every reviewed-intent finalization attempt (review-step landing and the
  * workflow completion publication tail alike), so production can trace which seam ran and
@@ -287,6 +294,7 @@ type LogEventWithoutLoopFinished =
   | ContractMissDetailEvent
   | BlockerTextDetailEvent
   | CoverageAdvisoryEvent
+  | CoverageAdvisorySkippedEvent
   | IntentFinalizationEvent
   | LinkedImplementFinalizationEvent;
 

@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { resolveProductionKillingTests } from "./diff-derived-mutation-verifier.ts";
 import {
   type ChangedLine,
   changedPathsFromDiff,
@@ -11,10 +13,16 @@ import {
   parseDiff,
 } from "./diff-scan.ts";
 import { type CoverageTestScope, coverageTestScope } from "./test-scope.ts";
+import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
+
+/** Wall-clock bound on the advisory's single coverage run; past it the group is killed and the advisory skips. */
+export const COVERAGE_ADVISORY_TIMEOUT_MS = 3 * 60_000;
 
 type UncoveredChangedLinesInput = {
   worktreePath: string;
   runBase: string;
+  signal?: AbortSignal;
+  processGroups?: VerifierProcessGroupRecorder;
 };
 
 type UncoveredSite = {
@@ -22,14 +30,26 @@ type UncoveredSite = {
   line: number;
 };
 
+/** Set when the coverage run was cut short; the report is then empty. */
+export type CoverageRunSkipReason = "timeout" | "aborted";
+
 type UncoveredChangedLinesReport = {
   uncoveredSites: UncoveredSite[];
   reportText: string;
+  skipReason?: CoverageRunSkipReason;
 };
+
+type CoverageRunOptions = {
+  timeoutMs: number;
+  signal?: AbortSignal;
+  processGroups?: VerifierProcessGroupRecorder;
+};
+type CoverageRunResult = boolean | CoverageRunSkipReason;
 
 type GitDiff = (cwd: string, baseRef: string) => Promise<string>;
 type UntrackedFiles = (cwd: string) => Promise<string[]>;
-type RunTests = (cwd: string, scope: CoverageTestScope) => Promise<boolean>;
+type RunTests = (cwd: string, scope: CoverageTestScope, options: CoverageRunOptions) => Promise<CoverageRunResult>;
+type ResolveTests = (productionFile: string, worktreePath: string) => Promise<string[]>;
 type ReadFile = (path: string) => Promise<string>;
 type DeleteFile = (path: string) => Promise<void>;
 
@@ -37,20 +57,55 @@ type ReporterSeams = {
   gitDiff?: GitDiff;
   untrackedFiles?: UntrackedFiles;
   runTests?: RunTests;
+  resolveTests?: ResolveTests;
   readFile?: ReadFile;
   deleteFile?: DeleteFile;
 };
 
-async function defaultRunTests(cwd: string, scope: CoverageTestScope): Promise<boolean> {
+/**
+ * One bounded `bun test --coverage` over explicit test files: detached process group recorded on
+ * the run, killed on timeout or abort. Returns the skip reason instead of `false` for those.
+ */
+export async function runCoverageTests(
+  cwd: string,
+  scope: CoverageTestScope,
+  options: CoverageRunOptions,
+  runner?: AsyncSubprocessRunner,
+): Promise<CoverageRunResult> {
   if (scope.length === 0) return true;
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
+  const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
+  const tracked = trackProcessGroup(options.processGroups);
   try {
     const args = ["test", "--coverage", "--coverage-reporter=lcov", ...scope];
-    await realAsyncSubprocessRunner.runAsync("bun", args, cwd);
+    await subprocess.runAsync("bun", args, cwd, {
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      processGroup: tracked.processGroup,
+    });
     return true;
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted) return "aborted";
+    if ((error as { code?: unknown } | null)?.code === "ETIMEDOUT") return "timeout";
     return false;
+  } finally {
+    tracked.settle();
   }
+}
+
+/** Coverage scope: resolved killing tests of changed production files, as `./`-anchored file paths, minus sandbox-unrunnable suites. */
+export async function resolveCoverageScope(
+  changedCodePaths: readonly string[],
+  worktreePath: string,
+  resolveTests: ResolveTests = resolveProductionKillingTests,
+): Promise<CoverageTestScope> {
+  const tests = new Set<string>();
+  for (const path of changedCodePaths) {
+    if (!isProductionFile(path)) continue;
+    for (const test of await resolveTests(path, worktreePath)) {
+      if (test.endsWith(".test.ts") && !test.endsWith(".sandbox-unrunnable.test.ts")) tests.add(`./${test}`);
+    }
+  }
+  return coverageTestScope([...tests].sort());
 }
 
 async function defaultDeleteFile(path: string): Promise<void> {
@@ -125,7 +180,8 @@ export async function reportUncoveredChangedLines(
 ): Promise<UncoveredChangedLinesReport> {
   const gitDiff = seams?.gitDiff ?? defaultGitDiff;
   const untrackedFilesFunc = seams?.untrackedFiles ?? ((cwd: string) => defaultUntrackedFiles(cwd, { codeOnly: true }));
-  const runTests = seams?.runTests ?? defaultRunTests;
+  const runTests = seams?.runTests ?? runCoverageTests;
+  const resolveTests = seams?.resolveTests ?? resolveProductionKillingTests;
   const readFile = seams?.readFile ?? defaultReadFile;
   const deleteFile = seams?.deleteFile ?? defaultDeleteFile;
 
@@ -156,23 +212,20 @@ export async function reportUncoveredChangedLines(
     // Create scratch directory
     mkdirSync(coverageDirPath, { recursive: true });
 
-    // Run tests with coverage on directories implied by changed paths
-    const testedDirs = new Set<string>();
-    for (const path of changedCodePaths) {
-      const parts = path.split("/");
-      if (parts.length > 0 && parts[0]) {
-        // Group by top-level directory (e.g., v1, v2, shared, src)
-        testedDirs.add(parts[0]);
-      }
-    }
-    const dirArray = Array.from(testedDirs);
-    const testsPassed = await runTests(input.worktreePath, coverageTestScope(dirArray));
+    const scope = await resolveCoverageScope(changedCodePaths, input.worktreePath, resolveTests);
+    if (scope.length === 0) return { uncoveredSites: [], reportText: "" };
+    const testsResult = await runTests(input.worktreePath, scope, {
+      timeoutMs: COVERAGE_ADVISORY_TIMEOUT_MS,
+      ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      ...(input.processGroups !== undefined ? { processGroups: input.processGroups } : {}),
+    });
 
-    if (!testsPassed) {
-      // Coverage run failed — fail soft, return no report
+    if (testsResult !== true) {
+      // Coverage run failed, timed out, or aborted — fail soft, return no report
       return {
         uncoveredSites: [],
         reportText: "",
+        ...(testsResult !== false ? { skipReason: testsResult } : {}),
       };
     }
 

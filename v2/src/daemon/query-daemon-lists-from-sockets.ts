@@ -8,7 +8,7 @@ import { parseListRuns } from "./daemon-wire.ts";
 
 export type QueryDaemonListsDeps = Pick<CliDeps, "connectIpcClient" | "socketPath" | "socketDiscovery">;
 
-export async function resolveDaemonListSocketPaths(deps: QueryDaemonListsDeps): Promise<string[]> {
+async function resolveDaemonListSocketPaths(deps: QueryDaemonListsDeps): Promise<string[]> {
   const discovered = await (deps.socketDiscovery ?? (async () => []))();
   return [...new Set([...discovered, deps.socketPath])].sort();
 }

@@ -21,6 +21,7 @@ import {
   startDaemonRuntime,
   type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
+import type { observePredecessorDrain, observeRunOwnership } from "./daemon-drain-observer.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
 const orphanedStatuses: readonly RunStatus[] = ["queued", "in-progress", "paused", "budget-soft-stopped"];
@@ -381,6 +382,53 @@ test("a non-terminal run with no recorded owner (pre-migration row) is killed", 
   expect(sweepStore.loadRun(runId)?.status).toBe("killed");
   expect(events).toEqual([{ runId, event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } }]);
   sweepStore.close();
+});
+
+const noopObservePredecessorDrain: typeof observePredecessorDrain = () => ({
+  liveRunIds: () => new Set(),
+  stop: () => undefined,
+});
+
+const noopObserveRunOwnership: typeof observeRunOwnership = () => ({
+  ownerRow: () => undefined,
+  resolveOwner: async () => false,
+  resolveOwnerForKey: async () => false,
+  stop: () => undefined,
+});
+
+test("startup during handoff reconciles a dead-owner row while leaving a live-predecessor-owned row untouched", async () => {
+  const PREDECESSOR_IDENTITY = "44444:4000000";
+  const deadOwnerRunId = createRun(seedStore, "in-progress");
+  const predecessorOwnerRunId = createRun(seedStore, "in-progress");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(PREDECESSOR_IDENTITY, predecessorOwnerRunId);
+  } finally {
+    raw.close();
+  }
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const reader: LogReader = { tail: () => [], async *follow() {} };
+
+  // The predecessor's identity is alive; PRIOR_IDENTITY (the other row's owner) is dead.
+  const sweepStore = openSweepStore(async (identity) => identity === PREDECESSOR_IDENTITY);
+  const runtime = await startDaemonRuntime("/fake/socket", sweepStore, reader, {
+    openLogSink: () => ({ append: (id, event) => events.push({ runId: id, event }), close: () => undefined }),
+    startIpcServer: async () => ({ close: async () => undefined }) as IpcServer,
+    recoverReconciledRuns: async () => ({ resumed: 0 }),
+    predecessorSocketPath: "/fake/predecessor-socket",
+    observePredecessorDrain: noopObservePredecessorDrain,
+    observeRunOwnership: noopObserveRunOwnership,
+  });
+  try {
+    expect(sweepStore.loadRun(deadOwnerRunId)?.status).toBe("killed");
+    expect(sweepStore.loadRun(predecessorOwnerRunId)?.status).toBe("in-progress");
+    expect(events).toEqual([
+      { runId: deadOwnerRunId, event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
+    ]);
+  } finally {
+    await runtime.close();
+    sweepStore.close();
+  }
 });
 
 test("propagates reconciliation errors", async () => {

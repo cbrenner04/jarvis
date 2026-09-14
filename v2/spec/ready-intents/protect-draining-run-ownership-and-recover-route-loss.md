@@ -9,7 +9,6 @@ name: protect-draining-run-ownership-and-recover-route-loss
 - Daemon upgrades hand off one stable public address: the incoming generation admits new work, the outgoing generation admits nothing new, finishes its owned work, and exits when idle.
 - The stable daemon merges its direct predecessor's authoritative live run rows into `run list`, with one row per run and the live owner's row winning.
 - The stable daemon routes waits and owner-sensitive live controls for a draining run to its direct owner over the internal handoff channel.
-- The stable daemon replays and follows a draining run's log from its direct owner over the internal handoff channel.
 
 ## Module-boundary surface
 

@@ -98,12 +98,16 @@ export function createStableRunHandlers(
   localHandlers: DirectOwnerRunHandlers,
   deps: DirectOwnerRunRoutingDeps,
 ): DirectOwnerRunHandlers {
+  // A route-loss ownership lookup (poll failure — the owner route itself, not a definitive
+  // "unowned" answer) falls back to local handling, same as `createStableAdmissionHandlers`'s
+  // `ownedOrLocal`: never leaves the run unreachable via both the owner route and local control.
+  const ownedOrLocal = (lookup: () => Promise<boolean>): Promise<boolean> => lookup().catch(() => false);
   const routed = {} as DirectOwnerRunHandlers;
   for (const method of DIRECT_OWNER_RUN_METHODS) {
     routed[method] = async (frame, signal) => {
       const runId = runIdFromFrame(frame);
       if (runId === undefined || deps.ownsRunLocally(runId)) return localHandlers[method](frame, signal);
-      const predecessorOwnsRun = await deps.resolvePredecessorOwner(runId);
+      const predecessorOwnsRun = await ownedOrLocal(() => deps.resolvePredecessorOwner(runId));
       if (deps.ownsRunLocally(runId) || !predecessorOwnsRun) return localHandlers[method](frame, signal);
       return forwardToDirectOwner(method, frame.params, signal, deps);
     };

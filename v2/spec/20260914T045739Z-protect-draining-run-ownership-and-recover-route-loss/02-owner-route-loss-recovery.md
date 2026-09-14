@@ -12,8 +12,8 @@ When the internal owner channel to the draining predecessor is lost, routed live
 
 ## Acceptance criteria
 
-- [ ] A failure-path regression severs the owner route mid-drain and proves `run list` no longer reports the run live, routed controls fall back to local behavior, and the run reaches existing dead-owner reconciliation/recovery without duplicate execution; it fails against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A failure-path regression severs the owner route mid-drain and proves `run list` no longer reports the run live, routed controls fall back to local behavior, and the run reaches existing dead-owner reconciliation/recovery without duplicate execution; it fails against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

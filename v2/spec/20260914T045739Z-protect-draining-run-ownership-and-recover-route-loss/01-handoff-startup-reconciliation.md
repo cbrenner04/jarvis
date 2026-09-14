@@ -11,8 +11,8 @@
 
 ## Acceptance criteria
 
-- [ ] A startup regression boots a successor with a live predecessor and proves a genuinely orphaned row (dead owner) is reconciled while a row owned by the live predecessor is left untouched; it fails against a successor that skips reconciliation or reconciles by peer presence.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A startup regression boots a successor with a live predecessor and proves a genuinely orphaned row (dead owner) is reconciled while a row owned by the live predecessor is left untouched; it fails against a successor that skips reconciliation or reconciles by peer presence.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

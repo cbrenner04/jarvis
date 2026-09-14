@@ -199,6 +199,11 @@ export function countParityPreservationViolation(
  *
  * The daemon-status digest comparison is gone: any serving daemon reports running with its loaded
  * revision. Replacement coverage lives in the `getDaemonStatus` tests in the same file.
+ *
+ * `failed ownership refresh returns an error without local handling`: a route-loss ownership
+ * lookup for routed `wait`/`pause`/`kill` now falls back to local handling instead of erroring
+ * (see 02-owner-route-loss-recovery.md). Replacement coverage: `a route-loss ownership refresh
+ * falls back to local handling instead of erroring` in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   // Cross-daemon prefix resolution retired: resolution now queries only the stable address.
@@ -238,6 +243,8 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "refuses fan-out recovery when the named branch has no paired result",
   // Broadened to cover the added handoffId field alongside the existing privateSocketPath check.
   "parseChangeoverResult rejects a malformed envelope (privateSocketPath not a string)",
+  // Route-loss ownership lookups now fall back to local handling instead of erroring.
+  "failed ownership refresh returns an error without local handling",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

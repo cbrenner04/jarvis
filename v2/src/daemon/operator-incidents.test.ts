@@ -255,7 +255,10 @@ function expectResumableStopNotifiesTwice(
     branch: status,
     specPath: "spec.md",
     ...(status === "failed"
-      ? { workflowSnapshot: { invocationId: "inv-ad-hoc", steps: [{ stepId: "plan", role: "plan" as const }] } }
+      ? {
+          stepId: "plan",
+          workflowSnapshot: { invocationId: "inv-ad-hoc", steps: [{ stepId: "plan", role: "plan" as const }] },
+        }
       : {}),
   });
   store.setRunStatus(runId, status);
@@ -503,5 +506,90 @@ test("a legacy awaiting row without awaiting_since keys on predecessor settlemen
   const createdAt = store.loadPipeline(pipelineId)?.createdAt;
   expect(deriveOperatorIncidents(store)).toEqual([
     expect.objectContaining({ transition: `awaiting-approval:gate:default:${createdAt}`, sinceMs: createdAt }),
+  ]);
+});
+
+const TWO_STEP_SNAPSHOT = {
+  invocationId: "inv-two-step",
+  steps: [
+    { stepId: "plan", role: "plan" as const },
+    { stepId: "review", role: "review" as const },
+  ],
+};
+
+function seedInvocationRow(stepId: string, status: "completed" | "in-progress" | "killed" | "failed"): string {
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "two-step",
+    specPath: "s.md",
+    stepId,
+    workflowSnapshot: TWO_STEP_SNAPSHOT,
+  });
+  if (status !== "in-progress") store.setRunStatus(runId, status);
+  return runId;
+}
+
+test("multi-row workflow invocation emits one terminal incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  setSystemTime(new Date(1_005_000));
+  seedInvocationRow("review", "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "run-ad-hoc-terminal",
+      runId: entryRunId,
+      cause: "completed",
+      transition: "terminal:completed:1005000",
+      sinceMs: 1_005_000,
+      project: "demo",
+    }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("entry row terminal does not emit while successors are live", () => {
+  seedInvocationRow("plan", "completed");
+  seedInvocationRow("review", "in-progress");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("entry row terminal does not emit while this daemon still drives the invocation", () => {
+  const entryRunId = seedInvocationRow("plan", "completed");
+  seedInvocationRow("review", "completed");
+  expect(deriveOperatorIncidents(store, Date.now(), { isWorkflowInvocationLive: (id) => id === entryRunId })).toEqual(
+    [],
+  );
+});
+
+test("a durable step with no row yet is a dispatch gap, not a killed invocation", () => {
+  seedInvocationRow("plan", "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("a successor row killed by reconciliation settles the invocation once", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  setSystemTime(new Date(1_002_000));
+  seedInvocationRow("review", "killed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "killed", transition: "terminal:killed:1002000" }),
+  ]);
+});
+
+test("ad-hoc run without an invocation still emits its terminal incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "p",
+    specPath: "s.md",
+  });
+  store.setRunStatus(runId, "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "run-ad-hoc-terminal", runId, transition: "terminal:completed:1000000" }),
   ]);
 });

@@ -4,6 +4,7 @@ import {
   deriveOperatorIncidents,
   NOTIFICATION_KEY_FORMAT_VERSION,
   type OperatorIncident,
+  type OperatorIncidentDerivationOptions,
   serializeOperatorIncident,
 } from "./operator-incidents.ts";
 
@@ -30,7 +31,7 @@ function spawnNotificationSinkCommand(command: string, incidentJson: string): No
   }
 }
 
-export type NotificationSweepDeps = {
+export type NotificationSweepDeps = OperatorIncidentDerivationOptions & {
   store: StateStore;
   readSinkCommand: () => string | undefined;
   spawnSink?: NotificationSinkSpawner;
@@ -105,7 +106,7 @@ export function isPreStartIncident(incident: Pick<OperatorIncident, "sinceMs">, 
  * boot sweep; a store already at the current version is untouched.
  */
 export function reconcileNotificationKeyFormat(
-  deps: Pick<NotificationSweepDeps, "store" | "nowMs"> & { daemonStartedAtMs: number },
+  deps: Pick<NotificationSweepDeps, "store" | "nowMs" | "isWorkflowInvocationLive"> & { daemonStartedAtMs: number },
 ): { suppressed: number } | null {
   const store = deps.store;
   if (store.isClosed()) return null;
@@ -113,13 +114,19 @@ export function reconcileNotificationKeyFormat(
 
   const nowMs = deps.nowMs?.() ?? Date.now();
   let suppressed = 0;
-  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+  for (const incident of deriveOperatorIncidents(store, nowMs, derivationOptions(deps))) {
     if (!isPreStartIncident(incident, deps.daemonStartedAtMs)) continue;
     const { incidentId, transition } = incident;
     if (store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt: nowMs })) suppressed += 1;
   }
   store.recordNotificationKeyFormatVersion(NOTIFICATION_KEY_FORMAT_VERSION);
   return { suppressed };
+}
+
+function derivationOptions(
+  deps: Pick<NotificationSweepDeps, "isWorkflowInvocationLive">,
+): OperatorIncidentDerivationOptions {
+  return deps.isWorkflowInvocationLive === undefined ? {} : { isWorkflowInvocationLive: deps.isWorkflowInvocationLive };
 }
 
 /** Diff derived incidents against the delivery ledger and discharge owed notifications. */
@@ -132,7 +139,7 @@ export function runNotificationSweep(deps: NotificationSweepDeps): void {
   const nowMs = deps.nowMs?.() ?? Date.now();
 
   const wakeNotificationWaiters = deps.wakeNotificationWaiters;
-  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+  for (const incident of deriveOperatorIncidents(store, nowMs, derivationOptions(deps))) {
     deliverIncident(store, incident, sinkCommand, spawnSink, nowMs, wakeNotificationWaiters);
   }
   wakeNotificationWaiters?.(store);

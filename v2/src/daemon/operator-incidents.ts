@@ -1,6 +1,7 @@
 import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
-import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
+import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
+import { resolveWorkflowRunRollup } from "../persistence/workflow-run-status-rollup.ts";
 import {
   derivePipelineState,
   hasPipelineTerminalPublicationFailure,
@@ -26,6 +27,11 @@ type OperatorIncidentKind =
  * under the new format instead of re-sending them.
  */
 export const NOTIFICATION_KEY_FORMAT_VERSION = 2;
+
+export type OperatorIncidentDerivationOptions = {
+  /** Whether this daemon still drives the workflow invocation whose entry run is `entryRunId`. */
+  isWorkflowInvocationLive?: (entryRunId: string) => boolean;
+};
 
 /** One operator-actionable incident at derived altitude. */
 export type OperatorIncident = {
@@ -209,10 +215,131 @@ function previewRunIncidentKeys(
   if (isUnattributedRunTimeout(run, pipelineAttributedRunIds)) {
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, "run_timeout") }];
   }
-  if (!pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
+  if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, `terminal:${run.status}`) }];
   }
   return [];
+}
+
+/** A `run start` row: no workflow snapshot, so no invocation to roll up to and never pipeline-attributed. */
+function isPlainRun(run: Run): boolean {
+  return run.workflowSnapshot?.invocationId === undefined;
+}
+
+type WorkflowInvocationRows = { invocationId: string; entryRun: Run; rows: Run[] };
+
+function isInvocationRollupCandidate(
+  run: Run,
+  suppressedInvocationIds: ReadonlySet<string>,
+  pipelineAttributedRunIds: ReadonlySet<string>,
+): boolean {
+  const invocationId = run.workflowSnapshot?.invocationId;
+  return (
+    invocationId !== undefined &&
+    !suppressedInvocationIds.has(invocationId) &&
+    !pipelineAttributedRunIds.has(run.id) &&
+    isTerminalRunStatus(run.status)
+  );
+}
+
+/** The invocation's entry row: the first authored step's row, else the earliest created. */
+function findInvocationEntryRun(rows: readonly Run[]): Run | undefined {
+  const entryStepId = rows[0]?.workflowSnapshot?.steps[0]?.stepId;
+  return (
+    rows.find((run) => run.stepId === entryStepId) ??
+    rows.reduce<Run | undefined>(
+      (earliest, run) => (earliest === undefined || run.createdAt < earliest.createdAt ? run : earliest),
+      undefined,
+    )
+  );
+}
+
+/** Group every candidate terminal workflow row's invocation with all of its durable rows. */
+function collectWorkflowInvocations(
+  store: StateStore,
+  runs: readonly Run[],
+  suppressedInvocationIds: ReadonlySet<string>,
+  pipelineAttributedRunIds: ReadonlySet<string>,
+): WorkflowInvocationRows[] {
+  const invocationIds = new Set<string>();
+  for (const run of runs) {
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (
+      invocationId !== undefined &&
+      isInvocationRollupCandidate(run, suppressedInvocationIds, pipelineAttributedRunIds)
+    ) {
+      invocationIds.add(invocationId);
+    }
+  }
+  if (invocationIds.size === 0) return [];
+
+  const rowsByInvocation = new Map<string, Run[]>();
+  for (const row of store.findRunsByInvocationIds([...invocationIds])) {
+    const invocationId = row.workflowSnapshot?.invocationId;
+    if (invocationId === undefined) continue;
+    rowsByInvocation.set(invocationId, [...(rowsByInvocation.get(invocationId) ?? []), row]);
+  }
+
+  const invocations: WorkflowInvocationRows[] = [];
+  for (const [invocationId, rows] of rowsByInvocation) {
+    const entryRun = findInvocationEntryRun(rows);
+    if (entryRun !== undefined) invocations.push({ invocationId, entryRun, rows });
+  }
+  return invocations;
+}
+
+/** The invocation's settlement time: its latest status write across every row. */
+function invocationSettledAt(rows: readonly Run[]): number {
+  let settledAt = 0;
+  for (const run of rows) {
+    const at = run.statusChangedAt ?? run.finishedAt ?? run.createdAt;
+    if (at > settledAt) settledAt = at;
+  }
+  return settledAt;
+}
+
+type InvocationTerminal = { status: RunStatus; transition: string; sinceMs: number };
+
+/**
+ * One terminal per invocation, from the same rollup `run wait` and stage settlement use. Emits only
+ * when a real row settled it: a `killed` inferred from a missing row is a dispatch gap or another
+ * daemon's live invocation; `blocked` and `run_timeout` rows already carry their own per-row kinds.
+ */
+function invocationTerminal(invocation: WorkflowInvocationRows, isLive: boolean): InvocationTerminal | null {
+  const { entryRun, rows } = invocation;
+  const rollup = resolveWorkflowRunRollup({
+    entryRun,
+    workflowSnapshot: entryRun.workflowSnapshot ?? null,
+    siblingRuns: rows,
+    isLive,
+  });
+  if (!isTerminalRunStatus(rollup.status) || rollup.status === "blocked") return null;
+  if (rollup.status === "killed" && rollup.causeRun === undefined) return null;
+  if (rollup.status === "killed" && rollup.causeRun?.terminalCause === "run_timeout") return null;
+  const settledAt = invocationSettledAt(rows);
+  return { status: rollup.status, transition: `terminal:${rollup.status}:${settledAt}`, sinceMs: settledAt };
+}
+
+function collectInvocationIncidents(
+  invocations: readonly WorkflowInvocationRows[],
+  isWorkflowInvocationLive: (entryRunId: string) => boolean,
+): OperatorIncident[] {
+  const incidents: OperatorIncident[] = [];
+  for (const invocation of invocations) {
+    const terminal = invocationTerminal(invocation, isWorkflowInvocationLive(invocation.entryRun.id));
+    if (terminal === null) continue;
+    const { entryRun } = invocation;
+    incidents.push({
+      incidentId: runIncidentId(entryRun.id),
+      kind: "run-ad-hoc-terminal",
+      transition: terminal.transition,
+      project: entryRun.project,
+      runId: entryRun.id,
+      cause: terminal.status,
+      sinceMs: terminal.sinceMs,
+    });
+  }
+  return incidents;
 }
 
 function pushUndeliveredIncident(
@@ -442,8 +569,8 @@ function collectRunIncidents(
       pushRunIncident(incidents, run, "run-timeout", statusChangeTransition(run, "run_timeout"));
       continue;
     }
-    // Plain `run start` rows carry no snapshot and are never pipeline-attributed; they settle here too.
-    if (!pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
+    // Workflow rows roll up to their invocation (`collectInvocationIncidents`); only plain rows settle here.
+    if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
       pushRunIncident(incidents, run, "run-ad-hoc-terminal", statusChangeTransition(run, `terminal:${run.status}`));
     }
   }
@@ -451,7 +578,11 @@ function collectRunIncidents(
 }
 
 /** Recompute every current operator-actionable incident from durable rows. */
-export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.now()): OperatorIncident[] {
+export function deriveOperatorIncidents(
+  store: StateStore,
+  nowMs: number = Date.now(),
+  options: OperatorIncidentDerivationOptions = {},
+): OperatorIncident[] {
   const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;
   const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
   const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
@@ -461,9 +592,7 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
     (pipeline) => !onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline)),
   );
 
-  const needsRunAttribution = candidateRuns.some(
-    (run) => run.workflowSnapshot !== undefined && isTerminalRunStatus(run.status),
-  );
+  const needsRunAttribution = candidateRuns.some((run) => !isPlainRun(run) && isTerminalRunStatus(run.status));
   const { entryRunsById, pipelineAttributedRunIds } =
     activePipelines.length > 0 || needsRunAttribution
       ? loadStageAttributedLookups(store, candidatePipelines)
@@ -489,6 +618,22 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
 
   for (const incident of collectRunIncidents(runsForCollection, suppressedInvocationIds, pipelineAttributedRunIds)) {
     pushUndeliveredIncident(incidents, delivered, incident);
+  }
+
+  const invocations = collectWorkflowInvocations(
+    store,
+    candidateRuns,
+    suppressedInvocationIds,
+    pipelineAttributedRunIds,
+  );
+  // An entry row can sit outside the recency window while a successor settles inside it.
+  const invocationDelivered = loadDeliveredIncidentKeys(
+    store,
+    invocations.map((invocation) => runIncidentId(invocation.entryRun.id)),
+  );
+  const isWorkflowInvocationLive = options.isWorkflowInvocationLive ?? (() => false);
+  for (const incident of collectInvocationIncidents(invocations, isWorkflowInvocationLive)) {
+    pushUndeliveredIncident(incidents, invocationDelivered, incident);
   }
 
   return incidents;

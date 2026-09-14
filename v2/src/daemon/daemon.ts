@@ -1405,14 +1405,24 @@ export async function startDaemonRuntime(
   }
 
   const readSink = startupDeps.readNotificationSinkCommand ?? (() => readNotificationSinkCommand());
+  const isWorkflowInvocationLive = (entryRunId: string): boolean =>
+    workflowInvocationIsLive(
+      runControlContext.workflowPromisesByEntryRunId.has(entryRunId),
+      runControlContext.activeRuns.values(),
+    );
   const notificationSweepDeps = {
     store,
     readSinkCommand: readSink,
     wakeNotificationWaiters,
+    isWorkflowInvocationLive,
     ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
   const notificationSweepState = { sweepInProgress: false };
-  reconcileNotificationKeyFormat({ store, daemonStartedAtMs: Date.now() - Math.round(process.uptime() * 1000) });
+  reconcileNotificationKeyFormat({
+    store,
+    isWorkflowInvocationLive,
+    daemonStartedAtMs: Date.now() - Math.round(process.uptime() * 1000),
+  });
   runNotificationSweep(notificationSweepDeps);
   const notificationSweepTimer = setInterval(() => {
     runNotificationSweepIntervalTick(notificationSweepState, notificationSweepDeps);

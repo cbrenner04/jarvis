@@ -2,7 +2,6 @@ import { isRecord } from "../../../shared/is-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { startDaemon } from "./daemon-lifecycle.ts";
-import { mergePipelineSnapshots } from "./merge-pipeline-snapshots.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
 import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
@@ -22,7 +21,7 @@ type PipelineOwnerWitness =
   | { kind: "durable_state"; state: PipelineDerivedState }
   | { kind: "not_found" };
 
-export type PipelineListQueryResult = {
+type PipelineListQueryResult = {
   snapshotsBySocketPath: Readonly<Record<string, readonly PipelineSnapshot[]>>;
   hasMalformedResponse: boolean;
 };
@@ -329,33 +328,52 @@ type PipelineIdCrossDaemonResolution =
   /** Nothing matched; the caller keeps its own not-found handling for the argument as given. */
   | { kind: "unmatched"; pipelineId: string };
 
+/** Queries only the stable address's merged `pipeline_list`; `degraded` mirrors the stable daemon's predecessor-merge flag. */
+export async function queryStablePipelineList(
+  deps: Pick<QueryDaemonListsDeps, "connectIpcClient" | "socketPath">,
+  params: PipelineListRequestParams | undefined,
+  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
+): Promise<{ snapshots?: readonly PipelineSnapshot[]; malformed: boolean; degraded: boolean }> {
+  try {
+    const client = await connectWithinTimeout(deps.connectIpcClient, deps.socketPath, timeoutMs);
+    const transport = createRpcTransport(client);
+    try {
+      const result = await transport.request("pipeline_list", params, { timeoutMs });
+      const snapshots = parsePipelineList(result);
+      if (snapshots === undefined) return { malformed: true, degraded: false };
+      return { snapshots, malformed: false, degraded: isRecord(result) && result.degraded === true };
+    } catch {
+      return { malformed: false, degraded: false };
+    } finally {
+      transport.close();
+    }
+  } catch {
+    return { malformed: false, degraded: false };
+  }
+}
+
 /**
  * Resolves a CLI pipeline id argument (exact id or unique ≥8-char prefix, dismissed pipelines
- * included) against the merged listing across every live discovered-plus-invoking socket, the
- * same set `pipeline list` queries. Never starts a daemon.
+ * included) against the stable address's merged listing only, the same listing `pipeline list`
+ * queries. A malformed/unavailable or `degraded` listing refuses prefix resolution; an exact id
+ * present in the listing still resolves. Never starts a daemon.
  */
 export async function resolvePipelineIdAcrossDaemons(
   argument: string,
   deps: QueryDaemonListsDeps,
   timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
 ): Promise<PipelineIdCrossDaemonResolution> {
-  const socketPaths = await resolveDaemonListSocketPaths(deps);
-  const queryResult = await queryPipelineListsFromSocketPaths(
-    deps.connectIpcClient,
-    socketPaths,
-    // sinceMs: 0 takes the daemon's filtered bypass so the terminal-retention cap cannot evict a
-    // pipeline out of the candidate id set; a prefix the operator read from an earlier listing must
-    // keep resolving.
-    { includeDismissed: true, sinceMs: 0 },
-    timeoutMs,
-  );
-  const ids = mergePipelineSnapshots(queryResult.snapshotsBySocketPath).map((snapshot) => snapshot.pipelineId);
+  // sinceMs: 0 takes the daemon's filtered bypass so the terminal-retention cap cannot evict a
+  // pipeline out of the candidate id set; a prefix the operator read from an earlier listing must
+  // keep resolving.
+  const listing = await queryStablePipelineList(deps, { includeDismissed: true, sinceMs: 0 }, timeoutMs);
+  const ids = (listing.snapshots ?? []).map((snapshot) => snapshot.pipelineId);
   if (ids.includes(argument)) return { kind: "resolved", pipelineId: argument };
   if (argument.length < PIPELINE_ID_PREFIX_MIN_LENGTH) return { kind: "unmatched", pipelineId: argument };
-  if (queryResult.hasMalformedResponse || socketPaths.some((path) => !(path in queryResult.snapshotsBySocketPath))) {
+  if (listing.snapshots === undefined || listing.degraded) {
     return {
       kind: "incomplete",
-      message: `pipeline_id_set_incomplete: Cannot resolve prefix ${argument}: a daemon listing was malformed or unavailable; restore daemon connectivity or use a known full pipeline id.`,
+      message: `pipeline_id_set_incomplete: Cannot resolve prefix ${argument}: the daemon listing was malformed, unavailable, or degraded; restore daemon connectivity or use a known full pipeline id.`,
     };
   }
   const candidates = ids.filter((id) => id.startsWith(argument)).sort();

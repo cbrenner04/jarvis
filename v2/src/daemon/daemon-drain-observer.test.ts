@@ -393,6 +393,84 @@ describe("observeRunOwnership", () => {
     directory.stop();
     directory.stop();
   });
+
+  test("resolveOwner refreshes initial and failed snapshots but trusts a successful empty snapshot", async () => {
+    const loop = manualPollLoop();
+    let calls = 0;
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => {
+        calls += 1;
+        if (calls === 2) throw new Error("transient failure");
+        return calls === 1 ? [ownedRow("run-1")] : [];
+      },
+    });
+    try {
+      expect(await directory.resolveOwner?.("run-1")).toBe(true);
+      expect(calls).toBe(1);
+      expect(await directory.resolveOwner?.("absent-run")).toBe(false);
+      expect(calls).toBe(1);
+      await loop.tick();
+      await expect(directory.resolveOwner?.("run-1")).resolves.toBe(false);
+      expect(calls).toBe(3);
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("resolveOwner propagates a failed authoritative refresh", async () => {
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: manualPollLoop().schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => {
+        throw new Error("refresh failed");
+      },
+    });
+    try {
+      await expect(directory.resolveOwner?.("run-1")).rejects.toThrow("refresh failed");
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("resolveOwner fails closed when a newer failed refresh supersedes its successful reply", async () => {
+    const loop = manualPollLoop();
+    const replies: Array<{
+      resolve: (rows: readonly DaemonListRunRow[]) => void;
+      reject: (error: Error) => void;
+    }> = [];
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: () =>
+        new Promise((resolve, reject) => {
+          replies.push({ resolve, reject });
+        }),
+    });
+    try {
+      const routed = directory.resolveOwner?.("run-1");
+      const newer = loop.tick();
+      while (replies.length < 2) await Promise.resolve();
+      replies[1]?.reject(new Error("newer refresh failed"));
+      await newer;
+      replies[0]?.resolve([ownedRow("run-1")]);
+      await expect(routed).rejects.toThrow("superseded before resolution");
+      expect(directory.ownerRow("run-1")).toBeUndefined();
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("resolveOwner stays local after observation stops", async () => {
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: manualPollLoop().schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => [ownedRow("run-1")],
+    });
+    directory.stop();
+    expect(await directory.resolveOwner?.("run-1")).toBe(false);
+  });
 });
 
 describe("unionLiveRunIds", () => {

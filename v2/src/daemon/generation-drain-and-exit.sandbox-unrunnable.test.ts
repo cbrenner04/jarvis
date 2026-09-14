@@ -377,6 +377,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         predecessorSocketPath: "irrelevant-for-this-seam.sock",
         observeRunOwnership: () => ({
           ownerRow: (id) => (id === runId ? ownerRow : undefined),
+          resolveOwner: async (id) => id === runId,
           stop: () => {
             stopCalls += 1;
           },
@@ -427,6 +428,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         // empty would never fire.
         observeRunOwnership: () => ({
           ownerRow: (id) => (id === runId ? ownerRow : undefined),
+          resolveOwner: async (id) => id === runId,
           stop: () => undefined,
         }),
         processExit,

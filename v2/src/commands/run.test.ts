@@ -87,13 +87,10 @@ async function runWait(
   runId: string,
   frames: unknown[],
   sent: unknown[] = [],
-  listRuns?: Array<ReturnType<typeof soloDaemonListRow>>,
 ): Promise<number> {
-  const runs = listRuns ?? [soloDaemonListRow(runId)];
-  return withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, WAIT_REQUEST_ID], () =>
+  return withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
     main(["run", "wait", runId], cap.io, {
-      socketDiscovery: async () => [],
-      connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, runs, () => makeIpcClient(frames, { sent })),
+      connectIpcClient: async () => makeIpcClient(frames, { sent }),
     }),
   );
 }
@@ -1314,44 +1311,36 @@ describe("run list multi-daemon", () => {
     expect(cap.read().stdout).toBe("");
   });
 
-  test("run wait resolves a run owned by a non-invoking live daemon", async () => {
-    // Inversion target: resolveRunOwnerSocket in run.ts — using deps.socketPath without cross-daemon owner lookup turns this test RED.
+  test("run wait sends one request through the invoking stable address without owner discovery", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const connectSockets: string[] = [];
 
-    const code = await withFixedUuid(
-      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, WAIT_REQUEST_ID],
-      () =>
-        main(["run", "wait", "remote-run"], cap.io, {
-          socketPath: INVOKING_SOCKET,
-          socketDiscovery: async () => [OTHER_SOCKET],
-          connectIpcClient: connectForTwoListsThen(
-            LIST_IDS,
-            runsForRemoteOwner("remote-run"),
-            connectSockets,
-            (socketPath) => {
-              if (socketPath !== OTHER_SOCKET) {
-                throw new Error(`wait must use owner socket, got ${socketPath}`);
-              }
-              return makeIpcClient(
-                [
-                  waitResponse({
-                    runStatus: "completed",
-                    loopOutcomeKind: "complete",
-                    iterationsConsumed: 1,
-                    resumable: false,
-                  }),
-                ],
-                { sent },
-              );
-            },
-          ),
-        }),
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
+      main(["run", "wait", "remote-run"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        socketDiscovery: async () => {
+          throw new Error("wait must not discover owner sockets");
+        },
+        connectIpcClient: async (socketPath) => {
+          connectSockets.push(socketPath);
+          return makeIpcClient(
+            [
+              waitResponse({
+                runStatus: "completed",
+                loopOutcomeKind: "complete",
+                iterationsConsumed: 1,
+                resumable: false,
+              }),
+            ],
+            { sent },
+          );
+        },
+      }),
     );
 
     expect(code).toBe(0);
-    expect(connectSockets).toEqual([INVOKING_SOCKET, OTHER_SOCKET, OTHER_SOCKET]);
+    expect(connectSockets).toEqual([INVOKING_SOCKET]);
     expect(sent).toEqual([{ kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "remote-run" } }]);
     expect(cap.read().stdout).toBe(
       '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
@@ -1694,7 +1683,7 @@ describe("run control", () => {
   test("run wait passes through unknown_run errors", async () => {
     const cap = captureIo();
 
-    const code = await runWait(cap, "run-404", [waitError("unknown_run", "Run run-404 not found")], [], []);
+    const code = await runWait(cap, "run-404", [waitError("unknown_run", "Run run-404 not found")]);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });

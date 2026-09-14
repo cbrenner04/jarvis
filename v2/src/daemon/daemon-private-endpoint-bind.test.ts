@@ -11,6 +11,7 @@ function fakeStore(): StateStore {
     listReadyGateSweepCandidates: async () => [],
     listPipelines: () => [],
     listRuns: () => [],
+    loadRun: () => undefined,
     listIncidentCandidatePipelines: () => [],
     listIncidentCandidateRuns: () => [],
     loadRunsByIds: () => [],
@@ -124,7 +125,7 @@ test("feeds only predecessorSocketPath into ownership routing, never a legacy pe
     observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
     observeRunOwnership: (predecessorSocketPath) => {
       ownershipSocketPaths.push(predecessorSocketPath);
-      return { ownerRow: () => undefined, stop: () => undefined };
+      return { ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined };
     },
   });
 
@@ -143,7 +144,7 @@ test("ownership routing gets no socket path when only legacy peers are discovere
     observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
     observeRunOwnership: (predecessorSocketPath) => {
       ownershipSocketPaths.push(predecessorSocketPath);
-      return { ownerRow: () => undefined, stop: () => undefined };
+      return { ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined };
     },
   });
 
@@ -159,6 +160,7 @@ test("stops the ownership directory on close", async () => {
     predecessorSocketPath: "/fake/predecessor.sock",
     observeRunOwnership: () => ({
       ownerRow: () => undefined,
+      resolveOwner: async () => false,
       stop: () => {
         stopped = true;
       },
@@ -167,4 +169,57 @@ test("stops the ownership directory on close", async () => {
 
   await runtime.close();
   expect(stopped).toBe(true);
+});
+
+test("binds direct-owner routing only on the stable endpoint so private calls cannot chain", async () => {
+  const boundHandlers = new Map<string, Record<string, RpcHandler>>();
+  const ownerConnectAttempts: string[] = [];
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: async (socketPath, handlers = {}) => {
+      boundHandlers.set(socketPath, handlers);
+      return { socketPath, close: async () => undefined };
+    },
+    privateSocketPath: "/fake/private.sock",
+    predecessorSocketPath: "/fake/predecessor.sock",
+    enumerateOtherDaemonSockets: () => [],
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    // Resolves every runId to the predecessor: a routing handler would forward, the local handler
+    // never consults this at all.
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      resolveOwner: async () => true,
+      stop: () => undefined,
+    }),
+    connectRunOwnerClient: async (socketPath) => {
+      ownerConnectAttempts.push(socketPath);
+      throw new Error("no real owner in this test");
+    },
+  });
+
+  const privatePause = boundHandlers.get("/fake/private.sock")?.pause;
+  const publicPause = boundHandlers.get("/fake/public.sock")?.pause;
+  expect(privatePause).toBeDefined();
+  expect(publicPause).toBeDefined();
+  expect(privatePause).not.toBe(publicPause);
+
+  const request = { kind: "request", id: "pause", method: "pause", params: { runId: "run-1" } } as const;
+
+  // The private endpoint runs the local handler directly and never resolves ownership at all: an
+  // unknown run yields the local `unknown_run` error rather than an attempted forward.
+  expect(await privatePause?.(request, new AbortController().signal)).toEqual({
+    kind: "error",
+    code: "unknown_run",
+    message: "Run run-1 not found",
+  });
+  expect(ownerConnectAttempts).toEqual([]);
+
+  // The same request through the stable endpoint resolves ownership to the predecessor and
+  // forwards, proving the private endpoint above skipped routing rather than merely finding no
+  // owner. This fails if the private endpoint ever gets the routing handlers instead of the local
+  // ones.
+  await expect(publicPause?.(request, new AbortController().signal)).rejects.toThrow("no real owner in this test");
+  expect(ownerConnectAttempts).toEqual(["/fake/predecessor.sock"]);
+
+  await runtime.close();
 });

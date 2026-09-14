@@ -29,23 +29,23 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/run.test.ts` proves normal `jarvis run wait` sends one request to the invoking stable address without owner-socket discovery; it fails against the pre-fix `resolveRunOwnerSocket` path.
-- [ ] `v2/src/daemon/daemon-stable-run-routing.sandbox-unrunnable.test.ts` proves `wait` through the stable address remains pending on a direct predecessor-owned live run and returns that owner's eventual settlement; it fails against the pre-fix successor-local result.
-- [ ] `v2/src/daemon/daemon-stable-run-routing.sandbox-unrunnable.test.ts` proves `kill --force` through the stable address preserves `force`, aborts, and settles the direct predecessor's live invocation; it fails against the pre-fix `run_not_active` refusal.
-- [ ] `v2/src/daemon/daemon-stable-run-routing.test.ts` proves an initial-empty and a transiently cleared ownership snapshot each defer local `wait`/control handling until authoritative refresh, then reach the owner; a failed refresh returns an error without local settlement or `run_not_active`; it fails against the pre-fix local fallback.
-- [ ] `v2/src/daemon/daemon-stable-run-routing.test.ts` proves `pause` uses the same direct-owner route, forwarded owner application errors and all method params return unchanged, and the predecessor handles the call locally; it fails against the pre-fix successor-local `run_not_active` refusal.
-- [ ] `v2/src/daemon/daemon-stable-run-routing.test.ts` proves every forwarded private transport closes after success, application error, connection failure, or cancellation, and cancelling one of concurrent forwarded waits leaves the other connected until its own settlement; it fails against the pre-fix absence of forwarding ownership.
-- [ ] `v2/src/daemon/daemon-wire.test.ts` stays green, preserving response envelopes without generation or route metadata.
-- [ ] `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` wait, pause, and kill regressions stay green, preserving no private routing transport for current-generation and no-predecessor requests.
-- [ ] `v2/src/daemon/daemon-private-endpoint-bind.test.ts` stays green, preserving direct-predecessor-only wiring and excluding forwarding chains.
-- [ ] `v2/src/commands/run.test.ts` wait, pause, and kill result, error, and exit-code regressions stay green.
-- [ ] `v2/docs/daemon-host.md` documents direct-owner unary routing, ownership-refresh windows, unchanged result/error shapes, route loss, cancellation, and excluded verbs.
-- [ ] `v2/docs/v2-architecture.md` places stable-front-door unary live-run routing behind the daemon boundary.
-- [ ] `v2/docs/v1-behaviors.md` records that draining runs remain waitable, pausable, and killable through the stable daemon.
-- [ ] `v2/docs/write-behavior.md` records that normal `jarvis run wait` targets the stable address rather than resolving a live owner socket.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/run.test.ts` proves normal `jarvis run wait` sends one request to the invoking stable address without owner-socket discovery; it fails against the pre-fix `resolveRunOwnerSocket` path.
+- [x] `v2/src/daemon/daemon-stable-run-routing.sandbox-unrunnable.test.ts` proves `wait` through the stable address remains pending on a direct predecessor-owned live run and returns that owner's eventual settlement; it fails against the pre-fix successor-local result.
+- [x] `v2/src/daemon/daemon-stable-run-routing.sandbox-unrunnable.test.ts` proves `kill --force` through the stable address preserves `force`, aborts, and settles the direct predecessor's live invocation; it fails against the pre-fix `run_not_active` refusal.
+- [x] `v2/src/daemon/daemon-stable-run-routing.test.ts` proves an initial-empty and a transiently cleared ownership snapshot each defer local `wait`/control handling until authoritative refresh, then reach the owner; a failed refresh returns an error without local settlement or `run_not_active`; it fails against the pre-fix local fallback.
+- [x] `v2/src/daemon/daemon-stable-run-routing.test.ts` proves `pause` uses the same direct-owner route, forwarded owner application errors and all method params return unchanged, and the predecessor handles the call locally; it fails against the pre-fix successor-local `run_not_active` refusal.
+- [x] `v2/src/daemon/daemon-stable-run-routing.test.ts` proves every forwarded private transport closes after success, application error, connection failure, or cancellation, and cancelling one of concurrent forwarded waits leaves the other connected until its own settlement; it fails against the pre-fix absence of forwarding ownership.
+- [x] `v2/src/daemon/daemon-wire.test.ts` stays green, preserving response envelopes without generation or route metadata.
+- [x] `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` wait, pause, and kill regressions stay green, preserving no private routing transport for current-generation and no-predecessor requests.
+- [x] `v2/src/daemon/daemon-private-endpoint-bind.test.ts` stays green, preserving direct-predecessor-only wiring and excluding forwarding chains.
+- [x] `v2/src/commands/run.test.ts` wait, pause, and kill result, error, and exit-code regressions stay green.
+- [x] `v2/docs/daemon-host.md` documents direct-owner unary routing, ownership-refresh windows, unchanged result/error shapes, route loss, cancellation, and excluded verbs.
+- [x] `v2/docs/v2-architecture.md` places stable-front-door unary live-run routing behind the daemon boundary.
+- [x] `v2/docs/v1-behaviors.md` records that draining runs remain waitable, pausable, and killable through the stable daemon.
+- [x] `v2/docs/write-behavior.md` records that normal `jarvis run wait` targets the stable address rather than resolving a live owner socket.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

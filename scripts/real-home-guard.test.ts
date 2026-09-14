@@ -42,6 +42,24 @@ test("specs/ diff reports the entry new in after, not the entry already present 
   expect(diffRealHomeSnapshots(before, after)).toEqual(["specs/leaked-spec"]);
 });
 
+test("unchanged telemetry.jsonl between snapshots is not reported as a violation", () => {
+  // Inverting `before.telemetry === null` to `before.telemetry !== null` would report a violation
+  // any time telemetry existed before the run, even with an identical size/mtime after — this
+  // isolates that branch from the size/mtime comparisons, which stay false either way here.
+  const before: RealHomeSnapshot = {
+    sessionEntries: [],
+    specEntries: [],
+    telemetry: { size: 42, mtimeMs: 1000 },
+  };
+  const after: RealHomeSnapshot = {
+    sessionEntries: [],
+    specEntries: [],
+    telemetry: { size: 42, mtimeMs: 1000 },
+  };
+
+  expect(diffRealHomeSnapshots(before, after)).toEqual([]);
+});
+
 test("specs/ walk recurses past the first level: entries below SPECS_WALK_MAX_DEPTH are still listed", () => {
   const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-boundary-test-"));
   try {

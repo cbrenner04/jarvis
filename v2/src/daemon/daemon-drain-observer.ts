@@ -133,6 +133,8 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
 type RunOwnershipDirectory = {
   /** The direct predecessor's cached row for `runId`, or `undefined` while it is not reported live. */
   ownerRow(runId: string): DaemonListRunRow | undefined;
+  /** Resolves an absent row through an authoritative refresh; rejects when that refresh fails. */
+  resolveOwner?(runId: string): Promise<boolean>;
   /** Stops polling. Idempotent. */
   stop(): void;
 };
@@ -172,7 +174,7 @@ export function observeRunOwnership(
   deps: RunOwnershipDirectoryDeps = {},
 ): RunOwnershipDirectory {
   if (predecessorSocketPath === undefined) {
-    return { ownerRow: () => undefined, stop: () => undefined };
+    return { ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined };
   }
 
   const probeLiveness = deps.probeLiveness ?? probeSocketLiveness;
@@ -181,6 +183,7 @@ export function observeRunOwnership(
   const rpcTimeoutMs = deps.rpcTimeoutMs ?? 1_000;
 
   let rowsByRunId = new Map<string, DaemonListRunRow>();
+  let snapshotAuthoritative = false;
   let stopped = false;
   let loop: PollLoopHandle | undefined;
   // Ticks may overlap (a slow reply outlives the interval); a tick's outcome applies only if no
@@ -193,25 +196,43 @@ export function observeRunOwnership(
     return true;
   };
 
-  const tick = async (): Promise<void> => {
-    if (stopped) return;
+  const refreshOwnership = async (): Promise<boolean> => {
+    if (stopped) return false;
     startedTicks += 1;
     const tickNumber = startedTicks;
     const liveness = await probeLiveness(predecessorSocketPath);
-    if (!applies(tickNumber)) return;
+    if (!applies(tickNumber)) return false;
     if (drainObservationEndsOnLiveness(liveness)) {
       rowsByRunId = new Map();
+      snapshotAuthoritative = true;
       stopped = true;
       loop?.clear();
-      return;
+      return true;
     }
     try {
       const rows = await listOwnedRuns(predecessorSocketPath, rpcTimeoutMs);
-      if (applies(tickNumber)) rowsByRunId = new Map(rows.map((row) => [row.runId, row]));
-    } catch {
+      if (applies(tickNumber)) {
+        rowsByRunId = new Map(rows.map((row) => [row.runId, row]));
+        snapshotAuthoritative = true;
+        return true;
+      }
+      return false;
+    } catch (error) {
       // Stricter than `observePredecessorDrain`'s transient-failure retention: a poll failure here
       // clears every cached row rather than keeping a snapshot the owner is no longer confirming.
-      if (applies(tickNumber)) rowsByRunId = new Map();
+      if (applies(tickNumber)) {
+        rowsByRunId = new Map();
+        snapshotAuthoritative = false;
+      }
+      throw error;
+    }
+  };
+
+  const tick = async (): Promise<void> => {
+    try {
+      await refreshOwnership();
+    } catch {
+      // Poll failures clear the snapshot and are retried on the next tick or routed request.
     }
   };
 
@@ -222,6 +243,14 @@ export function observeRunOwnership(
 
   return {
     ownerRow: (runId) => rowsByRunId.get(runId),
+    resolveOwner: async (runId) => {
+      if (rowsByRunId.has(runId)) return true;
+      if (snapshotAuthoritative) return false;
+      if (stopped) return false;
+      const applied = await refreshOwnership();
+      if (!applied && !snapshotAuthoritative) throw new Error("ownership refresh was superseded before resolution");
+      return rowsByRunId.has(runId);
+    },
     stop: () => {
       stopped = true;
       loop?.clear();

@@ -168,3 +168,37 @@ test("stops the ownership directory on close", async () => {
   await runtime.close();
   expect(stopped).toBe(true);
 });
+
+test("binds direct-owner routing only on the stable endpoint so private calls cannot chain", async () => {
+  const boundHandlers = new Map<string, Record<string, RpcHandler>>();
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: async (socketPath, handlers = {}) => {
+      boundHandlers.set(socketPath, handlers);
+      return { socketPath, close: async () => undefined };
+    },
+    privateSocketPath: "/fake/private.sock",
+    predecessorSocketPath: "/fake/predecessor.sock",
+    enumerateOtherDaemonSockets: () => [],
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      resolveOwner: async () => true,
+      stop: () => undefined,
+    }),
+    connectRunOwnerClient: async () => {
+      throw new Error("private handler must not forward");
+    },
+  });
+
+  const privatePause = boundHandlers.get("/fake/private.sock")?.pause;
+  const publicPause = boundHandlers.get("/fake/public.sock")?.pause;
+  expect(privatePause).toBeDefined();
+  expect(publicPause).toBeDefined();
+  expect(privatePause).not.toBe(publicPause);
+  expect(await privatePause?.({ kind: "request", id: "pause", method: "pause" }, new AbortController().signal)).toEqual(
+    { kind: "error", code: "invalid_params", message: "Missing runId" },
+  );
+
+  await runtime.close();
+});

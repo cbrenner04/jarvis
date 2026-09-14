@@ -513,8 +513,7 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
       io.stderr(RUN_USAGE);
       return 1;
     }
-    const socketPath = await resolveRunOwnerSocket(runId, deps);
-    return withRunClient(io, deps, async (client) => waitForRunCompletion(client, runId, io), socketPath);
+    return withRunClient(io, deps, async (client) => waitForRunCompletion(client, runId, io));
   }
 
   io.stderr(subcommand === "start" ? RUN_START_USAGE : RUN_USAGE);

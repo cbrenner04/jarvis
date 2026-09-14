@@ -247,8 +247,9 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a `blo
   skipped without aborting the view. Steering RPCs (`pause` / `resume` / `kill`)
   route to the owning daemon. When no sockets are discovered, the monitor connects
   only to the invoking digest's socket and behaves as before (single-daemon view).
-  `jarvis run list`, `jarvis run log`, and `jarvis run wait` resolve run owners
-  across live keyed daemons (same merge as `run list`). Optional workflow-step
+  `jarvis run list` and `jarvis run log` resolve run owners across live keyed
+  daemons (same merge as `run list`); `jarvis run wait` targets the stable daemon,
+  which routes direct-predecessor ownership behind its IPC boundary. Optional workflow-step
   snapshots on `list` rows (see [`daemon-host.md`](./daemon-host.md#list));
   operator contract: [`write-behavior.md`](./write-behavior.md#tui-cli). Queued runs
   (`status: "queued"`) render under a separate "Queue" heading, oldest-queued-first,
@@ -320,8 +321,7 @@ Observability (log follow interface):
   `run_execution_failed` with a greater `seq`. Durable `runStatus` is re-read at
   resolve time. Already quiescent runs (`runStatus !== "in-progress"`) return
   immediately from durable state plus the last terminal log signal. Operator
-  CLI: `jarvis run wait <run-id>` invokes this RPC on the owning live daemon
-  (resolved like `run list`); see [`write-behavior.md`](./write-behavior.md#wait-exit-codes).
+  CLI: `jarvis run wait <run-id>` invokes this RPC on the stable daemon, which keeps current-generation handling local and forwards a direct-predecessor-owned live run behind the daemon boundary; see [`write-behavior.md`](./write-behavior.md#wait-exit-codes).
 - **Waiters are detached clients, not run owners.** Multiple waiters for the
   same run share one terminal fan-out and all receive the same payload at the
   terminal edge. Disconnecting one socket aborts only that waiter: the run and
@@ -551,6 +551,7 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
   (`health`, `status`, custom handlers) and multiplexed streams (log, workflow
   output). See [`daemon-host.md`](daemon-host.md) for frame shapes and semantics.
 - **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, and `getDaemonStatus` in `daemon/daemon-lifecycle.ts`. The detached child has bounded readiness, graceful shutdown, and double-start protection. The CLI and [`jarvis tui`](./write-behavior.md#tui-cli) resolve the stable public `~/.jarvis/daemon.sock` and public `~/.jarvis/daemon.pid` regardless of executable digest; `daemon start` also supplies the digest-keyed private successor endpoint described in [`daemon-host.md`](daemon-host.md#socket-path). The lifecycle library requires explicit paths.
+- **Stable live-run unary boundary:** `wait`, `pause`, and `kill` enter through the stable public daemon. It keeps current-generation and definitively unowned requests local and routes direct-predecessor ownership to that predecessor's private endpoint without exposing generation metadata or permitting forwarding chains. Ownership refresh, route-loss, and cancellation semantics live in [`daemon-host.md`](daemon-host.md#direct-owner-run-unary-routing).
 - **In-memory worktree ownership:** Daemon holds a registry keyed by `{project,
   branch}` (the state-store resume key), recording `{runId, worktreePath}`.
   `claim` rejects double-claim; `release` is idempotent. No disk writes or

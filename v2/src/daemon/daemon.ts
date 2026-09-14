@@ -69,6 +69,7 @@ import {
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
+import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -1063,6 +1064,8 @@ type DaemonStartupDeps = {
   observePredecessorDrain?: typeof observePredecessorDrain;
   /** Direct-predecessor-only ownership routing; never fed legacy peer sockets. Defaults to `observeRunOwnership`. */
   observeRunOwnership?: typeof observeRunOwnership;
+  /** Private transport connection used only for direct-owner live-run unary forwarding. */
+  connectRunOwnerClient?: typeof connectIpcClient;
   /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   handoffFallbackMs?: number;
   /**
@@ -1274,6 +1277,22 @@ export async function startDaemonRuntime(
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
 
+  const ownsRunLocally = (runId: string): boolean =>
+    [...runControlContext.activeRuns.values()].some((activeRun) => activeRun.runId === runId);
+  const stableRunHandlers =
+    startupDeps.predecessorSocketPath === undefined
+      ? undefined
+      : createStableRunHandlers(
+          { wait: runControlHandlers.wait, pause: runControlHandlers.pause, kill: runControlHandlers.kill },
+          {
+            predecessorSocketPath: startupDeps.predecessorSocketPath,
+            ownsRunLocally,
+            resolvePredecessorOwner:
+              ownershipDirectory.resolveOwner ?? (async (runId) => ownershipDirectory.ownerRow(runId) !== undefined),
+            connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
+          },
+        );
+
   // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
   // it fires on any admission cut, client-initiated or self-triggered, without permanently
   // stopping the interval, so a rollback that reopens admission lets sampling resume and retry.
@@ -1326,11 +1345,22 @@ export async function startDaemonRuntime(
     handoff_commit: handoffHandlers.handoff_commit,
     handoff_rollback: handoffHandlers.handoff_rollback,
     ...runControlHandlers,
+    ...stableRunHandlers,
   };
+
+  const privateHandlers =
+    stableRunHandlers === undefined
+      ? handlers
+      : {
+          ...handlers,
+          wait: runControlHandlers.wait,
+          pause: runControlHandlers.pause,
+          kill: runControlHandlers.kill,
+        };
 
   try {
     if (startupDeps.privateSocketPath !== undefined) {
-      privateServer = await bindIpcServer(startupDeps.privateSocketPath, handlers, tailStreamHandler);
+      privateServer = await bindIpcServer(startupDeps.privateSocketPath, privateHandlers, tailStreamHandler);
     }
     server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
   } catch (err) {

@@ -260,14 +260,18 @@ describe("daemon command", () => {
 });
 
 describe("reapLegacyDaemonArtifacts", () => {
-  test("identifies a PID-less keyed socket with no listener as dead (ECONNREFUSED)", async () => {
+  test("preserves a PID-less keyed socket the real probe cannot prove dead (absent is not stale)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-"));
-    const deadSocket = join(dir, "daemon-0000000000000001.sock");
+    const socket = join(dir, "daemon-0000000000000001.sock");
 
-    writeFileSync(deadSocket, "");
+    // A regular file at the socket path is not a real listener: the real probe reads ENOENT
+    // (`absent`), which is not proof of death — a sandboxed caller sees ENOENT for a live socket
+    // too. Only a proven-`stale` (connection-refused) verdict is reapable.
+    writeFileSync(socket, "");
 
     const result = await reapLegacyDaemonArtifacts(dir);
-    expect(result.dead).toContain(deadSocket);
+    expect(result.dead).not.toContain(socket);
+    expect(result.preserved).toEqual([{ unit: "daemon-0000000000000001", reason: "socket probe was inconclusive" }]);
   });
 
   test("returns empty lists when jarvis home does not exist", async () => {
@@ -322,7 +326,7 @@ describe("reapLegacyDaemonArtifacts", () => {
     const stableLog = join(dir, "daemon.log");
 
     writeFileSync(socket, "");
-    writeFileSync(pid, "not-a-pid");
+    writeFileSync(pid, "999999"); // dead: a parseable PID decides before any socket probe
     writeFileSync(log, "daemon output");
     writeFileSync(other, "");
     writeFileSync(uppercase, "");
@@ -449,6 +453,21 @@ describe("reapLegacyDaemonArtifacts", () => {
 
     expect(result.dead).toEqual([socket]);
     expect(result.preserved).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("preserves a PID-less keyed socket via an injected probe reporting absent, without a real socket", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-absent-"));
+    const socket = join(dir, "daemon-0000000000000011.sock");
+    writeFileSync(socket, "");
+
+    const result = await reapLegacyDaemonArtifacts(dir, undefined, {
+      isProcessAlive: () => false,
+      probeSocketLiveness: async () => "absent",
+    });
+
+    expect(result.dead).toEqual([]);
+    expect(result.preserved).toEqual([{ unit: "daemon-0000000000000011", reason: "socket probe was inconclusive" }]);
     rmSync(dir, { recursive: true, force: true });
   });
 

@@ -13,7 +13,7 @@ const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
 
 /** The classifier's two probes, injectable so a test can exercise every branch without a real
  * process or a real bound socket. */
-type LegacyDaemonArtifactDeps = {
+export type LegacyDaemonArtifactDeps = {
   isProcessAlive: (pid: number) => boolean;
   probeSocketLiveness: (socketPath: string) => Promise<SocketLiveness>;
 };
@@ -73,7 +73,9 @@ type LegacyDaemonUnitClassification = { status: "dead" } | { status: "preserved"
  * Classify one legacy keyed unit without ever treating its socket as a live service endpoint: a
  * parseable PID file decides by process liveness (fail-closed on PID reuse — a draining
  * generation's private endpoint stays intact); a PID-less keyed socket decides by a non-RPC
- * connect probe only; a unit with neither has no proof of death and is preserved as ambiguous.
+ * connect probe only, and only a `stale` (connection-refused) verdict proves death — `absent` is
+ * not proof of death (a sandboxed caller can see ENOENT for a live socket) and is preserved like
+ * `live`; a unit with neither has no proof of death and is preserved as ambiguous.
  */
 async function classifyLegacyDaemonUnit(
   unit: LegacyDaemonUnitPaths,
@@ -84,11 +86,11 @@ async function classifyLegacyDaemonUnit(
     return deps.isProcessAlive(pid) ? { status: "preserved", reason: `pid ${pid} is running` } : { status: "dead" };
   }
   if (existsSync(unit.socketPath)) {
-    // `existsSync` already proved the socket file is here, so a non-`live` probe verdict is
-    // stale regardless of errno: Bun reports a present-but-listener-less socket as ENOENT
-    // (absent) the same way Node reports ECONNREFUSED.
     const liveness = await deps.probeSocketLiveness(unit.socketPath);
-    return liveness === "live" ? { status: "preserved", reason: "socket is live" } : { status: "dead" };
+    if (liveness === "stale") return { status: "dead" };
+    return liveness === "live"
+      ? { status: "preserved", reason: "socket is live" }
+      : { status: "preserved", reason: "socket probe was inconclusive" };
   }
   return { status: "preserved", reason: "no PID file or socket to prove death" };
 }

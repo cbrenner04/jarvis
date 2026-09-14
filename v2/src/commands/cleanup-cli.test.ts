@@ -244,6 +244,10 @@ async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFix
   const deadSocket = join(jarvisRoot, "daemon-deadbeefdeadbeef.sock");
   mkdirSync(jarvisRoot, { recursive: true });
   writeFileSync(deadSocket, "");
+  // A companion PID file with a dead PID makes classification deterministic (PID decides before
+  // any socket probe): the CLI surface has no seam to inject a fake probe, and a real probe
+  // against a plain regular file reads `absent`, not proof of death.
+  writeFileSync(join(jarvisRoot, "daemon-deadbeefdeadbeef.pid"), "999999");
   return { calls, deadSocket, jarvisRoot, other, root, runner, selected };
 }
 
@@ -819,6 +823,10 @@ describe("cleanup command through main", () => {
     const deadSocket = join(cleanupJarvisRoot, "daemon-deadbeefdeadbeef.sock");
     mkdirSync(dirname(deadSocket), { recursive: true });
     writeFileSync(deadSocket, "");
+    // A companion PID file with a dead PID makes classification deterministic (PID decides before
+    // any socket probe): a real probe against a plain regular file reads `absent`, not proof of
+    // death.
+    writeFileSync(join(cleanupJarvisRoot, "daemon-deadbeefdeadbeef.pid"), "999999");
     const rawSocketError = `connect ENOENT ${deadSocket}`;
     const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
 

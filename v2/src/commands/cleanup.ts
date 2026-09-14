@@ -46,7 +46,7 @@ import {
   pruneConsumedQueueEntry,
   resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
-import { daemonUnitKeysFromNames, reapLegacyDaemonArtifacts } from "./daemon.ts";
+import { daemonUnitKeysFromNames, type LegacyDaemonArtifactDeps, reapLegacyDaemonArtifacts } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1559,12 +1559,13 @@ async function removeDeadDaemonArtifacts(
   paths: readonly string[],
   jarvisRoot: string,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps,
 ): Promise<number> {
   let exitCode = 0;
   const keys = daemonUnitKeysFromNames(paths);
 
   for (const key of keys) {
-    const revalidated = await reapLegacyDaemonArtifacts(jarvisRoot, [key]);
+    const revalidated = await reapLegacyDaemonArtifacts(jarvisRoot, [key], legacyDaemonArtifactDeps);
     for (const path of revalidated.dead) {
       if (!paths.includes(path)) continue;
       try {
@@ -1661,6 +1662,7 @@ async function gatherCleanupDiscoveryContext(
   configPath: string,
   clock: () => Date,
   skips: ArtifactSkipLedger,
+  legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps,
 ): Promise<CleanupDiscoveryContext> {
   const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner, ownershipRegistry });
   const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
@@ -1687,7 +1689,7 @@ async function gatherCleanupDiscoveryContext(
     io,
     skips,
   );
-  const reaperResult = await reapLegacyDaemonArtifacts(jarvisRoot);
+  const reaperResult = await reapLegacyDaemonArtifacts(jarvisRoot, undefined, legacyDaemonArtifactDeps);
   const sessionLogPlan = discoverExpiredSessionLogs(sessionsDir, configPath, clock, store, io);
 
   return {
@@ -1766,6 +1768,7 @@ async function executeConfirmedCleanup(
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
   daemonBlockedExit: number,
+  legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps,
 ): Promise<number> {
   const recheck = await recheckEligibleWorktrees(ctx.candidates, runner, daemonClient, store, io);
   const stillEligible = recheck.candidates;
@@ -1813,7 +1816,12 @@ async function executeConfirmedCleanup(
       sessionLogExit = 1;
     }
   }
-  const artifactRemoval = await removeDeadDaemonArtifacts(ctx.reaperResult.dead, jarvisRoot, io);
+  const artifactRemoval = await removeDeadDaemonArtifacts(
+    ctx.reaperResult.dead,
+    jarvisRoot,
+    io,
+    legacyDaemonArtifactDeps,
+  );
 
   const strandedAfterRetirement = await inspectStrandedArtifacts(
     ctx.strandedArtifacts,
@@ -1849,6 +1857,7 @@ export async function runCleanupCommand(
     sessionsDir?: string;
     configPath?: string;
     clock?: () => Date;
+    legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps;
   },
   registry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
@@ -1883,6 +1892,7 @@ async function runCleanupCommandWithSkipLedger(
     sessionsDir?: string;
     configPath?: string;
     clock?: () => Date;
+    legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps;
   },
   registry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
@@ -1905,6 +1915,7 @@ async function runCleanupCommandWithSkipLedger(
     options.configPath ?? join(jarvisRoot, "config.json"),
     options.clock ?? (() => new Date()),
     skips,
+    options.legacyDaemonArtifactDeps,
   );
 
   for (const worktree of ctx.daemonUnreachable) {
@@ -1949,7 +1960,17 @@ async function runCleanupCommandWithSkipLedger(
     return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, daemonBlockedExit);
   }
 
-  return executeConfirmedCleanup(ctx, registry, jarvisRoot, runner, daemonClient, store, io, daemonBlockedExit);
+  return executeConfirmedCleanup(
+    ctx,
+    registry,
+    jarvisRoot,
+    runner,
+    daemonClient,
+    store,
+    io,
+    daemonBlockedExit,
+    options.legacyDaemonArtifactDeps,
+  );
 }
 
 type WorktreeRefPruneOptions = {

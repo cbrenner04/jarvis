@@ -626,3 +626,22 @@ test("review settled, publication not yet dispatched, still live emits nothing",
   expect(deriveOperatorIncidents(store, Date.now(), live)).toEqual([]);
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId: entryRunId, cause: "completed" })]);
 });
+
+test("resumed linked row that settles completed with a publication failure notifies again", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = seedInvocationRow("plan~link-0", "in-progress");
+  store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "gate_invocation_refused" });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId, cause: "failed", transition: "terminal:failed:1000000" }),
+  ]);
+  deliverAll();
+
+  setSystemTime(new Date(2_000_000));
+  store.setRunStatus(runId, "in-progress");
+  store.commitTerminalRunSettlement({ runId, status: "completed", terminalCause: "completion_commit_failed" });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId, cause: "completion_commit_failed", transition: "terminal:failed:2000000" }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});

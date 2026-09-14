@@ -2,11 +2,23 @@ import { describe, expect, test } from "bun:test";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
-import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
+import { runTuiLogFollow as runTuiLogFollowImpl } from "./tui-log-follow-entry.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
-import type { TuiLogFollowControls, TuiLogFollowViewHost } from "./tui-log-follow-types.ts";
+import type { RunTuiLogFollowDeps, TuiLogFollowControls, TuiLogFollowViewHost } from "./tui-log-follow-types.ts";
 import type { TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
+import type { DaemonRevisionReadOutcome } from "./tui-revision-follow.ts";
+import { type PerformTuiRevisionReexecParams, TUI_REEXEC_REVISION_ENV } from "./tui-revision-reexec.ts";
+
+// Every test unrelated to revision-follow gets a fast no-op default (no real subprocess/socket I/O)
+// for the new revision-follow seams; the revision-follow tests below override them explicitly.
+function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps): Promise<number> {
+  return runTuiLogFollowImpl(runId, {
+    resolveTuiRevision: async () => "unknown",
+    readTuiDaemonRevision: async () => ({ kind: "failure" }),
+    ...deps,
+  });
+}
 
 function logRecord(
   seq: number,
@@ -168,6 +180,26 @@ function createViewHost() {
     isClosed() {
       return closed;
     },
+  };
+}
+
+/** This test process's own `[node executable, script path]`, narrowed for `noUncheckedIndexedAccess`. */
+function currentNodeAndScript(): [string, string] {
+  const [nodeExecutable, scriptPath] = process.argv;
+  if (nodeExecutable === undefined || scriptPath === undefined) {
+    throw new Error("test environment process.argv too short");
+  }
+  return [nodeExecutable, scriptPath];
+}
+
+/** Wraps a fixed sequence of daemon revision-read outcomes; the last entry repeats once exhausted. */
+function revisionReadSequence(reads: readonly (string | "failure")[]): () => Promise<DaemonRevisionReadOutcome> {
+  let index = 0;
+  return async () => {
+    const read = reads[Math.min(index, reads.length - 1)] ?? "failure";
+    index += 1;
+    if (read === "failure") return { kind: "failure" };
+    return { kind: "success", loadedRevision: read };
   };
 }
 
@@ -729,5 +761,225 @@ describe("runTuiLogFollow", () => {
         tailRetry: { maxAttempts: 5, initialDelayMs: 1 },
       }),
     ).rejects.toThrow("unexpected tail failure");
+  });
+
+  describe("revision-follow re-exec", () => {
+    test("re-execs with explicit `tui log <run-id>` argv on a stable mismatch at initial connect, without operator input", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      let connectedTail = false;
+
+      const code = await runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
+        viewHost: view.host,
+        resolveTuiRevision: async () => "rev-a",
+        readTuiDaemonRevision: revisionReadSequence(["rev-b", "rev-b"]),
+        reexecTuiLogFollow: async (params) => {
+          reexecCalls.push(params);
+        },
+        connectTuiLogTail: async () => {
+          connectedTail = true;
+          return immediateTail();
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(connectedTail).toBe(false);
+      expect(reexecCalls).toHaveLength(1);
+      expect(reexecCalls[0]?.daemonRevision).toBe("rev-b");
+      expect(reexecCalls[0]?.argv).toEqual([...currentNodeAndScript(), "tui", "log", "run-123"]);
+    });
+
+    test("re-execs again on a tail-resume reconnect once the daemon's differing revision stabilizes", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      let connectAttempts = 0;
+
+      const code = await runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
+        viewHost: view.host,
+        resolveTuiRevision: async () => "rev-a",
+        // Initial connect: rev-a matches (no re-exec). Mid-stream loss, then reconnect check: rev-b stabilizes.
+        readTuiDaemonRevision: revisionReadSequence(["rev-a", "rev-a", "rev-b", "rev-b"]),
+        reexecTuiLogFollow: async (params) => {
+          reexecCalls.push(params);
+        },
+        connectTuiLogTail: async () => {
+          connectAttempts += 1;
+          return {
+            records() {
+              return {
+                async *[Symbol.asyncIterator]() {
+                  yield logRecord(1, "iteration_started");
+                  throw new RpcConnectionError("connection lost");
+                },
+              };
+            },
+            close() {},
+          } as TuiLogTailClient;
+        },
+        tailRetry: { maxAttempts: 2, initialDelayMs: 1 },
+      });
+
+      expect(code).toBe(0);
+      expect(connectAttempts).toBe(1);
+      expect(reexecCalls).toHaveLength(1);
+      expect(reexecCalls[0]?.daemonRevision).toBe("rev-b");
+    });
+
+    test("matching monitor and daemon revisions never re-exec; tailing continues", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const records = [logRecord(1, "iteration_started")];
+
+      const code = await runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
+        viewHost: view.host,
+        resolveTuiRevision: async () => "rev-a",
+        readTuiDaemonRevision: revisionReadSequence(["rev-a", "rev-a"]),
+        reexecTuiLogFollow: async (params) => {
+          reexecCalls.push(params);
+        },
+        connectTuiLogTail: async () => immediateTail(records),
+      });
+
+      expect(code).toBe(0);
+      expect(reexecCalls).toHaveLength(0);
+      expect(view.lines).toHaveLength(1);
+    });
+
+    test("an unknown daemon-reported revision never re-execs; tailing continues", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+
+      const code = await runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
+        viewHost: view.host,
+        resolveTuiRevision: async () => "rev-a",
+        readTuiDaemonRevision: revisionReadSequence(["unknown", "unknown"]),
+        reexecTuiLogFollow: async (params) => {
+          reexecCalls.push(params);
+        },
+        connectTuiLogTail: async () => immediateTail(),
+      });
+
+      expect(code).toBe(0);
+      expect(reexecCalls).toHaveLength(0);
+    });
+
+    test("an unknown loaded (local) revision never re-execs; tailing continues", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+
+      const code = await runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
+        viewHost: view.host,
+        resolveTuiRevision: async () => "unknown",
+        readTuiDaemonRevision: revisionReadSequence(["rev-b", "rev-b"]),
+        reexecTuiLogFollow: async (params) => {
+          reexecCalls.push(params);
+        },
+        connectTuiLogTail: async () => immediateTail(),
+      });
+
+      expect(code).toBe(0);
+      expect(reexecCalls).toHaveLength(0);
+    });
+
+    test("a failed status read never re-execs; tailing continues", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+
+      const code = await runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
+        viewHost: view.host,
+        resolveTuiRevision: async () => "rev-a",
+        readTuiDaemonRevision: revisionReadSequence(["failure", "rev-b"]),
+        reexecTuiLogFollow: async (params) => {
+          reexecCalls.push(params);
+        },
+        connectTuiLogTail: async () => immediateTail(),
+      });
+
+      expect(code).toBe(0);
+      expect(reexecCalls).toHaveLength(0);
+    });
+
+    test("an already-re-exec'd marker for the daemon's current stable revision never re-execs again", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const originalMarker = process.env[TUI_REEXEC_REVISION_ENV];
+      process.env[TUI_REEXEC_REVISION_ENV] = "rev-b";
+      try {
+        const code = await runTuiLogFollow("run-123", {
+          socketPath: "/tmp/test.sock",
+          viewHost: view.host,
+          resolveTuiRevision: async () => "rev-a",
+          readTuiDaemonRevision: revisionReadSequence(["rev-b", "rev-b"]),
+          reexecTuiLogFollow: async (params) => {
+            reexecCalls.push(params);
+          },
+          connectTuiLogTail: async () => immediateTail(),
+        });
+
+        expect(code).toBe(0);
+        expect(reexecCalls).toHaveLength(0);
+      } finally {
+        if (originalMarker === undefined) delete process.env[TUI_REEXEC_REVISION_ENV];
+        else process.env[TUI_REEXEC_REVISION_ENV] = originalMarker;
+      }
+    });
+
+    test("propagates when process.argv is too short to build re-exec argv", async () => {
+      const view = createViewHost();
+      const originalArgv = process.argv;
+      process.argv = ["/usr/bin/node"];
+      try {
+        await expect(
+          runTuiLogFollow("run-123", {
+            socketPath: "/tmp/test.sock",
+            viewHost: view.host,
+            resolveTuiRevision: async () => "rev-a",
+            readTuiDaemonRevision: revisionReadSequence(["rev-b", "rev-b"]),
+            connectTuiLogTail: async () => immediateTail(),
+          }),
+        ).rejects.toThrow("cannot re-exec: process.argv is empty");
+      } finally {
+        process.argv = originalArgv;
+      }
+    });
+
+    test("in-process entry from the monitor's log action re-execs with `tui log <run-id>` argv, not the monitor's own argv", async () => {
+      const view = createViewHost();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const originalArgv = process.argv;
+      // Simulates process.argv as the monitor's own invocation left it (`jarvis tui`, no `log`/run id) —
+      // the shape `runTuiLogFollow` sees when entered in-process from the monitor's `log` action.
+      process.argv = ["/usr/bin/node", "/path/to/jarvis/v2/src/cli.ts", "tui"];
+      try {
+        const code = await runTuiLogFollow("run-456", {
+          socketPath: "/tmp/test.sock",
+          viewHost: view.host,
+          resolveTuiRevision: async () => "rev-a",
+          readTuiDaemonRevision: revisionReadSequence(["rev-b", "rev-b"]),
+          reexecTuiLogFollow: async (params) => {
+            reexecCalls.push(params);
+          },
+          connectTuiLogTail: async () => immediateTail(),
+        });
+
+        expect(code).toBe(0);
+        expect(reexecCalls).toHaveLength(1);
+        expect(reexecCalls[0]?.argv).toEqual([
+          "/usr/bin/node",
+          "/path/to/jarvis/v2/src/cli.ts",
+          "tui",
+          "log",
+          "run-456",
+        ]);
+      } finally {
+        process.argv = originalArgv;
+      }
+    });
   });
 });

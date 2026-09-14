@@ -1,6 +1,4 @@
 import { basename } from "node:path";
-import { getCurrentHeadAsync } from "../../../shared/git.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type {
   PipelineStartAdmissionInput,
   PipelineStartAdmissionResult,
@@ -48,6 +46,7 @@ import type {
 import { isActiveRunStatus } from "./tui-monitor-workflow-collapse.ts";
 import { type DaemonRevisionReadOutcome, decideTuiRevisionReexec } from "./tui-revision-follow.ts";
 import {
+  defaultResolveTuiRevision,
   performTuiRevisionReexec,
   readTuiReexecCarriedState,
   readTuiReexecedForRevision,
@@ -101,15 +100,6 @@ function createIntervalScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefre
       };
     },
   };
-}
-
-/** This process's own loaded source revision, via the same resolver the daemon uses for `loadedRevision`. */
-async function defaultResolveMonitorRevision(): Promise<string> {
-  try {
-    return await getCurrentHeadAsync(import.meta.dir, realAsyncSubprocessRunner);
-  } catch {
-    return "unknown";
-  }
 }
 
 export function selectedRunIdFromState(state: TuiMonitorState): string | null {
@@ -471,7 +461,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const refreshScheduler = deps.refreshScheduler ?? createIntervalScheduler();
   const displayTickScheduler = deps.displayTickScheduler ?? createIntervalScheduler();
   const terminalSizeFn = deps.terminalSize ?? processTerminalSize;
-  const resolveMonitorRevisionFn = deps.resolveMonitorRevision ?? defaultResolveMonitorRevision;
+  const resolveMonitorRevisionFn = deps.resolveMonitorRevision ?? defaultResolveTuiRevision;
   const reexecAction = deps.reexecTuiMonitor ?? performTuiRevisionReexec;
   const monitorRevision = await resolveMonitorRevisionFn();
   const reexecedForRevision = deps.reexecedForRevision ?? readTuiReexecedForRevision(process.env);

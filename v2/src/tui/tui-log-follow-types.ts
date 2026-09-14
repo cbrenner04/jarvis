@@ -1,6 +1,8 @@
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { ConnectTuiLogTailOptions, TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
+import type { DaemonRevisionReadOutcome } from "./tui-revision-follow.ts";
+import type { PerformTuiRevisionReexecParams } from "./tui-revision-reexec.ts";
 
 /** Injectable quit control for the log-follow view. */
 export type TuiLogFollowControls = {
@@ -56,4 +58,10 @@ export type RunTuiLogFollowDeps = {
   inkRender?: InkRender;
   /** Retry configuration for mid-stream transport loss. */
   tailRetry?: TuiLogFollowRetryConfig;
+  /** Injectable resolver for this process's own loaded source revision; defaults to the monitor's production resolver. */
+  resolveTuiRevision?: () => Promise<string>;
+  /** Injectable daemon status read for revision-follow, called twice back-to-back at each check point; defaults to a fresh `connectTuiDaemon` status read. */
+  readTuiDaemonRevision?: () => Promise<DaemonRevisionReadOutcome>;
+  /** Injectable revision-follow re-exec action; defaults to `performTuiRevisionReexec` with explicit `tui log <run-id>` argv. */
+  reexecTuiLogFollow?: (params: PerformTuiRevisionReexecParams) => Promise<void>;
 };

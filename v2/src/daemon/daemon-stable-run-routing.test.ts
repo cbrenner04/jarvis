@@ -839,6 +839,56 @@ describe("stable pipeline decision-verb ownership claim", () => {
     store.close();
   });
 
+  test("a claim that still loses on retry refuses after exactly one retry, never proceeding on the initial loss", async () => {
+    const dbPath = tempDbPath("persistent-claim-loss");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async () => ({ ok: true, steps: [] }),
+    });
+    let claimCalls = 0;
+    const alwaysLosingStore: PipelineOwnershipStore = {
+      currentOwnerIdentity: () => store.currentOwnerIdentity(),
+      loadPipeline: (id) => store.loadPipeline(id),
+      adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+      claimPipelineContinuation: (args) => {
+        claimCalls += 1;
+        return { kind: "refused", pipelineId: args.pipelineId, reason: "stale_owner" };
+      },
+    };
+    let predecessorQueries = 0;
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store: alwaysLosingStore,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => {
+        predecessorQueries += 1;
+        return ownerClient(ownsPredecessorReply()).client;
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(
+      decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    // A claim that keeps losing (never "applied") must retry once, then refuse — not proceed on
+    // the first loss, which would leave the local handler running against a pipeline this
+    // generation was never actually granted.
+    expect(response).toEqual({
+      kind: "error",
+      code: "pipeline_no_live_owner",
+      message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+    });
+    expect(claimCalls).toBe(2);
+    expect(predecessorQueries).toBe(2);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(PREDECESSOR_IDENTITY);
+    store.close();
+  });
+
   test("an unreachable predecessor during the confirming query refuses without ever adopting", async () => {
     const dbPath = tempDbPath("unreachable");
     const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);

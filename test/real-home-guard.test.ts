@@ -4,8 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { diffRealHomeSnapshots, snapshotRealHome } from "../scripts/real-home-guard.ts";
 
+function makeTempDir(): string {
+  return mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+}
+
 function makeTempHome(): string {
-  const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+  const home = makeTempDir();
   mkdirSync(join(home, "sessions"), { recursive: true });
   mkdirSync(join(home, "specs", "Org-example", "project"), { recursive: true });
   writeFileSync(join(home, "sessions", "existing.log"), "pre-existing\n");
@@ -55,7 +59,7 @@ test("a violating run reports new sessions/ and specs/ entries plus a telemetry.
 });
 
 test("specs/ walk is bounded to SPECS_WALK_MAX_DEPTH: entries past the limit are not listed", () => {
-  const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+  const home = makeTempDir();
   try {
     // specs/a/b/c/d/e sits exactly at depth 4 (SPECS_WALK_MAX_DEPTH); e/f.md would be depth 5.
     const deepDir = join(home, "specs", "a", "b", "c", "d", "e");
@@ -72,7 +76,7 @@ test("specs/ walk is bounded to SPECS_WALK_MAX_DEPTH: entries past the limit are
 });
 
 test("multiple siblings at the max-depth boundary are all listed, not just the first", () => {
-  const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+  const home = makeTempDir();
   try {
     // specs/a/b/c/d sits at depth 3; its two children "e" and "e2" are both listed at depth 4
     // (the boundary), then neither is recursed into. A `continue` at the boundary must still let
@@ -91,7 +95,7 @@ test("multiple siblings at the max-depth boundary are all listed, not just the f
 });
 
 test("a fresh sessions/specs directory with no prior snapshot data still reports new entries", () => {
-  const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+  const home = makeTempDir();
   try {
     const before = snapshotRealHome(home);
 

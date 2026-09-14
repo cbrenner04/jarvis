@@ -7,6 +7,7 @@ import {
   DAEMON_PID_PATH,
   DAEMON_SOCKET_DISPLAY,
   DAEMON_SOCKET_PATH,
+  intentWorkRoot,
   jarvisHome,
   MACHINE_CONFIG_PATH,
   ORCHESTRATION_STORE_PATH,
@@ -69,6 +70,17 @@ describe("paths", () => {
   test("specsHome(projectKey, jarvisRoot) honors the passed-in root", () => {
     const customRoot = join(jarvisHome(), "custom-home");
     expect(specsHome("owner/repo", customRoot)).toBe(join(customRoot, "specs", projectSafeId("owner/repo")));
+  });
+
+  test("intentWorkRoot(projectKey) is <jarvis-home>/specs/<projectSafeId>/intent-work", () => {
+    expect(intentWorkRoot("owner/repo")).toBe(join(jarvisHome(), "specs", projectSafeId("owner/repo"), "intent-work"));
+  });
+
+  test("intentWorkRoot(projectKey, jarvisRoot) honors the passed-in root", () => {
+    const customRoot = join(jarvisHome(), "custom-home");
+    expect(intentWorkRoot("owner/repo", customRoot)).toBe(
+      join(customRoot, "specs", projectSafeId("owner/repo"), "intent-work"),
+    );
   });
 });
 

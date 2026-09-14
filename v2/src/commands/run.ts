@@ -19,9 +19,7 @@ import {
   RUN_USAGE,
 } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { parseStartResult } from "../daemon/daemon-wire.ts";
-import { mergeRunLists } from "../daemon/merge-run-lists.ts";
-import { queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
+import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
 import { type KillSurvivor, parseRunKillOutcome, type RunKillOutcome } from "../daemon/run-kill-outcome.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { isRunStatus, isTerminalRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
@@ -221,12 +219,6 @@ function parseListArgv(
   return { ok: true, params };
 }
 
-async function resolveRunOwnerSocket(runId: string, deps: CliDeps): Promise<string> {
-  const { listResults } = await queryDaemonListsFromSockets(deps, { includeDismissed: true });
-  const { owners } = mergeRunLists(listResults);
-  return owners.get(runId) ?? deps.socketPath;
-}
-
 async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const parsed = parseWriteCliInput(argv, deps);
   if (!parsed.ok) {
@@ -261,57 +253,54 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
   if (!parsed.ok) return 1;
 
   const listParams = resolveListRpcRequest(parsed.params);
-  const { listResults, firstError } = await queryDaemonListsFromSockets(deps, listParams);
-
-  if (listResults.every(([_, result]) => result === undefined)) {
-    if (firstError instanceof RpcError) {
-      io.stderr(formatRpcError(firstError));
-    } else if (firstError instanceof Error) {
-      io.stderr(`${firstError.message}\n`);
-    } else {
-      io.stderr("connection failed\n");
+  return withRunClient(io, deps, async (client) => {
+    let result: unknown;
+    try {
+      result = await request(client, "list", listParams);
+    } catch (error) {
+      if (error instanceof RpcError) {
+        io.stderr(formatRpcError(error));
+        return 1;
+      }
+      throw error;
     }
-    return 1;
-  }
-
-  const { rows } = mergeRunLists(listResults);
-  rows.sort((a, b) => a.runId.localeCompare(b.runId));
-  const showDismissal = parsed.params.includeDismissed === true;
-  for (const run of rows) io.stdout(formatListRunRow(run, showDismissal));
-  return 0;
+    const list = parseListRuns(result);
+    if (list === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    const rows = [...list.runs].sort((a, b) => a.runId.localeCompare(b.runId));
+    const showDismissal = parsed.params.includeDismissed === true;
+    for (const run of rows) io.stdout(formatListRunRow(run, showDismissal));
+    return 0;
+  });
 }
 
 async function runLogSubcommand(runId: string, follow: boolean, io: Io, deps: CliDeps): Promise<number> {
-  const socketPath = await resolveRunOwnerSocket(runId, deps);
-  return withRunClient(
-    io,
-    deps,
-    async (client) => {
-      const streamId = crypto.randomUUID();
-      const payload = follow ? { runId, afterSeq: 0, follow: true } : { runId, afterSeq: 0 };
-      client.send({ kind: "stream-open", streamId, payload });
+  return withRunClient(io, deps, async (client) => {
+    const streamId = crypto.randomUUID();
+    const payload = follow ? { runId, afterSeq: 0, follow: true } : { runId, afterSeq: 0 };
+    client.send({ kind: "stream-open", streamId, payload });
 
-      while (true) {
-        try {
-          const frame = await client.nextFrame();
-          if (frame.kind === "stream-data" && frame.streamId === streamId) {
-            const record = parseStreamPayload(frame.payload);
-            io.stdout(`${JSON.stringify(record)}\n`);
-            continue;
-          }
-          if (frame.kind === "stream-end" && frame.streamId === streamId) {
-            return 0;
-          }
-        } catch (error) {
-          if (error instanceof Error && error.message === "connection closed") {
-            return 0;
-          }
-          throw error;
+    while (true) {
+      try {
+        const frame = await client.nextFrame();
+        if (frame.kind === "stream-data" && frame.streamId === streamId) {
+          const record = parseStreamPayload(frame.payload);
+          io.stdout(`${JSON.stringify(record)}\n`);
+          continue;
         }
+        if (frame.kind === "stream-end" && frame.streamId === streamId) {
+          return 0;
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "connection closed") {
+          return 0;
+        }
+        throw error;
       }
-    },
-    socketPath,
-  );
+    }
+  });
 }
 
 async function runActionCommand(

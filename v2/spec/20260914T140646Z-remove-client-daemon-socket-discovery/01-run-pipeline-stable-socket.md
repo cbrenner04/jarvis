@@ -16,10 +16,10 @@ Pipeline verbs are already stable-socket-only (`v2/src/commands/pipeline.ts`'s `
 
 ## Acceptance criteria
 
-- [ ] A command test proves `run list` reports only the stable daemon's run rows, with no cross-socket discovery or merge; it fails against the pre-fix `queryDaemonListsFromSockets` call in `v2/src/commands/run.ts`.
-- [ ] A command test proves `run log` streams a draining-owned run's log by connecting only to the stable socket, with no owner lookup or direct connect to another socket; it fails against the pre-fix `resolveRunOwnerSocket` cross-daemon lookup in `v2/src/commands/run.ts`.
-- [ ] `v2/src/commands/run.test.ts`, `v2/src/commands/pipeline.test.ts`, `v2/src/commands/run-list-dimension-filters.test.ts`, and `v2/src/commands/run-list-query-limit-cap.test.ts` stay green (pipeline verbs are unchanged by this subspec).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A command test proves `run list` reports only the stable daemon's run rows, with no cross-socket discovery or merge; it fails against the pre-fix `queryDaemonListsFromSockets` call in `v2/src/commands/run.ts`.
+- [x] A command test proves `run log` streams a draining-owned run's log by connecting only to the stable socket, with no owner lookup or direct connect to another socket; it fails against the pre-fix `resolveRunOwnerSocket` cross-daemon lookup in `v2/src/commands/run.ts`.
+- [x] `v2/src/commands/run.test.ts`, `v2/src/commands/pipeline.test.ts`, `v2/src/commands/run-list-dimension-filters.test.ts`, and `v2/src/commands/run-list-query-limit-cap.test.ts` stay green (pipeline verbs are unchanged by this subspec).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

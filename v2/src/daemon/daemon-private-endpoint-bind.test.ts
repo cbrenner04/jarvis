@@ -251,7 +251,12 @@ test("binds predecessor-merging pipeline_list only on the stable endpoint so pri
     predecessorSocketPath: "/fake/predecessor.sock",
     enumerateOtherDaemonSockets: () => [],
     observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
-    observeRunOwnership: () => ({ ownerRow: () => undefined, resolveOwner: async () => false, resolveOwnerForKey: async () => false, stop: () => undefined }),
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      resolveOwner: async () => false,
+      resolveOwnerForKey: async () => false,
+      stop: () => undefined,
+    }),
     connectRunOwnerClient: async (socketPath) => {
       ownerConnectAttempts.push(socketPath);
       throw new Error("connection refused");

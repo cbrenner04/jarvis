@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getInvokingExecutableDigest } from "../cli/dispatch-revision";
 import { connectIpcClient } from "../ipc/client";
-import { type IpcServer, startIpcServer } from "../ipc/server";
+import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { daemonPathsByDigest } from "../paths";
 import { openStateStore } from "../persistence/state-store";
@@ -138,6 +138,11 @@ describe("daemon (stable public address)", () => {
         settleDelayMs: 0,
       });
       const ipcHandlers = toIpcHandlers(incumbentHandlers);
+      let incumbentPrivateKillCalls = 0;
+      const incumbentPrivateKill: RpcHandler = (frame, signal) => {
+        incumbentPrivateKillCalls += 1;
+        return incumbentHandlers.kill(frame, signal);
+      };
       const healthHandler = () => ({ kind: "response" as const, result: { ok: true } });
 
       let incumbentPublicServer: IpcServer;
@@ -151,6 +156,7 @@ describe("daemon (stable public address)", () => {
         health: healthHandler,
         handoff_commit: handoff.handoff_commit,
         ...ipcHandlers,
+        kill: incumbentPrivateKill,
       });
       incumbentPublicServer = await startIpcServer(publicSocketPath, {
         health: healthHandler,
@@ -216,6 +222,19 @@ describe("daemon (stable public address)", () => {
         const rows = await listRuns(listClient);
         expect(rows?.find((row) => row.runId === incumbentRunId)?.isLive).toBe(true);
         listClient.close();
+
+        // A forced kill of the predecessor-owned run is settled by its owner, never force-settled
+        // locally by the successor: the stable address forwards it to the incumbent's private endpoint.
+        const killClient = await connectIpcClient(publicSocketPath);
+        killClient.send({
+          kind: "request",
+          id: "force-kill-owned-run",
+          method: "kill",
+          params: { runId: incumbentRunId, force: true },
+        });
+        expect(await killClient.nextFrame()).toMatchObject({ kind: "response" });
+        expect(incumbentPrivateKillCalls).toBe(1);
+        killClient.close();
       } finally {
         fakeExecutor.abortAll();
         await incumbentPrivateServer.close();

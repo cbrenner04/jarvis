@@ -171,4 +171,25 @@ describe("stable admission conflict routing", () => {
     expect(result).toEqual({ kind: "response", result: { local: true } });
     expect(calls).toEqual(["start"]);
   });
+  test("an ownership lookup that cannot be established falls back to local resume and start admission", async () => {
+    const calls: string[] = [];
+    const failing = async (): Promise<never> => {
+      throw new Error("ownership refresh failed");
+    };
+    const handlers = createStableAdmissionHandlers(localHandlers(calls), {
+      resolveOwner: failing,
+      resolveOwnerForKey: failing,
+    });
+    const input = { worktree: { projectName: "demo", branchName: "feature" } };
+
+    expect(await handlers.resume(frame("resume", { runId: "run-1" }), new AbortController().signal)).toEqual({
+      kind: "response",
+      result: { local: true },
+    });
+    expect(await handlers.start(frame("start", { input }), new AbortController().signal)).toEqual({
+      kind: "response",
+      result: { local: true },
+    });
+    expect(calls).toEqual(["resume", "start"]);
+  });
 });

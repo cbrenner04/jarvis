@@ -1373,16 +1373,19 @@ export function createStableAdmissionHandlers(
   localHandlers: Pick<RunLifecycleHandlers, "resume" | "start">,
   deps: StableAdmissionConflictDeps,
 ): Pick<RunLifecycleHandlers, "resume" | "start"> {
+  // An ownership lookup that cannot be established (refresh failure) falls back to local
+  // per-daemon admission — never a routing-unavailable refusal.
+  const ownedOrLocal = (lookup: () => Promise<boolean>): Promise<boolean> => lookup().catch(() => false);
   const resume: RpcHandler = async (frame, signal) => {
     const params = frame.params as { runId?: string } | undefined;
-    if (typeof params?.runId === "string" && (await deps.resolveOwner(params.runId))) {
+    if (typeof params?.runId === "string" && (await ownedOrLocal(() => deps.resolveOwner(params.runId as string)))) {
       return runOwnerConflictError(params.runId);
     }
     return localHandlers.resume(frame, signal);
   };
   const start: RpcHandler = async (frame, signal) => {
     const key = startFrameOwnershipKey(frame);
-    if (key !== undefined && (await deps.resolveOwnerForKey(key))) {
+    if (key !== undefined && (await ownedOrLocal(() => deps.resolveOwnerForKey(key)))) {
       return { kind: "error", code: "worktree_claimed", message: worktreeClaimedMessage(key) };
     }
     return localHandlers.start(frame, signal);

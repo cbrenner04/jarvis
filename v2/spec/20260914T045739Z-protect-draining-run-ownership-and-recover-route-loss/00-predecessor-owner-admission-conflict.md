@@ -14,10 +14,10 @@ The stable daemon's `resume`, `start` (worktree lease), and forced `kill` settle
 
 ## Acceptance criteria
 
-- [ ] A concurrency regression drives the stable daemon with a reachable predecessor owning a run and proves `resume`, `start` on its worktree, and forced `kill` all refuse without claiming the run or lease; it fails against the pre-fix successor-local ownership checks.
-- [ ] A regression proves an unrelated `start` and an eligible `resume` of a non-predecessor run are admitted on the incoming generation while the predecessor drains.
-- [ ] A setup-failure regression proves that when the ownership directory cannot be established, public verbs keep existing per-daemon behavior with no routing-unavailable refusal.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A concurrency regression drives the stable daemon with a reachable predecessor owning a run and proves `resume`, `start` on its worktree, and forced `kill` all refuse without claiming the run or lease; it fails against the pre-fix successor-local ownership checks.
+- [x] A regression proves an unrelated `start` and an eligible `resume` of a non-predecessor run are admitted on the incoming generation while the predecessor drains.
+- [x] A setup-failure regression proves that when the ownership directory cannot be established, public verbs keep existing per-daemon behavior with no routing-unavailable refusal.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

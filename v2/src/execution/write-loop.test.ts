@@ -5992,6 +5992,27 @@ export function isLoadSensitive(file: string): boolean {
         expect(compareRepoPathsByUtf8Bytes("b", "a")).toBeGreaterThan(0);
       });
 
+      test("repair completion candidates omit unchanged tracked paths the stage pathspec excludes", async () => {
+        const root = mkdtempSync(join(tmpdir(), "repair-fence-excluded-tracked-"));
+        roots.push(root);
+        execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.name", "Test User"], { stdio: "pipe" });
+        mkdirSync(join(root, "v1/spec/completed/old"), { recursive: true });
+        writeFileSync(join(root, "v1/spec/completed/old/verdict-patch.md"), "frozen\n", "utf8");
+        writeFileSync(join(root, "tracked.txt"), "base\n", "utf8");
+        execFileSync("git", ["-C", root, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "seed"], { stdio: "pipe" });
+
+        expect(await enumerateRepairCompletionCandidates(root)).toEqual([]);
+        expect(
+          await validateReadyGateRepairCompletion({ worktreePath: root, baseRef: "HEAD", specPath: "spec" }, new Set()),
+        ).toBe(undefined);
+
+        writeFileSync(join(root, "tracked.txt"), "changed\n", "utf8");
+        expect(await enumerateRepairCompletionCandidates(root)).toEqual(["tracked.txt"]);
+      });
+
       test("repair completion candidates omit the harness-materialized node_modules symlink", async () => {
         const root = mkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
         roots.push(root);

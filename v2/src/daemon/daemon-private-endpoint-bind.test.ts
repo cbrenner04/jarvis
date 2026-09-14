@@ -127,7 +127,12 @@ test("feeds only predecessorSocketPath into ownership routing, never a legacy pe
     observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
     observeRunOwnership: (predecessorSocketPath) => {
       ownershipSocketPaths.push(predecessorSocketPath);
-      return { ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined };
+      return {
+        ownerRow: () => undefined,
+        resolveOwner: async () => false,
+        resolveOwnerForKey: async () => false,
+        stop: () => undefined,
+      };
     },
   });
 
@@ -146,7 +151,12 @@ test("ownership routing gets no socket path when only legacy peers are discovere
     observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
     observeRunOwnership: (predecessorSocketPath) => {
       ownershipSocketPaths.push(predecessorSocketPath);
-      return { ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined };
+      return {
+        ownerRow: () => undefined,
+        resolveOwner: async () => false,
+        resolveOwnerForKey: async () => false,
+        stop: () => undefined,
+      };
     },
   });
 
@@ -163,6 +173,7 @@ test("stops the ownership directory on close", async () => {
     observeRunOwnership: () => ({
       ownerRow: () => undefined,
       resolveOwner: async () => false,
+      resolveOwnerForKey: async () => false,
       stop: () => {
         stopped = true;
       },
@@ -191,6 +202,7 @@ test("binds direct-owner routing only on the stable endpoint so private calls ca
     observeRunOwnership: () => ({
       ownerRow: () => undefined,
       resolveOwner: async () => true,
+      resolveOwnerForKey: async () => true,
       stop: () => undefined,
     }),
     connectRunOwnerClient: async (socketPath) => {
@@ -239,7 +251,12 @@ test("binds predecessor-merging pipeline_list only on the stable endpoint so pri
     predecessorSocketPath: "/fake/predecessor.sock",
     enumerateOtherDaemonSockets: () => [],
     observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
-    observeRunOwnership: () => ({ ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined }),
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      resolveOwner: async () => false,
+      resolveOwnerForKey: async () => false,
+      stop: () => undefined,
+    }),
     connectRunOwnerClient: async (socketPath) => {
       ownerConnectAttempts.push(socketPath);
       throw new Error("connection refused");
@@ -266,6 +283,54 @@ test("binds predecessor-merging pipeline_list only on the stable endpoint so pri
   const publicReply = await publicPipelineList?.(request, new AbortController().signal);
   expect(publicReply).toEqual({ kind: "response", result: { pipelines: [], degraded: true } });
   expect(ownerConnectAttempts).toEqual(["/fake/predecessor.sock"]);
+
+  await runtime.close();
+});
+
+test("binds admission-conflict routing only on the stable endpoint so private resume/start stay local", async () => {
+  const boundHandlers = new Map<string, Record<string, RpcHandler>>();
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: async (socketPath, handlers = {}) => {
+      boundHandlers.set(socketPath, handlers);
+      return { socketPath, close: async () => undefined };
+    },
+    privateSocketPath: "/fake/private.sock",
+    predecessorSocketPath: "/fake/predecessor.sock",
+    enumerateOtherDaemonSockets: () => [],
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    // Resolves every run/key to the predecessor: only the stable-address wrapper may refuse on it.
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      resolveOwner: async () => true,
+      resolveOwnerForKey: async () => true,
+      stop: () => undefined,
+    }),
+  });
+
+  const privateResume = boundHandlers.get("/fake/private.sock")?.resume;
+  const publicResume = boundHandlers.get("/fake/public.sock")?.resume;
+  expect(privateResume).toBeDefined();
+  expect(publicResume).toBeDefined();
+  expect(privateResume).not.toBe(publicResume);
+
+  const request = { kind: "request", id: "resume", method: "resume", params: { runId: "run-1" } } as const;
+
+  // The private endpoint runs the local handler directly and never resolves ownership at all: an
+  // unknown run yields the local `unknown_run` error rather than a conflict refusal.
+  expect(await privateResume?.(request, new AbortController().signal)).toEqual({
+    kind: "error",
+    code: "unknown_run",
+    message: "Run run-1 not found",
+  });
+
+  // The same request through the stable endpoint resolves ownership to the predecessor and
+  // refuses before the local handler runs at all, proving the private endpoint above skipped
+  // this wrapper rather than merely finding no owner.
+  expect(await publicResume?.(request, new AbortController().signal)).toMatchObject({
+    kind: "error",
+    code: "run_owner_conflict",
+  });
 
   await runtime.close();
 });

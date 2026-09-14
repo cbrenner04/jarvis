@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getInvokingExecutableDigest } from "../cli/dispatch-revision";
 import { connectIpcClient } from "../ipc/client";
-import { type IpcServer, startIpcServer } from "../ipc/server";
+import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { daemonPathsByDigest } from "../paths";
 import { openStateStore } from "../persistence/state-store";
 import { withHandoffIdentity } from "../testing/handoff-identity";
-import { listRuns, startRun, toIpcHandlers } from "../testing/run-control";
+import { listRuns, mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
@@ -138,6 +138,11 @@ describe("daemon (stable public address)", () => {
         settleDelayMs: 0,
       });
       const ipcHandlers = toIpcHandlers(incumbentHandlers);
+      let incumbentPrivateKillCalls = 0;
+      const incumbentPrivateKill: RpcHandler = (frame, signal) => {
+        incumbentPrivateKillCalls += 1;
+        return incumbentHandlers.kill(frame, signal);
+      };
       const healthHandler = () => ({ kind: "response" as const, result: { ok: true } });
 
       let incumbentPublicServer: IpcServer;
@@ -151,6 +156,7 @@ describe("daemon (stable public address)", () => {
         health: healthHandler,
         handoff_commit: handoff.handoff_commit,
         ...ipcHandlers,
+        kill: incumbentPrivateKill,
       });
       incumbentPublicServer = await startIpcServer(publicSocketPath, {
         health: healthHandler,
@@ -172,7 +178,40 @@ describe("daemon (stable public address)", () => {
         expect(metadata.socketPath).toBe(publicSocketPath);
 
         const successorClient = await connectIpcClient(publicSocketPath);
-        const successorRunId = await startRun(successorClient);
+
+        // The incumbent's own worktree is a reachable-owner conflict for the successor, not a
+        // free claim (see 00-predecessor-owner-admission-conflict.md) — fails against the
+        // pre-fix successor-local worktree check, which never saw the incumbent's live claim.
+        successorClient.send({
+          kind: "request",
+          id: "claim-owned-worktree",
+          method: "start",
+          params: { input: mockWriteLoopInput() },
+        });
+        expect(await successorClient.nextFrame()).toMatchObject({
+          kind: "error",
+          code: "worktree_claimed",
+        });
+
+        // Same for `resume` against the incumbent's own run id: a reachable owner is a conflict,
+        // not a local admission decision — fails against the pre-fix successor-local resume check.
+        successorClient.send({
+          kind: "request",
+          id: "resume-owned-run",
+          method: "resume",
+          params: { runId: incumbentRunId },
+        });
+        expect(await successorClient.nextFrame()).toMatchObject({
+          kind: "error",
+          code: "run_owner_conflict",
+        });
+
+        // Unrelated (project, branch) stays admissible on the incoming generation while the
+        // incumbent drains — this proves admission for other work, not a second claim above.
+        const successorRunId = await startRun(
+          successorClient,
+          mockWriteLoopInput({ projectName: "successor-project", branchName: "successor-branch" }),
+        );
         expect(typeof successorRunId).toBe("string");
         expect(successorRunId).not.toBe(incumbentRunId);
         successorClient.close();
@@ -183,6 +222,19 @@ describe("daemon (stable public address)", () => {
         const rows = await listRuns(listClient);
         expect(rows?.find((row) => row.runId === incumbentRunId)?.isLive).toBe(true);
         listClient.close();
+
+        // A forced kill of the predecessor-owned run is settled by its owner, never force-settled
+        // locally by the successor: the stable address forwards it to the incumbent's private endpoint.
+        const killClient = await connectIpcClient(publicSocketPath);
+        killClient.send({
+          kind: "request",
+          id: "force-kill-owned-run",
+          method: "kill",
+          params: { runId: incumbentRunId, force: true },
+        });
+        expect(await killClient.nextFrame()).toMatchObject({ kind: "response" });
+        expect(incumbentPrivateKillCalls).toBe(1);
+        killClient.close();
       } finally {
         fakeExecutor.abortAll();
         await incumbentPrivateServer.close();

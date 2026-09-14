@@ -378,6 +378,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         observeRunOwnership: () => ({
           ownerRow: (id) => (id === runId ? ownerRow : undefined),
           resolveOwner: async (id) => id === runId,
+          resolveOwnerForKey: async () => false,
           stop: () => {
             stopCalls += 1;
           },
@@ -429,6 +430,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         observeRunOwnership: () => ({
           ownerRow: (id) => (id === runId ? ownerRow : undefined),
           resolveOwner: async (id) => id === runId,
+          resolveOwnerForKey: async () => false,
           stop: () => undefined,
         }),
         processExit,

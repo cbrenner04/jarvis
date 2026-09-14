@@ -90,7 +90,7 @@ The public PID file is written only after the daemon is serving, and `daemon sta
 
 ### Direct-owner run unary routing
 
-The stable public daemon owns routing for `wait`, `pause`, and `kill`. When the current generation owns the run, or an authoritative direct-predecessor snapshot says the predecessor does not, the existing local handler runs. Otherwise the stable daemon forwards the original method and complete params, including `kill.force`, only to the direct predecessor's private endpoint. That endpoint runs its local handler rather than forwarding again, so routing never chains through older generations. `resume`, dismissal, log-tail streaming, and admission RPCs retain their existing paths.
+The stable public daemon owns routing for `wait`, `pause`, and `kill`. When the current generation owns the run, or an authoritative direct-predecessor snapshot says the predecessor does not, the existing local handler runs. Otherwise the stable daemon forwards the original method and complete params, including `kill.force`, only to the direct predecessor's private endpoint. That endpoint runs its local handler rather than forwarding again, so routing never chains through older generations. Dismissal, log-tail streaming, and other admission RPCs retain their existing paths.
 
 An initial-empty ownership directory and a directory cleared by a failed poll are unresolved, not evidence that the run is local: the stable handler awaits an authoritative direct-predecessor refresh before local settlement or refusal. A successful snapshot with no matching owner is definitive. Current-generation ownership is checked before and after refresh and wins over a stale predecessor row.
 
@@ -105,6 +105,10 @@ Merging keys the two snapshot sets under fixed synthetic labels `"local"`/`"pred
 Scope is direct-predecessor only, matching the direct-owner routing above: a grand-predecessor still draining behind the direct predecessor is not listed. The private-endpoint `pipeline_list` handler stays the unwrapped local handler — merging there would recurse when a predecessor queries its own successor's private endpoint.
 
 The CLI consumes this as its only pipeline listing/resolution boundary: `jarvis pipeline list` and prefix resolution (`resolvePipelineIdAcrossDaemons`) query the stable address alone and no longer consult discovered generation sockets. Owner resolution for command dispatch (`resolvePipelineDaemon`) still scans discovered sockets.
+
+### Predecessor-owned run and worktree admission conflicts
+
+`resume` admission and `start`'s worktree-lease claim each consult the same ownership directory before proceeding, on the stable public address only (`createStableAdmissionHandlers`, `v2/src/daemon/daemon-run-lifecycle-handlers.ts`, wired the same stable-only way `createStableRunHandlers` above wires `wait`/`pause`/`kill`): a reachable direct predecessor still owning the target run or `(project, branch)` key is a `run_owner_conflict` (`resume`) or `worktree_claimed` (`start`) error, refused before the local handler ever runs — never a local claim. This closes what durable-row status alone cannot see: `resume` has no forwarding path of its own (unlike `wait`/`pause`/`kill`), so before this wrapper a resumed row's `(project, branch)` key gave the successor no way to know a reachable predecessor still drove it. `resume` calls `resolveOwner(runId)`; `start`'s live-claim check (item 3 below) calls `resolveOwnerForKey({ project, branch })` derived from the request's `input.worktree` or first workflow step, since a fresh `start` has no run id yet. Both admit unconditionally with no direct predecessor configured, or when the ownership directory resolves the run/key unowned, or when the ownership lookup itself fails (refresh error) — falling back to per-daemon admission, never a routing-unavailable refusal; unrelated `start`/`resume` work stays admissible while a predecessor drains. `kill`'s force-settlement fallback needs no new check: a predecessor-owned run is already forwarded there by the existing `wait`/`pause`/`kill` routing above, so the successor's local fallback is only ever reached once that routing has confirmed the run unowned.
 
 `jarvis cleanup` probes only exact lowercase keyed socket names and classifies each path through the same connect-probe classifier startup uses (`probeSocketLiveness` in `v2/src/ipc/server.ts`): probe `stale` (`ECONNREFUSED`) reaps the `.sock`, `.pid`, and `.log` lifecycle unit; probe `absent` (`ENOENT`) reaps only when the socket file is present on disk with no listener and preserves the triplet when the path is absent to the caller; probe `live` (peer connected, or probe timeout) continues to a `health` RPC — success classifies live and preserves the socket, and any connect or RPC failure preserves it and reports the reason (including `ECONNREFUSED` after a timeout-class probe when the listener exited between probe and health). Live sockets — those a daemon is currently answering on, whether the invoking digest or a superseded keyed daemon — are never removed. See [`operator-runbook.md` § Fail-closed daemon reads and digest artifact reaping](./operator-runbook.md#fail-closed-daemon-reads-and-digest-artifact-reaping).
 
@@ -449,7 +453,11 @@ There is no global single in-flight guard — multiple runs may be active concur
    which has no memory check and spawns immediately once its key check
    passes. Both call a single exported `checkWorktreeClaimed` function
    against the `WorktreeOwnershipRegistry`, so the check and its error shape
-   can't drift between them.
+   can't drift between them. On the stable address, `start` also refuses
+   `worktree_claimed` when a reachable direct predecessor's ownership
+   directory reports the key still owned, and `resume` separately refuses
+   `run_owner_conflict` when the predecessor still owns the run id — see
+   [Predecessor-owned run and worktree admission conflicts](#predecessor-owned-run-and-worktree-admission-conflicts).
 
 4. **Workflow starts (`start` with `{ steps }`):** the same two guards
    (queued-run check, then live-claim check) run first, against a key

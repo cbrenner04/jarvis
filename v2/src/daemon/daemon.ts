@@ -67,7 +67,7 @@ import {
   ownershipKeyString,
   type RunControlHandlerContextDeps,
 } from "./daemon-run-control-context.ts";
-import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
+import { createRunLifecycleHandlers, createStableAdmissionHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
 import { createStablePipelineListHandler, createStableRunHandlers } from "./daemon-stable-run-routing.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
@@ -1301,6 +1301,16 @@ export async function startDaemonRuntime(
             connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
           }),
         };
+  // Stable-address-only, like `stableRunHandlers` above: a reachable direct predecessor still
+  // owning the target run or worktree key is an admission conflict, refused before the local
+  // `resume`/`start` handler ever runs. Never wired for the private endpoint.
+  const stableAdmissionHandlers =
+    startupDeps.predecessorSocketPath === undefined
+      ? undefined
+      : createStableAdmissionHandlers(
+          { resume: runControlHandlers.resume, start: runControlHandlers.start },
+          { resolveOwner: ownershipDirectory.resolveOwner, resolveOwnerForKey: ownershipDirectory.resolveOwnerForKey },
+        );
 
   // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
   // it fires on any admission cut, client-initiated or self-triggered, without permanently
@@ -1355,6 +1365,7 @@ export async function startDaemonRuntime(
     handoff_rollback: handoffHandlers.handoff_rollback,
     ...runControlHandlers,
     ...stableRunHandlers,
+    ...stableAdmissionHandlers,
   };
 
   // Private endpoints skip stable-only direct-owner routing and predecessor pipeline_list merge
@@ -1366,6 +1377,8 @@ export async function startDaemonRuntime(
     pause: runControlHandlers.pause,
     kill: runControlHandlers.kill,
     pipeline_list: runControlHandlers.pipeline_list,
+    resume: runControlHandlers.resume,
+    start: runControlHandlers.start,
   };
 
   try {

@@ -471,6 +471,48 @@ describe("observeRunOwnership", () => {
     directory.stop();
     expect(await directory.resolveOwner?.("run-1")).toBe(false);
   });
+
+  test("resolveOwnerForKey matches an owned row by project and branch, not by run id", async () => {
+    const loop = manualPollLoop();
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => [ownedRow("run-1")],
+    });
+    try {
+      await loop.tick();
+      expect(await directory.resolveOwnerForKey({ project: "p", branch: "b" })).toBe(true);
+      expect(await directory.resolveOwnerForKey({ project: "p", branch: "other-branch" })).toBe(false);
+      expect(await directory.resolveOwnerForKey({ project: "other-project", branch: "b" })).toBe(false);
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("resolveOwnerForKey refreshes an initial snapshot before answering", async () => {
+    const loop = manualPollLoop();
+    let calls = 0;
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: async () => {
+        calls += 1;
+        return [ownedRow("run-1")];
+      },
+    });
+    try {
+      expect(await directory.resolveOwnerForKey({ project: "p", branch: "b" })).toBe(true);
+      expect(calls).toBe(1);
+    } finally {
+      directory.stop();
+    }
+  });
+
+  test("resolveOwnerForKey with no predecessor socket path always resolves false", async () => {
+    const directory = observeRunOwnership(undefined);
+    expect(await directory.resolveOwnerForKey({ project: "p", branch: "b" })).toBe(false);
+    directory.stop();
+  });
 });
 
 describe("unionLiveRunIds", () => {

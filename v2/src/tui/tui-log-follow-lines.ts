@@ -60,6 +60,10 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       add("attemptId", event.attemptId);
       addText("responseText", event.responseText);
       break;
+    case "coverage_advisory_skipped":
+      add("attemptId", event.attemptId);
+      add("reason", event.reason);
+      break;
     case "intent_finalization":
       add("phase", event.phase);
       add("branch", event.branch);

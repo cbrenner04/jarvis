@@ -1574,6 +1574,21 @@ async function resolveKillingTests(
   return { killingTests, capExceeded: false };
 }
 
+/** Killing-test paths for one changed production file, resolved exactly as mutation verification does; `[]` when none. */
+export async function resolveProductionKillingTests(productionFile: string, worktreePath: string): Promise<string[]> {
+  const exactStemTest = resolveCoLocatedKillingTest(productionFile);
+  if (exactStemTest === null) return [];
+  const resolution = await resolveKillingTests(
+    productionFile,
+    exactStemTest,
+    worktreePath,
+    defaultReadFile,
+    defaultListDir,
+    defaultListImporterCandidates,
+  );
+  return resolution.killingTests;
+}
+
 async function verifyCandidates(
   candidates: Candidate[],
   input: DiffDerivedMutationVerifierInput,

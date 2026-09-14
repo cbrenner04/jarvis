@@ -6,6 +6,10 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
+
+/** Wall-clock bound on one markdownlint run; a timeout fails closed as `invocation_error`. */
+export const STAGED_MARKDOWN_LINT_TIMEOUT_MS = 60_000;
 
 export type StagedMarkdownLintResult =
   | { kind: "clean" }
@@ -16,6 +20,8 @@ export type LintStagedMarkdownDeps = {
   harnessRootOverride?: string | null;
   runner?: AsyncSubprocessRunner;
   worktreePath?: string;
+  signal?: AbortSignal;
+  processGroups?: VerifierProcessGroupRecorder;
 };
 
 const MARKDOWNLINT_VIOLATION_PATTERN = /^(.+?):(\d+)(?::\d+)?\s+(MD\d+)\/\S+\s+(.+)$/;
@@ -152,8 +158,13 @@ export async function lintStagedMarkdown(
   const runner = deps?.runner ?? realAsyncSubprocessRunner;
   const lintArgs = [binaryPath, "--no-globs", "--config", configPath, ...stagedFiles];
 
+  const tracked = trackProcessGroup(deps?.processGroups);
   try {
-    const output = await runner.runAsync("bun", lintArgs, harnessRoot);
+    const output = await runner.runAsync("bun", lintArgs, harnessRoot, {
+      timeoutMs: STAGED_MARKDOWN_LINT_TIMEOUT_MS,
+      signal: deps?.signal,
+      processGroup: tracked.processGroup,
+    });
     const violations = parseMarkdownlintViolations(output);
     if (violations.length === 0) {
       return { kind: "clean" };
@@ -172,5 +183,7 @@ export async function lintStagedMarkdown(
       return { kind: "invocation_error", message: invocationErrorMessage(err) };
     }
     return { kind: "invocation_error", message: invocationErrorMessage(err) };
+  } finally {
+    tracked.settle();
   }
 }

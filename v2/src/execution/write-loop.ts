@@ -104,7 +104,7 @@ import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
-import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
+import { type CoverageRunSkipReason, reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { storeVerifierProcessGroupRecorder, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
@@ -641,10 +641,17 @@ function createIterationActiveGateTracker(options: {
 async function runCoverageAdvisory(
   worktreePath: string,
   bindings: readonly InvocationBinding[],
-  signal?: AbortSignal,
-): Promise<{ responseText: string } | null> {
+  signal: AbortSignal | undefined,
+  processGroups: VerifierProcessGroupRecorder,
+): Promise<{ responseText: string } | { skipReason: CoverageRunSkipReason } | null> {
   try {
-    const report = await reportUncoveredChangedLines({ worktreePath, runBase: "HEAD" });
+    const report = await reportUncoveredChangedLines({
+      worktreePath,
+      runBase: "HEAD",
+      processGroups,
+      ...(signal !== undefined ? { signal } : {}),
+    });
+    if (report.skipReason !== undefined) return { skipReason: report.skipReason };
     if (!report.reportText) {
       return null;
     }
@@ -1570,7 +1577,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
         pendingLandingReprompt = undefined;
 
-        const lintResult = await lintStagedMarkdown(args.expectedArtifactPath, { worktreePath });
+        const lintResult = await lintStagedMarkdown(args.expectedArtifactPath, {
+          worktreePath,
+          processGroups: storeVerifierProcessGroupRecorder(store, runId),
+          ...(args.signal !== undefined ? { signal: args.signal } : {}),
+        });
         // Mutation checkpoint: skipping the pre-finalization intent-split staged-Markdown lint guard must turn
         // "intent write step staged Markdown lint violation reprompts before finalize" RED.
         if (lintResult.kind === "violation") {
@@ -1695,7 +1706,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       if (result.kind === "complete" && args.promptId === PLAN_DRAFT_PROMPT_ID) {
-        const lintResult = await lintStagedMarkdown(args.expectedArtifactPath, { worktreePath });
+        const lintResult = await lintStagedMarkdown(args.expectedArtifactPath, {
+          worktreePath,
+          processGroups: storeVerifierProcessGroupRecorder(store, runId),
+          ...(args.signal !== undefined ? { signal: args.signal } : {}),
+        });
         // Mutation checkpoint: skipping the pre-finalization plan-draft staged-Markdown lint guard must turn
         // "plan write step staged Markdown lint violation reprompts before finalize" RED.
         if (lintResult.kind === "violation") {
@@ -1832,8 +1847,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       // Run coverage advisory for completing implement writes before terminal boundary
       if (result.kind === "complete" && args.promptId === "implement.prompt.body") {
-        const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal);
-        if (advisoryResult !== null) {
+        const processGroups = storeVerifierProcessGroupRecorder(store, runId);
+        const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal, processGroups);
+        if (advisoryResult !== null && "skipReason" in advisoryResult) {
+          args.logSink?.append(runId, {
+            kind: "coverage_advisory_skipped",
+            attemptId,
+            reason: advisoryResult.skipReason,
+          });
+        } else if (advisoryResult !== null) {
           args.logSink?.append(runId, {
             kind: "coverage_advisory",
             attemptId,
@@ -1845,6 +1867,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         const verificationResult = await verify({
           worktreePath,
           runBase: args.worktree.baseRef,
+          processGroups,
         });
         appendInconclusiveMutationCandidates(args.logSink, runId, attemptId, verificationResult);
         if (verificationResult.kind === "surviving-mutation") {

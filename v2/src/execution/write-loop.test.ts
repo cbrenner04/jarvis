@@ -9125,6 +9125,77 @@ index 1234567..abcdefg 100644
       }
     });
 
+    test("logs coverage_advisory_skipped and skips the re-prompt when the coverage run times out", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const logSink = new TestLogSink();
+      const advisoryResponses: string[] = [];
+      const verifyInputs: { processGroups?: unknown }[] = [];
+      const reporterInputs: { signal?: AbortSignal; processGroups?: unknown }[] = [];
+      const stubResult = completingWriteStub(join(jarvisRoot, "worktrees", "demo", "advisory-timeout-run"));
+
+      mock.module("./write.ts", () => ({ executeWrite: async () => stubResult }));
+      mock.module("./uncovered-changed-lines.ts", () => ({
+        reportUncoveredChangedLines: async (input: { signal?: AbortSignal; processGroups?: unknown }) => {
+          reporterInputs.push(input);
+          return { uncoveredSites: [], reportText: "", skipReason: "timeout" };
+        },
+      }));
+      mock.module("../../../shared/invocation/execute.ts", () => ({
+        executeWithQuotaFallback: async (input: { prompt?: string }) => {
+          advisoryResponses.push(input.prompt ?? "");
+          return { attempts: [], final: null, telemetryFailures: [] };
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "advisory-timeout-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          logSink,
+          promptId: "implement.prompt.body",
+          verifyDiffDerivedMutations: async (input) => {
+            verifyInputs.push(input);
+            return {
+              kind: "pass",
+              runBase: "HEAD",
+              inspectedPaths: [],
+              candidateCount: 0,
+              acceptedSites: [],
+              skippedCandidates: [],
+            };
+          },
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(advisoryResponses).toHaveLength(0);
+        expect(verifyInputs[0]?.processGroups).toBe(reporterInputs[0]?.processGroups);
+        expect(reporterInputs[0]?.processGroups).toBeDefined();
+        const events = logSink.getEventsForRun(result.runId);
+        expect(events.some((e) => e.kind === "coverage_advisory")).toBe(false);
+        const skipped = events.find((e) => e.kind === "coverage_advisory_skipped");
+        expect(skipped?.kind === "coverage_advisory_skipped" ? skipped.reason : undefined).toBe("timeout");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+        mock.module("./uncovered-changed-lines.ts", () => ({}));
+        mock.module("../../../shared/invocation/execute.ts", () => ({}));
+      }
+    });
+
     test("does not increment iterationsConsumed when advisory runs", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));

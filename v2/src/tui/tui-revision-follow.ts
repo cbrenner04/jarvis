@@ -2,7 +2,7 @@
 export type DaemonRevisionReadOutcome = { kind: "success"; loadedRevision: string | undefined } | { kind: "failure" };
 
 /** Revision-follow re-exec decision; `reexec: true` carries the stable daemon revision to record as the re-exec marker. */
-export type TuiRevisionFollowDecision = { reexec: false } | { reexec: true; daemonRevision: string };
+type TuiRevisionFollowDecision = { reexec: false } | { reexec: true; daemonRevision: string };
 
 /**
  * The daemon revision observed identically on two consecutive successful, non-`unknown` status

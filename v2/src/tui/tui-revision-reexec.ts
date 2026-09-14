@@ -14,7 +14,7 @@ export type TuiReexecCarriedState = {
 };
 
 /** Teardown callbacks invoked, in order, before this process re-execs onto current code. */
-export type TuiReexecTeardown = {
+type TuiReexecTeardown = {
   /** Unmount the ink monitor and restore the terminal. */
   closeMonitor(): void;
   /** Stop the refresh and display-tick schedulers. */
@@ -82,6 +82,7 @@ export async function performTuiRevisionReexec(params: PerformTuiRevisionReexecP
   const [executable, ...args] = process.argv;
   if (executable === undefined) throw new Error("cannot re-exec: process.argv is empty");
   const env = buildTuiReexecEnv(process.env, params.daemonRevision, params.carriedState);
+  // guard-unbounded-subprocess: re-exec spawns a long-lived replacement TUI process; this process exits when it does
   const child = spawn(executable, args, { stdio: "inherit", env });
   const code = await new Promise<number | null>((resolve, reject) => {
     child.on("error", reject);

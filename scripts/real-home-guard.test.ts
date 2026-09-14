@@ -3,7 +3,7 @@
 // targets the SPECS_WALK_MAX_DEPTH boundary guard specifically.
 
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { diffRealHomeSnapshots, type RealHomeSnapshot, snapshotRealHome } from "./real-home-guard.ts";

@@ -19,14 +19,6 @@ export type RealHomeSnapshot = {
   telemetry: { size: number; mtimeMs: number } | null;
 };
 
-function listTopLevelEntries(dir: string): string[] {
-  try {
-    return readdirSync(dir).sort();
-  } catch {
-    return [];
-  }
-}
-
 function listBoundedDepthEntries(dir: string, maxDepth: number): string[] {
   const entries: string[] = [];
   const walk = (currentDir: string, relPrefix: string, depth: number): void => {
@@ -70,7 +62,8 @@ function statTelemetry(homeDir: string): { size: number; mtimeMs: number } | nul
 /** Snapshot of `homeDir`'s sessions/specs listings and telemetry log stat. */
 export function snapshotRealHome(homeDir: string): RealHomeSnapshot {
   return {
-    sessionEntries: listTopLevelEntries(join(homeDir, "sessions")),
+    // Top-level only (maxDepth 0): sessions/ can hold ~1.24M files, so no bounded recursion into it.
+    sessionEntries: listBoundedDepthEntries(join(homeDir, "sessions"), 0),
     specEntries: listBoundedDepthEntries(join(homeDir, "specs"), SPECS_WALK_MAX_DEPTH),
     telemetry: statTelemetry(homeDir),
   };

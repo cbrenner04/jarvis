@@ -130,6 +130,13 @@ type RunReconciledEvent = {
   reason: "daemon_restart";
 };
 
+/** Whole-run wall-clock budget expired; the dispatch was aborted and settles `killed` with cause `run_timeout`. */
+type RunTimeoutEvent = {
+  kind: "run_timeout";
+  budgetMs: number;
+  consumedMs: number;
+};
+
 type RunRecoveryEvent = {
   kind: "run_recovery";
   outcome: "resumed" | "failed";
@@ -281,6 +288,7 @@ type LogEventWithoutLoopFinished =
   | RunExecutionFailedEvent
   | InvocationFailureDiagnosticEvent
   | RunReconciledEvent
+  | RunTimeoutEvent
   | RunRecoveryEvent
   | InvalidTokenDetailEvent
   | TokenRepromptEvent

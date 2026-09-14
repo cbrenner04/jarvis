@@ -25,6 +25,7 @@ import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-
 import type { PipelineStageRecoveryAttempt } from "./pipeline-stage-recovery.ts";
 import type { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import type { KillSurvivor } from "./run-kill-outcome.ts";
+import type { RunTimeoutDeps } from "./run-time-budget.ts";
 
 export type RunControlHandlerContextDeps = {
   stateStore: StateStore;
@@ -51,6 +52,8 @@ export type RunControlHandlerContextDeps = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   /** Kill settlement seams: bounded wait clock and survivor observation (production: 30s poll, `ps`). */
   killSettlement?: KillSettlementDeps;
+  /** Whole-run timeout seams; production wires a config-backed `budgetMs` (daemon entrypoint). Absent: no run timeout armed. */
+  runTimeout?: RunTimeoutDeps;
   /**
    * Run ids a drained-but-not-yet-exited predecessor generation still reports live, observed over
    * its private endpoint (see `daemon-drain-observer.ts`). `list` folds these into its own
@@ -95,6 +98,7 @@ export type RunControlHandlerContext = {
   settleState: PromotionSettleState;
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   killSettlement: KillSettlementDeps | undefined;
+  runTimeout: RunTimeoutDeps | undefined;
   externalLiveRunIds: (() => ReadonlySet<string>) | undefined;
   ownerRow: ((runId: string) => DaemonListRunRow | undefined) | undefined;
 };
@@ -146,6 +150,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
 
   return {
     killSettlement: deps.killSettlement,
+    runTimeout: deps.runTimeout,
     externalLiveRunIds: deps.externalLiveRunIds,
     ownerRow: deps.ownerRow,
     registry,

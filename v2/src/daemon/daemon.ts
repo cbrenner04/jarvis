@@ -1048,6 +1048,8 @@ type DaemonStartupDeps = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   writeLoopExecutor?: RunControlHandlerContextDeps["writeLoopExecutor"];
   hasMemoryHeadroom?: () => boolean;
+  /** Whole-run timeout seams; absent arms no run timeout. */
+  runTimeout?: RunControlHandlerContextDeps["runTimeout"];
   /** Defaults to `process.exit`. */
   processExit?: (code: number) => never;
   /** Digest-keyed private endpoint bound before the public `socketPath`. */
@@ -1269,6 +1271,7 @@ export async function startDaemonRuntime(
     // directory still wires `ownerRow` through, since it can populate later.
     ...(startupDeps.predecessorSocketPath === undefined ? {} : { ownerRow: ownershipDirectory.ownerRow }),
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
+    ...(startupDeps.runTimeout === undefined ? {} : { runTimeout: startupDeps.runTimeout }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined
       ? {}
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),

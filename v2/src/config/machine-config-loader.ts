@@ -8,6 +8,7 @@ export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 const DEFAULT_ITERATION_CEILING_MS = 1_800_000;
 export const DEFAULT_IDLE_OUTPUT_TIMEOUT_MS = 90_000;
 export const DEFAULT_REVIEW_ROLE_TIMEOUT_MS = 1_800_000;
+export const DEFAULT_RUN_TIMEOUT_MS = 21_600_000;
 
 type WritePathIterationBounds = {
   iterationTimeoutMs: number;
@@ -32,6 +33,26 @@ function readIterationTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): numbe
 /** Resolves the machine-wide hard ceiling for progress-extended write iterations. */
 export function readIterationCeilingMs(configPath: string = MACHINE_CONFIG_PATH): number {
   return readPositiveNumberField(configPath, "iterationCeilingMs", DEFAULT_ITERATION_CEILING_MS);
+}
+
+/**
+ * Resolves the whole-run wall-clock budget: `projects.<projectKey>.runTimeoutMs` when set, else top-level
+ * `runTimeoutMs`, else 6h. Must be positive and not below `iterationCeilingMs`.
+ */
+export function readRunTimeoutMs(projectKey?: string, configPath: string = MACHINE_CONFIG_PATH): number {
+  const override = projectKey === undefined ? undefined : readProjectConfigRecord(projectKey, configPath)?.runTimeoutMs;
+  const field = override === undefined ? "runTimeoutMs" : `projects.${projectKey}.runTimeoutMs`;
+  const value = override ?? readMachineConfigDocument(configPath)?.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`Machine config '${field}' must be a positive number`);
+  }
+  const iterationCeilingMs = readIterationCeilingMs(configPath);
+  if (value < iterationCeilingMs) {
+    throw new Error(
+      `Machine config '${field}' (${value}) must not be below 'iterationCeilingMs' (${iterationCeilingMs})`,
+    );
+  }
+  return value;
 }
 
 /** Resolves idle-output watchdog budget for write-path ordering (v1-aligned default). */

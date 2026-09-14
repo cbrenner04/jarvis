@@ -131,6 +131,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "mutation_repair_exhausted",
   "runtime_smoke_failed",
   "landing_failed",
+  "run_timeout",
 ] as const;
 
 const INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS = 2048;

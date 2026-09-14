@@ -19,7 +19,7 @@ Recurred 2026-09-14 on `pipeline resume`: `jarvis pipeline resume d28c8d6e <lane
 - A resume refused by an admission gate returns the daemon's refusal reason to the CLI caller: non-zero exit with the reason string on stderr (verbatim daemon `reason`/message), not a bare/empty immediate failure.
 - The same refusal is visible in the TUI (needs-attention / run detail), not only in `daemon.log`.
 - Distinguish a structural admission refusal (won't succeed on re-issue as-is — descendant check, stale-reuse, dirty tree) from a transient/retryable failure, so `run list` / `wait` do not keep advertising `nextAction: resume` for a refusal the operator must resolve first (name the blocking condition instead).
-- `pipeline resume` / `pipeline recover` evaluate the same pre-dispatch refusals the detached continuation would hit (the gates listed above, plus claim and never-landed classification) before returning `resumed`/`admitted`; a refusal known at admission time exits non-zero with the reason instead of exit 0 followed by a `stage-failed` incident.
+- `pipeline resume` / `pipeline recover` evaluate the same pre-dispatch refusals the detached continuation would hit (dirty worktree, lane not descended from / behind base, landed-criteria drift, an unresolved `## Blocker`, worktree claim, never-landed classification) before returning `resumed`/`admitted`; a refusal known at admission time exits non-zero with the reason instead of exit 0 followed by a `stage-failed` incident.
 - Out of scope: changing the admission gates themselves; this is purely surfacing their refusals. Related but distinct: `pipeline-resume-echoes-pipeline-id-on-success` (echo id on success).
 
 ## Acceptance criteria
@@ -28,7 +28,7 @@ Recurred 2026-09-14 on `pipeline resume`: `jarvis pipeline resume d28c8d6e <lane
 - [ ] The same refused-resume condition is projected on `jarvis run list` / `jarvis run wait` as a named blocking state (not a plain `resumable: true` / `nextAction: resume` that hides the structural refusal).
 - [ ] The TUI surfaces the refusal reason for the affected run (region-local assertion), rather than showing no change.
 - [ ] `pipeline resume` / `pipeline recover` refused by an analogous admission gate likewise return the reason to the CLI (audit + cover whichever share the swallowed-refusal shape).
-- [ ] A `pipeline resume` whose detached re-dispatch would be refused by the incomplete-re-run gates (e.g. lane commits not on base) exits non-zero with that reason before returning `resumed`; it fails against the pre-fix exit 0 followed by a `stage-failed` incident.
+- [ ] A `pipeline resume` whose detached re-dispatch would be refused by each pre-dispatch check — dirty worktree, lane not descended from base, unresolved `## Blocker` — exits non-zero with that reason before returning `resumed`; it fails against the pre-fix exit 0 followed by a `stage-failed` incident.
 - [ ] `bun run typecheck` and the touched test surfaces pass.
 
 ## Documentation updates

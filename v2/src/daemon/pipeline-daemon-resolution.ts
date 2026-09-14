@@ -1,11 +1,10 @@
 import { isRecord } from "../../../shared/is-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
-import type { startDaemon } from "./daemon-lifecycle.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
 import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
-import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query-daemon-lists-from-sockets.ts";
+import type { QueryDaemonListsDeps } from "./query-daemon-lists-from-sockets.ts";
 
 /** Outer CLI-facing RPC timeout for pipeline owner/list resolution. Predecessor merge queries (`daemon-stable-run-routing.ts`) use a strictly shorter timeout so a slow predecessor cannot push a stable reply past this bound. */
 export const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
@@ -15,28 +14,9 @@ export const PIPELINE_NO_LIVE_OWNER_RECOVERY = "jarvis daemon start, then retry"
 export const PIPELINE_UNREACHABLE_OWNER_RECOVERY =
   "wait for its owning daemon to exit (a draining generation hands it to the live daemon), then retry";
 
-type PipelineOwnerWitness =
-  | { kind: "owner"; ownerIdentity?: string }
-  | { kind: "not_owner" }
-  | { kind: "durable_state"; state: PipelineDerivedState }
-  | { kind: "not_found" };
-
 type PipelineListQueryResult = {
   snapshotsBySocketPath: Readonly<Record<string, readonly PipelineSnapshot[]>>;
   hasMalformedResponse: boolean;
-};
-
-export type PipelineDaemonResolution =
-  | { kind: "owner"; pipelineId: string; socketPath: string }
-  | { kind: "durable_state"; pipelineId: string; socketPath: string; state: PipelineDerivedState }
-  | { kind: "pipeline_owner_conflict"; pipelineId: string; claimantPaths: string[] }
-  | { kind: "pipeline_no_live_owner"; pipelineId: string; recovery: typeof PIPELINE_UNREACHABLE_OWNER_RECOVERY }
-  | { kind: "pipeline_not_found"; pipelineId: string }
-  | { kind: "pipeline_daemon_unavailable"; pipelineId: string };
-
-export type PipelineDaemonResolutionDeps = QueryDaemonListsDeps & {
-  /** Never invoked by resolution; exposed only so callers/tests can assert it stays untouched. */
-  startDaemon: typeof startDaemon;
 };
 
 const PIPELINE_STATE_KEYS = {
@@ -52,27 +32,6 @@ const PIPELINE_STATE_KEYS = {
 const PIPELINE_STATES: ReadonlySet<string> = new Set(Object.keys(PIPELINE_STATE_KEYS));
 
 const PIPELINE_TERMINAL_ACTIONS: ReadonlySet<string> = new Set(["leave-draft", "ready", "merge"]);
-
-function parsePipelineOwnerWitness(value: unknown, pipelineId: string): PipelineOwnerWitness | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const response = value as { kind?: unknown; pipelineId?: unknown; state?: unknown; ownerIdentity?: unknown };
-  if (response.pipelineId !== pipelineId) return undefined;
-  switch (response.kind) {
-    case "owner":
-      return typeof response.ownerIdentity === "string" && response.ownerIdentity.length > 0
-        ? { kind: "owner", ownerIdentity: response.ownerIdentity }
-        : { kind: "owner" };
-    case "not_owner":
-    case "not_found":
-      return { kind: response.kind };
-    case "durable_state":
-      return typeof response.state === "string" && PIPELINE_STATES.has(response.state)
-        ? { kind: "durable_state", state: response.state as PipelineDerivedState }
-        : undefined;
-    default:
-      return undefined;
-  }
-}
 
 function connectWithinTimeout(
   connectIpcClient: (socketPath: string) => Promise<IpcClient>,
@@ -102,26 +61,6 @@ function connectWithinTimeout(
       },
     );
   });
-}
-
-async function queryPipelineOwner(
-  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
-  socketPath: string,
-  pipelineId: string,
-  timeoutMs: number,
-): Promise<PipelineOwnerWitness | undefined> {
-  try {
-    const client = await connectWithinTimeout(connectIpcClient, socketPath, timeoutMs);
-    const transport = createRpcTransport(client);
-    try {
-      const result = await transport.request("pipeline_owner", { pipelineId }, { timeoutMs });
-      return parsePipelineOwnerWitness(result, pipelineId);
-    } finally {
-      transport.close();
-    }
-  } catch {
-    return undefined;
-  }
 }
 
 function isNullableNumber(value: unknown): value is number | null {
@@ -250,75 +189,6 @@ export async function queryPipelineListsFromSocketPaths(
     ),
     hasMalformedResponse: answers.some(({ malformed }) => malformed),
   };
-}
-
-/** Queries every supplied socket; individual connection, RPC, timeout, and payload failures are ignored. */
-export async function resolvePipelineDaemonFromSocketPaths(
-  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
-  socketPaths: readonly string[],
-  pipelineId: string,
-  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
-): Promise<PipelineDaemonResolution> {
-  const answers = await Promise.all(
-    socketPaths.map(async (socketPath) => ({
-      socketPath,
-      witness: await queryPipelineOwner(connectIpcClient, socketPath, pipelineId, timeoutMs),
-    })),
-  );
-  const owners = answers.filter(
-    (answer): answer is { socketPath: string; witness: Extract<PipelineOwnerWitness, { kind: "owner" }> } =>
-      answer.witness?.kind === "owner",
-  );
-  // One daemon binds more than one socket path (the stable public endpoint plus its digest-keyed
-  // private endpoint), so answering twice is not two claimants. Distinct daemons are distinguished
-  // by the owner identity the daemon stamps on its own rows; a daemon too old to report one falls
-  // back to its socket path, preserving the pre-identity conflict behaviour for legacy peers.
-  const distinctClaimants = new Set(owners.map(({ socketPath, witness }) => witness.ownerIdentity ?? socketPath));
-  if (distinctClaimants.size > 1) {
-    return {
-      kind: "pipeline_owner_conflict",
-      pipelineId,
-      claimantPaths: owners.map(({ socketPath }) => socketPath).sort(),
-    };
-  }
-  const owner = owners.map(({ socketPath }) => socketPath).sort()[0];
-  if (owner !== undefined) return { kind: "owner", pipelineId, socketPath: owner };
-
-  const durableAnswers = answers.filter(
-    (
-      answer,
-    ): answer is {
-      socketPath: string;
-      witness: Extract<PipelineOwnerWitness, { kind: "durable_state" }>;
-    } => answer.witness?.kind === "durable_state",
-  );
-  const durableSocketPath = durableAnswers.map(({ socketPath }) => socketPath).sort()[0];
-  const durable = durableAnswers.find((answer) => answer.socketPath === durableSocketPath);
-  if (durable !== undefined) {
-    return {
-      kind: "durable_state",
-      pipelineId,
-      socketPath: durable.socketPath,
-      state: durable.witness.state,
-    };
-  }
-  if (answers.some(({ witness }) => witness?.kind === "not_owner")) {
-    return { kind: "pipeline_no_live_owner", pipelineId, recovery: PIPELINE_UNREACHABLE_OWNER_RECOVERY };
-  }
-  if (answers.some(({ witness }) => witness?.kind === "not_found")) {
-    return { kind: "pipeline_not_found", pipelineId };
-  }
-  return { kind: "pipeline_daemon_unavailable", pipelineId };
-}
-
-/** Resolves a full pipeline id across the same discovered-plus-invoking socket set used by run listing. */
-export async function resolvePipelineDaemon(
-  pipelineId: string,
-  deps: PipelineDaemonResolutionDeps,
-  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
-): Promise<PipelineDaemonResolution> {
-  const socketPaths = await resolveDaemonListSocketPaths(deps);
-  return resolvePipelineDaemonFromSocketPaths(deps.connectIpcClient, socketPaths, pipelineId, timeoutMs);
 }
 
 type PipelineIdCrossDaemonResolution =

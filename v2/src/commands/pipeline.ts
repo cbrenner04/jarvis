@@ -25,10 +25,8 @@ import {
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import {
   PIPELINE_NO_LIVE_OWNER_RECOVERY,
-  type PipelineDaemonResolution,
   type PipelineListRequestParams,
   queryStablePipelineList,
-  resolvePipelineDaemon,
   resolvePipelineIdAcrossDaemons,
 } from "../daemon/pipeline-daemon-resolution.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
@@ -551,23 +549,11 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
   return 0;
 }
 
-function renderPipelineDaemonResolutionRefusal(resolution: PipelineDaemonResolution): string {
-  switch (resolution.kind) {
-    case "pipeline_owner_conflict":
-      return `pipeline_owner_conflict: Pipeline ${resolution.pipelineId} is claimed by multiple daemons (${resolution.claimantPaths.join(", ")}); this needs manual investigation before retrying.\n`;
-    case "pipeline_no_live_owner":
-      return `pipeline_no_live_owner: Pipeline ${resolution.pipelineId} has no reachable live owner; ${resolution.recovery}.\n`;
-    case "pipeline_not_found":
-      return `pipeline_not_found: Pipeline ${resolution.pipelineId} was not found; run jarvis pipeline list --all to verify the id.\n`;
-    default:
-      return `pipeline_daemon_unavailable: No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`;
-  }
-}
-
-/** Routes a single-pipeline verb to the socket that owns `pipelineIdArgument`: resolves a
- * possible id prefix across every live daemon, then the owning (or durable-state) socket via
- * `resolvePipelineDaemon`, then runs `fn` against it. Never starts a daemon. */
-async function withOwnerRoutedPipelineClient(
+/** Resolves a possible id prefix against the stable address's merged listing, then runs `fn`
+ * against the stable socket (`deps.socketPath`) — the sole connection target for every
+ * single-pipeline verb. Ownership refusals (e.g. `pipeline_no_live_owner`) now come back as the
+ * verb RPC's own `RpcError`, rendered by the caller via `formatRpcError`. Never starts a daemon. */
+async function withStablePipelineClient(
   pipelineIdArgument: string,
   io: Io,
   deps: CliDeps,
@@ -579,16 +565,11 @@ async function withOwnerRoutedPipelineClient(
     return 1;
   }
   const pipelineId = idResolution.pipelineId;
-  const ownerResolution = await resolvePipelineDaemon(pipelineId, deps);
-  if (ownerResolution.kind !== "owner" && ownerResolution.kind !== "durable_state") {
-    io.stderr(renderPipelineDaemonResolutionRefusal(ownerResolution));
-    return 1;
-  }
-  return withRunClient(io, deps, (client) => fn(client, pipelineId), ownerResolution.socketPath);
+  return withRunClient(io, deps, (client) => fn(client, pipelineId));
 }
 
 async function runPipelineWaitCommand(pipelineId: string, io: Io, deps: CliDeps): Promise<number> {
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
+  return withStablePipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
     const unregister = deps.onSigint(() => client.close());
     try {
       let response: unknown;
@@ -637,7 +618,7 @@ async function runPipelineMutationCommand(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
+  return withStablePipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
     const result = await requestPipelineRpc(client, method, { ...params, pipelineId }, io);
     if (!result.ok) return 1;
     const outcome = parsePipelineMutationOutcome(result.response, successKind);
@@ -700,7 +681,7 @@ async function runPipelineRecoverCommand(
   deps: CliDeps,
 ): Promise<number> {
   const { pipelineId, branchKey, resetDespiteDirty, resetDespiteLandedCriteria } = params;
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
+  return withStablePipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
     const result = await requestPipelineRpc(
       client,
       "pipeline_recover",
@@ -777,7 +758,7 @@ async function runPipelineDismissalCommand(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
+  return withStablePipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
     const method = mode === "dismiss" ? "pipeline_dismiss" : "pipeline_undismiss";
     const result = await requestPipelineRpc(client, method, { pipelineId }, io);
     if (!result.ok) return 1;

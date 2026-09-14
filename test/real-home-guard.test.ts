@@ -71,6 +71,25 @@ test("specs/ walk is bounded to SPECS_WALK_MAX_DEPTH: entries past the limit are
   }
 });
 
+test("multiple siblings at the max-depth boundary are all listed, not just the first", () => {
+  const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+  try {
+    // specs/a/b/c/d sits at depth 3; its two children "e" and "e2" are both listed at depth 4
+    // (the boundary), then neither is recursed into. A `continue` at the boundary must still let
+    // the loop move on to list "e2" after "e" — a `break` there would stop after the first sibling.
+    const parentDir = join(home, "specs", "a", "b", "c", "d");
+    mkdirSync(join(parentDir, "e"), { recursive: true });
+    mkdirSync(join(parentDir, "e2"), { recursive: true });
+
+    const snapshot = snapshotRealHome(home);
+
+    expect(snapshot.specEntries).toContain("a/b/c/d/e");
+    expect(snapshot.specEntries).toContain("a/b/c/d/e2");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("a fresh sessions/specs directory with no prior snapshot data still reports new entries", () => {
   const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
   try {

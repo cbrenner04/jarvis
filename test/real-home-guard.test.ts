@@ -54,6 +54,23 @@ test("a violating run reports new sessions/ and specs/ entries plus a telemetry.
   }
 });
 
+test("specs/ walk is bounded to SPECS_WALK_MAX_DEPTH: entries past the limit are not listed", () => {
+  const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+  try {
+    // specs/a/b/c/d/e sits exactly at depth 4 (SPECS_WALK_MAX_DEPTH); e/f.md would be depth 5.
+    const deepDir = join(home, "specs", "a", "b", "c", "d", "e");
+    mkdirSync(deepDir, { recursive: true });
+    writeFileSync(join(deepDir, "f.md"), "too-deep\n");
+
+    const snapshot = snapshotRealHome(home);
+
+    expect(snapshot.specEntries).toContain("a/b/c/d/e");
+    expect(snapshot.specEntries).not.toContain("a/b/c/d/e/f.md");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("a fresh sessions/specs directory with no prior snapshot data still reports new entries", () => {
   const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
   try {

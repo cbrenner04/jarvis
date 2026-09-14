@@ -19,7 +19,13 @@ export const PIPELINE_UNREACHABLE_OWNER_RECOVERY =
 type PipelineListQueryResult = {
   snapshotsBySocketPath: Readonly<Record<string, readonly PipelineSnapshot[]>>;
   hasMalformedResponse: boolean;
+  /** Sockets with definitively nothing listening (connect ENOENT/ECONNREFUSED), as opposed to a failed or hung peer. */
+  absentSocketPaths: readonly string[];
 };
+
+function isAbsentSocketError(error: unknown): boolean {
+  return isRecord(error) && (error.code === "ENOENT" || error.code === "ECONNREFUSED");
+}
 
 const PIPELINE_STATE_KEYS = {
   succeeded: true,
@@ -148,7 +154,7 @@ async function queryPipelineList(
   socketPath: string,
   params: PipelineListRequestParams | undefined,
   timeoutMs: number,
-): Promise<{ snapshots?: readonly PipelineSnapshot[]; malformed: boolean }> {
+): Promise<{ snapshots?: readonly PipelineSnapshot[]; malformed: boolean; absent?: true }> {
   try {
     const client = await connectWithinTimeout(connectIpcClient, socketPath, timeoutMs);
     const transport = createRpcTransport(client);
@@ -160,8 +166,8 @@ async function queryPipelineList(
     } finally {
       transport.close();
     }
-  } catch {
-    return { malformed: false };
+  } catch (error) {
+    return isAbsentSocketError(error) ? { malformed: false, absent: true } : { malformed: false };
   }
 }
 
@@ -190,6 +196,7 @@ export async function queryPipelineListsFromSocketPaths(
       answers.flatMap(({ socketPath, snapshots }) => (snapshots === undefined ? [] : [[socketPath, snapshots]])),
     ),
     hasMalformedResponse: answers.some(({ malformed }) => malformed),
+    absentSocketPaths: answers.flatMap(({ socketPath, absent }) => (absent ? [socketPath] : [])),
   };
 }
 

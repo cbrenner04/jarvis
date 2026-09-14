@@ -88,6 +88,7 @@ test("pipeline list queries retain valid snapshots and distinguish malformed rep
   expect(result).toEqual({
     snapshotsBySocketPath: { [validSocket]: [snapshot] },
     hasMalformedResponse: true,
+    absentSocketPaths: [],
   });
   expect(sent).toHaveLength(3);
   expect(sent.every((frame) => (frame as { method?: string }).method === "pipeline_list")).toBeTrue();
@@ -118,6 +119,7 @@ test("pipeline list distinguishes null from non-numeric nullable timestamps", as
   expect(valid).toEqual({
     snapshotsBySocketPath: { [INVOKING_SOCKET]: [snapshot] },
     hasMalformedResponse: false,
+    absentSocketPaths: [],
   });
 
   const invalidTimestamp = {
@@ -130,7 +132,7 @@ test("pipeline list distinguishes null from non-numeric nullable timestamps", as
     undefined,
     20,
   );
-  expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true });
+  expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true, absentSocketPaths: [] });
 });
 
 test("pipeline list accepts a snapshot carrying an optional string field", async () => {
@@ -156,6 +158,7 @@ test("pipeline list accepts a snapshot carrying an optional string field", async
   expect(result).toEqual({
     snapshotsBySocketPath: { [INVOKING_SOCKET]: [snapshot] },
     hasMalformedResponse: false,
+    absentSocketPaths: [],
   });
 });
 

@@ -369,6 +369,22 @@ describe("stable pipeline_list predecessor merge", () => {
     expect(reply).toEqual({ kind: "response", result: { pipelines: [localP1], degraded: true } });
   });
 
+  test("an exited predecessor (ENOENT/ECONNREFUSED) yields local-only pipelines without degraded", async () => {
+    const localP1 = pipelineSnapshot("p1");
+    for (const code of ["ENOENT", "ECONNREFUSED"]) {
+      const handler = createStablePipelineListHandler(localPipelineListHandler([localP1]), {
+        predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+        connectOwnerClient: async () => {
+          throw Object.assign(new Error(`connect ${code}`), { code });
+        },
+      });
+
+      const reply = await handler(pipelineListFrame(), new AbortController().signal);
+
+      expect(reply).toEqual({ kind: "response", result: { pipelines: [localP1] } });
+    }
+  });
+
   test("a predecessor exceeding its own query timeout degrades like unreachable and replies within the outer CLI timeout", async () => {
     const localP1 = pipelineSnapshot("p1");
     const hungPredecessor = ownerClient();

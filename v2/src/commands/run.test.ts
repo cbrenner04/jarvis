@@ -714,6 +714,22 @@ describe("run control", () => {
     expect(cap.read()).toEqual({ stdout: `${JSON.stringify(record)}\n`, stderr: "" });
   });
 
+  test("run log exits 0 when the daemon closes the connection without a stream-end frame", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000012";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
   test("run log --follow before the run id also sends follow: true", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

@@ -73,7 +73,8 @@ type StablePipelineListDeps = {
  * pipelines. Keyed under fixed synthetic labels `"local"`/`"predecessor"` so a same-id collision
  * keeps the local snapshot deterministically (`"local"` sorts first). An unreachable, timed-out,
  * or malformed predecessor answer yields local-only snapshots with `degraded: true`, never an
- * error. Private endpoints must not use this — it would recurse when a predecessor queries its
+ * error. A predecessor with nothing listening (already exited: ENOENT/ECONNREFUSED) is not
+ * degraded — local snapshots are then the complete set. Private endpoints must not use this — it would recurse when a predecessor queries its
  * own successor's private endpoint.
  */
 export function createStablePipelineListHandler(localHandler: RpcHandler, deps: StablePipelineListDeps): RpcHandler {
@@ -90,6 +91,9 @@ export function createStablePipelineListHandler(localHandler: RpcHandler, deps: 
     );
     const predecessorSnapshots = predecessorResult.snapshotsBySocketPath[deps.predecessorSocketPath];
     if (predecessorSnapshots === undefined) {
+      if (predecessorResult.absentSocketPaths.includes(deps.predecessorSocketPath)) {
+        return { kind: "response", result: { pipelines: localSnapshots } };
+      }
       return { kind: "response", result: { pipelines: localSnapshots, degraded: true } };
     }
     const merged = mergePipelineSnapshots({ local: localSnapshots, predecessor: predecessorSnapshots });

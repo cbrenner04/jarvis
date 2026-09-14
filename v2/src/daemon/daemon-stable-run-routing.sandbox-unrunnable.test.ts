@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server.ts";
-import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import { createStablePipelineListHandler, createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import { resolvePipelineIdAcrossDaemons } from "./pipeline-daemon-resolution.ts";
 
 const servers: IpcServer[] = [];
 
@@ -93,4 +94,31 @@ test("stable-address kill preserves force and aborts the direct predecessor invo
   expect(receivedParams).toEqual({ runId: "draining-run", force: true });
   expect(invocation.signal.aborted).toBe(true);
   transport.close();
+});
+
+test("prefix resolution succeeds over a real stable socket whose predecessor has exited", async () => {
+  const pipelineId = "d28c8d6e-4dff-4ea0-af76-ce8c829e5516";
+  const snapshot = {
+    pipelineId,
+    name: "full-review",
+    state: "running",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [],
+  };
+  const stablePath = socketPath("stable-daemon");
+  const stable = await startIpcServer(stablePath, {
+    pipeline_list: createStablePipelineListHandler(() => ({ kind: "response", result: { pipelines: [snapshot] } }), {
+      predecessorSocketPath: socketPath("exited-predecessor"),
+      connectOwnerClient: connectIpcClient,
+    }),
+  });
+  servers.push(stable);
+
+  expect(
+    await resolvePipelineIdAcrossDaemons(pipelineId.slice(0, 8), { socketPath: stablePath, connectIpcClient }),
+  ).toEqual({ kind: "resolved", pipelineId });
 });

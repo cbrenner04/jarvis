@@ -84,7 +84,7 @@ Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the 
 
 A **pipeline** sequences named workflow presets and manual approval gates across intent → plan → implement (and variants), with optional terminal draft-PR actions (`leave-draft`, `ready`, `merge`). Definitions live in `pipeline-definition.ts` / `pipeline-registry.ts`; per-project overrides in `project-pipeline-resolution.ts`. Admission persists an immutable `PipelineContext` snapshot; the daemon owns ordered dispatch, stage settlement, fan-out branches, derived state, terminal publication, and restart continuation. Cross-file execution contract: [`pipeline-execution.md`](./pipeline-execution.md). Preset and per-step workflow semantics: [`workflow-runner.md`](./workflow-runner.md). RPC and startup: [`daemon-host.md`](./daemon-host.md).
 
-Pipeline listing and id/prefix resolution cross one boundary: the stable daemon address, whose `pipeline_list` merges the direct predecessor. A `degraded` listing (predecessor unreachable) refuses prefix resolution only; exact ids and plain `pipeline list` use it as returned.
+Pipeline listing and id/prefix resolution cross one boundary: the stable daemon address, whose `pipeline_list` merges the direct predecessor. A `degraded` listing (live predecessor failed to answer; an exited one is not degraded) refuses prefix resolution only; exact ids and plain `pipeline list` use it as returned.
 
 ## Workflows & orchestration
 

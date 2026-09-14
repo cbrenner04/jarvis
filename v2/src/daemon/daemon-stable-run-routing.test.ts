@@ -569,7 +569,12 @@ function completeRecoveryOutcome(entryRunId: string) {
 
 type PipelineOwnershipStore = Pick<
   StateStore,
-  "currentOwnerIdentity" | "loadPipeline" | "listPipelines" | "adoptOrphanedPipeline" | "claimPipelineContinuation"
+  | "currentOwnerIdentity"
+  | "loadPipeline"
+  | "listPipelines"
+  | "adoptOrphanedPipeline"
+  | "pipelineOwnerIsDead"
+  | "claimPipelineContinuation"
 >;
 
 function wrapDecisionHandlers(
@@ -821,6 +826,7 @@ describe("stable pipeline decision-verb ownership claim", () => {
       loadPipeline: (id) => store.loadPipeline(id),
       listPipelines: () => store.listPipelines(),
       adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+      pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
       claimPipelineContinuation: (args) => {
         const outcome = store.claimPipelineContinuation(args);
         claimOutcomes.push(outcome);
@@ -895,6 +901,7 @@ describe("stable pipeline decision-verb ownership claim", () => {
       loadPipeline: (id) => store.loadPipeline(id),
       listPipelines: () => store.listPipelines(),
       adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+      pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
       claimPipelineContinuation: (args) => {
         claimCalls += 1;
         return { kind: "refused", pipelineId: args.pipelineId, reason: "stale_owner" };
@@ -997,6 +1004,40 @@ describe("stable pipeline decision-verb ownership claim", () => {
     expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(PREDECESSOR_IDENTITY);
     store.close();
   });
+
+  for (const method of ["pipeline_approve", "pipeline_reject"] as const) {
+    test(`${method} on an interrupted pipeline whose recorded owner is dead applies with no predecessor configured`, async () => {
+      const dbPath = tempDbPath(`dead-owner-${method}`);
+      const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+      const store = openStateStore(dbPath, { currentIdentity: SUCCESSOR_IDENTITY, isOwnerAlive: async () => false });
+      expect(await store.reconcilePipelines()).toEqual([pipelineId]);
+      expect(store.loadPipeline(pipelineId)?.status).toBe("interrupted");
+      const successorHandlers = createRunControlHandlers({
+        stateStore: store,
+        writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+        failureReporter: () => {},
+        hasMemoryHeadroom: () => true,
+        resolveStage: async () => ({ ok: true, steps: [] }),
+      });
+      const wrapped = wrapDecisionHandlers(successorHandlers, {
+        store,
+        predecessorSocketPath: undefined,
+        connectOwnerClient: async () => {
+          throw new Error("must not connect: no predecessor configured");
+        },
+      });
+
+      const response = (await wrapped[method](
+        decisionFrame("decide", method, { pipelineId, stageId: "gate", branchKey: "default" }),
+        new AbortController().signal,
+      )) as { kind: string; result?: { kind?: string } };
+
+      expect(response.kind).toBe("response");
+      expect(response.result?.kind).toBe("applied");
+      await flushBackgroundRuns(5);
+      store.close();
+    });
+  }
 
   test("a predecessor answering anything but a matching owner refuses without claiming, querying exactly once", async () => {
     for (const reply of [

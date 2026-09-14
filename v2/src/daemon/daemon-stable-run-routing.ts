@@ -136,7 +136,12 @@ type PipelineDecisionHandlers = Record<PipelineDecisionMethod, RpcHandler>;
 
 type PipelineOwnershipStore = Pick<
   StateStore,
-  "currentOwnerIdentity" | "loadPipeline" | "listPipelines" | "adoptOrphanedPipeline" | "claimPipelineContinuation"
+  | "currentOwnerIdentity"
+  | "loadPipeline"
+  | "listPipelines"
+  | "adoptOrphanedPipeline"
+  | "pipelineOwnerIsDead"
+  | "claimPipelineContinuation"
 >;
 
 type PipelineDecisionRoutingDeps = {
@@ -230,6 +235,11 @@ async function claimPipelineForDecision(
     return { kind: "proceed" };
   }
   if (await deps.store.adoptOrphanedPipeline(pipelineId)) {
+    return { kind: "proceed" };
+  }
+  // An `interrupted` pipeline (never adopted above) whose recorded owner is dead has no driver to
+  // hand off from: the local handler's own continuation claim takes it from the dead owner.
+  if (pipeline.status === "interrupted" && (await deps.store.pipelineOwnerIsDead(pipelineId))) {
     return { kind: "proceed" };
   }
   const { predecessorSocketPath } = deps;

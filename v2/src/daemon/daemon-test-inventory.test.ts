@@ -201,6 +201,9 @@ export function countParityPreservationViolation(
  * revision. Replacement coverage lives in the `getDaemonStatus` tests in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
+  // Cross-daemon prefix resolution retired: resolution now queries only the stable address.
+  "resolves a unique cross-daemon prefix to the full pipeline id",
+  "refuses a prefix matching ids across two daemons with the ambiguous message, without further RPC",
   "throws DaemonAlreadyRunningError if socket already responds",
   "returns running when executable digests match even if HEAD differs",
   "returns stale when executable digests differ",

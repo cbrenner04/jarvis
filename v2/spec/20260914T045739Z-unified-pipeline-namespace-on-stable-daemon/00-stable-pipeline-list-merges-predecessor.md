@@ -16,12 +16,12 @@ The stable-address `pipeline_list` handler returns only the answering generation
 
 ## Acceptance criteria
 
-- [ ] A test drives the stable-address `pipeline_list` handler with local and predecessor snapshots sharing an id and asserts the merged result keeps the local snapshot for that id, with unchanged derived state and dismissal filtering; it fails against the pre-fix local-only handler.
-- [ ] A test proves an unreachable predecessor yields local snapshots only with `degraded: true`, not an error.
-- [ ] A test proves a predecessor exceeding its own query timeout is treated the same as unreachable (`degraded: true`, local snapshots only), and that the handler still replies inside the CLI's outer request timeout.
-- [ ] A test proves querying the private-endpoint `pipeline_list` handler directly stays local-only — no predecessor merge, no `degraded` field — even with a predecessor configured.
-- [ ] A test proves `includeDismissed` and `sinceMs` are forwarded to the predecessor unchanged, and that `sinceMs: 0` keeps a predecessor-only terminal pipeline in the merged result.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test drives the stable-address `pipeline_list` handler with local and predecessor snapshots sharing an id and asserts the merged result keeps the local snapshot for that id, with unchanged derived state and dismissal filtering; it fails against the pre-fix local-only handler.
+- [x] A test proves an unreachable predecessor yields local snapshots only with `degraded: true`, not an error.
+- [x] A test proves a predecessor exceeding its own query timeout is treated the same as unreachable (`degraded: true`, local snapshots only), and that the handler still replies inside the CLI's outer request timeout.
+- [x] A test proves querying the private-endpoint `pipeline_list` handler directly stays local-only — no predecessor merge, no `degraded` field — even with a predecessor configured.
+- [x] A test proves `includeDismissed` and `sinceMs` are forwarded to the predecessor unchanged, and that `sinceMs: 0` keeps a predecessor-only terminal pipeline in the merged result.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

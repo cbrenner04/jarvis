@@ -15,11 +15,11 @@
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/daemon/pipeline-daemon-resolution.test.ts` reproduces the 2026-09-13 shape: a stable-address listing includes a predecessor-held pipeline once, then a second stable-address query for the same prefix comes back `degraded` because the predecessor became unreachable; the second query refuses `pipeline_id_set_incomplete` rather than silently resolving the prefix to an unrelated local id. It fails against the pre-fix completeness predicate.
-- [ ] A test proves prefix resolution refuses `pipeline_id_set_incomplete` against a `degraded` stable-address listing even when a same-prefix local id exists, so a predecessor-only pipeline can't be shadowed by a wrong local match.
-- [ ] A test proves exact-id resolution and plain `list` succeed against a `degraded` stable-address listing.
-- [ ] Tests preserve exact-id, ambiguous-prefix, and unknown-id refusals from `resolvePipelineIdAcrossDaemons` with a connect stub that fails on any non-stable socket path; terminal-state refusal via `resolvePipelineDaemon` is unchanged and not covered by that stub.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A regression test in `v2/src/daemon/pipeline-daemon-resolution.test.ts` reproduces the 2026-09-13 shape: a stable-address listing includes a predecessor-held pipeline once, then a second stable-address query for the same prefix comes back `degraded` because the predecessor became unreachable; the second query refuses `pipeline_id_set_incomplete` rather than silently resolving the prefix to an unrelated local id. It fails against the pre-fix completeness predicate.
+- [x] A test proves prefix resolution refuses `pipeline_id_set_incomplete` against a `degraded` stable-address listing even when a same-prefix local id exists, so a predecessor-only pipeline can't be shadowed by a wrong local match.
+- [x] A test proves exact-id resolution and plain `list` succeed against a `degraded` stable-address listing.
+- [x] Tests preserve exact-id, ambiguous-prefix, and unknown-id refusals from `resolvePipelineIdAcrossDaemons` with a connect stub that fails on any non-stable socket path; terminal-state refusal via `resolvePipelineDaemon` is unchanged and not covered by that stub.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

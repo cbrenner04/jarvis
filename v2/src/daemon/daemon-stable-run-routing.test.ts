@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { IpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import { createStablePipelineListHandler, createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import { PIPELINE_OWNER_RPC_TIMEOUT_MS } from "./pipeline-daemon-resolution.ts";
+import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 type Reply = { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
 
@@ -282,5 +284,110 @@ describe("stable run unary routing", () => {
     second.respond({ kind: "response", result: { runStatus: "completed" } });
     expect(await secondWait).toEqual({ kind: "response", result: { runStatus: "completed" } });
     expect(second.closeCount()).toBe(1);
+  });
+});
+
+function pipelineSnapshot(pipelineId: string, overrides: Partial<PipelineSnapshot> = {}): PipelineSnapshot {
+  return {
+    pipelineId,
+    name: `name-${pipelineId}`,
+    state: "running",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 0,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [],
+    ...overrides,
+  };
+}
+
+function pipelineListFrame(params?: unknown) {
+  return { kind: "request", id: "pipeline_list-1", method: "pipeline_list", params } as const;
+}
+
+function localPipelineListHandler(pipelines: readonly PipelineSnapshot[]): RpcHandler {
+  return () => ({ kind: "response", result: { pipelines } });
+}
+
+async function rejectsPredecessorConnect(): Promise<never> {
+  throw new Error("connection refused");
+}
+
+describe("stable pipeline_list predecessor merge", () => {
+  test("merges predecessor pipelines with local, local wins id collisions unchanged", async () => {
+    const localP1 = pipelineSnapshot("p1", { name: "local-p1", dismissedAt: 5 });
+    const localP2 = pipelineSnapshot("p2", { name: "local-only" });
+    const predecessorP1 = pipelineSnapshot("p1", { name: "predecessor-p1" });
+    const predecessorP3 = pipelineSnapshot("p3", { name: "predecessor-only" });
+    const predecessor = ownerClient({
+      kind: "response",
+      result: { pipelines: [predecessorP1, predecessorP3] },
+    });
+    const handler = createStablePipelineListHandler(localPipelineListHandler([localP1, localP2]), {
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => predecessor.client,
+    });
+
+    const reply = await handler(pipelineListFrame(), new AbortController().signal);
+
+    expect(reply.kind).toBe("response");
+    const pipelines = (reply as { kind: "response"; result: { pipelines: PipelineSnapshot[] } }).result.pipelines;
+    expect(pipelines).toHaveLength(3);
+    // Local wins the id collision, unchanged (same dismissedAt/state as the local snapshot).
+    expect(pipelines.find((snapshot) => snapshot.pipelineId === "p1")).toEqual(localP1);
+    expect(pipelines.find((snapshot) => snapshot.pipelineId === "p2")).toEqual(localP2);
+    expect(pipelines.find((snapshot) => snapshot.pipelineId === "p3")).toEqual(predecessorP3);
+    expect((reply as { result: { degraded?: unknown } }).result.degraded).toBeUndefined();
+  });
+
+  test("an unreachable predecessor yields local-only pipelines with degraded: true, not an error", async () => {
+    const localP1 = pipelineSnapshot("p1");
+    const handler = createStablePipelineListHandler(localPipelineListHandler([localP1]), {
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: rejectsPredecessorConnect,
+    });
+
+    const reply = await handler(pipelineListFrame(), new AbortController().signal);
+
+    expect(reply).toEqual({ kind: "response", result: { pipelines: [localP1], degraded: true } });
+  });
+
+  test("a predecessor exceeding its own query timeout degrades like unreachable and replies within the outer CLI timeout", async () => {
+    const localP1 = pipelineSnapshot("p1");
+    const hungPredecessor = ownerClient();
+    const handler = createStablePipelineListHandler(localPipelineListHandler([localP1]), {
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => hungPredecessor.client,
+    });
+
+    const startedAt = Date.now();
+    const reply = await handler(pipelineListFrame(), new AbortController().signal);
+    expect(Date.now() - startedAt).toBeLessThan(PIPELINE_OWNER_RPC_TIMEOUT_MS);
+    expect(reply).toEqual({ kind: "response", result: { pipelines: [localP1], degraded: true } });
+  });
+
+  test("forwards includeDismissed and sinceMs unchanged, and sinceMs: 0 keeps a predecessor-only terminal pipeline", async () => {
+    const predecessorTerminal = pipelineSnapshot("p-terminal", {
+      state: "succeeded",
+      dismissedAt: 10,
+      finishedAtMs: 10,
+    });
+    const predecessor = ownerClient({ kind: "response", result: { pipelines: [predecessorTerminal] } });
+    const handler = createStablePipelineListHandler(localPipelineListHandler([]), {
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => predecessor.client,
+    });
+
+    const reply = await handler(
+      pipelineListFrame({ includeDismissed: true, sinceMs: 0 }),
+      new AbortController().signal,
+    );
+
+    expect(predecessor.sent[0]).toMatchObject({
+      method: "pipeline_list",
+      params: { includeDismissed: true, sinceMs: 0 },
+    });
+    expect(reply).toEqual({ kind: "response", result: { pipelines: [predecessorTerminal] } });
   });
 });

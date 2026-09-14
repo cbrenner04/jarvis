@@ -23,13 +23,11 @@ import {
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
-import { mergePipelineSnapshots } from "../daemon/merge-pipeline-snapshots.ts";
 import {
   PIPELINE_NO_LIVE_OWNER_RECOVERY,
   type PipelineDaemonResolution,
-  type PipelineListQueryResult,
   type PipelineListRequestParams,
-  queryPipelineListsFromSocketPaths,
+  queryStablePipelineList,
   resolvePipelineDaemon,
   resolvePipelineIdAcrossDaemons,
 } from "../daemon/pipeline-daemon-resolution.ts";
@@ -40,7 +38,6 @@ import type {
   PipelineSnapshot,
   PipelineTerminalState,
 } from "../daemon/pipeline-observation.ts";
-import { resolveDaemonListSocketPaths } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
@@ -530,29 +527,17 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
     return 1;
   }
 
-  let queryResult: PipelineListQueryResult;
-  try {
-    const socketPaths = await resolveDaemonListSocketPaths(deps);
-    queryResult = await queryPipelineListsFromSocketPaths(
-      deps.connectIpcClient,
-      socketPaths,
-      pipelineListRequestParams(parsed),
-    );
-  } catch {
-    io.stderr(`No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`);
-    return 1;
-  }
-
-  if (Object.keys(queryResult.snapshotsBySocketPath).length === 0) {
+  const listing = await queryStablePipelineList(deps, pipelineListRequestParams(parsed));
+  if (listing.snapshots === undefined) {
     io.stderr(
-      queryResult.hasMalformedResponse
+      listing.malformed
         ? "invalid daemon response\n"
         : `No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`,
     );
     return 1;
   }
 
-  const merged = mergePipelineSnapshots(queryResult.snapshotsBySocketPath);
+  const merged = listing.snapshots;
   if (parsed.json) {
     io.stdout(`${JSON.stringify({ pipelines: orderPipelines(merged) })}\n`);
     return 0;

@@ -2,6 +2,13 @@ import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { RpcHandler } from "../ipc/server.ts";
+import { mergePipelineSnapshots } from "./merge-pipeline-snapshots.ts";
+import {
+  PIPELINE_OWNER_RPC_TIMEOUT_MS,
+  type PipelineListRequestParams,
+  queryPipelineListsFromSocketPaths,
+} from "./pipeline-daemon-resolution.ts";
+import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const DIRECT_OWNER_RUN_METHODS = ["wait", "pause", "kill"] as const;
 
@@ -44,6 +51,46 @@ async function forwardToDirectOwner(
     signal.removeEventListener("abort", close);
     transport.close();
   }
+}
+
+// Strictly shorter than PIPELINE_OWNER_RPC_TIMEOUT_MS, leaving headroom for local processing so a
+// slow predecessor can't push the stable `pipeline_list` reply past the CLI's own request timeout.
+const PREDECESSOR_PIPELINE_LIST_TIMEOUT_MS = Math.floor(PIPELINE_OWNER_RPC_TIMEOUT_MS * 0.75);
+
+type StablePipelineListDeps = {
+  predecessorSocketPath: string;
+  connectOwnerClient: (socketPath: string) => Promise<IpcClient>;
+  /** Predecessor query timeout; defaults to `PREDECESSOR_PIPELINE_LIST_TIMEOUT_MS`. */
+  predecessorQueryTimeoutMs?: number;
+};
+
+/**
+ * Wraps the stable-address `pipeline_list` handler to merge in the direct predecessor's
+ * pipelines. Keyed under fixed synthetic labels `"local"`/`"predecessor"` so a same-id collision
+ * keeps the local snapshot deterministically (`"local"` sorts first). An unreachable, timed-out,
+ * or malformed predecessor answer yields local-only snapshots with `degraded: true`, never an
+ * error. Private endpoints must not use this — it would recurse when a predecessor queries its
+ * own successor's private endpoint.
+ */
+export function createStablePipelineListHandler(localHandler: RpcHandler, deps: StablePipelineListDeps): RpcHandler {
+  return async (frame, signal) => {
+    const localReply = await localHandler(frame, signal);
+    if (localReply.kind !== "response") return localReply;
+    const localSnapshots = (localReply.result as { pipelines: readonly PipelineSnapshot[] }).pipelines;
+    const params = frame.params as PipelineListRequestParams | undefined;
+    const predecessorResult = await queryPipelineListsFromSocketPaths(
+      deps.connectOwnerClient,
+      [deps.predecessorSocketPath],
+      params,
+      deps.predecessorQueryTimeoutMs ?? PREDECESSOR_PIPELINE_LIST_TIMEOUT_MS,
+    );
+    const predecessorSnapshots = predecessorResult.snapshotsBySocketPath[deps.predecessorSocketPath];
+    if (predecessorSnapshots === undefined) {
+      return { kind: "response", result: { pipelines: localSnapshots, degraded: true } };
+    }
+    const merged = mergePipelineSnapshots({ local: localSnapshots, predecessor: predecessorSnapshots });
+    return { kind: "response", result: { pipelines: merged } };
+  };
 }
 
 /** Wraps only stable-address live-run unary handlers; private endpoints keep the local handlers. */

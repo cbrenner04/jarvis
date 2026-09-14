@@ -155,12 +155,17 @@ function multiSocketOwnerRoutedConnectIpcClient(
   ownerSocket: string,
   verbClient: () => IpcClient,
 ): (socketPath: string) => Promise<IpcClient> {
+  // Id resolution queries only the stable (invoking) address once; owner probes then fan out.
+  let listed = false;
   const callsBySocket = new Map<string, number>();
   return async (socketPath: string) => {
+    if (!listed) {
+      listed = true;
+      return pipelineListClient({ pipelines: [] });
+    }
     const calls = (callsBySocket.get(socketPath) ?? 0) + 1;
     callsBySocket.set(socketPath, calls);
-    if (calls === 1) return pipelineListClient({ pipelines: [] });
-    if (calls === 2) return pipelineListClient(witnessBySocket[socketPath]);
+    if (calls === 1) return pipelineListClient(witnessBySocket[socketPath]);
     if (socketPath === ownerSocket) return verbClient();
     throw new Error(`connectIpcClient called unexpectedly for ${socketPath} on call ${calls}`);
   };
@@ -684,81 +689,32 @@ describe("pipeline list", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(0);
   });
 
-  test("lists a non-invoking daemon snapshot", async () => {
+  test("lists only the stable address, never a discovered generation socket", async () => {
     const cap = captureIo();
-    const invokingSocket = "/jarvis/daemon-ffff.sock";
-    const otherSocket = "/jarvis/daemon-0000.sock";
-    const remote = { ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "remote-pipeline", name: "remote" };
+    const stableSocket = "/jarvis/daemon.sock";
+    const predecessorHeld = { ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "predecessor-pipeline", name: "predecessor" };
+    const connected: string[] = [];
 
     const code = await main(["pipeline", "list"], cap.io, {
       ...pipelineDeps(undefined),
-      socketPath: invokingSocket,
-      socketDiscovery: async () => [otherSocket],
-      connectIpcClient: async (socketPath) =>
-        pipelineListClient({ pipelines: socketPath === otherSocket ? [remote] : [] }),
+      socketPath: stableSocket,
+      socketDiscovery: async () => ["/jarvis/daemon-0000.sock"],
+      connectIpcClient: async (socketPath) => {
+        connected.push(socketPath);
+        if (socketPath !== stableSocket) throw new Error(`unexpected non-stable connect ${socketPath}`);
+        return pipelineListClient({ pipelines: [predecessorHeld] });
+      },
     });
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({
-      stdout: expect.stringContaining("remote-p\tremote\t"),
-      stderr: "",
-    });
+    expect(cap.read()).toEqual({ stdout: expect.stringContaining("predeces\tpredecessor\t"), stderr: "" });
+    expect(connected).toEqual([stableSocket]);
   });
 
-  test("prefers a finished snapshot over an unfinished one for the same pipeline id", async () => {
-    const cap = captureIo();
-    const earlierSocket = "/jarvis/daemon-0000.sock";
-    const laterSocket = "/jarvis/daemon-ffff.sock";
-    const snapshot = (pipelineId: string, name: string, finishedAtMs: number | null, endedStageCount: number) => ({
-      ...SAMPLE_PIPELINE_SNAPSHOT,
-      pipelineId,
-      name,
-      state: finishedAtMs === null ? "running" : "succeeded",
-      finishedAtMs,
-      stages: [0, 1].map((position) => ({
-        ...SAMPLE_PIPELINE_SNAPSHOT.stages[position]!,
-        stageId: `stage-${position}`,
-        branchKey: "default",
-        position,
-        status: position < endedStageCount ? "succeeded" : "running",
-        endedAt: position < endedStageCount ? position + 1 : null,
-      })),
-    });
-    const bySocket: Record<string, ReturnType<typeof snapshot>[]> = {
-      [earlierSocket]: [
-        snapshot("finished-wins", "unfinished", null, 2),
-        snapshot("ended-wins", "fewer-ended", null, 1),
-        snapshot("path-wins", "earlier-path", null, 1),
-      ],
-      [laterSocket]: [
-        snapshot("finished-wins", "finished", 10, 0),
-        snapshot("ended-wins", "more-ended", null, 2),
-        snapshot("path-wins", "later-path", null, 1),
-      ],
-    };
-
-    const code = await main(["pipeline", "list", "--json"], cap.io, {
-      ...pipelineDeps(undefined),
-      socketPath: earlierSocket,
-      socketDiscovery: async () => [laterSocket],
-      connectIpcClient: async (socketPath) => pipelineListClient({ pipelines: bySocket[socketPath] }),
-    });
-
-    expect(code).toBe(0);
-    const pipelines = (JSON.parse(cap.read().stdout) as { pipelines: Array<{ pipelineId: string; name: string }> })
-      .pipelines;
-    expect(Object.fromEntries(pipelines.map(({ pipelineId, name }) => [pipelineId, name]))).toEqual({
-      "ended-wins": "more-ended",
-      "finished-wins": "finished",
-      "path-wins": "earlier-path",
-    });
-  });
-
-  test("filters merged pipeline snapshots after deduplication", async () => {
+  test("filters the stable-address listing by cutoff and state", async () => {
     const nowMs = 3_000_000_000_000;
     const cap = captureIo();
     const invokingSocket = "/jarvis/daemon-ffff.sock";
-    const otherSocket = "/jarvis/daemon-0000.sock";
     const olderFinished = {
       ...SAMPLE_PIPELINE_SNAPSHOT,
       pipelineId: "duplicate",
@@ -767,44 +723,34 @@ describe("pipeline list", () => {
       createdAt: nowMs - 2 * HOUR,
       finishedAtMs: nowMs - HOUR,
     };
-    const newerUnfinished = {
+    const retained = {
       ...SAMPLE_PIPELINE_SNAPSHOT,
-      pipelineId: "duplicate",
-      name: "newer-unfinished",
+      pipelineId: "retained",
+      name: "retained",
       state: "running",
       createdAt: nowMs - MIN,
     };
-    const retained = { ...newerUnfinished, pipelineId: "retained", name: "retained" };
 
     const code = await main(["pipeline", "list", "--since", "1h", "--state", "running"], cap.io, {
       ...pipelineDeps(undefined),
       now: () => nowMs,
       socketPath: invokingSocket,
-      socketDiscovery: async () => [otherSocket],
-      connectIpcClient: async (socketPath) =>
-        pipelineListClient({ pipelines: socketPath === otherSocket ? [newerUnfinished, retained] : [olderFinished] }),
+      connectIpcClient: async () => pipelineListClient({ pipelines: [olderFinished, retained] }),
     });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: expect.stringContaining("retained\tretained\trunning\t"), stderr: "" });
-    expect(cap.read().stdout).not.toContain("newer-unfinished");
     expect(cap.read().stdout).not.toContain("older-finished");
   });
 
-  test("lists despite one failed socket", async () => {
+  test("lists a degraded stable-address listing as returned", async () => {
     const cap = captureIo();
-    const failedSocket = "/jarvis/daemon-0000.sock";
-    const answeringSocket = "/jarvis/daemon-ffff.sock";
     const survivor = { ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "survivor", name: "survivor" };
 
     const code = await main(["pipeline", "list"], cap.io, {
       ...pipelineDeps(undefined),
-      socketPath: failedSocket,
-      socketDiscovery: async () => [answeringSocket],
-      connectIpcClient: async (socketPath) => {
-        if (socketPath === failedSocket) throw new Error(`connect ENOENT ${socketPath}`);
-        return pipelineListClient({ pipelines: [survivor] });
-      },
+      socketPath: "/jarvis/daemon.sock",
+      connectIpcClient: async () => pipelineListClient({ pipelines: [survivor], degraded: true }),
     });
 
     expect(code).toBe(0);
@@ -2372,13 +2318,10 @@ describe("pipeline verb owner routing", () => {
     const sent: unknown[] = [];
     const code = await main(["pipeline", "approve", "aaaaaaaa", "gate", "default"], cap.io, {
       ...pipelineDeps(undefined),
-      socketPath: "/good.sock",
-      socketDiscovery: async () => ["/bad.sock"],
-      connectIpcClient: async (path) =>
+      socketPath: "/stable.sock",
+      connectIpcClient: async () =>
         pipelineListClient(
-          path === "/good.sock"
-            ? { pipelines: [{ ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "aaaaaaaa1111" }] }
-            : { pipelines: "malformed" },
+          { pipelines: [{ ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "aaaaaaaa1111" }], degraded: true },
           sent,
         ),
     });
@@ -2416,7 +2359,7 @@ describe("pipeline verb owner routing", () => {
     ]);
   });
 
-  test("refuses a cross-daemon ambiguous id prefix before any owner probe", async () => {
+  test("refuses an ambiguous stable-listing id prefix before any owner probe", async () => {
     const cap = captureIo();
     const socketA = "/jarvis/daemon-1111.sock";
     const socketB = "/jarvis/daemon-2222.sock";
@@ -2425,12 +2368,15 @@ describe("pipeline verb owner routing", () => {
       ...pipelineDeps(undefined),
       socketPath: socketA,
       socketDiscovery: async () => [socketB],
-      connectIpcClient: async (socketPath) =>
-        pipelineListClient({
+      connectIpcClient: async (socketPath) => {
+        if (socketPath !== socketA) throw new Error(`unexpected non-stable connect ${socketPath}`);
+        return pipelineListClient({
           pipelines: [
-            { ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: socketPath === socketA ? "aaaaaaaa1111" : "aaaaaaaa2222" },
+            { ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "aaaaaaaa1111" },
+            { ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "aaaaaaaa2222" },
           ],
-        }),
+        });
+      },
     });
 
     expect(code).toBe(1);
@@ -2592,7 +2538,7 @@ describe("pipeline verb owner routing", () => {
     expect(unavailableCap.read()).toEqual({
       stdout: "",
       stderr:
-        "pipeline_id_set_incomplete: Cannot resolve prefix pipe-unreachable: a daemon listing was malformed or unavailable; restore daemon connectivity or use a known full pipeline id.\n",
+        "pipeline_id_set_incomplete: Cannot resolve prefix pipe-unreachable: the daemon listing was malformed, unavailable, or degraded; restore daemon connectivity or use a known full pipeline id.\n",
     });
 
     expect(startCalls).toBe(0);

@@ -404,62 +404,94 @@ function pipelineSnapshot(pipelineId: string, overrides: Partial<PipelineSnapsho
   };
 }
 
-test("resolves a unique cross-daemon prefix to the full pipeline id", async () => {
-  const idOnOtherSocket = "aaaa1111bbbb";
-  const idOnInvokingSocket = "cccc2222dddd";
-  const sent: unknown[] = [];
-  const result = await resolvePipelineIdAcrossDaemons(
-    "aaaa1111",
-    {
-      socketPath: INVOKING_SOCKET,
-      socketDiscovery: async () => [OTHER_SOCKET],
-      connectIpcClient: async (socketPath) =>
-        replyingClient(
-          {
-            result: {
-              pipelines: [pipelineSnapshot(socketPath === OTHER_SOCKET ? idOnOtherSocket : idOnInvokingSocket)],
-            },
-          },
-          sent,
-        ),
+/** Answers only the stable (invoking) address; any discovered generation socket fails the test. */
+function stableOnlyDeps(replies: readonly Reply[], sent: unknown[] = []) {
+  let call = 0;
+  return {
+    socketPath: INVOKING_SOCKET,
+    socketDiscovery: async () => [OTHER_SOCKET],
+    connectIpcClient: async (socketPath: string) => {
+      if (socketPath !== INVOKING_SOCKET) throw new Error(`unexpected non-stable connect ${socketPath}`);
+      const reply = replies[Math.min(call, replies.length - 1)];
+      call += 1;
+      if (reply === undefined) throw new Error("no stub reply");
+      return replyingClient(reply, sent);
     },
-    20,
+  };
+}
+
+test("resolves a unique prefix against the stable-address listing only", async () => {
+  const sent: unknown[] = [];
+  const deps = stableOnlyDeps(
+    [{ result: { pipelines: [pipelineSnapshot("aaaa1111bbbb"), pipelineSnapshot("cccc2222dddd")] } }],
+    sent,
   );
 
-  expect(result).toEqual({ kind: "resolved", pipelineId: idOnOtherSocket });
-  expect(sent).toHaveLength(2);
+  expect(await resolvePipelineIdAcrossDaemons("aaaa1111", deps, 20)).toEqual({
+    kind: "resolved",
+    pipelineId: "aaaa1111bbbb",
+  });
+  expect(sent).toHaveLength(1);
 });
 
-test("refuses a prefix matching ids across two daemons with the ambiguous message, without further RPC", async () => {
-  const idOnOtherSocket = "abc12345xxxx";
-  const idOnInvokingSocket = "abc12345yyyy";
+test("preserves exact-id, ambiguous-prefix, and unknown-id outcomes with a stable-only connect stub", async () => {
   const sent: unknown[] = [];
-  const result = await resolvePipelineIdAcrossDaemons(
-    "abc12345",
-    {
-      socketPath: INVOKING_SOCKET,
-      socketDiscovery: async () => [OTHER_SOCKET],
-      connectIpcClient: async (socketPath) =>
-        replyingClient(
-          {
-            result: {
-              pipelines: [pipelineSnapshot(socketPath === OTHER_SOCKET ? idOnOtherSocket : idOnInvokingSocket)],
-            },
-          },
-          sent,
-        ),
-    },
-    20,
+  const deps = stableOnlyDeps(
+    [{ result: { pipelines: [pipelineSnapshot("abc12345xxxx"), pipelineSnapshot("abc12345yyyy")] } }],
+    sent,
   );
 
-  const candidates = [idOnOtherSocket, idOnInvokingSocket].sort();
-  expect(result).toEqual({
+  expect(await resolvePipelineIdAcrossDaemons("abc12345xxxx", deps, 20)).toEqual({
+    kind: "resolved",
+    pipelineId: "abc12345xxxx",
+  });
+  const candidates = ["abc12345xxxx", "abc12345yyyy"];
+  expect(await resolvePipelineIdAcrossDaemons("abc12345", deps, 20)).toEqual({
     kind: "ambiguous",
     candidates,
     message: ambiguousPipelineIdMessage("abc12345", candidates),
   });
-  expect(sent).toHaveLength(2);
+  expect(await resolvePipelineIdAcrossDaemons("no-such-pipeline", deps, 20)).toEqual({
+    kind: "unmatched",
+    pipelineId: "no-such-pipeline",
+  });
   expect(sent.every((frame) => (frame as { method?: string }).method === "pipeline_list")).toBeTrue();
+});
+
+test("refuses a prefix once the stable listing degrades after a predecessor-held pipeline was listed (2026-09-13)", async () => {
+  const predecessorHeld = "aaaa1111pred";
+  const unrelatedLocal = "aaaa1111locl";
+  const deps = stableOnlyDeps([
+    { result: { pipelines: [pipelineSnapshot(predecessorHeld)] } },
+    { result: { pipelines: [pipelineSnapshot(unrelatedLocal)], degraded: true } },
+  ]);
+
+  expect(await resolvePipelineIdAcrossDaemons("aaaa1111p", deps, 20)).toEqual({
+    kind: "resolved",
+    pipelineId: predecessorHeld,
+  });
+  expect(await resolvePipelineIdAcrossDaemons("aaaa1111", deps, 20)).toEqual({
+    kind: "incomplete",
+    message: expect.stringContaining("pipeline_id_set_incomplete:"),
+  });
+});
+
+test("a degraded listing refuses a prefix even when a same-prefix local id exists", async () => {
+  const deps = stableOnlyDeps([{ result: { pipelines: [pipelineSnapshot("aaaa1111locl")], degraded: true } }]);
+
+  expect(await resolvePipelineIdAcrossDaemons("aaaa1111", deps, 20)).toEqual({
+    kind: "incomplete",
+    message: expect.stringContaining("pipeline_id_set_incomplete:"),
+  });
+});
+
+test("a degraded listing still resolves an exact id present in it", async () => {
+  const deps = stableOnlyDeps([{ result: { pipelines: [pipelineSnapshot("aaaa1111locl")], degraded: true } }]);
+
+  expect(await resolvePipelineIdAcrossDaemons("aaaa1111locl", deps, 20)).toEqual({
+    kind: "resolved",
+    pipelineId: "aaaa1111locl",
+  });
 });
 
 test("resolves a dismissed pipeline's full id via the merged, dismissed-inclusive listing", async () => {
@@ -515,22 +547,24 @@ test.each([
   "disconnected",
   "rpc-error",
   "timeout",
-] as const)("refuses prefix resolution against an incomplete daemon listing: %s", async (failure) => {
-  const fullId = "aaaa1111bbbb";
+] as const)("refuses prefix resolution when the stable-address listing is unavailable: %s", async (failure) => {
+  const reply: Reply =
+    failure === "rpc-error"
+      ? { error: { code: "internal_error", message: "unavailable" } }
+      : failure === "timeout"
+        ? { hung: true }
+        : { result: { pipelines: [{ pipelineId: "aaaa1111cccc" }] } };
   const deps = {
     socketPath: INVOKING_SOCKET,
     socketDiscovery: async () => [OTHER_SOCKET],
     connectIpcClient: async (socketPath: string) => {
-      if (socketPath === INVOKING_SOCKET) return replyingClient({ result: { pipelines: [pipelineSnapshot(fullId)] } });
+      if (socketPath !== INVOKING_SOCKET) throw new Error(`unexpected non-stable connect ${socketPath}`);
       if (failure === "disconnected") throw new Error("connection refused");
-      if (failure === "rpc-error") return replyingClient({ error: { code: "internal_error", message: "unavailable" } });
-      if (failure === "timeout") return replyingClient({ hung: true });
-      return replyingClient({ result: { pipelines: [{ pipelineId: "aaaa1111cccc" }] } });
+      return replyingClient(reply);
     },
   };
   expect(await resolvePipelineIdAcrossDaemons("aaaa1111", deps, 20)).toEqual({
     kind: "incomplete",
     message: expect.stringContaining("pipeline_id_set_incomplete:"),
   });
-  expect(await resolvePipelineIdAcrossDaemons(fullId, deps, 20)).toEqual({ kind: "resolved", pipelineId: fullId });
 });

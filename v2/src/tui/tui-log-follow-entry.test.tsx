@@ -943,7 +943,7 @@ describe("runTuiLogFollow", () => {
             readTuiDaemonRevision: revisionReadSequence(["rev-b", "rev-b"]),
             connectTuiLogTail: async () => immediateTail(),
           }),
-        ).rejects.toThrow("cannot re-exec: process.argv is empty");
+        ).rejects.toThrow("cannot re-exec: process.argv is too short");
       } finally {
         process.argv = originalArgv;
       }

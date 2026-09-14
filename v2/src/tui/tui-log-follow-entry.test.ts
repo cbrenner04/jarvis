@@ -7,8 +7,8 @@ import type { PerformTuiRevisionReexecParams } from "./tui-revision-reexec.ts";
 // Exact-stem `.test.ts` sibling for the diff-derived mutation verifier: direct-import discovery and
 // co-located resolution only recognize `.test.ts`, not the JSX-suited `.test.tsx` suite that covers
 // this module's other behavior — see tui-log-follow-entry.test.tsx. These two tests isolate the
-// `tuiLogFollowReexecArgv` guard at line 42: a defined `process.argv[0]`/`[1]` pair must build argv
-// without throwing, and a short `process.argv` (missing index 1) must throw before any re-exec.
+// `tuiLogFollowReexecArgv` guard: a defined `process.argv[0]`/`[1]` pair must build argv without
+// throwing, and a short `process.argv` (missing index 1) must throw before any re-exec.
 
 function createViewHost(): TuiLogFollowViewHost {
   return {
@@ -71,7 +71,7 @@ describe("tuiLogFollowReexecArgv guard", () => {
           "run-123",
           deps(async () => {}),
         ),
-      ).rejects.toThrow("cannot re-exec: process.argv is empty");
+      ).rejects.toThrow("cannot re-exec: process.argv is too short");
     } finally {
       process.argv = originalArgv;
     }

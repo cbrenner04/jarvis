@@ -40,7 +40,7 @@ function tuiLogFollowReexecArgv(runId: string): readonly string[] {
   const nodeExecutable = process.argv[0];
   const scriptPath = process.argv[1];
   if (nodeExecutable === undefined || scriptPath === undefined) {
-    throw new Error("cannot re-exec: process.argv is empty");
+    throw new Error("cannot re-exec: process.argv is too short");
   }
   return [nodeExecutable, scriptPath, "tui", "log", runId];
 }

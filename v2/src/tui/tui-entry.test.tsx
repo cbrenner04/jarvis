@@ -47,6 +47,7 @@ import type {
   TuiViewHost,
   TuiViewState,
 } from "./tui-monitor-types.ts";
+import type { PerformTuiRevisionReexecParams } from "./tui-revision-reexec.ts";
 import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
@@ -3313,6 +3314,7 @@ describe("runTuiEntry", () => {
       "status",
       "list",
       "pipeline_list",
+      "status",
       "list",
       "pipeline_list",
       "close",
@@ -5225,5 +5227,185 @@ describe("runTuiEntry", () => {
       view.quit();
     }
     expect(await pending).toBe(0);
+  });
+
+  describe("revision-follow re-exec", () => {
+    /** Wraps a fake client's `status()` with a fixed sequence of reads; the last entry repeats once exhausted. */
+    function withStatusSequence(client: TuiDaemonClient, reads: readonly (string | "failure")[]): TuiDaemonClient {
+      let index = 0;
+      return {
+        ...client,
+        async status() {
+          const read = reads[Math.min(index, reads.length - 1)] ?? "failure";
+          index += 1;
+          if (read === "failure") throw new RpcConnectionError("status unavailable");
+          return { state: "running" as const, loadedRevision: read };
+        },
+      };
+    }
+
+    function revisionFollowDeps(
+      view: ReturnType<typeof createViewHost>,
+      refresh: ReturnType<typeof createIntervalScheduler>,
+      reads: readonly (string | "failure")[],
+      reexecCalls: PerformTuiRevisionReexecParams[],
+      overrides: Partial<RunTuiEntryDeps> = {},
+    ): RunTuiEntryDeps {
+      return {
+        socketPath: "/tmp/test.sock",
+        machineProfile: "unknown",
+        admitDetachedPipelineStart: noopDetachedAdmission,
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => withStatusSequence(fakeClient({}), reads),
+        resolveMonitorRevision: async () => "rev-a",
+        reexecTuiMonitor: async (params) => {
+          reexecCalls.push(params);
+        },
+        ...overrides,
+      };
+    }
+
+    test("re-execs onto current code once the daemon's differing revision stabilizes, without operator input", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "rev-b"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        refresh.tick();
+        await flush();
+        await flush();
+
+        expect(reexecCalls).toHaveLength(1);
+        expect(reexecCalls[0]?.daemonRevision).toBe("rev-b");
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("matching monitor and daemon revisions never re-exec across multiple refreshes", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const deps = revisionFollowDeps(view, refresh, ["rev-a", "rev-a", "rev-a"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        refresh.tick();
+        await flush();
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("a failed status read resets stability tracking and does not re-exec that tick", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      // connect: rev-b; tick1: failure (resets tracking); tick2: rev-b (fresh candidate, not yet stable);
+      // tick3: rev-b again (now stable against tick2) -> re-exec.
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "failure", "rev-b", "rev-b"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        refresh.tick();
+        await flush();
+        await flush();
+        expect(reexecCalls).toHaveLength(1);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("defers re-exec while the command dock has typed input, firing once it clears", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "rev-b", "rev-b"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        view.focusCommand();
+        view.insertCommandText("x");
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        view.deleteCommandBackward();
+
+        refresh.tick();
+        await flush();
+        await flush();
+        expect(reexecCalls).toHaveLength(1);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("defers re-exec while a command dispatch is in flight, firing once it settles", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const admissionGate = deferred<PipelineStartAdmissionResult>();
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "rev-b", "rev-b"], reexecCalls, {
+        admitDetachedPipelineStart: async () => admissionGate.promise,
+      });
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        view.focusCommand();
+        view.insertCommandText("start demo --seed seeds/foo.md");
+        const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+        view.submitCommand(buffer);
+        await flush();
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-revision-follow" });
+        await flush();
+        await flush();
+
+        refresh.tick();
+        await flush();
+        await flush();
+        expect(reexecCalls).toHaveLength(1);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
   });
 });

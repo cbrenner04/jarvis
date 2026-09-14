@@ -15,6 +15,7 @@ import {
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
+import { resolveSpecsHome } from "../config/specs-home.ts";
 import { jarvisHome, managedWorktreePath } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
@@ -53,7 +54,7 @@ export type PlanWorkflowInput = {
   reviewPasses?: number;
   reviewBehavior?: "debate" | "light";
 };
-type ProjectConfig = ProjectMatch & { git?: boolean; plan?: { commit?: boolean; targetDir?: string } };
+type ProjectConfig = ProjectMatch & { specs?: unknown; plan?: Record<string, unknown> };
 type IntentWorkflowIdentity = {
   invocationId: string;
   project: string;
@@ -115,14 +116,12 @@ function projectConfig(path: string | undefined, project: ProjectMatch): Project
   const e =
     raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>)[project.key] : undefined;
   const v = e && typeof e === "object" && !Array.isArray(e) ? (e as Record<string, unknown>) : {};
-  const p = v.plan && typeof v.plan === "object" && !Array.isArray(v.plan) ? (v.plan as Record<string, unknown>) : {};
+  const p =
+    v.plan && typeof v.plan === "object" && !Array.isArray(v.plan) ? (v.plan as Record<string, unknown>) : undefined;
   return {
     ...project,
-    ...(typeof v.git === "boolean" ? { git: v.git } : {}),
-    plan: {
-      ...(typeof p.commit === "boolean" ? { commit: p.commit } : {}),
-      ...(typeof p.targetDir === "string" ? { targetDir: p.targetDir } : {}),
-    },
+    ...(v.specs !== undefined ? { specs: v.specs } : {}),
+    ...(p !== undefined ? { plan: p } : {}),
   };
 }
 function registry(path: string | undefined): Record<string, ProjectRegistryEntry> {
@@ -213,11 +212,6 @@ function seedDetailsFromCanonical(
     // silently never consumed — the queue never drains and the next run re-splits the same seed.
     sourceRoot: labelRoot,
   };
-}
-function effectivePublishGit(config: ProjectConfig, modePlan: Record<string, unknown>): boolean {
-  return (
-    config.git !== false && (config.plan?.commit ?? (typeof modePlan.commit === "boolean" ? modePlan.commit : true))
-  );
 }
 function resolveExternalReadyIntent(
   readyIntentPath: string,
@@ -327,7 +321,9 @@ function resolveIntentInput(
   if (!project) return { error: `intent: no registered project matches ${input.cwd}` };
   const config = projectConfig(input.configPath, project);
   const plan = machineModePlan(input.configPath);
-  const publishGit = effectivePublishGit(config, plan);
+  const specsHome = resolveSpecsHome(config, plan);
+  if (!specsHome.ok) return { error: `intent: ${specsHome.error}` };
+  const publishGit = specsHome.specsHome === "repo";
   const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")), !publishGit);
   if ("error" in seed) return seed;
   if (!seed.slug) return { error: "intent: seed does not produce a slug" };
@@ -630,7 +626,9 @@ function planSource(
     if (!project) return { error: `plan: no registered project matches ${input.cwd}` };
     const config = projectConfig(input.configPath, project);
     const modePlan = machineModePlan(input.configPath);
-    const git = effectivePublishGit(config, modePlan);
+    const specsHome = resolveSpecsHome(config, modePlan);
+    if (!specsHome.ok) return { error: `plan: ${specsHome.error}` };
+    const git = specsHome.specsHome === "repo";
     const resolvedReady = resolvePlanReadyIntentInput(input, project, git, deps);
     if ("error" in resolvedReady) return { error: resolvedReady.error };
     const { ready, readyIntentPath, landingInputPath, landingSourceRoot } = resolvedReady;

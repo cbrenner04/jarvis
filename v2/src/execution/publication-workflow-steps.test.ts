@@ -47,12 +47,11 @@ describe("publication rows", () => {
   });
 });
 
-test("plan commit decision honors machine modes.plan.commit like intent", async () => {
-  const root = mkdtempSync(join(tmpdir(), "plan-commit-machine-"));
+test("plan specs decision honors project specs: external like intent", async () => {
+  const root = mkdtempSync(join(tmpdir(), "plan-specs-external-"));
   const jarvisRoot = join(root, "jarvis");
   const configPath = writeMachineConfig({
-    projects: { demo: { root } },
-    modes: { plan: { commit: false } },
+    projects: { demo: { root, specs: "external" } },
   });
   const readyIntent = "spec/ready-intents/feature.md";
   mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
@@ -71,4 +70,74 @@ test("plan commit decision honors machine modes.plan.commit like intent", async 
     publishCompletion: false,
     landing: { inputs: { consumeFrom: "source" } },
   });
+});
+
+test("plan build publishes in-repo when the project has no specs key", async () => {
+  const root = mkdtempSync(join(tmpdir(), "plan-specs-absent-"));
+  const configPath = writeMachineConfig({ projects: { demo: { root } } });
+  const readyIntent = "spec/ready-intents/feature.md";
+  mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
+  writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+
+  const result = await buildPlanWorkflowSteps(
+    { cwd: root, readyIntent, configPath, reviewPasses: 0 },
+    { resolveProjectMatch: () => project, loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+  );
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.steps[0]).toMatchObject({
+    specPath: expect.stringMatching(/^spec\/\d{8}T\d{6}Z-feature$/),
+    publishCompletion: true,
+  });
+  const writeStep = result.steps[0];
+  if (writeStep?.behavior !== "write") throw new Error("expected write step");
+  expect(writeStep.worktree.git).toBeUndefined();
+});
+
+test("plan build rejects project plan.commit, naming specs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "plan-legacy-plan-commit-"));
+  const configPath = writeMachineConfig({ projects: { demo: { root, plan: { commit: false } } } });
+  const readyIntent = "spec/ready-intents/feature.md";
+  mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
+  writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+
+  const result = await buildPlanWorkflowSteps(
+    { cwd: root, readyIntent, configPath, reviewPasses: 0 },
+    { resolveProjectMatch: () => project, loadWorkflowSteps: load },
+  );
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  expect(result.error).toContain("specs");
+});
+
+test("plan build rejects machine modes.plan.commit, naming specs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "plan-legacy-modes-commit-"));
+  const configPath = writeMachineConfig({
+    projects: { demo: { root } },
+    modes: { plan: { commit: false } },
+  });
+  const readyIntent = "spec/ready-intents/feature.md";
+  mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
+  writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+
+  const result = await buildPlanWorkflowSteps(
+    { cwd: root, readyIntent, configPath, reviewPasses: 0 },
+    { resolveProjectMatch: () => project, loadWorkflowSteps: load },
+  );
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  expect(result.error).toContain("specs");
+});
+
+test("intent build rejects project plan.commit, naming specs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "intent-legacy-plan-commit-"));
+  const configPath = writeMachineConfig({ projects: { demo: { root, plan: { commit: false } } } });
+
+  const result = await buildIntentWorkflowSteps(
+    { cwd: root, seedText: "one thing", configPath },
+    { resolveProjectMatch: () => project, loadWorkflowSteps: load },
+  );
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  expect(result.error).toContain("specs");
 });

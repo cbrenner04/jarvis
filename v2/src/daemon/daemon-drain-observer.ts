@@ -135,6 +135,12 @@ type RunOwnershipDirectory = {
   ownerRow(runId: string): DaemonListRunRow | undefined;
   /** Resolves an absent row through an authoritative refresh; rejects when that refresh fails. */
   resolveOwner(runId: string): Promise<boolean>;
+  /**
+   * Resolves whether the predecessor owns a live run at `key`'s (project, branch), through an
+   * authoritative refresh when the cached snapshot doesn't already answer; rejects when that
+   * refresh fails. Used to gate a worktree-lease claim, which has no run id yet to look up.
+   */
+  resolveOwnerForKey(key: { project: string; branch: string }): Promise<boolean>;
   /** Stops polling. Idempotent. */
   stop(): void;
 };
@@ -174,7 +180,12 @@ export function observeRunOwnership(
   deps: RunOwnershipDirectoryDeps = {},
 ): RunOwnershipDirectory {
   if (predecessorSocketPath === undefined) {
-    return { ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined };
+    return {
+      ownerRow: () => undefined,
+      resolveOwner: async () => false,
+      resolveOwnerForKey: async () => false,
+      stop: () => undefined,
+    };
   }
 
   const probeLiveness = deps.probeLiveness ?? probeSocketLiveness;
@@ -241,16 +252,23 @@ export function observeRunOwnership(
   // honour that here rather than leaving a real timer running behind a `stopped` directory.
   if (stopped) loop.clear();
 
+  /** Shared resolve-with-refresh shape for both `resolveOwner` and `resolveOwnerForKey`. */
+  const resolveWhenOwned = async (matches: () => boolean): Promise<boolean> => {
+    if (matches()) return true;
+    if (snapshotAuthoritative) return false;
+    if (stopped) return false;
+    const applied = await refreshOwnership();
+    if (!applied && !snapshotAuthoritative) throw new Error("ownership refresh was superseded before resolution");
+    return matches();
+  };
+
   return {
     ownerRow: (runId) => rowsByRunId.get(runId),
-    resolveOwner: async (runId) => {
-      if (rowsByRunId.has(runId)) return true;
-      if (snapshotAuthoritative) return false;
-      if (stopped) return false;
-      const applied = await refreshOwnership();
-      if (!applied && !snapshotAuthoritative) throw new Error("ownership refresh was superseded before resolution");
-      return rowsByRunId.has(runId);
-    },
+    resolveOwner: (runId) => resolveWhenOwned(() => rowsByRunId.has(runId)),
+    resolveOwnerForKey: (key) =>
+      resolveWhenOwned(() =>
+        [...rowsByRunId.values()].some((row) => row.project === key.project && row.branch === key.branch),
+      ),
     stop: () => {
       stopped = true;
       loop?.clear();

@@ -63,6 +63,7 @@ import {
   signalRecordedVerifierProcessGroups,
   type WaitRunCompletionResult,
   workflowInvocationIsLive,
+  workflowStartOwnershipKey,
 } from "./daemon.ts";
 import {
   daemonFailureDetail,
@@ -128,6 +129,15 @@ const LIST_TERMINAL_RUN_LIMIT = 50;
 
 function worktreeClaimedMessage(key: OwnershipKey): string {
   return `Worktree already claimed for project=${key.project}, branch=${key.branch}`;
+}
+
+/** A reachable direct predecessor still owns (drives) `runId`; never claim it locally. */
+function runOwnerConflictError(runId: string): { kind: "error"; code: "run_owner_conflict"; message: string } {
+  return {
+    kind: "error",
+    code: "run_owner_conflict",
+    message: `Run ${runId} is owned by a reachable draining predecessor daemon`,
+  };
 }
 
 /** Terminal or paused — any status with no live write loop to disturb. */
@@ -1326,4 +1336,56 @@ export function createRunLifecycleHandlers(
     pipelineWait,
     resumeFinalizationOnly,
   };
+}
+
+type StableAdmissionConflictDeps = {
+  /** Resolves whether the direct handoff predecessor currently owns (drives) a run id. */
+  resolveOwner: (runId: string) => Promise<boolean>;
+  /** Resolves whether the direct handoff predecessor currently owns a live run at a (project, branch) key. */
+  resolveOwnerForKey: (key: OwnershipKey) => Promise<boolean>;
+};
+
+/** The `(project, branch)` key a `start` request would claim, or `undefined` when unresolvable from its params. */
+function startFrameOwnershipKey(frame: Parameters<RpcHandler>[0]): OwnershipKey | undefined {
+  const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
+  const worktree = params?.input?.worktree;
+  if (typeof worktree?.projectName === "string" && typeof worktree.branchName === "string") {
+    return { project: worktree.projectName, branch: worktree.branchName };
+  }
+  if (!Array.isArray(params?.steps)) return undefined;
+  try {
+    // Throws on an empty steps array; caught the same as any other unresolvable key.
+    return workflowStartOwnershipKey(params.steps);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Wraps `resume` and `start` for the stable public address only: a reachable direct predecessor
+ * still owning the target run (`resume`) or `(project, branch)` worktree key (`start`) is a
+ * conflict, refused before the local handler ever runs — never a local claim, and never
+ * durable-row status alone, which can't see who else is driving the row. Private endpoints keep
+ * the plain local handlers, never wrapped here — matching `createStableRunHandlers`'s stable-only
+ * scope for `wait`/`pause`/`kill` (`daemon-stable-run-routing.ts`).
+ */
+export function createStableAdmissionHandlers(
+  localHandlers: Pick<RunLifecycleHandlers, "resume" | "start">,
+  deps: StableAdmissionConflictDeps,
+): Pick<RunLifecycleHandlers, "resume" | "start"> {
+  const resume: RpcHandler = async (frame, signal) => {
+    const params = frame.params as { runId?: string } | undefined;
+    if (typeof params?.runId === "string" && (await deps.resolveOwner(params.runId))) {
+      return runOwnerConflictError(params.runId);
+    }
+    return localHandlers.resume(frame, signal);
+  };
+  const start: RpcHandler = async (frame, signal) => {
+    const key = startFrameOwnershipKey(frame);
+    if (key !== undefined && (await deps.resolveOwnerForKey(key))) {
+      return { kind: "error", code: "worktree_claimed", message: worktreeClaimedMessage(key) };
+    }
+    return localHandlers.start(frame, signal);
+  };
+  return { resume, start };
 }

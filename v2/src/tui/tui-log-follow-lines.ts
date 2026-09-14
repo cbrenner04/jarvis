@@ -40,6 +40,10 @@ export function formatLogFollowLine(record: PersistedRecord): string {
     case "run_execution_failed":
       addQuoted("message", event.message);
       break;
+    case "run_timeout":
+      add("budgetMs", event.budgetMs);
+      add("consumedMs", event.consumedMs);
+      break;
     case "run_reconciled":
       add("runStatus", event.runStatus);
       add("reason", event.reason);

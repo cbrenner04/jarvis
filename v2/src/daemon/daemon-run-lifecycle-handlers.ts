@@ -31,6 +31,7 @@ import type { RpcHandler } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
+  type LogSink,
   type LoopFinishedEvent,
   openLogSink,
   type PersistedRecord,
@@ -88,6 +89,7 @@ import {
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
+import { armRunTimeout, fireRunTimeout, runBudgetKey, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 
 type LifecycleStartResult =
@@ -312,6 +314,43 @@ export function createRunLifecycleHandlers(
   } = ctx;
   const killSettlement = resolveKillSettlement(ctx.killSettlement);
   const logsPath = ctx.logsPath;
+  const runTimeoutSeams = {
+    ...(ctx.runTimeout?.timers !== undefined ? { timers: ctx.runTimeout?.timers } : {}),
+    ...(ctx.runTimeout?.settlementBoundMs !== undefined
+      ? { settlementBoundMs: ctx.runTimeout?.settlementBoundMs }
+      : {}),
+  };
+  /** Arms the whole-run timeout for one daemon dispatch of `run`, sharing its AbortController. */
+  const armDispatchRunTimeout = (
+    run: { id: string; project: string; workflowSnapshot?: WorkflowSnapshot | null },
+    abortController: AbortController,
+    logSink: LogSink | undefined,
+    chargeRunBudget = true,
+  ) => {
+    const budgetMs = ctx.runTimeout?.budgetMs?.(run.project);
+    const runIds = () => runIdsSharingAbortController(activeRuns, abortController, run.id);
+    return armRunTimeout({
+      store,
+      budgetKey: chargeRunBudget ? runBudgetKey(run) : undefined,
+      budgetMs,
+      runIds,
+      ...runTimeoutSeams,
+      onTimeout: (consumedMs) => {
+        const sink = logSink ?? (logsPath !== undefined ? openLogSink(logsPath) : undefined);
+        fireRunTimeout({
+          store,
+          abortController,
+          runIds: runIds(),
+          logSink: sink,
+          budgetMs: budgetMs ?? 0,
+          consumedMs,
+        });
+        if (logSink === undefined) sink?.close();
+      },
+    });
+  };
+  const runTimeoutRefusal = (run: { id: string; project: string; workflowSnapshot?: WorkflowSnapshot | null }) =>
+    runTimeoutExhaustedRefusal(store, runBudgetKey(run), ctx.runTimeout?.budgetMs?.(run.project));
 
   const reconstructDirectWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
     if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
@@ -500,6 +539,11 @@ export function createRunLifecycleHandlers(
     activeRuns.set(ks, { kind: "write-loop", runId, key, abortController, pauseController });
 
     registry.claim(key, { runId, worktreePath });
+    const runTimeout = armDispatchRunTimeout(
+      { id: runId, project: key.project, workflowSnapshot: input.workflowSnapshot ?? null },
+      abortController,
+      undefined,
+    );
 
     (async () => {
       try {
@@ -525,6 +569,7 @@ export function createRunLifecycleHandlers(
           // reporter failure does not block cleanup or roll back status
         }
       } finally {
+        runTimeout.settle();
         activeRuns.delete(ks);
         registry.release(key);
         promoteQueuedRun();
@@ -1041,6 +1086,8 @@ export function createRunLifecycleHandlers(
     const activeKey = ownershipKeyString(key);
     const abortController = new AbortController();
     activeRuns.set(activeKey, { kind: "finalization", runId: run.id, abortController });
+    // Publication-only tail: bounded per dispatch on the same controller, never charged to or refused by the write-run budget.
+    const runTimeout = armDispatchRunTimeout(run, abortController, logSink, false);
     try {
       const resumeDeps: IntentFinalizationResumeDeps = {
         ...intentFinalizationResumeDeps,
@@ -1072,7 +1119,9 @@ export function createRunLifecycleHandlers(
       });
       return { kind: "error", code: "internal_error", message };
     } finally {
-      // Settle only once the tail has unwound; a boundary the tail already committed stays (settleGuardedKill no-ops on terminal rows).
+      // Settle only once the tail has unwound; a boundary the tail already committed stays (both settlements no-op on terminal rows).
+      // A fired run timeout settles first so its `run_timeout` cause wins over the plain kill.
+      runTimeout.settle();
       if (abortController.signal.aborted) settleGuardedKill(store, run.id);
       activeRuns.delete(activeKey);
       logSink?.close();
@@ -1132,7 +1181,6 @@ export function createRunLifecycleHandlers(
     if (!admission.admitted) {
       return resumeRefusal(run, terminalRecord, admission);
     }
-
     if (isIntentFinalizationResumable(run, store)) {
       return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch });
     }
@@ -1140,6 +1188,9 @@ export function createRunLifecycleHandlers(
     if (isFinalizationTailResumable(run, store, terminalRecord)) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
     }
+
+    const exhausted = runTimeoutRefusal(run);
+    if (exhausted) return exhausted;
 
     if (run.status === "paused") {
       const key: OwnershipKey = { project: run.project, branch: run.branch };

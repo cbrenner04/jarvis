@@ -214,6 +214,9 @@ Complete project example:
 | `iterationTimeoutMs` | Progress-extended wall segment per iteration | `600000` (10 min) | Positive number |
 | `iterationCeilingMs` | Hard ceiling on total iteration wall time | `1800000` (30 min) | Positive number; must be ≥ resolved `iterationTimeoutMs` |
 | `idleOutputTimeoutMs` | Idle-output watchdog budget for workflow write and review roles | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+| `runTimeoutMs` | Whole-run wall-clock backstop across all dispatches of one run | `21600000` (6 h) | Positive number; must be ≥ resolved `iterationCeilingMs`; `projects.<key>.runTimeoutMs` overrides per project |
+
+`runTimeoutMs` is resolved by the daemon at each dispatch (no bounce needed), not stamped on steps; an invalid value logs to `daemon.log` and falls back to the 6 h default. See [`daemon-host.md` § Whole-run timeout](./daemon-host.md#whole-run-timeout).
 
 Inverted idle/wall or wall/ceiling ordering fails at load with a message naming both compared keys and numeric values. `idleOutputTimeoutMs` is armed on the iteration's step invocation and its token/blocker reprompts: a silent invocation settles `idle_output_timeout` well before the wall segment or ceiling could fire, distinguishing a stalled agent from a genuinely slow one. (The post-iteration coverage-advisory invocation is unarmed — no wall, ceiling, or idle bound.) `0` disables the watchdog outright (no `idleOutputMs` bound is resolved), leaving the wall segment and ceiling as the only bounds. Resolved `iterationTimeoutMs`, `iterationCeilingMs`, and `idleOutputMs` (when armed) are stamped on workflow write steps and persisted in workflow snapshots for resume and revise. The same stamping applies to daemon pipeline-stage dispatch from the pipeline admission `configPath`, not only CLI `jarvis run workflow`.
 

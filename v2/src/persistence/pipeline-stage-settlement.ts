@@ -114,6 +114,8 @@ function durableOperatorErrorFromEntryRun(entryRun: DurableRunWithAttempts): Dur
       return { reason: "contract_miss", retryable: false, nextAction: "inspect_spec" };
     case "idle_output_timeout":
       return { reason: "idle_output_timeout", retryable: false, nextAction: "stop" };
+    case "run_timeout":
+      return { reason: "run_timeout", retryable: true, nextAction: "resume" };
   }
 
   const lastAttempt = [...entryRun.attempts].reverse().find((attempt) => attempt.outcomeKind != null);

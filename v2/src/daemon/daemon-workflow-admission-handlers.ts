@@ -39,6 +39,7 @@ import {
 import { daemonFailureDetail, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
 import type { RunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { findTerminalLogRecord } from "./run-operator-error.ts";
+import { armRunTimeout, fireRunTimeout, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
 import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type WorkflowStartResult =
@@ -191,6 +192,27 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
       const telemetry =
         operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
       const stepsForExecution = steps.map((step) => ({ ...step, signal: abortController.signal }));
+      const firstStepInvocationId = steps[0]?.behavior === "write" ? steps[0].workflowInvocationId : undefined;
+      const budgetMs = ctx.runTimeout?.budgetMs?.(workflowStartOwnershipKey(steps).project);
+      const runTimeout = armRunTimeout({
+        store,
+        budgetKey: firstStepInvocationId,
+        budgetMs,
+        runIds: () => workflowRunIds,
+        ...(ctx.runTimeout?.timers !== undefined ? { timers: ctx.runTimeout.timers } : {}),
+        ...(ctx.runTimeout?.settlementBoundMs !== undefined
+          ? { settlementBoundMs: ctx.runTimeout.settlementBoundMs }
+          : {}),
+        onTimeout: (consumedMs) =>
+          fireRunTimeout({
+            store,
+            abortController,
+            runIds: workflowRunIds,
+            logSink,
+            budgetMs: budgetMs ?? 0,
+            consumedMs,
+          }),
+      });
       const execute = async () => {
         const firstStep = stepsForExecution[0];
         if (firstStep?.behavior === "write" && firstStep.role === "implement" && firstStep.linkedIndexRouting) {
@@ -210,6 +232,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
             if (stepIndex === 0 && entryRunId === undefined) {
               entryRunId = runId;
               workflowInvocationId = store.loadRun(runId)?.workflowSnapshot?.invocationId;
+              runTimeout.bindKey(workflowInvocationId ?? runId);
               workflowPromisesByEntryRunId.set(runId, trackPromise);
               resolve({ kind: "response", result: { runId } });
             }
@@ -250,6 +273,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           }
         })
         .finally(() => {
+          runTimeout.settle();
           logSink?.close();
           const killedWorkflowRuns = [...workflowRunIds].filter((runId) => {
             const activeRun = activeRuns.get(runId);
@@ -377,6 +401,15 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
         };
       }
     }
+    const exhausted =
+      firstStep?.behavior === "write" && firstStep.workflowInvocationId !== undefined
+        ? runTimeoutExhaustedRefusal(
+            store,
+            firstStep.workflowInvocationId,
+            ctx.runTimeout?.budgetMs?.(firstStep.worktree.projectName),
+          )
+        : undefined;
+    if (exhausted) return exhausted;
     const workflowKey = workflowStartOwnershipKey(steps);
     const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
     const claimRunId = crypto.randomUUID();

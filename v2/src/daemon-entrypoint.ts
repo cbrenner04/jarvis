@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { startDaemonRuntime } from "./daemon/daemon";
+import { resolveRunTimeoutBudgetMs } from "./daemon/run-time-budget";
 
 type EntrypointArgs = {
   socketPath?: string;
@@ -104,6 +105,8 @@ if (import.meta.main) {
   startDaemonRuntime(args.socketPath, undefined, undefined, {
     ...resolveHandoffOptions(args),
     ...resolveSelfHandoffOptions(args),
+    // Only production wire for the config-backed whole-run timeout; without it no run timeout is armed.
+    runTimeout: { budgetMs: (project) => resolveRunTimeoutBudgetMs(project, undefined) },
   }).catch((err) => {
     console.error("Fatal daemon error:", err);
     process.exit(1);

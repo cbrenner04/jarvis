@@ -17,7 +17,8 @@ type OperatorIncidentKind =
   | "run-blocked"
   | "run-budget-soft-stopped"
   | "run-paused"
-  | "run-ad-hoc-terminal";
+  | "run-ad-hoc-terminal"
+  | "run-timeout";
 
 /** One operator-actionable incident at derived altitude. */
 export type OperatorIncident = {
@@ -148,6 +149,17 @@ function previewPipelineIncidentKeys(
   return keys;
 }
 
+/** A `run_timeout` settlement not owned by a pipeline stage: workflow and direct write-loop rows alike. */
+function isUnattributedRunTimeout(run: Run, pipelineAttributedRunIds: ReadonlySet<string>): boolean {
+  return run.terminalCause === "run_timeout" && run.status === "killed" && !pipelineAttributedRunIds.has(run.id);
+}
+
+/** Stage failure cause: `run_timeout` when the stage's entry settled by the whole-run timeout. */
+function stageFailedCause(stage: PipelineStageRecord): string {
+  const detail = stage.failureDetail as { terminalCause?: unknown } | null | undefined;
+  return detail?.terminalCause === "run_timeout" ? "run_timeout" : "failed";
+}
+
 /** Resumed runs reuse their row; the status-write timestamp separates each settlement from the last. */
 function statusChangeTransition(run: Run, prefix: string): string {
   return `${prefix}:${run.statusChangedAt ?? run.createdAt}`;
@@ -175,6 +187,9 @@ function previewRunIncidentKeys(
   }
   if (run.status === "paused") {
     return [{ incidentId: runIncidentId(run.id), transition: resumableStopTransition(run) }];
+  }
+  if (isUnattributedRunTimeout(run, pipelineAttributedRunIds)) {
+    return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, "run_timeout") }];
   }
   if (run.workflowSnapshot !== undefined && !pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, `terminal:${run.status}`) }];
@@ -297,7 +312,9 @@ function pushPipelineTerminalIncident(
     transition: `terminal:${state}`,
     project,
     pipelineId: pipeline.id,
-    cause: state,
+    cause: pipeline.stages.some((stage) => stage.status === "failed" && stageFailedCause(stage) === "run_timeout")
+      ? "run_timeout"
+      : state,
     sinceMs: pipelineTerminalSinceMs(pipeline),
   });
 }
@@ -351,7 +368,7 @@ function collectPipelineIncidents(
           pipelineId: pipeline.id,
           stageId: stage.stageId,
           branchKey: stage.branchKey,
-          cause: "failed",
+          cause: stageFailedCause(stage),
           sinceMs: stageSinceMs(stage),
         });
       }
@@ -401,6 +418,10 @@ function collectRunIncidents(
     }
     if (run.status === "paused") {
       pushRunIncident(incidents, run, "run-paused", resumableStopTransition(run));
+      continue;
+    }
+    if (isUnattributedRunTimeout(run, pipelineAttributedRunIds)) {
+      pushRunIncident(incidents, run, "run-timeout", statusChangeTransition(run, "run_timeout"));
       continue;
     }
     if (

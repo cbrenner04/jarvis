@@ -50,6 +50,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "iteration_timeout",
   "gate_invocation_refused",
   "idle_output_timeout",
+  "run_timeout",
   "unsupported_resume_context",
 ] as const;
 
@@ -347,6 +348,8 @@ function mapFromLoopFinished(
       };
     case "idle_output_timeout":
       return event.resumable ? op("idle_output_timeout", "resume", true) : op("idle_output_timeout", "stop");
+    case "run_timeout":
+      return op("run_timeout", "resume", true);
     default:
       return undefined;
   }
@@ -390,6 +393,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   gate_invocation_refused: "run jarvis run resume when the gate slot or ceiling headroom clears",
   idle_output_timeout:
     "run jarvis run resume when nextAction is resume, otherwise inspect the stall in jarvis run log and re-dispatch the workflow",
+  run_timeout:
+    "inspect the hang in jarvis run log, then jarvis run resume; when the budget is exhausted raise runTimeoutMs in machine config first",
   unsupported_resume_context: "fix the persisted workflow snapshot or re-run the spec",
 } satisfies Record<RunOperatorErrorReason, string>;
 

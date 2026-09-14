@@ -14,6 +14,7 @@ import {
   readProjectReadyCommand,
   readProjectRegistry,
   readReviewRoleTimeoutMs,
+  readRunTimeoutMs,
   resolveMachineProfile,
   resolveWritePathIterationBounds,
   validateMachineConfigAgents,
@@ -217,6 +218,29 @@ describe("write-path iteration bounds", () => {
       iterationCeilingMs: 1_800_000,
       idleOutputMs: 90_000,
     });
+  });
+});
+
+describe("readRunTimeoutMs", () => {
+  test("defaults to 6h, reads top-level, and prefers a project override", () => {
+    expect(readRunTimeoutMs("demo", writeConfig({ agents: ["claude"] }))).toBe(21_600_000);
+    const configPath = writeConfig({
+      agents: ["claude"],
+      runTimeoutMs: 7_200_000,
+      projects: { demo: { root: "/tmp/demo", runTimeoutMs: 3_600_000 } },
+    });
+    expect(readRunTimeoutMs("other", configPath)).toBe(7_200_000);
+    expect(readRunTimeoutMs("demo", configPath)).toBe(3_600_000);
+  });
+
+  test("rejects a budget below iterationCeilingMs and accepts one equal to it", () => {
+    expect(() => readRunTimeoutMs(undefined, writeConfig({ agents: ["claude"], runTimeoutMs: 1_799_999 }))).toThrow(
+      "Machine config 'runTimeoutMs' (1799999) must not be below 'iterationCeilingMs' (1800000)",
+    );
+    expect(readRunTimeoutMs(undefined, writeConfig({ agents: ["claude"], runTimeoutMs: 1_800_000 }))).toBe(1_800_000);
+    expect(() => readRunTimeoutMs(undefined, writeConfig({ agents: ["claude"], runTimeoutMs: -1 }))).toThrow(
+      "Machine config 'runTimeoutMs' must be a positive number",
+    );
   });
 });
 

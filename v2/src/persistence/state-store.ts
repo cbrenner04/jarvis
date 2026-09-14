@@ -671,6 +671,12 @@ export interface StateStore {
   /** Record or clear (`null`) the process group id of the run's in-flight ready-gate test tree. */
   setReadyGatePgid(runId: string, pgid: number | null): void;
 
+  /** Whole-run wall-clock ms consumed by active dispatches of `budgetKey` (invocation id, else run id); 0 when unrecorded. */
+  readRunBudgetConsumedMs(budgetKey: string): number;
+
+  /** Durably record the consumed whole-run wall-clock ms for `budgetKey`. */
+  writeRunBudgetConsumedMs(budgetKey: string, consumedMs: number): void;
+
   /** Record one verifier process group id without removing siblings already stored for the run. */
   recordVerifierProcessGroup(runId: string, pgid: number): void;
 
@@ -1161,6 +1167,10 @@ const SCHEMA = `
     delivered_at INTEGER NOT NULL,
     incident_json TEXT,
     PRIMARY KEY (incident_id, transition)
+  );
+  CREATE TABLE IF NOT EXISTS run_time_budgets (
+    budget_key TEXT PRIMARY KEY,
+    consumed_ms INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS run_verifier_process_groups (
     run_id TEXT NOT NULL,
@@ -1869,6 +1879,21 @@ class StateStoreImpl implements StateStore {
     }
     this.recordVerifierProcessGroup(runId, pgid);
     this.db.prepare("UPDATE runs SET ready_gate_pgid = ? WHERE id = ?").run(pgid, runId);
+  }
+
+  readRunBudgetConsumedMs(budgetKey: string): number {
+    const row = this.db
+      .prepare("SELECT consumed_ms AS consumedMs FROM run_time_budgets WHERE budget_key = ?")
+      .get(budgetKey) as { consumedMs: number } | null;
+    return row?.consumedMs ?? 0;
+  }
+
+  writeRunBudgetConsumedMs(budgetKey: string, consumedMs: number): void {
+    this.db
+      .prepare(
+        "INSERT INTO run_time_budgets (budget_key, consumed_ms) VALUES (?, ?) ON CONFLICT(budget_key) DO UPDATE SET consumed_ms = excluded.consumed_ms",
+      )
+      .run(budgetKey, Math.max(0, Math.round(consumedMs)));
   }
 
   recordVerifierProcessGroup(runId: string, pgid: number): void {

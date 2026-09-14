@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildTuiReexecEnv,
+  performTuiRevisionReexec,
   readTuiReexecCarriedState,
   readTuiReexecedForRevision,
   TUI_REEXEC_EXPANDED_PIPELINE_NODE_IDS_ENV,
@@ -55,6 +56,32 @@ describe("buildTuiReexecEnv", () => {
   test("preserves the base environment", () => {
     const env = buildTuiReexecEnv({ PATH: "/bin" }, "rev-b", { selectedNodeId: null, expandedPipelineNodeIds: [] });
     expect(env.PATH).toBe("/bin");
+  });
+});
+
+describe("performTuiRevisionReexec", () => {
+  test("refuses to re-exec when process.argv is empty, after tearing down", async () => {
+    const originalArgv = process.argv;
+    const closed: string[] = [];
+    process.argv = [];
+    try {
+      // Mutation checkpoint: negating `executable === undefined` would skip this throw and
+      // instead attempt to spawn `undefined` as the command, rejecting with a different message.
+      await expect(
+        performTuiRevisionReexec({
+          daemonRevision: "rev-b",
+          carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
+          teardown: {
+            closeMonitor: () => closed.push("monitor"),
+            closeRefreshScheduler: () => closed.push("refresh"),
+            closeDaemonClient: () => closed.push("client"),
+          },
+        }),
+      ).rejects.toThrow("cannot re-exec: process.argv is empty");
+      expect(closed).toEqual(["monitor", "refresh", "client"]);
+    } finally {
+      process.argv = originalArgv;
+    }
   });
 });
 

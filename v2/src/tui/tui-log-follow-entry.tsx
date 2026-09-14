@@ -1,14 +1,48 @@
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
+import { connectTuiDaemon } from "./tui-daemon-client.ts";
 import { openInkLogFollow } from "./tui-ink-log-follow.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import type { RunTuiLogFollowDeps, TuiLogFollowSession } from "./tui-log-follow-types.ts";
 import { connectTuiLogTail } from "./tui-log-tail-client.ts";
+import { type DaemonRevisionReadOutcome, decideTuiRevisionReexec } from "./tui-revision-follow.ts";
+import {
+  defaultResolveTuiRevision,
+  performTuiRevisionReexec,
+  readTuiReexecedForRevision,
+} from "./tui-revision-reexec.ts";
 
 async function openLogFollowSession(deps: RunTuiLogFollowDeps, quit: () => void): Promise<TuiLogFollowSession> {
   if (deps.viewHost !== undefined) {
     return deps.viewHost.openLogFollow({ quit });
   }
   return openInkLogFollow({ quit }, deps.inkRender);
+}
+
+/** Reads the daemon's `status` RPC over a fresh connection; a transport or wire failure reads as `{ kind: "failure" }`. */
+function defaultReadTuiDaemonRevision(socketPath: string): () => Promise<DaemonRevisionReadOutcome> {
+  return async () => {
+    try {
+      const client = await connectTuiDaemon({ socketPath });
+      try {
+        const result = await client.status();
+        return { kind: "success", loadedRevision: result.loadedRevision };
+      } finally {
+        client.close();
+      }
+    } catch {
+      return { kind: "failure" };
+    }
+  };
+}
+
+/** Explicit re-exec argv targeting `tui log <run-id>`, replacing this process's own argv tail. */
+function tuiLogFollowReexecArgv(runId: string): readonly string[] {
+  const nodeExecutable = process.argv[0];
+  const scriptPath = process.argv[1];
+  if (nodeExecutable === undefined || scriptPath === undefined) {
+    throw new Error("cannot re-exec: process.argv is too short");
+  }
+  return [nodeExecutable, scriptPath, "tui", "log", runId];
 }
 
 /** Connect, tail structured logs for one run, and render until quit or benign stream end. */
@@ -18,6 +52,10 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
   const maxRetries = retryConfig?.maxAttempts ?? 5;
   const initialDelay = retryConfig?.initialDelayMs ?? 100;
   const maxDelay = retryConfig?.maxDelayMs ?? 2000;
+  const resolveRevisionFn = deps.resolveTuiRevision ?? defaultResolveTuiRevision;
+  const reexecActionFn = deps.reexecTuiLogFollow ?? performTuiRevisionReexec;
+  const readRevisionFn = deps.readTuiDaemonRevision ?? defaultReadTuiDaemonRevision(deps.socketPath);
+  const tuiRevision = await resolveRevisionFn();
 
   let session: TuiLogFollowSession | undefined;
   let tail: Awaited<ReturnType<typeof connectTuiLogTail>> | undefined;
@@ -38,6 +76,34 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
     resolveQuit();
   };
 
+  // Follow the daemon's loaded revision at each connect attempt: a stable mismatch re-execs onto
+  // current code instead of tailing stale code. Each check reads status twice back-to-back, since
+  // there is no refresh timer to accumulate stability across separate check points.
+  const checkRevisionReexec = async (): Promise<boolean> => {
+    const previousRead = await readRevisionFn();
+    const currentRead = await readRevisionFn();
+    const decision = decideTuiRevisionReexec(
+      tuiRevision,
+      previousRead,
+      currentRead,
+      true,
+      false,
+      readTuiReexecedForRevision(process.env),
+    );
+    if (!decision.reexec) return false;
+    await reexecActionFn({
+      daemonRevision: decision.daemonRevision,
+      carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
+      argv: tuiLogFollowReexecArgv(runId),
+      teardown: {
+        closeMonitor: () => session?.close(),
+        closeRefreshScheduler: () => {},
+        closeDaemonClient: () => tail?.close(),
+      },
+    });
+    return true;
+  };
+
   try {
     session = await openLogFollowSession(deps, quit);
     const activeSession = session;
@@ -46,6 +112,9 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
       let retryAttempt = 0;
 
       while (true) {
+        if (await checkRevisionReexec()) {
+          return;
+        }
         try {
           tail = await connectFn(runId, { socketPath: deps.socketPath, afterSeq: highestSeq });
         } catch (error) {

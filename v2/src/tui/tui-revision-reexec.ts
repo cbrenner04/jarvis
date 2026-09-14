@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { getCurrentHeadAsync } from "../../../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 /** Env var carrying the daemon revision this process already re-exec'd for. */
 export const TUI_REEXEC_REVISION_ENV = "JARVIS_TUI_REEXEC_REVISION";
@@ -29,7 +31,18 @@ export type PerformTuiRevisionReexecParams = {
   /** This process's current selection/expansion state, carried over to the child. */
   carriedState: TuiReexecCarriedState;
   teardown: TuiReexecTeardown;
+  /** Explicit argv to re-exec with; defaults to unmodified `process.argv`. */
+  argv?: readonly string[];
 };
+
+/** This process's own loaded source revision, via the same resolver the daemon uses for `loadedRevision`. */
+export async function defaultResolveTuiRevision(): Promise<string> {
+  try {
+    return await getCurrentHeadAsync(import.meta.dir, realAsyncSubprocessRunner);
+  } catch {
+    return "unknown";
+  }
+}
 
 /** Reads the daemon revision this process already re-exec'd for, if any, from its environment. */
 export function readTuiReexecedForRevision(env: NodeJS.ProcessEnv): string | undefined {
@@ -71,15 +84,16 @@ export function tuiReexecChildExitCode(code: number | null): number {
 
 /**
  * Unmounts the monitor, stops scheduling, closes the daemon client, then re-execs this process
- * onto current code: spawns `process.argv` with inherited stdio and the revision marker plus
- * carried-over selection/expansion state in env, and exits with the child's code.
+ * onto current code: spawns `process.argv` (or `params.argv` when provided) with inherited stdio
+ * and the revision marker plus carried-over selection/expansion state in env, and exits with the
+ * child's code.
  */
 export async function performTuiRevisionReexec(params: PerformTuiRevisionReexecParams): Promise<void> {
   params.teardown.closeMonitor();
   params.teardown.closeRefreshScheduler();
   params.teardown.closeDaemonClient();
 
-  const [executable, ...args] = process.argv;
+  const [executable, ...args] = params.argv ?? process.argv;
   if (executable === undefined) throw new Error("cannot re-exec: process.argv is empty");
   const env = buildTuiReexecEnv(process.env, params.daemonRevision, params.carriedState);
   // guard-unbounded-subprocess: re-exec spawns a long-lived replacement TUI process; this process exits when it does

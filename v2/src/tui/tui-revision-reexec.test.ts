@@ -83,6 +83,30 @@ describe("performTuiRevisionReexec", () => {
       process.argv = originalArgv;
     }
   });
+
+  test("uses the provided argv override instead of process.argv when set", async () => {
+    const originalArgv = process.argv;
+    // Non-empty, so this proves the empty `argv` override below is what's actually used.
+    process.argv = ["/usr/bin/node", "/path/to/cli.js", "tui"];
+    try {
+      // Mutation checkpoint: swapping `params.argv ?? process.argv` to prefer `process.argv`
+      // would use the non-empty ambient argv above and never throw.
+      await expect(
+        performTuiRevisionReexec({
+          daemonRevision: "rev-b",
+          carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
+          argv: [],
+          teardown: {
+            closeMonitor: () => {},
+            closeRefreshScheduler: () => {},
+            closeDaemonClient: () => {},
+          },
+        }),
+      ).rejects.toThrow("cannot re-exec: process.argv is empty");
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
 });
 
 describe("tuiReexecChildExitCode", () => {

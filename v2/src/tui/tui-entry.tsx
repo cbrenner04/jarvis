@@ -1,4 +1,6 @@
 import { basename } from "node:path";
+import { getCurrentHeadAsync } from "../../../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type {
   PipelineStartAdmissionInput,
   PipelineStartAdmissionResult,
@@ -44,6 +46,12 @@ import type {
   TuiViewState,
 } from "./tui-monitor-types.ts";
 import { isActiveRunStatus } from "./tui-monitor-workflow-collapse.ts";
+import { type DaemonRevisionReadOutcome, decideTuiRevisionReexec } from "./tui-revision-follow.ts";
+import {
+  performTuiRevisionReexec,
+  readTuiReexecCarriedState,
+  readTuiReexecedForRevision,
+} from "./tui-revision-reexec.ts";
 import { computeShellLayout } from "./tui-shell-layout.ts";
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
@@ -93,6 +101,15 @@ function createIntervalScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefre
       };
     },
   };
+}
+
+/** This process's own loaded source revision, via the same resolver the daemon uses for `loadedRevision`. */
+async function defaultResolveMonitorRevision(): Promise<string> {
+  try {
+    return await getCurrentHeadAsync(import.meta.dir, realAsyncSubprocessRunner);
+  } catch {
+    return "unknown";
+  }
 }
 
 export function selectedRunIdFromState(state: TuiMonitorState): string | null {
@@ -454,6 +471,11 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const refreshScheduler = deps.refreshScheduler ?? createIntervalScheduler();
   const displayTickScheduler = deps.displayTickScheduler ?? createIntervalScheduler();
   const terminalSizeFn = deps.terminalSize ?? processTerminalSize;
+  const resolveMonitorRevisionFn = deps.resolveMonitorRevision ?? defaultResolveMonitorRevision;
+  const reexecAction = deps.reexecTuiMonitor ?? performTuiRevisionReexec;
+  const monitorRevision = await resolveMonitorRevisionFn();
+  const reexecedForRevision = deps.reexecedForRevision ?? readTuiReexecedForRevision(process.env);
+  const carriedTuiState = deps.reexecCarriedState ?? readTuiReexecCarriedState(process.env);
 
   let client: TuiDaemonClient | undefined;
   let lastGoodList: DaemonListResult | undefined;
@@ -471,6 +493,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   let commandEditorGeneration = 0;
   let logFollowRunId: string | null = null;
   let logFollowTarget: string | null = null;
+  let previousDaemonRevisionRead: DaemonRevisionReadOutcome | undefined;
   let exitCode = 0;
   const quitPromise = new Promise<void>((resolve) => {
     resolveQuit = resolve;
@@ -601,6 +624,47 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           }
         }
 
+        // Follow the daemon's loaded revision: a failed read resets stability tracking to "no
+        // prior read" and never itself triggers a re-exec, so it never surfaces as refreshError.
+        if (!initial) {
+          let currentDaemonRevisionRead: DaemonRevisionReadOutcome = { kind: "failure" };
+          if (client !== undefined) {
+            try {
+              const statusResult = await client.status();
+              currentDaemonRevisionRead = { kind: "success", loadedRevision: statusResult.loadedRevision };
+            } catch {
+              currentDaemonRevisionRead = { kind: "failure" };
+            }
+          }
+          const revisionDecision = decideTuiRevisionReexec(
+            monitorRevision,
+            previousDaemonRevisionRead,
+            currentDaemonRevisionRead,
+            commandEditor().graphemes.length === 0,
+            admissionPending,
+            reexecedForRevision,
+          );
+          previousDaemonRevisionRead = currentDaemonRevisionRead;
+          if (revisionDecision.reexec) {
+            await reexecAction({
+              daemonRevision: revisionDecision.daemonRevision,
+              carriedState: {
+                selectedNodeId: currentState.selectedNodeId,
+                expandedPipelineNodeIds: currentState.expandedPipelineNodeIds ?? [],
+              },
+              teardown: {
+                closeMonitor: () => session?.close(),
+                closeRefreshScheduler: () => {
+                  refreshHandle?.close();
+                  displayTickHandle?.close();
+                },
+                closeDaemonClient: () => client?.close(),
+              },
+            });
+            return;
+          }
+        }
+
         // Retain the last-observed snapshot only while still connected, so a dropped
         // connection's last-observed snapshot cannot outlive this cycle.
         const pipelineSnapshotsBySocketPath: Record<string, PipelineListResult> = {};
@@ -651,7 +715,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               runs: mergedRuns,
               selectedNodeId: null,
               steeringFeedback: null,
-              expandedPipelineNodeIds: [],
+              expandedPipelineNodeIds: carriedTuiState.expandedPipelineNodeIds,
               commandBuffer: "",
               commandCursor: 0,
               focus: "tree",
@@ -663,7 +727,11 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             },
             terminalSizeFn,
           );
-          const nodeId = firstSelectableNodeId(draftState, refreshNowMs);
+          const carriedNodeId = carriedTuiState.selectedNodeId;
+          const nodeId =
+            carriedNodeId !== null && monitorSelectableNodeIds(draftState, refreshNowMs).includes(carriedNodeId)
+              ? carriedNodeId
+              : firstSelectableNodeId(draftState, refreshNowMs);
           currentState = {
             ...draftState,
             selectedNodeId: nodeId,
@@ -718,8 +786,10 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       return 1;
     }
 
-    // Prove liveness on the connected client.
-    await Promise.all([client.health(), client.status()]);
+    // Prove liveness on the connected client, and take the first of the two consecutive
+    // status reads the revision-follow stability check requires (the first tick's read is the second).
+    const [, connectStatusResult] = await Promise.all([client.health(), client.status()]);
+    previousDaemonRevisionRead = { kind: "success", loadedRevision: connectStatusResult.loadedRevision };
 
     await refreshRuns(true, admissionError);
 

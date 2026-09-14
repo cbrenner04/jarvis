@@ -7,6 +7,7 @@ import type { ConnectTuiDaemonOptions, PipelineListResult, TuiDaemonClient } fro
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi } from "./tui-ink-runtime.ts";
 import type { RunTuiLogFollowDeps } from "./tui-log-follow-types.ts";
+import type { PerformTuiRevisionReexecParams, TuiReexecCarriedState } from "./tui-revision-reexec.ts";
 
 /** Detached pipeline-start admission bound at the TUI command entry boundary. */
 export type DetachedPipelineStartAdmission = (
@@ -142,4 +143,12 @@ export type RunTuiEntryDeps = {
   terminalSize?: () => { columns?: number; rows?: number };
   /** Injectable log-follow entry. */
   runTuiLogFollow?: (runId: string, deps: RunTuiLogFollowDeps) => Promise<number>;
+  /** Injectable resolver for this process's own loaded source revision; defaults to `getCurrentHeadAsync`. */
+  resolveMonitorRevision?: () => Promise<string>;
+  /** Injectable revision-follow re-exec action; defaults to spawning `process.argv` and exiting with the child's code. */
+  reexecTuiMonitor?: (params: PerformTuiRevisionReexecParams) => Promise<void>;
+  /** Injectable already-re-exec'd-for-revision marker; defaults to reading it from env. */
+  reexecedForRevision?: string;
+  /** Injectable selection/expansion state carried over from a re-exec'd parent; defaults to reading it from env. */
+  reexecCarriedState?: TuiReexecCarriedState;
 };

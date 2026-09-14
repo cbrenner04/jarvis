@@ -619,7 +619,7 @@ Drive the path through the test seam:
   commands, run-control success/error paths, log JSONL streaming, `jarvis run wait`
   (blocking resolve, exit mapping, error pass-through), `jarvis tui` dispatch, and
   `jarvis tui log <run-id>` dispatch.
-- `bun test v2/src/tui/tui-entry.test.tsx` proves TUI run-monitor flow: liveness,
+- `bun test v2/src/tui/tui-entry.test.ts` proves TUI run-monitor flow: liveness,
   initial list/empty states, refresh, selection changes, pending and late
   abandoned waits, steering success and daemon/connection error pass-through,
   resume re-wait, workflow-step refresh/selection, quit, and unavailable/RPC

@@ -1287,8 +1287,7 @@ export async function startDaemonRuntime(
           {
             predecessorSocketPath: startupDeps.predecessorSocketPath,
             ownsRunLocally,
-            resolvePredecessorOwner:
-              ownershipDirectory.resolveOwner ?? (async (runId) => ownershipDirectory.ownerRow(runId) !== undefined),
+            resolvePredecessorOwner: ownershipDirectory.resolveOwner,
             connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
           },
         );

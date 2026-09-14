@@ -134,7 +134,7 @@ type RunOwnershipDirectory = {
   /** The direct predecessor's cached row for `runId`, or `undefined` while it is not reported live. */
   ownerRow(runId: string): DaemonListRunRow | undefined;
   /** Resolves an absent row through an authoritative refresh; rejects when that refresh fails. */
-  resolveOwner?(runId: string): Promise<boolean>;
+  resolveOwner(runId: string): Promise<boolean>;
   /** Stops polling. Idempotent. */
   stop(): void;
 };

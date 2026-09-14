@@ -327,6 +327,7 @@ export async function startDaemon(
 
     // Addresses travel as argv, never env: a daemon's environment is inherited by every agent, gate,
     // and test it spawns, and an inherited address lets those children bind or hand off the live daemon.
+    // guard-unbounded-subprocess: detached daemon, long-lived by design
     const proc = spawn(
       "bun",
       [

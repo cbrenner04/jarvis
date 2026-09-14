@@ -1,4 +1,10 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import {
+  NETWORK_SUBPROCESS_TIMEOUT_MS,
+  networkSubprocessOptions,
+  nonInteractiveNetworkEnv,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { renderAttribution } from "./pr-attribution.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
@@ -20,6 +26,8 @@ export type RefreshPrBodyInput = {
   writePrBody?: WritePrBody;
   renderFooter?: (opts: { cwd: string; base: string; git?: Git }) => Promise<string>;
   git?: Git;
+  /** Aborts the default `gh` fetch/write. */
+  signal?: AbortSignal;
 };
 
 export function extractNarrative(prBody: string): string | null {
@@ -45,31 +53,37 @@ function buildHeaderBlock(specPath: string, worktreePath: string, bodySummary?: 
   return summary ? `${header}\n\n${summary}` : header;
 }
 
-function defaultFetchPrBody(branch: string, cwd: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "gh",
-      ["pr", "view", branch, "--json", "body", "-q", ".body"],
-      {
-        cwd,
-        env: process.env,
-        encoding: "utf8",
-      },
-      (error: Error | null, stdout: string) => {
-        if (error) reject(error);
-        else resolve(stdout ?? "");
-      },
-    );
-  });
+function defaultFetchPrBody(branch: string, cwd: string, signal: AbortSignal | undefined): Promise<string> {
+  return realAsyncSubprocessRunner.runAsync(
+    "gh",
+    ["pr", "view", branch, "--json", "body", "-q", ".body"],
+    cwd,
+    networkSubprocessOptions({ signal }),
+  );
 }
 
-function defaultWritePrBody(branch: string, body: string, cwd: string): Promise<void> {
+/** Kills a stdin-fed `gh pr edit` that outlives the network bound; rejects as a retryable timeout. */
+export function defaultWritePrBody(
+  branch: string,
+  body: string,
+  cwd: string,
+  timeoutMs: number = NETWORK_SUBPROCESS_TIMEOUT_MS,
+  command = "gh",
+  signal?: AbortSignal,
+): Promise<void> {
+  const args = ["pr", "edit", branch, "--body-file", "-"];
   return new Promise((resolve, reject) => {
-    const child = spawn("gh", ["pr", "edit", branch, "--body-file", "-"], {
+    const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: nonInteractiveNetworkEnv(),
       stdio: ["pipe", "pipe", "pipe"],
+      ...(signal !== undefined ? { signal } : {}),
     });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
     child.stdin?.on("error", () => {});
     child.stdin?.write(body);
     child.stdin?.end();
@@ -77,9 +91,14 @@ function defaultWritePrBody(branch: string, body: string, cwd: string): Promise<
     child.stderr?.on("data", (chunk: string | Buffer) => {
       stderr += chunk.toString();
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
     child.on("close", (code) => {
-      if (code === 0) resolve();
+      clearTimeout(timer);
+      if (timedOut) reject(new Error(`Command timed out after ${timeoutMs}ms: ${command} ${args.join(" ")}`));
+      else if (code === 0) resolve();
       else reject(new Error(stderr.trim() || `gh pr edit exited ${code ?? "unknown"}`));
     });
   });
@@ -87,8 +106,10 @@ function defaultWritePrBody(branch: string, body: string, cwd: string): Promise<
 
 /** Rewrite the ensured PR body: regenerated `Spec:` header, preserved narrative markers, attribution footer. */
 export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
-  const fetchPrBody = input.fetchPrBody ?? defaultFetchPrBody;
-  const writePrBody = input.writePrBody ?? defaultWritePrBody;
+  const fetchPrBody = input.fetchPrBody ?? ((branch, cwd) => defaultFetchPrBody(branch, cwd, input.signal));
+  const writePrBody =
+    input.writePrBody ??
+    ((branch, body, cwd) => defaultWritePrBody(branch, body, cwd, NETWORK_SUBPROCESS_TIMEOUT_MS, "gh", input.signal));
   const renderFooter = input.renderFooter ?? renderAttribution;
 
   const currentBody = await fetchPrBody(input.branch, input.cwd);

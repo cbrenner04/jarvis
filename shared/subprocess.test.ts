@@ -13,6 +13,10 @@ import {
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
+  DEFAULT_SUBPROCESS_TIMEOUT_MS,
+  NETWORK_SUBPROCESS_TIMEOUT_MS,
+  networkSubprocessOptions,
+  nonInteractiveNetworkEnv,
   realAsyncSubprocessRunner,
   realSubprocessRunner,
   type SubprocessRunner,
@@ -623,6 +627,18 @@ describe("predicate parity", () => {
     expect(await branchExistsOnOriginAsync("/repo", "nope", asyncMissing)).toBe(false);
   });
 
+  test("branchExistsOnOriginAsync treats an ls-remote timeout as inconclusive, not absent", async () => {
+    const timeout = new AsyncSubprocessError(
+      "Command timed out after 180000ms: git ls-remote",
+      undefined,
+      "",
+      "",
+      "ETIMEDOUT",
+    );
+    const timedOut = fakeAsyncRunner({ "git ls-remote --heads origin main": timeout });
+    await expect(branchExistsOnOriginAsync("/repo", "main", timedOut)).rejects.toBe(timeout);
+  });
+
   test("isWorktreeDirty and isWorktreeDirtyAsync agree on clean and dirty trees", async () => {
     const syncDirty = fakeRunner({ "git status --porcelain": " M src/file.ts\n" });
     const syncClean = fakeRunner({ "git status --porcelain": "" });
@@ -640,5 +656,61 @@ describe("predicate parity", () => {
       "git rev-parse --is-inside-work-tree": new Error("not a git repo"),
     });
     expect(await isGitRepoAsync("/plain-dir", runner)).toBe(false);
+  });
+});
+
+describe("runAsync default timeout", () => {
+  /** Shrinks only the default-timeout timer so the bound is observable without a 10-minute wait. */
+  function shrinkDefaultTimeout() {
+    const realSetTimeout = globalThis.setTimeout;
+    let armed = 0;
+    const spy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number) => {
+      if (ms === DEFAULT_SUBPROCESS_TIMEOUT_MS) {
+        armed += 1;
+        return realSetTimeout(fn, 100);
+      }
+      return realSetTimeout(fn, ms);
+    }) as typeof setTimeout);
+    return { spy, armed: () => armed };
+  }
+
+  test("a call without timeoutMs is bounded by the default and rejects ETIMEDOUT", async () => {
+    const shrunk = shrinkDefaultTimeout();
+    try {
+      const promise = realAsyncSubprocessRunner.runAsync("sleep", ["30"], cwd);
+      await expect(promise).rejects.toMatchObject({ code: "ETIMEDOUT" });
+      expect(shrunk.armed()).toBe(1);
+    } finally {
+      shrunk.spy.mockRestore();
+    }
+  }, 5000);
+
+  test("the default timeout kills a group-mode call's whole process group", async () => {
+    const scratchDir = `${cwd}/.scratch`;
+    mkdirSync(scratchDir, { recursive: true });
+    const pidFile = `${scratchDir}/subprocess-default-timeout-${Date.now()}-${Math.random()}.pid`;
+    const shrunk = shrinkDefaultTimeout();
+    try {
+      const promise = realAsyncSubprocessRunner.runAsync(
+        "sh",
+        ["-c", `sleep 100 >/dev/null 2>&1 & echo $! > "${pidFile}"; wait`],
+        cwd,
+        { processGroup: {} },
+      );
+      await expect(promise).rejects.toMatchObject({ code: "ETIMEDOUT" });
+      const grandchildPid = readPidFile(pidFile);
+      expect(grandchildPid).toBeDefined();
+      expect(() => process.kill(grandchildPid as number, 0)).toThrow();
+    } finally {
+      shrunk.spy.mockRestore();
+      rmSync(pidFile, { force: true });
+    }
+  }, 5000);
+
+  test("nonInteractiveNetworkEnv disables git/gh prompts and networkSubprocessOptions sets the network bound", () => {
+    const options = networkSubprocessOptions({ env: { KEEP: "1" } });
+    expect(options.timeoutMs).toBe(NETWORK_SUBPROCESS_TIMEOUT_MS);
+    expect(options.env).toMatchObject({ KEEP: "1", GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" });
+    expect(nonInteractiveNetworkEnv({})).toEqual({ GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" });
   });
 });

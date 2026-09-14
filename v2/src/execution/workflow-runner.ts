@@ -932,7 +932,12 @@ async function runLinkedImplementStep(
   isCompletionCandidateStep: boolean,
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
-  await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
+  await (step.withExternalWorktree ?? realWithExternalWorktree)(
+    step.worktree,
+    () => undefined,
+    realAsyncSubprocessRunner,
+    step.signal,
+  );
   const linkedProjectRoot = resolveLinkedImplementRoutingRoot(step, worktreePath);
 
   let totalIterationsConsumed = 0;
@@ -1072,7 +1077,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       }
 
       if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink) {
-        await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
+        await (step.withExternalWorktree ?? realWithExternalWorktree)(
+          step.worktree,
+          () => undefined,
+          realAsyncSubprocessRunner,
+          step.signal,
+        );
       }
 
       const isCompletionCandidateStep = isCompletionRowOwningStep(step, completionStep, lastStep);

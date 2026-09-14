@@ -501,6 +501,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     const spawn = config.spawn ?? realSpawn;
     let child: ChildProcess;
     try {
+      // guard-unbounded-subprocess: role invocation, bounded by abort signal + idle-output watchdog + role timeout
       child = spawn(config.binary, argv, {
         cwd: config.cwd,
         env,

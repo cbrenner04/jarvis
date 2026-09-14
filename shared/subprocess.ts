@@ -10,7 +10,10 @@ export type AsyncSubprocessOptions = {
   maxBuffer?: number;
   /** When `ignore`, stdout is not captured and resolves to `""`. Default `pipe`. */
   stdio?: "pipe" | "ignore";
-  /** Kills the subprocess and rejects if it hasn't exited within this many ms. */
+  /**
+   * Kills the subprocess and rejects (`code: "ETIMEDOUT"`) if it hasn't exited within this many ms.
+   * Defaults to `DEFAULT_SUBPROCESS_TIMEOUT_MS`; there is no opt-out, so every run is bounded.
+   */
   timeoutMs?: number;
   /** Environment variables for the child process; unset preserves inherited env. */
   env?: NodeJS.ProcessEnv;
@@ -28,6 +31,36 @@ export type AsyncSubprocessOptions = {
    */
   processGroup?: { onGroupId?: (pgid: number) => void };
 };
+
+/**
+ * Default `runAsync` bound (10 min): generous enough for any local git plumbing or lint, tight
+ * enough that a wedged child cannot hang a run step forever. Long gates pass their own bound.
+ */
+export const DEFAULT_SUBPROCESS_TIMEOUT_MS = 10 * 60_000;
+
+/** Explicit bound for network `git`/`gh` calls (fetch/push/ls-remote/pr *): 3 min. */
+export const NETWORK_SUBPROCESS_TIMEOUT_MS = 3 * 60_000;
+
+/** Env that makes `git`/`gh` fail instead of blocking on an interactive credential prompt. */
+export function nonInteractiveNetworkEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...base, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" };
+}
+
+/** Options for a network `git`/`gh` call: explicit network timeout + non-interactive env. */
+export function networkSubprocessOptions(
+  options: { env?: NodeJS.ProcessEnv; signal?: AbortSignal | undefined } = {},
+): AsyncSubprocessOptions {
+  return {
+    timeoutMs: NETWORK_SUBPROCESS_TIMEOUT_MS,
+    env: nonInteractiveNetworkEnv(options.env),
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+  };
+}
+
+/** True when a `runAsync` rejection was the timeout bound firing. */
+export function isSubprocessTimeout(error: unknown): boolean {
+  return error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT";
+}
 
 export class AsyncSubprocessError extends Error {
   constructor(
@@ -86,6 +119,7 @@ function runGroupMode(
   options: AsyncSubprocessOptions,
   stdio: "pipe" | "ignore",
 ): Promise<string> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_SUBPROCESS_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     let settled = false;
     let killGroupPromise: Promise<void> | undefined;
@@ -96,6 +130,7 @@ function runGroupMode(
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
 
+    // guard-unbounded-subprocess: runAsync seam, bounded by its own default timeout timer
     const child = spawn(cmd, args, {
       cwd,
       detached: true,
@@ -157,7 +192,13 @@ function runGroupMode(
         settled = true;
         settle();
         reject(
-          new AsyncSubprocessError(`Command timed out after ${options.timeoutMs}ms`, undefined, "", "", "ETIMEDOUT"),
+          new AsyncSubprocessError(
+            `Command timed out after ${timeoutMs}ms: ${cmd} ${args.join(" ")}`,
+            undefined,
+            "",
+            "",
+            "ETIMEDOUT",
+          ),
         );
       } else if (cause === "abort" && pendingCloseSettle !== undefined) {
         pendingCloseSettle();
@@ -223,14 +264,38 @@ function runGroupMode(
       }
     });
 
-    if (options.timeoutMs !== undefined) {
-      timeoutTimer = setTimeout(() => {
-        if (settled) return;
-        triggerTermination("timeout");
-      }, options.timeoutMs);
-      timeoutTimer.unref?.();
-    }
+    timeoutTimer = setTimeout(() => {
+      if (settled) return;
+      triggerTermination("timeout");
+    }, timeoutMs);
+    timeoutTimer.unref?.();
   });
+}
+
+/** Maps an `execFile` settlement to `AsyncSubprocessError`; `timeoutDetail` set means the bound fired. */
+function execFileError(
+  timeoutDetail: string | undefined,
+  error: (Error & { code?: unknown }) | null,
+  stdout: string | undefined,
+  stderr: string | undefined,
+): AsyncSubprocessError {
+  if (timeoutDetail !== undefined) {
+    return new AsyncSubprocessError(
+      `Command timed out after ${timeoutDetail}`,
+      undefined,
+      stdout ?? "",
+      stderr ?? "",
+      "ETIMEDOUT",
+    );
+  }
+  const code = error?.code;
+  return new AsyncSubprocessError(
+    error?.message ?? "Command failed",
+    typeof code === "number" ? code : undefined,
+    stdout ?? "",
+    stderr ?? "",
+    typeof code === "string" ? code : undefined,
+  );
 }
 
 export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
@@ -238,8 +303,11 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
     const stdio = options?.stdio ?? "pipe";
     const groupMode = options?.processGroup !== undefined;
     if (groupMode) return runGroupMode(cmd, args, cwd, options ?? {}, stdio);
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_SUBPROCESS_TIMEOUT_MS;
     return new Promise((resolve, reject) => {
       let settled = false;
+      let timedOut = false;
+      // guard-unbounded-subprocess: runAsync seam, bounded by its own default timeout timer
       const child = execFile(
         cmd,
         args,
@@ -248,28 +316,22 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
           encoding: "utf8",
           ...(options?.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
           ...(stdio === "ignore" ? { stdio: "ignore" } : {}),
-          ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
           ...(options?.env !== undefined ? { env: options.env } : {}),
         },
         (error, stdout, stderr) => {
           if (settled) return;
           settled = true;
-          cleanupAbort();
-          if (error) {
-            const status = typeof error.code === "number" ? error.code : undefined;
+          cleanup();
+          if (timedOut || error) {
             reject(
-              new AsyncSubprocessError(
-                error.message,
-                status,
-                stdout ?? "",
-                stderr ?? "",
-                typeof error.code === "string" ? error.code : undefined,
-              ),
+              execFileError(timedOut ? `${timeoutMs}ms: ${cmd} ${args.join(" ")}` : undefined, error, stdout, stderr),
             );
           } else resolve(stdio === "ignore" ? "" : (stdout ?? ""));
         },
       );
 
+      // Direct-child kill only (execFile cannot form a process group in Bun); callers whose
+      // command forks workers pass `processGroup` to get group-wide kill instead.
       const killChild = () => {
         if (settled) return;
         child.kill("SIGTERM");
@@ -278,8 +340,17 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
         }, 50).unref?.();
       };
 
+      const timeoutTimer = setTimeout(() => {
+        if (settled) return;
+        timedOut = true;
+        killChild();
+      }, timeoutMs);
+      timeoutTimer.unref?.();
       const onAbort = () => killChild();
-      const cleanupAbort = () => options?.signal?.removeEventListener("abort", onAbort);
+      const cleanup = () => {
+        clearTimeout(timeoutTimer);
+        options?.signal?.removeEventListener("abort", onAbort);
+      };
       if (options?.signal !== undefined) {
         if (options.signal.aborted) killChild();
         else options.signal.addEventListener("abort", onAbort, { once: true });

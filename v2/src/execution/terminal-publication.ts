@@ -1,4 +1,4 @@
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { networkSubprocessOptions, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { OpenPrNotDraftError, resolveOpenDraftPr } from "./completion-publisher.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
@@ -14,6 +14,8 @@ export type TerminalPublicationInput = {
   baseRef: string;
   prNumber?: number;
   prUrl?: string;
+  /** Aborts in-flight `gh` calls (network-bounded regardless). */
+  signal?: AbortSignal;
 };
 
 export type TerminalPublicationResult = {
@@ -233,16 +235,35 @@ async function executeReadyOrMergePublication(
   return { prNumber, prUrl };
 }
 
-async function defaultGhPr(subcommand: "ready" | "merge", branch: string, worktreePath: string): Promise<void> {
-  await realAsyncSubprocessRunner.runAsync("gh", ["pr", subcommand, branch], worktreePath);
+async function defaultGhPr(
+  subcommand: "ready" | "merge",
+  branch: string,
+  worktreePath: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync(
+    "gh",
+    ["pr", subcommand, branch],
+    worktreePath,
+    networkSubprocessOptions({ signal }),
+  );
 }
 
-async function defaultGhReadyFlipByNumber(prNumber: number | undefined, worktreePath: string): Promise<void> {
-  await realAsyncSubprocessRunner.runAsync("gh", ["pr", "ready", String(prNumber)], worktreePath);
+async function defaultGhReadyFlipByNumber(
+  prNumber: number | undefined,
+  worktreePath: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync(
+    "gh",
+    ["pr", "ready", String(prNumber)],
+    worktreePath,
+    networkSubprocessOptions({ signal }),
+  );
 }
 
-async function defaultGhCommand(cwd: string, args: readonly string[]): Promise<string> {
-  return (await realAsyncSubprocessRunner.runAsync("gh", [...args], cwd)).trim();
+async function defaultGhCommand(cwd: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
+  return (await realAsyncSubprocessRunner.runAsync("gh", [...args], cwd, networkSubprocessOptions({ signal }))).trim();
 }
 
 async function defaultRunReadyGate(): Promise<void> {
@@ -252,16 +273,18 @@ async function defaultRunReadyGate(): Promise<void> {
 const noopGh: GhReadyFlip = async () => {};
 
 export function createExecuteTerminalPublication(seams?: TerminalPublicationSeams) {
-  const deps: PublicationDeps = {
+  const depsFor = (signal: AbortSignal | undefined): PublicationDeps => ({
     runReadyGate: seams?.runReadyGate ?? defaultRunReadyGate,
-    gh: seams?.gh ?? defaultGhCommand,
-    ghReadyFlip: seams?.ghReadyFlip ?? defaultGhReadyFlipByNumber,
-    ghMerge: seams?.ghMerge ?? ((branch, worktreePath) => defaultGhPr("merge", branch, worktreePath)),
+    gh: seams?.gh ?? ((cwd, args) => defaultGhCommand(cwd, args, signal)),
+    ghReadyFlip:
+      seams?.ghReadyFlip ?? ((prNumber, worktreePath) => defaultGhReadyFlipByNumber(prNumber, worktreePath, signal)),
+    ghMerge: seams?.ghMerge ?? ((branch, worktreePath) => defaultGhPr("merge", branch, worktreePath, signal)),
     ghClose: seams?.ghClose ?? noopGh,
     ghDelete: seams?.ghDelete ?? noopGh,
-  };
+  });
 
   return async (input: TerminalPublicationInput): Promise<TerminalPublicationResult> => {
+    const deps = depsFor(input.signal);
     // Mutation checkpoint: dropping this early return mutates a leave-draft PR and must turn
     // the leave-draft no-mutation test RED.
     if (input.terminalAction === "leave-draft") {

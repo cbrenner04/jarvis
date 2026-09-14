@@ -1,6 +1,10 @@
 import { errorMessage } from "../../../shared/error-message.ts";
 import { branchExistsOnOriginAsync, getBaseBranch } from "../../../shared/git.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  type AsyncSubprocessRunner,
+  networkSubprocessOptions,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import {
@@ -21,6 +25,8 @@ export type CompletionPublisherInput = ExternalSpecGitScope & {
   bodySummary?: string;
   specTemplate?: boolean;
   narrative?: string;
+  /** Run abort signal: aborts in-flight push/PR calls (network-bounded regardless). */
+  signal?: AbortSignal;
 };
 
 type CompletionPublisherResult = {
@@ -57,29 +63,32 @@ function defaultCommand(
   command: string,
   cwd: string,
   args: readonly string[],
-  env?: Record<string, string>,
+  env: Record<string, string> | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<string> {
   return realAsyncSubprocessRunner
-    .runAsync(command, [...args], cwd, { env: { ...process.env, ...env } })
+    .runAsync(command, [...args], cwd, networkSubprocessOptions({ env: { ...process.env, ...env }, signal }))
     .then((stdout) => stdout.trim());
 }
 
-const defaultGit: Git = (cwd, args, env) => defaultCommand("git", cwd, args, env);
-const defaultGh: GhCommand = (cwd, args, env) => defaultCommand("gh", cwd, args, env);
-
 /** Publishes completion commit: push to origin and ensure open draft PR. Retryable on transient failures. */
 export function createCompletionPublisher(seams?: Partial<PublisherSeams>): CompletionPublisher {
-  const git = seams?.git ?? defaultGit;
-  const gh = seams?.gh ?? defaultGh;
   const delay = seams?.delay ?? defaultPublicationDelay;
   const retryNotice = seams?.retryNotice ?? defaultPublicationRetryNotice;
 
   return async (input) => {
+    const git: Git = seams?.git ?? ((cwd, args, env) => defaultCommand("git", cwd, args, env, input.signal));
+    const gh: GhCommand = seams?.gh ?? ((cwd, args, env) => defaultCommand("gh", cwd, args, env, input.signal));
     const specPath = normalizePublicationSpecPath(input.worktreePath, input.specPath);
     const subprocessRunner = seams?.subprocessRunner ?? realAsyncSubprocessRunner;
     const requestedBaseRef = input.baseRef;
     let effectiveBaseRef = requestedBaseRef;
-    if (!(await branchExistsOnOriginAsync(input.worktreePath, requestedBaseRef, subprocessRunner))) {
+    const baseOnOrigin = await runPublicationWithRetry(
+      "base-resolve",
+      () => branchExistsOnOriginAsync(input.worktreePath, requestedBaseRef, subprocessRunner),
+      { delay, retryNotice },
+    );
+    if (!baseOnOrigin) {
       effectiveBaseRef = await getBaseBranch(input.worktreePath, subprocessRunner);
     }
     const retargetMeta =
@@ -137,6 +146,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
             ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
             ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
             ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
+            ...(input.signal !== undefined ? { signal: input.signal } : {}),
             ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
           });
           return true;

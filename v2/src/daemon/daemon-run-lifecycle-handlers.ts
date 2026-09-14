@@ -259,11 +259,21 @@ function runIdsSharingAbortController(
 ): Set<string> {
   const runIds = new Set<string>([runId]);
   for (const active of activeRuns.values()) {
-    if ((active.kind === "workflow" || active.kind === "write-loop") && active.abortController === controller) {
+    if ("abortController" in active && active.abortController === controller) {
       runIds.add(active.runId);
     }
   }
   return runIds;
+}
+
+/**
+ * Record a non-force kill on the live owner: a workflow defers to its pending-kill settlement, a
+ * finalization tail settles `killed` itself once it unwinds (so no push/PR/boundary write lands after
+ * settlement), and a write loop settles now.
+ */
+function markKillRequested(store: StateStore, activeRun: ActiveRun, runId: string): void {
+  if (activeRun.kind === "workflow") activeRun.pendingKill = true;
+  else if (activeRun.kind !== "finalization") settleGuardedKill(store, runId);
 }
 
 /** Bounded poll for the named row reaching a terminal status; true when it settled within the bound. */
@@ -944,11 +954,7 @@ export function createRunLifecycleHandlers(
         store,
         runIdsSharingAbortController(activeRuns, activeRun.abortController, runId),
       );
-      if (activeRun.kind === "workflow") {
-        activeRun.pendingKill = true;
-      } else {
-        settleGuardedKill(store, runId);
-      }
+      markKillRequested(store, activeRun, runId);
       if (params.force === true) {
         // Force settlement wins over unfinished quiescence; later guarded cleanup finds the row terminal.
         settleGuardedKill(store, runId);
@@ -1033,11 +1039,13 @@ export function createRunLifecycleHandlers(
     registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
     const activeKey = ownershipKeyString(key);
-    activeRuns.set(activeKey, { kind: "finalization", runId: run.id });
+    const abortController = new AbortController();
+    activeRuns.set(activeKey, { kind: "finalization", runId: run.id, abortController });
     try {
       const resumeDeps: IntentFinalizationResumeDeps = {
         ...intentFinalizationResumeDeps,
         ...(logSink !== undefined ? { logSink } : {}),
+        signal: abortController.signal,
       };
       const outcome = await execute(resumeDeps);
       if (!outcome.ok) {
@@ -1047,6 +1055,8 @@ export function createRunLifecycleHandlers(
       return { kind: "response", result: outcome };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // `run kill` aborted the tail: settlement happens in `finally`, after unwind.
+      if (abortController.signal.aborted) return { kind: "error", code: "internal_error", message };
       const attemptId = store.recordAttemptStart(run.id);
       store.commitCompletionBoundary({
         attemptId,
@@ -1062,6 +1072,8 @@ export function createRunLifecycleHandlers(
       });
       return { kind: "error", code: "internal_error", message };
     } finally {
+      // Settle only once the tail has unwound; a boundary the tail already committed stays (settleGuardedKill no-ops on terminal rows).
+      if (abortController.signal.aborted) settleGuardedKill(store, run.id);
       activeRuns.delete(activeKey);
       logSink?.close();
       registry.release(key);

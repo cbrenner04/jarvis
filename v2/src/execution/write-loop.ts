@@ -4047,7 +4047,10 @@ async function runPublisher(
     requiredIntegrationScope?: string;
   } & ExternalSpecGitScope,
 ): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
-  return await (seams.completionPublisher ?? createCompletionPublisher())(input);
+  return await (seams.completionPublisher ?? createCompletionPublisher())({
+    ...input,
+    ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
+  });
 }
 
 async function runReadyFinalizer(

@@ -27,7 +27,7 @@ import { simulatedBindings } from "../testing/bindings.ts";
 import { flushBackgroundRuns, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, type WriteLoopBindingSourceDeps } from "./daemon.ts";
+import { createRunControlHandlers, WorktreeOwnershipRegistry, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 import { composeRunOperatorError, type TerminalLogRecord, terminalResumeRefusalMessage } from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
@@ -984,6 +984,75 @@ test("changed-path ready_gate_out_of_scope admits resume", async () => {
     expect(starts).toHaveLength(0);
     expect(finalizerCalls).toBe(1);
     expect(stateStore.loadRun(runId)?.status).toBe("completed");
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("run kill during resumed finalization aborts the tail, skips publication, and settles killed after unwind", async () => {
+  const outsidePath = "v2/src/killed-finalization.test.ts";
+  const runId = createWorkflowRun({ invocationId: "resumed-finalization-kill" });
+  failWriteRunAtOutOfScopeGate(runId);
+  const logsPath = join(tmpdir(), `jarvis-resume-finalization-kill-${process.pid}-${Date.now()}.jsonl`);
+  const seedSink = openLogSink(logsPath);
+  seedSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "ready_gate_out_of_scope",
+    iterationsConsumed: 1,
+    resumable: true,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail([outsidePath]),
+  });
+  seedSink.close();
+  try {
+    let commitEntered: () => void = () => {};
+    const entered = new Promise<void>((resolve) => {
+      commitEntered = resolve;
+    });
+    let releaseCommit: () => void = () => {};
+    const commitReleased = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    const publisherCalls: unknown[] = [];
+    const finalizerCalls: unknown[] = [];
+    const localRegistry = new WorktreeOwnershipRegistry();
+    const localHandlers = logBackedHandlers(logsPath, {
+      registry: localRegistry,
+      killSettlement: { boundMs: 0, sleep: async () => {}, observeSurvivors: async () => [] },
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => {
+          commitEntered();
+          await commitReleased;
+          return { commitSha: "deadbeef", filesChanged: 0 };
+        },
+        completionPublisher: async (input) => {
+          publisherCalls.push(input);
+          return { pushSha: "deadbeef", prNumber: 6, prUrl: "https://example.test/pr/6" };
+        },
+        readyFinalizer: async (input) => {
+          finalizerCalls.push(input);
+          return undefined;
+        },
+      },
+    });
+
+    const resumed = resumeDirect(localHandlers, runId);
+    await entered;
+    const key = { project: "test-project", branch: "test-branch" };
+    expect(localRegistry.isClaimed(key)).toBe(true);
+    const kill = await localHandlers.kill(
+      { kind: "request", id: "k1", method: "kill", params: { runId } },
+      new AbortController().signal,
+    );
+    expect(kill.kind).toBe("response");
+    // Settlement waits for the tail to unwind: the row is not yet killed while the commit is in flight.
+    expect(stateStore.loadRun(runId)?.status).not.toBe("killed");
+    releaseCommit();
+    expect(await resumed).toMatchObject({ kind: "error" });
+    expect(publisherCalls).toHaveLength(0);
+    expect(finalizerCalls).toHaveLength(0);
+    expect(stateStore.loadRun(runId)?.status).toBe("killed");
+    expect(localRegistry.isClaimed(key)).toBe(false);
   } finally {
     rmSync(logsPath, { force: true });
   }

@@ -14,7 +14,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { createChainedStageProjectMatch } from "../daemon/pipeline-stage-resolve.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -706,6 +710,35 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("base freshness not checked");
+  });
+
+  test("a merge-base timeout notes base freshness not checked instead of silently admitting as fresh", async () => {
+    const { root } = cloneWithStaleMain(1);
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"], projects: { project: { root } } });
+    const machineProfile = writeValidProfile();
+    const notes: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: (cmd, args, cwd, options) => {
+        if (args[0] === "merge-base" && args[1] === "--is-ancestor") {
+          return Promise.reject(
+            new AsyncSubprocessError("Command timed out after 600000ms", undefined, "", "", "ETIMEDOUT"),
+          );
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    const result = await buildImplementWorkflowSteps(
+      { cwd: root, baseRef: "main", specPath: "spec/index.md", configPath: machineConfigPath },
+      {
+        asyncSubprocessRunner: runner,
+        warn: (message) => notes.push(message),
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(notes).toEqual([expect.stringContaining("base freshness not checked: merge-base timed out")]);
   });
 
   test("accepts a base-tracked spec launched below the registered project root", async () => {

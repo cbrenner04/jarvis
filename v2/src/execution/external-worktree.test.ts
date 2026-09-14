@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
@@ -240,6 +240,32 @@ describe("external worktree helper", () => {
     expect(calls.some((c) => c === "branch write-run origin/write-run")).toBe(false);
     expect(calls.some((c) => c === "branch write-run HEAD")).toBe(true);
     expect(calls.some((c) => c.startsWith("worktree add ") && !c.includes("--checkout"))).toBe(true);
+  });
+
+  test("an ls-remote timeout fails materialization instead of branching fresh from base", async () => {
+    const { repoRoot, jarvisRoot, runner: inner } = setupMockRepo();
+    const calls: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git") calls.push(args.join(" "));
+        if (args[0] === "ls-remote") {
+          throw new AsyncSubprocessError(
+            "Command timed out after 180000ms: git ls-remote",
+            undefined,
+            "",
+            "",
+            "ETIMEDOUT",
+          );
+        }
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner)).rejects.toThrow(
+      /timed out/,
+    );
+    expect(calls.some((c) => c.startsWith("branch "))).toBe(false);
+    expect(calls.some((c) => c.startsWith("worktree add"))).toBe(false);
   });
 
   test("materializes from origin when ls-remote lists the remote head", async () => {

@@ -297,7 +297,8 @@ afterEach(() => {
 });
 
 function gateTransition(pipelineId: string): string {
-  return `awaiting-approval:gate:default:${store.loadPipeline(pipelineId)?.createdAt}`;
+  const gate = store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "gate");
+  return `awaiting-approval:gate:default:${gate?.awaitingSince}`;
 }
 
 function failedLaneTransition(pipelineId: string, branchKey: string): string {

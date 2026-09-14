@@ -339,7 +339,14 @@ function invocationSettledAt(rows: readonly Run[]): number {
   return Math.max(...rows.map(statusWriteMs));
 }
 
-type InvocationTerminal = { status: RunStatus; transition: string; sinceMs: number };
+type InvocationTerminal = { status: RunStatus; cause: string; transition: string; sinceMs: number };
+
+/** Publication-tail failures (`completion_commit_failed`, `ready_flip_failed`, …) settle the row `completed` yet need the operator. */
+function findCompletedRowWithFailureCause(rows: readonly Run[]): Run | undefined {
+  return rows.find(
+    (run) => run.status === "completed" && run.terminalCause != null && run.terminalCause !== "complete",
+  );
+}
 
 /**
  * One terminal per invocation, from the same rollup `run wait` and stage settlement use. Emits only
@@ -348,6 +355,16 @@ type InvocationTerminal = { status: RunStatus; transition: string; sinceMs: numb
  */
 function invocationTerminal(invocation: WorkflowInvocationRows, isLive: boolean): InvocationTerminal | null {
   const { entryRun, rows } = invocation;
+  const failedPublication = isLive ? undefined : findCompletedRowWithFailureCause(rows);
+  if (failedPublication?.terminalCause != null) {
+    const settledAt = invocationSettledAt(rows);
+    return {
+      status: "failed",
+      cause: failedPublication.terminalCause,
+      transition: `terminal:failed:${settledAt}`,
+      sinceMs: settledAt,
+    };
+  }
   const rollup = resolveWorkflowRunRollup({
     entryRun,
     workflowSnapshot: entryRun.workflowSnapshot ?? null,
@@ -358,7 +375,12 @@ function invocationTerminal(invocation: WorkflowInvocationRows, isLive: boolean)
   if (rollup.status === "killed" && rollup.causeRun === undefined) return null;
   if (rollup.status === "killed" && rollup.causeRun?.terminalCause === "run_timeout") return null;
   const settledAt = invocationSettledAt(rows);
-  return { status: rollup.status, transition: `terminal:${rollup.status}:${settledAt}`, sinceMs: settledAt };
+  return {
+    status: rollup.status,
+    cause: rollup.status,
+    transition: `terminal:${rollup.status}:${settledAt}`,
+    sinceMs: settledAt,
+  };
 }
 
 function collectInvocationIncidents(
@@ -376,7 +398,7 @@ function collectInvocationIncidents(
       transition: terminal.transition,
       project: entryRun.project,
       runId: entryRun.id,
-      cause: terminal.status,
+      cause: terminal.cause,
       sinceMs: terminal.sinceMs,
     });
   }

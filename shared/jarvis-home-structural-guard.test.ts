@@ -13,9 +13,12 @@ const REPO_ROOT = join(import.meta.dir, "..");
 
 type ProductionSources = Readonly<Record<string, string>>;
 
-/** `join(homedir(), ".jarvis", ...)`, optionally with a `process.env.HOME ??` fallback. */
+/**
+ * `join(homedir(), ".jarvis", ...)` or `join(process.env.HOME, ".jarvis", ...)`, with either
+ * optionally falling back to the other (`process.env.HOME ?? homedir()`).
+ */
 const JARVIS_HOME_HOMEDIR_JOIN_PATTERN =
-  /\bjoin\s*\(\s*(?:process\.env\.HOME\s*\?\?\s*)?homedir\s*\(\)\s*,\s*["'`]\.jarvis["'`]/;
+  /\bjoin\s*\(\s*(?:(?:process\.env\.HOME\s*\?\?\s*)?homedir\s*\(\)|process\.env\.HOME(?:\s*\?\?\s*homedir\s*\(\))?)\s*,\s*["'`]\.jarvis["'`]/;
 
 const CANONICAL_RESOLVER_PATH = "shared/paths.ts";
 
@@ -68,6 +71,18 @@ test("flags the pre-fix session-log resolver", () => {
   ].join("\n");
 
   expect(jarvisHomeHomedirJoinViolations({ "shared/invocation/session-log.ts": preFixSessionLog })).toEqual([
+    "shared/invocation/session-log.ts",
+  ]);
+});
+
+test("flags a bare process.env.HOME join with no homedir() fallback", () => {
+  const bareHomeEnvResolver = [
+    "function defaultSessionsDir(): string {",
+    '  return join(process.env.HOME, ".jarvis", "sessions");',
+    "}",
+  ].join("\n");
+
+  expect(jarvisHomeHomedirJoinViolations({ "shared/invocation/session-log.ts": bareHomeEnvResolver })).toEqual([
     "shared/invocation/session-log.ts",
   ]);
 });

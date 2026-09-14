@@ -47,7 +47,9 @@ process.on("exit", () => {
         .map((path) => `  - ${path}`)
         .join("\n")}\n`,
     );
-    process.exitCode = 1;
+    // `process.exitCode` alone is not confirmed to be honored by bun inside an `exit` handler;
+    // force the nonzero exit directly.
+    process.exit(1);
   }
 });
 

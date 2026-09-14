@@ -17,11 +17,6 @@ function makeTempHome(): string {
   return home;
 }
 
-/** Never reports anything: proves the violating-run test isn't vacuously green against a trivial diff. */
-function noOpDiff(): string[] {
-  return [];
-}
-
 test("a clean run (no writes between snapshots) reports no violations", () => {
   const home = makeTempHome();
   try {
@@ -51,8 +46,6 @@ test("a violating run reports new sessions/ and specs/ entries plus a telemetry.
       "specs/Org-example/project/tmp-leak.md",
       "telemetry.jsonl",
     ]);
-    // The real diff must actually detect the violation; a no-op diff would wrongly report clean.
-    expect(noOpDiff()).not.toEqual(violations);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

@@ -84,7 +84,8 @@ describe("session log writer", () => {
       const content = readFileSync(join(scratchDir, "sessions", "write-jarvis-home.log"), "utf8");
       expect(content).toContain("[harness] hello");
     } finally {
-      process.env.JARVIS_HOME = previousJarvisHome;
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
     }
   });
 });

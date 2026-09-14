@@ -20,6 +20,8 @@ function fakeStore(): StateStore {
     hasNotificationDelivery: () => false,
     listNotificationDeliveriesForIncidentIds: () => [],
     tryRecordNotificationDelivery: () => true,
+    loadNotificationKeyFormatVersion: () => null,
+    recordNotificationKeyFormatVersion: () => {},
     reconcilePipelines: async () => [],
   } as unknown as StateStore;
 }

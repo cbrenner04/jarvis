@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
 import type { StateStore } from "../persistence/state-store.ts";
-import { deriveOperatorIncidents, type OperatorIncident, serializeOperatorIncident } from "./operator-incidents.ts";
+import {
+  deriveOperatorIncidents,
+  NOTIFICATION_KEY_FORMAT_VERSION,
+  type OperatorIncident,
+  serializeOperatorIncident,
+} from "./operator-incidents.ts";
 
 export const NOTIFICATION_SWEEP_INTERVAL_MS = 5_000;
 
@@ -83,6 +88,38 @@ export function runNotificationSweepIntervalTick(
   state.sweepInProgress = true;
   runSweep(deps);
   state.sweepInProgress = false;
+}
+
+/**
+ * Whether a key-format reconcile may mark an owed incident delivered unseen: only incidents that
+ * settled before this daemon started, which a prior daemon already delivered under the old format.
+ */
+export function isPreStartIncident(incident: Pick<OperatorIncident, "sinceMs">, daemonStartedAtMs: number): boolean {
+  return incident.sinceMs !== null && incident.sinceMs < daemonStartedAtMs;
+}
+
+/**
+ * Once per key-format change: mark every owed incident that settled before this daemon started as
+ * delivered under the new format without spawning the sink, then record the version. Rows are
+ * key-only (`incident_json` null), so `notifications wait|list` never surface them. Runs before the
+ * boot sweep; a store already at the current version is untouched.
+ */
+export function reconcileNotificationKeyFormat(
+  deps: Pick<NotificationSweepDeps, "store" | "nowMs"> & { daemonStartedAtMs: number },
+): { suppressed: number } | null {
+  const store = deps.store;
+  if (store.isClosed()) return null;
+  if (store.loadNotificationKeyFormatVersion() === NOTIFICATION_KEY_FORMAT_VERSION) return null;
+
+  const nowMs = deps.nowMs?.() ?? Date.now();
+  let suppressed = 0;
+  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+    if (!isPreStartIncident(incident, deps.daemonStartedAtMs)) continue;
+    const { incidentId, transition } = incident;
+    if (store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt: nowMs })) suppressed += 1;
+  }
+  store.recordNotificationKeyFormatVersion(NOTIFICATION_KEY_FORMAT_VERSION);
+  return { suppressed };
 }
 
 /** Diff derived incidents against the delivery ledger and discharge owed notifications. */

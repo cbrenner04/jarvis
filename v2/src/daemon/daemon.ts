@@ -75,6 +75,7 @@ import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./d
 import {
   NOTIFICATION_SWEEP_INTERVAL_MS,
   type NotificationSinkSpawner,
+  reconcileNotificationKeyFormat,
   runNotificationSweep,
   runNotificationSweepIntervalTick,
 } from "./operator-notification-sweep.ts";
@@ -1411,6 +1412,7 @@ export async function startDaemonRuntime(
     ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
   const notificationSweepState = { sweepInProgress: false };
+  reconcileNotificationKeyFormat({ store, daemonStartedAtMs: Date.now() - Math.round(process.uptime() * 1000) });
   runNotificationSweep(notificationSweepDeps);
   const notificationSweepTimer = setInterval(() => {
     runNotificationSweepIntervalTick(notificationSweepState, notificationSweepDeps);

@@ -4,9 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
-import { deriveOperatorIncidents, serializeOperatorIncident } from "./operator-incidents.ts";
 import {
+  deriveOperatorIncidents,
+  NOTIFICATION_KEY_FORMAT_VERSION,
+  serializeOperatorIncident,
+} from "./operator-incidents.ts";
+import {
+  isPreStartIncident,
   type NotificationSweepDeps,
+  reconcileNotificationKeyFormat,
   runNotificationSweep,
   runNotificationSweepIntervalTick,
   shouldSkipOverlappingNotificationSweep,
@@ -95,4 +101,50 @@ test("notification sweep timer skips a tick while the prior sweep is still runni
 
   runNotificationSweepIntervalTick(state, deps, blockingSweep);
   expect(sweepCount).toBe(1);
+});
+
+test("isPreStartIncident: only incidents settled before daemon start qualify", () => {
+  expect(isPreStartIncident({ sinceMs: 49_999 }, 50_000)).toBe(true);
+  expect(isPreStartIncident({ sinceMs: 50_000 }, 50_000)).toBe(false);
+  expect(isPreStartIncident({ sinceMs: null }, 50_000)).toBe(false);
+});
+
+function seedBlockedRun(branch: string, atMs: number): string {
+  const runId = store.createRun({ project: "demo", specRef: "main", worktreePath: "/tmp/w", branch, specPath: "s.md" });
+  patchRunRow(runId, { status: "blocked", finishedAt: atMs, createdAt: atMs });
+  return runId;
+}
+
+test("reconcileNotificationKeyFormat marks pre-start incidents delivered unseen and leaves later ones owed", () => {
+  const preStartRunId = seedBlockedRun("old", 10_000);
+  const postStartRunId = seedBlockedRun("new", 60_000);
+  expect(store.loadNotificationKeyFormatVersion()).toBeNull();
+
+  expect(reconcileNotificationKeyFormat({ store, nowMs: () => 70_000, daemonStartedAtMs: 50_000 })).toEqual({
+    suppressed: 1,
+  });
+  expect(store.loadNotificationKeyFormatVersion()).toBe(NOTIFICATION_KEY_FORMAT_VERSION);
+  expect(store.listDeliveredNotificationIncidents({ sinceMs: 0 })).toEqual([]);
+
+  const spawned: string[] = [];
+  runNotificationSweep({
+    store,
+    readSinkCommand: () => "sink",
+    spawnSink: (_command, json) => {
+      spawned.push(json);
+      return { ok: true };
+    },
+    nowMs: () => 70_000,
+  });
+  expect(spawned.map((json) => (JSON.parse(json) as { runId: string }).runId)).toEqual([postStartRunId]);
+  expect(store.hasNotificationDelivery({ incidentId: `run:${preStartRunId}`, transition: "blocked:10000" })).toBe(true);
+
+  expect(reconcileNotificationKeyFormat({ store, nowMs: () => 80_000, daemonStartedAtMs: 50_000 })).toBeNull();
+});
+
+test("reconcileNotificationKeyFormat is a no-op at the current version", () => {
+  seedBlockedRun("old", 10_000);
+  store.recordNotificationKeyFormatVersion(NOTIFICATION_KEY_FORMAT_VERSION);
+  expect(reconcileNotificationKeyFormat({ store, nowMs: () => 70_000, daemonStartedAtMs: 50_000 })).toBeNull();
+  expect(deriveOperatorIncidents(store, 70_000)).toHaveLength(1);
 });

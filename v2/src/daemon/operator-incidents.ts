@@ -20,6 +20,13 @@ type OperatorIncidentKind =
   | "run-ad-hoc-terminal"
   | "run-timeout";
 
+/**
+ * Version of the `(incidentId, transition)` key format. Bump whenever a transition string
+ * changes shape; `reconcileNotificationKeyFormat` then marks already-settled incidents delivered
+ * under the new format instead of re-sending them.
+ */
+export const NOTIFICATION_KEY_FORMAT_VERSION = 2;
+
 /** One operator-actionable incident at derived altitude. */
 export type OperatorIncident = {
   incidentId: string;
@@ -92,10 +99,11 @@ function stageFailedTransition(stage: PipelineStageRecord): string {
 }
 
 /**
- * Gate rows carry no awaiting-since column; the latest settlement among the gate's branch-suffix
- * predecessors marks when the gate was (re)reached, so each gate and each re-reach notifies once.
+ * When the gate row durably entered `awaiting`. Rows stamped before the `awaiting_since` column
+ * existed fall back to the latest settlement among the gate's branch-suffix predecessors.
  */
 function gateReachedAt(pipeline: Pipeline & { stages: PipelineStageRecord[] }, gate: PipelineStageRecord): number {
+  if (gate.awaitingSince != null) return gate.awaitingSince;
   let reachedAt = pipeline.createdAt;
   for (const stage of pipeline.stages) {
     if (stage.position >= gate.position) continue;
@@ -113,6 +121,16 @@ function awaitingGateTransition(
   return `awaiting-approval:${gate.stageId}:${gate.branchKey}:${gateReachedAt(pipeline, gate)}`;
 }
 
+/**
+ * Reachable gates still `pending` notify once the boundary commit flips them to `awaiting` and
+ * stamps `awaiting_since`; keying the pending observation separately would notify the same reach twice.
+ */
+function durablyAwaitingGates(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord[] {
+  return derivePipelineAwaitingGates(pipeline)
+    .map((gate) => gate.record)
+    .filter((record) => record.status === "awaiting");
+}
+
 function previewPipelineIncidentKeys(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
@@ -120,10 +138,10 @@ function previewPipelineIncidentKeys(
   const keys: IncidentKey[] = [];
   const state = derivePipelineState(pipeline);
 
-  for (const gate of derivePipelineAwaitingGates(pipeline)) {
+  for (const gate of durablyAwaitingGates(pipeline)) {
     keys.push({
       incidentId: pipelineIncidentId(pipeline.id),
-      transition: awaitingGateTransition(pipeline, gate.record),
+      transition: awaitingGateTransition(pipeline, gate),
     });
   }
 
@@ -191,7 +209,7 @@ function previewRunIncidentKeys(
   if (isUnattributedRunTimeout(run, pipelineAttributedRunIds)) {
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, "run_timeout") }];
   }
-  if (run.workflowSnapshot !== undefined && !pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
+  if (!pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, `terminal:${run.status}`) }];
   }
   return [];
@@ -296,7 +314,7 @@ function pushAwaitingApprovalIncident(
     pipelineId: pipeline.id,
     stageId: gate.stageId,
     branchKey: gate.branchKey,
-    sinceMs: gate.decidedAt,
+    sinceMs: gateReachedAt(pipeline, gate),
   });
 }
 
@@ -345,8 +363,8 @@ function collectPipelineIncidents(
   const state = derivePipelineState(pipeline);
   const project = resolvePipelineIncidentProject(pipeline, entryRunsById);
 
-  for (const gate of derivePipelineAwaitingGates(pipeline)) {
-    pushAwaitingApprovalIncident(incidents, pipeline, gate.record, project);
+  for (const gate of durablyAwaitingGates(pipeline)) {
+    pushAwaitingApprovalIncident(incidents, pipeline, gate, project);
   }
 
   if (isPipelineTerminal(state)) {
@@ -424,11 +442,8 @@ function collectRunIncidents(
       pushRunIncident(incidents, run, "run-timeout", statusChangeTransition(run, "run_timeout"));
       continue;
     }
-    if (
-      run.workflowSnapshot !== undefined &&
-      !pipelineAttributedRunIds.has(run.id) &&
-      isTerminalRunStatus(run.status)
-    ) {
+    // Plain `run start` rows carry no snapshot and are never pipeline-attributed; they settle here too.
+    if (!pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
       pushRunIncident(incidents, run, "run-ad-hoc-terminal", statusChangeTransition(run, `terminal:${run.status}`));
     }
   }

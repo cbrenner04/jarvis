@@ -402,3 +402,98 @@ test("each newly reached fan-out gate notifies once while an earlier gate stays 
   deliverAll();
   expect(deriveOperatorIncidents(store)).toEqual([]);
 });
+
+test("plain run without a workflow snapshot notifies on every terminal settlement", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "plain",
+    specPath: "s.md",
+  });
+  store.setRunStatus(runId, "failed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "run-ad-hoc-terminal",
+      runId,
+      project: "demo",
+      transition: "terminal:failed:1000000",
+    }),
+  ]);
+  deliverAll();
+
+  setSystemTime(new Date(1_001_000));
+  store.setRunStatus(runId, "in-progress");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+  setSystemTime(new Date(1_002_000));
+  store.setRunStatus(runId, "killed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "run-ad-hoc-terminal", runId, transition: "terminal:killed:1002000" }),
+  ]);
+});
+
+test("a reachable gate notifies once it durably enters awaiting, keyed by awaiting_since", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  const gate = store.loadPipeline(pipelineId)?.stages[0];
+  if (gate === undefined) throw new Error("expected gate row");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  setSystemTime(new Date(1_003_000));
+  expect(store.commitApprovalBoundary({ stageRecordId: gate.id }).kind).toBe("applied");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      pipelineId,
+      transition: "awaiting-approval:gate:default:1003000",
+      sinceMs: 1_003_000,
+    }),
+  ]);
+});
+
+test("a gate re-reached with no predecessor re-run notifies again", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      transition: "awaiting-approval:gate:default:1000000",
+    }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "pending" } });
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+  setSystemTime(new Date(1_005_000));
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      transition: "awaiting-approval:gate:default:1005000",
+    }),
+  ]);
+});
+
+test("a legacy awaiting row without awaiting_since keys on predecessor settlement", () => {
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE pipeline_stages SET awaiting_since = NULL WHERE pipeline_id = ?").run(pipelineId);
+  } finally {
+    raw.close();
+  }
+  const createdAt = store.loadPipeline(pipelineId)?.createdAt;
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ transition: `awaiting-approval:gate:default:${createdAt}`, sinceMs: createdAt }),
+  ]);
+});

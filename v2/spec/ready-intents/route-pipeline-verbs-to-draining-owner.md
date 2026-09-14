@@ -7,7 +7,7 @@ name: route-pipeline-verbs-to-draining-owner
 ## Prerequisites
 
 - Daemon upgrades hand off one stable public address: the incoming generation admits new work, the outgoing generation admits nothing new, finishes its owned work, and exits when idle.
-- The stable daemon exposes each draining-generation run as live and routes run observation, waits, logs, and controls to its authoritative owner.
+- The stable daemon exposes each draining-generation run as live and routes run observation, waits, and controls to its authoritative owner; run logs need no routing (every generation shares `state/logs.jsonl`).
 - The stable daemon answers `pipeline list` and pipeline-id prefix resolution from one namespace merging its direct predecessor's pipelines, with one canonical snapshot per id and no per-socket completeness requirement.
 
 ## Problem

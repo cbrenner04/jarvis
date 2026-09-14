@@ -7,7 +7,7 @@ name: remove-client-daemon-socket-discovery
 ## Prerequisites
 
 - Daemon upgrades hand off one stable public address: the incoming generation admits new work, the outgoing generation admits nothing new, finishes its owned work, and exits when idle.
-- The stable daemon exposes each draining-generation run as live and routes run observation, waits, logs, and controls to its authoritative owner.
+- The stable daemon exposes each draining-generation run as live and routes run observation, waits, and controls to its authoritative owner; run logs need no routing (every generation shares `state/logs.jsonl`).
 - The stable daemon exposes one complete pipeline namespace and routes every pipeline verb to the generation owning its live work.
 - `daemon status` prints `running` for any daemon serving the stable socket and renders only the version identity its decision consumed.
 

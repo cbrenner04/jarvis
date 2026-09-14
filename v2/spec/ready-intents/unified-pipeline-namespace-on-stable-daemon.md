@@ -7,7 +7,7 @@ name: unified-pipeline-namespace-on-stable-daemon
 ## Prerequisites
 
 - Daemon upgrades hand off one stable public address: the incoming generation admits new work, the outgoing generation admits nothing new, finishes its owned work, and exits when idle.
-- The stable daemon exposes each draining-generation run as live and routes run observation, waits, logs, and controls to its authoritative owner.
+- The stable daemon exposes each draining-generation run as live and routes run observation, waits, and controls to its authoritative owner; run logs need no routing (every generation shares `state/logs.jsonl`).
 
 ## Problem
 

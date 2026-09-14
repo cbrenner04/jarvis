@@ -1,0 +1,30 @@
+# 01 - CLI sends all seven pipeline verbs to the stable address only
+
+## Problem
+
+`withOwnerRoutedPipelineClient` (`v2/src/commands/pipeline.ts`) probes `pipeline_owner` across every discovered socket via `resolvePipelineDaemon` and connects to whichever socket answers, refusing with `pipeline_no_live_owner` when none does — which is exactly the case for a pipeline still owned by an alive, draining predecessor whose socket this probe fails to route through today. `pipeline_wait`, `pipeline_dismiss`, and `pipeline_undismiss`'s daemon handlers have no ownership gate at all: they read and write the pipeline/pipeline-stage rows directly against the durable store every keyed daemon shares (`daemon-host.md`: "Keyed daemons share one state store"; `pipeline_wait` polls `store.loadPipeline` directly), so they already succeed at the stable address regardless of which generation currently drives the pipeline's stage. `pipeline_approve`/`reject`/`resume`/`recover` now succeed at the stable address too, once dispatched there, per [00](./00-stable-daemon-routes-pipeline-rpcs.md)'s claim mechanism. The CLI's cross-socket probe is therefore both redundant and the actual cause of today's `pipeline_no_live_owner` refusal for a draining owner.
+
+## Decisions
+
+- All seven verbs (`wait`, `approve`, `reject`, `resume`, `recover`, `dismiss`, `undismiss`) connect to the stable socket (`deps.socketPath`) after `resolvePipelineIdAcrossDaemons` resolves the id argument (unchanged: it already queries only the stable merged `pipeline_list`); no cross-socket `pipeline_owner` probe — rules out keeping the probe as a pre-flight, which still refuses a draining owner today.
+- `withOwnerRoutedPipelineClient` drops its `resolvePipelineDaemon` call entirely; connection is unconditional on the stable socket, and any ownership refusal now comes back as the verb RPC's own response/error (00's `pipeline_no_live_owner` `RpcError` for the four decision verbs; `wait`/`dismiss`/`undismiss` never refuse on ownership) rather than from a separate pre-flight resolution step.
+- `resolvePipelineDaemon` and `resolvePipelineDaemonFromSocketPaths` (`pipeline-daemon-resolution.ts`) become dead code once their one caller is removed; delete them, their dedicated tests in `pipeline-daemon-resolution.test.ts`, and `renderPipelineDaemonResolutionRefusal`'s `pipeline_owner_conflict` branch in `pipeline.ts` (multi-daemon conflict fan-out is dropped per [00](./00-stable-daemon-routes-pipeline-rpcs.md); `formatRpcError` renders the daemon's own `pipeline_no_live_owner` error text instead) — rules out leaving an unreachable cross-socket resolver and a conflict-message branch nothing can trigger.
+- CLI and daemon are assumed to come from the same checkout/build for a given invocation; this spec adds no cross-version RPC shape negotiation between an older CLI and a newer stable daemon or vice versa.
+- A `pipeline_wait` in flight at the stable address needs no re-resolution if the predecessor exits before the pipeline reaches a boundary: it was never forwarded, so its polling loop keeps reading the shared store directly and observes whatever generation (adopting or otherwise) next writes the boundary — rules out treating predecessor exit as a wait-interrupting event, which it never was.
+- `dismiss`/`undismiss` for a pipeline that is terminal, reconciled-`interrupted`, or ownerless still land on the local shared store regardless of which generation is asked, since dismissal has no ownership gate and there is one store, not one per generation — there is no "which store" question to resolve.
+- `start` admission is unchanged.
+
+## Acceptance criteria
+
+- [ ] A test in `v2/src/commands/pipeline.test.ts` proves each of the seven verbs issues its RPC on the stable socket and, via a `connectIpcClient` spy/fake recording every call, never connects to any other socket or issues `pipeline_owner` at all; it fails against the pre-fix code.
+- [ ] An integration test drives one daemon handoff (predecessor draining, incoming generation live at the stable address) with one admitted-pipeline fixture per state-changing verb (`approve`, `reject`, `resume`, `recover`, `dismiss`, `undismiss` — each needs its own fixture in the precondition state that verb requires: awaiting-approval, resumable, blocked-recoverable, live-for-dismiss) plus `wait` observing one of them, and proves every verb reaches its pipeline through the stable address without `pipeline_no_live_owner`.
+- [ ] `pipeline-daemon-resolution.test.ts` stays green for `resolvePipelineIdAcrossDaemons`'s existing merged-listing prefix resolution (a prefix argument resolves against the stable `pipeline_list` merge, and the RPC issued for the resolved verb carries the full id) — citing that this path is unchanged by this subspec.
+- [ ] A test drives a `pipeline_wait` in flight at the stable address across the direct predecessor exiting mid-pipeline (before the pipeline reaches a boundary) and proves the wait still resolves once a later write settles the boundary, with no re-resolution or error from the predecessor's exit.
+- [ ] A test proves a genuinely ownerless pipeline still surfaces a `pipeline_no_live_owner` refusal to the operator with non-zero exit, now rendered from the daemon's `RpcError` through the existing `formatRpcError` path rather than from `renderPipelineDaemonResolutionRefusal`'s pre-flight resolution; it fails against the pre-fix code, which produces that text from the deleted pre-flight step instead.
+- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+
+## Documentation updates
+
+- `v2/docs/daemon-host.md` — CLI pipeline verbs no longer resolve an owner socket before connecting.
+- `v2/docs/v1-behaviors.md` — pipeline control is generation-transparent; the cross-socket resolution behavior this replaces is recorded as superseded.
+- `v2/docs/operator-runbook.md` — the pipeline control-verb paragraph describing "resolve the socket that owns it, then issue the RPC there" and its `pipeline_owner_conflict`/`pipeline_no_live_owner` refusal text is updated to the stable-address-only flow.

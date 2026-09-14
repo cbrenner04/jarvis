@@ -10,10 +10,10 @@ Prevents reintroducing a jarvis-home sink that bypasses `jarvisHome()`.
 
 ## Acceptance criteria
 
-- [ ] A new structural test `shared/jarvis-home-structural-guard.test.ts` fails when a source file other than the shared resolver joins `homedir()` with `".jarvis"`; its synthetic-violation case fails against a no-op matcher, and it would have flagged the pre-fix session-log resolver.
-- [ ] The same test asserts `shared/invocation/agents.ts`'s `.codex` sessions resolver is not flagged.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` and `bun run test:integration:shared` pass.
+- [x] A new structural test `shared/jarvis-home-structural-guard.test.ts` fails when a source file other than the shared resolver joins `homedir()` with `".jarvis"`; its synthetic-violation case fails against a no-op matcher, and it would have flagged the pre-fix session-log resolver.
+- [x] The same test asserts `shared/invocation/agents.ts`'s `.codex` sessions resolver is not flagged.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

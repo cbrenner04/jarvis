@@ -13,8 +13,9 @@
 import { mock, setDefaultTimeout } from "bun:test";
 import * as childProcess from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { diffRealHomeSnapshots, snapshotRealHome } from "../scripts/real-home-guard.ts";
 
 // Enforce the per-test timeout. bun 1.3.x ignores `[test] timeout` in
 // bunfig.toml (only `--timeout` is honored), so without this the suite falls
@@ -32,6 +33,23 @@ function setEnv(key: string, value: string): void {
 }
 
 const binDir = mkdtempSync(join(tmpdir(), "jarvis-test-fake-agents-"));
+
+// Guard against a test bypassing JARVIS_HOME isolation (e.g. via a bare homedir() join) and
+// writing the operator's real ~/.jarvis anyway. Snapshot the real home before isolating
+// JARVIS_HOME below, then diff after this process's test run and fail loudly on any write.
+const realHomeDir = join(homedir(), ".jarvis");
+const realHomeSnapshotBefore = snapshotRealHome(realHomeDir);
+process.on("exit", () => {
+  const violations = diffRealHomeSnapshots(realHomeSnapshotBefore, snapshotRealHome(realHomeDir));
+  if (violations.length > 0) {
+    process.stderr.write(
+      `real-home-guard: test run wrote to the real ~/.jarvis (JARVIS_HOME isolation was bypassed):\n${violations
+        .map((path) => `  - ${path}`)
+        .join("\n")}\n`,
+    );
+    process.exitCode = 1;
+  }
+});
 
 // Isolate the jarvis home: without this the suite writes fixture rows into the operator's real
 // ~/.jarvis. Must precede any import that reads it.

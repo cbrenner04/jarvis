@@ -12,10 +12,10 @@ Tests leaked ~1.24M files into `~/.jarvis/sessions/` plus `~/.jarvis/specs/Org-*
 
 ## Acceptance criteria
 
-- [ ] `test/real-home-guard.test.ts` proves the pure home-snapshot diff function reports new `sessions/`/`specs/` entries and telemetry-log changes between two snapshots, using temp-dir homes and covering both a clean and a violating run; the violating case fails against a no-op diff.
-- [ ] `test/setup-fake-agents.ts` takes the pre-run snapshot and fails the process with the offending paths when the post-run diff is non-empty.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes (root tooling touched).
+- [x] `test/real-home-guard.test.ts` proves the pure home-snapshot diff function reports new `sessions/`/`specs/` entries and telemetry-log changes between two snapshots, using temp-dir homes and covering both a clean and a violating run; the violating case fails against a no-op diff.
+- [x] `test/setup-fake-agents.ts` takes the pre-run snapshot and fails the process with the offending paths when the post-run diff is non-empty.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes (root tooling touched).
 
 ## Documentation updates
 

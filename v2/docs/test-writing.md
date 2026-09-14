@@ -13,6 +13,14 @@ These tests are the default because they are:
 - Sandbox-runnable (available in the coding agent's restricted execution context)
 - Fast (no real process overhead or sleep delays)
 
+## Real-home write guard
+
+The test preload (`test/setup-fake-agents.ts`) sets `JARVIS_HOME` to an isolated temp dir, but nothing stops a test from bypassing it (e.g. resolving `join(homedir(), ".jarvis")` directly) and writing the operator's real home. The preload snapshots the real home — resolved from `homedir()`, never `JARVIS_HOME` — before the run via `snapshotRealHome` (`scripts/real-home-guard.ts`), then diffs the post-run snapshot with `diffRealHomeSnapshots` on process exit. A non-empty diff writes the offending paths to stderr and sets a nonzero exit code.
+
+The snapshot covers a top-level entry-name listing of `sessions/` (not full recursive — it can hold ~1.24M files) and a bounded-depth recursive listing of `specs/`, plus `telemetry.jsonl`'s size/mtime. It is a read-only diff, not a write fence, so it tolerates a concurrent operator daemon that legitimately writes the real home while the suite runs; an allowlist for that case is deferred until a false positive is observed. Both functions are pure (`homeDir` is always caller-supplied) and tested with temp-dir fixtures in `test/real-home-guard.test.ts`.
+
+Production code under test — `openSessionLog` (`shared/invocation/session-log.ts`) and the telemetry sink (`v2/src/execution/work-boundary-telemetry.ts`) — must take an explicit `sessionsDir`/`sinkPath` rather than relying on their `jarvisHome()`-derived defaults, even under an isolated `JARVIS_HOME`: the guard only proves the real home was untouched, it does not redirect writes, so a test skipping the injection still exercises (and pollutes) whatever `JARVIS_HOME` resolves to at call time.
+
 ## Prompt changes
 
 When a registered `prompts/**` artifact changes, its scoped test must render the prompt through its production renderer and assert the rendered output. Reading or asserting raw template text does not cover the change and ready finalization fails with `missing-render-coverage`. Frontmatter-only metadata bumps and in-file body-deletion-only diffs (zero body `add` lines) are exempt from sentinel body-line mutation; mapped observers must pass on unmutated post-change content instead — see [write-behavior.md § Diff-derived mutation verification](./write-behavior.md#diff-derived-mutation-verification). Body add/change still requires observers that fail under the sentinel mutation.

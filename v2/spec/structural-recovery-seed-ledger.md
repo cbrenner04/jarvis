@@ -554,7 +554,7 @@ A second review pass then caught that resumable outcomes (kill, pause, budget st
 | `route-draining-runs-through-stable-daemon` | first plan [#3849](https://github.com/cbrenner04/jarvis/pull/3849) abandoned | — | re-seeded with split guidance [#3856](https://github.com/cbrenner04/jarvis/pull/3856); intent [#3858](https://github.com/cbrenner04/jarvis/pull/3858) → 4 lanes |
 | → `merge-draining-runs-into-stable-daemon-list` | [#3861](https://github.com/cbrenner04/jarvis/pull/3861) | [#3866](https://github.com/cbrenner04/jarvis/pull/3866) + [#3874](https://github.com/cbrenner04/jarvis/pull/3874) (hand-finished) | closes seed `run-list-cannot-reach-superseded-daemon-runs` in effect |
 | → `route-draining-run-wait-and-kill-to-owner` | [#3877](https://github.com/cbrenner04/jarvis/pull/3877) | [#3879](https://github.com/cbrenner04/jarvis/pull/3879) (hand-finished) | gate caught a hanging integration test the sandboxed agent ticked |
-| → `route-draining-run-logs-to-owner` | [#3883](https://github.com/cbrenner04/jarvis/pull/3883) | in flight | |
+| → `route-draining-run-logs-to-owner` | [#3883](https://github.com/cbrenner04/jarvis/pull/3883) | parked at close | resume the pipeline lane |
 | → `protect-draining-run-ownership-and-recover-route-loss` | — | — | queued; carries #3595/#3464 repros |
 | `route-draining-pipelines-through-stable-daemon` | — | — | re-seeded [#3870](https://github.com/cbrenner04/jarvis/pull/3870); intent [#3872](https://github.com/cbrenner04/jarvis/pull/3872) → namespace + verbs lanes, held |
 | `connect-operator-clients-to-stable-daemon` | status lane [#3873](https://github.com/cbrenner04/jarvis/pull/3873) | [#3876](https://github.com/cbrenner04/jarvis/pull/3876) (unattended) | discovery-removal lane held |

@@ -59,4 +59,4 @@ Independent subagent diff review found real defects in nearly every lane that se
 
 ## Queue
 
-Route-draining logs implement is in flight on pipeline `81d1806d`. Remaining chain: ownership protection, pipeline namespace, pipeline verbs (optional since #3863), client discovery removal, retire digest artifacts.
+Route-draining logs implement was parked at close (killed mid-write; resume with `jarvis pipeline resume 81d1806d route-draining-run-logs-to-owner`). Remaining chain: ownership protection, pipeline namespace, pipeline verbs (optional since #3863), client discovery removal, retire digest artifacts.

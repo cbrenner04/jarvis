@@ -62,6 +62,15 @@ function createRun(store: StateStore, status: RunStatus): string {
   });
 }
 
+function setOwnerIdentity(runId: string, identity: string): void {
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(identity, runId);
+  } finally {
+    raw.close();
+  }
+}
+
 beforeEach(() => {
   removeOrchestrationStore(dbPath);
   seedStore = openStateStore(dbPath, { currentIdentity: PRIOR_IDENTITY });
@@ -401,12 +410,7 @@ test("startup during handoff reconciles a dead-owner row while leaving a live-pr
   const PREDECESSOR_IDENTITY = "44444:4000000";
   const deadOwnerRunId = createRun(seedStore, "in-progress");
   const predecessorOwnerRunId = createRun(seedStore, "in-progress");
-  const raw = new Database(dbPath);
-  try {
-    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(PREDECESSOR_IDENTITY, predecessorOwnerRunId);
-  } finally {
-    raw.close();
-  }
+  setOwnerIdentity(predecessorOwnerRunId, PREDECESSOR_IDENTITY);
   const events: Array<{ runId: string; event: LogEvent }> = [];
   const reader: LogReader = { tail: () => [], async *follow() {} };
 
@@ -435,12 +439,7 @@ test("startup during handoff reconciles a dead-owner row while leaving a live-pr
 test("owner route loss mid-drain drops routed list liveness and routed control forwarding, but a still-alive owner blocks reconciliation until it actually dies", async () => {
   const PREDECESSOR_IDENTITY = "66666:6000000";
   const ownedRunId = createRun(seedStore, "in-progress");
-  const raw = new Database(dbPath);
-  try {
-    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(PREDECESSOR_IDENTITY, ownedRunId);
-  } finally {
-    raw.close();
-  }
+  setOwnerIdentity(ownedRunId, PREDECESSOR_IDENTITY);
 
   let predecessorAlive = true;
   let routeSevered = false;

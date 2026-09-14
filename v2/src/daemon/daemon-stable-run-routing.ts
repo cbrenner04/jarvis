@@ -160,22 +160,19 @@ function pipelineNoLiveOwnerRefusal(pipelineId: string): { kind: "error"; code: 
   };
 }
 
-type PredecessorOwnerWitness =
-  | { kind: "owner"; ownerIdentity: string }
-  | { kind: "mismatch" }
-  | { kind: "unreachable" };
-
-/** Confirms the direct predecessor still recognizes itself as owner before this generation claims. */
+/** Confirms the direct predecessor still recognizes itself as owner before this generation
+ * claims; returns its `ownerIdentity`, or `undefined` when unreachable or answering anything but
+ * a matching `owner` witness — both refuse the claim identically, so callers don't distinguish. */
 async function queryPredecessorPipelineOwner(
   pipelineId: string,
   predecessorSocketPath: string,
   deps: PipelineDecisionRoutingDeps,
-): Promise<PredecessorOwnerWitness> {
+): Promise<string | undefined> {
   let client: IpcClient;
   try {
     client = await deps.connectOwnerClient(predecessorSocketPath);
   } catch {
-    return { kind: "unreachable" };
+    return undefined;
   }
   const transport = createRpcTransport(client);
   try {
@@ -184,12 +181,11 @@ async function queryPredecessorPipelineOwner(
       { pipelineId },
       { timeoutMs: deps.predecessorOwnerQueryTimeoutMs ?? PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS },
     );
-    if (isRecord(result) && result.kind === "owner" && typeof result.ownerIdentity === "string") {
-      return { kind: "owner", ownerIdentity: result.ownerIdentity };
-    }
-    return { kind: "mismatch" };
+    return isRecord(result) && result.kind === "owner" && typeof result.ownerIdentity === "string"
+      ? result.ownerIdentity
+      : undefined;
   } catch {
-    return { kind: "unreachable" };
+    return undefined;
   } finally {
     transport.close();
   }
@@ -219,8 +215,8 @@ async function claimPipelineForDecision(
   if (predecessorSocketPath === undefined) {
     return { kind: "refused" };
   }
-  const witness = await queryPredecessorPipelineOwner(pipelineId, predecessorSocketPath, deps);
-  if (witness.kind !== "owner" || witness.ownerIdentity !== pipeline.ownerIdentity) {
+  const predecessorOwnerIdentity = await queryPredecessorPipelineOwner(pipelineId, predecessorSocketPath, deps);
+  if (predecessorOwnerIdentity !== pipeline.ownerIdentity) {
     return { kind: "refused" };
   }
   const claim = deps.store.claimPipelineContinuation({ pipelineId, priorOwnerIdentity: pipeline.ownerIdentity });

@@ -107,25 +107,23 @@ describe("tui command", () => {
     expect(seenSocketPath).toBe(paths.socketPath);
   });
 
-  test("jarvis tui hands the entry the discovery seam alongside the invoking socket path", async () => {
+  test("jarvis tui hands the entry only the invoking socket path, with no discovery seam", async () => {
     const paths = tempPaths();
-    let seenSocketPath: string | undefined;
-    let seenSocketDiscovery: unknown;
+    let seenDeps: Record<string, unknown> | undefined;
 
     const code = await main(["tui"], captureIo().io, {
       machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
       socketPath: paths.socketPath,
       runTuiEntry: async (deps) => {
-        seenSocketPath = deps?.socketPath;
-        seenSocketDiscovery = deps?.socketDiscovery;
+        seenDeps = deps as unknown as Record<string, unknown>;
         return 0;
       },
     });
 
     expect(code).toBe(0);
-    expect(seenSocketPath).toBe(paths.socketPath);
-    expect(seenSocketDiscovery).toBeDefined();
-    expect(typeof seenSocketDiscovery).toBe("function");
+    expect(seenDeps?.socketPath).toBe(paths.socketPath);
+    expect(seenDeps?.socketDiscovery).toBeUndefined();
+    expect(Object.hasOwn(seenDeps ?? {}, "socketDiscovery")).toBe(false);
   });
 
   test("jarvis tui resolves and supplies the invoking profile and keyed socket before opening", async () => {
@@ -200,27 +198,25 @@ describe("tui command", () => {
     expect(seenSocketPath).toBe(paths.socketPath);
   });
 
-  test("jarvis tui log hands the follow entry the discovery seam alongside the invoking socket path", async () => {
+  test("jarvis tui log hands the follow entry only the invoking socket path, with no discovery seam", async () => {
     const paths = tempPaths();
     let seenRunId: string | undefined;
-    let seenSocketPath: string | undefined;
-    let seenSocketDiscovery: unknown;
+    let seenDeps: Record<string, unknown> | undefined;
 
     const code = await main(["tui", "log", "run-abc"], captureIo().io, {
       socketPath: paths.socketPath,
       runTuiLogFollow: async (runId, deps) => {
         seenRunId = runId;
-        seenSocketPath = deps?.socketPath;
-        seenSocketDiscovery = deps?.socketDiscovery;
+        seenDeps = deps as unknown as Record<string, unknown>;
         return 0;
       },
     });
 
     expect(code).toBe(0);
     expect(seenRunId).toBe("run-abc");
-    expect(seenSocketPath).toBe(paths.socketPath);
-    expect(seenSocketDiscovery).toBeDefined();
-    expect(typeof seenSocketDiscovery).toBe("function");
+    expect(seenDeps?.socketPath).toBe(paths.socketPath);
+    expect(seenDeps?.socketDiscovery).toBeUndefined();
+    expect(Object.hasOwn(seenDeps ?? {}, "socketDiscovery")).toBe(false);
   });
 
   test("jarvis tui log with missing or extra arguments prints usage and exits 1", async () => {
@@ -240,29 +236,6 @@ describe("tui command", () => {
     expect(missingRunId).toBe(1);
     expect(extraArgs).toBe(1);
     expect(cap.read().stderr).toContain("usage: jarvis tui log <run-id>");
-  });
-
-  test("rediscovery: a running TUI shows runs from a newly discovered live daemon without restart", async () => {
-    const paths = tempPaths();
-    let discoveryPhase = 0;
-
-    const code = await main(["tui"], captureIo().io, {
-      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
-      socketPath: paths.socketPath,
-      runTuiEntry: async (_deps) => {
-        const discovery = async () => {
-          discoveryPhase += 1;
-          return discoveryPhase === 1 ? [paths.socketPath] : [paths.socketPath, "/tmp/other-daemon.sock"];
-        };
-
-        expect(await discovery()).toEqual([paths.socketPath]);
-        expect(await discovery()).toEqual([paths.socketPath, "/tmp/other-daemon.sock"]);
-
-        return 0;
-      },
-    });
-
-    expect(code).toBe(0);
   });
 
   test("jarvis tui supplies monitor controls whose detached admission uses pipeline start seams", async () => {

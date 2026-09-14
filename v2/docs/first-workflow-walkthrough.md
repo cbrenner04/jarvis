@@ -18,7 +18,7 @@ Have a spec with unchecked tasks ready. Paths below are relative to the worktree
 
 ## Start a run
 
-Launch an ad-hoc write loop against your spec. This mutating dispatch command automatically starts or reuses the daemon keyed by the invoking executable (identified by its content digest). The daemon is addressable over a keyed socket in `~/.jarvis/` and remains available for subsequent `jarvis` invocations from the same binary. Every flag below is required except `--max-iterations`:
+Launch an ad-hoc write loop against your spec. This mutating dispatch command automatically starts or reuses the stable daemon at `~/.jarvis/daemon.sock`, regardless of invoking executable digest, and remains available for subsequent `jarvis` invocations. Every flag below is required except `--max-iterations`:
 
 ```bash
 jarvis run start \
@@ -231,10 +231,10 @@ The daemon starts automatically on the first mutating dispatch invocation (e.g.,
 jarvis daemon start
 ```
 
-On success stdout is compact JSON with the child PID and socket key:
+On success stdout is compact JSON with the child PID and stable socket path:
 
 ```json
-{"pid":12345,"socketKey":"...hash..."}
+{"pid":12345,"socketPath":"/Users/you/.jarvis/daemon.sock"}
 ```
 
 Confirm health with:
@@ -330,7 +330,7 @@ See [`workflow-runner.md`](./workflow-runner.md) for preset composition and [`wr
 
 ## Workflow-started implement
 
-The implement workflow preset launches a write loop against an `index.md` spec. Live `pause` and `resume` remain unsupported on workflow-started rows; live `kill` uses the same `jarvis run kill <run-id>` contract as ad-hoc runs (see [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)). Review runs by default (one debate pass); pass `--review-passes 0` to skip it. Like `jarvis run start`, this command automatically starts or reuses the daemon keyed by the invoking executable.
+The implement workflow preset launches a write loop against an `index.md` spec. Live `pause` and `resume` remain unsupported on workflow-started rows; live `kill` uses the same `jarvis run kill <run-id>` contract as ad-hoc runs (see [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)). Review runs by default (one debate pass); pass `--review-passes 0` to skip it. Like `jarvis run start`, this command automatically starts or reuses the stable daemon.
 
 ```bash
 jarvis run workflow implement \

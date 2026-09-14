@@ -16,10 +16,10 @@
 
 ## Acceptance criteria
 
-- [ ] A command test proves worktree eligibility for `cleanup --abandon`/bulk cleanup reflects only the stable daemon's run data, even when another live digest-keyed socket on the host reports a conflicting `isLive` answer for the same project+branch; it fails against the pre-fix cross-socket merge in `createBulkCleanupDaemonClient` (`v2/src/commands/cleanup.ts`).
-- [ ] A test proves `cleanup --abandon`/bulk cleanup still refuses to retire a worktree with a live run the stable daemon reports on behalf of a draining-generation daemon (unchanged: the stable `list` already folds in draining-owned runs).
-- [ ] A test proves `cleanup --abandon`/bulk cleanup fails closed (reports the daemon unreachable, no eligible worktrees) when the stable socket doesn't answer, rather than falling back to any other discovered socket.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A command test proves worktree eligibility for `cleanup --abandon`/bulk cleanup reflects only the stable daemon's run data, even when another live digest-keyed socket on the host reports a conflicting `isLive` answer for the same project+branch; it fails against the pre-fix cross-socket merge in `createBulkCleanupDaemonClient` (`v2/src/commands/cleanup.ts`).
+- [x] A test proves `cleanup --abandon`/bulk cleanup still refuses to retire a worktree with a live run the stable daemon reports on behalf of a draining-generation daemon (unchanged: the stable `list` already folds in draining-owned runs).
+- [x] A test proves `cleanup --abandon`/bulk cleanup fails closed (reports the daemon unreachable, no eligible worktrees) when the stable socket doesn't answer, rather than falling back to any other discovered socket.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

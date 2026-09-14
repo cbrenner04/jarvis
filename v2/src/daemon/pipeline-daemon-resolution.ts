@@ -1,10 +1,12 @@
 import { isRecord } from "../../../shared/is-record.ts";
+import type { CliDeps } from "../cli/deps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
 import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
-import type { QueryDaemonListsDeps } from "./query-daemon-lists-from-sockets.ts";
+
+type QueryDaemonListsDeps = Pick<CliDeps, "connectIpcClient" | "socketPath">;
 
 /** Outer CLI-facing RPC timeout for pipeline owner/list resolution. Predecessor merge queries (`daemon-stable-run-routing.ts`) use a strictly shorter timeout so a slow predecessor cannot push a stable reply past this bound. */
 export const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;

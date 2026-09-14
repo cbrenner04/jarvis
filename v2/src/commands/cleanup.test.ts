@@ -33,6 +33,7 @@ import {
   createAbsentDaemonClient,
   createBulkCleanupDaemonClient,
   createStaleResetDaemonClient,
+  DAEMON_UNREACHABLE_REASON,
   type DaemonClient,
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
@@ -2015,17 +2016,20 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(join(jarvisRoot, "worktrees", "project", eligibleBranch))).toBe(false);
   });
 
-  test("older-digest live daemon makes merged worktree ineligible", async () => {
-    // Inversion target: createBulkCleanupDaemonClient socket discovery in cleanup.ts — querying only deps.socketPath instead of discovered sockets turns this test RED.
-    const branch = "older-digest-live";
+  test("stable-socket-only: a conflicting isLive answer from another live socket is ignored", async () => {
+    // Inversion target: createBulkCleanupDaemonClient cross-socket merge in cleanup.ts — merging in the
+    // other socket's live run instead of querying only deps.socketPath turns this test RED.
+    const branch = "conflicting-live";
     const worktreePath = await createWorktree(branch);
     const invokingSocket = join(jarvisRoot, "daemon-invoking.sock");
-    const olderSocket = join(jarvisRoot, "daemon-older.sock");
-    const connect = connectWithDeadSocket(invokingSocket, "ENOENT", branch);
+    const otherLiveSocket = join(jarvisRoot, "daemon-other.sock");
     const bulkDeps = {
       socketPath: invokingSocket,
-      socketDiscovery: async () => [olderSocket],
-      connectIpcClient: connect,
+      socketDiscovery: async () => [otherLiveSocket],
+      connectIpcClient: async (socketPath: string) =>
+        socketPath === otherLiveSocket
+          ? liveRunListIpcClient(branch)
+          : makeIpcClient([], { staleResetPreflight: { listRuns: [] } }),
     };
 
     const { client: daemonClient } = await createBulkCleanupDaemonClient(bulkDeps);
@@ -2042,21 +2046,18 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     );
 
     expect(code).toBe(0);
-    expect(stdout).not.toContain("Daemon unreachable");
-    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
-    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
-    expect(stdout).not.toContain(worktreePath);
+    expect(stdout).not.toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).toContain(worktreePath);
     expect(existsSync(worktreePath)).toBe(true);
   });
 
-  test("a dismissed live run still makes a merged worktree ineligible, via includeDismissed on every list call", async () => {
+  test("a dismissed live run reported by the stable daemon still makes a merged worktree ineligible, via includeDismissed on every list call", async () => {
     const branch = "dismissed-live";
     const worktreePath = await createWorktree(branch);
     const invokingSocket = join(jarvisRoot, "daemon-dismissed-live.sock");
     const sent: unknown[] = [];
     const bulkDeps = {
       socketPath: invokingSocket,
-      socketDiscovery: async () => [],
       connectIpcClient: async () =>
         makeIpcClient([], {
           sent,
@@ -2094,9 +2095,10 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     }
   });
 
-  test("one dead socket in query set does not blank eligibility when another reports live run", async () => {
-    // Inversion target: createBulkCleanupDaemonClient skipOnFailure in cleanup.ts — treating connect failures as empty list results turns this test RED.
-    const branch = "dead-socket-peer-live";
+  test("cleanup fails closed when the stable socket doesn't answer, never falling back to another discovered socket", async () => {
+    // Inversion target: createBulkCleanupDaemonClient falling back to a discovered socket in cleanup.ts
+    // instead of failing closed on deps.socketPath alone turns this test RED.
+    const branch = "stable-dead-peer-live";
     const worktreePath = await createWorktree(branch);
     const invokingSocket = join(jarvisRoot, "daemon-dead.sock");
     const liveSocket = join(jarvisRoot, "daemon-live.sock");
@@ -2106,7 +2108,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       connectIpcClient: connectWithDeadSocket(invokingSocket, "ECONNREFUSED", branch),
     };
 
-    const { client: daemonClient } = await createBulkCleanupDaemonClient(bulkDeps);
+    const { client: daemonClient, hasAnsweringDaemon } = await createBulkCleanupDaemonClient(bulkDeps);
+    expect(hasAnsweringDaemon).toBe(false);
 
     let stdout = "";
     const code = await runCleanupCommand(
@@ -2119,11 +2122,47 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       { stdout: (text) => (stdout += text), stderr: () => {} },
     );
 
-    expect(code).toBe(0);
-    expect(stdout).not.toContain("Daemon unreachable");
-    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
-    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
-    expect(stdout).not.toContain(worktreePath);
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath} — ${DAEMON_UNREACHABLE_REASON}`);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("a malformed list response from the stable socket is treated as unreachable, not as an empty answer", async () => {
+    const branch = "malformed-stable-list";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-malformed.sock");
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      connectIpcClient: async (): Promise<IpcClient> => {
+        let resolveFrame: ((frame: IpcFrame) => void) | undefined;
+        return {
+          send(frame): void {
+            resolveFrame?.({ kind: "response", id: (frame as { id: string }).id, result: { runs: "not-an-array" } });
+          },
+          nextFrame: () => new Promise((resolve) => (resolveFrame = resolve)),
+          close: () => {},
+        };
+      },
+    };
+
+    const { client: daemonClient, hasAnsweringDaemon, firstError } = await createBulkCleanupDaemonClient(bulkDeps);
+    expect(hasAnsweringDaemon).toBe(false);
+    expect(firstError).toBeInstanceOf(Error);
+    expect((firstError as Error).message).toBe("invalid daemon response");
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath} — ${DAEMON_UNREACHABLE_REASON}`);
     expect(existsSync(worktreePath)).toBe(true);
   });
 

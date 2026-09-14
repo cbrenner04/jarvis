@@ -28,27 +28,11 @@ afterAll(() => {
 
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
 const OPERATOR_SESSION_ID = "00000000-0000-4000-8000-000000000002";
-const SOLO_LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
 const SOLO_LIST_ROW_REQUEST_ID = "00000000-0000-4000-8000-000000000011";
 const COMPLETION_COMMIT_ERROR_MSG = "failed to push some refs to 'origin/feature'";
 
 function soloDaemonListRow(runId: string) {
   return { runId, project: "demo", branch: "main", status: "completed", isLive: true };
-}
-
-function connectAfterSoloOwnerList(
-  listRequestId: string,
-  runs: Array<ReturnType<typeof soloDaemonListRow>>,
-  after: () => ReturnType<typeof makeIpcClient>,
-) {
-  let connectCount = 0;
-  return async () => {
-    connectCount += 1;
-    if (connectCount === 1) {
-      return makeIpcClient([{ kind: "response", id: listRequestId, result: { runs } }]);
-    }
-    return after();
-  };
 }
 
 function waitResponse(result: unknown): unknown {
@@ -628,10 +612,9 @@ describe("run control", () => {
       },
     ];
 
-    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
       main(["run", "log", "run-123"], cap.io, {
-        socketDiscovery: async () => [],
-        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
+        connectIpcClient: async () =>
           makeIpcClient(
             [
               { kind: "stream-data", streamId, payload: JSON.stringify(records[0]) },
@@ -642,7 +625,6 @@ describe("run control", () => {
             ],
             { sent },
           ),
-        ),
       }),
     );
 
@@ -654,17 +636,38 @@ describe("run control", () => {
     });
   });
 
+  test("run log stops at stream-end and ignores frames queued after it", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000005";
+    const record = logRecord(1, "iteration_started");
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              { kind: "stream-end", streamId },
+              { kind: "stream-data", streamId, payload: JSON.stringify(record) },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
   test("run log sends no follow flag by default", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const streamId = "00000000-0000-4000-8000-000000000006";
 
-    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
       main(["run", "log", "run-123"], cap.io, {
-        socketDiscovery: async () => [],
-        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
-          makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
-        ),
+        connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
       }),
     );
 
@@ -677,12 +680,9 @@ describe("run control", () => {
     const sent: unknown[] = [];
     const streamId = "00000000-0000-4000-8000-000000000007";
 
-    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
       main(["run", "log", "run-123", "--follow"], cap.io, {
-        socketDiscovery: async () => [],
-        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
-          makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
-        ),
+        connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
       }),
     );
 
@@ -696,10 +696,9 @@ describe("run control", () => {
     const streamId = "00000000-0000-4000-8000-000000000009";
     const record = logRecord(1, "iteration_started");
 
-    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
       main(["run", "log", "run-123", "--follow"], cap.io, {
-        socketDiscovery: async () => [],
-        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
+        connectIpcClient: async () =>
           makeIpcClient(
             [
               { kind: "stream-data", streamId, payload: JSON.stringify(record) },
@@ -707,7 +706,6 @@ describe("run control", () => {
             ],
             { sent },
           ),
-        ),
       }),
     );
 
@@ -716,17 +714,30 @@ describe("run control", () => {
     expect(cap.read()).toEqual({ stdout: `${JSON.stringify(record)}\n`, stderr: "" });
   });
 
+  test("run log exits 0 when the daemon closes the connection without a stream-end frame", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000012";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
   test("run log --follow before the run id also sends follow: true", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const streamId = "00000000-0000-4000-8000-000000000008";
 
-    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
       main(["run", "log", "--follow", "run-123"], cap.io, {
-        socketDiscovery: async () => [],
-        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
-          makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
-        ),
+        connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
       }),
     );
 
@@ -1026,112 +1037,49 @@ describe("run control", () => {
   });
 });
 
-describe("run list multi-daemon", () => {
+describe("run list/log stable socket only", () => {
   const INVOKING_SOCKET = "/jarvis/daemon-aaaa.sock";
-  const OTHER_SOCKET = "/jarvis/daemon-bbbb.sock";
-
-  type RunsBySocket = Record<
-    string,
-    | Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean; dismissedAt?: number }>
-    | Error
-  >;
 
   function listRow(runId: string, status: string, isLive: boolean) {
     return { runId, project: "demo", branch: "main", status, isLive };
   }
 
-  function connectForList(requestId: string, runsBySocket: RunsBySocket, onConnect?: (socketPath: string) => void) {
-    return async (socketPath: string) => {
-      onConnect?.(socketPath);
-      const runs = runsBySocket[socketPath];
-      if (runs instanceof Error) throw runs;
-      if (runs === undefined) throw new Error("unexpected socket");
-      return makeIpcClient([{ kind: "response", id: requestId, result: { runs } }]);
-    };
-  }
-
-  async function runList(
-    requestId: string,
-    options: { runsBySocket: RunsBySocket; discovery?: string[]; onConnect?: (socketPath: string) => void },
-  ) {
+  async function runList(requestId: string, runs: unknown[], onConnect?: (socketPath: string) => void) {
     const cap = captureIo();
     const code = await withFixedUuid(requestId, () =>
       main(["run", "list"], cap.io, {
         socketPath: INVOKING_SOCKET,
-        connectIpcClient: connectForList(requestId, options.runsBySocket, options.onConnect),
-        socketDiscovery: async () => options.discovery ?? [OTHER_SOCKET],
+        connectIpcClient: async (socketPath) => {
+          onConnect?.(socketPath);
+          return makeIpcClient([{ kind: "response", id: requestId, result: { runs } }]);
+        },
       }),
     );
     return { code, cap, lines: () => cap.read().stdout.trimEnd().split("\n") };
   }
 
-  test("run list aggregates runs from multiple live daemons", async () => {
+  test("run list reports only the stable daemon's run rows, with no cross-socket discovery or merge", async () => {
+    // Inversion target: queryDaemonListsFromSockets in run.ts — discovering and merging other
+    // sockets' rows turns this test RED (the discovery call above throws).
     const connectAttempts: string[] = [];
-    const { code, lines } = await runList("00000000-0000-4000-8000-000000000020", {
-      runsBySocket: {
-        [INVOKING_SOCKET]: [listRow("invoking-run", "completed", false)],
-        [OTHER_SOCKET]: [listRow("other-run", "in-progress", true)],
-      },
-      onConnect: (socketPath) => connectAttempts.push(socketPath),
-    });
-
-    expect(code).toBe(0);
-    expect(lines()).toHaveLength(2);
-    expect(lines()[0]).toContain("invoking-run");
-    expect(lines()[1]).toContain("other-run");
-    expect(connectAttempts).toContain(INVOKING_SOCKET);
-    expect(connectAttempts).toContain(OTHER_SOCKET);
-  });
-
-  test("run list dedupes by runId, preferring isLive=true", async () => {
-    const { code, lines } = await runList("00000000-0000-4000-8000-000000000021", {
-      runsBySocket: {
-        [INVOKING_SOCKET]: [listRow("shared-run", "completed", false)],
-        [OTHER_SOCKET]: [listRow("shared-run", "in-progress", true)],
-      },
-    });
-
-    expect(code).toBe(0);
-    expect(lines()).toHaveLength(1);
-    expect(lines()[0]).toContain("shared-run");
-    expect(lines()[0]).toContain("live");
-  });
-
-  test("run list skips unreachable sockets and lists remaining runs", async () => {
-    const { code, lines } = await runList("00000000-0000-4000-8000-000000000022", {
-      runsBySocket: {
-        [INVOKING_SOCKET]: [listRow("invoking-run", "completed", false)],
-        [OTHER_SOCKET]: new Error("ECONNREFUSED"),
-      },
-    });
+    const { code, lines } = await runList(
+      "00000000-0000-4000-8000-000000000020",
+      [listRow("invoking-run", "completed", false)],
+      (socketPath) => connectAttempts.push(socketPath),
+    );
 
     expect(code).toBe(0);
     expect(lines()).toHaveLength(1);
     expect(lines()[0]).toContain("invoking-run");
-  });
-
-  test("run list solo-daemon output unchanged when only invoking daemon is live", async () => {
-    const { code, lines } = await runList("00000000-0000-4000-8000-000000000023", {
-      runsBySocket: { [INVOKING_SOCKET]: [listRow("solo-run", "completed", false)] },
-      discovery: [],
-    });
-
-    expect(code).toBe(0);
-    expect(lines()).toHaveLength(1);
-    expect(lines()[0]).toContain("solo-run");
+    expect(connectAttempts).toEqual([INVOKING_SOCKET]);
   });
 
   test("run list sorts by runId", async () => {
-    const { code, lines } = await runList("00000000-0000-4000-8000-000000000024", {
-      runsBySocket: {
-        [INVOKING_SOCKET]: [
-          listRow("run-z", "completed", false),
-          listRow("run-a", "completed", false),
-          listRow("run-m", "completed", false),
-        ],
-      },
-      discovery: [],
-    });
+    const { code, lines } = await runList("00000000-0000-4000-8000-000000000024", [
+      listRow("run-z", "completed", false),
+      listRow("run-a", "completed", false),
+      listRow("run-m", "completed", false),
+    ]);
 
     expect(code).toBe(0);
     expect(lines()).toHaveLength(3);
@@ -1140,175 +1088,53 @@ describe("run list multi-daemon", () => {
     expect(lines()[2]).toContain("run-z");
   });
 
-  test("run list exits with first error when all sockets fail", async () => {
+  test("run list exits with the stable daemon's connection error", async () => {
     const cap = captureIo();
 
     const code = await main(["run", "list"], cap.io, {
       socketPath: INVOKING_SOCKET,
-      connectIpcClient: async (socketPath) => {
-        if (socketPath === INVOKING_SOCKET) throw new Error("first error");
-        throw new Error("second error");
+      connectIpcClient: async () => {
+        throw new Error("first error");
       },
-      socketDiscovery: async () => [OTHER_SOCKET],
     });
 
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("first error");
   });
 
-  const LIST_REQUEST_INVOKING = "00000000-0000-4000-8000-000000000030";
-  const LIST_REQUEST_OTHER = "00000000-0000-4000-8000-000000000031";
   const STREAM_REQUEST_ID = "00000000-0000-4000-8000-000000000032";
-  const LIST_IDS: [string, string] = [LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER];
 
-  function runsForRemoteOwner(runId: string, dismissedAt?: number): RunsBySocket {
-    return {
-      [INVOKING_SOCKET]: [],
-      [OTHER_SOCKET]: [
-        { ...listRow(runId, "in-progress", true), ...(dismissedAt !== undefined ? { dismissedAt } : {}) },
-      ],
-    };
-  }
-
-  function connectForTwoListsThen(
-    listIds: [string, string],
-    runsBySocket: RunsBySocket,
-    connectSockets: string[],
-    then: (socketPath: string) => ReturnType<typeof makeIpcClient> | Promise<ReturnType<typeof makeIpcClient>>,
-    listSent?: unknown[],
-  ) {
-    let connectCount = 0;
-    return async (socketPath: string) => {
-      connectCount += 1;
-      connectSockets.push(socketPath);
-      const runs = runsBySocket[socketPath];
-      if (runs instanceof Error) throw runs;
-      if (runs === undefined) throw new Error(`unexpected socket: ${socketPath}`);
-      if (connectCount <= 2) {
-        const id = connectCount === 1 ? listIds[0] : listIds[1];
-        return makeIpcClient([{ kind: "response", id, result: { runs } }], listSent ? { sent: listSent } : undefined);
-      }
-      return then(socketPath);
-    };
-  }
-
-  test("run log streams a run owned by a non-invoking live daemon", async () => {
-    // Inversion target: resolveRunOwnerSocket in run.ts — using deps.socketPath without cross-daemon owner lookup turns this test RED.
+  test("run log streams a draining-owned run's log by connecting only to the stable socket", async () => {
+    // Inversion target: resolveRunOwnerSocket in run.ts — an owner lookup or direct connect to
+    // another socket before streaming turns this test RED (the discovery call above throws).
     const cap = captureIo();
     const sent: unknown[] = [];
     const connectSockets: string[] = [];
     const record = logRecord(1, "iteration_started");
     record.runId = "remote-run";
 
-    const code = await withFixedUuid(
-      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, STREAM_REQUEST_ID],
-      () =>
-        main(["run", "log", "remote-run"], cap.io, {
-          socketPath: INVOKING_SOCKET,
-          socketDiscovery: async () => [OTHER_SOCKET],
-          connectIpcClient: connectForTwoListsThen(
-            LIST_IDS,
-            runsForRemoteOwner("remote-run"),
-            connectSockets,
-            (socketPath) => {
-              if (socketPath !== OTHER_SOCKET) {
-                throw new Error(`stream must use owner socket, got ${socketPath}`);
-              }
-              return makeIpcClient(
-                [
-                  { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
-                  { kind: "stream-end", streamId: STREAM_REQUEST_ID },
-                ],
-                { sent },
-              );
-            },
-          ),
-        }),
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, STREAM_REQUEST_ID], () =>
+      main(["run", "log", "remote-run"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        connectIpcClient: async (socketPath) => {
+          connectSockets.push(socketPath);
+          return makeIpcClient(
+            [
+              { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
+              { kind: "stream-end", streamId: STREAM_REQUEST_ID },
+            ],
+            { sent },
+          );
+        },
+      }),
     );
 
     expect(code).toBe(0);
-    expect(connectSockets).toEqual([INVOKING_SOCKET, OTHER_SOCKET, OTHER_SOCKET]);
+    expect(connectSockets).toEqual([INVOKING_SOCKET]);
     expect(sent).toEqual([
       { kind: "stream-open", streamId: STREAM_REQUEST_ID, payload: { runId: "remote-run", afterSeq: 0 } },
     ]);
     expect(cap.read().stdout).toBe(`${JSON.stringify(record)}\n`);
-  });
-
-  test("run log routes to a dismissed run's owning daemon, sending includeDismissed on both list requests", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const listSent: unknown[] = [];
-    const record = logRecord(1, "iteration_started");
-    record.runId = "dismissed-remote-run";
-
-    const code = await withFixedUuid(
-      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, STREAM_REQUEST_ID],
-      () =>
-        main(["run", "log", "dismissed-remote-run"], cap.io, {
-          socketPath: INVOKING_SOCKET,
-          socketDiscovery: async () => [OTHER_SOCKET],
-          connectIpcClient: connectForTwoListsThen(
-            LIST_IDS,
-            runsForRemoteOwner("dismissed-remote-run", 1234),
-            [],
-            (socketPath) => {
-              if (socketPath !== OTHER_SOCKET) {
-                throw new Error(`stream must use owner socket, got ${socketPath}`);
-              }
-              return makeIpcClient(
-                [
-                  { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
-                  { kind: "stream-end", streamId: STREAM_REQUEST_ID },
-                ],
-                { sent },
-              );
-            },
-            listSent,
-          ),
-        }),
-    );
-
-    expect(code).toBe(0);
-    expect(listSent).toEqual([
-      { kind: "request", id: LIST_REQUEST_INVOKING, method: "list", params: { includeDismissed: true } },
-      { kind: "request", id: LIST_REQUEST_OTHER, method: "list", params: { includeDismissed: true } },
-    ]);
-    expect(sent).toEqual([
-      { kind: "stream-open", streamId: STREAM_REQUEST_ID, payload: { runId: "dismissed-remote-run", afterSeq: 0 } },
-    ]);
-    expect(cap.read().stdout).toBe(`${JSON.stringify(record)}\n`);
-  });
-
-  test("run log falls back to invoking socket when run is absent everywhere", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const connectSockets: string[] = [];
-    const emptyEverywhere: RunsBySocket = {
-      [INVOKING_SOCKET]: [],
-      [OTHER_SOCKET]: [],
-    };
-
-    const code = await withFixedUuid(
-      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, STREAM_REQUEST_ID],
-      () =>
-        main(["run", "log", "run-404"], cap.io, {
-          socketPath: INVOKING_SOCKET,
-          socketDiscovery: async () => [OTHER_SOCKET],
-          connectIpcClient: connectForTwoListsThen(LIST_IDS, emptyEverywhere, connectSockets, (socketPath) => {
-            if (socketPath !== INVOKING_SOCKET) {
-              throw new Error(`stream must use invoking socket, got ${socketPath}`);
-            }
-            return makeIpcClient([{ kind: "stream-end", streamId: STREAM_REQUEST_ID }], { sent });
-          }),
-        }),
-    );
-
-    expect(code).toBe(0);
-    expect(connectSockets).toEqual([INVOKING_SOCKET, OTHER_SOCKET, INVOKING_SOCKET]);
-    expect(sent).toEqual([
-      { kind: "stream-open", streamId: STREAM_REQUEST_ID, payload: { runId: "run-404", afterSeq: 0 } },
-    ]);
-    expect(cap.read().stdout).toBe("");
   });
 
   test("run wait sends one request through the invoking stable address without owner discovery", async () => {
@@ -1319,9 +1145,6 @@ describe("run list multi-daemon", () => {
     const code = await withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
       main(["run", "wait", "remote-run"], cap.io, {
         socketPath: INVOKING_SOCKET,
-        socketDiscovery: async () => {
-          throw new Error("wait must not discover owner sockets");
-        },
         connectIpcClient: async (socketPath) => {
           connectSockets.push(socketPath);
           return makeIpcClient(
@@ -1354,7 +1177,6 @@ describe("run list multi-daemon", () => {
 
     const code = await main(["run", "log", "run-123"], cap.io, {
       socketPath: INVOKING_SOCKET,
-      socketDiscovery: async () => [OTHER_SOCKET],
       connectIpcClient: async () => {
         throw new Error(UNREACHABLE_DAEMON_ERROR);
       },
@@ -1369,7 +1191,6 @@ describe("run list multi-daemon", () => {
 
     const code = await main(["run", "wait", "run-123"], cap.io, {
       socketPath: INVOKING_SOCKET,
-      socketDiscovery: async () => [OTHER_SOCKET],
       connectIpcClient: async () => {
         throw new Error(UNREACHABLE_DAEMON_ERROR);
       },

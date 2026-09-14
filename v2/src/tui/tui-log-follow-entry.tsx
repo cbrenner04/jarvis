@@ -1,6 +1,4 @@
-import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
-import { type ConnectTuiDaemonOptions, connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { openInkLogFollow } from "./tui-ink-log-follow.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import type { RunTuiLogFollowDeps, TuiLogFollowSession } from "./tui-log-follow-types.ts";
@@ -13,58 +11,13 @@ async function openLogFollowSession(deps: RunTuiLogFollowDeps, quit: () => void)
   return openInkLogFollow({ quit }, deps.inkRender);
 }
 
-async function resolveOwningSocket(
-  runId: string,
-  sockets: string[],
-  connectFn: (options: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>,
-): Promise<string | undefined> {
-  // Prefer a live owner; fall back to the first non-live match if no live owner is found.
-  let fallbackSocket: string | undefined;
-
-  for (const socketPath of sockets) {
-    try {
-      const client = await connectFn({ socketPath });
-      try {
-        const result = await client.list({ includeDismissed: true });
-        const runRow = result.runs.find((r) => r.runId === runId);
-        if (runRow?.isLive) {
-          return socketPath;
-        }
-        if (runRow && fallbackSocket === undefined) {
-          fallbackSocket = socketPath;
-        }
-      } finally {
-        client.close();
-      }
-    } catch {
-      // Skip sockets that fail during owner lookup.
-    }
-  }
-
-  return fallbackSocket;
-}
-
 /** Connect, tail structured logs for one run, and render until quit or benign stream end. */
 export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps): Promise<number> {
   const connectFn = deps.connectTuiLogTail ?? connectTuiLogTail;
-  const discoverFn = deps.socketDiscovery ?? discoverLiveDaemonSockets;
-  const daemonConnectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
   const retryConfig = deps.tailRetry;
   const maxRetries = retryConfig?.maxAttempts ?? 5;
   const initialDelay = retryConfig?.initialDelayMs ?? 100;
   const maxDelay = retryConfig?.maxDelayMs ?? 2000;
-
-  let socketPath = deps.socketPath;
-  try {
-    const allSockets = new Set(await discoverFn());
-    allSockets.add(deps.socketPath);
-    const owningSocket = await resolveOwningSocket(runId, Array.from(allSockets), daemonConnectFn);
-    if (owningSocket !== undefined) {
-      socketPath = owningSocket;
-    }
-  } catch {
-    // Discovery failure falls back to the invoking socket.
-  }
 
   let session: TuiLogFollowSession | undefined;
   let tail: Awaited<ReturnType<typeof connectTuiLogTail>> | undefined;
@@ -94,7 +47,7 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
 
       while (true) {
         try {
-          tail = await connectFn(runId, { socketPath, afterSeq: highestSeq });
+          tail = await connectFn(runId, { socketPath: deps.socketPath, afterSeq: highestSeq });
         } catch (error) {
           if (error instanceof RpcConnectionError) {
             if (retryAttempt === 0) {

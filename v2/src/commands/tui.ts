@@ -4,7 +4,6 @@ import { formatConnectionError, request } from "../cli/ipc.ts";
 import { connectWithAutoStart } from "../cli/stale-dispatch.ts";
 import { TUI_LOG_USAGE, TUI_USAGE } from "../cli/usage.ts";
 import { loadMachineConfig, readProjectConfigRecord, resolveMachineProfile } from "../config/machine-config-loader.ts";
-import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
@@ -39,7 +38,6 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
 
     const entryDeps = {
       socketPath: deps.socketPath,
-      socketDiscovery: discoverLiveDaemonSockets,
       machineProfile,
       admitDetachedPipelineStart: detachedPipelineStartAdmission(deps),
     };
@@ -53,7 +51,6 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
     }
     return deps.runTuiLogFollow(runId, {
       socketPath: deps.socketPath,
-      socketDiscovery: discoverLiveDaemonSockets,
     });
   }
   io.stderr(TUI_USAGE);

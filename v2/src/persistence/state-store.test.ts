@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
@@ -1421,7 +1421,8 @@ describe("pipelines", () => {
           `SELECT id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
                   skip_provenance AS skipProvenance,
                   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
-                  artifact, failure_detail AS failureDetail, decided_at AS decidedAt
+                  artifact, failure_detail AS failureDetail, decided_at AS decidedAt,
+                  awaiting_since AS awaitingSince
            FROM pipeline_stages WHERE pipeline_id IN (?, ?)
            ORDER BY pipeline_id, position ASC, ${PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL}`,
         )
@@ -1439,6 +1440,7 @@ describe("pipelines", () => {
         artifact: string | null;
         failureDetail: string | null;
         decidedAt: number | null;
+        awaitingSince: number | null;
       }>;
       expectedById = new Map<string, Pipeline & { stages: PipelineStageRecord[] }>(
         expectedPipelines.map((pipeline) => [
@@ -5553,12 +5555,26 @@ describe("incident candidate list queries", () => {
     expect(second.map((run) => run.id).sort()).toEqual(first.map((run) => run.id).sort());
   });
 
-  test("listIncidentCandidateRuns retains terminal runs with null finished_at", () => {
-    const runId = seedRun(store);
-    patchRunRow(runId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
+  test("listIncidentCandidateRuns bounds terminal runs with null finished_at by status_changed_at, then created_at", () => {
+    const oldRunId = seedRun(store);
+    patchRunRow(oldRunId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
+    const recentRunId = seedRun(store);
+    patchRunRow(recentRunId, { status: "completed", finishedAt: null, createdAt: RECENT_MS });
+    const resettledRunId = seedRun(store);
+    patchRunRow(resettledRunId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE runs SET status_changed_at = ? WHERE id = ?").run(RECENT_MS, resettledRunId);
+    } finally {
+      raw.close();
+    }
 
-    const candidates = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS });
-    expect(candidates.map((run) => run.id)).toContain(runId);
+    const candidateIds = store
+      .listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS })
+      .map((run) => run.id);
+    expect(candidateIds).not.toContain(oldRunId);
+    expect(candidateIds).toContain(recentRunId);
+    expect(candidateIds).toContain(resettledRunId);
   });
 
   test("listIncidentCandidatePipelines excludes terminal pipelines settled before sinceMs", () => {
@@ -5858,5 +5874,79 @@ describe("operator failure records", () => {
       .get(pipelineId, "plan") as { json: string };
     rawAfter.close();
     expect(row.json).toBe("{not-json");
+  });
+});
+
+describe("approval awaiting_since", () => {
+  let store: StateStore;
+
+  function approvalStageRecord(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord {
+    const record = pipeline.stages.find((stage) => stage.stageId === "gate");
+    if (record === undefined) throw new Error("approval row should exist");
+    return record;
+  }
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  test("commitApprovalBoundary stamps awaiting_since and a decision keeps it", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const approval = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
+    expect(approval.awaitingSince).toBeNull();
+
+    setSystemTime(new Date(5_000));
+    expect(store.commitApprovalBoundary({ stageRecordId: approval.id }).kind).toBe("applied");
+    expect(approvalStageRecord(loadPipelineOrThrow(store, pipelineId)).awaitingSince).toBe(5_000);
+
+    setSystemTime(new Date(9_000));
+    expect(store.commitApprovalDecision({ stageRecordId: approval.id, decision: "approved" }).kind).toBe("applied");
+    const decided = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
+    expect(decided).toMatchObject({ status: "approved", decidedAt: 9_000, awaitingSince: 5_000 });
+  });
+
+  test("updateStage stamps awaiting_since on every write into awaiting and reopen clears it", () => {
+    const pipelineId = store.createPipeline({
+      definition: {
+        name: "gates",
+        stages: [
+          { stageId: "stage-0", kind: "approval" },
+          { stageId: "stage-1", kind: "approval" },
+        ],
+      },
+    });
+    store.updateStage({ pipelineId, stageId: "stage-0", patch: { status: "approved" } });
+
+    setSystemTime(new Date(1_000));
+    store.updateStage({ pipelineId, stageId: "stage-1", patch: { status: "awaiting" } });
+    setSystemTime(new Date(2_000));
+    store.updateStage({ pipelineId, stageId: "stage-1", patch: { status: "failed", failureDetail: { message: "x" } } });
+    const failed = loadPipelineOrThrow(store, pipelineId).stages[1];
+    expect(failed).toMatchObject({ status: "failed", awaitingSince: 1_000 });
+
+    expect(store.reopenFailedPipeline({ pipelineId }).kind).toBe("applied");
+    expect(loadPipelineOrThrow(store, pipelineId).stages[1]).toMatchObject({ status: "pending", awaitingSince: null });
+
+    setSystemTime(new Date(3_000));
+    store.updateStage({ pipelineId, stageId: "stage-1", patch: { status: "awaiting" } });
+    expect(loadPipelineOrThrow(store, pipelineId).stages[1]).toMatchObject({
+      status: "awaiting",
+      awaitingSince: 3_000,
+    });
+  });
+
+  test("notification key-format version round-trips and overwrites", () => {
+    expect(store.loadNotificationKeyFormatVersion()).toBeNull();
+    store.recordNotificationKeyFormatVersion(2);
+    expect(store.loadNotificationKeyFormatVersion()).toBe(2);
+    store.recordNotificationKeyFormatVersion(3);
+    expect(store.loadNotificationKeyFormatVersion()).toBe(3);
   });
 });

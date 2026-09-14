@@ -190,6 +190,8 @@ test("startup sweeps ready-gate pgids before opening IPC and sweep failures prev
     hasNotificationDelivery: () => false,
     listNotificationDeliveriesForIncidentIds: () => [],
     tryRecordNotificationDelivery: () => true,
+    loadNotificationKeyFormatVersion: () => null,
+    recordNotificationKeyFormatVersion: () => {},
     reconcilePipelines: async () => {
       order.push("pipelines");
       return [];

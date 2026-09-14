@@ -1,6 +1,7 @@
 import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
-import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
+import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
+import { resolveWorkflowRunRollup } from "../persistence/workflow-run-status-rollup.ts";
 import {
   derivePipelineState,
   hasPipelineTerminalPublicationFailure,
@@ -19,6 +20,18 @@ type OperatorIncidentKind =
   | "run-paused"
   | "run-ad-hoc-terminal"
   | "run-timeout";
+
+/**
+ * Version of the `(incidentId, transition)` key format. Bump whenever a transition string
+ * changes shape; `reconcileNotificationKeyFormat` then marks already-settled incidents delivered
+ * under the new format instead of re-sending them.
+ */
+export const NOTIFICATION_KEY_FORMAT_VERSION = 2;
+
+export type OperatorIncidentDerivationOptions = {
+  /** Whether this daemon still drives the workflow invocation whose entry run is `entryRunId`. */
+  isWorkflowInvocationLive?: (entryRunId: string) => boolean;
+};
 
 /** One operator-actionable incident at derived altitude. */
 export type OperatorIncident = {
@@ -78,12 +91,20 @@ function collectCandidateIncidentIds(
   return [...incidentIds];
 }
 
-function loadDeliveredIncidentKeys(store: StateStore, incidentIds: readonly string[]): Set<string> {
-  const delivered = new Set<string>();
+type DeliveredLedger = { keys: Set<string>; transitionsByIncident: Map<string, string[]> };
+
+function loadDeliveredLedger(store: StateStore, incidentIds: readonly string[]): DeliveredLedger {
+  const keys = new Set<string>();
+  const transitionsByIncident = new Map<string, string[]>();
   for (const row of store.listNotificationDeliveriesForIncidentIds(incidentIds)) {
-    delivered.add(deliveredIncidentKey(row.incidentId, row.transition));
+    keys.add(deliveredIncidentKey(row.incidentId, row.transition));
+    transitionsByIncident.set(row.incidentId, [...(transitionsByIncident.get(row.incidentId) ?? []), row.transition]);
   }
-  return delivered;
+  return { keys, transitionsByIncident };
+}
+
+function loadDeliveredIncidentKeys(store: StateStore, incidentIds: readonly string[]): Set<string> {
+  return loadDeliveredLedger(store, incidentIds).keys;
 }
 
 /** Reopened failed stages reuse their row; the settlement time separates each failure from the last. */
@@ -92,10 +113,11 @@ function stageFailedTransition(stage: PipelineStageRecord): string {
 }
 
 /**
- * Gate rows carry no awaiting-since column; the latest settlement among the gate's branch-suffix
- * predecessors marks when the gate was (re)reached, so each gate and each re-reach notifies once.
+ * When the gate row durably entered `awaiting`. Rows stamped before the `awaiting_since` column
+ * existed fall back to the latest settlement among the gate's branch-suffix predecessors.
  */
 function gateReachedAt(pipeline: Pipeline & { stages: PipelineStageRecord[] }, gate: PipelineStageRecord): number {
+  if (gate.awaitingSince != null) return gate.awaitingSince;
   let reachedAt = pipeline.createdAt;
   for (const stage of pipeline.stages) {
     if (stage.position >= gate.position) continue;
@@ -113,6 +135,16 @@ function awaitingGateTransition(
   return `awaiting-approval:${gate.stageId}:${gate.branchKey}:${gateReachedAt(pipeline, gate)}`;
 }
 
+/**
+ * Every reachable gate, `awaiting` or still `pending`. A pending row keys on the predecessor
+ * fallback until the boundary commit stamps `awaiting_since`; a continuation that never flips it
+ * (`continuePipeline` after settlement is fire-and-forget) must not go silent, so the rare sweep
+ * tick inside that window costs a duplicate rather than a miss.
+ */
+function reachableGates(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord[] {
+  return derivePipelineAwaitingGates(pipeline).map((gate) => gate.record);
+}
+
 function previewPipelineIncidentKeys(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
@@ -120,10 +152,10 @@ function previewPipelineIncidentKeys(
   const keys: IncidentKey[] = [];
   const state = derivePipelineState(pipeline);
 
-  for (const gate of derivePipelineAwaitingGates(pipeline)) {
+  for (const gate of reachableGates(pipeline)) {
     keys.push({
       incidentId: pipelineIncidentId(pipeline.id),
-      transition: awaitingGateTransition(pipeline, gate.record),
+      transition: awaitingGateTransition(pipeline, gate),
     });
   }
 
@@ -191,10 +223,164 @@ function previewRunIncidentKeys(
   if (isUnattributedRunTimeout(run, pipelineAttributedRunIds)) {
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, "run_timeout") }];
   }
-  if (run.workflowSnapshot !== undefined && !pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
+  if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, `terminal:${run.status}`) }];
   }
   return [];
+}
+
+/** A `run start` row: no workflow snapshot, so no invocation to roll up to and never pipeline-attributed. */
+function isPlainRun(run: Run): boolean {
+  return run.workflowSnapshot?.invocationId === undefined;
+}
+
+type WorkflowInvocationRows = { invocationId: string; entryRun: Run; rows: Run[] };
+
+function isInvocationRollupCandidate(
+  run: Run,
+  suppressedInvocationIds: ReadonlySet<string>,
+  pipelineAttributedRunIds: ReadonlySet<string>,
+): boolean {
+  const invocationId = run.workflowSnapshot?.invocationId;
+  return (
+    invocationId !== undefined &&
+    !suppressedInvocationIds.has(invocationId) &&
+    !pipelineAttributedRunIds.has(run.id) &&
+    isTerminalRunStatus(run.status)
+  );
+}
+
+/** The invocation's entry row: the first authored step's row, else the earliest created. */
+function findInvocationEntryRun(rows: readonly Run[]): Run | undefined {
+  const entryStepId = rows[0]?.workflowSnapshot?.steps[0]?.stepId;
+  return (
+    rows.find((run) => run.stepId === entryStepId) ??
+    rows.reduce<Run | undefined>(
+      (earliest, run) => (earliest === undefined || run.createdAt < earliest.createdAt ? run : earliest),
+      undefined,
+    )
+  );
+}
+
+function statusWriteMs(run: Run): number {
+  return run.statusChangedAt ?? run.finishedAt ?? run.createdAt;
+}
+
+function transitionTimestamp(transition: string): number {
+  return Number(transition.slice(transition.lastIndexOf(":") + 1));
+}
+
+/**
+ * True when the ledger already holds a terminal delivery for this invocation at or after the latest
+ * status write among its candidate rows. The latest-settled row is inside the recency window whenever
+ * any row is, so that write is the invocation-wide latest; only invocations whose entry row is itself
+ * a candidate can be judged this way — the rest load their siblings.
+ */
+function isInvocationDeliveredThrough(
+  ledger: DeliveredLedger,
+  candidateRows: readonly Run[],
+  latestWriteMs: number,
+): boolean {
+  const entryStepId = candidateRows[0]?.workflowSnapshot?.steps[0]?.stepId;
+  const entryRun = candidateRows.find((run) => run.stepId === entryStepId);
+  if (entryRun === undefined) return false;
+  const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
+  return transitions.some(
+    (transition) => transition.startsWith("terminal:") && transitionTimestamp(transition) >= latestWriteMs,
+  );
+}
+
+/**
+ * Group every candidate terminal workflow row's invocation with all of its durable rows, skipping
+ * invocations the ledger shows delivered through their latest visible settlement so the per-tick
+ * sibling load stays proportional to undelivered work, not to history inside the recency window.
+ */
+function collectWorkflowInvocations(
+  store: StateStore,
+  runs: readonly Run[],
+  ledger: DeliveredLedger,
+  suppressedInvocationIds: ReadonlySet<string>,
+  pipelineAttributedRunIds: ReadonlySet<string>,
+): WorkflowInvocationRows[] {
+  const candidateRowsByInvocation = new Map<string, Run[]>();
+  for (const run of runs) {
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (
+      invocationId !== undefined &&
+      isInvocationRollupCandidate(run, suppressedInvocationIds, pipelineAttributedRunIds)
+    ) {
+      candidateRowsByInvocation.set(invocationId, [...(candidateRowsByInvocation.get(invocationId) ?? []), run]);
+    }
+  }
+  const invocationIds = new Set<string>();
+  for (const [invocationId, candidateRows] of candidateRowsByInvocation) {
+    const latestWriteMs = Math.max(...candidateRows.map(statusWriteMs));
+    if (!isInvocationDeliveredThrough(ledger, candidateRows, latestWriteMs)) invocationIds.add(invocationId);
+  }
+  if (invocationIds.size === 0) return [];
+
+  const rowsByInvocation = new Map<string, Run[]>();
+  for (const row of store.findRunsByInvocationIds([...invocationIds])) {
+    const invocationId = row.workflowSnapshot?.invocationId;
+    if (invocationId === undefined) continue;
+    rowsByInvocation.set(invocationId, [...(rowsByInvocation.get(invocationId) ?? []), row]);
+  }
+
+  const invocations: WorkflowInvocationRows[] = [];
+  for (const [invocationId, rows] of rowsByInvocation) {
+    const entryRun = findInvocationEntryRun(rows);
+    if (entryRun !== undefined) invocations.push({ invocationId, entryRun, rows });
+  }
+  return invocations;
+}
+
+/** The invocation's settlement time: its latest status write across every row. */
+function invocationSettledAt(rows: readonly Run[]): number {
+  return Math.max(...rows.map(statusWriteMs));
+}
+
+type InvocationTerminal = { status: RunStatus; transition: string; sinceMs: number };
+
+/**
+ * One terminal per invocation, from the same rollup `run wait` and stage settlement use. Emits only
+ * when a real row settled it: a `killed` inferred from a missing row is a dispatch gap or another
+ * daemon's live invocation; `blocked` and `run_timeout` rows already carry their own per-row kinds.
+ */
+function invocationTerminal(invocation: WorkflowInvocationRows, isLive: boolean): InvocationTerminal | null {
+  const { entryRun, rows } = invocation;
+  const rollup = resolveWorkflowRunRollup({
+    entryRun,
+    workflowSnapshot: entryRun.workflowSnapshot ?? null,
+    siblingRuns: rows,
+    isLive,
+  });
+  if (!isTerminalRunStatus(rollup.status) || rollup.status === "blocked") return null;
+  if (rollup.status === "killed" && rollup.causeRun === undefined) return null;
+  if (rollup.status === "killed" && rollup.causeRun?.terminalCause === "run_timeout") return null;
+  const settledAt = invocationSettledAt(rows);
+  return { status: rollup.status, transition: `terminal:${rollup.status}:${settledAt}`, sinceMs: settledAt };
+}
+
+function collectInvocationIncidents(
+  invocations: readonly WorkflowInvocationRows[],
+  isWorkflowInvocationLive: (entryRunId: string) => boolean,
+): OperatorIncident[] {
+  const incidents: OperatorIncident[] = [];
+  for (const invocation of invocations) {
+    const terminal = invocationTerminal(invocation, isWorkflowInvocationLive(invocation.entryRun.id));
+    if (terminal === null) continue;
+    const { entryRun } = invocation;
+    incidents.push({
+      incidentId: runIncidentId(entryRun.id),
+      kind: "run-ad-hoc-terminal",
+      transition: terminal.transition,
+      project: entryRun.project,
+      runId: entryRun.id,
+      cause: terminal.status,
+      sinceMs: terminal.sinceMs,
+    });
+  }
+  return incidents;
 }
 
 function pushUndeliveredIncident(
@@ -296,7 +482,7 @@ function pushAwaitingApprovalIncident(
     pipelineId: pipeline.id,
     stageId: gate.stageId,
     branchKey: gate.branchKey,
-    sinceMs: gate.decidedAt,
+    sinceMs: gateReachedAt(pipeline, gate),
   });
 }
 
@@ -345,8 +531,8 @@ function collectPipelineIncidents(
   const state = derivePipelineState(pipeline);
   const project = resolvePipelineIncidentProject(pipeline, entryRunsById);
 
-  for (const gate of derivePipelineAwaitingGates(pipeline)) {
-    pushAwaitingApprovalIncident(incidents, pipeline, gate.record, project);
+  for (const gate of reachableGates(pipeline)) {
+    pushAwaitingApprovalIncident(incidents, pipeline, gate, project);
   }
 
   if (isPipelineTerminal(state)) {
@@ -424,11 +610,8 @@ function collectRunIncidents(
       pushRunIncident(incidents, run, "run-timeout", statusChangeTransition(run, "run_timeout"));
       continue;
     }
-    if (
-      run.workflowSnapshot !== undefined &&
-      !pipelineAttributedRunIds.has(run.id) &&
-      isTerminalRunStatus(run.status)
-    ) {
+    // Workflow rows roll up to their invocation (`collectInvocationIncidents`); only plain rows settle here.
+    if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
       pushRunIncident(incidents, run, "run-ad-hoc-terminal", statusChangeTransition(run, `terminal:${run.status}`));
     }
   }
@@ -436,19 +619,22 @@ function collectRunIncidents(
 }
 
 /** Recompute every current operator-actionable incident from durable rows. */
-export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.now()): OperatorIncident[] {
+export function deriveOperatorIncidents(
+  store: StateStore,
+  nowMs: number = Date.now(),
+  options: OperatorIncidentDerivationOptions = {},
+): OperatorIncident[] {
   const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;
   const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
   const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
-  const delivered = loadDeliveredIncidentKeys(store, collectCandidateIncidentIds(candidatePipelines, candidateRuns));
+  const ledger = loadDeliveredLedger(store, collectCandidateIncidentIds(candidatePipelines, candidateRuns));
+  const delivered = ledger.keys;
 
   const activePipelines = candidatePipelines.filter(
     (pipeline) => !onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline)),
   );
 
-  const needsRunAttribution = candidateRuns.some(
-    (run) => run.workflowSnapshot !== undefined && isTerminalRunStatus(run.status),
-  );
+  const needsRunAttribution = candidateRuns.some((run) => !isPlainRun(run) && isTerminalRunStatus(run.status));
   const { entryRunsById, pipelineAttributedRunIds } =
     activePipelines.length > 0 || needsRunAttribution
       ? loadStageAttributedLookups(store, candidatePipelines)
@@ -474,6 +660,23 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
 
   for (const incident of collectRunIncidents(runsForCollection, suppressedInvocationIds, pipelineAttributedRunIds)) {
     pushUndeliveredIncident(incidents, delivered, incident);
+  }
+
+  const invocations = collectWorkflowInvocations(
+    store,
+    candidateRuns,
+    ledger,
+    suppressedInvocationIds,
+    pipelineAttributedRunIds,
+  );
+  // An entry row can sit outside the recency window while a successor settles inside it.
+  const invocationDelivered = loadDeliveredIncidentKeys(
+    store,
+    invocations.map((invocation) => runIncidentId(invocation.entryRun.id)),
+  );
+  const isWorkflowInvocationLive = options.isWorkflowInvocationLive ?? (() => false);
+  for (const incident of collectInvocationIncidents(invocations, isWorkflowInvocationLive)) {
+    pushUndeliveredIncident(incidents, invocationDelivered, incident);
   }
 
   return incidents;

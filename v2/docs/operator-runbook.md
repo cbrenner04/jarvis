@@ -193,7 +193,7 @@ For ordinary in-repo input, `--spec` is resolved from the caller's cwd (launch f
 
 Append **`--detach`** to any preset invocation (or `jarvis pipeline start`) when the shell should not block on completion. Detach runs the same pre-admission validation and admission path as the default attached launch; stdout is the workflow **entry** run ID (or admitted pipeline ID) only, and exit **`0` means admitted**, not that the work succeeded. Attached mode keeps the shell open through entry-terminal `wait` (pipelines loop `pipeline_wait` through `awaiting-approval` boundaries until a terminal state, then print `{kind:"terminal",state}` JSON); exit `0` there means the workflow finished. The TUI dock `start` verb is detached the same way.
 
-**The entry run ID is not the row to wait on.** The entry frequently reports `completed` while the write row for the same spec is still `live` — the workflow continues under new run IDs (shrink, review, publication). `jarvis run wait <entry-id>` returning success is not the workflow finishing, and any run id you are handed goes stale quickly. Watch by **branch**, which is stable for the life of the work:
+**The entry run ID is not the row to wait on.** The entry frequently reports `completed` while the write row for the same spec is still `live` — the workflow continues under new run IDs (shrink, review, publication). `jarvis run wait <entry-id>` returning success is not the workflow finishing, and any run id you are handed goes stale quickly. The notification sink is the exception: its `run-ad-hoc-terminal` incident is derived per invocation and fires only once every row has settled, so one terminal incident means the workflow finished ([Operator notifications](#operator-notifications)). For inspection, watch by **branch**, which is stable for the life of the work:
 
 ```sh
 jarvis run list --branch <spec-dir-basename>
@@ -265,7 +265,7 @@ Plan completion records a bare spec **directory** on the stage artifact; chained
 
 ### Pipeline list and wait
 
-After a detached start, prefer the daemon's operator-notification sink (see [Operator notifications](#operator-notifications)) to learn when a pipeline reaches a gate or terminal boundary. For foreground blocking or one-off inspection, use wait or list:
+After a detached start, prefer the daemon's operator-notification sink (see [Operator notifications](#operator-notifications)) to learn when a pipeline reaches a gate or terminal boundary, or a workflow invocation settles. For foreground blocking or one-off inspection, use wait or list:
 
 ```sh
 jarvis pipeline wait <pipeline-id>                # block until terminal or awaiting-approval
@@ -406,7 +406,7 @@ Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)
 
 #### Operator notifications
 
-Configure a top-level `notificationSinkCommand` in `~/.jarvis/config.json` (see [install-and-config.md](./install-and-config.md#operator-notification-sink)). The daemon derives operator-actionable incidents from durable rows, diffs them against a delivery ledger, and spawns your command fire-and-forget with one JSON incident per stdin write. Dedupe key is `(incidentId, transition)` — a pipeline that reaches a gate and later fails notifies twice. Sink push is the primary path for backgrounded work; pull-side CLI complements it without replacing the sink.
+Configure a top-level `notificationSinkCommand` in `~/.jarvis/config.json` (see [install-and-config.md](./install-and-config.md#operator-notification-sink)). The daemon derives operator-actionable incidents from durable rows, diffs them against a delivery ledger, and spawns your command fire-and-forget with one JSON incident per stdin write. Dedupe key is `(incidentId, transition)` — a pipeline that reaches a gate and later fails notifies twice. A transition-format change (`NOTIFICATION_KEY_FORMAT_VERSION` bump) does not re-send already-settled incidents: the first daemon at the new version marks them delivered silently ([daemon-host.md § Key-format version](./daemon-host.md#operator-notifications)). Sink push is the primary path for backgrounded work; pull-side CLI complements it without replacing the sink.
 
 ```sh
 jarvis notifications wait [--since <cursor|duration|timestamp>] [--kind <incident-kind>]... [--project <name>]
@@ -427,7 +427,7 @@ done
 
 #### Deciding a workflow is finished
 
-**Primary path: configure `notificationSinkCommand` in `~/.jarvis/config.json` and let the daemon push.** A live daemon sweeps derived operator incidents after startup reconciliation, on a five-second timer, and after state transitions. Each owed `(incidentId, transition)` fires your shell command once with one JSON object on stdin (`kind`, `pipelineId`/`runId`, `transition`, `cause`, …). Pipeline approval gates, terminal pipeline outcomes, publication failures, wedged settlement, failed fan-out lanes (`stage-failed`, naming `branchKey`), blocked runs, budget-soft-stops, paused runs (`run-paused`), and ad-hoc workflow terminals surface at derived altitude — not as a burst of per-step run rows. See [install-and-config.md](./install-and-config.md#operator-notification-sink) and [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications). Without a sink configured the sweep still advances the delivery ledger silently; nothing spawns.
+**Primary path: configure `notificationSinkCommand` in `~/.jarvis/config.json` and let the daemon push.** A live daemon sweeps derived operator incidents after startup reconciliation, on a five-second timer, and after state transitions. Each owed `(incidentId, transition)` fires your shell command once with one JSON object on stdin (`kind`, `pipelineId`/`runId`, `transition`, `cause`, …). Pipeline approval gates, terminal pipeline outcomes, publication failures, wedged settlement, failed fan-out lanes (`stage-failed`, naming `branchKey`), blocked runs, budget-soft-stops, paused runs (`run-paused`), and ad-hoc run terminals (`run-ad-hoc-terminal`: one per workflow invocation, keyed on its entry run, or one per plain `run start` row) surface at derived altitude — not as a burst of per-step run rows. A workflow's `run-ad-hoc-terminal` fires only when the whole invocation settles, so a terminal incident means the workflow finished (or failed, or was killed); no `run list --branch` re-check is needed after it. See [install-and-config.md](./install-and-config.md#operator-notification-sink) and [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications). Without a sink configured the sweep still advances the delivery ledger silently; nothing spawns.
 
 **The sink file is yours to truncate.** The operator sink on this machine appends each incident as one JSON line to `~/.jarvis/notifications.jsonl` (`notificationSinkCommand: { cat; printf "\n"; } >> ~/.jarvis/notifications.jsonl`). Nothing reads that file: the daemon's own delivery ledger is the SQLite `operator_notification_deliveries` table, and `jarvis notifications wait|list` read that, so the file exists only to `tail`/`grep` during a session. It is append-only across every project on the shared daemon (1,200 lines after nine days) — truncate it when you finish a session. The daemon re-reads `notificationSinkCommand` on every sweep, so changing the target path needs no restart.
 
@@ -441,7 +441,7 @@ done
 - **Match on any process, not on `bun`.** One-shot: `lsof +D ~/.jarvis/worktrees/<project>/<branch> | tail -n +2 | awk '{print $1}' | sort -u`. **Do not poll `lsof +D` on a loop** — it is expensive. To estimate fleet settle, count agent processes once: `ps ax -o comm= | grep -cE 'codex|cursor-agent|claude'`.
 - **Match the `live` field, never grep the substring.** `grep -q "live"` matches `not-live`. Use `jarvis run list | awk -F'\t' '$5=="live"'` for a one-off check, not a polling loop.
 - **`in-progress` + `not-live` is normal during publication-and-gate tail** (~8–15 minutes for a full aggregate suite). Check `jarvis run log <id>` for `loop_finished` before concluding a strand.
-- **Publication row dispatches late.** A settled write+review pair with no PR yet does not mean publication was skipped. Check `jarvis run list --branch <spec-dir>` for the publication row before hand-finishing.
+- **Publication row dispatches late.** A settled write+review pair with no PR yet does not mean publication was skipped. Check `jarvis run list --branch <spec-dir>` for the publication row before hand-finishing. A `run-ad-hoc-terminal` incident for the invocation already implies that row settled, since the incident rolls up every row.
 - **`jarvis run log` records lifecycle events, not the agent stream.** Silence there is not evidence of a stall.
 - **An empty query result is not evidence.** Prove malformed queries (`grep "live"` matching `not-live`, wrong telemetry keys, sandboxed `git`/`gh`) before concluding absence.
 

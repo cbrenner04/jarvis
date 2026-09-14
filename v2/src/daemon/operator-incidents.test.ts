@@ -255,7 +255,10 @@ function expectResumableStopNotifiesTwice(
     branch: status,
     specPath: "spec.md",
     ...(status === "failed"
-      ? { workflowSnapshot: { invocationId: "inv-ad-hoc", steps: [{ stepId: "plan", role: "plan" as const }] } }
+      ? {
+          stepId: "plan",
+          workflowSnapshot: { invocationId: "inv-ad-hoc", steps: [{ stepId: "plan", role: "plan" as const }] },
+        }
       : {}),
   });
   store.setRunStatus(runId, status);
@@ -401,4 +404,225 @@ test("each newly reached fan-out gate notifies once while an earlier gate stays 
   ]);
   deliverAll();
   expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("plain run without a workflow snapshot notifies on every terminal settlement", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "plain",
+    specPath: "s.md",
+  });
+  store.setRunStatus(runId, "failed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "run-ad-hoc-terminal",
+      runId,
+      project: "demo",
+      transition: "terminal:failed:1000000",
+    }),
+  ]);
+  deliverAll();
+
+  setSystemTime(new Date(1_001_000));
+  store.setRunStatus(runId, "in-progress");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+  setSystemTime(new Date(1_002_000));
+  store.setRunStatus(runId, "killed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "run-ad-hoc-terminal", runId, transition: "terminal:killed:1002000" }),
+  ]);
+});
+
+test("a reachable gate still pending notifies on the predecessor fallback; the boundary commit re-keys it", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  const gate = store.loadPipeline(pipelineId)?.stages[0];
+  if (gate === undefined) throw new Error("expected gate row");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      pipelineId,
+      transition: "awaiting-approval:gate:default:1000000",
+      sinceMs: 1_000_000,
+    }),
+  ]);
+
+  setSystemTime(new Date(1_003_000));
+  expect(store.commitApprovalBoundary({ stageRecordId: gate.id }).kind).toBe("applied");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      pipelineId,
+      transition: "awaiting-approval:gate:default:1003000",
+      sinceMs: 1_003_000,
+    }),
+  ]);
+});
+
+test("a gate re-reached with no predecessor re-run notifies again", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      transition: "awaiting-approval:gate:default:1000000",
+    }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "pending" } });
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+  expect(store.loadPipeline(pipelineId)?.stages[0]?.awaitingSince).toBe(1_000_000);
+  setSystemTime(new Date(1_005_000));
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      transition: "awaiting-approval:gate:default:1005000",
+    }),
+  ]);
+});
+
+test("a legacy awaiting row without awaiting_since keys on predecessor settlement", () => {
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE pipeline_stages SET awaiting_since = NULL WHERE pipeline_id = ?").run(pipelineId);
+  } finally {
+    raw.close();
+  }
+  const createdAt = store.loadPipeline(pipelineId)?.createdAt;
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ transition: `awaiting-approval:gate:default:${createdAt}`, sinceMs: createdAt }),
+  ]);
+});
+
+const TWO_STEP_SNAPSHOT = {
+  invocationId: "inv-two-step",
+  steps: [
+    { stepId: "plan", role: "plan" as const },
+    { stepId: "review", role: "review" as const },
+  ],
+};
+
+function seedInvocationRow(stepId: string, status: "completed" | "in-progress" | "killed" | "failed"): string {
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "two-step",
+    specPath: "s.md",
+    stepId,
+    workflowSnapshot: TWO_STEP_SNAPSHOT,
+  });
+  if (status !== "in-progress") store.setRunStatus(runId, status);
+  return runId;
+}
+
+test("multi-row workflow invocation emits one terminal incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  setSystemTime(new Date(1_005_000));
+  seedInvocationRow("review", "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "run-ad-hoc-terminal",
+      runId: entryRunId,
+      cause: "completed",
+      transition: "terminal:completed:1005000",
+      sinceMs: 1_005_000,
+      project: "demo",
+    }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("entry row terminal does not emit while successors are live", () => {
+  seedInvocationRow("plan", "completed");
+  seedInvocationRow("review", "in-progress");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("entry row terminal does not emit while this daemon still drives the invocation", () => {
+  const entryRunId = seedInvocationRow("plan", "completed");
+  seedInvocationRow("review", "completed");
+  expect(deriveOperatorIncidents(store, Date.now(), { isWorkflowInvocationLive: (id) => id === entryRunId })).toEqual(
+    [],
+  );
+});
+
+test("a durable step with no row yet is a dispatch gap, not a killed invocation", () => {
+  seedInvocationRow("plan", "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("a successor row killed by reconciliation settles the invocation once", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  setSystemTime(new Date(1_002_000));
+  seedInvocationRow("review", "killed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "killed", transition: "terminal:killed:1002000" }),
+  ]);
+});
+
+test("ad-hoc run without an invocation still emits its terminal incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "p",
+    specPath: "s.md",
+  });
+  store.setRunStatus(runId, "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "run-ad-hoc-terminal", runId, transition: "terminal:completed:1000000" }),
+  ]);
+});
+
+test("review settled, publication not yet dispatched, still live emits nothing", () => {
+  const THREE_STEP = {
+    invocationId: "inv-three-step",
+    steps: [
+      { stepId: "plan", role: "plan" as const },
+      { stepId: "review", role: "review" as const },
+      { stepId: "publication", role: "publication" as const },
+    ],
+  };
+  const seed = (stepId: string): string => {
+    const runId = store.createRun({
+      project: "demo",
+      specRef: "HEAD",
+      worktreePath: "/tmp/w",
+      branch: "three-step",
+      specPath: "s.md",
+      stepId,
+      workflowSnapshot: THREE_STEP,
+    });
+    store.setRunStatus(runId, "completed");
+    return runId;
+  };
+  const entryRunId = seed("plan");
+  seed("review");
+  const live = { isWorkflowInvocationLive: (id: string) => id === entryRunId };
+  expect(deriveOperatorIncidents(store, Date.now(), live)).toEqual([]);
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  seed("publication");
+  expect(deriveOperatorIncidents(store, Date.now(), live)).toEqual([]);
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId: entryRunId, cause: "completed" })]);
 });

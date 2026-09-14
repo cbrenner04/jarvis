@@ -633,6 +633,8 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     hasNotificationDelivery: () => false,
     listNotificationDeliveriesForIncidentIds: () => [],
     tryRecordNotificationDelivery: () => true,
+    loadNotificationKeyFormatVersion: () => null,
+    recordNotificationKeyFormatVersion: () => {},
     reconcilePipelines: async () => {
       order.push("pipelines");
       return [];

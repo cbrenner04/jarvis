@@ -581,6 +581,8 @@ export type PipelineStageRecord = {
   failureDetail: unknown | null;
   /** Unix epoch ms of the approval decision; `null` until decided. */
   decidedAt: number | null;
+  /** Unix epoch ms of the latest write into `awaiting`; `null` on rows never awaiting, reopened rows, and pre-column rows. */
+  awaitingSince?: number | null;
 };
 
 /**
@@ -976,6 +978,12 @@ export interface StateStore {
   /** Undo a claim so a failed sink spawn can retry on the next sweep. */
   releaseNotificationDelivery(args: { incidentId: string; transition: string }): void;
 
+  /** Notification key-format version the ledger was last reconciled against; `null` before any reconcile. */
+  loadNotificationKeyFormatVersion(): number | null;
+
+  /** Record the key-format version the ledger is now reconciled against. */
+  recordNotificationKeyFormatVersion(version: number): void;
+
   /** True once {@link close} has run — deferred daemon work must check this rather than race a closed DB. */
   isClosed(): boolean;
 
@@ -1152,6 +1160,7 @@ const SCHEMA = `
     artifact TEXT,
     failure_detail TEXT,
     decided_at INTEGER,
+    awaiting_since INTEGER,
     UNIQUE (pipeline_id, stage_id, branch_key)
   );
   CREATE TABLE IF NOT EXISTS pipeline_stage_admission (
@@ -1167,6 +1176,10 @@ const SCHEMA = `
     delivered_at INTEGER NOT NULL,
     incident_json TEXT,
     PRIMARY KEY (incident_id, transition)
+  );
+  CREATE TABLE IF NOT EXISTS operator_notification_key_format (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    version INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS run_time_budgets (
     budget_key TEXT PRIMARY KEY,
@@ -1203,7 +1216,8 @@ const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS o
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
   skip_provenance AS skipProvenance,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
-  artifact AS artifactJson, failure_detail AS failureDetailJson, decided_at AS decidedAt`;
+  artifact AS artifactJson, failure_detail AS failureDetailJson, decided_at AS decidedAt,
+  awaiting_since AS awaitingSince`;
 
 const INSERT_PIPELINE_STAGE_SQL = `
   INSERT INTO pipeline_stages (
@@ -1795,6 +1809,15 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
+    addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
+    // Guarded: fixture and pre-migration stores can open without a `workflow_snapshot` column.
+    if (tableHasColumn(this.db, "runs", "workflow_snapshot")) {
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS runs_workflow_invocation_id
+          ON runs (json_extract(workflow_snapshot, '$.invocationId'))
+          WHERE workflow_snapshot IS NOT NULL
+      `);
+    }
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
@@ -2147,6 +2170,7 @@ class StateStoreImpl implements StateStore {
       refusalReason: "status_not_pending",
       nextStatus: "awaiting",
       decidedAt: null,
+      awaitingSince: Date.now(),
     });
   }
 
@@ -2160,6 +2184,7 @@ class StateStoreImpl implements StateStore {
       refusalReason: "status_not_awaiting",
       nextStatus: args.decision,
       decidedAt: Date.now(),
+      awaitingSince: null,
     });
   }
 
@@ -2301,6 +2326,7 @@ class StateStoreImpl implements StateStore {
             ended_at = NULL,
             artifact = NULL,
             decided_at = NULL,
+            awaiting_since = NULL,
             failure_detail = NULL
         WHERE id = ? AND status = ?
       `);
@@ -2350,6 +2376,7 @@ class StateStoreImpl implements StateStore {
             ended_at = NULL,
             artifact = NULL,
             decided_at = NULL,
+            awaiting_since = NULL,
             failure_detail = NULL
         WHERE id = ? AND status = 'skipped' AND skip_provenance = 'provisional'
       `);
@@ -2428,6 +2455,8 @@ class StateStoreImpl implements StateStore {
     refusalReason: Extract<ApprovalRefusalReason, "status_not_pending" | "status_not_awaiting">;
     nextStatus: string;
     decidedAt: number | null;
+    /** Stamped on the `awaiting` write; `null` keeps the existing value across a decision. */
+    awaitingSince: number | null;
   }): ApprovalOperationOutcome {
     const stage = this.loadStageById(args.stageRecordId);
     if (stage === null) {
@@ -2446,8 +2475,11 @@ class StateStoreImpl implements StateStore {
     }
 
     const result = this.db
-      .prepare(`UPDATE pipeline_stages SET status = ?, decided_at = ? WHERE id = ? AND status = ?`)
-      .run(args.nextStatus, args.decidedAt, args.stageRecordId, args.requiredStatus);
+      .prepare(
+        `UPDATE pipeline_stages SET status = ?, decided_at = ?, awaiting_since = COALESCE(?, awaiting_since)
+         WHERE id = ? AND status = ?`,
+      )
+      .run(args.nextStatus, args.decidedAt, args.awaitingSince, args.stageRecordId, args.requiredStatus);
     if (result.changes === 0) {
       return { kind: "refused", stageRecordId: args.stageRecordId, reason: args.refusalReason };
     }
@@ -2498,6 +2530,11 @@ class StateStoreImpl implements StateStore {
     }
     if (patch.status !== undefined && patch.status !== "skipped") {
       setClauses.push("skip_provenance = NULL");
+    }
+    // Every write into `awaiting` stamps `awaiting_since` here, so no caller can reach a gate unstamped.
+    if (patch.status === "awaiting") {
+      setClauses.push("awaiting_since = ?");
+      params.push(Date.now());
     }
     params.push(args.pipelineId, args.stageId, branchKey);
     // `requiredStatus` makes the write a compare-and-set, so a settlement racing another writer
@@ -2924,8 +2961,7 @@ class StateStoreImpl implements StateStore {
            WHERE status IN (${statusPlaceholders})
              AND (
                status NOT IN (${TERMINAL_RUN_STATUSES_SQL})
-               OR finished_at IS NULL
-               OR finished_at >= ?
+               OR COALESCE(finished_at, status_changed_at, created_at) >= ?
              )
            ORDER BY created_at DESC, rowid DESC`,
         )
@@ -3045,6 +3081,21 @@ class StateStoreImpl implements StateStore {
     this.db
       .prepare("DELETE FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ?")
       .run(args.incidentId, args.transition);
+  }
+
+  loadNotificationKeyFormatVersion(): number | null {
+    const row = this.db.prepare("SELECT version FROM operator_notification_key_format WHERE id = 1").get() as {
+      version: number;
+    } | null;
+    return row === null ? null : row.version;
+  }
+
+  recordNotificationKeyFormatVersion(version: number): void {
+    this.db
+      .prepare(
+        "INSERT INTO operator_notification_key_format (id, version) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
+      )
+      .run(version);
   }
 
   private closed = false;

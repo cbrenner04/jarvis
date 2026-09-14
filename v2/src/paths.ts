@@ -52,3 +52,8 @@ export function specsRoot(jarvisRoot: string = jarvisHome()): string {
 export function specsHome(projectKey: string, jarvisRoot: string = jarvisHome()): string {
   return join(specsRoot(jarvisRoot), projectSafeId(projectKey));
 }
+
+/** A project's intent scratch root, under its specs home. */
+export function intentWorkRoot(projectKey: string, jarvisRoot: string = jarvisHome()): string {
+  return join(specsHome(projectKey, jarvisRoot), "intent-work");
+}

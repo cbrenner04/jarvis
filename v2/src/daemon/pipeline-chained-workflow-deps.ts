@@ -1,12 +1,11 @@
 import { join, resolve, sep } from "node:path";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import { type ResolveSpecsHomeResult, resolveSpecsHome } from "../config/specs-home.ts";
 import type { BuildImplementWorkflowStepsDeps } from "../execution/implement-workflow-steps.ts";
 import type { PlanWorkflowDeps } from "../execution/publication-workflow-steps.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
-import { jarvisHome, specsHome, worktreesRoot } from "../paths.ts";
+import { intentWorkRoot, jarvisHome, specsHome, worktreesRoot } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 
 function isUnderPath(child: string, parent: string): boolean {
@@ -54,10 +53,9 @@ export function createChainedStageProjectMatch(context: PipelineContext): (path:
     const resolved = resolve(path);
     const jarvisRoot = jarvisHome();
     for (const key of Object.keys(registry)) {
-      const safeId = projectSafeId(key);
       if (
         isUnderPath(resolved, join(worktreesRoot(jarvisRoot), key)) ||
-        isUnderPath(resolved, join(jarvisRoot, "intent-work", safeId)) ||
+        isUnderPath(resolved, intentWorkRoot(key, jarvisRoot)) ||
         isUnderPath(resolved, specsHome(key, jarvisRoot))
       ) {
         return { key, root: admissionRoot };

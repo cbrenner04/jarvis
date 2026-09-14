@@ -7,7 +7,6 @@ import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts"
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import {
   INTENT_REVIEW_DEBATE_ROLE_PROMPT_IDS,
   intentReviewPromptProfile,
@@ -16,7 +15,7 @@ import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts"
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { resolveSpecsHome } from "../config/specs-home.ts";
-import { jarvisHome, managedWorktreePath, specsHome } from "../paths.ts";
+import { intentWorkRoot, jarvisHome, managedWorktreePath, specsHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import {
@@ -353,7 +352,7 @@ function intentSource(
     if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
     const root = input.jarvisRoot ?? jarvisHome();
     const branch = `intent/${seed.slug}`;
-    const localPath = join(root, "intent-work", projectSafeId(project.key), seed.slug);
+    const localPath = join(intentWorkRoot(project.key, root), seed.slug);
     const durableDir = publishGit
       ? join(targetDir, "ready-intents")
       : join(specsHome(project.key, root), "ready-intents");

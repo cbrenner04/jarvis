@@ -16,6 +16,7 @@ import {
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
+import { intentWorkRoot } from "../paths.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
@@ -994,7 +995,7 @@ describe("resolveStageWorkflowSteps", () => {
     withIsolatedJarvisHome((jarvisRoot) => {
       const readyIntentRel = "spec/ready-intents/feature.md";
       const { admissionRoot, projectKey, context } = gitDisabledPipelineContext();
-      const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId(projectKey), "feature");
+      const intentWorktree = join(intentWorkRoot(projectKey, jarvisRoot), "feature");
       mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
       writeFileSync(
         join(intentWorktree, readyIntentRel),
@@ -1049,7 +1050,7 @@ describe("resolveStageWorkflowSteps", () => {
       const configPath = writeHomeMachineConfig({
         projects: { demo: { root: admissionRoot, specs: "external" } },
       });
-      const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
+      const intentWorktree = join(intentWorkRoot("demo", jarvisRoot), "feature");
       mkdirSync(intentWorktree, { recursive: true });
       const readyIntentsHome = join(jarvisRoot, "specs", projectSafeId("demo"), "ready-intents");
       mkdirSync(readyIntentsHome, { recursive: true });
@@ -1083,7 +1084,7 @@ describe("resolveStageWorkflowSteps", () => {
       const configPath = writeHomeMachineConfig({
         projects: { demo: { root: admissionRoot } },
       });
-      const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
+      const intentWorktree = join(intentWorkRoot("demo", jarvisRoot), "feature");
       mkdirSync(intentWorktree, { recursive: true });
       const readyIntentsHome = join(jarvisRoot, "specs", projectSafeId("demo"), "ready-intents");
       mkdirSync(readyIntentsHome, { recursive: true });
@@ -1119,7 +1120,7 @@ describe("resolveStageWorkflowSteps", () => {
       const configPath = writeHomeMachineConfig({
         projects: { demo: { root: admissionRoot, specs: "repo" } },
       });
-      const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
+      const intentWorktree = join(intentWorkRoot("demo", jarvisRoot), "feature");
       mkdirSync(intentWorktree, { recursive: true });
       const readyIntentsHome = join(jarvisRoot, "specs", projectSafeId("demo"), "ready-intents");
       mkdirSync(readyIntentsHome, { recursive: true });
@@ -1158,7 +1159,7 @@ describe("resolveStageWorkflowSteps", () => {
           other: { root: otherAdmissionRoot, specs: "external" },
         },
       });
-      const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
+      const intentWorktree = join(intentWorkRoot("demo", jarvisRoot), "feature");
       mkdirSync(intentWorktree, { recursive: true });
       const otherReadyIntentsHome = join(jarvisRoot, "specs", projectSafeId("other"), "ready-intents");
       mkdirSync(otherReadyIntentsHome, { recursive: true });
@@ -1891,7 +1892,7 @@ describe("createChainedStageProjectMatch", () => {
 
   test("resolves intent-work slug path to registered key and admission cwd", () => {
     const { admissionRoot, match } = isolatedChainedMatcher("pipeline-match-intent-admission-", "demo");
-    const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
+    const intentWorktree = join(intentWorkRoot("demo", jarvisRoot), "feature");
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     expect(match(join(intentWorktree, "spec/ready-intents/feature.md"))).toEqual({ key: "demo", root: admissionRoot });
   });
@@ -1907,7 +1908,7 @@ describe("createChainedStageProjectMatch", () => {
     const projectKey = "Org/Repo";
     const safeId = projectSafeId(projectKey);
     const { admissionRoot, match } = isolatedChainedMatcher("pipeline-match-slash-admission-", projectKey);
-    const intentWorktree = join(jarvisRoot, "intent-work", safeId, "feature");
+    const intentWorktree = join(intentWorkRoot(projectKey, jarvisRoot), "feature");
     const planWorktree = join(jarvisRoot, "specs", safeId, "plans", "feature");
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });

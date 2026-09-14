@@ -72,4 +72,20 @@ describe("session log writer", () => {
     expect(() => log.append("harness", "should not throw")).not.toThrow();
     expect(() => log.close()).not.toThrow();
   });
+
+  test("without sessionsDir, writes under <JARVIS_HOME>/sessions", () => {
+    const previousJarvisHome = process.env.JARVIS_HOME;
+    process.env.JARVIS_HOME = scratchDir;
+    try {
+      const log = openSessionLog("write", "jarvis-home", {});
+      log.append("harness", "hello");
+      log.close();
+
+      const content = readFileSync(join(scratchDir, "sessions", "write-jarvis-home.log"), "utf8");
+      expect(content).toContain("[harness] hello");
+    } finally {
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
+    }
+  });
 });

@@ -1,10 +1,7 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { jarvisHome } from "../../shared/paths.ts";
 
-/** The only jarvis-home resolver: `homedir()` elsewhere escapes the tests' isolated home. */
-export function jarvisHome(): string {
-  return process.env.JARVIS_HOME ?? join(homedir(), ".jarvis");
-}
+export { jarvisHome };
 
 export const DAEMON_SOCKET_PATH = join(jarvisHome(), "daemon.sock");
 export const DAEMON_PID_PATH = join(jarvisHome(), "daemon.pid");

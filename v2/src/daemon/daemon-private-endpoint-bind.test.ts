@@ -225,3 +225,47 @@ test("binds direct-owner routing only on the stable endpoint so private calls ca
 
   await runtime.close();
 });
+
+test("binds predecessor-merging pipeline_list only on the stable endpoint so private calls stay local-only", async () => {
+  const boundHandlers = new Map<string, Record<string, RpcHandler>>();
+  const ownerConnectAttempts: string[] = [];
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: async (socketPath, handlers = {}) => {
+      boundHandlers.set(socketPath, handlers);
+      return { socketPath, close: async () => undefined };
+    },
+    privateSocketPath: "/fake/private.sock",
+    predecessorSocketPath: "/fake/predecessor.sock",
+    enumerateOtherDaemonSockets: () => [],
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    observeRunOwnership: () => ({ ownerRow: () => undefined, resolveOwner: async () => false, stop: () => undefined }),
+    connectRunOwnerClient: async (socketPath) => {
+      ownerConnectAttempts.push(socketPath);
+      throw new Error("connection refused");
+    },
+  });
+
+  const privatePipelineList = boundHandlers.get("/fake/private.sock")?.pipeline_list;
+  const publicPipelineList = boundHandlers.get("/fake/public.sock")?.pipeline_list;
+  expect(privatePipelineList).toBeDefined();
+  expect(publicPipelineList).toBeDefined();
+  expect(privatePipelineList).not.toBe(publicPipelineList);
+
+  const request = { kind: "request", id: "pipeline_list", method: "pipeline_list", params: undefined } as const;
+
+  // The private endpoint runs the local handler directly: no predecessor connect attempt, no
+  // `degraded` field even though a predecessor is configured.
+  const privateReply = await privatePipelineList?.(request, new AbortController().signal);
+  expect(privateReply).toEqual({ kind: "response", result: { pipelines: [] } });
+  expect(ownerConnectAttempts).toEqual([]);
+
+  // The same request through the stable endpoint attempts the predecessor merge and degrades
+  // when it fails to connect, proving the private endpoint above skipped the merge rather than
+  // merely finding no predecessor pipelines.
+  const publicReply = await publicPipelineList?.(request, new AbortController().signal);
+  expect(publicReply).toEqual({ kind: "response", result: { pipelines: [], degraded: true } });
+  expect(ownerConnectAttempts).toEqual(["/fake/predecessor.sock"]);
+
+  await runtime.close();
+});

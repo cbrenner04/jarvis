@@ -69,7 +69,7 @@ import {
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
-import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import { createStablePipelineListHandler, createStableRunHandlers } from "./daemon-stable-run-routing.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -1286,15 +1286,21 @@ export async function startDaemonRuntime(
   const stableRunHandlers =
     startupDeps.predecessorSocketPath === undefined
       ? undefined
-      : createStableRunHandlers(
-          { wait: runControlHandlers.wait, pause: runControlHandlers.pause, kill: runControlHandlers.kill },
-          {
+      : {
+          ...createStableRunHandlers(
+            { wait: runControlHandlers.wait, pause: runControlHandlers.pause, kill: runControlHandlers.kill },
+            {
+              predecessorSocketPath: startupDeps.predecessorSocketPath,
+              ownsRunLocally,
+              resolvePredecessorOwner: ownershipDirectory.resolveOwner,
+              connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
+            },
+          ),
+          pipeline_list: createStablePipelineListHandler(runControlHandlers.pipeline_list, {
             predecessorSocketPath: startupDeps.predecessorSocketPath,
-            ownsRunLocally,
-            resolvePredecessorOwner: ownershipDirectory.resolveOwner,
             connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
-          },
-        );
+          }),
+        };
 
   // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
   // it fires on any admission cut, client-initiated or self-triggered, without permanently
@@ -1351,12 +1357,15 @@ export async function startDaemonRuntime(
     ...stableRunHandlers,
   };
 
-  // Private endpoints skip stable-only direct-owner routing even when `handlers` carries it.
+  // Private endpoints skip stable-only direct-owner routing and predecessor pipeline_list merge
+  // even when `handlers` carries them — a predecessor querying its successor's private endpoint
+  // must never recurse.
   const privateHandlers = {
     ...handlers,
     wait: runControlHandlers.wait,
     pause: runControlHandlers.pause,
     kill: runControlHandlers.kill,
+    pipeline_list: runControlHandlers.pipeline_list,
   };
 
   try {

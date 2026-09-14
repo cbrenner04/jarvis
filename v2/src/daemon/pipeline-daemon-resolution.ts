@@ -8,7 +8,8 @@ import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pip
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
 import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query-daemon-lists-from-sockets.ts";
 
-const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
+/** Outer CLI-facing RPC timeout for pipeline owner/list resolution. Predecessor merge queries (`daemon-stable-run-routing.ts`) use a strictly shorter timeout so a slow predecessor cannot push a stable reply past this bound. */
+export const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
 
 export const PIPELINE_NO_LIVE_OWNER_RECOVERY = "jarvis daemon start, then retry";
 /** `not_owner` now means a live foreign owner that did not answer (a dead owner is adopted by the answering daemon). */

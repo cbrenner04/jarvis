@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,7 @@ import {
   type InvocationCompletedRecord,
   type InvocationResult,
   type InvocationTelemetrySink,
+  TEXT_FIELD_CAP_CHARS,
 } from "./execute.ts";
 import { openSessionLog, type SessionLog, type SessionLogTag } from "./session-log.ts";
 
@@ -638,5 +639,90 @@ describe("shared invocation fallback", () => {
       bindings: [binding("err", { kind: "error", exitCode: 1, stderr: "spawn failed" })],
     });
     expect(errorLog.lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["spawn failed"]);
+  });
+});
+
+/**
+ * Asserts `capped` is `text` capped at `TEXT_FIELD_CAP_CHARS`: a
+ * `[truncated, dropped N chars]` marker followed by `text`'s tail, marker + tail
+ * summing to the cap, and N equal to the actual number of head chars dropped
+ * (not just self-consistent with whatever marker/tail the implementation picked).
+ */
+function expectCappedField(capped: string, text: string): void {
+  const match = capped.match(/^\[truncated, dropped (\d+) chars\] /);
+  expect(match).not.toBeNull();
+  const marker = match?.[0] ?? "";
+  const statedDropped = Number(match?.[1]);
+  expect(capped.length).toBe(TEXT_FIELD_CAP_CHARS);
+  const tailLength = TEXT_FIELD_CAP_CHARS - marker.length;
+  expect(capped.slice(marker.length)).toBe(text.slice(text.length - tailLength));
+  expect(statedDropped).toBe(text.length - tailLength);
+}
+
+describe("telemetry text field cap", () => {
+  // Chosen so the marker-sizing fixed point needs two rounds to settle (an initial
+  // 2-digit dropped-count guess is superseded by the true 3-digit count) instead of
+  // being stable on the first pass, exercising the loop's convergence check for real.
+  const OVERSIZED_LENGTH = 4166;
+
+  test("caps an oversized exit_reason while the session log keeps the full stderr line", async () => {
+    const longStderr = `quota exceeded: ${"x".repeat(OVERSIZED_LENGTH - "quota exceeded: ".length)}`;
+    const namespace = "cap-exit-reason";
+    const timestamp = "2026-09-14T00-00-00-000Z";
+    const log = openSessionLog(namespace, timestamp, { sessionsDir: scratchDir });
+    const rows: InvocationCompletedRecord[] = [];
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: log,
+      bindings: [binding("first", { kind: "quota", stderr: longStderr })],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+    log.close();
+
+    const exitReason = rows[0]?.exit_reason;
+    expect(exitReason).not.toBeNull();
+    expectCappedField(exitReason as string, longStderr);
+
+    const logContents = readFileSync(join(scratchDir, `${namespace}-${timestamp}.log`), "utf8");
+    expect(logContents).toContain(longStderr);
+  });
+
+  test("caps an oversized warnings entry independently, leaving the array length and other entries unchanged", async () => {
+    const oversizedWarning = `codex usage unavailable: ${"y".repeat(OVERSIZED_LENGTH - "codex usage unavailable: ".length)}`;
+    const normalWarning = "normal warning under the cap";
+    const rows: InvocationCompletedRecord[] = [];
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "codex-binding",
+          metadata: { agent: "codex", model: "gpt-5" },
+          invoke: async () => ({
+            kind: "ok" as const,
+            stdout: "response",
+            stderr: "",
+            warnings: [oversizedWarning, normalWarning],
+          }),
+        },
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    const warnings = rows[0]?.warnings ?? [];
+    expect(warnings).toHaveLength(2);
+    expect(warnings[1]).toBe(normalWarning);
+    expectCappedField(warnings[0] ?? "", oversizedWarning);
   });
 });

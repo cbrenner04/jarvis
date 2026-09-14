@@ -69,7 +69,11 @@ import {
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers, createStableAdmissionHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
-import { createStablePipelineListHandler, createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import {
+  createStablePipelineDecisionHandlers,
+  createStablePipelineListHandler,
+  createStableRunHandlers,
+} from "./daemon-stable-run-routing.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -1300,6 +1304,19 @@ export async function startDaemonRuntime(
             predecessorSocketPath: startupDeps.predecessorSocketPath,
             connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
           }),
+          ...createStablePipelineDecisionHandlers(
+            {
+              pipeline_approve: runControlHandlers.pipeline_approve,
+              pipeline_reject: runControlHandlers.pipeline_reject,
+              pipeline_resume: runControlHandlers.pipeline_resume,
+              pipeline_recover: runControlHandlers.pipeline_recover,
+            },
+            {
+              store: runControlContext.store,
+              predecessorSocketPath: startupDeps.predecessorSocketPath,
+              connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
+            },
+          ),
         };
   // Stable-address-only, like `stableRunHandlers` above: a reachable direct predecessor still
   // owning the target run or worktree key is an admission conflict, refused before the local
@@ -1379,6 +1396,10 @@ export async function startDaemonRuntime(
     pipeline_list: runControlHandlers.pipeline_list,
     resume: runControlHandlers.resume,
     start: runControlHandlers.start,
+    pipeline_approve: runControlHandlers.pipeline_approve,
+    pipeline_reject: runControlHandlers.pipeline_reject,
+    pipeline_resume: runControlHandlers.pipeline_resume,
+    pipeline_recover: runControlHandlers.pipeline_recover,
   };
 
   try {

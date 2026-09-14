@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "../../../shared/subprocess.ts";
 
 const SUBSPEC_FIRST_BODY_LINE_PREFIX = "Spec: ";
 const COMMIT_FIELD_SEP = "\x1f";
@@ -41,10 +42,15 @@ type Git = (cwd: string, args: readonly string[]) => Promise<string>;
 
 function defaultGit(cwd: string, args: readonly string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, env: process.env, encoding: "utf8" }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout ?? "");
-    });
+    execFile(
+      "git",
+      args,
+      { cwd, env: process.env, encoding: "utf8", timeout: DEFAULT_SUBPROCESS_TIMEOUT_MS },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(stdout ?? "");
+      },
+    );
   });
 }
 

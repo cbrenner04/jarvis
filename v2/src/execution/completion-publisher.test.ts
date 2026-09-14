@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   AmbiguousOpenPrError,
   type CompletionPublisherInput,
@@ -680,6 +680,47 @@ describe("createCompletionPublisher", () => {
       "push: Connection reset by peer; exit=unknown; retrying (attempt 2/3)",
       "push: Connection reset by peer; exit=unknown; retrying (attempt 3/3)",
     ]);
+  });
+
+  it("a gh pr create that timed out after applying is not duplicated on retry: the retry resolves the existing PR", async () => {
+    let prCreated = false;
+    const creates: string[][] = [];
+    const mockGh = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "pr" && args[1] === "list") {
+        return JSON.stringify(prCreated ? [{ number: 77, baseRefName: "main", isDraft: true }] : []);
+      }
+      if (args[0] === "pr" && args[1] === "create") {
+        creates.push([...args]);
+        prCreated = true; // applied server-side, but the client timed out
+        throw new AsyncSubprocessError(
+          "Command timed out after 180000ms: gh pr create",
+          undefined,
+          "",
+          "",
+          "ETIMEDOUT",
+        );
+      }
+      if (args[0] === "pr" && args[1] === "view") return viewPr(77, "https://github.com/user/repo/pull/77");
+      return "";
+    };
+    const subprocessRunner: AsyncSubprocessRunner = {
+      async runAsync(_cmd, args) {
+        return args[0] === "ls-remote" ? "abc\trefs/heads/main\n" : "";
+      },
+    };
+
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => (args[0] === "rev-parse" ? "abc123" : ""),
+      gh: mockGh,
+      delay: async () => {},
+      retryNotice: () => {},
+      subprocessRunner,
+      ...noopRefreshSeams,
+    });
+    const result = await publisher(baseInput);
+
+    expect(creates).toHaveLength(1);
+    expect(result.prNumber).toBe(77);
   });
 
   it("throws after 3 failed push attempts", async () => {

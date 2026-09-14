@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, refreshPrBody } from "./pr-body-refresh.ts";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  defaultWritePrBody,
+  extractNarrative,
+  NARRATIVE_END_MARKER,
+  NARRATIVE_START_MARKER,
+  refreshPrBody,
+} from "./pr-body-refresh.ts";
 
 describe("extractNarrative", () => {
   test("returns null when markers are absent", () => {
@@ -349,4 +357,21 @@ describe("refreshPrBody", () => {
     expect(writtenBody1).not.toContain(NARRATIVE_START_MARKER);
     expect(writtenBody2).not.toContain(NARRATIVE_START_MARKER);
   });
+});
+
+describe("defaultWritePrBody", () => {
+  test("kills a hung gh pr edit at the bound and rejects with a retryable timeout message", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-body-"));
+    const fakeGh = join(dir, "gh");
+    writeFileSync(fakeGh, "#!/bin/sh\nexec sleep 30\n");
+    chmodSync(fakeGh, 0o755);
+    try {
+      await expect(defaultWritePrBody("branch", "body", dir, 100, fakeGh)).rejects.toThrow(
+        /^Command timed out after 100ms: /,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 5000);
 });

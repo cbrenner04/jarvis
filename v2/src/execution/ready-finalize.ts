@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
 import {
   DEADLINE_KILL_MARKER,
+  DEFAULT_TIMEOUT_MS as READY_RUN_CEILING_MS,
   READY_STEP_COMPLETION_MARKER,
   type ReadyStepCompletion,
   TIMEOUT_EXIT_CODE,
@@ -18,6 +19,8 @@ import { errorMessage } from "../../../shared/error-message.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
+  isSubprocessTimeout,
+  networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
@@ -69,7 +72,11 @@ export type ReadyGate = (
 ) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 /** Flips a draft ready by PR number rather than branch, so GitHub can't pick a different PR for the branch. */
-export type GhReadyFlipByNumber = (prNumber: number | undefined, worktreePath: string) => Promise<void>;
+export type GhReadyFlipByNumber = (
+  prNumber: number | undefined,
+  worktreePath: string,
+  signal?: AbortSignal,
+) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
@@ -492,6 +499,7 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
         try {
           await runner.runAsync("bun", buildBaseRefProbeCommandArgs(terminalCommand, path), worktreeDir, {
             maxBuffer: READY_GATE_MAX_BUFFER,
+            timeoutMs: readyGateSubprocessTimeoutMs(),
             env: probeEnv,
             processGroup: tracked.processGroup,
           });
@@ -997,8 +1005,22 @@ export class RuntimeSmokeFailedError extends Error {
 
 const READY_GATE_MAX_BUFFER = 16 * 1024 * 1024;
 
-function isDeadlineKilledGate(exitCode: number | undefined, output: string): boolean {
-  return exitCode === TIMEOUT_EXIT_CODE || output.includes(DEADLINE_KILL_MARKER);
+function isDeadlineKilledGate(error: AsyncSubprocessError, output: string): boolean {
+  return error.status === TIMEOUT_EXIT_CODE || output.includes(DEADLINE_KILL_MARKER) || isSubprocessTimeout(error);
+}
+
+/** Slack past the ready ceiling so `scripts/ready.ts`'s own deadline kill (exit 124) normally wins. */
+const READY_GATE_SUBPROCESS_GRACE_MS = 60_000;
+
+/**
+ * Harness-side bound on a ready-gate-class subprocess (ready gate, required integration, base-ref
+ * probe): `JARVIS_READY_TIMEOUT_MS` (else the ready run ceiling) plus grace. Covers custom
+ * `readyCommand`s that carry no deadline of their own.
+ */
+export function readyGateSubprocessTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number.parseInt(env.JARVIS_READY_TIMEOUT_MS ?? "", 10);
+  const ceiling = Number.isInteger(parsed) && parsed > 0 ? parsed : READY_RUN_CEILING_MS;
+  return ceiling + READY_GATE_SUBPROCESS_GRACE_MS;
 }
 
 async function getChangedPathsWithResolvability(
@@ -1095,13 +1117,14 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
     try {
       await runner.runAsync(command.head, command.args, worktreePath, {
         env,
+        timeoutMs: readyGateSubprocessTimeoutMs(),
         signal: gateOptions?.signal,
         processGroup: tracked.processGroup,
       });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
-        const timedOut = isDeadlineKilledGate(error.status, output);
+        const timedOut = isDeadlineKilledGate(error, output);
         throw new ReadyGateError(command.display, error.status, output, timedOut, undefined, undefined, error.code);
       }
       const detail = errorMessage(error);
@@ -1127,13 +1150,14 @@ function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): Req
     const tracked = trackProcessGroup(integrationOptions?.processGroups);
     try {
       await runner.runAsync("bun", ["run", scope], worktreePath, {
+        timeoutMs: readyGateSubprocessTimeoutMs(),
         signal: integrationOptions?.signal,
         processGroup: tracked.processGroup,
       });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
-        const timedOut = isDeadlineKilledGate(error.status, output);
+        const timedOut = isDeadlineKilledGate(error, output);
         throw new ReadyGateError(scope, error.status, output, timedOut);
       }
       const detail = errorMessage(error);
@@ -1144,8 +1168,17 @@ function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): Req
   };
 }
 
-async function defaultGhReadyFlip(prNumber: number | undefined, worktreePath: string): Promise<void> {
-  await realAsyncSubprocessRunner.runAsync("gh", ["pr", "ready", String(prNumber)], worktreePath);
+async function defaultGhReadyFlip(
+  prNumber: number | undefined,
+  worktreePath: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync(
+    "gh",
+    ["pr", "ready", String(prNumber)],
+    worktreePath,
+    networkSubprocessOptions({ signal }),
+  );
 }
 
 function ghFlipCombinedOutput(error: unknown): string {
@@ -1215,7 +1248,7 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
       throw new RuntimeSmokeFailedError(runtimeSmokeOutcome.command, runtimeSmokeOutcome.observation);
     }
     try {
-      await flipWithRetry(() => ghReadyFlip(input.prNumber, input.worktreePath), delay, retryNotice);
+      await flipWithRetry(() => ghReadyFlip(input.prNumber, input.worktreePath, input.signal), delay, retryNotice);
     } catch (error) {
       if (runtimeSmokeOutcome !== undefined) {
         throw new ReadyFlipError(error instanceof Error ? error : new Error(String(error)), runtimeSmokeOutcome);

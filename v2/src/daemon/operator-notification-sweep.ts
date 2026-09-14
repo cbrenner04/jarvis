@@ -11,6 +11,7 @@ export type NotificationSinkSpawner = (command: string, incidentJson: string) =>
 /** Fire-and-forget sink spawn; incident JSON is written to stdin. */
 function spawnNotificationSinkCommand(command: string, incidentJson: string): NotificationSinkSpawnResult {
   try {
+    // guard-unbounded-subprocess: fire-and-forget notification sink, detached + unref
     const child = spawn("bash", ["-c", command], {
       stdio: ["pipe", "ignore", "ignore"],
       detached: true,

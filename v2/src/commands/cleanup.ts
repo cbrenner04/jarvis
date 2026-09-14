@@ -13,6 +13,7 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
+  networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
@@ -290,7 +291,12 @@ type MergedCheckResult = { merged: true } | { merged: false; reason: string };
  */
 async function isMerged(branch: string, runner: AsyncSubprocessRunner): Promise<MergedCheckResult> {
   try {
-    const output = await runner.runAsync("gh", ["pr", "view", branch, "--json", "state,mergedAt"], ".");
+    const output = await runner.runAsync(
+      "gh",
+      ["pr", "view", branch, "--json", "state,mergedAt"],
+      ".",
+      networkSubprocessOptions(),
+    );
     const parsed = JSON.parse(output);
     if (parsed.state === "MERGED" && parsed.mergedAt) {
       return { merged: true };
@@ -401,6 +407,7 @@ export async function mergedPrHeadAuthorityMatches(
       "gh",
       ["pr", "list", "--head", branch, "--state", "all", "--json", "number,state,mergedAt,headRefOid"],
       repoRoot,
+      networkSubprocessOptions(),
     );
     const parsed = JSON.parse(output) as GhPrHeadRecord[];
     if (!Array.isArray(parsed)) return false;
@@ -829,6 +836,7 @@ async function listOpenPrsForBranch(branch: string, cwd: string, runner: AsyncSu
     "gh",
     ["pr", "list", "--head", branch, "--state", "open", "--json", "number,isDraft"],
     cwd,
+    networkSubprocessOptions(),
   );
   const parsed: unknown = JSON.parse(output);
   if (!Array.isArray(parsed)) throw new Error("unexpected gh response");
@@ -2723,7 +2731,7 @@ async function deleteRemoteBranch(
   }
 
   try {
-    await runner.runAsync("git", ["push", "origin", "--delete", branch], cwd);
+    await runner.runAsync("git", ["push", "origin", "--delete", branch], cwd, networkSubprocessOptions());
     io.stdout(`Deleted remote branch: ${branch}\n`);
     return { ok: true };
   } catch (err) {
@@ -2788,7 +2796,7 @@ async function performAbandonmentSteps(
 
   if (prNumber !== undefined) {
     try {
-      await runner.runAsync("gh", ["pr", "close", String(prNumber)], cwd);
+      await runner.runAsync("gh", ["pr", "close", String(prNumber)], cwd, networkSubprocessOptions());
       io.stdout(`Closed PR #${prNumber}\n`);
       destroyed.closedPrNumber = prNumber;
     } catch (err) {

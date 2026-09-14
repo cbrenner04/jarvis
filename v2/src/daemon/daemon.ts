@@ -112,6 +112,7 @@ export type ActiveRun =
   | {
       kind: "finalization";
       runId: string;
+      abortController: AbortController;
     }
   | {
       kind: "recovery";
@@ -130,7 +131,7 @@ export function activeRunAcceptsKill(
   runId: string,
 ): activeRun is ActiveRun & { abortController: AbortController } {
   if (!activeRun || activeRun.runId !== runId) return false;
-  return activeRun.kind === "write-loop" || activeRun.kind === "workflow";
+  return activeRun.kind === "write-loop" || activeRun.kind === "workflow" || activeRun.kind === "finalization";
 }
 
 /** Whether `kill`'s force path may settle `status`: any non-terminal status, `killed` included. */

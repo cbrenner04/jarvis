@@ -22,6 +22,7 @@ import {
   ReadyGateError,
   type ReadyGateScopeSeams,
   readyGateFailureLogFields,
+  readyGateSubprocessTimeoutMs,
   SurvivingMutationError,
   selectTerminalFailingPaths,
   validateRepoRelativePath,
@@ -1152,6 +1153,33 @@ index 1234567..abcdefg 100644
       expect(gateError.timedOut).toBe(true);
       expect(gateError.exitCode).toBe(124);
     }
+  });
+
+  it("bounds a custom readyCommand gate and classifies its harness-side timeout as timed out", async () => {
+    const seen: Array<{ cmd: string; timeoutMs: number | undefined; grouped: boolean }> = [];
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync(cmd, _args, _cwd, options) {
+          if (cmd === "git") return "";
+          seen.push({ cmd, timeoutMs: options?.timeoutMs, grouped: options?.processGroup !== undefined });
+          throw new AsyncSubprocessError("Command timed out after 1860000ms: make ci", undefined, "", "", "ETIMEDOUT");
+        },
+      },
+    });
+
+    try {
+      await finalizer({ ...input, readyCommand: "make ci" });
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+    }
+    expect(seen).toEqual([{ cmd: "make", timeoutMs: readyGateSubprocessTimeoutMs(), grouped: true }]);
+  });
+
+  it("derives the ready-gate subprocess bound from JARVIS_READY_TIMEOUT_MS plus grace", () => {
+    expect(readyGateSubprocessTimeoutMs({ JARVIS_READY_TIMEOUT_MS: "1000" })).toBe(61_000);
+    expect(readyGateSubprocessTimeoutMs({ JARVIS_READY_TIMEOUT_MS: "junk" })).toBe(30 * 60_000 + 60_000);
   });
 
   it("classifies gate failure with deadline marker in output as timed out", async () => {

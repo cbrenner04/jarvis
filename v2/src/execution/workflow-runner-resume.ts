@@ -65,6 +65,7 @@ import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lin
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
+import { throwIfAborted } from "./throw-if-aborted.ts";
 import type { WorkflowResult, WorkflowRunnerInput, WriteWorkflowStep } from "./workflow-runner.ts";
 import { revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import {
@@ -1058,6 +1059,8 @@ export type IntentFinalizationResumeDeps = {
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
+  /** Aborted by `run kill`; reaches the ready gate / required integration / repair invocations. */
+  signal?: AbortSignal;
 };
 
 function settleIntentResumeStagedMarkdownLintFailure(
@@ -1165,6 +1168,7 @@ function inertResumeWriteLoopInput(
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
     ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
+    ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     ...(landing !== undefined ? { landing } : {}),
     ...externalSpecGitScope(context),
     ...(context.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
@@ -1281,6 +1285,8 @@ async function runIntentResumeCommitAndPublish(
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   };
   store.setRunStatus(context.runId, "in-progress");
+  // No push/PR/gate once `run kill` aborted the resumed tail.
+  throwIfAborted(deps.signal);
   const publication = await publishWithReadyRepair(
     inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing, writeSibling),
     store,
@@ -1295,6 +1301,8 @@ async function runIntentResumeCommitAndPublish(
       ...(bodySummary !== undefined ? { bodySummary } : {}),
     },
   );
+  // A `run kill` mid-tail owns settlement: never let the aborted publication commit a boundary.
+  throwIfAborted(deps.signal);
   if (publication.failure !== undefined) {
     const failure = publication.failure;
     const isFlip = failure.kind === "ready_flip_failed";
@@ -1433,6 +1441,7 @@ export async function resumePopulatedIntentPublication(
 
     return await runIntentResumeCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
+    if (deps.signal?.aborted) throw error;
     const message = errorMessage(error);
     return settlePublicationResumeFailure(
       store,
@@ -1946,6 +1955,7 @@ function mutationRepairLoopInput(
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
     ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
+    ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     ...externalSpecGitScope(context),
     ...(context.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
   };
@@ -2119,6 +2129,8 @@ async function runMutationRepairAttempt(
     };
   }
 
+  // No push/PR/gate once `run kill` aborted the resumed tail.
+  throwIfAborted(deps.signal);
   const publication = await publishWithReadyRepair(repairArgs, store, result, attempt, {
     worktreePath: context.worktreePath,
     baseRef: context.baseRef,
@@ -2130,6 +2142,7 @@ async function runMutationRepairAttempt(
     ...externalSpecGitScope(context),
     ...reviewMutationRequiredIntegrationScope(context),
   });
+  throwIfAborted(deps.signal);
   if (
     publication.failure?.kind === "surviving_mutation_failed" &&
     publication.failure.error instanceof SurvivingMutationError
@@ -2340,6 +2353,8 @@ async function runReviewMutationCommitAndPublish(
     completionAgent: context.completionAgent as string,
   };
   store.setRunStatus(context.runId, "in-progress");
+  // No push/PR/gate once `run kill` aborted the resumed tail.
+  throwIfAborted(deps.signal);
   const publication = await publishWithReadyRepair(
     inertResumeWriteLoopInput(context, context.specPath, deps, undefined, writeSibling),
     store,
@@ -2357,6 +2372,7 @@ async function runReviewMutationCommitAndPublish(
       ...reviewMutationRequiredIntegrationScope(context),
     },
   );
+  throwIfAborted(deps.signal);
 
   if (publication.failure !== undefined) {
     return settleFailedReviewMutationPublication(context, store, attemptId, publication, deps, {
@@ -2527,6 +2543,7 @@ async function replayMutationFinalization(
 
     return await runReviewMutationCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
+    if (deps.signal?.aborted) throw error;
     const message = errorMessage(error);
     return settlePublicationResumeFailure(
       store,

@@ -13,6 +13,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { errorMessage } from "../../../shared/error-message.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
+import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "../../../shared/subprocess.ts";
 import type { Io } from "../cli/io.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
@@ -432,7 +433,12 @@ function scaffoldQueueDirs(projectRoot: string, targetDir: string, writeQueueSen
 }
 
 async function defaultGit(cwd: string, args: readonly string[]): Promise<string | undefined> {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: DEFAULT_SUBPROCESS_TIMEOUT_MS,
+  });
   const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
   if (exitCode !== 0) return undefined;
   return stdout.trim();

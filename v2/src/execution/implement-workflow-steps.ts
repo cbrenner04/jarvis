@@ -13,7 +13,12 @@ import {
   PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
 } from "../../../shared/prompts/review-implement.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  type AsyncSubprocessRunner,
+  isSubprocessTimeout,
+  networkSubprocessOptions,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import {
   readProjectConfigRecord,
@@ -150,7 +155,10 @@ async function checkBaseFreshness(
   const remote = upstream.slice(0, slash);
   const remoteBranch = upstream.slice(slash + 1);
   try {
-    await runner.runAsync("git", ["fetch", "--quiet", remote, remoteBranch], projectRoot, { stdio: "ignore" });
+    await runner.runAsync("git", ["fetch", "--quiet", remote, remoteBranch], projectRoot, {
+      ...networkSubprocessOptions(),
+      stdio: "ignore",
+    });
   } catch (error) {
     warn?.(`base freshness not checked: could not fetch ${upstream} (${errorMessage(error)})`);
     return { ok: true };
@@ -163,8 +171,11 @@ async function checkBaseFreshness(
       await runner.runAsync("git", ["merge-base", "--is-ancestor", localSha, upstreamSha], projectRoot, {
         stdio: "ignore",
       });
-    } catch {
-      return { ok: true }; // ahead or diverged: not the stale-checkout shape
+    } catch (error) {
+      if (isSubprocessTimeout(error)) {
+        warn?.(`base freshness not checked: merge-base timed out (${errorMessage(error)})`);
+      }
+      return { ok: true }; // ahead or diverged (or inconclusive): not the stale-checkout shape
     }
     return {
       ok: false,

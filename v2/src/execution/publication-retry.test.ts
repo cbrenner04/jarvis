@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
 import {
   formatPublicationFailure,
   isTransientPublicationFailure,
@@ -77,4 +78,15 @@ test("permanent publication errors make one attempt", async () => {
     ),
   ).rejects.toThrow("non-fast-forward");
   expect(attempts).toBe(1);
+});
+
+test("a subprocess timeout is a retryable publication failure, never a success", () => {
+  const timeout = new AsyncSubprocessError(
+    "Command timed out after 180000ms: gh pr view branch --json body",
+    undefined,
+    "",
+    "",
+    "ETIMEDOUT",
+  );
+  expect(isTransientPublicationFailure(normalizePublicationFailure("pr", timeout))).toBe(true);
 });

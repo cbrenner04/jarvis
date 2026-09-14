@@ -47,6 +47,7 @@ export function isTransientPublicationFailure(failure: PublicationFailure): bool
     )
   )
     return false;
+  if (failure.message.startsWith("Command timed out after")) return true;
   return /network|connection (?:reset|refused|timed out)|econnreset|econnrefused|etimedout|broken pipe|\b(?:502|503|504)\b|temporary failure/.test(
     text,
   );

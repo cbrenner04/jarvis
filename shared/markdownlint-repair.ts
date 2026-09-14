@@ -1,6 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "./subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  isSubprocessTimeout,
+  realAsyncSubprocessRunner,
+} from "./subprocess.ts";
+
+/** Bound on one markdownlint-cli2 autofix run; a timeout skips the autofix with a warning (the lint still runs). */
+const MARKDOWN_LINT_TIMEOUT_MS = 2 * 60_000;
 
 export function keepIssueReferencesOffLineStart(text: string): string {
   const lines = text.split("\n");
@@ -61,8 +69,13 @@ export async function runMarkdownlintAutofix(args: {
       "bun",
       [binaryPath, "--fix", "--config", configPath, ...args.files],
       harnessRoot,
+      { timeoutMs: MARKDOWN_LINT_TIMEOUT_MS, processGroup: {} },
     );
   } catch (err) {
+    if (isSubprocessTimeout(err)) {
+      args.warn(`warning: markdownlint autofix timed out after ${MARKDOWN_LINT_TIMEOUT_MS}ms; skipping autofix\n`);
+      return;
+    }
     const spawnError = err as NodeJS.ErrnoException & { status?: number | null };
     if (typeof spawnError.status === "number") return;
     if (spawnError.code === "ENOENT" || (err instanceof AsyncSubprocessError && err.code === "ENOENT")) {

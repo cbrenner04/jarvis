@@ -159,7 +159,7 @@ async function ensureExternalWorktree(
 
   try {
     mkdirSync(dirname(worktreePath), { recursive: true });
-    await pruneMissingWorktrees(args.projectRoot, runner);
+    await pruneMissingWorktrees(args.projectRoot, runner, signal);
     throwIfAborted(signal);
 
     const branchExists = await branchExistsLocalAsync(args.projectRoot, args.branchName, runner);
@@ -169,14 +169,18 @@ async function ensureExternalWorktree(
 
     if (branchExists || branchExistsRemote) {
       if (!branchExists && branchExistsRemote) {
-        await runner.runAsync("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot);
+        await runner.runAsync("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot, {
+          signal,
+        });
         throwIfAborted(signal);
       }
-      await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
+      await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot, {
+        signal,
+      });
     } else {
-      await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
+      await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot, { signal });
       throwIfAborted(signal);
-      await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
+      await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot, { signal });
     }
     throwIfAborted(signal);
     if ((await classifyGitWorktree(worktreePath, runner)) !== "worktree") {
@@ -241,6 +245,10 @@ async function gitCommonDir(cwd: string, runner: AsyncSubprocessRunner): Promise
   );
 }
 
-async function pruneMissingWorktrees(projectRoot: string, runner: AsyncSubprocessRunner): Promise<void> {
-  await runner.runAsync("git", ["worktree", "prune"], projectRoot);
+async function pruneMissingWorktrees(
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  await runner.runAsync("git", ["worktree", "prune"], projectRoot, { signal });
 }

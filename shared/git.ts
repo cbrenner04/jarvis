@@ -1,5 +1,7 @@
 import {
   type AsyncSubprocessRunner,
+  isSubprocessTimeout,
+  networkSubprocessOptions,
   realAsyncSubprocessRunner,
   realSubprocessRunner,
   type SubprocessRunner,
@@ -101,6 +103,7 @@ export async function getBaseBranch(
         "gh",
         ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
         cwd ?? "",
+        networkSubprocessOptions(),
       )
     ).trim();
     return branch.length > 0 ? branch : "main";
@@ -215,16 +218,23 @@ export async function originTrackingRefResolvesAsync(
   }
 }
 
-/** Async version: True when `origin` lists `branchName` per `git ls-remote --heads`. */
+/** Async version: True when `origin` lists `branchName` per `git ls-remote --heads`. Throws on timeout (inconclusive). */
 export async function branchExistsOnOriginAsync(
   projectRoot: string,
   branchName: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    const output = await runner.runAsync("git", ["ls-remote", "--heads", "origin", branchName], projectRoot);
+    const output = await runner.runAsync(
+      "git",
+      ["ls-remote", "--heads", "origin", branchName],
+      projectRoot,
+      networkSubprocessOptions(),
+    );
     return originHeadListedInLsRemote(output, branchName);
-  } catch {
+  } catch (error) {
+    // A timeout is inconclusive, not absence: callers must not treat a hung origin as "no branch".
+    if (isSubprocessTimeout(error)) throw error;
     return false;
   }
 }

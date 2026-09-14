@@ -6,6 +6,7 @@ import { getGitStatusInventory } from "../../../shared/git.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
+  DEFAULT_SUBPROCESS_TIMEOUT_MS,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
@@ -193,10 +194,16 @@ function upgradeLegacyPendingStepTrailer(pending: PendingCommit, pendingPath: st
 
 function git(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(args.includes("-z") ? stdout : stdout.trim());
-    });
+    const env_ = { ...process.env, ...env };
+    execFile(
+      "git",
+      args,
+      { cwd, env: env_, encoding: "utf8", timeout: DEFAULT_SUBPROCESS_TIMEOUT_MS },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(args.includes("-z") ? stdout : stdout.trim());
+      },
+    );
   });
 }
 

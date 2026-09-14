@@ -46,7 +46,7 @@ import {
   pruneConsumedQueueEntry,
   resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
-import { DAEMON_DIGEST_ARTIFACT_FILE, reapDeadDaemonSockets } from "./daemon.ts";
+import { DAEMON_DIGEST_ARTIFACT_FILE, reapLegacyDaemonArtifacts } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1443,7 +1443,7 @@ async function retireEligibleWorktrees(
   );
 }
 
-type ReaperResult = Awaited<ReturnType<typeof reapDeadDaemonSockets>>;
+type ReaperResult = Awaited<ReturnType<typeof reapLegacyDaemonArtifacts>>;
 
 type SessionLogReapPlan = { expired: { path: string; bytes: number }[]; oldestKeptDate: string } | null;
 
@@ -1542,27 +1542,26 @@ function hasNothingToClean(
 
 function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: string) => void }): void {
   if (reaperResult.dead.length > 0) {
-    io.stdout(`Found ${reaperResult.dead.length} dead daemon artifact(s) for cleanup:\n`);
+    io.stdout(`Found ${reaperResult.dead.length} legacy daemon artifact(s) for cleanup:\n`);
     for (const path of reaperResult.dead) {
       io.stdout(`  remove: ${path}\n`);
     }
   }
   if (reaperResult.preserved.length > 0) {
-    io.stdout(`Preserved ${reaperResult.preserved.length} daemon socket(s):\n`);
+    io.stdout(`Preserved ${reaperResult.preserved.length} legacy daemon artifact(s):\n`);
     for (const item of reaperResult.preserved) {
-      io.stdout(`  ${item.path} — ${item.reason}\n`);
+      io.stdout(`  ${item.unit} — ${item.reason}\n`);
     }
   }
 }
 
-function socketFilesForDeadDaemonArtifacts(paths: readonly string[]): string[] {
+function legacyDaemonUnitKeysForDeadArtifacts(paths: readonly string[]): string[] {
   const keys = new Set<string>();
   for (const path of paths) {
-    const match = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(path));
-    const key = match?.[1];
+    const key = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(path))?.[1];
     if (key !== undefined) keys.add(key);
   }
-  return [...keys].map((key) => `daemon-${key}.sock`);
+  return [...keys];
 }
 
 async function removeDeadDaemonArtifacts(
@@ -1571,12 +1570,11 @@ async function removeDeadDaemonArtifacts(
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<number> {
   let exitCode = 0;
-  const socketFiles = socketFilesForDeadDaemonArtifacts(paths);
+  const keys = legacyDaemonUnitKeysForDeadArtifacts(paths);
 
-  for (const socketFile of socketFiles) {
-    const key = socketFile.slice("daemon-".length, -".sock".length);
+  for (const key of keys) {
     const artifactPaths = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
-    const revalidated = await reapDeadDaemonSockets(jarvisRoot, [socketFile]);
+    const revalidated = await reapLegacyDaemonArtifacts(jarvisRoot, [key]);
     const revalidatedDead = new Set(revalidated.dead);
     for (const path of artifactPaths) {
       if (!paths.includes(path) || !revalidatedDead.has(path)) continue;
@@ -1700,7 +1698,7 @@ async function gatherCleanupDiscoveryContext(
     io,
     skips,
   );
-  const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
+  const reaperResult = await reapLegacyDaemonArtifacts(jarvisRoot);
   const sessionLogPlan = discoverExpiredSessionLogs(sessionsDir, configPath, clock, store, io);
 
   return {

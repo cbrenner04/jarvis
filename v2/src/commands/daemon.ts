@@ -1,88 +1,117 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { isProcessAlive } from "../../../shared/worktree-lock.ts";
 import { DAEMON_LOG_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatLifecycleError } from "../cli/ipc.ts";
 import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
-import { connectIpcClient } from "../ipc/client.ts";
-import { createRpcTransport } from "../ipc/rpc-transport.ts";
-import { probeSocketLiveness } from "../ipc/server.ts";
+import { probeSocketLiveness, type SocketLiveness } from "../ipc/server.ts";
 
-type SocketClassification = {
-  status: "dead" | "live" | "preserved";
-  reason?: string;
-};
-
-const DAEMON_SOCKET_FILE = /^daemon-([0-9a-f]{16})\.sock$/;
 export const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
 
-export async function reapDeadDaemonSockets(
+/** The classifier's two probes, injectable so a test can exercise every branch without a real
+ * process or a real bound socket. */
+type LegacyDaemonArtifactDeps = {
+  isProcessAlive: (pid: number) => boolean;
+  probeSocketLiveness: (socketPath: string) => Promise<SocketLiveness>;
+};
+
+const defaultLegacyDaemonArtifactDeps: LegacyDaemonArtifactDeps = { isProcessAlive, probeSocketLiveness };
+
+type LegacyDaemonUnitPaths = { key: string; socketPath: string; pidPath: string; logPath: string };
+
+function legacyDaemonUnitPaths(jarvisRoot: string, key: string): LegacyDaemonUnitPaths {
+  return {
+    key,
+    socketPath: join(jarvisRoot, `daemon-${key}.sock`),
+    pidPath: join(jarvisRoot, `daemon-${key}.pid`),
+    logPath: join(jarvisRoot, `daemon-${key}.log`),
+  };
+}
+
+/** Union of keys across every `daemon-<16hex>.{sock,pid,log}` filename under `jarvisRoot`; a
+ * socketless keyed PID/log pair is discovered the same as a keyed socket. */
+function discoverLegacyDaemonUnitKeys(jarvisRoot: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(jarvisRoot);
+  } catch {
+    return [];
+  }
+  const keys = new Set<string>();
+  for (const name of entries) {
+    const key = DAEMON_DIGEST_ARTIFACT_FILE.exec(name)?.[1];
+    if (key !== undefined) keys.add(key);
+  }
+  return [...keys];
+}
+
+/** A parseable positive PID, or undefined when the file is absent, unreadable, or not one. */
+function parseLegacyDaemonPidFile(pidPath: string): number | undefined {
+  if (!existsSync(pidPath)) return undefined;
+  let raw: string;
+  try {
+    raw = readFileSync(pidPath, "utf-8").trim();
+  } catch {
+    return undefined;
+  }
+  const pid = Number.parseInt(raw, 10);
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+type LegacyDaemonUnitClassification = { status: "dead" } | { status: "preserved"; reason: string };
+
+/**
+ * Classify one legacy keyed unit without ever treating its socket as a live service endpoint: a
+ * parseable PID file decides by process liveness (fail-closed on PID reuse — a draining
+ * generation's private endpoint stays intact); a PID-less keyed socket decides by a non-RPC
+ * connect probe only; a unit with neither has no proof of death and is preserved as ambiguous.
+ */
+async function classifyLegacyDaemonUnit(
+  unit: LegacyDaemonUnitPaths,
+  deps: LegacyDaemonArtifactDeps,
+): Promise<LegacyDaemonUnitClassification> {
+  const pid = parseLegacyDaemonPidFile(unit.pidPath);
+  if (pid !== undefined) {
+    return deps.isProcessAlive(pid) ? { status: "preserved", reason: `pid ${pid} is running` } : { status: "dead" };
+  }
+  if (existsSync(unit.socketPath)) {
+    // `existsSync` already proved the socket file is here, so a non-`live` probe verdict is
+    // stale regardless of errno: Bun reports a present-but-listener-less socket as ENOENT
+    // (absent) the same way Node reports ECONNREFUSED.
+    const liveness = await deps.probeSocketLiveness(unit.socketPath);
+    return liveness === "live" ? { status: "preserved", reason: "socket is live" } : { status: "dead" };
+  }
+  return { status: "preserved", reason: "no PID file or socket to prove death" };
+}
+
+export async function reapLegacyDaemonArtifacts(
   jarvisRoot: string,
-  socketFileNames?: readonly string[],
-): Promise<{ dead: string[]; preserved: Array<{ path: string; reason: string }> }> {
+  keys?: readonly string[],
+  deps: LegacyDaemonArtifactDeps = defaultLegacyDaemonArtifactDeps,
+): Promise<{ dead: string[]; preserved: Array<{ unit: string; reason: string }> }> {
   const dead: string[] = [];
-  const preserved: Array<{ path: string; reason: string }> = [];
+  const preserved: Array<{ unit: string; reason: string }> = [];
 
   if (!existsSync(jarvisRoot)) {
     return { dead, preserved };
   }
 
-  let entries: string[];
-  try {
-    entries = readdirSync(jarvisRoot);
-  } catch {
-    return { dead, preserved };
-  }
+  const unitKeys = keys ?? discoverLegacyDaemonUnitKeys(jarvisRoot);
 
-  const socketFiles = socketFileNames ?? entries.filter((name) => DAEMON_SOCKET_FILE.test(name));
-
-  for (const socketFile of socketFiles) {
-    const match = DAEMON_SOCKET_FILE.exec(socketFile);
-    if (match === null) continue;
-    const socketPath = join(jarvisRoot, socketFile);
-    const classification = await classifySocket(socketPath);
+  for (const key of unitKeys) {
+    const unit = legacyDaemonUnitPaths(jarvisRoot, key);
+    const classification = await classifyLegacyDaemonUnit(unit, deps);
     if (classification.status === "dead") {
-      const key = match[1];
-      const artifacts = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
-      dead.push(...artifacts.filter((path) => existsSync(path)));
-    } else if (classification.status === "preserved" && classification.reason) {
-      preserved.push({ path: socketPath, reason: classification.reason });
+      dead.push(...[unit.socketPath, unit.pidPath, unit.logPath].filter((path) => existsSync(path)));
+    } else {
+      preserved.push({ unit: `daemon-${key}`, reason: classification.reason });
     }
   }
 
   return { dead, preserved };
-}
-
-async function classifySocket(socketPath: string): Promise<SocketClassification> {
-  const liveness = await probeSocketLiveness(socketPath);
-  if (liveness === "stale") {
-    return { status: "dead" };
-  }
-  if (liveness === "absent") {
-    // ENOENT on an absent path is the sandbox/bound-but-unlinked false negative; a present file
-    // with no listener is stale (Bun reports ENOENT where Node reports ECONNREFUSED).
-    return existsSync(socketPath)
-      ? { status: "dead" }
-      : { status: "preserved", reason: "socket path unavailable (ENOENT)" };
-  }
-  // Timeout-class `live` is inconclusive: only an answered `health` proves a daemon; every other
-  // outcome (including a late ECONNREFUSED) preserves the path and reports why.
-  try {
-    const client = await connectIpcClient(socketPath);
-    const transport = createRpcTransport(client);
-    try {
-      await transport.request("health", undefined, { timeoutMs: 500 });
-      return { status: "live" };
-    } finally {
-      transport.close();
-    }
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    const reason = err.message || String(error);
-    return { status: "preserved", reason };
-  }
 }
 
 async function handleStopCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number | null> {

@@ -3571,7 +3571,7 @@ describe("cleanup: runAbandonCommand", () => {
   });
 });
 
-describe("cleanup: dead daemon socket reaping", () => {
+describe("cleanup: legacy daemon artifact reaping", () => {
   const socketTest = test.skipIf(!canUseUnixSockets());
   let tempRoot: string;
   let jarvisRoot: string;
@@ -3623,7 +3623,7 @@ describe("cleanup: dead daemon socket reaping", () => {
       );
 
       expect(dryRunCode).toBe(0);
-      expect(dryRunStdout).toContain("Found 3 dead daemon artifact(s) for cleanup:");
+      expect(dryRunStdout).toContain("Found 3 legacy daemon artifact(s) for cleanup:");
       for (const path of deadArtifacts) {
         expect(dryRunStdout).toContain(`remove: ${path}`);
         expect(existsSync(path)).toBe(true);
@@ -3679,7 +3679,7 @@ describe("cleanup: dead daemon socket reaping", () => {
     );
 
     expect(code).toBe(0);
-    expect(stdout).toContain("dead daemon artifact(s)");
+    expect(stdout).toContain("legacy daemon artifact(s)");
     expect(existsSync(deadSocket)).toBe(false);
   });
 
@@ -3804,7 +3804,7 @@ describe("cleanup: dead daemon socket reaping", () => {
 
     expect(code).toBe(0);
     expect(stdout).not.toContain("No eligible worktrees");
-    expect(stdout).toContain("dead daemon artifact(s)");
+    expect(stdout).toContain("legacy daemon artifact(s)");
     expect(existsSync(deadSocket)).toBe(false);
   });
 
@@ -3841,7 +3841,7 @@ describe("cleanup: dead daemon socket reaping", () => {
     expect(existsSync(socket)).toBe(true);
   });
 
-  socketTest("reports preserved sockets when they are the only socket work", async () => {
+  socketTest("reports preserved legacy artifacts when they are the only socket work", async () => {
     const preservedSocket = join(jarvisRoot, "daemon-0000000000000012.sock");
     rmSync(preservedSocket, { force: true });
     const server = createServer(() => {});
@@ -3871,9 +3871,9 @@ describe("cleanup: dead daemon socket reaping", () => {
 
       expect(code).toBe(0);
       expect(stdout).not.toContain("No eligible worktrees");
-      expect(stdout).toContain("Preserved 1 daemon socket(s):");
-      expect(stdout).toContain(preservedSocket);
-      expect(stdout).toContain("timed out");
+      expect(stdout).toContain("Preserved 1 legacy daemon artifact(s):");
+      expect(stdout).toContain("daemon-0000000000000012");
+      expect(stdout).toContain("socket is live");
       expect(existsSync(preservedSocket)).toBe(true);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -3919,6 +3919,170 @@ describe("cleanup: dead daemon socket reaping", () => {
     } finally {
       await server.close();
     }
+  });
+
+  test("discovers and removes a socketless legacy keyed PID/log pair whose recorded process is dead", async () => {
+    const pid = join(jarvisRoot, "daemon-0000000000000031.pid");
+    const log = join(jarvisRoot, "daemon-0000000000000031.log");
+    writeFileSync(pid, "999999");
+    writeFileSync(log, "daemon output");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let dryRunStdout = "";
+    const dryRunCode = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (dryRunStdout += s), stderr: () => {} },
+    );
+    expect(dryRunCode).toBe(0);
+    expect(dryRunStdout).toContain(`remove: ${pid}`);
+    expect(dryRunStdout).toContain(`remove: ${log}`);
+
+    let applyStdout = "";
+    const applyCode = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (applyStdout += s), stderr: () => {} },
+    );
+    expect(applyCode).toBe(0);
+    expect(applyStdout).toContain(`Removed daemon artifact: ${pid}`);
+    expect(applyStdout).toContain(`Removed daemon artifact: ${log}`);
+    expect(existsSync(pid)).toBe(false);
+    expect(existsSync(log)).toBe(false);
+  });
+
+  socketTest("never offers the stable socket, pid, or log for removal while a stable daemon listens", async () => {
+    const stableSocket = join(jarvisRoot, "daemon.sock");
+    const stablePid = join(jarvisRoot, "daemon.pid");
+    const stableLog = join(jarvisRoot, "daemon.log");
+    const server = await startIpcServer(stableSocket, {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+    writeFileSync(stablePid, "1");
+    writeFileSync(stableLog, "stable daemon output");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    try {
+      const code = await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      );
+
+      expect(code).toBe(0);
+      for (const path of [stableSocket, stablePid, stableLog]) {
+        expect(stdout).not.toContain(`remove: ${path}`);
+        expect(existsSync(path)).toBe(true);
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("preserves a legacy unit whose recorded PID is running", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000034.sock");
+    const pid = join(jarvisRoot, "daemon-0000000000000034.pid");
+    writeFileSync(socket, "");
+    writeFileSync(pid, String(process.pid));
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain(`remove: ${socket}`);
+    expect(stdout).not.toContain(`remove: ${pid}`);
+    expect(stdout).toContain("daemon-0000000000000034");
+    expect(stdout).toContain(`pid ${process.pid} is running`);
+    expect(existsSync(socket)).toBe(true);
+    expect(existsSync(pid)).toBe(true);
+  });
+
+  test("preserves a legacy unit with neither a parseable PID file nor a socket file", async () => {
+    const log = join(jarvisRoot, "daemon-0000000000000035.log");
+    writeFileSync(log, "daemon output");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain(`remove: ${log}`);
+    expect(stdout).toContain("daemon-0000000000000035");
+    expect(stdout).toContain("no PID file or socket to prove death");
+    expect(existsSync(log)).toBe(true);
+  });
+
+  test("apply never removes a keyed artifact created for a different unit after preview", async () => {
+    const previewedSocket = join(jarvisRoot, "daemon-0000000000000032.sock");
+    writeFileSync(previewedSocket, "");
+    const lateKeyPid = join(jarvisRoot, "daemon-0000000000000033.pid");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    const code = await runCleanupCommand(
+      {
+        promptConfirm: async () => {
+          // A keyed unit that never existed at preview time; apply must never discover or
+          // revalidate it, since it only re-checks units the preview already saw.
+          writeFileSync(lateKeyPid, String(process.pid));
+          return true;
+        },
+      },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(existsSync(previewedSocket)).toBe(false);
+    expect(existsSync(lateKeyPid)).toBe(true);
   });
 });
 

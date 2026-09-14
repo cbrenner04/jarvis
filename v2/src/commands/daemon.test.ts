@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRuntimeDeps } from "../cli/deps.ts";
-import { DaemonSocketBindFailureError, probeSocketLiveness, startIpcServer } from "../ipc/server.ts";
+import { startIpcServer } from "../ipc/server.ts";
 import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { reapDeadDaemonSockets, runDaemonCommand } from "./daemon.ts";
+import { reapLegacyDaemonArtifacts, runDaemonCommand } from "./daemon.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
@@ -259,60 +259,32 @@ describe("daemon command", () => {
   });
 });
 
-describe("reapDeadDaemonSockets", () => {
-  socketTest("startup reclaim and cleanup reaper classify an identical path identically", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-shared-classifier-"));
-    const socket = join(dir, "daemon-0000000000000000.sock");
-    writeFileSync(socket, "");
-
-    try {
-      const liveness = await probeSocketLiveness(socket);
-      expect(liveness).not.toBe("live");
-
-      const reaperResult = await reapDeadDaemonSockets(dir);
-      expect(reaperResult.dead).toContain(socket);
-      expect(reaperResult.preserved.map((item) => item.path)).not.toContain(socket);
-
-      if (!existsSync(socket)) {
-        writeFileSync(socket, "");
-      }
-
-      if (liveness === "stale") {
-        const server = await startIpcServer(socket);
-        await server.close();
-      } else {
-        await expect(startIpcServer(socket)).rejects.toBeInstanceOf(DaemonSocketBindFailureError);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("identifies a socket with no listener as dead (ECONNREFUSED)", async () => {
+describe("reapLegacyDaemonArtifacts", () => {
+  test("identifies a PID-less keyed socket with no listener as dead (ECONNREFUSED)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-"));
     const deadSocket = join(dir, "daemon-0000000000000001.sock");
 
     writeFileSync(deadSocket, "");
 
-    const result = await reapDeadDaemonSockets(dir);
+    const result = await reapLegacyDaemonArtifacts(dir);
     expect(result.dead).toContain(deadSocket);
   });
 
   test("returns empty lists when jarvis home does not exist", async () => {
     const nonexistent = join(tmpdir(), `nonexistent-${Date.now()}`);
 
-    const result = await reapDeadDaemonSockets(nonexistent);
+    const result = await reapLegacyDaemonArtifacts(nonexistent);
     expect(result.dead).toEqual([]);
     expect(result.preserved).toEqual([]);
   });
 
-  test("enumeration failure leaves sockets untouched", async () => {
+  test("enumeration failure leaves artifacts untouched", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-unreadable-"));
     const socket = join(dir, "daemon-0000000000000006.sock");
     writeFileSync(socket, "");
     chmodSync(dir, 0o000);
     try {
-      const result = await reapDeadDaemonSockets(dir);
+      const result = await reapLegacyDaemonArtifacts(dir);
       expect(result.dead).toEqual([]);
       expect(result.preserved).toEqual([]);
     } finally {
@@ -322,7 +294,7 @@ describe("reapDeadDaemonSockets", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("classifies each discovered socket independently", async () => {
+  test("classifies each discovered unit independently", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-multiple-"));
     const socket1 = join(dir, "daemon-aaaaaaaaaaaaaaaa.sock");
     const socket2 = join(dir, "daemon-bbbbbbbbbbbbbbbb.sock");
@@ -332,11 +304,12 @@ describe("reapDeadDaemonSockets", () => {
     writeFileSync(socket2, "");
     writeFileSync(socket3, "");
 
-    const result = await reapDeadDaemonSockets(dir);
+    const result = await reapLegacyDaemonArtifacts(dir);
     expect(result.dead.length + result.preserved.length).toBeGreaterThanOrEqual(3);
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  test("ignores files that do not match daemon-*.sock pattern", async () => {
+  test("ignores files that do not match the daemon-<16hex> pattern, including the stable triplet", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-filter-"));
     const socket = join(dir, "daemon-0000000000000004.sock");
     const pid = join(dir, "daemon-0000000000000004.pid");
@@ -344,44 +317,142 @@ describe("reapDeadDaemonSockets", () => {
     const other = join(dir, "other-file.sock");
     const uppercase = join(dir, "daemon-000000000000000A.sock");
     const short = join(dir, "daemon-000000000000000.sock");
+    const stableSocket = join(dir, "daemon.sock");
+    const stablePid = join(dir, "daemon.pid");
+    const stableLog = join(dir, "daemon.log");
 
     writeFileSync(socket, "");
-    writeFileSync(pid, "12345");
+    writeFileSync(pid, "not-a-pid");
     writeFileSync(log, "daemon output");
     writeFileSync(other, "");
     writeFileSync(uppercase, "");
     writeFileSync(short, "");
+    writeFileSync(stableSocket, "");
+    writeFileSync(stablePid, String(process.pid));
+    writeFileSync(stableLog, "stable output");
 
-    const result = await reapDeadDaemonSockets(dir);
-    const allClassified = result.dead.concat(result.preserved.map((p) => p.path));
-    expect(allClassified).toContain(socket);
+    const result = await reapLegacyDaemonArtifacts(dir);
+    const allClassified = result.dead.concat(result.preserved.map((p) => p.unit));
+    expect(result.dead).toContain(socket);
     expect(result.dead).toContain(pid);
     expect(result.dead).toContain(log);
     expect(allClassified).not.toContain(other);
     expect(allClassified).not.toContain(uppercase);
     expect(allClassified).not.toContain(short);
+    expect(result.dead).not.toContain(stableSocket);
+    expect(result.dead).not.toContain(stablePid);
+    expect(result.dead).not.toContain(stableLog);
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  test("preserves an absent socket path and its companions on ENOENT", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-enoent-"));
-    const socket = join(dir, "daemon-0000000000000008.sock");
-    const pid = join(dir, "daemon-0000000000000008.pid");
-    const log = join(dir, "daemon-0000000000000008.log");
-    writeFileSync(pid, "12345");
+  test("discovers a socketless keyed PID/log pair and reaps it when the recorded process is dead", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-socketless-"));
+    const pid = join(dir, "daemon-0000000000000009.pid");
+    const log = join(dir, "daemon-0000000000000009.log");
+    writeFileSync(pid, "999999");
     writeFileSync(log, "daemon output");
 
-    try {
-      const result = await reapDeadDaemonSockets(dir, ["daemon-0000000000000008.sock"]);
-      expect(result.dead).toEqual([]);
-      expect(result.preserved).toEqual([{ path: socket, reason: "socket path unavailable (ENOENT)" }]);
-      expect(existsSync(pid)).toBe(true);
-      expect(existsSync(log)).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const result = await reapLegacyDaemonArtifacts(dir);
+    expect(result.dead.sort()).toEqual([log, pid].sort());
+    expect(result.preserved).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  socketTest("preserves sockets that probe with errors other than ECONNREFUSED/ENOENT", async () => {
+  test("preserves a legacy unit whose recorded PID is running; the PID decides over its socket", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-live-pid-"));
+    const socket = join(dir, "daemon-000000000000000b.sock");
+    const pid = join(dir, "daemon-000000000000000b.pid");
+    writeFileSync(socket, ""); // present but never consulted: the parseable live PID decides first
+    writeFileSync(pid, String(process.pid));
+
+    const result = await reapLegacyDaemonArtifacts(dir);
+    expect(result.dead).toEqual([]);
+    expect(result.preserved).toEqual([{ unit: "daemon-000000000000000b", reason: `pid ${process.pid} is running` }]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("preserves a legacy unit with neither a parseable PID file nor a socket file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-ambiguous-"));
+    const log = join(dir, "daemon-000000000000000c.log");
+    writeFileSync(log, "daemon output");
+
+    const result = await reapLegacyDaemonArtifacts(dir);
+    expect(result.dead).toEqual([]);
+    expect(result.preserved).toEqual([
+      { unit: "daemon-000000000000000c", reason: "no PID file or socket to prove death" },
+    ]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("preserves a legacy unit whose PID file is unparseable and has no socket, ambiguous not live", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-garbage-pid-"));
+    const pid = join(dir, "daemon-000000000000000d.pid");
+    writeFileSync(pid, "not-a-pid");
+
+    const result = await reapLegacyDaemonArtifacts(dir);
+    expect(result.dead).toEqual([]);
+    expect(result.preserved).toEqual([
+      { unit: "daemon-000000000000000d", reason: "no PID file or socket to prove death" },
+    ]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("classifies a legacy unit's recorded PID via an injected isProcessAlive", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-pid-"));
+    const pid = join(dir, "daemon-0000000000000010.pid");
+    writeFileSync(pid, "424242");
+    let checkedPid: number | undefined;
+
+    const result = await reapLegacyDaemonArtifacts(dir, undefined, {
+      isProcessAlive: (p) => {
+        checkedPid = p;
+        return true;
+      },
+      probeSocketLiveness: async () => "stale",
+    });
+
+    expect(checkedPid).toBe(424242);
+    expect(result.dead).toEqual([]);
+    expect(result.preserved).toEqual([{ unit: "daemon-0000000000000010", reason: "pid 424242 is running" }]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("preserves a PID-less keyed socket via an injected probe reporting live, without a real socket", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-live-"));
+    const socket = join(dir, "daemon-000000000000000e.sock");
+    writeFileSync(socket, "");
+    let probedPath: string | undefined;
+
+    const result = await reapLegacyDaemonArtifacts(dir, undefined, {
+      isProcessAlive: () => false,
+      probeSocketLiveness: async (path) => {
+        probedPath = path;
+        return "live";
+      },
+    });
+
+    expect(probedPath).toBe(socket);
+    expect(result.dead).toEqual([]);
+    expect(result.preserved).toEqual([{ unit: "daemon-000000000000000e", reason: "socket is live" }]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("reaps a PID-less keyed socket via an injected probe reporting stale, without a real socket", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-stale-"));
+    const socket = join(dir, "daemon-000000000000000f.sock");
+    writeFileSync(socket, "");
+
+    const result = await reapLegacyDaemonArtifacts(dir, undefined, {
+      isProcessAlive: () => false,
+      probeSocketLiveness: async () => "stale",
+    });
+
+    expect(result.dead).toEqual([socket]);
+    expect(result.preserved).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  socketTest("preserves a PID-less keyed socket a raw peer accepts on, without issuing an RPC", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-preserved-"));
     const socket = join(dir, "daemon-0000000000000005.sock");
     rmSync(socket, { force: true });
@@ -393,14 +464,9 @@ describe("reapDeadDaemonSockets", () => {
     });
 
     try {
-      const result = await reapDeadDaemonSockets(dir);
+      const result = await reapLegacyDaemonArtifacts(dir);
       expect(result.dead).not.toContain(socket);
-      expect(result.preserved).toEqual([
-        expect.objectContaining({
-          path: socket,
-          reason: expect.stringContaining("timed out"),
-        }),
-      ]);
+      expect(result.preserved).toEqual([{ unit: "daemon-0000000000000005", reason: "socket is live" }]);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       rmSync(socket, { force: true });
@@ -408,7 +474,7 @@ describe("reapDeadDaemonSockets", () => {
     }
   });
 
-  socketTest("does not classify a live daemon socket as dead", async () => {
+  socketTest("preserves a PID-less keyed socket a live daemon answers on, without issuing an RPC", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-live-"));
     const socket = join(dir, "daemon-0000000000000007.sock");
     rmSync(socket, { force: true });
@@ -418,14 +484,62 @@ describe("reapDeadDaemonSockets", () => {
     });
 
     try {
-      const result = await reapDeadDaemonSockets(dir);
+      const result = await reapLegacyDaemonArtifacts(dir);
       expect(result.dead).not.toContain(socket);
-      expect(result.preserved.map((item) => item.path)).not.toContain(socket);
+      expect(result.preserved).toEqual([{ unit: "daemon-0000000000000007", reason: "socket is live" }]);
       expect(existsSync(socket)).toBe(true);
     } finally {
       await server.close();
       rmSync(socket, { force: true });
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("keyed PID and log files are never written", () => {
+  test("cli.ts and daemon.ts read only the digest-keyed socketPath, never pidPath or logPath", () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const guardedFiles = [join(repoRoot, "v2", "src", "cli.ts"), join(repoRoot, "v2", "src", "daemon", "daemon.ts")];
+    let totalCalls = 0;
+
+    for (const path of guardedFiles) {
+      const source = readFileSync(path, "utf-8");
+      const digestFieldAccesses = source.match(/daemonPathsByDigest\([^)]*\)\.\w+/g) ?? [];
+      totalCalls += digestFieldAccesses.length;
+      for (const access of digestFieldAccesses) {
+        expect(access.endsWith(".socketPath")).toBe(true);
+      }
+    }
+
+    // Guards against a no-op pass: at least one call site must exist to prove the assertion ran.
+    expect(totalCalls).toBeGreaterThan(0);
+  });
+});
+
+const RPC_AGAINST_KEYED_SOCKET_PATTERN =
+  /connectIpcClient\s*\(|createRpcTransport\s*\(|\.request\s*\(\s*[^,]*,\s*["']health["']/;
+
+/** Violations for one legacy-classifier source: any call that would treat a keyed socket as a
+ * live service endpoint (an RPC transport, or a `health` request) rather than a bare connect probe. */
+function legacyClassifierRpcViolations(source: string): string[] {
+  return RPC_AGAINST_KEYED_SOCKET_PATTERN.test(source) ? ["issues an RPC against a keyed socket"] : [];
+}
+
+describe("legacy daemon artifact classifier never issues an RPC against a keyed socket", () => {
+  test("v2/src/commands/daemon.ts never calls connectIpcClient, createRpcTransport, or a health request", () => {
+    const source = readFileSync(join(import.meta.dir, "daemon.ts"), "utf-8");
+    expect(legacyClassifierRpcViolations(source)).toEqual([]);
+  });
+
+  test("fails against the pre-fix classifySocket, which issued a health RPC on an inconclusive probe", () => {
+    const preFixClassifySocket = [
+      "async function classifySocket(socketPath) {",
+      "  const client = await connectIpcClient(socketPath);",
+      "  const transport = createRpcTransport(client);",
+      '  await transport.request("health", undefined, { timeoutMs: 500 });',
+      "}",
+    ].join("\n");
+
+    expect(legacyClassifierRpcViolations(preFixClassifySocket)).toEqual(["issues an RPC against a keyed socket"]);
   });
 });

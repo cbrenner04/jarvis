@@ -636,6 +636,30 @@ describe("run control", () => {
     });
   });
 
+  test("run log stops at stream-end and ignores frames queued after it", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000005";
+    const record = logRecord(1, "iteration_started");
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              { kind: "stream-end", streamId },
+              { kind: "stream-data", streamId, payload: JSON.stringify(record) },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
   test("run log sends no follow flag by default", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

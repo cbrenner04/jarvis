@@ -22,7 +22,7 @@ The stable daemon's `tail` stream handler (`v2/src/daemon/daemon-tail-stream.ts`
 
 ## Acceptance criteria
 
-- [x] A transport regression proves `run log` replay through the stable address returns the direct predecessor owner's records in order; it fails against the pre-fix successor-local reader.
+- [ ] A transport regression proves `run log` replay through the stable address returns the direct predecessor owner's records in order; it fails against the pre-fix successor-local reader.
 - [x] A transport regression proves `tail` follow through the stable address forwards records the owner emits after open and ends normally when the owner stream ends.
 - [x] A test proves caller cancellation aborts the owner-side stream handler's signal, leaving no open follow.
 - [x] A test proves owner disconnect mid-follow ends the caller stream with an error, not a successful end.
@@ -37,3 +37,12 @@ The stable daemon's `tail` stream handler (`v2/src/daemon/daemon-tail-stream.ts`
 - `v2/docs/daemon-host.md` — stable routing: `tail` stream bridges to the direct owner; cancel and owner-loss semantics.
 - `v2/docs/v2-architecture.md` — stable-front-door run-stream routing boundary.
 - `v2/docs/v1-behaviors.md` — draining-run logs stay replayable and followable through the stable daemon.
+
+## Blocker
+
+Criterion 1's "incomplete local log" premise is unproven. `logsPath` and the state store are shared across daemon generations with no per-generation scoping, and the local reader does fresh polling reads, so the successor's local reader already replays and follows a predecessor-owned run's records correctly with no gap — there is no failing-test surface for a data-completeness or liveness bug on that path. This is the same finding `intent.md` already recorded, and it still needs an operator decision before replanning:
+
+- (a) the real goal is architectural symmetry — replace `run log`'s / `tui log`'s client-side owner-socket discovery with stable-daemon server-side routing for `tail`, purely for consistency with `wait`/`pause`/`kill`. This requires rewriting the Problem and criterion 1 to say so, and deciding whether the CLI callers move to the stable address; or
+- (b) something the investigation missed.
+
+blocked

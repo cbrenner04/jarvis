@@ -4,6 +4,8 @@ import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { CliDeps } from "./deps.ts";
 import type { Io } from "./io.ts";
 
+export { parseStreamPayload } from "../ipc/codec.ts";
+
 export function formatLifecycleError(error: unknown): string {
   if (error instanceof Error) {
     return `${error.name}: ${error.message}\n`;
@@ -20,13 +22,6 @@ export function formatConnectionError(error: unknown): string {
     return `${error.message}\n`;
   }
   return `${String(error)}\n`;
-}
-
-export function parseStreamPayload(payload: unknown): unknown {
-  if (typeof payload !== "string") {
-    throw new Error("invalid stream payload");
-  }
-  return JSON.parse(payload);
 }
 
 /** One transport per client: a client may carry several correlated requests (e.g. `run workflow`

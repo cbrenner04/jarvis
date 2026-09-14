@@ -14,6 +14,14 @@ export function encodeFrame(frame: unknown): Buffer {
   return Buffer.concat([header, body]);
 }
 
+/** Parses one `stream-data` frame's JSON-string payload. */
+export function parseStreamPayload(payload: unknown): unknown {
+  if (typeof payload !== "string") {
+    throw new Error("invalid stream payload");
+  }
+  return JSON.parse(payload);
+}
+
 /** Incremental decoder for length-prefixed frames on one byte stream. */
 export class FrameDecoder {
   #buffer = Buffer.alloc(0);

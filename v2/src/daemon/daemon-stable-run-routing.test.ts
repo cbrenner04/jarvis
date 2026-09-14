@@ -480,6 +480,54 @@ describe("stable tail stream routing", () => {
     expect(closed).toBe(1);
   });
 
+  test("failed ownership refresh rejects without calling onClose", async () => {
+    let closed = 0;
+    const handler = createStableTailStreamHandler(noopLocalHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => {
+        throw new Error("ownership refresh failed");
+      },
+      connectOwnerClient: async () => {
+        throw new Error("must not connect");
+      },
+    });
+
+    await expect(
+      handler(
+        "s1",
+        { runId: "run-1" },
+        () => undefined,
+        () => (closed += 1),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("ownership refresh failed");
+    expect(closed).toBe(0);
+  });
+
+  test("a failed owner connection rejects without calling onClose", async () => {
+    let closed = 0;
+    const handler = createStableTailStreamHandler(noopLocalHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => true,
+      connectOwnerClient: async () => {
+        throw new Error("connect failed");
+      },
+    });
+
+    await expect(
+      handler(
+        "s1",
+        { runId: "run-1" },
+        () => undefined,
+        () => (closed += 1),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("connect failed");
+    expect(closed).toBe(0);
+  });
+
   test("forwards the original payload unchanged and relays owner records in arrival order, ending normally on owner stream-end", async () => {
     const owner = streamOwnerClient();
     const handler = forwardingTailHandler(owner);

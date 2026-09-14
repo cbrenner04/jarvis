@@ -1,5 +1,5 @@
-import { parseStreamPayload } from "../cli/ipc.ts";
 import type { IpcClient } from "../ipc/client.ts";
+import { parseStreamPayload } from "../ipc/codec.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { RpcHandler, StreamHandler } from "../ipc/server.ts";

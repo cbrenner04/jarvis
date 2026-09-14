@@ -71,19 +71,23 @@ type LegacyDaemonUnitClassification = { status: "dead" } | { status: "preserved"
 
 /**
  * Classify one legacy keyed unit without ever treating its socket as a live service endpoint: a
- * parseable PID file decides by process liveness (fail-closed on PID reuse — a draining
- * generation's private endpoint stays intact); a PID-less keyed socket decides by a non-RPC
- * connect probe only, and only a `stale` (connection-refused) verdict proves death — `absent` is
- * not proof of death (a sandboxed caller can see ENOENT for a live socket) and is preserved like
- * `live`; a unit with neither has no proof of death and is preserved as ambiguous.
+ * parseable PID file whose process is alive decides immediately (fail-closed on PID reuse — a
+ * draining generation's private endpoint stays intact). Otherwise — PID dead, PID unparseable, or
+ * no PID file — a keyed socket at the same key must independently prove death via a non-RPC
+ * connect probe: only a `stale` (connection-refused) verdict is reapable, because a live successor
+ * daemon can rebind a private socket at a recurring digest key while stale pre-fix PID residue
+ * from an earlier generation survives at that same key. `absent` is not proof of death (a
+ * sandboxed caller can see ENOENT for a live socket) and is preserved like `live`. A dead/absent
+ * PID with no socket at all falls back to the PID verdict; a unit with neither has no proof of
+ * death and is preserved as ambiguous.
  */
 async function classifyLegacyDaemonUnit(
   unit: LegacyDaemonUnitPaths,
   deps: LegacyDaemonArtifactDeps,
 ): Promise<LegacyDaemonUnitClassification> {
   const pid = parseLegacyDaemonPidFile(unit.pidPath);
-  if (pid !== undefined) {
-    return deps.isProcessAlive(pid) ? { status: "preserved", reason: `pid ${pid} is running` } : { status: "dead" };
+  if (pid !== undefined && deps.isProcessAlive(pid)) {
+    return { status: "preserved", reason: `pid ${pid} is running` };
   }
   if (existsSync(unit.socketPath)) {
     const liveness = await deps.probeSocketLiveness(unit.socketPath);
@@ -92,6 +96,7 @@ async function classifyLegacyDaemonUnit(
       ? { status: "preserved", reason: "socket is live" }
       : { status: "preserved", reason: "socket probe was inconclusive" };
   }
+  if (pid !== undefined) return { status: "dead" };
   return { status: "preserved", reason: "no PID file or socket to prove death" };
 }
 

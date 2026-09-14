@@ -326,7 +326,7 @@ describe("reapLegacyDaemonArtifacts", () => {
     const stableLog = join(dir, "daemon.log");
 
     writeFileSync(socket, "");
-    writeFileSync(pid, "999999"); // dead: a parseable PID decides before any socket probe
+    writeFileSync(pid, "999999"); // dead PID, but the keyed socket must still probe stale to reap
     writeFileSync(log, "daemon output");
     writeFileSync(other, "");
     writeFileSync(uppercase, "");
@@ -335,7 +335,10 @@ describe("reapLegacyDaemonArtifacts", () => {
     writeFileSync(stablePid, String(process.pid));
     writeFileSync(stableLog, "stable output");
 
-    const result = await reapLegacyDaemonArtifacts(dir);
+    const result = await reapLegacyDaemonArtifacts(dir, undefined, {
+      isProcessAlive: () => false,
+      probeSocketLiveness: async () => "stale",
+    });
     const allClassified = result.dead.concat(result.preserved.map((p) => p.unit));
     expect(result.dead).toContain(socket);
     expect(result.dead).toContain(pid);
@@ -372,6 +375,29 @@ describe("reapLegacyDaemonArtifacts", () => {
     const result = await reapLegacyDaemonArtifacts(dir);
     expect(result.dead).toEqual([]);
     expect(result.preserved).toEqual([{ unit: "daemon-000000000000000b", reason: `pid ${process.pid} is running` }]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("preserves a unit whose PID is dead but a successor has rebound a live socket at the same key", async () => {
+    // Digest recurrence (e.g. an exact revert): a live daemon binds a private socket at a digest
+    // key while a stale pre-fix PID file from an earlier generation survives at that same key. The
+    // dead PID must never short-circuit the socket check — only a probed-`stale` socket proves the
+    // whole unit dead.
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-recurring-key-"));
+    const socket = join(dir, "daemon-0000000000000012.sock");
+    const pid = join(dir, "daemon-0000000000000012.pid");
+    writeFileSync(socket, "");
+    writeFileSync(pid, "999999");
+
+    const result = await reapLegacyDaemonArtifacts(dir, undefined, {
+      isProcessAlive: () => false,
+      probeSocketLiveness: async () => "live",
+    });
+
+    expect(result.dead).toEqual([]);
+    expect(result.preserved).toEqual([{ unit: "daemon-0000000000000012", reason: "socket is live" }]);
+    expect(existsSync(socket)).toBe(true);
+    expect(existsSync(pid)).toBe(true);
     rmSync(dir, { recursive: true, force: true });
   });
 

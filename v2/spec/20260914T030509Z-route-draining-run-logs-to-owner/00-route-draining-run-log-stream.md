@@ -22,15 +22,15 @@ The stable daemon's `tail` stream handler (`v2/src/daemon/daemon-tail-stream.ts`
 
 ## Acceptance criteria
 
-- [ ] A transport regression proves `run log` replay through the stable address returns the direct predecessor owner's records in order; it fails against the pre-fix successor-local reader.
-- [ ] A transport regression proves `tail` follow through the stable address forwards records the owner emits after open and ends normally when the owner stream ends.
-- [ ] A test proves caller cancellation aborts the owner-side stream handler's signal, leaving no open follow.
-- [ ] A test proves owner disconnect mid-follow ends the caller stream with an error, not a successful end.
-- [ ] `v2/src/daemon/daemon-tail-stream.test.ts` stays green.
-- [ ] A single-daemon test proves the stream path performs no ownership lookup when no predecessor is configured.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A transport regression proves `run log` replay through the stable address returns the direct predecessor owner's records in order; it fails against the pre-fix successor-local reader.
+- [x] A transport regression proves `tail` follow through the stable address forwards records the owner emits after open and ends normally when the owner stream ends.
+- [x] A test proves caller cancellation aborts the owner-side stream handler's signal, leaving no open follow.
+- [x] A test proves owner disconnect mid-follow ends the caller stream with an error, not a successful end.
+- [x] `v2/src/daemon/daemon-tail-stream.test.ts` stays green.
+- [x] A single-daemon test proves the stream path performs no ownership lookup when no predecessor is configured.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

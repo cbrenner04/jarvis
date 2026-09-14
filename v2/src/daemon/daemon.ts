@@ -69,7 +69,7 @@ import {
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
-import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import { createStableRunHandlers, createStableTailStreamHandler } from "./daemon-stable-run-routing.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -1282,18 +1282,28 @@ export async function startDaemonRuntime(
 
   const ownsRunLocally = (runId: string): boolean =>
     [...runControlContext.activeRuns.values()].some((activeRun) => activeRun.runId === runId);
-  const stableRunHandlers =
+  const directOwnerRoutingDeps =
     startupDeps.predecessorSocketPath === undefined
+      ? undefined
+      : {
+          predecessorSocketPath: startupDeps.predecessorSocketPath,
+          ownsRunLocally,
+          resolvePredecessorOwner: ownershipDirectory.resolveOwner,
+          connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
+        };
+  const stableRunHandlers =
+    directOwnerRoutingDeps === undefined
       ? undefined
       : createStableRunHandlers(
           { wait: runControlHandlers.wait, pause: runControlHandlers.pause, kill: runControlHandlers.kill },
-          {
-            predecessorSocketPath: startupDeps.predecessorSocketPath,
-            ownsRunLocally,
-            resolvePredecessorOwner: ownershipDirectory.resolveOwner,
-            connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
-          },
+          directOwnerRoutingDeps,
         );
+  // Stable-address only: private endpoints (see `privateHandlers`/`tailStreamHandler` below) bind
+  // the plain local handler, never this wrapper, so routing never chains through older generations.
+  const publicTailStreamHandler =
+    directOwnerRoutingDeps === undefined
+      ? tailStreamHandler
+      : createStableTailStreamHandler(tailStreamHandler, directOwnerRoutingDeps);
 
   // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
   // it fires on any admission cut, client-initiated or self-triggered, without permanently
@@ -1326,12 +1336,12 @@ export async function startDaemonRuntime(
     wasSuperseded: () => superseded,
     bindPublicServer: async () => {
       try {
-        server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+        server = await bindIpcServer(socketPath, handlers, publicTailStreamHandler);
       } catch (error) {
         // Rollback runs only after the successor failed to commit; a dead successor's leftover socket
         // file (unanswered) is reclaimable, a live answering daemon never is.
         if (!(await removeUnansweredSocketPath(socketPath, daemonAnswersAt))) throw error;
-        server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+        server = await bindIpcServer(socketPath, handlers, publicTailStreamHandler);
       }
     },
     probePublicServer: () => daemonAnswersAt(socketPath),
@@ -1362,7 +1372,7 @@ export async function startDaemonRuntime(
     if (startupDeps.privateSocketPath !== undefined) {
       privateServer = await bindIpcServer(startupDeps.privateSocketPath, privateHandlers, tailStreamHandler);
     }
-    server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+    server = await bindIpcServer(socketPath, handlers, publicTailStreamHandler);
   } catch (err) {
     if (err instanceof DaemonSocketBindFailureError) {
       console.error(formatDaemonBindFailureLogLine(err));

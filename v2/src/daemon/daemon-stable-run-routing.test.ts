@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { IpcClient } from "../ipc/client.ts";
-import type { RpcHandler } from "../ipc/server.ts";
+import type { RpcHandler, StreamHandler } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import { createStableRunHandlers, createStableTailStreamHandler } from "./daemon-stable-run-routing.ts";
 
 type Reply = { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
 
@@ -282,5 +282,334 @@ describe("stable run unary routing", () => {
     second.respond({ kind: "response", result: { runStatus: "completed" } });
     expect(await secondWait).toEqual({ kind: "response", result: { runStatus: "completed" } });
     expect(second.closeCount()).toBe(1);
+  });
+});
+
+function streamOwnerClient() {
+  const outgoing: unknown[] = [];
+  const queue: IpcFrame[] = [];
+  let waiter: { resolve: (frame: IpcFrame) => void; reject: (error: Error) => void } | null = null;
+  let closed = false;
+  let closeCount = 0;
+
+  const deliver = (frame: IpcFrame): void => {
+    if (waiter) {
+      const { resolve } = waiter;
+      waiter = null;
+      resolve(frame);
+      return;
+    }
+    queue.push(frame);
+  };
+
+  const disconnect = (error: Error): void => {
+    if (closed) return;
+    closed = true;
+    if (waiter) {
+      const { reject } = waiter;
+      waiter = null;
+      reject(error);
+    }
+  };
+
+  const client: IpcClient = {
+    send(frame) {
+      outgoing.push(frame);
+    },
+    nextFrame: () => {
+      const next = queue.shift();
+      if (next) return Promise.resolve(next);
+      if (closed) return Promise.reject(new Error("connection closed"));
+      return new Promise((resolve, reject) => {
+        waiter = { resolve, reject };
+      });
+    },
+    close() {
+      closeCount += 1;
+      disconnect(new Error("connection closed"));
+    },
+  };
+
+  return { client, outgoing, deliver, disconnect, closeCount: () => closeCount };
+}
+
+async function flush(): Promise<void> {
+  for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+}
+
+const noopLocalHandler: StreamHandler = async (_streamId, _payload, _onData, onClose) => {
+  onClose();
+};
+
+const STABLE_TAIL_PREDECESSOR_SOCKET_PATH = "/private/predecessor-tail.sock";
+
+describe("stable tail stream routing", () => {
+  test("a run this generation owns stays local without resolving predecessor ownership", async () => {
+    let refreshCalls = 0;
+    const localCalls: string[] = [];
+    const localHandler: StreamHandler = async (_streamId, _payload, _onData, onClose) => {
+      localCalls.push("local");
+      onClose();
+    };
+    const handler = createStableTailStreamHandler(localHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => true,
+      resolvePredecessorOwner: async () => {
+        refreshCalls += 1;
+        return true;
+      },
+      connectOwnerClient: async () => {
+        throw new Error("must not connect");
+      },
+    });
+
+    let closed = 0;
+    await handler(
+      "s1",
+      { runId: "run-1" },
+      () => undefined,
+      () => (closed += 1),
+      new AbortController().signal,
+    );
+    expect(localCalls).toEqual(["local"]);
+    expect(closed).toBe(1);
+    expect(refreshCalls).toBe(0);
+  });
+
+  test("a payload without a runId stays local without resolving predecessor ownership", async () => {
+    let refreshCalls = 0;
+    const localCalls: string[] = [];
+    const localHandler: StreamHandler = async (_streamId, _payload, _onData, onClose) => {
+      localCalls.push("local");
+      onClose();
+    };
+    const handler = createStableTailStreamHandler(localHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => {
+        refreshCalls += 1;
+        return true;
+      },
+      connectOwnerClient: async () => {
+        throw new Error("must not connect");
+      },
+    });
+
+    let closed = 0;
+    await handler(
+      "s1",
+      {},
+      () => undefined,
+      () => (closed += 1),
+      new AbortController().signal,
+    );
+    expect(localCalls).toEqual(["local"]);
+    expect(closed).toBe(1);
+    expect(refreshCalls).toBe(0);
+  });
+
+  test("a run the predecessor does not own stays local", async () => {
+    const localCalls: string[] = [];
+    const localHandler: StreamHandler = async (_streamId, _payload, _onData, onClose) => {
+      localCalls.push("local");
+      onClose();
+    };
+    const handler = createStableTailStreamHandler(localHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => false,
+      connectOwnerClient: async () => {
+        throw new Error("must not connect");
+      },
+    });
+
+    let closed = 0;
+    await handler(
+      "s1",
+      { runId: "run-1" },
+      () => undefined,
+      () => (closed += 1),
+      new AbortController().signal,
+    );
+    expect(localCalls).toEqual(["local"]);
+    expect(closed).toBe(1);
+  });
+
+  test("a run that becomes locally owned during refresh stays local despite the predecessor's claim", async () => {
+    let localOwner = false;
+    const localCalls: string[] = [];
+    const localHandler: StreamHandler = async (_streamId, _payload, _onData, onClose) => {
+      localCalls.push("local");
+      onClose();
+    };
+    const handler = createStableTailStreamHandler(localHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => localOwner,
+      resolvePredecessorOwner: async () => {
+        localOwner = true;
+        return true;
+      },
+      connectOwnerClient: async () => {
+        throw new Error("must not connect");
+      },
+    });
+
+    let closed = 0;
+    await handler(
+      "s1",
+      { runId: "run-1" },
+      () => undefined,
+      () => (closed += 1),
+      new AbortController().signal,
+    );
+    expect(localCalls).toEqual(["local"]);
+    expect(closed).toBe(1);
+  });
+
+  test("forwards the original payload unchanged and relays owner records in arrival order, ending normally on owner stream-end", async () => {
+    const owner = streamOwnerClient();
+    const handler = createStableTailStreamHandler(noopLocalHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => true,
+      connectOwnerClient: async () => owner.client,
+    });
+
+    const onData: unknown[] = [];
+    let closed = 0;
+    const payload = { runId: "run-1", afterSeq: 0, follow: true };
+    const pending = handler(
+      "caller-stream",
+      payload,
+      (record) => onData.push(record),
+      () => (closed += 1),
+      new AbortController().signal,
+    );
+
+    await flush();
+    expect(owner.outgoing).toHaveLength(1);
+    const opened = owner.outgoing[0] as { kind: "stream-open"; streamId: string; payload: unknown };
+    expect(opened.kind).toBe("stream-open");
+    expect(opened.payload).toEqual(payload);
+
+    // A stray frame for a different stream is ignored rather than crashing or delivered.
+    owner.deliver({ kind: "stream-data", streamId: "unrelated-stream", payload: JSON.stringify({ seq: 99 }) });
+    owner.deliver({ kind: "stream-data", streamId: opened.streamId, payload: JSON.stringify({ seq: 1 }) });
+    owner.deliver({ kind: "stream-data", streamId: opened.streamId, payload: JSON.stringify({ seq: 2 }) });
+    owner.deliver({ kind: "stream-end", streamId: opened.streamId });
+
+    await pending;
+    expect(onData).toEqual([{ seq: 1 }, { seq: 2 }]);
+    expect(closed).toBe(1);
+    expect(owner.closeCount()).toBe(1);
+  });
+
+  test("an owner error stream-end rejects with the owner's message instead of closing successfully", async () => {
+    const owner = streamOwnerClient();
+    const handler = createStableTailStreamHandler(noopLocalHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => true,
+      connectOwnerClient: async () => owner.client,
+    });
+
+    let closed = 0;
+    const pending = handler(
+      "s1",
+      { runId: "run-1" },
+      () => undefined,
+      () => (closed += 1),
+      new AbortController().signal,
+    );
+    await flush();
+    const opened = owner.outgoing[0] as { streamId: string };
+    owner.deliver({ kind: "stream-end", streamId: opened.streamId, payload: { error: "owner read failed" } });
+
+    await expect(pending).rejects.toThrow("owner read failed");
+    expect(closed).toBe(0);
+  });
+
+  test("owner disconnect mid-follow rejects instead of closing successfully", async () => {
+    const owner = streamOwnerClient();
+    const handler = createStableTailStreamHandler(noopLocalHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => true,
+      connectOwnerClient: async () => owner.client,
+    });
+
+    let closed = 0;
+    const onData: unknown[] = [];
+    const pending = handler(
+      "s1",
+      { runId: "run-1", follow: true },
+      (record) => onData.push(record),
+      () => (closed += 1),
+      new AbortController().signal,
+    );
+    await flush();
+    const opened = owner.outgoing[0] as { streamId: string };
+    owner.deliver({ kind: "stream-data", streamId: opened.streamId, payload: JSON.stringify({ seq: 1 }) });
+    await flush();
+    owner.disconnect(new Error("connection closed"));
+
+    await expect(pending).rejects.toThrow("connection closed");
+    expect(onData).toEqual([{ seq: 1 }]);
+    expect(closed).toBe(0);
+  });
+
+  test("caller cancellation aborts the owner connection and ends the caller stream without error", async () => {
+    const owner = streamOwnerClient();
+    const handler = createStableTailStreamHandler(noopLocalHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => true,
+      connectOwnerClient: async () => owner.client,
+    });
+
+    const controller = new AbortController();
+    let closed = 0;
+    const onData: unknown[] = [];
+    const pending = handler(
+      "s1",
+      { runId: "run-1", follow: true },
+      (record) => onData.push(record),
+      () => (closed += 1),
+      controller.signal,
+    );
+    await flush();
+    expect(owner.outgoing).toHaveLength(1);
+
+    controller.abort();
+    await pending;
+
+    expect(closed).toBe(1);
+    expect(owner.closeCount()).toBe(1);
+    expect(onData).toEqual([]);
+  });
+
+  test("an already-cancelled caller closes the owner connection without sending", async () => {
+    const owner = streamOwnerClient();
+    const handler = createStableTailStreamHandler(noopLocalHandler, {
+      predecessorSocketPath: STABLE_TAIL_PREDECESSOR_SOCKET_PATH,
+      ownsRunLocally: () => false,
+      resolvePredecessorOwner: async () => true,
+      connectOwnerClient: async () => owner.client,
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+    let closed = 0;
+    await handler(
+      "s1",
+      { runId: "run-1" },
+      () => undefined,
+      () => (closed += 1),
+      controller.signal,
+    );
+
+    expect(owner.outgoing).toEqual([]);
+    expect(closed).toBe(1);
+    expect(owner.closeCount()).toBe(1);
   });
 });

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { IpcServer, RpcHandler } from "../ipc/server.ts";
+import type { IpcServer, RpcHandler, StreamHandler } from "../ipc/server.ts";
 import type { LogReader, LogSink } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { startDaemonRuntime } from "./daemon.ts";
@@ -219,6 +219,88 @@ test("binds direct-owner routing only on the stable endpoint so private calls ca
   // owner. This fails if the private endpoint ever gets the routing handlers instead of the local
   // ones.
   await expect(publicPause?.(request, new AbortController().signal)).rejects.toThrow("no real owner in this test");
+  expect(ownerConnectAttempts).toEqual(["/fake/predecessor.sock"]);
+
+  await runtime.close();
+});
+
+test("stream path performs no ownership lookup when no predecessor is configured", async () => {
+  const boundStreamHandlers = new Map<string, StreamHandler | undefined>();
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: async (socketPath, _handlers, streamHandler) => {
+      boundStreamHandlers.set(socketPath, streamHandler);
+      return { socketPath, close: async () => undefined };
+    },
+    privateSocketPath: "/fake/private.sock",
+    enumerateOtherDaemonSockets: () => [],
+  });
+
+  // No predecessor configured: the public endpoint gets the exact same unwrapped local handler as
+  // the private endpoint, proving no direct-owner ownership check ever runs on the stream path.
+  expect(boundStreamHandlers.get("/fake/public.sock")).toBe(boundStreamHandlers.get("/fake/private.sock"));
+  await runtime.close();
+});
+
+test("binds direct-owner stream routing only on the stable endpoint so private tail calls cannot chain", async () => {
+  const boundStreamHandlers = new Map<string, StreamHandler | undefined>();
+  const ownerConnectAttempts: string[] = [];
+  const runtime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer: async (socketPath, _handlers, streamHandler) => {
+      boundStreamHandlers.set(socketPath, streamHandler);
+      return { socketPath, close: async () => undefined };
+    },
+    privateSocketPath: "/fake/private.sock",
+    predecessorSocketPath: "/fake/predecessor.sock",
+    enumerateOtherDaemonSockets: () => [],
+    observePredecessorDrain: () => ({ liveRunIds: () => new Set<string>(), stop: () => undefined }),
+    // Resolves every runId to the predecessor: a routing handler would forward, the local handler
+    // never consults this at all.
+    observeRunOwnership: () => ({
+      ownerRow: () => undefined,
+      resolveOwner: async () => true,
+      stop: () => undefined,
+    }),
+    connectRunOwnerClient: async (socketPath) => {
+      ownerConnectAttempts.push(socketPath);
+      throw new Error("no real owner in this test");
+    },
+  });
+
+  const privateStream = boundStreamHandlers.get("/fake/private.sock");
+  const publicStream = boundStreamHandlers.get("/fake/public.sock");
+  expect(privateStream).toBeDefined();
+  expect(publicStream).toBeDefined();
+  expect(privateStream).not.toBe(publicStream);
+
+  const onData: unknown[] = [];
+  let closed = 0;
+  // The private endpoint runs the local handler directly and never resolves ownership at all: an
+  // unknown run just closes locally without any stream-data.
+  await privateStream?.(
+    "s1",
+    { runId: "unknown-run" },
+    (record) => onData.push(record),
+    () => (closed += 1),
+    new AbortController().signal,
+  );
+  expect(onData).toEqual([]);
+  expect(closed).toBe(1);
+  expect(ownerConnectAttempts).toEqual([]);
+
+  // The same request through the stable endpoint resolves ownership to the predecessor and
+  // attempts to forward, proving the private endpoint above skipped routing rather than merely
+  // finding no owner.
+  await expect(
+    publicStream?.(
+      "s2",
+      { runId: "run-1" },
+      () => undefined,
+      () => undefined,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("no real owner in this test");
   expect(ownerConnectAttempts).toEqual(["/fake/predecessor.sock"]);
 
   await runtime.close();

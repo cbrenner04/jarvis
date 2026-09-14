@@ -19,9 +19,8 @@ import {
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { request } from "../cli/ipc.ts";
 import { readCleanupSessionLogRetentionDays, readProjectConfigRecord } from "../config/machine-config-loader.ts";
-import { parseListRuns } from "../daemon/daemon-wire.ts";
-import { mergeRunLists } from "../daemon/merge-run-lists.ts";
-import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
+import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
+import type { QueryDaemonListsDeps } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
 import {
   planSourcePublishesExternally,
@@ -206,28 +205,41 @@ export function createStaleResetDaemonClient(client: IpcClient): DaemonClient {
   return daemonClient;
 }
 
+/** Query the stable daemon socket only; no discovery, no cross-socket merge. */
+async function queryStableDaemonList(
+  deps: QueryDaemonListsDeps,
+): Promise<{ list: DaemonListResult | undefined; error: unknown }> {
+  try {
+    const client = await deps.connectIpcClient(deps.socketPath);
+    try {
+      const result = await request(client, "list", { includeDismissed: true });
+      const list = parseListRuns(result);
+      return { list, error: list === undefined ? new Error("invalid daemon response") : undefined };
+    } finally {
+      client.close();
+    }
+  } catch (error) {
+    return { list: undefined, error };
+  }
+}
+
 export async function createBulkCleanupDaemonClient(deps: QueryDaemonListsDeps): Promise<{
   client: DaemonClient;
   hasAnsweringDaemon: boolean;
   firstError: unknown;
 }> {
-  const queryLists = async () => queryDaemonListsFromSockets(deps, { includeDismissed: true }, { skipOnFailure: true });
-
-  const initial = await queryLists();
-  const hasAnsweringDaemon = initial.listResults.some(([, result]) => result !== undefined);
+  const initial = await queryStableDaemonList(deps);
+  const hasAnsweringDaemon = initial.list !== undefined;
 
   const client: DaemonClient = async (project, branch) => {
-    const { listResults } = await queryLists();
-    if (!listResults.some(([, result]) => result !== undefined)) {
-      throw new Error(DAEMON_UNREACHABLE_REASON);
-    }
-    const { rows } = mergeRunLists(listResults);
-    return rows
+    const { list } = await queryStableDaemonList(deps);
+    if (list === undefined) throw new Error(DAEMON_UNREACHABLE_REASON);
+    return list.runs
       .filter((row) => row.project === project && row.branch === branch)
       .map((row) => ({ isLive: row.isLive }));
   };
 
-  return { client, hasAnsweringDaemon, firstError: initial.firstError };
+  return { client, hasAnsweringDaemon, firstError: initial.error };
 }
 
 /**

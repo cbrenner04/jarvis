@@ -866,7 +866,7 @@ describe("cleanup command through main", () => {
     expect(existsSync(worktreePath)).toBe(true);
   });
 
-  test("discovered older-digest daemon suppresses no-listener stderr and blocks live run", async () => {
+  test("a discovered older-digest daemon is never queried: stable socket's no-listener failure still fails closed", async () => {
     const branch = "older-digest-cli-live";
     const worktreePath = await materializeMergedWorktree(branch);
     const invokingSocket = join(cleanupJarvisRoot, "daemon-invoking.sock");
@@ -897,21 +897,20 @@ describe("cleanup command through main", () => {
       .filter((event) => event.stream === "stderr")
       .map((event) => event.text)
       .join("");
-    expect(code).toBe(0);
-    expect(stderr).toBe("");
-    expect(stdout).not.toContain("Daemon unreachable");
-    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
-    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
-    expect(stdout).not.toContain(worktreePath);
+    expect(code).toBe(1);
+    expect(stderr).toContain("No daemon is listening");
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
     expect(existsSync(worktreePath)).toBe(true);
   });
 
-  test("invoking-socket hard error does not abort cleanup when discovered peer answers", async () => {
+  test("invoking-socket hard error fails closed without falling back to a discovered peer", async () => {
     const branch = "peer-answers-eacces";
     const worktreePath = await materializeMergedWorktree(branch);
     const invokingSocket = join(cleanupJarvisRoot, "daemon-invoking.sock");
     const peerSocket = join(cleanupJarvisRoot, "daemon-peer.sock");
     const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
+    const queriedSockets: string[] = [];
 
     const code = await cliMain(
       ["cleanup", "--dry-run"],
@@ -926,6 +925,7 @@ describe("cleanup command through main", () => {
         socketPath: invokingSocket,
         socketDiscovery: async () => [peerSocket],
         connectIpcClient: async (socketPath) => {
+          queriedSockets.push(socketPath);
           if (socketPath === invokingSocket) {
             throw Object.assign(new Error("connect EACCES /private/daemon.sock"), { code: "EACCES" });
           }
@@ -942,11 +942,10 @@ describe("cleanup command through main", () => {
       .filter((event) => event.stream === "stderr")
       .map((event) => event.text)
       .join("");
-    expect(code).toBe(0);
-    expect(stderr).toBe("");
-    expect(stderr).not.toContain("EACCES");
-    expect(stderr).not.toContain("No daemon is listening");
-    expect(stdout).toContain(worktreePath);
+    expect(code).toBe(1);
+    expect(stderr).toContain("connect EACCES");
+    expect(stdout).not.toContain(worktreePath);
+    expect(queriedSockets).toEqual([invokingSocket]);
     expect(existsSync(worktreePath)).toBe(true);
   });
 

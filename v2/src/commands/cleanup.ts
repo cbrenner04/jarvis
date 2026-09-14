@@ -46,7 +46,7 @@ import {
   pruneConsumedQueueEntry,
   resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
-import { DAEMON_DIGEST_ARTIFACT_FILE, reapLegacyDaemonArtifacts } from "./daemon.ts";
+import { daemonUnitKeysFromNames, legacyDaemonUnitPaths, reapLegacyDaemonArtifacts } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1555,25 +1555,17 @@ function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: strin
   }
 }
 
-function legacyDaemonUnitKeysForDeadArtifacts(paths: readonly string[]): string[] {
-  const keys = new Set<string>();
-  for (const path of paths) {
-    const key = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(path))?.[1];
-    if (key !== undefined) keys.add(key);
-  }
-  return [...keys];
-}
-
 async function removeDeadDaemonArtifacts(
   paths: readonly string[],
   jarvisRoot: string,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<number> {
   let exitCode = 0;
-  const keys = legacyDaemonUnitKeysForDeadArtifacts(paths);
+  const keys = daemonUnitKeysFromNames(paths);
 
   for (const key of keys) {
-    const artifactPaths = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
+    const unit = legacyDaemonUnitPaths(jarvisRoot, key);
+    const artifactPaths = [unit.socketPath, unit.pidPath, unit.logPath];
     const revalidated = await reapLegacyDaemonArtifacts(jarvisRoot, [key]);
     const revalidatedDead = new Set(revalidated.dead);
     for (const path of artifactPaths) {

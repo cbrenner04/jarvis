@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 import { isProcessAlive } from "../../../shared/worktree-lock.ts";
 import { DAEMON_LOG_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
@@ -9,7 +9,7 @@ import { formatLifecycleError } from "../cli/ipc.ts";
 import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
 import { probeSocketLiveness, type SocketLiveness } from "../ipc/server.ts";
 
-export const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
+const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
 
 /** The classifier's two probes, injectable so a test can exercise every branch without a real
  * process or a real bound socket. */
@@ -20,15 +20,26 @@ type LegacyDaemonArtifactDeps = {
 
 const defaultLegacyDaemonArtifactDeps: LegacyDaemonArtifactDeps = { isProcessAlive, probeSocketLiveness };
 
-type LegacyDaemonUnitPaths = { key: string; socketPath: string; pidPath: string; logPath: string };
+type LegacyDaemonUnitPaths = { socketPath: string; pidPath: string; logPath: string };
 
-function legacyDaemonUnitPaths(jarvisRoot: string, key: string): LegacyDaemonUnitPaths {
+export function legacyDaemonUnitPaths(jarvisRoot: string, key: string): LegacyDaemonUnitPaths {
   return {
-    key,
     socketPath: join(jarvisRoot, `daemon-${key}.sock`),
     pidPath: join(jarvisRoot, `daemon-${key}.pid`),
     logPath: join(jarvisRoot, `daemon-${key}.log`),
   };
+}
+
+/** Extracts the `daemon-<16hex>` key from every matching name (a bare filename, or a path whose
+ * basename matches), deduplicated. Shared between directory-listing discovery and re-deriving
+ * keys from a list of already-known dead-artifact paths. */
+export function daemonUnitKeysFromNames(names: readonly string[]): string[] {
+  const keys = new Set<string>();
+  for (const name of names) {
+    const key = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(name))?.[1];
+    if (key !== undefined) keys.add(key);
+  }
+  return [...keys];
 }
 
 /** Union of keys across every `daemon-<16hex>.{sock,pid,log}` filename under `jarvisRoot`; a
@@ -40,12 +51,7 @@ function discoverLegacyDaemonUnitKeys(jarvisRoot: string): string[] {
   } catch {
     return [];
   }
-  const keys = new Set<string>();
-  for (const name of entries) {
-    const key = DAEMON_DIGEST_ARTIFACT_FILE.exec(name)?.[1];
-    if (key !== undefined) keys.add(key);
-  }
-  return [...keys];
+  return daemonUnitKeysFromNames(entries);
 }
 
 /** A parseable positive PID, or undefined when the file is absent, unreadable, or not one. */

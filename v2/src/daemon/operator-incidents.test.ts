@@ -433,14 +433,21 @@ test("plain run without a workflow snapshot notifies on every terminal settlemen
   ]);
 });
 
-test("a reachable gate notifies once it durably enters awaiting, keyed by awaiting_since", () => {
+test("a reachable gate still pending notifies on the predecessor fallback; the boundary commit re-keys it", () => {
   setSystemTime(new Date(1_000_000));
   const pipelineId = store.createPipeline({
     definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
   });
   const gate = store.loadPipeline(pipelineId)?.stages[0];
   if (gate === undefined) throw new Error("expected gate row");
-  expect(deriveOperatorIncidents(store)).toEqual([]);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "pipeline-awaiting-approval",
+      pipelineId,
+      transition: "awaiting-approval:gate:default:1000000",
+      sinceMs: 1_000_000,
+    }),
+  ]);
 
   setSystemTime(new Date(1_003_000));
   expect(store.commitApprovalBoundary({ stageRecordId: gate.id }).kind).toBe("applied");
@@ -471,6 +478,7 @@ test("a gate re-reached with no predecessor re-run notifies again", () => {
 
   store.updateStage({ pipelineId, stageId: "gate", patch: { status: "pending" } });
   expect(deriveOperatorIncidents(store)).toEqual([]);
+  expect(store.loadPipeline(pipelineId)?.stages[0]?.awaitingSince).toBe(1_000_000);
   setSystemTime(new Date(1_005_000));
   store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
   expect(deriveOperatorIncidents(store)).toEqual([

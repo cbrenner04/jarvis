@@ -122,13 +122,13 @@ function awaitingGateTransition(
 }
 
 /**
- * Reachable gates still `pending` notify once the boundary commit flips them to `awaiting` and
- * stamps `awaiting_since`; keying the pending observation separately would notify the same reach twice.
+ * Every reachable gate, `awaiting` or still `pending`. A pending row keys on the predecessor
+ * fallback until the boundary commit stamps `awaiting_since`; a continuation that never flips it
+ * (`continuePipeline` after settlement is fire-and-forget) must not go silent, so the rare sweep
+ * tick inside that window costs a duplicate rather than a miss.
  */
-function durablyAwaitingGates(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord[] {
-  return derivePipelineAwaitingGates(pipeline)
-    .map((gate) => gate.record)
-    .filter((record) => record.status === "awaiting");
+function reachableGates(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord[] {
+  return derivePipelineAwaitingGates(pipeline).map((gate) => gate.record);
 }
 
 function previewPipelineIncidentKeys(
@@ -138,7 +138,7 @@ function previewPipelineIncidentKeys(
   const keys: IncidentKey[] = [];
   const state = derivePipelineState(pipeline);
 
-  for (const gate of durablyAwaitingGates(pipeline)) {
+  for (const gate of reachableGates(pipeline)) {
     keys.push({
       incidentId: pipelineIncidentId(pipeline.id),
       transition: awaitingGateTransition(pipeline, gate),
@@ -363,7 +363,7 @@ function collectPipelineIncidents(
   const state = derivePipelineState(pipeline);
   const project = resolvePipelineIncidentProject(pipeline, entryRunsById);
 
-  for (const gate of durablyAwaitingGates(pipeline)) {
+  for (const gate of reachableGates(pipeline)) {
     pushAwaitingApprovalIncident(incidents, pipeline, gate, project);
   }
 

@@ -15,6 +15,8 @@ So the operator must merge the partial spec first, or hand-drive the remaining s
 
 Observed 2026-08-16: v2-init implement chain (`2c40057f` → `174b84fe` → `0d032965`) completed subspecs 00/01/02 then stalled at 03 (`0d032965` settled `unsupported_resume_context` during a quota break). Re-running `--base main` refused on preserve-landed-criteria; there was no built-in way to continue from subspec 03 without merging 00/01/02 or discarding them.
 
+Recurred 2026-09-14 (twice): `unified-pipeline-namespace` settled `quota_exhausted` after subspec 00 committed and ticked — `run resume` refused (`terminal_run`), re-dispatch refused (commits not on base + landed criteria); hand-finished as #3891. `protect-draining-run-ownership` settled `iteration_timeout` with 00 committed but unticked (non-resumable); hand-finished as slice #3893, then re-dispatched.
+
 ## Decisions
 
 - Provide a resume path that continues an incomplete implement on its **existing worktree** from the first unticked subspec, preserving already-committed subspecs, without requiring them to be merged into `--base` first. Plan decides the shape: a `--resume`/`--continue` opt-in, or treating "worktree is a clean descendant of `--base` with only *extra* ticked criteria" as resumable (reuse the worktree, skip retirement, route to the next unticked subspec) rather than a hard refusal.

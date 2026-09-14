@@ -8,6 +8,8 @@ name: ready-gate-repair-out-of-diff-edits
 
 When the ready gate red-fails on files outside the run's diff (e.g. suite-wide contention flakes), the repair loop edits those files — test timeout bumps, `LOAD_SENSITIVE_FILES` additions — and then completion staging refuses them: run `7c4a3663` failed `completion_commit_failed` with "Ready-gate repair stages path outside run diff and spec tree: v2/src/execution/workflow-runner-*.test.ts …". The refusal is correct (out-of-scope edits must not land silently), but the edits are left **uncommitted in the worktree**. Observed 2026-08-28: four merged-PR worktrees each carried stranded dirty band-aids (`120_000` test timeouts in `completion-commit.test.ts`/`diff-derived-mutation-verifier.test.ts`, `LOAD_SENSITIVE_FILES` entries in `scripts/test-slice.ts`), which then made every one of them block `jarvis cleanup` as a dirty worktree until manual `git worktree remove --force`.
 
+Recurred 2026-09-14 (twice), both settling `completion_commit_failed` on the fence: #3894 — the needed fix (drop a now-dead `export` in `query-daemon-lists-from-sockets.ts` after the lane deleted its caller) was outside the diff; #3897 — the gate needed one out-of-diff deletion (`merge-run-lists.ts`, dead export) but repair also edited 35 unrelated files (unused imports, `biome-ignore` removals in `shared/prompts/*`) for warnings that never fail the gate. Both hand-finished. The dominant trigger is a lane deletion orphaning an export in a sibling file.
+
 ## Decisions
 
 - The staging fence stays: out-of-diff repair edits never land in the completion commit. This seed changes what happens to the refused edits, not the refusal.

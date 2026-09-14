@@ -6,7 +6,7 @@ Tests leaked ~1.24M files into `~/.jarvis/sessions/` plus `~/.jarvis/specs/Org-*
 
 - Guard snapshots the real home (resolved from `homedir()`, never `JARVIS_HOME`) before the run and diffs after: new entries under `sessions/` and `specs/` and size/mtime change of `telemetry.jsonl`; rules out a read-only fence, which breaks on machines where the operator daemon writes concurrently.
 - Snapshot is entry-name listing of top-level `sessions/` and recursive-to-bounded-depth `specs/`, not a full recursive walk; `sessions/` already holds ~1.24M files.
-- Deferred to first consumer: allowlist for concurrent operator-daemon writes to the real home — pin when a false positive is observed.
+- Guard is opt-in via `JARVIS_REAL_HOME_GUARD=1`, set in CI job env and off by default locally: the operator's shared daemon writes session logs/telemetry into the real home concurrently with local test runs, which would false-positive every local run otherwise.
 - Violation fails the suite via a nonzero exit with the offending paths listed; rules out a warning that gets ignored.
 - Snapshot/diff logic is a pure exported function tested with temp-dir fixtures; the preload only wires it.
 

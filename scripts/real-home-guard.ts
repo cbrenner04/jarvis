@@ -59,6 +59,15 @@ function statTelemetry(homeDir: string): { size: number; mtimeMs: number } | nul
   }
 }
 
+/**
+ * Whether the test-preload real-home write guard should run. Opt-in via `JARVIS_REAL_HOME_GUARD=1`
+ * (set in CI), off by default locally: the operator's shared daemon writes session logs/telemetry
+ * into the real `~/.jarvis` concurrently with local test runs, which would false-positive the guard.
+ */
+export function shouldGuardRealHome(env: Record<string, string | undefined>): boolean {
+  return env.JARVIS_REAL_HOME_GUARD === "1";
+}
+
 /** Snapshot of `homeDir`'s sessions/specs listings and telemetry log stat. */
 export function snapshotRealHome(homeDir: string): RealHomeSnapshot {
   return {

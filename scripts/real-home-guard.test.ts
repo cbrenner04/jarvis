@@ -6,7 +6,20 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { diffRealHomeSnapshots, type RealHomeSnapshot, snapshotRealHome } from "./real-home-guard.ts";
+import {
+  diffRealHomeSnapshots,
+  type RealHomeSnapshot,
+  shouldGuardRealHome,
+  snapshotRealHome,
+} from "./real-home-guard.ts";
+
+test('shouldGuardRealHome is off for an unset JARVIS_REAL_HOME_GUARD and on for "1"', () => {
+  // CI-only opt-in: unset (or any value other than "1") must not enable the guard, or every local
+  // run would false-positive against the operator's concurrently-writing shared daemon.
+  expect(shouldGuardRealHome({})).toBe(false);
+  expect(shouldGuardRealHome({ JARVIS_REAL_HOME_GUARD: "0" })).toBe(false);
+  expect(shouldGuardRealHome({ JARVIS_REAL_HOME_GUARD: "1" })).toBe(true);
+});
 
 test("sessions/ diff reports the entry new in after, not the entry already present in before", () => {
   // Inverting `!beforeSessions.has(entry)` to `beforeSessions.has(entry)` would flip this: the

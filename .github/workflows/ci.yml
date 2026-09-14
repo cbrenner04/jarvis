@@ -8,6 +8,11 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    env:
+      # Opt into the test-preload real-home write guard (scripts/real-home-guard.ts): CI has no
+      # concurrent operator daemon writing the real ~/.jarvis, so it's safe here and off by default
+      # locally where that daemon runs.
+      JARVIS_REAL_HOME_GUARD: "1"
     steps:
       - uses: actions/checkout@v5
         with:

@@ -809,6 +809,9 @@ export interface StateStore {
    */
   adoptOrphanedPipeline(pipelineId: string): Promise<boolean>;
 
+  /** True when the pipeline's recorded owner is unowned (`null`) or provably dead — never this process. */
+  pipelineOwnerIsDead(pipelineId: string): Promise<boolean>;
+
   claimPipelineStageAdmission(args: {
     pipelineId: string;
     stageId: string;
@@ -2195,6 +2198,12 @@ class StateStoreImpl implements StateStore {
     if (owner === this.currentIdentity) return true;
     if (owner !== null && (await this.isOwnerAliveProbe(owner))) return false;
     return this.claimPipelineContinuation({ pipelineId, priorOwnerIdentity: owner }).kind === "applied";
+  }
+
+  async pipelineOwnerIsDead(pipelineId: string): Promise<boolean> {
+    const pipeline = this.loadPipeline(pipelineId);
+    if (pipeline === null || pipeline.ownerIdentity === this.currentIdentity) return false;
+    return pipeline.ownerIdentity === null || !(await this.isOwnerAliveProbe(pipeline.ownerIdentity));
   }
 
   claimPipelineContinuation(args: {

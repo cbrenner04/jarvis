@@ -50,6 +50,8 @@ const builderDeps: PlanWorkflowDeps = {
 };
 
 const { roots } = trackedTempRoots();
+const repoSpecsConfigPath = join(mkdtempSync(join(tmpdir(), "plan-specs-repo-config-")), "config.json");
+writeFileSync(repoSpecsConfigPath, JSON.stringify({ projects: { demo: { root: "/repo", specs: "repo" } } }), "utf8");
 const specGuidance = readSpecGuidance();
 
 async function executeBuiltDraftStep(
@@ -107,7 +109,7 @@ async function executeBuiltDraftStep(
 }
 
 describe("plan preset draft write step", () => {
-  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" };
+  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath };
 
   test.each([
     ["plan", buildPlanWorkflowSteps],
@@ -209,7 +211,10 @@ describe("plan ready-intent output routing", () => {
     writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
     writeFileSync(
       config,
-      JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: configuredTargetDir } } }),
+      JSON.stringify({
+        projects: { demo: { root, specs: "repo" } },
+        modes: { plan: { targetDir: configuredTargetDir } },
+      }),
     );
 
     for (const [name, build] of builders) {
@@ -231,7 +236,10 @@ describe("plan ready-intent output routing", () => {
     const readyIntent = "v2/spec/ready-intents/feature.md";
     mkdirSync(join(root, "v2/spec/ready-intents"), { recursive: true });
     writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
-    writeFileSync(config, JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: "v2/spec" } } }));
+    writeFileSync(
+      config,
+      JSON.stringify({ projects: { demo: { root, specs: "repo" } }, modes: { plan: { targetDir: "v2/spec" } } }),
+    );
 
     const result = await buildPlanWorkflowSteps(
       { cwd: root, readyIntent, targetDir: "v1/spec", configPath: config },
@@ -242,13 +250,13 @@ describe("plan ready-intent output routing", () => {
       expect(result.steps[0]).toMatchObject({ specPath: expect.stringMatching(/^v1\/spec\/\d{8}T\d{6}Z-feature$/) });
   });
 
-  test("keeps Git-disabled ready-intent plans in external storage", async () => {
+  test("keeps specs-external ready-intent plans in external storage", async () => {
     const root = mkdtempSync(join(tmpdir(), "plan-routing-"));
     const config = join(root, "config.json");
     const readyIntent = "v1/spec/ready-intents/feature.md";
     mkdirSync(join(root, "v1/spec/ready-intents"), { recursive: true });
     writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
-    writeFileSync(config, JSON.stringify({ projects: { "Org/Repo": { root, git: false } } }));
+    writeFileSync(config, JSON.stringify({ projects: { "Org/Repo": { root, specs: "external" } } }));
 
     const result = await buildPlanWorkflowSteps(
       { cwd: root, readyIntent, configPath: config },
@@ -265,7 +273,7 @@ describe("plan ready-intent output routing", () => {
   });
 
   test("admits external ready-intent under project specs home", async () => {
-    const { root, jarvisRoot, config, projectKey, externalReadyIntent } = stageExternalReadyIntent({ git: false });
+    const { root, jarvisRoot, config, projectKey, externalReadyIntent } = stageExternalReadyIntent({ external: true });
     const safeId = projectSafeId(projectKey);
     const externalPlanPath = join(jarvisRoot, "specs", safeId, "plans", "feature");
 
@@ -305,7 +313,7 @@ describe("plan ready-intent output routing", () => {
 });
 
 describe("buildPlanWorkflowSteps review composition", () => {
-  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" };
+  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath };
 
   test("defaults to one debate review pass when review options are omitted", async () => {
     const result = await buildPlanWorkflowSteps(input, builderDeps);
@@ -383,7 +391,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
   test("defaults to one loaded draft-plus-debate workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath },
       {
         resolveProjectMatch: () => match,
         readReadyIntent: () => intent,
@@ -463,10 +471,10 @@ describe("buildReviewedPlanWorkflowSteps", () => {
     }
   });
 
-  test("points the debate step at the draft's actual localPath when project git is disabled", async () => {
+  test("points the debate step at the draft's actual localPath when project specs is external", async () => {
     const root = mkdtempSync(join(tmpdir(), "plan-builder-"));
     const config = join(root, "config.json");
-    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "external" } } }));
     const result = await buildReviewedPlanWorkflowSteps(
       { cwd: root, readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: config },
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
@@ -490,7 +498,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
   test("defaults to one loaded draft-plus-light-review workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanLightWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath },
       {
         resolveProjectMatch: () => match,
         readReadyIntent: () => intent,
@@ -572,10 +580,10 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
     }
   });
 
-  test("points the review step at the draft's actual localPath when project git is disabled", async () => {
+  test("points the review step at the draft's actual localPath when project specs is external", async () => {
     const root = mkdtempSync(join(tmpdir(), "plan-builder-"));
     const config = join(root, "config.json");
-    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "external" } } }));
     const result = await buildReviewedPlanLightWorkflowSteps(
       { cwd: root, readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: config },
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
@@ -595,18 +603,20 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
   });
 });
 
-function stageExternalReadyIntent(options: { git?: false }) {
+function stageExternalReadyIntent(options: { external?: true }) {
   const root = mkdtempSync(join(tmpdir(), "plan-external-ready-intent-"));
   const jarvisRoot = join(root, "jarvis");
   const config = join(root, "config.json");
-  const projectKey = options.git === false ? "Org/Repo" : "demo";
+  const projectKey = options.external === true ? "Org/Repo" : "demo";
   const readyIntentsHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "ready-intents");
   mkdirSync(readyIntentsHome, { recursive: true });
   const externalReadyIntent = join(readyIntentsHome, "feature.md");
   writeFileSync(externalReadyIntent, "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
   writeFileSync(
     config,
-    JSON.stringify({ projects: { [projectKey]: { root, ...(options.git === false ? { git: false } : {}) } } }),
+    JSON.stringify({
+      projects: { [projectKey]: { root, ...(options.external === true ? { specs: "external" } : { specs: "repo" }) } },
+    }),
   );
   return { root, jarvisRoot, config, projectKey, externalReadyIntent };
 }

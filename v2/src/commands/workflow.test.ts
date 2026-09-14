@@ -331,7 +331,7 @@ describe("run workflow dispatch", () => {
     mkdirSync(specReadRoot, { recursive: true });
     writeFileSync(join(specReadRoot, "index.md"), "- [x] [work](./00-work.md)\n", "utf8");
     writeFileSync(join(specReadRoot, "00-work.md"), "## Acceptance criteria\n\n- [x] done\n", "utf8");
-    const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root, git: false } } });
+    const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root, specs: "external" } } });
     const cap = captureIo();
     const sent: unknown[] = [];
     let built = false;
@@ -2765,7 +2765,7 @@ describe("implement preflight stale workspace reset", () => {
     writeFileSync(completedPath, completedContent, "utf8");
     writeFileSync(incompletePath, incompleteContent, "utf8");
     const configPath = writeHomeMachineConfig({
-      projects: { demo: { root: resetProjectRoot, plan: { commit: false } } },
+      projects: { demo: { root: resetProjectRoot, specs: "external" } },
     });
     const cap = captureIo();
     const sent: unknown[] = [];

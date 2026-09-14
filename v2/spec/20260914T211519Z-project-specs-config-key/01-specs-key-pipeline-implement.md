@@ -11,11 +11,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/pipeline-chained-workflow-deps.test.ts` asserts a project without `specs` resolves external and one with `specs: "repo"` resolves repo; it fails against the pre-fix code.
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts` asserts external plan admission for a project without `specs` and a validation error naming `specs` when `plan.commit` is present; it fails against the pre-fix code.
-- [ ] A test asserts `publication-workflow-steps.ts`'s intent/plan sites also default to external once this subspec lands (the flip applies globally through the shared resolver); it fails against the pre-fix code.
-- [ ] Existing `pipeline-chained-workflow-deps.test.ts`, `pipeline-stage-resolve.test.ts`, and `implement-workflow-steps.test.ts` fixtures using `plan.commit` or `git: false` as the spec home are rewritten to `specs`, not deleted.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/pipeline-chained-workflow-deps.test.ts` asserts a project without `specs` resolves external and one with `specs: "repo"` resolves repo; it fails against the pre-fix code.
+- [x] `v2/src/execution/implement-workflow-steps.test.ts` asserts external plan admission for a project without `specs` and a validation error naming `specs` when `plan.commit` is present; it fails against the pre-fix code.
+- [x] A test asserts `publication-workflow-steps.ts`'s intent/plan sites also default to external once this subspec lands (the flip applies globally through the shared resolver); it fails against the pre-fix code.
+- [x] Existing `pipeline-chained-workflow-deps.test.ts`, `pipeline-stage-resolve.test.ts`, and `implement-workflow-steps.test.ts` fixtures using `plan.commit` or `git: false` as the spec home are rewritten to `specs`, not deleted.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 - [ ] (Manual) `~/.jarvis/config.json` gains `specs: "repo"` on the `jarvis`, `chess-mvp-yolo`, `chess-mvp-yolo-2`, and `sudoku` project entries, preserving their in-repo spec home across the default flip.
 - [ ] (Manual) Committed `config/machines/*.json` files are checked for `modes.plan.commit`; none exist today, and any found are removed since the key is rejected.
 

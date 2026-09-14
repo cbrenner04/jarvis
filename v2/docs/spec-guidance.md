@@ -6,7 +6,7 @@ Stable guidance for operators authoring and running Jarvis specs. Agent contract
 
 ### In-repo specs (committed)
 
-Specs authored by `jarvis run workflow plan` under effective `plan.commit: true` (the default) live inside the target repository under the configured **target directory** with a filesystem-safe UTC timestamp prefix and a descriptive slug:
+Specs authored by `jarvis run workflow plan` under `projects.<key>.specs: "repo"` live inside the target repository under the configured **target directory** with a filesystem-safe UTC timestamp prefix and a descriptive slug:
 
 `<targetDir>/<UTC-timestamp>-<slug>/`
 
@@ -14,7 +14,7 @@ For the jarvis project `<targetDir>` is `v2/spec` (project `plan.targetDir`); pe
 
 ### External specs (no-commit)
 
-Projects whose effective Git publication is disabled (`git: false` or `plan.commit: false`) keep planning artifacts in Jarvis-owned storage: `~/.jarvis/specs/<project-safe-id>/` (seeds, ready-intents, `plans/<name>/`, `plans/completed/<name>/`). These specs are not committed to the target directory; they are ready to run immediately and remain for reference and re-runs. Home layout: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
+Projects with `specs: "external"` (the default) keep planning artifacts in Jarvis-owned storage: `~/.jarvis/specs/<project-safe-id>/` (seeds, ready-intents, `plans/<name>/`, `plans/completed/<name>/`). These specs are not committed to the target directory; they are ready to run immediately and remain for reference and re-runs. Home layout: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
 
 ### Index-routed shape
 

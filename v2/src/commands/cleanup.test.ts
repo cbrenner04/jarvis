@@ -238,7 +238,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     } as unknown as StateStore;
   }
 
-  function writeMachineConfig(projectConfig: Record<string, unknown> = { git: false }): void {
+  function writeMachineConfig(projectConfig: Record<string, unknown> = { specs: "external" }): void {
     mkdirSync(jarvisRoot, { recursive: true });
     writeFileSync(
       join(jarvisRoot, "config.json"),
@@ -266,7 +266,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   }
 
   function prepareExternalStrandedPlan(planName: string, branch: string) {
-    writeMachineConfig({ git: false });
+    writeMachineConfig({ specs: "external" });
     const created = createExternalPlan(planName, "[x] Done");
     const specsReady = join(jarvisRoot, "specs", projectSafeId("project"), "ready-intents", `${planName}.md`);
     mkdirSync(dirname(specsReady), { recursive: true });
@@ -1101,7 +1101,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   test("resolves absolute external plan specPath from durable implement run for retired-worktree archival", async () =>
     withJarvisHome(async () => {
       const planName = "20260902T000001Z-external-retire";
-      writeMachineConfig({ git: false });
+      writeMachineConfig({ specs: "external" });
       const { specReadRoot, indexPath, plansHome } = createExternalPlan(planName, "[x] Done");
       const resolvedSpecReadRoot = realpathSync(specReadRoot);
       const completedPlan = join(realpathSync(plansHome), "completed", planName);
@@ -1144,7 +1144,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   test("recordedStrandedBranch matches external plan directory from chained implement specPath", async () =>
     withJarvisHome(async () => {
       const planName = "20260902T000002Z-external-stranded";
-      writeMachineConfig({ git: false });
+      writeMachineConfig({ specs: "external" });
       const { specReadRoot, indexPath, plansHome } = createExternalPlan(planName, "[x] Done");
       const branch = "implement/external-plan";
       const store: StateStore = {
@@ -1179,7 +1179,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
   test("discovers completed external plan directories for planSourcePublishesExternally projects and ignores completed sibling and unrelated storage", async () =>
     withJarvisHome(async () => {
-      writeMachineConfig({ git: false });
+      writeMachineConfig({ specs: "external" });
       const eligibleName = "20260902T100001Z-external-discover-eligible";
       const { plansHome, specReadRoot } = createExternalPlan(eligibleName, "[x] Done");
       const completedName = "archived-external-plan";
@@ -1207,7 +1207,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
   test("discovers stranded artifacts in external seeds and ready-intents homes", async () =>
     withJarvisHome(async () => {
-      writeMachineConfig({ git: false });
+      writeMachineConfig({ specs: "external" });
       const externalHome = join(jarvisRoot, "specs", projectSafeId("project"));
       const seedsHome = join(externalHome, "seeds");
       const readyHome = join(externalHome, "ready-intents");
@@ -1230,7 +1230,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(discovered.some((artifact) => artifact.name.startsWith("."))).toBe(false);
 
       // Not opted in: the same layout under an in-repo-only project is invisible, like its in-repo queues.
-      writeMachineConfig({ git: true });
+      writeMachineConfig({ specs: "repo" });
       expect(discoverStrandedArtifacts({ project: { root: projectRoot } }).some((a) => a.queue !== undefined)).toBe(
         false,
       );
@@ -1238,7 +1238,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
   test("external queue entries inspect as pending, consumed-by-open-plan, or prunable when the plan archived", async () =>
     withJarvisHome(async () => {
-      writeMachineConfig({ git: false });
+      writeMachineConfig({ specs: "external" });
       const externalHome = join(jarvisRoot, "specs", projectSafeId("project"));
       const plansHome = join(externalHome, "plans");
       const readyHome = join(externalHome, "ready-intents");
@@ -1359,7 +1359,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
   test("rolls back failed external plan archival under the existing transaction contract", async () =>
     withJarvisHome(async () => {
-      writeMachineConfig({ git: false });
+      writeMachineConfig({ specs: "external" });
       const planName = "20260902T200003Z-external-rollback";
       const { specReadRoot, plansHome } = createExternalPlan(planName, "[x] Done");
       writeFileSync(join(specReadRoot, "intent.md"), "intent\n");
@@ -1388,7 +1388,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
   test("stranded discovery ignores non-spec and vanished paths", async () =>
     withJarvisHome(async () => {
-      writeMachineConfig({ git: false });
+      writeMachineConfig({ specs: "external" });
       const home = join(projectRoot, "v2", "spec");
       const plansHome = join(jarvisRoot, "specs", projectSafeId("project"), "plans");
 
@@ -1440,7 +1440,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
   test("skips external plans scan for registered projects where planSourcePublishesExternally is false", async () =>
     withJarvisHome(async () => {
-      writeMachineConfig({});
+      writeMachineConfig({ specs: "repo" });
       createExternalPlan("20260902T100002Z-external-inrepo-only", "[x] Done");
 
       const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
@@ -1468,8 +1468,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         join(jarvisRoot, "config.json"),
         JSON.stringify({
           projects: {
-            "foo/bar": { root: rootA, git: false },
-            "foo-bar": { root: rootB, git: false },
+            "foo/bar": { root: rootA, specs: "external" },
+            "foo-bar": { root: rootB, specs: "external" },
           },
         }),
       );

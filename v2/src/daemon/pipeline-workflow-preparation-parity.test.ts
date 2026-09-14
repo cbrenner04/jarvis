@@ -141,7 +141,7 @@ describe("pipeline workflow preparation parity", () => {
     await withIsolatedJarvisHome(async (writeConfig) => {
       const intentRoot = mkdtempSync(join(tmpdir(), "prep-parity-intent-"));
       const intentConfigPath = writeConfig({
-        projects: { demo: { root: intentRoot, git: false } },
+        projects: { demo: { root: intentRoot, specs: "external" } },
       });
       const intentContext: PipelineContext = {
         cwd: intentRoot,
@@ -170,7 +170,7 @@ describe("pipeline workflow preparation parity", () => {
       mkdirSync(join(planRoot, "spec", "ready-intents"), { recursive: true });
       writeFileSync(join(planRoot, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
       const planConfigPath = writeConfig({
-        projects: { demo: { root: planRoot, git: false } },
+        projects: { demo: { root: planRoot, specs: "external" } },
       });
       const planContext: PipelineContext = { cwd: planRoot, configPath: planConfigPath, seed: "unused" };
       const planPreset = resolveWorkflowPresetName("plan", "light");

@@ -62,7 +62,8 @@ test("stable-address wait remains pending until the direct predecessor settles i
     settled = true;
   });
 
-  while (!ownerWaitStarted) await Promise.resolve();
+  // Yield a macrotask per check: a microtask-only spin starves socket I/O and never reaches the owner.
+  while (!ownerWaitStarted) await Bun.sleep(1);
   expect(settled).toBe(false);
   ownerSettlement.resolve({ runStatus: "completed", loopOutcomeKind: "complete" });
   expect(await pending).toEqual({ runStatus: "completed", loopOutcomeKind: "complete" });

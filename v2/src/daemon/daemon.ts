@@ -1304,19 +1304,6 @@ export async function startDaemonRuntime(
             predecessorSocketPath: startupDeps.predecessorSocketPath,
             connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
           }),
-          ...createStablePipelineDecisionHandlers(
-            {
-              pipeline_approve: runControlHandlers.pipeline_approve,
-              pipeline_reject: runControlHandlers.pipeline_reject,
-              pipeline_resume: runControlHandlers.pipeline_resume,
-              pipeline_recover: runControlHandlers.pipeline_recover,
-            },
-            {
-              store: runControlContext.store,
-              predecessorSocketPath: startupDeps.predecessorSocketPath,
-              connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
-            },
-          ),
         };
   // Stable-address-only, like `stableRunHandlers` above: a reachable direct predecessor still
   // owning the target run or worktree key is an admission conflict, refused before the local
@@ -1328,6 +1315,23 @@ export async function startDaemonRuntime(
           { resume: runControlHandlers.resume, start: runControlHandlers.start },
           { resolveOwner: ownershipDirectory.resolveOwner, resolveOwnerForKey: ownershipDirectory.resolveOwnerForKey },
         );
+
+  // Wrapped unconditionally, predecessor or not: with no predecessor configured,
+  // `claimPipelineForDecision` still refuses a not-locally-owned, non-adoptable pipeline with
+  // `pipeline_no_live_owner` instead of letting the plain local handler run unchecked.
+  const stablePipelineDecisionHandlers = createStablePipelineDecisionHandlers(
+    {
+      pipeline_approve: runControlHandlers.pipeline_approve,
+      pipeline_reject: runControlHandlers.pipeline_reject,
+      pipeline_resume: runControlHandlers.pipeline_resume,
+      pipeline_recover: runControlHandlers.pipeline_recover,
+    },
+    {
+      store: runControlContext.store,
+      predecessorSocketPath: startupDeps.predecessorSocketPath,
+      connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
+    },
+  );
 
   // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
   // it fires on any admission cut, client-initiated or self-triggered, without permanently
@@ -1383,6 +1387,7 @@ export async function startDaemonRuntime(
     ...runControlHandlers,
     ...stableRunHandlers,
     ...stableAdmissionHandlers,
+    ...stablePipelineDecisionHandlers,
   };
 
   // Private endpoints skip stable-only direct-owner routing and predecessor pipeline_list merge

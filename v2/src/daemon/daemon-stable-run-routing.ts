@@ -11,6 +11,7 @@ import {
   type PipelineListRequestParams,
   queryPipelineListsFromSocketPaths,
 } from "./pipeline-daemon-resolution.ts";
+import { resolvePipelineIdArgument } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const DIRECT_OWNER_RUN_METHODS = ["wait", "pause", "kill"] as const;
@@ -131,7 +132,7 @@ type PipelineDecisionHandlers = Record<PipelineDecisionMethod, RpcHandler>;
 
 type PipelineOwnershipStore = Pick<
   StateStore,
-  "currentOwnerIdentity" | "loadPipeline" | "adoptOrphanedPipeline" | "claimPipelineContinuation"
+  "currentOwnerIdentity" | "loadPipeline" | "listPipelines" | "adoptOrphanedPipeline" | "claimPipelineContinuation"
 >;
 
 type PipelineDecisionRoutingDeps = {
@@ -150,6 +151,22 @@ const PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS = Math.floor(PIPELINE_OWNER_RP
 function pipelineIdFromFrame(frame: Parameters<RpcHandler>[0]): string | undefined {
   const params = frame.params as { pipelineId?: unknown } | undefined;
   return typeof params?.pipelineId === "string" && params.pipelineId.length > 0 ? params.pipelineId : undefined;
+}
+
+/**
+ * Resolves the frame's `pipelineId` argument the same way the local handler will (exact id or
+ * unique prefix, `resolvePipelineIdArgument`) before the claim gate runs. An argument that doesn't
+ * resolve to exactly one stored pipeline skips the claim and falls through to the local handler's
+ * own unmatched/ambiguous refusal — never an unchecked action, since no pipeline row matches it.
+ */
+function resolvedPipelineIdFromFrame(
+  frame: Parameters<RpcHandler>[0],
+  store: Pick<StateStore, "loadPipeline" | "listPipelines">,
+): string | undefined {
+  const argument = pipelineIdFromFrame(frame);
+  if (argument === undefined) return undefined;
+  const resolution = resolvePipelineIdArgument(store, argument);
+  return resolution.kind === "resolved" ? resolution.pipelineId : undefined;
 }
 
 function pipelineNoLiveOwnerRefusal(pipelineId: string): { kind: "error"; code: string; message: string } {
@@ -243,7 +260,7 @@ export function createStablePipelineDecisionHandlers(
   const routed = {} as PipelineDecisionHandlers;
   for (const method of PIPELINE_DECISION_METHODS) {
     routed[method] = async (frame, signal) => {
-      const pipelineId = pipelineIdFromFrame(frame);
+      const pipelineId = resolvedPipelineIdFromFrame(frame, deps.store);
       if (pipelineId === undefined) return localHandlers[method](frame, signal);
       const claim = await claimPipelineForDecision(pipelineId, deps);
       if (claim.kind === "refused") return pipelineNoLiveOwnerRefusal(pipelineId);

@@ -1,13 +1,17 @@
+import { isRecord } from "../../../shared/is-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { RpcHandler } from "../ipc/server.ts";
+import type { StateStore } from "../persistence/state-store.ts";
 import { mergePipelineSnapshots } from "./merge-pipeline-snapshots.ts";
 import {
   PIPELINE_OWNER_RPC_TIMEOUT_MS,
+  PIPELINE_UNREACHABLE_OWNER_RECOVERY,
   type PipelineListRequestParams,
   queryPipelineListsFromSocketPaths,
 } from "./pipeline-daemon-resolution.ts";
+import { resolvePipelineIdArgument } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const DIRECT_OWNER_RUN_METHODS = ["wait", "pause", "kill"] as const;
@@ -110,6 +114,157 @@ export function createStableRunHandlers(
       const predecessorOwnsRun = await ownedOrLocal(() => deps.resolvePredecessorOwner(runId));
       if (deps.ownsRunLocally(runId) || !predecessorOwnsRun) return localHandlers[method](frame, signal);
       return forwardToDirectOwner(method, frame.params, signal, deps);
+    };
+  }
+  return routed;
+}
+
+const PIPELINE_DECISION_METHODS = [
+  "pipeline_approve",
+  "pipeline_reject",
+  "pipeline_resume",
+  "pipeline_recover",
+] as const;
+
+type PipelineDecisionMethod = (typeof PIPELINE_DECISION_METHODS)[number];
+
+type PipelineDecisionHandlers = Record<PipelineDecisionMethod, RpcHandler>;
+
+type PipelineOwnershipStore = Pick<
+  StateStore,
+  "currentOwnerIdentity" | "loadPipeline" | "listPipelines" | "adoptOrphanedPipeline" | "claimPipelineContinuation"
+>;
+
+type PipelineDecisionRoutingDeps = {
+  store: PipelineOwnershipStore;
+  predecessorSocketPath: string | undefined;
+  connectOwnerClient: (socketPath: string) => Promise<IpcClient>;
+  /** Predecessor `pipeline_owner` confirmation query timeout; defaults to `PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS`. */
+  predecessorOwnerQueryTimeoutMs?: number;
+};
+
+// Strictly shorter than `PIPELINE_OWNER_RPC_TIMEOUT_MS`, matching the `pipeline_list` merge query's
+// own headroom rationale (`PREDECESSOR_PIPELINE_LIST_TIMEOUT_MS` above), so a slow predecessor
+// can't push a stable decision-verb reply past the CLI's own request timeout.
+const PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS = Math.floor(PIPELINE_OWNER_RPC_TIMEOUT_MS * 0.75);
+
+function pipelineIdFromFrame(frame: Parameters<RpcHandler>[0]): string | undefined {
+  const params = frame.params as { pipelineId?: unknown } | undefined;
+  return typeof params?.pipelineId === "string" && params.pipelineId.length > 0 ? params.pipelineId : undefined;
+}
+
+/**
+ * Resolves the frame's `pipelineId` argument the same way the local handler will (exact id or
+ * unique prefix, `resolvePipelineIdArgument`) before the claim gate runs. An argument that doesn't
+ * resolve to exactly one stored pipeline skips the claim and falls through to the local handler's
+ * own unmatched/ambiguous refusal — never an unchecked action, since no pipeline row matches it.
+ */
+function resolvedPipelineIdFromFrame(
+  frame: Parameters<RpcHandler>[0],
+  store: Pick<StateStore, "loadPipeline" | "listPipelines">,
+): string | undefined {
+  const argument = pipelineIdFromFrame(frame);
+  if (argument === undefined) return undefined;
+  const resolution = resolvePipelineIdArgument(store, argument);
+  return resolution.kind === "resolved" ? resolution.pipelineId : undefined;
+}
+
+function pipelineNoLiveOwnerRefusal(pipelineId: string): { kind: "error"; code: string; message: string } {
+  return {
+    kind: "error",
+    code: "pipeline_no_live_owner",
+    message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+  };
+}
+
+/** Confirms the direct predecessor still recognizes itself as owner before this generation
+ * claims; returns its `ownerIdentity`, or `undefined` when unreachable or answering anything but
+ * a matching `owner` witness — both refuse the claim identically, so callers don't distinguish. */
+async function queryPredecessorPipelineOwner(
+  pipelineId: string,
+  predecessorSocketPath: string,
+  deps: PipelineDecisionRoutingDeps,
+): Promise<string | undefined> {
+  let client: IpcClient;
+  try {
+    client = await deps.connectOwnerClient(predecessorSocketPath);
+  } catch {
+    return undefined;
+  }
+  const transport = createRpcTransport(client);
+  try {
+    const result = await transport.request(
+      "pipeline_owner",
+      { pipelineId },
+      { timeoutMs: deps.predecessorOwnerQueryTimeoutMs ?? PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS },
+    );
+    return isRecord(result) && result.kind === "owner" && typeof result.ownerIdentity === "string"
+      ? result.ownerIdentity
+      : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    transport.close();
+  }
+}
+
+/**
+ * Claims a not-locally-owned pipeline before a decision verb runs its unmodified local handler:
+ * this generation's own ownership, or `adoptOrphanedPipeline`'s dead-owner adoption, proceeds
+ * unchanged; otherwise the direct predecessor's `pipeline_owner` must confirm it still holds the
+ * row's own recorded owner identity before `claimPipelineContinuation` moves ownership here. A
+ * claim lost to a concurrent claimant re-resolves once against the now-current row rather than
+ * surfacing the stale read.
+ */
+async function claimPipelineForDecision(
+  pipelineId: string,
+  deps: PipelineDecisionRoutingDeps,
+  alreadyRetried = false,
+): Promise<{ kind: "proceed" } | { kind: "refused" }> {
+  const pipeline = deps.store.loadPipeline(pipelineId);
+  if (pipeline === null || pipeline.ownerIdentity === deps.store.currentOwnerIdentity()) {
+    return { kind: "proceed" };
+  }
+  if (await deps.store.adoptOrphanedPipeline(pipelineId)) {
+    return { kind: "proceed" };
+  }
+  const { predecessorSocketPath } = deps;
+  if (predecessorSocketPath === undefined) {
+    return { kind: "refused" };
+  }
+  const predecessorOwnerIdentity = await queryPredecessorPipelineOwner(pipelineId, predecessorSocketPath, deps);
+  if (predecessorOwnerIdentity !== pipeline.ownerIdentity) {
+    return { kind: "refused" };
+  }
+  const claim = deps.store.claimPipelineContinuation({ pipelineId, priorOwnerIdentity: pipeline.ownerIdentity });
+  if (claim.kind === "applied") {
+    return { kind: "proceed" };
+  }
+  if (alreadyRetried) {
+    return { kind: "refused" };
+  }
+  return claimPipelineForDecision(pipelineId, deps, true);
+}
+
+/**
+ * Wraps the four pipeline decision verbs on the stable endpoint only: a not-locally-owned
+ * pipeline is durably claimed from its live, draining direct predecessor (see
+ * `claimPipelineForDecision`) before the existing unmodified local handler runs, so any successor
+ * stage the decision unblocks is admitted by this generation's own `pipelineExecutionDeps()`. The
+ * predecessor's own handlers are never invoked — private endpoints keep the unwrapped handlers.
+ */
+export function createStablePipelineDecisionHandlers(
+  localHandlers: PipelineDecisionHandlers,
+  deps: PipelineDecisionRoutingDeps,
+): PipelineDecisionHandlers {
+  const routed = {} as PipelineDecisionHandlers;
+  for (const method of PIPELINE_DECISION_METHODS) {
+    routed[method] = async (frame, signal) => {
+      const pipelineId = resolvedPipelineIdFromFrame(frame, deps.store);
+      if (pipelineId === undefined) return localHandlers[method](frame, signal);
+      const claim = await claimPipelineForDecision(pipelineId, deps);
+      if (claim.kind === "refused") return pipelineNoLiveOwnerRefusal(pipelineId);
+      return localHandlers[method](frame, signal);
     };
   }
   return routed;

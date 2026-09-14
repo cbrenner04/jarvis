@@ -1,10 +1,25 @@
 import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { IpcClient } from "../ipc/client.ts";
-import type { RpcHandler } from "../ipc/server.ts";
+import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { createStablePipelineListHandler, createStableRunHandlers } from "./daemon-stable-run-routing.ts";
-import { PIPELINE_OWNER_RPC_TIMEOUT_MS } from "./pipeline-daemon-resolution.ts";
+import type { LogReader } from "../persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
+import { doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { createRunControlHandlers, startDaemonRuntime } from "./daemon.ts";
+import {
+  createStablePipelineDecisionHandlers,
+  createStablePipelineListHandler,
+  createStableRunHandlers,
+} from "./daemon-stable-run-routing.ts";
+import { PIPELINE_OWNER_RPC_TIMEOUT_MS, PIPELINE_UNREACHABLE_OWNER_RECOVERY } from "./pipeline-daemon-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
+
+const { createWriteStep } = writeStepFixtures();
 
 type Reply = { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
 
@@ -390,5 +405,701 @@ describe("stable pipeline_list predecessor merge", () => {
       params: { includeDismissed: true, sinceMs: 0 },
     });
     expect(reply).toEqual({ kind: "response", result: { pipelines: [predecessorTerminal] } });
+  });
+});
+
+const PREDECESSOR_IDENTITY = "predecessor-generation";
+const SUCCESSOR_IDENTITY = "successor-generation";
+
+const APPROVAL_DEFINITION: PipelineDefinition = {
+  name: "approval",
+  stages: [
+    { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+    { stageId: "gate", kind: "approval" },
+    { stageId: "s3", kind: "workflow", workflow: "plan", review: "none" },
+  ],
+};
+
+const RECOVER_DEFINITION: PipelineDefinition = {
+  name: "recover",
+  stages: [
+    { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "debate" },
+  ],
+};
+
+const ADMISSION_CONTEXT = { cwd: "/fake", seed: "seed text", configPath: "/fake/.jarvis/config.json" };
+
+function decisionFrame(id: string, method: string, params: unknown) {
+  return { kind: "request", id, method, params } as const;
+}
+
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await predicate()) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
+/** Seeds durable rows under a `predecessor` identity, then closes that connection — matching this
+ * repo's cross-generation test convention (`daemon-pipeline-owner.test.ts`) of sequential
+ * open/close rather than two simultaneous connections to the same db file. Pair with
+ * `reopenAsAliveSuccessor` to continue as the incoming generation. */
+function seedAsPredecessor(dbPath: string, seed: (store: StateStore) => string): string {
+  const seedStore = openStateStore(dbPath, { currentIdentity: PREDECESSOR_IDENTITY });
+  const pipelineId = seed(seedStore);
+  seedStore.close();
+  return pipelineId;
+}
+
+function reopenAsAliveSuccessor(dbPath: string): StateStore {
+  return openStateStore(dbPath, {
+    currentIdentity: SUCCESSOR_IDENTITY,
+    isOwnerAlive: async (identity) => identity === PREDECESSOR_IDENTITY,
+  });
+}
+
+function tempDbPath(label: string): string {
+  return join(tmpdir(), `jarvis-stable-pipeline-decision-${label}-${process.pid}-${Date.now()}-${Math.random()}.db`);
+}
+
+function seedAwaitingGatePipeline(store: StateStore): string {
+  const pipelineId = store.createPipeline({ definition: APPROVAL_DEFINITION, context: ADMISSION_CONTEXT });
+  store.updateStage({ pipelineId, stageId: "s1", patch: { status: "succeeded", workflowInvocationId: "inv-1" } });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  return pipelineId;
+}
+
+function seedApprovedGatePendingPipeline(store: StateStore): string {
+  const pipelineId = store.createPipeline({ definition: APPROVAL_DEFINITION, context: ADMISSION_CONTEXT });
+  store.updateStage({ pipelineId, stageId: "s1", patch: { status: "succeeded", workflowInvocationId: "inv-1" } });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "approved" } });
+  return pipelineId;
+}
+
+/** Durable run row for a blocked plan-draft — the shape a recovery target's linked entry run resolves to. */
+function seedBlockedPlanDraftRun(
+  store: StateStore,
+  args: {
+    project: string;
+    branch: string;
+    worktreePath: string;
+    specPath: string;
+    stepId: string;
+    invocationId: string;
+  },
+): string {
+  const runId = store.createRun({
+    project: args.project,
+    specRef: "HEAD",
+    worktreePath: args.worktreePath,
+    branch: args.branch,
+    specPath: args.specPath,
+    stepId: args.stepId,
+    workflowSnapshot: {
+      invocationId: args.invocationId,
+      steps: [
+        {
+          stepId: args.stepId,
+          role: "plan",
+          expectedArtifactPath: ".jarvis-plan-stage",
+          agents: ["claude"],
+          landingInputs: { sourceRoot: args.worktreePath, paths: [], consumeFrom: "worktree" },
+        },
+        { stepId: "plan-review", role: "", behavior: "review" },
+      ],
+    },
+  });
+  const attemptId = store.recordAttemptStart(runId);
+  store.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "contract_miss" });
+  return runId;
+}
+
+function seedBlockedRecoverablePipeline(store: StateStore): string {
+  const worktreePath = "/fake/worktree/stable-recover";
+  const branch = "plan/stable-recover";
+  const specPath = "spec/stable-recover";
+  const entryRunId = seedBlockedPlanDraftRun(store, {
+    project: "demo",
+    branch,
+    worktreePath,
+    specPath,
+    stepId: "plan",
+    invocationId: "stable-recover-inv",
+  });
+  const pipelineId = store.createPipeline({ definition: RECOVER_DEFINITION, context: ADMISSION_CONTEXT });
+  store.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: { status: "succeeded", workflowInvocationId: "run-intent" },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "plan",
+    patch: { status: "failed", workflowInvocationId: entryRunId, failureDetail: { message: "blocked" } },
+  });
+  return pipelineId;
+}
+
+function completeRecoveryOutcome(entryRunId: string) {
+  return {
+    ok: true as const,
+    kind: "complete" as const,
+    stepIndex: 0,
+    stepId: "plan-review",
+    runId: entryRunId,
+    iterationsConsumed: 1,
+    resumable: false,
+  };
+}
+
+type PipelineOwnershipStore = Pick<
+  StateStore,
+  "currentOwnerIdentity" | "loadPipeline" | "listPipelines" | "adoptOrphanedPipeline" | "claimPipelineContinuation"
+>;
+
+function wrapDecisionHandlers(
+  handlers: ReturnType<typeof createRunControlHandlers>,
+  deps: {
+    store: PipelineOwnershipStore;
+    predecessorSocketPath: string | undefined;
+    connectOwnerClient: (socketPath: string) => Promise<IpcClient>;
+  },
+) {
+  return createStablePipelineDecisionHandlers(
+    {
+      pipeline_approve: handlers.pipeline_approve,
+      pipeline_reject: handlers.pipeline_reject,
+      pipeline_resume: handlers.pipeline_resume,
+      pipeline_recover: handlers.pipeline_recover,
+    },
+    deps,
+  );
+}
+
+function ownsPredecessorReply(): Reply {
+  return { kind: "response", result: { kind: "owner", ownerIdentity: PREDECESSOR_IDENTITY } };
+}
+
+describe("stable pipeline decision-verb ownership claim", () => {
+  test("a pipeline already owned by this generation proceeds without querying any predecessor", async () => {
+    const dbPath = tempDbPath("already-owned");
+    const store = openStateStore(dbPath, { currentIdentity: SUCCESSOR_IDENTITY });
+    const pipelineId = seedAwaitingGatePipeline(store);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: stageIndex === 2 ? [createWriteStep("s3-write", "pipeline-branch", doneWithArtifactBindingFactory)] : [],
+      }),
+    });
+    let connectCalls = 0;
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => {
+        connectCalls += 1;
+        throw new Error("must not connect: already owned locally");
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(
+      decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "applied", pipelineId, stageId: "gate", decision: "approved" },
+    });
+    expect(connectCalls).toBe(0);
+    await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("pipeline_approve claims a live draining predecessor's pipeline before dispatching the successor stage", async () => {
+    const dbPath = tempDbPath("approve");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: stageIndex === 2 ? [createWriteStep("s3-write", "pipeline-branch", doneWithArtifactBindingFactory)] : [],
+      }),
+    });
+    const predecessor = ownerClient(ownsPredecessorReply());
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => predecessor.client,
+    });
+
+    const response = await wrapped.pipeline_approve(
+      decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "applied", pipelineId, stageId: "gate", decision: "approved" },
+    });
+    // Proves the claim actually queried the predecessor first, not merely that ownership ended up
+    // here as an incidental side effect of the local handler's own unrelated continuation claim.
+    expect(predecessor.sent).toHaveLength(1);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+    await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("pipeline_reject claims a live draining predecessor's pipeline before applying the decision", async () => {
+    const dbPath = tempDbPath("reject");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async () => ({ ok: true, steps: [] }),
+    });
+    const predecessor = ownerClient(ownsPredecessorReply());
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => predecessor.client,
+    });
+
+    const response = await wrapped.pipeline_reject(
+      decisionFrame("reject", "pipeline_reject", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "applied", pipelineId, stageId: "gate", decision: "rejected" },
+    });
+    expect(predecessor.sent).toHaveLength(1);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+    store.close();
+  });
+
+  test("pipeline_resume claims a live draining predecessor's pipeline before dispatching the successor stage", async () => {
+    const dbPath = tempDbPath("resume");
+    const pipelineId = seedAsPredecessor(dbPath, seedApprovedGatePendingPipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: stageIndex === 2 ? [createWriteStep("s3-write", "pipeline-branch", doneWithArtifactBindingFactory)] : [],
+      }),
+    });
+    const predecessor = ownerClient(ownsPredecessorReply());
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => predecessor.client,
+    });
+
+    const response = await wrapped.pipeline_resume(
+      decisionFrame("resume", "pipeline_resume", { pipelineId }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({ kind: "response", result: { kind: "resumed", pipelineId } });
+    expect(predecessor.sent).toHaveLength(1);
+    await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("pipeline_recover claims a live draining predecessor's pipeline before admitting recovery", async () => {
+    const dbPath = tempDbPath("recover");
+    const pipelineId = seedAsPredecessor(dbPath, seedBlockedRecoverablePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const entryRunId = store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "plan")?.workflowInvocationId;
+    if (entryRunId === null || entryRunId === undefined) throw new Error("missing seeded entryRunId");
+    let settleAttempt!: () => void;
+    const attemptSettled = new Promise<void>((resolve) => {
+      settleAttempt = resolve;
+    });
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      recoveryAttempt: async () => {
+        const outcome = completeRecoveryOutcome(entryRunId);
+        settleAttempt();
+        return outcome;
+      },
+    });
+    const predecessor = ownerClient(ownsPredecessorReply());
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => predecessor.client,
+    });
+
+    const response = await wrapped.pipeline_recover(
+      decisionFrame("recover", "pipeline_recover", { pipelineId, branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "admitted", pipelineId, branchKey: "default", stageId: "plan", entryRunId },
+    });
+    expect(predecessor.sent).toHaveLength(1);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+    await attemptSettled;
+    await flushBackgroundRuns(5);
+    expect(store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "plan")?.status).toBe("succeeded");
+    store.close();
+  });
+
+  test("two concurrent decision-verb calls race the ownership claim; exactly one wins and the successor stage dispatches once", async () => {
+    const dbPath = tempDbPath("concurrency");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+
+    // Spies the pre-existing durable stage-admission lock (`claimPipelineStageAdmission`) directly,
+    // rather than only inferring single dispatch from the settled row, so a regression that admits
+    // the successor stage twice (or under the wrong generation) fails this test even if both
+    // admissions happen to settle to the same terminal status.
+    const s3AdmissionClaims: Array<{ kind: string; ownerIdentity: string }> = [];
+    const claimPipelineStageAdmission = store.claimPipelineStageAdmission.bind(store);
+    store.claimPipelineStageAdmission = (args) => {
+      const outcome = claimPipelineStageAdmission(args);
+      if (args.stageId === "s3")
+        s3AdmissionClaims.push({ kind: outcome.kind, ownerIdentity: store.currentOwnerIdentity() });
+      return outcome;
+    };
+
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: stageIndex === 2 ? [createWriteStep("s3-write", "pipeline-branch", doneWithArtifactBindingFactory)] : [],
+      }),
+    });
+
+    let predecessorQueries = 0;
+    const claimOutcomes: Array<{ kind: string; reason?: string }> = [];
+    const claimTrackingStore: PipelineOwnershipStore = {
+      currentOwnerIdentity: () => store.currentOwnerIdentity(),
+      loadPipeline: (id) => store.loadPipeline(id),
+      listPipelines: () => store.listPipelines(),
+      adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+      claimPipelineContinuation: (args) => {
+        const outcome = store.claimPipelineContinuation(args);
+        claimOutcomes.push(outcome);
+        return outcome;
+      },
+    };
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store: claimTrackingStore,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => {
+        predecessorQueries += 1;
+        return ownerClient(ownsPredecessorReply()).client;
+      },
+    });
+
+    const [r1, r2] = await Promise.all([
+      wrapped.pipeline_approve(
+        decisionFrame("a1", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+        new AbortController().signal,
+      ),
+      wrapped.pipeline_approve(
+        decisionFrame("a2", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+        new AbortController().signal,
+      ),
+    ]);
+
+    // Exactly one ownership claim applies; the concurrent loser hits `claimPipelineContinuation`'s
+    // existing CAS-loss path (`stale_owner`/`claim_lost`) and re-resolves against the winner's row.
+    expect(claimOutcomes).toHaveLength(2);
+    expect(claimOutcomes.filter((outcome) => outcome.kind === "applied")).toHaveLength(1);
+    const lost = claimOutcomes.filter((outcome) => outcome.kind === "refused");
+    expect(lost).toHaveLength(1);
+    expect(lost[0]?.reason === "stale_owner" || lost[0]?.reason === "claim_lost").toBe(true);
+    expect(predecessorQueries).toBe(2);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+
+    // Both callers proceed to the pre-existing, untouched local handler; its own approval CAS —
+    // not the ownership claim above — is what dedupes the decision itself and the dispatch it triggers.
+    const responses = [r1, r2] as Array<{ kind: string; result?: { kind?: string; reason?: string } }>;
+    const applied = responses.filter((response) => response.result?.kind === "applied");
+    const refused = responses.filter((response) => response.result?.kind === "refused");
+    expect(applied).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.result?.reason).toBe("status_not_awaiting");
+
+    await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+    await flushBackgroundRuns();
+
+    // The successor stage's own durable admission lock was claimed exactly once, applied, and
+    // under the incoming generation's own identity — never twice, and never under the predecessor's.
+    const appliedS3Claims = s3AdmissionClaims.filter((claim) => claim.kind === "applied");
+    expect(appliedS3Claims).toHaveLength(1);
+    expect(appliedS3Claims[0]?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+
+    store.close();
+  });
+
+  test("a claim that still loses on retry refuses after exactly one retry, never proceeding on the initial loss", async () => {
+    const dbPath = tempDbPath("persistent-claim-loss");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async () => ({ ok: true, steps: [] }),
+    });
+    let claimCalls = 0;
+    const alwaysLosingStore: PipelineOwnershipStore = {
+      currentOwnerIdentity: () => store.currentOwnerIdentity(),
+      loadPipeline: (id) => store.loadPipeline(id),
+      listPipelines: () => store.listPipelines(),
+      adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+      claimPipelineContinuation: (args) => {
+        claimCalls += 1;
+        return { kind: "refused", pipelineId: args.pipelineId, reason: "stale_owner" };
+      },
+    };
+    let predecessorQueries = 0;
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store: alwaysLosingStore,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => {
+        predecessorQueries += 1;
+        return ownerClient(ownsPredecessorReply()).client;
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(
+      decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    // A claim that keeps losing (never "applied") must retry once, then refuse — not proceed on
+    // the first loss, which would leave the local handler running against a pipeline this
+    // generation was never actually granted.
+    expect(response).toEqual({
+      kind: "error",
+      code: "pipeline_no_live_owner",
+      message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+    });
+    expect(claimCalls).toBe(2);
+    expect(predecessorQueries).toBe(2);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(PREDECESSOR_IDENTITY);
+    store.close();
+  });
+
+  test("an unreachable predecessor during the confirming query refuses without ever adopting", async () => {
+    const dbPath = tempDbPath("unreachable");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async () => ({ ok: true, steps: [] }),
+    });
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(
+      decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({
+      kind: "error",
+      code: "pipeline_no_live_owner",
+      message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+    });
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(PREDECESSOR_IDENTITY);
+    store.close();
+  });
+
+  test("a genuinely ownerless pipeline with no predecessor configured refuses without connecting anywhere", async () => {
+    const dbPath = tempDbPath("no-predecessor");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async () => ({ ok: true, steps: [] }),
+    });
+    let connectCalls = 0;
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: undefined,
+      connectOwnerClient: async () => {
+        connectCalls += 1;
+        throw new Error("must not connect: no predecessor configured");
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(
+      decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({
+      kind: "error",
+      code: "pipeline_no_live_owner",
+      message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+    });
+    expect(connectCalls).toBe(0);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(PREDECESSOR_IDENTITY);
+    store.close();
+  });
+
+  test("a predecessor answering anything but a matching owner refuses without claiming, querying exactly once", async () => {
+    for (const reply of [
+      { kind: "response", result: { kind: "not_owner" } } as Reply,
+      { kind: "response", result: { kind: "owner", ownerIdentity: "someone-else" } } as Reply,
+    ]) {
+      const dbPath = tempDbPath(`mismatch-${reply.kind}-${Math.random()}`);
+      const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+      const store = reopenAsAliveSuccessor(dbPath);
+      const successorHandlers = createRunControlHandlers({
+        stateStore: store,
+        writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+        failureReporter: () => {},
+        hasMemoryHeadroom: () => true,
+        resolveStage: async () => ({ ok: true, steps: [] }),
+      });
+      const predecessor = ownerClient(reply);
+      const wrapped = wrapDecisionHandlers(successorHandlers, {
+        store,
+        predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+        connectOwnerClient: async () => predecessor.client,
+      });
+
+      const response = await wrapped.pipeline_approve(
+        decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+        new AbortController().signal,
+      );
+
+      expect(response).toEqual({
+        kind: "error",
+        code: "pipeline_no_live_owner",
+        message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+      });
+      expect(predecessor.sent).toHaveLength(1);
+      expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(PREDECESSOR_IDENTITY);
+      store.close();
+    }
+  });
+
+  test("real startDaemonRuntime wiring refuses a live-foreign-owned pipeline with no predecessor configured, never connecting anywhere", async () => {
+    // Exercises the actual stable-endpoint wiring in `startDaemonRuntime` (not a hand-built
+    // wrapper): with no `predecessorSocketPath` in startup deps, the daemon decision handlers must
+    // still be `createStablePipelineDecisionHandlers`-wrapped, not the plain local handlers.
+    const dbPath = tempDbPath("real-wiring-no-predecessor");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const reader: LogReader = { tail: () => [], async *follow() {} };
+    let handlers: Record<string, RpcHandler> | undefined;
+    let connectCalls = 0;
+
+    const runtime = await startDaemonRuntime("/fake/socket", store, reader, {
+      openLogSink: () => ({ append: () => undefined, close: () => undefined }),
+      startIpcServer: async (_socketPath, boundHandlers) => {
+        handlers = boundHandlers;
+        return { close: async () => undefined } as IpcServer;
+      },
+      connectRunOwnerClient: async () => {
+        connectCalls += 1;
+        throw new Error("must not connect: no predecessor configured");
+      },
+    });
+
+    try {
+      if (handlers?.pipeline_approve === undefined) throw new Error("pipeline_approve handler was not registered");
+      const response = await handlers.pipeline_approve(
+        decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+        new AbortController().signal,
+      );
+
+      expect(response).toEqual({
+        kind: "error",
+        code: "pipeline_no_live_owner",
+        message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+      });
+      expect(connectCalls).toBe(0);
+      expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(PREDECESSOR_IDENTITY);
+    } finally {
+      await runtime.close();
+      store.close();
+    }
+  });
+
+  test("a prefix pipeline id is resolved before the claim gate, not skipped past it", async () => {
+    const dbPath = tempDbPath("prefix-id");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: stageIndex === 2 ? [createWriteStep("s3-write", "pipeline-branch", doneWithArtifactBindingFactory)] : [],
+      }),
+    });
+    const predecessor = ownerClient(ownsPredecessorReply());
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      connectOwnerClient: async () => predecessor.client,
+    });
+    const prefix = pipelineId.slice(0, 8);
+
+    const response = await wrapped.pipeline_approve(
+      decisionFrame("approve", "pipeline_approve", { pipelineId: prefix, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+
+    // A prefix argument still reaches the predecessor confirmation query and the claim, exactly
+    // like an exact id — it must not fall through unchecked because `loadPipeline(prefix)` misses.
+    expect(predecessor.sent).toHaveLength(1);
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "applied", pipelineId, stageId: "gate", decision: "approved" },
+    });
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+    await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+    await flushBackgroundRuns();
+    store.close();
   });
 });

@@ -69,7 +69,11 @@ import {
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers, createStableAdmissionHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
-import { createStablePipelineListHandler, createStableRunHandlers } from "./daemon-stable-run-routing.ts";
+import {
+  createStablePipelineDecisionHandlers,
+  createStablePipelineListHandler,
+  createStableRunHandlers,
+} from "./daemon-stable-run-routing.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -1312,6 +1316,23 @@ export async function startDaemonRuntime(
           { resolveOwner: ownershipDirectory.resolveOwner, resolveOwnerForKey: ownershipDirectory.resolveOwnerForKey },
         );
 
+  // Wrapped unconditionally, predecessor or not: with no predecessor configured,
+  // `claimPipelineForDecision` still refuses a not-locally-owned, non-adoptable pipeline with
+  // `pipeline_no_live_owner` instead of letting the plain local handler run unchecked.
+  const stablePipelineDecisionHandlers = createStablePipelineDecisionHandlers(
+    {
+      pipeline_approve: runControlHandlers.pipeline_approve,
+      pipeline_reject: runControlHandlers.pipeline_reject,
+      pipeline_resume: runControlHandlers.pipeline_resume,
+      pipeline_recover: runControlHandlers.pipeline_recover,
+    },
+    {
+      store: runControlContext.store,
+      predecessorSocketPath: startupDeps.predecessorSocketPath,
+      connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
+    },
+  );
+
   // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
   // it fires on any admission cut, client-initiated or self-triggered, without permanently
   // stopping the interval, so a rollback that reopens admission lets sampling resume and retry.
@@ -1366,6 +1387,7 @@ export async function startDaemonRuntime(
     ...runControlHandlers,
     ...stableRunHandlers,
     ...stableAdmissionHandlers,
+    ...stablePipelineDecisionHandlers,
   };
 
   // Private endpoints skip stable-only direct-owner routing and predecessor pipeline_list merge
@@ -1379,6 +1401,10 @@ export async function startDaemonRuntime(
     pipeline_list: runControlHandlers.pipeline_list,
     resume: runControlHandlers.resume,
     start: runControlHandlers.start,
+    pipeline_approve: runControlHandlers.pipeline_approve,
+    pipeline_reject: runControlHandlers.pipeline_reject,
+    pipeline_resume: runControlHandlers.pipeline_resume,
+    pipeline_recover: runControlHandlers.pipeline_recover,
   };
 
   try {

@@ -104,8 +104,8 @@ function pipelineDeps(
 ): NonNullable<Parameters<typeof main>[2]> {
   return {
     cwd: () => fx.repoRoot,
-    // Hermetic default: owner routing now fans out through `socketDiscovery` on every
-    // single-pipeline verb; keep it off the ambient `~/.jarvis` unless a test overrides it.
+    // Hermetic default: every single-pipeline verb connects only to the stable socket; keep
+    // discovery off the ambient `~/.jarvis` unless a test overrides it to prove that isolation.
     socketDiscovery: async () => [],
     ...(configPath === undefined
       ? {}
@@ -118,56 +118,15 @@ function pipelineDeps(
   };
 }
 
-/** connectIpcClient sequence for a single-pipeline verb once routed through owner resolution:
- * an empty cross-daemon `pipeline_list` (so the id argument passes through unresolved), an
- * `owner` `pipeline_owner` witness for it, then the verb connection built by `verbClient`. */
-function ownerRoutedConnectIpcClient(
-  pipelineId: string,
-  verbClient: () => IpcClient,
-): (socketPath: string) => Promise<IpcClient> {
+/** connectIpcClient sequence for a single-pipeline verb: an empty stable-address `pipeline_list`
+ * (so the id argument passes through unresolved), then the verb connection built by `verbClient`
+ * — both against the same (stable) socket, since owner resolution no longer exists. */
+function stableVerbConnectIpcClient(verbClient: () => IpcClient): (socketPath: string) => Promise<IpcClient> {
   let calls = 0;
   return async () => {
     calls += 1;
     if (calls === 1) return pipelineListClient({ pipelines: [] });
-    if (calls === 2) return pipelineListClient({ kind: "owner", pipelineId });
     return verbClient();
-  };
-}
-
-/** connectIpcClient for a `resolvePipelineDaemon` refusal reached before any verb RPC: an empty
- * cross-daemon `pipeline_list`, then `witness` on the `pipeline_owner` probe. A third call means
- * the code under test wrongly reached a verb RPC after a refusal. */
-function ownerResolutionRefusalConnectIpcClient(witness: unknown): (socketPath: string) => Promise<IpcClient> {
-  let calls = 0;
-  return async () => {
-    calls += 1;
-    if (calls === 1) return pipelineListClient({ pipelines: [] });
-    if (calls === 2) return pipelineListClient(witness);
-    throw new Error(`connectIpcClient called unexpectedly on call ${calls}`);
-  };
-}
-
-/** connectIpcClient across a two-socket owner-routing scenario: every socket answers an empty
- * cross-daemon `pipeline_list`, then its own `pipeline_owner` witness from `witnessBySocket`;
- * only `ownerSocket` additionally answers the verb RPC via `verbClient`. */
-function multiSocketOwnerRoutedConnectIpcClient(
-  witnessBySocket: Readonly<Record<string, unknown>>,
-  ownerSocket: string,
-  verbClient: () => IpcClient,
-): (socketPath: string) => Promise<IpcClient> {
-  // Id resolution queries only the stable (invoking) address once; owner probes then fan out.
-  let listed = false;
-  const callsBySocket = new Map<string, number>();
-  return async (socketPath: string) => {
-    if (!listed) {
-      listed = true;
-      return pipelineListClient({ pipelines: [] });
-    }
-    const calls = (callsBySocket.get(socketPath) ?? 0) + 1;
-    callsBySocket.set(socketPath, calls);
-    if (calls === 1) return pipelineListClient(witnessBySocket[socketPath]);
-    if (socketPath === ownerSocket) return verbClient();
-    throw new Error(`connectIpcClient called unexpectedly for ${socketPath} on call ${calls}`);
   };
 }
 
@@ -1025,7 +984,7 @@ describe("pipeline list", () => {
     const cap = captureIo();
     const code = await main(["pipeline", "dismiss", "aaaaaaaa"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("aaaaaaaa", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({
           kind: "refused",
           pipelineId: "aaaaaaaa",
@@ -1416,7 +1375,7 @@ describe("pipeline wait", () => {
 
     const code = await main(["pipeline", "wait", "pipe-1"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(boundary, sent)),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(boundary, sent)),
     });
 
     expect(code).toBe(expectedExit);
@@ -1432,7 +1391,7 @@ describe("pipeline wait", () => {
 
     const code = await main(["pipeline", "wait", "pipe-1"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(boundary)),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(boundary)),
     });
 
     expect(Date.now() - startedAt).toBeLessThan(500);
@@ -1479,7 +1438,7 @@ describe("pipeline wait", () => {
 
     const code = await main(["pipeline", "wait", "pipe-missing"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-missing", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineErrorRpcClient("unknown_pipeline", "Pipeline pipe-missing not found"),
       ),
     });
@@ -1497,7 +1456,7 @@ describe("pipeline wait", () => {
 
     const code = await main(["pipeline", "wait", "pipe-abort"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-abort", () => ipcClientAbortingOnWait([], sent)),
+      connectIpcClient: stableVerbConnectIpcClient(() => ipcClientAbortingOnWait([], sent)),
     });
 
     expect(code).toBe(1);
@@ -1513,10 +1472,52 @@ describe("pipeline wait", () => {
 
     const code = await main(["pipeline", "wait", "pipe-fan"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () => pipelineListClient(boundary)),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(boundary)),
     });
 
     expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(`${JSON.stringify(boundary)}\n`);
+  });
+
+  test("resolves once the boundary settles later, with no re-resolution across an unrelated predecessor exit", async () => {
+    // The CLI never learns of, or reacts to, a direct predecessor exiting mid-pipeline: its single
+    // `pipeline_wait` request just keeps waiting on the same connection until the daemon's own
+    // store-polling loop (unaffected by this subspec) answers a settled boundary.
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const boundary = { kind: "terminal", state: "succeeded" } as const;
+    let connectCalls = 0;
+    let settleWait!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      settleWait = resolve;
+    });
+
+    const pending = main(["pipeline", "wait", "pipe-1"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        connectCalls += 1;
+        if (connectCalls === 1) return pipelineListClient({ pipelines: [] });
+        const client = pipelineListClient(boundary, sent);
+        return {
+          ...client,
+          async nextFrame(timeoutMs?: number) {
+            await gate;
+            return client.nextFrame(timeoutMs);
+          },
+        };
+      },
+    });
+
+    // The wait request is in flight and unsettled here — this is where a direct predecessor could
+    // exit without the CLI ever knowing. Nothing re-resolves or reconnects while it waits.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    settleWait();
+
+    expect(await pending).toBe(0);
+    expect(connectCalls).toBe(2);
+    expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(1);
     expect(cap.read().stdout).toBe(`${JSON.stringify(boundary)}\n`);
   });
 });
@@ -1532,7 +1533,7 @@ describe("pipeline approve and reject", () => {
 
     const code = await main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(result, sent)),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(result, sent)),
     });
 
     expect(code).toBe(0);
@@ -1550,7 +1551,7 @@ describe("pipeline approve and reject", () => {
 
     const approveCode = await main(["pipeline", "approve", "pipe-fan", "gate", "alpha"], approveCap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient(
           { kind: "applied", pipelineId: "pipe-fan", stageId: "gate", decision: "approved" },
           approveSent,
@@ -1595,7 +1596,7 @@ describe("pipeline approve and reject", () => {
 
     const rejectCode = await main(["pipeline", "reject", "pipe-fan", "gate", "beta"], rejectCap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient(
           { kind: "applied", pipelineId: "pipe-fan", stageId: "gate", decision: "rejected" },
           rejectSent,
@@ -1640,7 +1641,7 @@ describe("pipeline approve and reject", () => {
 
     const code = await main(["pipeline", "approve", "pipe-fan", "gate", "beta"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient(
           { kind: "refused", pipelineId: "pipe-fan", stageId: "gate", reason: "status_not_awaiting" },
           sent,
@@ -1676,7 +1677,7 @@ describe("pipeline approve and reject", () => {
 
     const code = await main(["pipeline", "approve", "pipe-1", "gate", "default"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "refused", pipelineId: "pipe-1", stageId: "gate", reason: "status_not_awaiting" }),
       ),
     });
@@ -1690,7 +1691,7 @@ describe("pipeline approve and reject", () => {
 
     const code = await main(["pipeline", "reject", "pipe-1", "gate", "default"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "refused", pipelineId: "pipe-1", stageId: "gate", reason: "invalid_decision" }),
       ),
     });
@@ -1739,7 +1740,7 @@ describe("pipeline approve and reject", () => {
 
     const code = await main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient({ kind: "unknown" })),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient({ kind: "unknown" })),
     });
 
     expect(code).toBe(1);
@@ -1755,9 +1756,7 @@ describe("pipeline resume", () => {
 
     const code = await main(["pipeline", "resume", pipelineId], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient(pipelineId, () =>
-        pipelineListClient({ kind: "resumed", pipelineId }, sent),
-      ),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient({ kind: "resumed", pipelineId }, sent)),
     });
 
     expect(code).toBe(0);
@@ -1771,7 +1770,7 @@ describe("pipeline resume", () => {
 
     const code = await main(["pipeline", "resume", "pipe-1", " alpha "], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "resumed", pipelineId: "pipe-1" }, sent),
       ),
     });
@@ -1815,7 +1814,7 @@ describe("pipeline resume", () => {
 
     const code = await main(argv, cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "resumed", pipelineId: "pipe-1" }, sent),
       ),
     });
@@ -1845,9 +1844,7 @@ describe("pipeline resume", () => {
 
     const code = await main(["pipeline", "resume", pipelineId], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient(pipelineId, () =>
-        pipelineListClient({ kind: "refused", pipelineId, reason }),
-      ),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient({ kind: "refused", pipelineId, reason })),
     });
 
     expect(code).toBe(1);
@@ -1859,7 +1856,7 @@ describe("pipeline resume", () => {
 
     const code = await main(["pipeline", "resume", "pipe-fan", "alpha"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({
           kind: "refused",
           pipelineId: "pipe-fan",
@@ -1880,7 +1877,7 @@ describe("pipeline resume", () => {
 
     const code = await main(["pipeline", "resume", "pipe-fan"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "refused", pipelineId: "pipe-fan", reason: "branch_resume_required", branchKeys }),
       ),
     });
@@ -1954,7 +1951,7 @@ describe("pipeline resume", () => {
 
     const code = await main(["pipeline", "resume", "pipe-1"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(response)),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(response)),
     });
 
     expect(code).toBe(1);
@@ -1967,7 +1964,7 @@ describe("pipeline resume", () => {
 
     const code = await main(["pipeline", "resume", "pipe-positional"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-positional", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "resumed", pipelineId: "pipe-daemon" }, sent),
       ),
     });
@@ -1994,7 +1991,7 @@ describe("pipeline recover", () => {
 
     const code = await main(["pipeline", "recover", "pipe-1", " alpha "], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(result, sent)),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(result, sent)),
     });
 
     expect(code).toBe(0);
@@ -2033,7 +2030,7 @@ describe("pipeline recover", () => {
       cap.io,
       {
         ...pipelineDeps(undefined),
-        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(result, sent)),
+        connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(result, sent)),
       },
     );
 
@@ -2058,7 +2055,7 @@ describe("pipeline recover", () => {
     const refusedCap = captureIo();
     const refusedCode = await main(["pipeline", "recover", "pipe-1", "alpha"], refusedCap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({
           kind: "resolution_refused",
           pipelineId: "pipe-1",
@@ -2077,7 +2074,7 @@ describe("pipeline recover", () => {
     const claimedCap = captureIo();
     const claimedCode = await main(["pipeline", "recover", "pipe-1", "alpha"], claimedCap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "stage_claimed", pipelineId: "pipe-1", branchKey: "alpha", stageId: "plan" }),
       ),
     });
@@ -2090,7 +2087,7 @@ describe("pipeline recover", () => {
     const unknownCap = captureIo();
     const unknownCode = await main(["pipeline", "recover", "pipe-1", "alpha"], unknownCap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient({ kind: "unknown" })),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient({ kind: "unknown" })),
     });
     expect(unknownCode).toBe(1);
     expect(unknownCap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
@@ -2098,7 +2095,7 @@ describe("pipeline recover", () => {
     const malformedCap = captureIo();
     const malformedCode = await main(["pipeline", "recover", "pipe-1", "alpha"], malformedCap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({
           kind: "admitted",
           pipelineId: "pipe-1",
@@ -2160,7 +2157,7 @@ describe("pipeline dismiss", () => {
 
     const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state: "failed" }, sent),
       ),
     });
@@ -2178,7 +2175,7 @@ describe("pipeline dismiss", () => {
 
     const code = await main(["pipeline", "undismiss", "pipe-1"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state: "failed" }, sent),
       ),
     });
@@ -2195,7 +2192,7 @@ describe("pipeline dismiss", () => {
       const cap = captureIo();
       const code = await main([...argv], cap.io, {
         ...pipelineDeps(undefined),
-        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        connectIpcClient: stableVerbConnectIpcClient(() =>
           pipelineListClient({ kind: "refused", pipelineId: "pipe-1", reason: "pipeline_not_found" }),
         ),
       });
@@ -2212,7 +2209,7 @@ describe("pipeline dismiss", () => {
       const cap = captureIo();
       const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
         ...pipelineDeps(undefined),
-        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        connectIpcClient: stableVerbConnectIpcClient(() =>
           pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state }),
         ),
       });
@@ -2231,7 +2228,7 @@ describe("pipeline dismiss", () => {
 
     const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
       ...pipelineDeps(undefined),
-      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+      connectIpcClient: stableVerbConnectIpcClient(() =>
         pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state: "failed" }),
       ),
     });
@@ -2269,7 +2266,7 @@ describe("pipeline dismiss", () => {
       const cap = captureIo();
       const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
         ...pipelineDeps(undefined),
-        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(response)),
+        connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient(response)),
       });
       expect(code).toBe(1);
       expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
@@ -2303,7 +2300,6 @@ describe("pipeline verb owner routing", () => {
         calls += 1;
         if (calls === 1)
           return pipelineListClient({ pipelines: [{ ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "aaaaaaaa1111" }] });
-        if (calls === 2) return pipelineListClient({ kind: "owner", pipelineId: "aaaaaaaa1111" });
         return pipelineListClient(outcome, sent);
       },
     });
@@ -2313,7 +2309,7 @@ describe("pipeline verb owner routing", () => {
     ]);
   });
 
-  test("reports incomplete id sets before probing an owner", async () => {
+  test("reports incomplete id sets before any verb RPC", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const code = await main(["pipeline", "approve", "aaaaaaaa", "gate", "default"], cap.io, {
@@ -2331,35 +2327,7 @@ describe("pipeline verb owner routing", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_approve")).toHaveLength(0);
   });
 
-  const invokingSocket = "/jarvis/daemon-ffff.sock";
-  const ownerSocket = "/jarvis/daemon-0000.sock";
-
-  test("approves through a non-invoking owner", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-
-    const code = await main(["pipeline", "approve", "pipe-1", "gate", "default"], cap.io, {
-      ...pipelineDeps(undefined),
-      socketPath: invokingSocket,
-      socketDiscovery: async () => [ownerSocket],
-      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
-        {
-          [invokingSocket]: { kind: "not_owner", pipelineId: "pipe-1" },
-          [ownerSocket]: { kind: "owner", pipelineId: "pipe-1" },
-        },
-        ownerSocket,
-        () =>
-          pipelineListClient({ kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "approved" }, sent),
-      ),
-    });
-
-    expect(code).toBe(0);
-    expect(ipcFramesWithMethod(sent, "pipeline_approve")).toEqual([
-      expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "gate", branchKey: "default" } }),
-    ]);
-  });
-
-  test("refuses an ambiguous stable-listing id prefix before any owner probe", async () => {
+  test("refuses an ambiguous stable-listing id prefix before any verb RPC", async () => {
     const cap = captureIo();
     const socketA = "/jarvis/daemon-1111.sock";
     const socketB = "/jarvis/daemon-2222.sock";
@@ -2387,160 +2355,88 @@ describe("pipeline verb owner routing", () => {
   });
 
   test.each([
-    ["reject", ["pipeline", "reject", "pipe-1", "gate", "default"], "pipeline_reject"],
-    ["resume", ["pipeline", "resume", "pipe-1"], "pipeline_resume"],
-    ["recover", ["pipeline", "recover", "pipe-1", "alpha"], "pipeline_recover"],
-    ["dismiss", ["pipeline", "dismiss", "pipe-1"], "pipeline_dismiss"],
-    ["undismiss", ["pipeline", "undismiss", "pipe-1"], "pipeline_undismiss"],
-    ["wait", ["pipeline", "wait", "pipe-1"], "pipeline_wait"],
-  ] as const)("routes every single-pipeline verb through a non-invoking owner (%s)", async (label, argv, method) => {
+    ["wait", ["pipe-1"], "pipeline_wait", { kind: "terminal", state: "succeeded" }],
+    ["approve", ["pipe-1", "gate", "default"], "pipeline_approve", { kind: "applied" }],
+    ["reject", ["pipe-1", "gate", "default"], "pipeline_reject", { kind: "applied" }],
+    ["resume", ["pipe-1"], "pipeline_resume", { kind: "resumed", pipelineId: "pipe-1" }],
+    [
+      "recover",
+      ["pipe-1", "alpha"],
+      "pipeline_recover",
+      { kind: "admitted", pipelineId: "pipe-1", branchKey: "alpha", stageId: "plan", entryRunId: "run-1" },
+    ],
+    ["dismiss", ["pipe-1"], "pipeline_dismiss", { kind: "applied", pipelineId: "pipe-1", state: "failed" }],
+    ["undismiss", ["pipe-1"], "pipeline_undismiss", { kind: "applied", pipelineId: "pipe-1", state: "failed" }],
+  ] as const)("connects only to the stable socket and never issues pipeline_owner for %s", async (verb, args, method, outcome) => {
+    // Inversion target: `withStablePipelineClient` connecting to a resolved owner socket rather
+    // than unconditionally `deps.socketPath` turns this RED — the second connect would target
+    // `otherSocket` and throw.
     const cap = captureIo();
     const sent: unknown[] = [];
-    const results: Record<string, unknown> = {
-      reject: { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "rejected" },
-      resume: { kind: "resumed", pipelineId: "pipe-1" },
-      recover: { kind: "admitted", pipelineId: "pipe-1", branchKey: "alpha", stageId: "plan", entryRunId: "run-1" },
-      dismiss: { kind: "applied", pipelineId: "pipe-1", state: "failed" },
-      undismiss: { kind: "applied", pipelineId: "pipe-1", state: "failed" },
-      wait: { kind: "terminal", state: "succeeded" },
-    };
-
-    const code = await main([...argv], cap.io, {
+    const stableSocket = "/jarvis/daemon.sock";
+    const otherSocket = "/jarvis/daemon-0000.sock";
+    const connected: string[] = [];
+    let calls = 0;
+    const code = await main(["pipeline", verb, ...args], cap.io, {
       ...pipelineDeps(undefined),
-      socketPath: invokingSocket,
-      socketDiscovery: async () => [ownerSocket],
-      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
-        {
-          [invokingSocket]: { kind: "not_owner", pipelineId: "pipe-1" },
-          [ownerSocket]: { kind: "owner", pipelineId: "pipe-1" },
-        },
-        ownerSocket,
-        () => pipelineListClient(results[label], sent),
-      ),
+      socketPath: stableSocket,
+      socketDiscovery: async () => [otherSocket],
+      connectIpcClient: async (socketPath) => {
+        connected.push(socketPath);
+        if (socketPath !== stableSocket) throw new Error(`unexpected non-stable connect ${socketPath}`);
+        calls += 1;
+        return calls === 1 ? pipelineListClient({ pipelines: [] }) : pipelineListClient(outcome, sent);
+      },
     });
-
     expect(code).toBe(0);
+    expect(connected).toEqual([stableSocket, stableSocket]);
     expect(ipcFramesWithMethod(sent, method)).toHaveLength(1);
+    expect(ipcFramesWithMethod(sent, "pipeline_owner")).toHaveLength(0);
   });
 
-  test("uses a durable-state endpoint or refuses duplicate owners", async () => {
-    const smallerSocket = "/jarvis/daemon-0000.sock";
-    const largerSocket = "/jarvis/daemon-ffff.sock";
-
-    // A terminal pipeline: no live `owner`, both sockets answer `durable_state`; the verb still
-    // runs, routed to the resolver's deterministic (lexicographically smallest) socket.
-    const terminalCap = captureIo();
-    const terminalSent: unknown[] = [];
-    const terminalCode = await main(["pipeline", "wait", "pipe-terminal"], terminalCap.io, {
+  test("surfaces a genuinely ownerless pipeline's refusal via the daemon's own RpcError", async () => {
+    // Inversion target: a pre-fix pre-flight resolution step would answer this text from
+    // `renderPipelineDaemonResolutionRefusal` before ever reaching `pipeline_approve`; this test
+    // fails against that code because its mocked second connect answers the verb RPC, not a
+    // `pipeline_owner` probe.
+    const cap = captureIo();
+    const code = await main(["pipeline", "approve", "pipe-1", "gate", "default"], cap.io, {
       ...pipelineDeps(undefined),
-      socketPath: largerSocket,
-      socketDiscovery: async () => [smallerSocket],
-      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
-        {
-          [smallerSocket]: { kind: "durable_state", pipelineId: "pipe-terminal", state: "succeeded" },
-          [largerSocket]: { kind: "durable_state", pipelineId: "pipe-terminal", state: "succeeded" },
-        },
-        smallerSocket,
-        () => pipelineListClient({ kind: "terminal", state: "succeeded" }, terminalSent),
+      connectIpcClient: stableVerbConnectIpcClient(() =>
+        pipelineErrorRpcClient(
+          "pipeline_no_live_owner",
+          "Pipeline pipe-1 has no reachable live owner; wait for its owning daemon to exit (a draining generation hands it to the live daemon), then retry.",
+        ),
       ),
     });
-    expect(terminalCode).toBe(0);
-    expect(ipcFramesWithMethod(terminalSent, "pipeline_wait")).toHaveLength(1);
 
-    // A reconciled-interrupted pipeline never presents a live `owner`; `resume` still executes,
-    // routed to the same deterministic socket.
-    const resumeCap = captureIo();
-    const resumeSent: unknown[] = [];
-    const resumeCode = await main(["pipeline", "resume", "pipe-interrupted"], resumeCap.io, {
-      ...pipelineDeps(undefined),
-      socketPath: largerSocket,
-      socketDiscovery: async () => [smallerSocket],
-      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
-        {
-          [smallerSocket]: { kind: "durable_state", pipelineId: "pipe-interrupted", state: "interrupted" },
-          [largerSocket]: { kind: "durable_state", pipelineId: "pipe-interrupted", state: "interrupted" },
-        },
-        smallerSocket,
-        () => pipelineListClient({ kind: "resumed", pipelineId: "pipe-interrupted" }, resumeSent),
-      ),
-    });
-    expect(resumeCode).toBe(0);
-    expect(ipcFramesWithMethod(resumeSent, "pipeline_resume")).toHaveLength(1);
-
-    // Two `owner` claimants refuse before any verb RPC, naming both socket paths.
-    const conflictCap = captureIo();
-    const conflictCode = await main(["pipeline", "wait", "pipe-conflict"], conflictCap.io, {
-      ...pipelineDeps(undefined),
-      socketPath: largerSocket,
-      socketDiscovery: async () => [smallerSocket],
-      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
-        {
-          [smallerSocket]: { kind: "owner", pipelineId: "pipe-conflict" },
-          [largerSocket]: { kind: "owner", pipelineId: "pipe-conflict" },
-        },
-        "/jarvis/unreachable.sock",
-        () => {
-          throw new Error("must not issue a verb RPC on owner conflict");
-        },
-      ),
-    });
-    expect(conflictCode).toBe(1);
-    expect(conflictCap.read()).toEqual({
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
       stdout: "",
       stderr:
-        "pipeline_owner_conflict: Pipeline pipe-conflict is claimed by multiple daemons " +
-        `(${smallerSocket}, ${largerSocket}); this needs manual investigation before retrying.\n`,
+        "pipeline_no_live_owner: Pipeline pipe-1 has no reachable live owner; wait for its owning daemon to exit (a draining generation hands it to the live daemon), then retry.\n",
     });
   });
 
-  test("reports pipeline owner resolution failures", async () => {
+  test("reports a fully unavailable stable listing without suggesting daemon start", async () => {
+    const cap = captureIo();
     let startCalls = 0;
-    const failingDeps = {
+    const code = await main(["pipeline", "wait", "pipe-unreachable"], cap.io, {
       ...pipelineDeps(undefined),
       startDaemon: async () => {
         startCalls += 1;
         throw new Error("must not start a daemon");
       },
-    };
-
-    const noOwnerCap = captureIo();
-    const noOwnerCode = await main(["pipeline", "wait", "pipe-no-owner"], noOwnerCap.io, {
-      ...failingDeps,
-      connectIpcClient: ownerResolutionRefusalConnectIpcClient({ kind: "not_owner", pipelineId: "pipe-no-owner" }),
-    });
-    expect(noOwnerCode).toBe(1);
-    expect(noOwnerCap.read()).toEqual({
-      stdout: "",
-      stderr:
-        "pipeline_no_live_owner: Pipeline pipe-no-owner has no reachable live owner; wait for its owning daemon to exit (a draining generation hands it to the live daemon), then retry.\n",
-    });
-
-    const notFoundCap = captureIo();
-    const notFoundCode = await main(["pipeline", "wait", "pipe-missing"], notFoundCap.io, {
-      ...failingDeps,
-      connectIpcClient: ownerResolutionRefusalConnectIpcClient({ kind: "not_found", pipelineId: "pipe-missing" }),
-    });
-    expect(notFoundCode).toBe(1);
-    expect(notFoundCap.read()).toEqual({
-      stdout: "",
-      stderr:
-        "pipeline_not_found: Pipeline pipe-missing was not found; run jarvis pipeline list --all to verify the id.\n",
-    });
-
-    const unavailableCap = captureIo();
-    const unavailableCode = await main(["pipeline", "wait", "pipe-unreachable"], unavailableCap.io, {
-      ...failingDeps,
       connectIpcClient: async (socketPath) => {
         throw new Error(`connect ENOENT ${socketPath}`);
       },
     });
-    expect(unavailableCode).toBe(1);
-    expect(unavailableCap.read()).toEqual({
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
       stdout: "",
       stderr:
         "pipeline_id_set_incomplete: Cannot resolve prefix pipe-unreachable: the daemon listing was malformed, unavailable, or degraded; restore daemon connectivity or use a known full pipeline id.\n",
     });
-
     expect(startCalls).toBe(0);
   });
 });

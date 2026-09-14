@@ -245,6 +245,18 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "parseChangeoverResult rejects a malformed envelope (privateSocketPath not a string)",
   // Route-loss ownership lookups now fall back to local handling instead of erroring.
   "failed ownership refresh returns an error without local handling",
+  // Cross-socket owner resolution (`resolvePipelineDaemon`/`resolvePipelineDaemonFromSocketPaths`)
+  // is retired: every pipeline verb connects to the stable address only, and its own ownership
+  // refusal comes back as the verb RPC's `RpcError` instead.
+  "resolves a non-invoking active owner",
+  "skips a failed socket before a later owner witness",
+  "selects a durable-state endpoint or reports a dead active owner",
+  "refuses duplicate owner witnesses",
+  "one daemon answering on its public and private sockets is not a conflict",
+  "two daemons with distinct identities still conflict",
+  "an identified owner and an unidentified legacy owner still conflict",
+  "reports absent and unavailable pipelines",
+  "never auto-starts",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

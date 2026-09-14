@@ -17,10 +17,10 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
+import type { CliDeps } from "../cli/deps.ts";
 import { request } from "../cli/ipc.ts";
 import { readCleanupSessionLogRetentionDays, readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
-import type { QueryDaemonListsDeps } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
 import {
   planSourcePublishesExternally,
@@ -204,6 +204,8 @@ export function createStaleResetDaemonClient(client: IpcClient): DaemonClient {
   };
   return daemonClient;
 }
+
+export type QueryDaemonListsDeps = Pick<CliDeps, "connectIpcClient" | "socketPath">;
 
 /** Query the stable daemon socket only; no discovery, no cross-socket merge. */
 async function queryStableDaemonList(

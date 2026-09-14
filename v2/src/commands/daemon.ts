@@ -22,7 +22,7 @@ const defaultLegacyDaemonArtifactDeps: LegacyDaemonArtifactDeps = { isProcessAli
 
 type LegacyDaemonUnitPaths = { socketPath: string; pidPath: string; logPath: string };
 
-export function legacyDaemonUnitPaths(jarvisRoot: string, key: string): LegacyDaemonUnitPaths {
+function legacyDaemonUnitPaths(jarvisRoot: string, key: string): LegacyDaemonUnitPaths {
   return {
     socketPath: join(jarvisRoot, `daemon-${key}.sock`),
     pidPath: join(jarvisRoot, `daemon-${key}.pid`),

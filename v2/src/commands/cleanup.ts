@@ -46,7 +46,7 @@ import {
   pruneConsumedQueueEntry,
   resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
-import { daemonUnitKeysFromNames, legacyDaemonUnitPaths, reapLegacyDaemonArtifacts } from "./daemon.ts";
+import { daemonUnitKeysFromNames, reapLegacyDaemonArtifacts } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1564,12 +1564,9 @@ async function removeDeadDaemonArtifacts(
   const keys = daemonUnitKeysFromNames(paths);
 
   for (const key of keys) {
-    const unit = legacyDaemonUnitPaths(jarvisRoot, key);
-    const artifactPaths = [unit.socketPath, unit.pidPath, unit.logPath];
     const revalidated = await reapLegacyDaemonArtifacts(jarvisRoot, [key]);
-    const revalidatedDead = new Set(revalidated.dead);
-    for (const path of artifactPaths) {
-      if (!paths.includes(path) || !revalidatedDead.has(path)) continue;
+    for (const path of revalidated.dead) {
+      if (!paths.includes(path)) continue;
       try {
         rmSync(path, { force: true });
         io.stdout(`Removed daemon artifact: ${path}\n`);

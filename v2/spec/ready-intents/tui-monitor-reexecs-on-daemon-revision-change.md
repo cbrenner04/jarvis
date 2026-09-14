@@ -15,10 +15,14 @@ Self-handoff converges the daemon on merged `v2/src`, but a long-lived `jarvis t
 - The revision-compare/stability/re-exec decision is a pure exported predicate tested in both directions; the re-exec itself is injected for tests.
 - Out of scope: one-shot CLI commands.
 
-## Acceptance
+## Acceptance criteria
 
-- A test proves a monitor whose loaded revision differs from the daemon's `loadedRevision` re-execs without operator input; fails pre-fix.
-- A test proves no re-exec while dock input is non-empty, and re-exec once it clears.
-- A test proves matching revisions never re-exec.
+- [ ] A test proves a monitor whose loaded revision differs from the daemon's `loadedRevision` re-execs without operator input; fails pre-fix.
+- [ ] A test proves no re-exec while dock input is non-empty, and re-exec once it clears.
+- [ ] A test proves matching revisions never re-exec.
+
+## Documentation updates
+
+- `v2/docs/tui.md` — document revision-follow re-exec (compare on connect/poll, defer while dock input is non-empty, no passive banner) alongside the existing refresh/reconnect/stale-client behavior.
 
 ## Prerequisites

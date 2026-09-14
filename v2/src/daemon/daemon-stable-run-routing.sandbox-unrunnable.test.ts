@@ -26,6 +26,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+const unused: RpcHandler = () => ({ kind: "error", code: "unused", message: "unused" });
+
 async function bindForwardingPair(ownerHandlers: Record<"wait" | "pause" | "kill", RpcHandler>) {
   const ownerPath = socketPath("run-owner");
   const stablePath = socketPath("stable-daemon");
@@ -54,7 +56,6 @@ test("stable-address wait remains pending until the direct predecessor settles i
     ownerWaitStarted = true;
     return { kind: "response", result: await ownerSettlement.promise };
   };
-  const unused: RpcHandler = () => ({ kind: "error", code: "unused", message: "unused" });
   const { transport } = await bindForwardingPair({ wait, pause: unused, kill: unused });
   let settled = false;
   const pending = transport.request("wait", { runId: "draining-run" }).finally(() => {
@@ -79,7 +80,6 @@ test("stable-address kill preserves force and aborts the direct predecessor invo
       result: { ok: true, outcome: "force-settled", runId: "draining-run", status: "killed", survivors: [] },
     };
   };
-  const unused: RpcHandler = () => ({ kind: "error", code: "unused", message: "unused" });
   const { transport } = await bindForwardingPair({ wait: unused, pause: unused, kill });
 
   expect(await transport.request("kill", { runId: "draining-run", force: true })).toEqual({

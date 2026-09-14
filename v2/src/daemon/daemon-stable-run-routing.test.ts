@@ -78,6 +78,10 @@ function frame(method: "wait" | "pause" | "kill", params: unknown = { runId: "ru
   return { kind: "request", id: `request-${method}`, method, params } as const;
 }
 
+async function rejectsConnect(): Promise<never> {
+  throw new Error("must not connect");
+}
+
 describe("stable run unary routing", () => {
   test("defers initial-empty ownership until refresh and routes to the direct owner", async () => {
     const refresh = deferred<boolean>();
@@ -131,9 +135,7 @@ describe("stable run unary routing", () => {
       resolvePredecessorOwner: async () => {
         throw new Error("ownership refresh failed");
       },
-      connectOwnerClient: async () => {
-        throw new Error("must not connect");
-      },
+      connectOwnerClient: rejectsConnect,
     });
 
     await expect(handlers.wait(frame("wait"), new AbortController().signal)).rejects.toThrow(
@@ -153,9 +155,7 @@ describe("stable run unary routing", () => {
         resolves += 1;
         return true;
       },
-      connectOwnerClient: async () => {
-        throw new Error("must not connect");
-      },
+      connectOwnerClient: rejectsConnect,
     });
     const unowned = createStableRunHandlers(local, {
       predecessorSocketPath: "/private/predecessor.sock",
@@ -164,9 +164,7 @@ describe("stable run unary routing", () => {
         resolves += 1;
         return false;
       },
-      connectOwnerClient: async () => {
-        throw new Error("must not connect");
-      },
+      connectOwnerClient: rejectsConnect,
     });
 
     await current.pause(frame("pause"), new AbortController().signal);
@@ -183,9 +181,7 @@ describe("stable run unary routing", () => {
       predecessorSocketPath: "/private/predecessor.sock",
       ownsRunLocally: () => localOwner,
       resolvePredecessorOwner: () => refresh.promise,
-      connectOwnerClient: async () => {
-        throw new Error("must not connect");
-      },
+      connectOwnerClient: rejectsConnect,
     });
 
     const pending = handlers.wait(frame("wait"), new AbortController().signal);

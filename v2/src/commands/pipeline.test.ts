@@ -104,9 +104,6 @@ function pipelineDeps(
 ): NonNullable<Parameters<typeof main>[2]> {
   return {
     cwd: () => fx.repoRoot,
-    // Hermetic default: every single-pipeline verb connects only to the stable socket; keep
-    // discovery off the ambient `~/.jarvis` unless a test overrides it to prove that isolation.
-    socketDiscovery: async () => [],
     ...(configPath === undefined
       ? {}
       : {
@@ -657,7 +654,6 @@ describe("pipeline list", () => {
     const code = await main(["pipeline", "list"], cap.io, {
       ...pipelineDeps(undefined),
       socketPath: stableSocket,
-      socketDiscovery: async () => ["/jarvis/daemon-0000.sock"],
       connectIpcClient: async (socketPath) => {
         connected.push(socketPath);
         if (socketPath !== stableSocket) throw new Error(`unexpected non-stable connect ${socketPath}`);
@@ -722,7 +718,6 @@ describe("pipeline list", () => {
     const code = await main(["pipeline", "list"], cap.io, {
       ...pipelineDeps(undefined),
       socketPath: "/jarvis/daemon-ffff.sock",
-      socketDiscovery: async () => ["/jarvis/daemon-0000.sock"],
       connectIpcClient: async (socketPath) => {
         throw new Error(`connect ENOENT ${socketPath}`);
       },
@@ -745,7 +740,6 @@ describe("pipeline list", () => {
     const code = await main(["pipeline", "list"], cap.io, {
       ...pipelineDeps(undefined),
       socketPath: "/jarvis/daemon-only.sock",
-      socketDiscovery: async () => [],
       connectIpcClient: async () => pipelineListClient({ pipelines: "broken" }),
     });
 
@@ -2330,12 +2324,10 @@ describe("pipeline verb owner routing", () => {
   test("refuses an ambiguous stable-listing id prefix before any verb RPC", async () => {
     const cap = captureIo();
     const socketA = "/jarvis/daemon-1111.sock";
-    const socketB = "/jarvis/daemon-2222.sock";
 
     const code = await main(["pipeline", "wait", "aaaaaaaa"], cap.io, {
       ...pipelineDeps(undefined),
       socketPath: socketA,
-      socketDiscovery: async () => [socketB],
       connectIpcClient: async (socketPath) => {
         if (socketPath !== socketA) throw new Error(`unexpected non-stable connect ${socketPath}`);
         return pipelineListClient({
@@ -2374,13 +2366,11 @@ describe("pipeline verb owner routing", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const stableSocket = "/jarvis/daemon.sock";
-    const otherSocket = "/jarvis/daemon-0000.sock";
     const connected: string[] = [];
     let calls = 0;
     const code = await main(["pipeline", verb, ...args], cap.io, {
       ...pipelineDeps(undefined),
       socketPath: stableSocket,
-      socketDiscovery: async () => [otherSocket],
       connectIpcClient: async (socketPath) => {
         connected.push(socketPath);
         if (socketPath !== stableSocket) throw new Error(`unexpected non-stable connect ${socketPath}`);

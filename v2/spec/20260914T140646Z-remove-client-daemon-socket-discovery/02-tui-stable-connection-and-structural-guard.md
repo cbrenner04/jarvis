@@ -19,11 +19,11 @@
 
 ## Acceptance criteria
 
-- [ ] TUI monitor, log-follow, and steering tests prove one stable connection presents current and draining-owned work without client-side socket discovery or cross-socket ownership maps; they fail against the pre-fix `buildPipelineOwners`/discovery in `v2/src/tui/tui-entry.tsx` and `resolveOwningSocket`/discovery in `v2/src/tui/tui-log-follow-entry.tsx`.
-- [ ] A test proves the TUI surfaces the daemon's own error when the stable socket lacks a route, with no fallback to discovering another socket.
-- [ ] A structural test proves the production files listed above neither compute an executable digest nor enumerate digest-keyed sockets to locate a daemon, outside the two exemptions named above; it fails against the pre-fix discovery in `v2/src/tui/tui-entry.tsx`/`v2/src/tui/tui-log-follow-entry.tsx`.
-- [ ] `v2/src/tui/tui-monitor-pipeline-tree.test.ts` and `v2/src/tui/tui-attention-rows.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] TUI monitor, log-follow, and steering tests prove one stable connection presents current and draining-owned work without client-side socket discovery or cross-socket ownership maps; they fail against the pre-fix `buildPipelineOwners`/discovery in `v2/src/tui/tui-entry.tsx` and `resolveOwningSocket`/discovery in `v2/src/tui/tui-log-follow-entry.tsx`.
+- [x] A test proves the TUI surfaces the daemon's own error when the stable socket lacks a route, with no fallback to discovering another socket.
+- [x] A structural test proves the production files listed above neither compute an executable digest nor enumerate digest-keyed sockets to locate a daemon, outside the two exemptions named above; it fails against the pre-fix discovery in `v2/src/tui/tui-entry.tsx`/`v2/src/tui/tui-log-follow-entry.tsx`.
+- [x] `v2/src/tui/tui-monitor-pipeline-tree.test.ts` and `v2/src/tui/tui-attention-rows.test.ts` stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

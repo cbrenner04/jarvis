@@ -833,7 +833,6 @@ describe("cleanup command through main", () => {
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
         socketPath: deadSocket,
-        socketDiscovery: async () => [],
         connectIpcClient: async () => {
           throw Object.assign(new Error(rawSocketError), { code: "ENOENT" });
         },
@@ -870,7 +869,6 @@ describe("cleanup command through main", () => {
     const branch = "older-digest-cli-live";
     const worktreePath = await materializeMergedWorktree(branch);
     const invokingSocket = join(cleanupJarvisRoot, "daemon-invoking.sock");
-    const olderSocket = join(cleanupJarvisRoot, "daemon-older.sock");
     const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
 
     const code = await cliMain(
@@ -884,7 +882,6 @@ describe("cleanup command through main", () => {
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
         socketPath: invokingSocket,
-        socketDiscovery: async () => [olderSocket],
         connectIpcClient: connectOlderDigestLive(invokingSocket, branch),
       },
     );
@@ -908,7 +905,6 @@ describe("cleanup command through main", () => {
     const branch = "peer-answers-eacces";
     const worktreePath = await materializeMergedWorktree(branch);
     const invokingSocket = join(cleanupJarvisRoot, "daemon-invoking.sock");
-    const peerSocket = join(cleanupJarvisRoot, "daemon-peer.sock");
     const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
     const queriedSockets: string[] = [];
 
@@ -923,7 +919,6 @@ describe("cleanup command through main", () => {
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
         socketPath: invokingSocket,
-        socketDiscovery: async () => [peerSocket],
         connectIpcClient: async (socketPath) => {
           queriedSockets.push(socketPath);
           if (socketPath === invokingSocket) {

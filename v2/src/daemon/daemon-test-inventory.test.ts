@@ -8,7 +8,6 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { locateDiscoveredFile } from "../../../shared/structural-test-locator.ts";
 
 const DAEMON_DIR = import.meta.dir;
 const REPO_ROOT = join(DAEMON_DIR, "..", "..", "..");
@@ -257,6 +256,16 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "an identified owner and an unidentified legacy owner still conflict",
   "reports absent and unavailable pipelines",
   "never auto-starts",
+  // v2/src/daemon/live-daemon-socket-discovery.ts and its test file are deleted: no client
+  // (TUI, cleanup, run/pipeline commands) discovers digest-keyed sockets anymore — every command
+  // routes to the stable socket only (see remove-client-daemon-socket-discovery).
+  "Discovery returns exactly the digest-keyed sockets whose daemon answers health, in sorted order",
+  "A stale socket file that does not answer health is excluded from the result",
+  "Files not matching the digest-keyed socket name form are never probed or returned",
+  "A missing jarvis home directory yields an empty result instead of an error",
+  "Inverting the liveness filter makes at least one test fail",
+  "Inverting the name-form filter makes at least one test fail",
+  "Results are sorted lexicographically",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */
@@ -268,10 +277,15 @@ export function missingOnlyPreservationViolation(
   return multisetDiff(expectedTitles, actualTitles).filter((title) => !retiredTitles.has(title));
 }
 
+/** A path absent from the worktree (file deliberately deleted) is omitted rather than thrown. */
 function loadWorktreeSources(repoPaths: readonly string[]): Record<string, string> {
   const sources: Record<string, string> = {};
   for (const repoPath of repoPaths) {
-    sources[repoPath] = readFileSync(join(REPO_ROOT, repoPath), "utf8");
+    try {
+      sources[repoPath] = readFileSync(join(REPO_ROOT, repoPath), "utf8");
+    } catch {
+      // Deleted co-located test file: its merge-base titles are checked against RETIRED_TEST_TITLES below.
+    }
   }
   return sources;
 }
@@ -323,7 +337,8 @@ describe("daemon test inventory", () => {
       // between listing and reading; nothing to preserve.
       if (mergeBaseSource === undefined) continue;
       const expectedTitles = collectTestTitles(mergeBaseSource);
-      const actualTitles = collectTestTitles(locateDiscoveredFile(worktreeSources, repoPath));
+      const worktreeSource = worktreeSources[repoPath];
+      const actualTitles = worktreeSource === undefined ? [] : collectTestTitles(worktreeSource);
       expect(missingOnlyPreservationViolation(expectedTitles, actualTitles, RETIRED_TEST_TITLES)).toEqual([]);
       for (const title of actualTitles) {
         // A retired title that is still present means the allowlist entry is stale and is now

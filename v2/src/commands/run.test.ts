@@ -1049,9 +1049,6 @@ describe("run list/log stable socket only", () => {
     const code = await withFixedUuid(requestId, () =>
       main(["run", "list"], cap.io, {
         socketPath: INVOKING_SOCKET,
-        socketDiscovery: async () => {
-          throw new Error("run list must not discover sockets");
-        },
         connectIpcClient: async (socketPath) => {
           onConnect?.(socketPath);
           return makeIpcClient([{ kind: "response", id: requestId, result: { runs } }]);
@@ -1119,9 +1116,6 @@ describe("run list/log stable socket only", () => {
     const code = await withFixedUuid([OPERATOR_SESSION_ID, STREAM_REQUEST_ID], () =>
       main(["run", "log", "remote-run"], cap.io, {
         socketPath: INVOKING_SOCKET,
-        socketDiscovery: async () => {
-          throw new Error("run log must not discover owner sockets");
-        },
         connectIpcClient: async (socketPath) => {
           connectSockets.push(socketPath);
           return makeIpcClient(
@@ -1151,9 +1145,6 @@ describe("run list/log stable socket only", () => {
     const code = await withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
       main(["run", "wait", "remote-run"], cap.io, {
         socketPath: INVOKING_SOCKET,
-        socketDiscovery: async () => {
-          throw new Error("wait must not discover owner sockets");
-        },
         connectIpcClient: async (socketPath) => {
           connectSockets.push(socketPath);
           return makeIpcClient(

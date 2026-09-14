@@ -303,7 +303,6 @@ describe("runTuiEntry unified work-tree selectability", () => {
       nowMs: () => FIXED_NOW,
       viewHost: view.host,
       connectTuiDaemon: async () => fakeClient([{ runs }]),
-      socketDiscovery: async () => [],
       terminalSize: () => ({ columns: 80, rows: 8 }),
     });
     await view.waitUntilOpen();

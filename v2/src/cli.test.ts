@@ -551,7 +551,6 @@ describe("v2 cli dispatch", () => {
     const configPath = writeMachineConfig({ agents: ["claude"] });
     const code = await main(argv, cap.io, {
       connectIpcClient: () => Promise.reject(new Error("stubbed: no daemon")),
-      socketDiscovery: () => Promise.resolve([]),
       startDaemon: async () => ({ pid: 1, socketPath: "stub", alreadyRunning: false }),
       stopDaemon: async () => ({ reconciledRunIds: [] }),
       readProjectRegistry: () => ({}),
@@ -684,7 +683,6 @@ describe("v2 cli dispatch", () => {
 
         await main([...path, ...(operands[path.join(" ")] ?? [])], cap.io, {
           connectIpcClient: () => Promise.reject(new Error("stubbed: no daemon")),
-          socketDiscovery: () => Promise.resolve([]),
           startDaemon: async () => ({ pid: 1, socketPath: "stub", alreadyRunning: false }),
           stopDaemon: async () => ({ reconciledRunIds: [] }),
           readDaemonProcessLog: () => 0,

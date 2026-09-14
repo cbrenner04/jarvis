@@ -118,9 +118,6 @@ export type TuiRefreshScheduler = {
   start(onTick: () => void): { close(): void };
 };
 
-/** Discover live daemon sockets; injectable seam for testing. */
-export type SocketDiscovery = () => Promise<string[]>;
-
 /** Dependencies for {@link runTuiEntry}. */
 export type RunTuiEntryDeps = {
   /** Unix socket path; required. */
@@ -139,8 +136,6 @@ export type RunTuiEntryDeps = {
   viewHost?: TuiViewHost;
   /** Injectable ink render; defaults to production `render`. */
   inkRender?: InkRender | InjectedInkUi;
-  /** Discover live daemon sockets; defaults to {@link discoverLiveDaemonSockets}. */
-  socketDiscovery?: SocketDiscovery;
   /** Injectable clock for the terminal live window; defaults to `Date.now`. */
   nowMs?: () => number;
   /** Injectable terminal size; defaults to `process.stdout` columns/rows. */

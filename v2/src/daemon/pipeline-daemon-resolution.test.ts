@@ -6,7 +6,6 @@ import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const PIPELINE_ID = "pipeline-full-id";
 const INVOKING_SOCKET = "/jarvis/daemon-bbbb.sock";
-const OTHER_SOCKET = "/jarvis/daemon-aaaa.sock";
 
 type Reply = { result: unknown } | { error: { code: string; message: string } } | { hung: true };
 
@@ -175,12 +174,11 @@ function pipelineSnapshot(pipelineId: string, overrides: Partial<PipelineSnapsho
   };
 }
 
-/** Answers only the stable (invoking) address; any discovered generation socket fails the test. */
+/** Answers only the stable (invoking) address; any other connect target fails the test. */
 function stableOnlyDeps(replies: readonly Reply[], sent: unknown[] = []) {
   let call = 0;
   return {
     socketPath: INVOKING_SOCKET,
-    socketDiscovery: async () => [OTHER_SOCKET],
     connectIpcClient: async (socketPath: string) => {
       if (socketPath !== INVOKING_SOCKET) throw new Error(`unexpected non-stable connect ${socketPath}`);
       const reply = replies[Math.min(call, replies.length - 1)];
@@ -272,7 +270,6 @@ test("resolves a dismissed pipeline's full id via the merged, dismissed-inclusiv
     dismissedId,
     {
       socketPath: INVOKING_SOCKET,
-      socketDiscovery: async () => [],
       connectIpcClient: async () =>
         replyingClient({ result: { pipelines: [pipelineSnapshot(dismissedId, { dismissedAt: 5 })] } }, sent),
     },
@@ -290,7 +287,6 @@ test("returns unmatched when an argument matches zero ids across the merged list
     "no-such-pipeline",
     {
       socketPath: INVOKING_SOCKET,
-      socketDiscovery: async () => [OTHER_SOCKET],
       connectIpcClient: async () => replyingClient({ result: { pipelines: [pipelineSnapshot(PIPELINE_ID)] } }),
     },
     20,
@@ -304,7 +300,6 @@ test("never prefix-resolves an argument shorter than the minimum prefix length",
     "ab",
     {
       socketPath: INVOKING_SOCKET,
-      socketDiscovery: async () => [],
       connectIpcClient: async () => replyingClient({ result: { pipelines: [pipelineSnapshot("abcdefghijkl")] } }),
     },
     20,
@@ -327,7 +322,6 @@ test.each([
         : { result: { pipelines: [{ pipelineId: "aaaa1111cccc" }] } };
   const deps = {
     socketPath: INVOKING_SOCKET,
-    socketDiscovery: async () => [OTHER_SOCKET],
     connectIpcClient: async (socketPath: string) => {
       if (socketPath !== INVOKING_SOCKET) throw new Error(`unexpected non-stable connect ${socketPath}`);
       if (failure === "disconnected") throw new Error("connection refused");

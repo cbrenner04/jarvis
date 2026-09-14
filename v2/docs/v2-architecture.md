@@ -242,16 +242,24 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a `blo
   on memory than a web UI (matters with concurrent agents + the local model) and
   works over SSH to the work machine without port-forwarding. Richer clients
   (web) can be added later over the same API.
-- **Shipped TUI (`jarvis tui`).** Discovers all live daemon sockets, connects to
-  each, proves liveness via IPC `health` and IPC `status` on all (`{ state: "running" }`),
-  then aggregates their daemon `list` results into one monitor: each run ID is deduped
-  (the daemon reporting `isLive` is the owner), and a connection that fails to list is
-  skipped without aborting the view. Steering RPCs (`pause` / `resume` / `kill`)
-  route to the owning daemon. When no sockets are discovered, the monitor connects
-  only to the invoking digest's socket and behaves as before (single-daemon view).
-  `jarvis run list` and `jarvis run log` resolve run owners across live keyed
-  daemons (same merge as `run list`); `jarvis run wait` targets the stable daemon,
-  which routes direct-predecessor ownership behind its IPC boundary. Optional workflow-step
+- **Every client dispatches to the stable socket only.** The CLI (`run`, `pipeline`,
+  `cleanup`) and the TUI hold exactly one connection, to the stable public socket
+  (`deps.socketPath`) — no client-side digest-keyed socket discovery and no
+  cross-socket ownership map on any surface. A digest rotation is invisible at
+  that boundary: the daemon behind the stable socket changes, but its own
+  `list`/`pipeline_list` handlers already fold a live draining predecessor's runs
+  and pipelines into their answer, so a client connected to the stable socket sees
+  the same combined view a cross-socket merge used to produce. When the stable
+  socket cannot serve a route, the client surfaces the daemon's own error; there is
+  no fallback to another socket at any point.
+- **Shipped TUI (`jarvis tui`).** Connects once to the stable socket, proves
+  liveness via IPC `health` and IPC `status` (`{ state: "running" }`), then polls
+  `list`/`pipeline_list` on that one connection into the monitor. Steering RPCs
+  (`pause` / `resume` / `kill`) route to that same client; a row absent from its
+  current answer cannot be steered until reconnection. `jarvis run list` and
+  `jarvis run log` also target the stable socket only, with no owner lookup;
+  `jarvis run wait` targets the stable daemon, which routes direct-predecessor
+  ownership behind its IPC boundary. Optional workflow-step
   snapshots on `list` rows (see [`daemon-host.md`](./daemon-host.md#list));
   operator contract: [`write-behavior.md`](./write-behavior.md#tui-cli). Queued runs
   (`status: "queued"`) render under a separate "Queue" heading, oldest-queued-first,

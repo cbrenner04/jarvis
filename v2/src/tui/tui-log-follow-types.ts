@@ -35,9 +35,6 @@ export type TuiLogFollowViewHost = {
   openLogFollow(controls: TuiLogFollowControls): Promise<TuiLogFollowSession>;
 };
 
-/** Discover live daemon sockets; injectable seam for testing. */
-type SocketDiscovery = () => Promise<string[]>;
-
 /** Retry configuration for {@link runTuiLogFollow} mid-stream reconnection. */
 type TuiLogFollowRetryConfig = {
   /** Maximum reconnection attempts after mid-stream transport loss; defaults to 5. */
@@ -58,8 +55,6 @@ export type RunTuiLogFollowDeps = {
   viewHost?: TuiLogFollowViewHost;
   /** Injectable ink render; defaults to production `render`. */
   inkRender?: InkRender;
-  /** Discover live daemon sockets; defaults to {@link discoverLiveDaemonSockets}. */
-  socketDiscovery?: SocketDiscovery;
   /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
   connectTuiDaemon?: (options: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
   /** Retry configuration for mid-stream transport loss. */

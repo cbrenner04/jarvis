@@ -46,7 +46,7 @@ import {
   pruneConsumedQueueEntry,
   resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
-import { DAEMON_DIGEST_ARTIFACT_FILE, reapDeadDaemonSockets } from "./daemon.ts";
+import { daemonUnitKeysFromNames, type LegacyDaemonArtifactDeps, reapLegacyDaemonArtifacts } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1443,7 +1443,7 @@ async function retireEligibleWorktrees(
   );
 }
 
-type ReaperResult = Awaited<ReturnType<typeof reapDeadDaemonSockets>>;
+type ReaperResult = Awaited<ReturnType<typeof reapLegacyDaemonArtifacts>>;
 
 type SessionLogReapPlan = { expired: { path: string; bytes: number }[]; oldestKeptDate: string } | null;
 
@@ -1542,44 +1542,32 @@ function hasNothingToClean(
 
 function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: string) => void }): void {
   if (reaperResult.dead.length > 0) {
-    io.stdout(`Found ${reaperResult.dead.length} dead daemon artifact(s) for cleanup:\n`);
+    io.stdout(`Found ${reaperResult.dead.length} legacy daemon artifact(s) for cleanup:\n`);
     for (const path of reaperResult.dead) {
       io.stdout(`  remove: ${path}\n`);
     }
   }
   if (reaperResult.preserved.length > 0) {
-    io.stdout(`Preserved ${reaperResult.preserved.length} daemon socket(s):\n`);
+    io.stdout(`Preserved ${reaperResult.preserved.length} legacy daemon artifact(s):\n`);
     for (const item of reaperResult.preserved) {
-      io.stdout(`  ${item.path} — ${item.reason}\n`);
+      io.stdout(`  ${item.unit} — ${item.reason}\n`);
     }
   }
-}
-
-function socketFilesForDeadDaemonArtifacts(paths: readonly string[]): string[] {
-  const keys = new Set<string>();
-  for (const path of paths) {
-    const match = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(path));
-    const key = match?.[1];
-    if (key !== undefined) keys.add(key);
-  }
-  return [...keys].map((key) => `daemon-${key}.sock`);
 }
 
 async function removeDeadDaemonArtifacts(
   paths: readonly string[],
   jarvisRoot: string,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps,
 ): Promise<number> {
   let exitCode = 0;
-  const socketFiles = socketFilesForDeadDaemonArtifacts(paths);
+  const keys = daemonUnitKeysFromNames(paths);
 
-  for (const socketFile of socketFiles) {
-    const key = socketFile.slice("daemon-".length, -".sock".length);
-    const artifactPaths = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
-    const revalidated = await reapDeadDaemonSockets(jarvisRoot, [socketFile]);
-    const revalidatedDead = new Set(revalidated.dead);
-    for (const path of artifactPaths) {
-      if (!paths.includes(path) || !revalidatedDead.has(path)) continue;
+  for (const key of keys) {
+    const revalidated = await reapLegacyDaemonArtifacts(jarvisRoot, [key], legacyDaemonArtifactDeps);
+    for (const path of revalidated.dead) {
+      if (!paths.includes(path)) continue;
       try {
         rmSync(path, { force: true });
         io.stdout(`Removed daemon artifact: ${path}\n`);
@@ -1674,6 +1662,7 @@ async function gatherCleanupDiscoveryContext(
   configPath: string,
   clock: () => Date,
   skips: ArtifactSkipLedger,
+  legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps,
 ): Promise<CleanupDiscoveryContext> {
   const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner, ownershipRegistry });
   const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
@@ -1700,7 +1689,7 @@ async function gatherCleanupDiscoveryContext(
     io,
     skips,
   );
-  const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
+  const reaperResult = await reapLegacyDaemonArtifacts(jarvisRoot, undefined, legacyDaemonArtifactDeps);
   const sessionLogPlan = discoverExpiredSessionLogs(sessionsDir, configPath, clock, store, io);
 
   return {
@@ -1779,6 +1768,7 @@ async function executeConfirmedCleanup(
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
   daemonBlockedExit: number,
+  legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps,
 ): Promise<number> {
   const recheck = await recheckEligibleWorktrees(ctx.candidates, runner, daemonClient, store, io);
   const stillEligible = recheck.candidates;
@@ -1826,7 +1816,12 @@ async function executeConfirmedCleanup(
       sessionLogExit = 1;
     }
   }
-  const artifactRemoval = await removeDeadDaemonArtifacts(ctx.reaperResult.dead, jarvisRoot, io);
+  const artifactRemoval = await removeDeadDaemonArtifacts(
+    ctx.reaperResult.dead,
+    jarvisRoot,
+    io,
+    legacyDaemonArtifactDeps,
+  );
 
   const strandedAfterRetirement = await inspectStrandedArtifacts(
     ctx.strandedArtifacts,
@@ -1862,6 +1857,7 @@ export async function runCleanupCommand(
     sessionsDir?: string;
     configPath?: string;
     clock?: () => Date;
+    legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps;
   },
   registry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
@@ -1896,6 +1892,7 @@ async function runCleanupCommandWithSkipLedger(
     sessionsDir?: string;
     configPath?: string;
     clock?: () => Date;
+    legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps;
   },
   registry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
@@ -1918,6 +1915,7 @@ async function runCleanupCommandWithSkipLedger(
     options.configPath ?? join(jarvisRoot, "config.json"),
     options.clock ?? (() => new Date()),
     skips,
+    options.legacyDaemonArtifactDeps,
   );
 
   for (const worktree of ctx.daemonUnreachable) {
@@ -1962,7 +1960,17 @@ async function runCleanupCommandWithSkipLedger(
     return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, daemonBlockedExit);
   }
 
-  return executeConfirmedCleanup(ctx, registry, jarvisRoot, runner, daemonClient, store, io, daemonBlockedExit);
+  return executeConfirmedCleanup(
+    ctx,
+    registry,
+    jarvisRoot,
+    runner,
+    daemonClient,
+    store,
+    io,
+    daemonBlockedExit,
+    options.legacyDaemonArtifactDeps,
+  );
 }
 
 type WorktreeRefPruneOptions = {

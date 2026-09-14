@@ -18,16 +18,16 @@
 
 ## Acceptance criteria
 
-- [ ] A cleanup test proves a socketless legacy keyed PID/log pair whose recorded process is dead is discovered and removed; it fails against the pre-fix socket-seeded enumeration.
-- [ ] A cleanup test proves a legacy keyed socket with no PID file is removed when a non-RPC liveness probe reports connection-refused, and preserved with a reason when the probe reports live or inconclusive; it fails against the pre-fix code, which never reaps a PID-less keyed socket.
-- [ ] A cleanup test proves a legacy unit with a live recorded PID, or with neither a parseable PID file nor a socket file, is preserved and reported with a reason.
-- [ ] A cleanup test proves the stable socket, PID, and log files are never offered for removal while a stable daemon listener is serving.
-- [ ] A cleanup test proves dry-run previews the same legacy units (including socketless ones and PID-less keyed sockets) that apply revalidates and removes, using an injectable liveness check; a unit whose PID or socket becomes live between preview and apply is preserved, and a keyed file created after preview is not removed by apply.
-- [ ] A cleanup test proves nothing writes a keyed `daemon-<16hex>.pid` or `daemon-<16hex>.log` file; only the private successor socket stays digest-keyed.
-- [ ] A structural test on the legacy-classifier module/function proves it never issues a `health` RPC or `connectIpcClient` call against a keyed socket and never uses a digest key to locate daemon service, while permitting the non-RPC liveness probe; it fails against the pre-fix `classifySocket`. `enumerateOtherDaemonSockets` and private-endpoint binding are out of scope for this guard.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A cleanup test proves a socketless legacy keyed PID/log pair whose recorded process is dead is discovered and removed; it fails against the pre-fix socket-seeded enumeration.
+- [x] A cleanup test proves a legacy keyed socket with no PID file is removed when a non-RPC liveness probe reports connection-refused, and preserved with a reason when the probe reports live or inconclusive; it fails against the pre-fix code, which never reaps a PID-less keyed socket.
+- [x] A cleanup test proves a legacy unit with a live recorded PID, or with neither a parseable PID file nor a socket file, is preserved and reported with a reason.
+- [x] A cleanup test proves the stable socket, PID, and log files are never offered for removal while a stable daemon listener is serving.
+- [x] A cleanup test proves dry-run previews the same legacy units (including socketless ones and PID-less keyed sockets) that apply revalidates and removes, using an injectable liveness check; a unit whose PID or socket becomes live between preview and apply is preserved, and a keyed file created after preview is not removed by apply.
+- [x] A cleanup test proves nothing writes a keyed `daemon-<16hex>.pid` or `daemon-<16hex>.log` file; only the private successor socket stays digest-keyed.
+- [x] A structural test on the legacy-classifier module/function proves it never issues a `health` RPC or `connectIpcClient` call against a keyed socket and never uses a digest key to locate daemon service, while permitting the non-RPC liveness probe; it fails against the pre-fix `classifySocket`. `enumerateOtherDaemonSockets` and private-endpoint binding are out of scope for this guard.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

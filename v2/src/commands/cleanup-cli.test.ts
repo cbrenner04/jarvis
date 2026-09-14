@@ -161,7 +161,7 @@ type ScopedProject = {
 
 type ScopedCleanupFixture = {
   calls: Array<{ args: string[]; cmd: string; cwd: string | undefined }>;
-  deadSocket: string;
+  deadArtifact: string;
   jarvisRoot: string;
   other: ScopedProject;
   root: string;
@@ -241,10 +241,14 @@ async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFix
       return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
     },
   };
-  const deadSocket = join(jarvisRoot, "daemon-deadbeefdeadbeef.sock");
   mkdirSync(jarvisRoot, { recursive: true });
-  writeFileSync(deadSocket, "");
-  return { calls, deadSocket, jarvisRoot, other, root, runner, selected };
+  // A PID-only legacy unit (no companion socket) is deterministic without an injection seam: a
+  // dead PID with no keyed socket present is reapable on the PID verdict alone. The CLI surface
+  // has no seam to inject a fake socket probe, and a real probe against a plain regular file used
+  // to fake a socket reads `absent`, not proof of death — a keyed socket must probe `stale`.
+  const deadArtifact = join(jarvisRoot, "daemon-deadbeefdeadbeef.pid");
+  writeFileSync(deadArtifact, "999999");
+  return { calls, deadArtifact, jarvisRoot, other, root, runner, selected };
 }
 
 function scopedCleanupDeps(
@@ -354,12 +358,12 @@ describe("named cleanup project scope", () => {
           // The archive is a commit on the cleanup branch; the operator checkout keeps the spec.
           expect(existsSync(fixture.selected.spec)).toBe(true);
           expect(await cleanupArchiveTree(fixture.selected.root)).toContain("v2/spec/completed/selected-spec/index.md");
-          expect(existsSync(fixture.deadSocket)).toBe(false);
+          expect(existsSync(fixture.deadArtifact)).toBe(false);
         } else {
           expect(existsSync(fixture.selected.worktree)).toBe(true);
           expect(await refExists(fixture.selected)).toBe(true);
           expect(existsSync(fixture.selected.spec)).toBe(true);
-          expect(existsSync(fixture.deadSocket)).toBe(true);
+          expect(existsSync(fixture.deadArtifact)).toBe(true);
         }
       });
     }
@@ -386,7 +390,7 @@ describe("named cleanup project scope", () => {
     });
   });
 
-  test("named dry-run reports global dead sockets without reaping them", async () => {
+  test("named dry-run reports global dead daemon artifacts without reaping them", async () => {
     await withScopedCleanupFixture("socket-preview", async (fixture) => {
       const cap = captureIo();
       const code = await runCleanupCliCommand(
@@ -398,8 +402,8 @@ describe("named cleanup project scope", () => {
       );
 
       expect(code).toBe(0);
-      expect(cap.read().stdout).toContain(fixture.deadSocket);
-      expect(existsSync(fixture.deadSocket)).toBe(true);
+      expect(cap.read().stdout).toContain(fixture.deadArtifact);
+      expect(existsSync(fixture.deadArtifact)).toBe(true);
       expect(existsSync(fixture.selected.worktree)).toBe(true);
       expect(existsSync(fixture.selected.spec)).toBe(true);
       expect(await refExists(fixture.selected)).toBe(true);
@@ -818,7 +822,13 @@ describe("cleanup command through main", () => {
     writeFileSync(join(stranded, "index.md"), "# Stranded\n\n## Acceptance criteria\n\n- [x] done\n");
     const deadSocket = join(cleanupJarvisRoot, "daemon-deadbeefdeadbeef.sock");
     mkdirSync(dirname(deadSocket), { recursive: true });
-    writeFileSync(deadSocket, "");
+    // No file at deadSocket: connectIpcClient below is fully mocked, so its role here is only the
+    // path named in the thrown/reported ENOENT error, not a real reapable artifact. The reapable
+    // legacy unit is a separate PID-only artifact (no companion socket) so classification stays
+    // deterministic without an injection seam: a dead PID with no keyed socket present is reapable
+    // on the PID verdict alone.
+    const deadArtifact = join(cleanupJarvisRoot, "daemon-deadbeefdeadbeef.pid");
+    writeFileSync(deadArtifact, "999999");
     const rawSocketError = `connect ENOENT ${deadSocket}`;
     const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
 
@@ -861,7 +871,7 @@ describe("cleanup command through main", () => {
     expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
     expect(stdout).toContain(`Skipped artifact: ${stranded}`);
     expect(stdout).not.toContain(rawSocketError);
-    expect(existsSync(deadSocket)).toBe(false);
+    expect(existsSync(deadArtifact)).toBe(false);
     expect(existsSync(worktreePath)).toBe(true);
   });
 

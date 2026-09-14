@@ -19,8 +19,6 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
   const initialDelay = retryConfig?.initialDelayMs ?? 100;
   const maxDelay = retryConfig?.maxDelayMs ?? 2000;
 
-  const socketPath = deps.socketPath;
-
   let session: TuiLogFollowSession | undefined;
   let tail: Awaited<ReturnType<typeof connectTuiLogTail>> | undefined;
   let quitting = false;
@@ -49,7 +47,7 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
 
       while (true) {
         try {
-          tail = await connectFn(runId, { socketPath, afterSeq: highestSeq });
+          tail = await connectFn(runId, { socketPath: deps.socketPath, afterSeq: highestSeq });
         } catch (error) {
           if (error instanceof RpcConnectionError) {
             if (retryAttempt === 0) {

@@ -4,4 +4,4 @@ Cleanup admission (`cleanup --abandon`) and `run list`/`run log` still enumerate
 
 - [x] [00 Cleanup admission queries only the stable socket](00-cli-bootstrap-and-cleanup-stable-paths.md)
 - [x] [01 Run commands use only the stable socket](01-run-pipeline-stable-socket.md)
-- [ ] [02 TUI stable connection and client-layer structural guard](02-tui-stable-connection-and-structural-guard.md)
+- [x] [02 TUI stable connection and client-layer structural guard](02-tui-stable-connection-and-structural-guard.md)

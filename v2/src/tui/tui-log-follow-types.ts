@@ -1,4 +1,3 @@
-import type { ConnectTuiDaemonOptions, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { ConnectTuiLogTailOptions, TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
@@ -55,8 +54,6 @@ export type RunTuiLogFollowDeps = {
   viewHost?: TuiLogFollowViewHost;
   /** Injectable ink render; defaults to production `render`. */
   inkRender?: InkRender;
-  /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
-  connectTuiDaemon?: (options: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
   /** Retry configuration for mid-stream transport loss. */
   tailRetry?: TuiLogFollowRetryConfig;
 };

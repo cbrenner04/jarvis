@@ -18,5 +18,3 @@ name: project-specs-config-key
 - `v2/docs/v1-behaviors.md` — record the knob change and default flip.
 
 ## Prerequisites
-
-- `v2/src/paths.ts` exports `specsHome(projectKey)` and every external spec path is built through it.

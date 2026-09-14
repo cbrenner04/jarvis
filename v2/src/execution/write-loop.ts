@@ -858,7 +858,7 @@ export async function enumerateRepairCompletionCandidates(worktreePath: string):
     await runRepairFenceGit(worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
     const stageArgs = completionStageArgs(worktreePath);
     await runRepairFenceGit(worktreePath, stageArgs, { GIT_INDEX_FILE: index });
-    const output = await runRepairFenceGit(worktreePath, ["diff-index", "--name-status", "-z", "HEAD"], {
+    const output = await runRepairFenceGit(worktreePath, ["diff-index", "--cached", "--name-status", "-z", "HEAD"], {
       GIT_INDEX_FILE: index,
     });
     const parsed = parseGitNameStatusZ(output);

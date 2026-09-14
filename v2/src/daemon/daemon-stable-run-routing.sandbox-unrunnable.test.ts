@@ -16,10 +16,14 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
 });
 
-function socketPath(label: string): string {
+function scratchFile(label: string, ext: string): string {
   const scratch = join(process.cwd(), ".scratch");
   mkdirSync(scratch, { recursive: true });
-  return join(scratch, `${label}-${process.pid}-${crypto.randomUUID()}.sock`);
+  return join(scratch, `${label}-${process.pid}-${crypto.randomUUID()}.${ext}`);
+}
+
+function socketPath(label: string): string {
+  return scratchFile(label, "sock");
 }
 
 function deferred<T>() {
@@ -98,12 +102,6 @@ test("stable-address kill preserves force and aborts the direct predecessor invo
   expect(invocation.signal.aborted).toBe(true);
   transport.close();
 });
-
-function scratchFile(label: string, ext: string): string {
-  const scratch = join(process.cwd(), ".scratch");
-  mkdirSync(scratch, { recursive: true });
-  return join(scratch, `${label}-${process.pid}-${crypto.randomUUID()}.${ext}`);
-}
 
 /** A local tail handler backed by an unrelated, always-empty store: proves an assertion exercises
  * forwarding to the owner rather than a coincidentally-matching local read. */

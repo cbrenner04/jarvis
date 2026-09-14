@@ -19,14 +19,14 @@ A long-lived `jarvis tui` monitor keeps pre-handoff client code after daemon sel
 
 ## Acceptance criteria
 
-- [ ] A predicate test covers both directions: stable differing revision with empty dock input, no pending dispatch, and no matching re-exec marker → re-exec; matching revisions, `unknown`/absent on either side, a single unstable differing read, a failed read, non-empty dock input, pending dispatch, or a matching re-exec marker → no re-exec.
-- [ ] A predicate test proves a monitor already re-exec'd for daemon revision `R` does not re-exec again while the daemon still reports `R`, even though its own revision still differs; it re-execs once the daemon reports a different stable revision. This test fails without the once-per-revision guard.
-- [ ] A monitor test in `v2/src/tui/tui-entry.test.tsx` drives refreshes through an injected/fake scheduler (never a real-timer wait), with an injected re-exec and a fake client whose `loadedRevision` differs from the monitor's revision, and proves re-exec is invoked without operator input; it fails against the pre-fix code.
-- [ ] A monitor test proves no re-exec while the dock input is non-empty or a command dispatch is in flight, and re-exec once both clear.
-- [ ] A monitor test proves matching revisions never invoke re-exec across multiple refreshes.
-- [ ] A monitor test proves a failed status read on a refresh tick resets stability tracking and does not re-exec on that tick or count toward the two-read requirement.
-- [ ] `v2/docs/tui.md` documents revision-follow re-exec (status read at connect and each tick, stability requirement, the once-per-daemon-revision guard, failed-read reset, defer while dock input is non-empty or a dispatch is pending, no passive banner) under `## Stable connection and reconnection`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A predicate test covers both directions: stable differing revision with empty dock input, no pending dispatch, and no matching re-exec marker → re-exec; matching revisions, `unknown`/absent on either side, a single unstable differing read, a failed read, non-empty dock input, pending dispatch, or a matching re-exec marker → no re-exec.
+- [x] A predicate test proves a monitor already re-exec'd for daemon revision `R` does not re-exec again while the daemon still reports `R`, even though its own revision still differs; it re-execs once the daemon reports a different stable revision. This test fails without the once-per-revision guard.
+- [x] A monitor test in `v2/src/tui/tui-entry.test.tsx` drives refreshes through an injected/fake scheduler (never a real-timer wait), with an injected re-exec and a fake client whose `loadedRevision` differs from the monitor's revision, and proves re-exec is invoked without operator input; it fails against the pre-fix code.
+- [x] A monitor test proves no re-exec while the dock input is non-empty or a command dispatch is in flight, and re-exec once both clear.
+- [x] A monitor test proves matching revisions never invoke re-exec across multiple refreshes.
+- [x] A monitor test proves a failed status read on a refresh tick resets stability tracking and does not re-exec on that tick or count toward the two-read requirement.
+- [x] `v2/docs/tui.md` documents revision-follow re-exec (status read at connect and each tick, stability requirement, the once-per-daemon-revision guard, failed-read reset, defer while dock input is non-empty or a dispatch is pending, no passive banner) under `## Stable connection and reconnection`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

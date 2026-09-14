@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { IpcClient } from "../ipc/client.ts";
 import type { RpcHandler, StreamHandler } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
+import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
 import { createStableRunHandlers, createStableTailStreamHandler } from "./daemon-stable-run-routing.ts";
 
 type Reply = { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
@@ -534,6 +535,7 @@ describe("stable tail stream routing", () => {
 
     const onData: unknown[] = [];
     let closed = 0;
+    let settled = false;
     const payload = { runId: "run-1", afterSeq: 0, follow: true };
     const pending = handler(
       "caller-stream",
@@ -542,6 +544,9 @@ describe("stable tail stream routing", () => {
       () => (closed += 1),
       new AbortController().signal,
     );
+    void pending.finally(() => {
+      settled = true;
+    });
 
     await flush();
     expect(owner.outgoing).toHaveLength(1);
@@ -555,6 +560,10 @@ describe("stable tail stream routing", () => {
     owner.deliver({ kind: "stream-data", streamId: opened.streamId, payload: JSON.stringify({ seq: 2 }) });
     owner.deliver({ kind: "stream-end", streamId: opened.streamId });
 
+    // Bounded microtask wait, not a real-timer sleep: a mutant that mishandles the stream-end
+    // guard leaves `pending` awaiting a frame the mock owner never sends again, which hangs
+    // forever rather than failing — this fails fast instead.
+    await spinUntilMicrotask(() => settled, "owner stream-end settles the forwarded stream");
     await pending;
     expect(onData).toEqual([{ seq: 1 }, { seq: 2 }]);
     expect(closed).toBe(1);
@@ -566,6 +575,7 @@ describe("stable tail stream routing", () => {
     const handler = forwardingTailHandler(owner);
 
     let closed = 0;
+    let settled = false;
     const pending = handler(
       "s1",
       { runId: "run-1" },
@@ -573,10 +583,17 @@ describe("stable tail stream routing", () => {
       () => (closed += 1),
       new AbortController().signal,
     );
+    void pending
+      .catch(() => undefined)
+      .finally(() => {
+        settled = true;
+      });
     await flush();
     const opened = owner.outgoing[0] as { streamId: string };
     owner.deliver({ kind: "stream-end", streamId: opened.streamId, payload: { error: "owner read failed" } });
 
+    // Bounded microtask wait, not a real-timer sleep: see the stream-end test above.
+    await spinUntilMicrotask(() => settled, "owner error stream-end settles the forwarded stream");
     await expect(pending).rejects.toThrow("owner read failed");
     expect(closed).toBe(0);
   });

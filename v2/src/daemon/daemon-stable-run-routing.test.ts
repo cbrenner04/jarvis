@@ -131,7 +131,7 @@ describe("stable run unary routing", () => {
     expect(localCalls).toEqual([]);
   });
 
-  test("failed ownership refresh returns an error without local handling", async () => {
+  test("a route-loss ownership refresh falls back to local handling instead of erroring", async () => {
     const localCalls: string[] = [];
     const handlers = createStableRunHandlers(localHandlers(localCalls), {
       predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
@@ -142,10 +142,11 @@ describe("stable run unary routing", () => {
       connectOwnerClient: rejectsConnect,
     });
 
-    await expect(handlers.wait(frame("wait"), new AbortController().signal)).rejects.toThrow(
-      "ownership refresh failed",
-    );
-    expect(localCalls).toEqual([]);
+    expect(await handlers.wait(frame("wait"), new AbortController().signal)).toMatchObject({
+      kind: "response",
+      result: { local: true },
+    });
+    expect(localCalls).toEqual(["wait"]);
   });
 
   test("current owner wins and definitively unowned requests stay local", async () => {

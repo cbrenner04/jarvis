@@ -22,6 +22,7 @@ import {
   type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
 import type { observePredecessorDrain, observeRunOwnership } from "./daemon-drain-observer.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
 const orphanedStatuses: readonly RunStatus[] = ["queued", "in-progress", "paused", "budget-soft-stopped"];
@@ -424,6 +425,108 @@ test("startup during handoff reconciles a dead-owner row while leaving a live-pr
     expect(sweepStore.loadRun(predecessorOwnerRunId)?.status).toBe("in-progress");
     expect(events).toEqual([
       { runId: deadOwnerRunId, event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
+    ]);
+  } finally {
+    await runtime.close();
+    sweepStore.close();
+  }
+});
+
+test("owner route loss mid-drain drops routed list liveness and routed control forwarding, but a still-alive owner blocks reconciliation until it actually dies", async () => {
+  const PREDECESSOR_IDENTITY = "66666:6000000";
+  const ownedRunId = createRun(seedStore, "in-progress");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(PREDECESSOR_IDENTITY, ownedRunId);
+  } finally {
+    raw.close();
+  }
+
+  let predecessorAlive = true;
+  let routeSevered = false;
+  const ownerRow: DaemonListRunRow = {
+    runId: ownedRunId,
+    project: "project",
+    branch: "branch-in-progress",
+    status: "in-progress",
+    isLive: true,
+    createdAt: Date.now(),
+  };
+  // A real `observeRunOwnership`-shaped directory: `resolveOwner` rejects on route loss the same
+  // way the production poll failure does (see `daemon-drain-observer.ts`), while the owner process
+  // itself stays alive throughout — a channel error only, never orphanhood.
+  const routedOwnership: ReturnType<typeof observeRunOwnership> = {
+    ownerRow: (runId) => (!routeSevered && runId === ownedRunId ? ownerRow : undefined),
+    resolveOwner: async (runId) => {
+      if (routeSevered) throw new Error("owner route lost");
+      return runId === ownedRunId;
+    },
+    resolveOwnerForKey: async () => false,
+    stop: () => undefined,
+  };
+
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const sink: LogSink = { append: (runId, event) => events.push({ runId, event }), close: () => undefined };
+  const reader: LogReader = { tail: () => [], async *follow() {} };
+  const sweepStore = openSweepStore(async (identity) => identity === PREDECESSOR_IDENTITY && predecessorAlive);
+
+  let stableHandlers: Record<string, RpcHandler> | undefined;
+  const runtime = await startDaemonRuntime("/fake/socket", sweepStore, reader, {
+    openLogSink: () => sink,
+    startIpcServer: async (_socketPath, handlers) => {
+      stableHandlers = handlers;
+      return { close: async () => undefined } as IpcServer;
+    },
+    recoverReconciledRuns: async () => ({ resumed: 0 }),
+    predecessorSocketPath: "/fake/predecessor-socket",
+    observePredecessorDrain: noopObservePredecessorDrain,
+    observeRunOwnership: () => routedOwnership,
+  });
+
+  try {
+    if (stableHandlers === undefined) throw new Error("stable handlers were not registered");
+    const signal = new AbortController().signal;
+    const listLive = async (): Promise<boolean | undefined> => {
+      const reply = await stableHandlers?.list?.({ kind: "request", id: "list", method: "list" }, signal);
+      const runs = (reply as { kind: "response"; result: { runs: Array<{ runId: string; isLive: boolean }> } }).result
+        .runs;
+      return runs.find((row) => row.runId === ownedRunId)?.isLive;
+    };
+
+    // Precondition: the predecessor still owns and drives the run — reported live at the stable
+    // address, and startup reconciliation left it untouched.
+    expect(await listLive()).toBe(true);
+    expect(sweepStore.loadRun(ownedRunId)?.status).toBe("in-progress");
+
+    // Sever the owner route mid-drain; the owner process itself stays alive.
+    routeSevered = true;
+
+    // `run list` stops reading live at the stable address once the route is lost — fails against
+    // pre-fix code that retains the last owner snapshot as live.
+    expect(await listLive()).toBe(false);
+
+    // A routed control falls back to local handling instead of throwing — fails against pre-fix
+    // code, where a rejected ownership lookup propagated out of the routed handler.
+    const paused = await stableHandlers.pause?.(
+      { kind: "request", id: "pause", method: "pause", params: { runId: ownedRunId } },
+      signal,
+    );
+    expect(paused).toMatchObject({ kind: "error", code: "run_not_active" });
+
+    // Route loss alone is not orphanhood: the owner process is still alive, so the row is
+    // untouched by reconciliation — never a silent local claim.
+    await reconcileOrphanedRuns(sweepStore, sink);
+    expect(sweepStore.loadRun(ownedRunId)?.status).toBe("in-progress");
+
+    // The owner process actually dies: recovery reaches the run through the existing dead-owner
+    // path, exactly once — a second sweep is a no-op, not a duplicate reconciliation.
+    predecessorAlive = false;
+    await reconcileOrphanedRuns(sweepStore, sink);
+    expect(sweepStore.loadRun(ownedRunId)?.status).toBe("killed");
+    await reconcileOrphanedRuns(sweepStore, sink);
+    expect(sweepStore.loadRun(ownedRunId)?.status).toBe("killed");
+    expect(events.filter((event) => event.runId === ownedRunId)).toEqual([
+      { runId: ownedRunId, event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" } },
     ]);
   } finally {
     await runtime.close();

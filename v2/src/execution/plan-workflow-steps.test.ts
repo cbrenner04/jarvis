@@ -50,6 +50,8 @@ const builderDeps: PlanWorkflowDeps = {
 };
 
 const { roots } = trackedTempRoots();
+const repoSpecsConfigPath = join(mkdtempSync(join(tmpdir(), "plan-specs-repo-config-")), "config.json");
+writeFileSync(repoSpecsConfigPath, JSON.stringify({ projects: { demo: { root: "/repo", specs: "repo" } } }), "utf8");
 const specGuidance = readSpecGuidance();
 
 async function executeBuiltDraftStep(
@@ -107,7 +109,7 @@ async function executeBuiltDraftStep(
 }
 
 describe("plan preset draft write step", () => {
-  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" };
+  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath };
 
   test.each([
     ["plan", buildPlanWorkflowSteps],
@@ -209,7 +211,10 @@ describe("plan ready-intent output routing", () => {
     writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
     writeFileSync(
       config,
-      JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: configuredTargetDir } } }),
+      JSON.stringify({
+        projects: { demo: { root, specs: "repo" } },
+        modes: { plan: { targetDir: configuredTargetDir } },
+      }),
     );
 
     for (const [name, build] of builders) {
@@ -231,7 +236,10 @@ describe("plan ready-intent output routing", () => {
     const readyIntent = "v2/spec/ready-intents/feature.md";
     mkdirSync(join(root, "v2/spec/ready-intents"), { recursive: true });
     writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
-    writeFileSync(config, JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: "v2/spec" } } }));
+    writeFileSync(
+      config,
+      JSON.stringify({ projects: { demo: { root, specs: "repo" } }, modes: { plan: { targetDir: "v2/spec" } } }),
+    );
 
     const result = await buildPlanWorkflowSteps(
       { cwd: root, readyIntent, targetDir: "v1/spec", configPath: config },
@@ -305,7 +313,7 @@ describe("plan ready-intent output routing", () => {
 });
 
 describe("buildPlanWorkflowSteps review composition", () => {
-  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" };
+  const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath };
 
   test("defaults to one debate review pass when review options are omitted", async () => {
     const result = await buildPlanWorkflowSteps(input, builderDeps);
@@ -383,7 +391,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
   test("defaults to one loaded draft-plus-debate workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath },
       {
         resolveProjectMatch: () => match,
         readReadyIntent: () => intent,
@@ -490,7 +498,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
   test("defaults to one loaded draft-plus-light-review workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanLightWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath },
       {
         resolveProjectMatch: () => match,
         readReadyIntent: () => intent,
@@ -607,7 +615,7 @@ function stageExternalReadyIntent(options: { external?: true }) {
   writeFileSync(
     config,
     JSON.stringify({
-      projects: { [projectKey]: { root, ...(options.external === true ? { specs: "external" } : {}) } },
+      projects: { [projectKey]: { root, ...(options.external === true ? { specs: "external" } : { specs: "repo" }) } },
     }),
   );
   return { root, jarvisRoot, config, projectKey, externalReadyIntent };

@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { resolveSpecsHome } from "./specs-home.ts";
 
 describe("resolveSpecsHome", () => {
-  test("defaults to repo when specs is absent", () => {
-    expect(resolveSpecsHome({}, {})).toEqual({ ok: true, specsHome: "repo" });
-    expect(resolveSpecsHome(undefined, undefined)).toEqual({ ok: true, specsHome: "repo" });
+  test("defaults to external when specs is absent", () => {
+    expect(resolveSpecsHome({}, {})).toEqual({ ok: true, specsHome: "external" });
+    expect(resolveSpecsHome(undefined, undefined)).toEqual({ ok: true, specsHome: "external" });
   });
 
   test("honors specs: repo", () => {

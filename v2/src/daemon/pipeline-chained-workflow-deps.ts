@@ -2,6 +2,7 @@ import { join, resolve, sep } from "node:path";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
+import { type ResolveSpecsHomeResult, resolveSpecsHome } from "../config/specs-home.ts";
 import type { BuildImplementWorkflowStepsDeps } from "../execution/implement-workflow-steps.ts";
 import type { PlanWorkflowDeps } from "../execution/publication-workflow-steps.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
@@ -29,31 +30,14 @@ function machineModePlan(configPath: string | undefined): Record<string, unknown
   return modes.plan && typeof modes.plan === "object" ? (modes.plan as Record<string, unknown>) : {};
 }
 
-function projectConfigRecord(
-  context: PipelineContext,
-  project: ProjectMatch,
-): { git?: boolean; plan?: { commit?: boolean } } {
+function projectConfigRecord(context: PipelineContext, project: ProjectMatch): Record<string, unknown> {
   const raw = projectRegistryFromContext(context)[project.key];
-  const value = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-  const plan =
-    value.plan && typeof value.plan === "object" && !Array.isArray(value.plan)
-      ? (value.plan as Record<string, unknown>)
-      : {};
-  return {
-    ...(typeof value.git === "boolean" ? { git: value.git } : {}),
-    plan: {
-      ...(typeof plan.commit === "boolean" ? { commit: plan.commit } : {}),
-    },
-  };
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 }
 
-/** Matches intent/plan publication: project `plan.commit`, then machine `modes.plan.commit`, then `true`. */
-export function chainedStageEffectivePublishGit(context: PipelineContext, project: ProjectMatch): boolean {
-  const config = projectConfigRecord(context, project);
-  const modePlan = machineModePlan(context.configPath);
-  return (
-    config.git !== false && (config.plan?.commit ?? (typeof modePlan.commit === "boolean" ? modePlan.commit : true))
-  );
+/** Chained-stage spec home through the shared `specs` resolver (same as intent/plan publication). */
+export function chainedStageSpecsHome(context: PipelineContext, project: ProjectMatch): ResolveSpecsHomeResult {
+  return resolveSpecsHome(projectConfigRecord(context, project), machineModePlan(context.configPath));
 }
 
 export function resolveChainedStageOwnerProject(context: PipelineContext): ProjectMatch | undefined {

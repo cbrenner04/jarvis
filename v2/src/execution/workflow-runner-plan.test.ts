@@ -267,7 +267,7 @@ describe("executeWorkflow plan review dispatch", () => {
       mkdirSync(join(projectRoot, "v2/spec/ready-intents"), { recursive: true });
       writeFileSync(join(projectRoot, readyIntentRel), intentContent);
       const configPath = join(projectRoot, "config.json");
-      writeFileSync(configPath, JSON.stringify({ projects: { demo: { root: projectRoot, git: false } } }));
+      writeFileSync(configPath, JSON.stringify({ projects: { demo: { root: projectRoot, specs: "external" } } }));
 
       const loadPlanWorkflowSteps = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
         steps.map((step) =>

@@ -72,9 +72,9 @@ test("plan specs decision honors project specs: external like intent", async () 
   });
 });
 
-test("plan build publishes in-repo when the project has no specs key", async () => {
-  const root = mkdtempSync(join(tmpdir(), "plan-specs-absent-"));
-  const configPath = writeMachineConfig({ projects: { demo: { root } } });
+test("plan build publishes in-repo when the project sets specs: repo", async () => {
+  const root = mkdtempSync(join(tmpdir(), "plan-specs-repo-"));
+  const configPath = writeMachineConfig({ projects: { demo: { root, specs: "repo" } } });
   const readyIntent = "spec/ready-intents/feature.md";
   mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
   writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
@@ -92,6 +92,34 @@ test("plan build publishes in-repo when the project has no specs key", async () 
   const writeStep = result.steps[0];
   if (writeStep?.behavior !== "write") throw new Error("expected write step");
   expect(writeStep.worktree.git).toBeUndefined();
+});
+
+test.each([
+  ["intent", "intent-specs-absent-"],
+  ["plan", "plan-specs-absent-"],
+] as const)("%s build defaults to the external specs home when the project has no specs key", async (kind, prefix) => {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  const jarvisRoot = join(root, "jarvis");
+  const configPath = writeMachineConfig({ projects: { demo: { root } } });
+  const readyIntent = "spec/ready-intents/feature.md";
+  mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
+  writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+  const result =
+    kind === "intent"
+      ? await buildIntentWorkflowSteps(
+          { cwd: root, seedText: "one thing", configPath, jarvisRoot },
+          { resolveProjectMatch: () => project, loadWorkflowSteps: load },
+        )
+      : await buildPlanWorkflowSteps(
+          { cwd: root, readyIntent, configPath, jarvisRoot, reviewPasses: 0 },
+          { resolveProjectMatch: () => project, loadWorkflowSteps: load },
+        );
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  const writeStep = result.steps[0];
+  if (writeStep?.behavior !== "write") throw new Error("expected write step");
+  expect(writeStep.worktree.git).toBe(false);
+  expect(writeStep.worktree.localPath?.startsWith(jarvisRoot)).toBe(true);
 });
 
 test("plan build rejects project plan.commit, naming specs", async () => {

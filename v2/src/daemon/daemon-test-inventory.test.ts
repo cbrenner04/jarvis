@@ -205,6 +205,9 @@ export function countParityPreservationViolation(
  * falls back to local handling instead of erroring` in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
+  // Legacy modes.plan.commit spec-home knob replaced by projects.<key>.specs (rejected, covered by chainedStageSpecsHome tests).
+  "chainedStageEffectivePublishGit honors machine modes.plan.commit when project plan.commit is unset",
+  "resolves external ready-intent downstream input when machine modes.plan.commit is false",
   // Cross-daemon prefix resolution retired: resolution now queries only the stable address.
   "resolves a unique cross-daemon prefix to the full pipeline id",
   "refuses a prefix matching ids across two daemons with the ambiguous message, without further RPC",

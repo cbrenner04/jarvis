@@ -19,7 +19,7 @@ import { jarvisHome } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
 import {
-  chainedStageEffectivePublishGit,
+  chainedStageSpecsHome,
   createChainedStageProjectMatch,
   resolveChainedStageOwnerProject,
 } from "./pipeline-chained-workflow-deps.ts";
@@ -260,10 +260,13 @@ type LocatedDownstreamInputReadRoot =
 function locateExternalReadyIntentDownstreamInput(
   context: PipelineContext,
   relativePath: string,
-): Extract<LocatedDownstreamInputReadRoot, { ok: true }> | undefined {
+): LocatedDownstreamInputReadRoot | undefined {
   if (!isReadyIntentRelativePath(relativePath) || !isChainedPlanReadyIntentPath(relativePath)) return undefined;
   const owner = resolveChainedStageOwnerProject(context);
-  if (owner === undefined || chainedStageEffectivePublishGit(context, owner)) return undefined;
+  if (owner === undefined) return undefined;
+  const specsHome = chainedStageSpecsHome(context, owner);
+  if (!specsHome.ok) return { ok: false, error: `pipeline-stage-resolve: ${specsHome.error}` };
+  if (specsHome.specsHome !== "external") return undefined;
 
   const externalPlansHome = join(jarvisHome(), "specs");
   const ownerReadyIntentsHome = join(externalPlansHome, projectSafeId(owner.key), "ready-intents");

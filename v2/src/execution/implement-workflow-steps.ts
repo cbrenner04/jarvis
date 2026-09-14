@@ -26,6 +26,7 @@ import {
   readProjectImplementReviewPasses,
   readProjectRegistry,
 } from "../config/machine-config-loader.ts";
+import { resolveSpecsHome } from "../config/specs-home.ts";
 import { jarvisHome, MACHINE_CONFIG_PATH } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
@@ -207,15 +208,10 @@ type ImplementSpecIdentity = {
   specReadRoot?: string;
 };
 
-function isProjectConfigRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Project-only external plan admission: strict `git === false` or `plan.commit === false` (intent/plan also honor machine `modes.plan.commit`). */
+/** External plan admission: the project's `specs` resolves to `"external"` (invalid or legacy config is not external). */
 export function planSourcePublishesExternally(projectConfig: Record<string, unknown>): boolean {
-  return (
-    projectConfig.git === false || (isProjectConfigRecord(projectConfig.plan) && projectConfig.plan.commit === false)
-  );
+  const specsHome = resolveSpecsHome(projectConfig, undefined);
+  return specsHome.ok && specsHome.specsHome === "external";
 }
 
 function parseExternalPlanSpecPath(resolvedSpecPath: string): { safeId: string; specReadRoot: string } | undefined {
@@ -252,7 +248,10 @@ export function resolveExternalPlanSpecIdentity(
   }
   const project = owners[0]!;
   const projectConfig = readProjectConfigRecord(project, configPath);
-  if (projectConfig === undefined || !planSourcePublishesExternally(projectConfig)) {
+  if (projectConfig === undefined) return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
+  const specsHome = resolveSpecsHome(projectConfig, undefined);
+  if (!specsHome.ok) return { error: `implement: ${specsHome.error}` };
+  if (specsHome.specsHome !== "external") {
     return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
   }
   const root = resolveExistingImplementPath("Registered project root", projectRegistry[project]!.root);

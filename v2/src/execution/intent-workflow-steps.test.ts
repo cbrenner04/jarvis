@@ -183,7 +183,10 @@ describe("buildIntentWorkflowSteps", () => {
     ]) {
       writeFileSync(
         config,
-        JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: configuredTargetDir } } }),
+        JSON.stringify({
+          projects: { demo: { root, specs: "repo" } },
+          modes: { plan: { targetDir: configuredTargetDir } },
+        }),
       );
       const seed = join(root, targetDir, "seeds", "feature.md");
       mkdirSync(join(root, targetDir, "seeds"), { recursive: true });
@@ -210,7 +213,10 @@ describe("buildIntentWorkflowSteps", () => {
     const config = join(root, "config.json");
     mkdirSync(join(root, "notes"), { recursive: true });
     writeFileSync(join(root, "notes", "feature.md"), "feature", "utf8");
-    writeFileSync(config, JSON.stringify({ projects: { demo: { root } }, modes: { plan: { targetDir: "v2/spec" } } }));
+    writeFileSync(
+      config,
+      JSON.stringify({ projects: { demo: { root, specs: "repo" } }, modes: { plan: { targetDir: "v2/spec" } } }),
+    );
     mkdirSync(join(root, "v2/spec/seeds"), { recursive: true });
     writeFileSync(join(root, "v2/spec/seeds/override.md"), "override", "utf8");
     const cases = [
@@ -233,7 +239,11 @@ describe("buildIntentWorkflowSteps", () => {
       { resolveProjectMatch: () => ({ ...match, root }), loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
     );
     expect(defaultResult.ok).toBe(true);
-    if (defaultResult.ok) expect(defaultResult.steps[0]).toMatchObject({ specPath: "spec/ready-intents" });
+    // No config: `specs` defaults to external.
+    if (defaultResult.ok)
+      expect(defaultResult.steps[0]).toMatchObject({
+        specPath: expect.stringMatching(/\/specs\/demo\/ready-intents$/),
+      });
   });
 
   test("keeps canonical seed output external when project specs is external", async () => {
@@ -359,6 +369,8 @@ describe("buildReviewedIntentWorkflowSteps", () => {
   test("loads mixed reviewed intent sources once with forwarded machine options", async () => {
     const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
     writeFileSync(join(root, "test.md"), "test", "utf8");
+    const configPath = join(root, "config.json");
+    writeFileSync(configPath, JSON.stringify({ projects: { demo: { root, specs: "repo" } } }), "utf8");
     const calls: { steps: readonly WorkflowSourceStep[]; options: unknown }[] = [];
     const createBinding = () => ({
       id: "bound",
@@ -366,7 +378,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     });
 
     const result = await buildReviewedIntentWorkflowSteps(
-      { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 3, jarvisRoot: "/jarvis" },
+      { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 3, jarvisRoot: "/jarvis", configPath },
       {
         resolveProjectMatch: () => ({ ...match, root }),
         loadWorkflowSteps: (steps, options) => {
@@ -483,7 +495,7 @@ function stageExternalSeed(options: { external?: true }) {
   writeFileSync(
     config,
     JSON.stringify({
-      projects: { [projectKey]: { root, ...(options.external === true ? { specs: "external" } : {}) } },
+      projects: { [projectKey]: { root, ...(options.external === true ? { specs: "external" } : { specs: "repo" }) } },
     }),
   );
   return { root, jarvisRoot, config, projectKey, externalSeed };

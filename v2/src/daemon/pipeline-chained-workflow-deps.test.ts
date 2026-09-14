@@ -7,7 +7,7 @@ import { writeMachineConfig } from "../testing/cli-test-helpers.ts";
 import {
   chainedImplementWorkflowDeps,
   chainedPlanWorkflowDeps,
-  chainedStageEffectivePublishGit,
+  chainedStageSpecsHome,
 } from "./pipeline-chained-workflow-deps.ts";
 
 const CONTEXT: PipelineContext = {
@@ -32,17 +32,24 @@ describe("chained workflow deps", () => {
     expect("loadWorkflowSteps" in deps).toBe(false);
   });
 
-  test("chainedStageEffectivePublishGit honors machine modes.plan.commit when project plan.commit is unset", () => {
-    const root = mkdtempSync(join(tmpdir(), "chained-effective-publish-git-"));
-    const configPath = writeMachineConfig({
-      modes: { plan: { commit: false } },
-      projects: { demo: { root } },
-    });
-    const context: PipelineContext = {
-      cwd: root,
-      configPath,
-      projectRegistry: { demo: { root } },
-    };
-    expect(chainedStageEffectivePublishGit(context, { key: "demo", root })).toBe(false);
+  test.each([
+    [{}, { ok: true, specsHome: "external" }],
+    [{ specs: "repo" }, { ok: true, specsHome: "repo" }],
+    [{ specs: "external" }, { ok: true, specsHome: "external" }],
+  ] as const)("chainedStageSpecsHome resolves project config %p through the specs resolver", (extra, expected) => {
+    const root = mkdtempSync(join(tmpdir(), "chained-specs-home-"));
+    const configPath = writeMachineConfig({ projects: { demo: { root, ...extra } } });
+    const context: PipelineContext = { cwd: root, configPath, projectRegistry: { demo: { root, ...extra } } };
+    expect(chainedStageSpecsHome(context, { key: "demo", root })).toEqual(expected);
+  });
+
+  test("chainedStageSpecsHome rejects machine modes.plan.commit, naming specs", () => {
+    const root = mkdtempSync(join(tmpdir(), "chained-specs-home-legacy-"));
+    const configPath = writeMachineConfig({ modes: { plan: { commit: false } }, projects: { demo: { root } } });
+    const context: PipelineContext = { cwd: root, configPath, projectRegistry: { demo: { root } } };
+    const result = chainedStageSpecsHome(context, { key: "demo", root });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("specs");
   });
 });

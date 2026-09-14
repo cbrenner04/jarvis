@@ -149,10 +149,9 @@ Completed external plans archive under `plans/completed/<name>/` within the same
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `projects.<key>.git` | boolean | `true` when absent | `false` hard-disables Git publication for intent and plan |
-| `projects.<key>.plan.commit` | boolean | machine `modes.plan.commit` when unset, else `true` | `false` routes durable intent/plan output to the external specs home |
+| `projects.<key>.specs` | `"external"` \| `"repo"` | `"external"` | `"external"` routes durable intent/plan output to the external specs home (no commit/PR); `"repo"` publishes under `plan.targetDir` via commit + PR |
 
-Effective Git publication is `projects.<key>.git !== false` **and** `(projects.<key>.plan.commit ?? modes.plan.commit ?? true)`. Either opt-out routes publication externally; both intent and plan share this precedence. In-repo `<targetDir>/seeds/` and `<targetDir>/ready-intents/` scaffolding (`jarvis init --scaffold`) remains the default queue for Git-enabled projects.
+One resolver (`resolveSpecsHome`, `v2/src/config/specs-home.ts`) drives intent, plan, chained pipeline stages, implement external-plan admission, and cleanup's external scans. Any other `specs` value, a present `projects.<key>.plan.commit`, or a machine `modes.plan.commit` fails with an error naming `specs`. `projects.<key>.git` no longer selects the spec home (it keeps only its local-path worktree role). In-repo `<targetDir>/seeds/` and `<targetDir>/ready-intents/` scaffolding (`jarvis init --scaffold`) is the queue for `specs: "repo"` projects.
 
 Per-project implement defaults:
 

@@ -1,12 +1,10 @@
-export type SpecsHome = "repo" | "external";
+import { isRecord } from "../../../shared/is-record.ts";
+
+type SpecsHome = "repo" | "external";
 export type ResolveSpecsHomeResult = { ok: true; specsHome: SpecsHome } | { ok: false; error: string };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
- * `projects.<key>.specs` (`"external"` | `"repo"`, absent defaults to `"repo"`) is the sole
+ * `projects.<key>.specs` (`"external"` | `"repo"`, absent defaults to `"external"`) is the sole
  * spec-home knob every intent/plan/pipeline/implement site resolves through. Legacy
  * `projects.<key>.plan.commit` and machine `modes.plan.commit` are rejected outright rather than
  * silently ignored or aliased.
@@ -21,7 +19,7 @@ export function resolveSpecsHome(
   if (modePlan !== undefined && "commit" in modePlan)
     return { ok: false, error: "modes.plan.commit is no longer supported; use projects.<key>.specs" };
   const specs = projectConfig?.specs;
-  if (specs === undefined) return { ok: true, specsHome: "repo" };
+  if (specs === undefined) return { ok: true, specsHome: "external" };
   if (specs === "external" || specs === "repo") return { ok: true, specsHome: specs };
   return { ok: false, error: `projects.<key>.specs must be "external" or "repo", got ${JSON.stringify(specs)}` };
 }

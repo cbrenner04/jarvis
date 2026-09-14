@@ -73,7 +73,7 @@ function createSeedPathRepo(): { repoRoot: string; configPath: string; intentWor
   execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
   execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
 
-  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot, specs: "repo" } } });
   return { repoRoot, configPath, intentWorktree };
 }
 
@@ -138,7 +138,7 @@ function gitDisabledPipelineContext(projectKey = "demo"): {
   context: PipelineContext;
 } {
   const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-git-disabled-admission-"));
-  const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root: admissionRoot, git: false } } });
+  const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root: admissionRoot, specs: "external" } } });
   return {
     admissionRoot,
     projectKey,
@@ -223,7 +223,7 @@ function createChainedHandoffRepo(): {
   execFileSync("git", ["add", "-A"], { cwd: planWorktree });
   execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
 
-  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot, specs: "repo" } } });
   return { repoRoot, configPath, intentBranch, intentWorktree, planBranch, planWorktree, readyIntentRel, planSpecRel };
 }
 
@@ -1047,7 +1047,7 @@ describe("resolveStageWorkflowSteps", () => {
       const readyIntentRel = "ready-intents/feature.md";
       const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-admission-"));
       const configPath = writeHomeMachineConfig({
-        projects: { demo: { root: admissionRoot, plan: { commit: false } } },
+        projects: { demo: { root: admissionRoot, specs: "external" } },
       });
       const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
       mkdirSync(intentWorktree, { recursive: true });
@@ -1076,12 +1076,11 @@ describe("resolveStageWorkflowSteps", () => {
       });
     }));
 
-  test("resolves external ready-intent downstream input when machine modes.plan.commit is false", () =>
+  test("resolves external ready-intent downstream input when the project has no specs key", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
       const readyIntentRel = "ready-intents/feature.md";
       const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-machine-"));
       const configPath = writeHomeMachineConfig({
-        modes: { plan: { commit: false } },
         projects: { demo: { root: admissionRoot } },
       });
       const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
@@ -1112,13 +1111,13 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("rejects external ready-intent downstream input for a git-committing project", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
-      // The acceptance gate is `chainedStageEffectivePublishGit`: a project that still publishes
+      // The acceptance gate is `chainedStageSpecsHome`: a project that still publishes
       // its plan artifacts into the repo must never resolve a ready-intent out of the external
       // specs home, even when a file happens to sit at its own owner-scoped path.
       const readyIntentRel = "ready-intents/feature.md";
       const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-git-"));
       const configPath = writeHomeMachineConfig({
-        projects: { demo: { root: admissionRoot, plan: { commit: true } } },
+        projects: { demo: { root: admissionRoot, specs: "repo" } },
       });
       const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
       mkdirSync(intentWorktree, { recursive: true });
@@ -1139,7 +1138,7 @@ describe("resolveStageWorkflowSteps", () => {
         ...chainedDeps(intentWorktree, "intent/feature"),
       };
 
-      // Dropping `|| chainedStageEffectivePublishGit(context, owner)` from
+      // Dropping the `specsHome.specsHome !== "external"` guard from
       // `locateExternalReadyIntentDownstreamInput` turns this test RED.
       return resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, context, stageArtifacts, deps).then((result) => {
         expect(result.ok).toBe(false);
@@ -1155,8 +1154,8 @@ describe("resolveStageWorkflowSteps", () => {
       const otherAdmissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-other-"));
       const configPath = writeHomeMachineConfig({
         projects: {
-          demo: { root: admissionRoot, plan: { commit: false } },
-          other: { root: otherAdmissionRoot, plan: { commit: false } },
+          demo: { root: admissionRoot, specs: "external" },
+          other: { root: otherAdmissionRoot, specs: "external" },
         },
       });
       const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");

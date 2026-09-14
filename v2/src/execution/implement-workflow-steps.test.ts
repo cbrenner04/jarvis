@@ -767,11 +767,11 @@ describe("buildImplementWorkflowSteps", () => {
     const projectKey = "Org/Repo";
     const planName = "feature";
     const { root, specReadRoot, indexPath, registry } = writeRegisteredExternalPlanFixture(projectKey, planName, {
-      git: false,
+      specs: "external",
     });
     const machineConfigPath = writeJson("config.json", {
       agents: ["claude"],
-      projects: { [projectKey]: { root, git: false } },
+      projects: { [projectKey]: { root, specs: "external" } },
     });
     const machineProfile = writeValidProfile();
     const absoluteIndexPath = realpathSync(indexPath);
@@ -834,7 +834,7 @@ describe("buildImplementWorkflowSteps", () => {
     const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
       projectKey,
       "complete-feature",
-      { git: false },
+      { specs: "external" },
     );
     writeFileSync(join(specReadRoot, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
     let loadCalls = 0;
@@ -871,7 +871,7 @@ describe("buildImplementWorkflowSteps", () => {
     const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
       "External/Linked-Escape",
       "linked-escape",
-      { git: false },
+      { specs: "external" },
     );
     const outside = mkdtempSync(join(tmpdir(), "implement-external-linked-escape-"));
     const escapedPath = join(specReadRoot, "00-work.md");
@@ -1172,7 +1172,7 @@ describe("buildImplementWorkflowSteps", () => {
 function writeRegisteredExternalPlanFixture(
   projectKey: string,
   planName: string,
-  projectConfig: Record<string, unknown> = { git: false },
+  projectConfig: Record<string, unknown> = { specs: "external" },
 ): {
   root: string;
   safeId: string;
@@ -1205,19 +1205,18 @@ function removeTestPaths(...paths: string[]): void {
 const OUTSIDE_ROOTS = /Spec path outside registered project roots/;
 
 describe("planSourcePublishesExternally", () => {
-  test("treats plan arrays as absent so commit defaults to in-repo publication", () => {
-    const plan = Object.assign([], { commit: false });
-    expect(planSourcePublishesExternally({ plan })).toBe(false);
+  test("defaults to external when specs is absent", () => {
+    expect(planSourcePublishesExternally({})).toBe(true);
   });
 
-  test("reads plan.commit from a plain plan object", () => {
-    expect(planSourcePublishesExternally({ plan: { commit: false } })).toBe(true);
-    expect(planSourcePublishesExternally({ plan: { commit: true } })).toBe(false);
+  test("reads specs", () => {
+    expect(planSourcePublishesExternally({ specs: "external" })).toBe(true);
+    expect(planSourcePublishesExternally({ specs: "repo" })).toBe(false);
   });
 
-  test("requires literal false publication flags", () => {
-    expect(planSourcePublishesExternally({ git: 0, plan: { commit: 0 } })).toBe(false);
-    expect(planSourcePublishesExternally({ git: "", plan: { commit: null } })).toBe(false);
+  test("treats invalid or legacy spec-home config as not external", () => {
+    expect(planSourcePublishesExternally({ specs: "worktree" })).toBe(false);
+    expect(planSourcePublishesExternally({ plan: { commit: false } })).toBe(false);
   });
 });
 
@@ -1228,7 +1227,7 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
     const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
       projectKey,
       planName,
-      { git: false },
+      { specs: "external" },
     );
     try {
       const identity = resolveImplementSpecIdentity(root, indexPath, registry, configPath);
@@ -1239,7 +1238,7 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
       expect(identity.externalPlanSpec).toBe(true);
       expect(identity.specReadRoot).toBe(realpathSync(specReadRoot));
       expect(identity.absoluteSpecPath).toBe(realpathSync(indexPath));
-      expect(planSourcePublishesExternally({ git: false })).toBe(true);
+      expect(planSourcePublishesExternally({ specs: "external" })).toBe(true);
     } finally {
       removeTestPaths(root, specReadRoot);
     }
@@ -1252,7 +1251,7 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
     const indexPath = join(specReadRoot, "index.md");
     writeFileSync(indexPath, "- [ ] Work\n", "utf8");
     const root = mkdtempSync(join(tmpdir(), "implement-external-plan-reject-"));
-    const configPath = writeJson("config.json", { projects: { demo: { root, git: false } } });
+    const configPath = writeJson("config.json", { projects: { demo: { root, specs: "external" } } });
     try {
       const identity = resolveImplementSpecIdentity(root, indexPath, { demo: { root } }, configPath);
       expect("error" in identity).toBe(true);
@@ -1279,15 +1278,48 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
     }
   });
 
+  test("admits an external plan index for a project without specs", () => {
+    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
+      "demo",
+      "feature",
+      {},
+    );
+    try {
+      const identity = resolveImplementSpecIdentity(root, indexPath, registry, configPath);
+      expect("error" in identity).toBe(false);
+      if ("error" in identity) return;
+      expect(identity.externalPlanSpec).toBe(true);
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
+  test("rejects external plan admission with a validation error naming specs when plan.commit is present", () => {
+    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
+      "demo",
+      "feature",
+      { plan: { commit: false } },
+    );
+    try {
+      const identity = resolveImplementSpecIdentity(root, indexPath, registry, configPath);
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toContain("specs");
+      expect(identity.error).not.toMatch(OUTSIDE_ROOTS);
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
   test("rejects owners whose planSource would publish in-repo only", () => {
     const projectKey = "demo";
     const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
       projectKey,
       "feature",
-      {},
+      { specs: "repo" },
     );
     try {
-      expect(planSourcePublishesExternally({})).toBe(false);
+      expect(planSourcePublishesExternally({ specs: "repo" })).toBe(false);
       const identity = resolveImplementSpecIdentity(root, indexPath, registry, configPath);
       expect("error" in identity).toBe(true);
       if (!("error" in identity)) return;
@@ -1336,8 +1368,8 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
     const rootB = mkdtempSync(join(tmpdir(), "implement-external-plan-b-"));
     const configPath = writeJson("config.json", {
       projects: {
-        "foo/bar": { root: rootA, git: false },
-        "foo-bar": { root: rootB, git: false },
+        "foo/bar": { root: rootA, specs: "external" },
+        "foo-bar": { root: rootB, specs: "external" },
       },
     });
     try {

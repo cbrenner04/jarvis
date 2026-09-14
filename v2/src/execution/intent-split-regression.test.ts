@@ -245,7 +245,7 @@ async function executeSeed(
   roots.push(join(jarvisRoot, ".."));
   mkdirSync(jarvisRoot, { recursive: true });
   const configPath = join(jarvisRoot, "config.json");
-  writeFileSync(configPath, JSON.stringify({ projects: { demo: { root: REPO_ROOT, git: false } } }), "utf8");
+  writeFileSync(configPath, JSON.stringify({ projects: { demo: { root: REPO_ROOT, specs: "external" } } }), "utf8");
   const built = await buildIntentWorkflowSteps(
     {
       cwd: REPO_ROOT,

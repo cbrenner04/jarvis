@@ -8444,7 +8444,7 @@ describe("pipeline chained plan and implement publication baseRef", () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     process.env.JARVIS_HOME = jarvisRoot;
-    const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+    const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot, specs: "repo" } } });
 
     const definition: PipelineDefinition = {
       name: "p",
@@ -8613,7 +8613,7 @@ describe("pipeline chained plan and implement publication baseRef", () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     process.env.JARVIS_HOME = jarvisRoot;
-    const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+    const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot, specs: "repo" } } });
 
     const definition: PipelineDefinition = {
       name: "p",
@@ -8743,7 +8743,7 @@ describe("pipeline plan stage ready-intent consumption", () => {
     planBranch = "plan/feature";
     await realAsyncSubprocessRunner.runAsync("git", ["branch", planBranch, "main"], repoRoot);
 
-    configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+    configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot, specs: "repo" } } });
   });
 
   afterEach(() => {

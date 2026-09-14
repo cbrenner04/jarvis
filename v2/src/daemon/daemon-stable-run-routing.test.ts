@@ -82,13 +82,15 @@ async function rejectsConnect(): Promise<never> {
   throw new Error("must not connect");
 }
 
+const PREDECESSOR_SOCKET_PATH = "/private/predecessor.sock";
+
 describe("stable run unary routing", () => {
   test("defers initial-empty ownership until refresh and routes to the direct owner", async () => {
     const refresh = deferred<boolean>();
     const owner = ownerClient({ kind: "response", result: { settled: true } });
     const localCalls: string[] = [];
     const handlers = createStableRunHandlers(localHandlers(localCalls), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: () => refresh.promise,
       connectOwnerClient: async () => owner.client,
@@ -110,7 +112,7 @@ describe("stable run unary routing", () => {
     const owner = ownerClient({ kind: "response", result: { ok: true } });
     const localCalls: string[] = [];
     const handlers = createStableRunHandlers(localHandlers(localCalls), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: async () => {
         refreshes += 1;
@@ -130,7 +132,7 @@ describe("stable run unary routing", () => {
   test("failed ownership refresh returns an error without local handling", async () => {
     const localCalls: string[] = [];
     const handlers = createStableRunHandlers(localHandlers(localCalls), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: async () => {
         throw new Error("ownership refresh failed");
@@ -149,7 +151,7 @@ describe("stable run unary routing", () => {
     let resolves = 0;
     const local = localHandlers(localCalls);
     const current = createStableRunHandlers(local, {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => true,
       resolvePredecessorOwner: async () => {
         resolves += 1;
@@ -158,7 +160,7 @@ describe("stable run unary routing", () => {
       connectOwnerClient: rejectsConnect,
     });
     const unowned = createStableRunHandlers(local, {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: async () => {
         resolves += 1;
@@ -178,7 +180,7 @@ describe("stable run unary routing", () => {
     const localCalls: string[] = [];
     let localOwner = false;
     const handlers = createStableRunHandlers(localHandlers(localCalls), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => localOwner,
       resolvePredecessorOwner: () => refresh.promise,
       connectOwnerClient: rejectsConnect,
@@ -194,7 +196,7 @@ describe("stable run unary routing", () => {
   test("pause preserves complete params and owner application errors unchanged", async () => {
     const owner = ownerClient({ kind: "error", code: "owner_refusal", message: "owner says no" });
     const handlers = createStableRunHandlers(localHandlers([]), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: async () => true,
       connectOwnerClient: async () => owner.client,
@@ -215,7 +217,7 @@ describe("stable run unary routing", () => {
     const cancelled = ownerClient();
     const clients = [sendFailure, cancelled];
     const handlers = createStableRunHandlers(localHandlers([]), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: async () => true,
       connectOwnerClient: async () => {
@@ -239,7 +241,7 @@ describe("stable run unary routing", () => {
   test("an already-cancelled request closes its private transport without sending", async () => {
     const owner = ownerClient();
     const handlers = createStableRunHandlers(localHandlers([]), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: async () => true,
       connectOwnerClient: async () => owner.client,
@@ -257,7 +259,7 @@ describe("stable run unary routing", () => {
     const second = ownerClient();
     const clients = [first, second];
     const handlers = createStableRunHandlers(localHandlers([]), {
-      predecessorSocketPath: "/private/predecessor.sock",
+      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
       ownsRunLocally: () => false,
       resolvePredecessorOwner: async () => true,
       connectOwnerClient: async () => {

@@ -1348,15 +1348,13 @@ export async function startDaemonRuntime(
     ...stableRunHandlers,
   };
 
-  const privateHandlers =
-    stableRunHandlers === undefined
-      ? handlers
-      : {
-          ...handlers,
-          wait: runControlHandlers.wait,
-          pause: runControlHandlers.pause,
-          kill: runControlHandlers.kill,
-        };
+  // Private endpoints skip stable-only direct-owner routing even when `handlers` carries it.
+  const privateHandlers = {
+    ...handlers,
+    wait: runControlHandlers.wait,
+    pause: runControlHandlers.pause,
+    kill: runControlHandlers.kill,
+  };
 
   try {
     if (startupDeps.privateSocketPath !== undefined) {

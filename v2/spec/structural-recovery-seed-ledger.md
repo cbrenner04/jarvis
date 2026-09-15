@@ -561,3 +561,21 @@ A second review pass then caught that resumable outcomes (kill, pause, budget st
 | Closed seeds | — | — | `supersede-reaches-a-socketless-resident-daemon`, `superseded-daemon-releases-run-ownership`, `init-check-probes-legacy-unkeyed-daemon-paths`, `prefix-resolution-refuses-on-an-absent-invoking-socket` ([#3870](https://github.com/cbrenner04/jarvis/pull/3870)); `owner-liveness-depends-on-timezone-agreement` ([#3857](https://github.com/cbrenner04/jarvis/pull/3857)); `repair-fence-refuses-every-path-on-a-fan-out-lane` ([#3880](https://github.com/cbrenner04/jarvis/pull/3880), fan-out theory was wrong) |
 
 **Operator direction changed the loop: defects that stranded runs were fixed directly, not seeded.** Direct fixes: [#3851](https://github.com/cbrenner04/jarvis/pull/3851), [#3853](https://github.com/cbrenner04/jarvis/pull/3853), [#3857](https://github.com/cbrenner04/jarvis/pull/3857), [#3859](https://github.com/cbrenner04/jarvis/pull/3859), [#3862](https://github.com/cbrenner04/jarvis/pull/3862), [#3863](https://github.com/cbrenner04/jarvis/pull/3863), [#3865](https://github.com/cbrenner04/jarvis/pull/3865), [#3867](https://github.com/cbrenner04/jarvis/pull/3867), [#3868](https://github.com/cbrenner04/jarvis/pull/3868), [#3869](https://github.com/cbrenner04/jarvis/pull/3869), [#3875](https://github.com/cbrenner04/jarvis/pull/3875), [#3878](https://github.com/cbrenner04/jarvis/pull/3878), [#3880](https://github.com/cbrenner04/jarvis/pull/3880), [#3881](https://github.com/cbrenner04/jarvis/pull/3881), [#3882](https://github.com/cbrenner04/jarvis/pull/3882). Session report: `reports/20260914T041500Z-the-daemon-runs-itself-and-every-step-has-a-clock.md`.
+
+## 2026-09-14 session
+
+| Seed / lane | Plan | Impl | Status |
+| --- | --- | --- | --- |
+| `unified-pipeline-namespace-on-stable-daemon` | #3889 | #3891 | landed (hand-finished, quota) |
+| `protect-draining-run-ownership-and-recover-route-loss` | #3890 | #3893, #3895 | landed |
+| `route-pipeline-verbs-to-draining-owner` | #3892 | #3894 | landed (hand-finished, fence) |
+| `remove-client-daemon-socket-discovery` | #3896 | #3897 | landed (hand-finished, fence) |
+| `retire-digest-daemon-artifacts` | #3898 | #3903 | landed |
+| `route-draining-run-logs-to-owner` | #3883 | #3887 closed | dropped: premise false (#3888) |
+| `tui-follows-daemon-source-revision` | #3901, #3909 | #3904, #3912 | landed |
+| `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | #3918 (session logs) | telemetry impl `quota_exhausted`; cleanup lane unapproved |
+| `project-spec-home-is-one-knob-default-external` | #3911, #3913, #3915 | #3917 | path-builder #3916 open (conflict); predicate lane unplanned |
+| `artifact-count-exempts-references-and-rules-out-clauses` | — | — | seeded #3914, P0 |
+| `intent-landing-accepts-no-prerequisites` | — | — | seeded #3914, P0 |
+| `resuming-a-failed-link-row-runs-the-whole-workflow` | — | — | seeded #3919, P0 |
+| `pipeline-lane-ready-pr-notifies` | — | — | seeded #3919, P0 |

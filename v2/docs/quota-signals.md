@@ -4,7 +4,9 @@ The shared invocation layer (`shared/invocation/agents.ts`) classifies each agen
 
 ## Classification order
 
-Non-zero exit, first match wins: **credential/auth → quota → transient → model configuration → error**. Auth and quota outrank a transient marker because an exhausted or de-authenticated agent never recovers on retry; a stray transport phrase elsewhere in the tail (the codex `shell_snapshot` noise line in the sample below) must not mask the banner and burn the retry cap with no fallback (#3372). Zero exit: Claude's verified stdout quota envelope, then Codex credential/auth phrasing on stderr (`authFailure: true`), then the agent's quota patterns over stderr+stdout, else `ok`.
+Non-zero exit, first match wins: **credential/auth → quota → transient → model configuration → error**. Auth and quota outrank a transient marker because an exhausted or de-authenticated agent never recovers on retry; a stray transport phrase elsewhere in the tail (the codex `shell_snapshot` noise line in the sample below) must not mask the banner and burn the retry cap with no fallback (#3372). Zero exit: Claude's verified stdout quota envelope, then Codex credential/auth phrasing on stderr (`authFailure: true`), then the agent's quota patterns over the classifier diagnostics, else `ok`.
+
+The classifier diagnostics are `stderr + stdout` for every adapter **except opencode, which is scoped to stderr only** (`classifierDiagnostics` in `shared/invocation/agents.ts`). opencode runs with `--format json`, so its stdout is a structured event stream that embeds the full contents of every file the agent read or grepped; genuine provider/transport failures surface on stderr with a non-zero exit. Folding stdout in let content the agent merely *read* — jarvis's own quota-handling source, or a grep hit like `Line 429:` next to the word `Error` — false-trip the quota/transient classifiers and mislabel a healthy run as `quota` (observed dogfooding a jarvis intent draft, 2026-09-15). The scoped diagnostics are also what the non-ok result carries as `stderr`, so the transient-retry re-scan and the session transcript stay content-free too.
 
 ## Transient transport errors
 
@@ -103,6 +105,8 @@ Cursor quota detection covers non-zero and zero exits against `cursorQuotaPatter
 - No real samples recorded yet.
 
 ## Opencode
+
+opencode classification is **scoped to stderr** (`classifierDiagnostics`): its `--format json` stdout is the agent's event stream (tool reads, greps, file contents), not a diagnostics surface, so only stderr is scanned for quota/transient/model-config signals and only stderr is carried as the non-ok result's diagnostics. A non-zero opencode exit whose stderr is clean settles `error` even when the agent happened to read text containing `quota`/`rate limit`/`429`.
 
 ### Observed quota stderr (real samples)
 

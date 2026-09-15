@@ -628,7 +628,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
           return;
         }
       } else {
-        const diagnostics = `${errBuf}${outBuf}`;
+        const diagnostics = classifierDiagnostics(config.classifier, errBuf, outBuf);
         if (config.classifier === "codex" && codexCredentialAuthPatterns.some((pattern) => pattern.test(errBuf))) {
           settle({ kind: "quota", stderr: diagnostics, authFailure: true });
           return;
@@ -644,7 +644,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     // Auth and quota outrank a transient marker: an exhausted or de-authenticated agent never
     // recovers on retry, and a stray transport line elsewhere in the tail must not mask the banner.
     const settleNonZeroExit = (exitCode: number) => {
-      const diagnostics = `${errBuf}${outBuf}`;
+      const diagnostics = classifierDiagnostics(config.classifier, errBuf, outBuf);
       if (isCredentialAuthSignal(config.classifier, exitCode, diagnostics)) {
         settle({ kind: "quota", stderr: diagnostics, authFailure: true });
       } else if (isQuotaSignal(config.classifier, exitCode, diagnostics)) {
@@ -1409,6 +1409,22 @@ function quotaPatternsFor(name: AgentName) {
       : name === "opencode"
         ? opencodeQuotaPatterns
         : claudeQuotaPatterns;
+}
+
+/**
+ * Text the exit classifiers scan and that non-ok results carry as diagnostics.
+ *
+ * opencode runs with `--format json`, so its **stdout** is a structured event stream that embeds
+ * the full contents of every file the agent read or grepped. Genuine provider/transport failures
+ * instead surface on **stderr** with a non-zero exit. Folding stdout into the classified text let
+ * content the agent merely *read* — e.g. jarvis's own quota-handling source, or a grep hit like
+ * `Line 429:` sitting next to the word `Error` — false-trip the quota/transient classifiers and
+ * mislabel a healthy run as `quota`. Restrict opencode to stderr; every other adapter keeps the
+ * combined stream its envelopes rely on (claude's zero-exit stdout quota envelope is handled
+ * separately, before this path).
+ */
+function classifierDiagnostics(name: AgentName, errBuf: string, outBuf: string): string {
+  return name === "opencode" ? errBuf : `${errBuf}${outBuf}`;
 }
 
 function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {

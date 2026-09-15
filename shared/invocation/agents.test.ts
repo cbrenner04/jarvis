@@ -2375,7 +2375,12 @@ describe("createResolvedAgentBinding", () => {
 
   test("opencode still classifies a real stderr quota signal alongside unrelated stdout content", async () => {
     const fake = fakeSpawn([
-      { kind: "settle", code: 1, stdout: '{"type":"text","part":{"text":"benign content"}}', stderr: "rate limit reached" },
+      {
+        kind: "settle",
+        code: 1,
+        stdout: '{"type":"text","part":{"text":"benign content"}}',
+        stderr: "rate limit reached",
+      },
     ]);
     const result = await createResolvedAgentBinding(
       { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },

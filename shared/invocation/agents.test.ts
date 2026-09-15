@@ -2341,6 +2341,51 @@ describe("createResolvedAgentBinding", () => {
     expect(result.kind).toBe("ok");
   });
 
+  test("opencode does not classify quota from agent content on stdout (non-zero exit)", async () => {
+    // opencode's --format json stdout carries the full contents of files the agent read/grepped.
+    // Here the agent merely read jarvis's own quota-handling code: stdout has `429` next to `Error`
+    // plus `rate limit`/`quota exceeded`, but stderr is clean. This is not a quota exhaustion.
+    const pollutedStdout = JSON.stringify({
+      type: "text",
+      part: { text: "grep hit: Line 429: throw new Error('rate limit'); // quota exceeded" },
+    });
+    const fake = fakeSpawn([{ kind: "settle", code: 1, stdout: pollutedStdout, stderr: "" }]);
+    const result = await createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    // Fails against the pre-fix classifier that scanned errBuf+outBuf and settled `quota`.
+    expect(result.kind).toBe("error");
+    expect(fake.calls.length).toBe(1);
+  });
+
+  test("opencode does not classify quota from agent content on stdout (zero exit)", async () => {
+    const pollutedStdout = JSON.stringify({
+      type: "text",
+      part: { text: "read code: rate limit / quota exceeded / http status 429 error handling" },
+    });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: pollutedStdout, stderr: "" }]);
+    const result = await createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    // Fails against the pre-fix zero-exit path that scanned errBuf+outBuf and reclassified to `quota`.
+    expect(result.kind).toBe("ok");
+  });
+
+  test("opencode still classifies a real stderr quota signal alongside unrelated stdout content", async () => {
+    const fake = fakeSpawn([
+      { kind: "settle", code: 1, stdout: '{"type":"text","part":{"text":"benign content"}}', stderr: "rate limit reached" },
+    ]);
+    const result = await createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(result.kind).toBe("quota");
+    // Diagnostics are scoped to stderr, so the JSON content stream is not folded into the result.
+    if (result.kind === "quota") expect(result.stderr).toBe("rate limit reached");
+  });
+
   test("wired bindings forward output progress notifications from stdout and stderr", async () => {
     const wired = [
       { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },

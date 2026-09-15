@@ -1,8 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
@@ -554,5 +567,75 @@ describe("external worktree helper", () => {
 
     expect(second.worktree.reused).toBe(false);
     expect(existsSync(second.worktree.path)).toBe(true);
+  });
+
+  describe("git-less read-context materialization", () => {
+    async function initGitFixture(): Promise<{ repoRoot: string; committed: string }> {
+      const root = mkdtempSync(join(tmpdir(), "jarvis-v2-read-checkout-"));
+      roots.push(root);
+      const repoRoot = join(root, "repo");
+      mkdirSync(repoRoot, { recursive: true });
+      const run = (args: string[]) => realAsyncSubprocessRunner.runAsync("git", args, repoRoot);
+      await run(["init", "-q"]);
+      await run(["config", "user.email", "t@t"]);
+      await run(["config", "user.name", "t"]);
+      const committed = "committed target-repo content\n";
+      writeFileSync(join(repoRoot, "tracked.txt"), committed);
+      mkdirSync(join(repoRoot, "nested"), { recursive: true });
+      writeFileSync(join(repoRoot, "nested", "leaf.txt"), "nested blob\n");
+      await run(["add", "-A"]);
+      await run(["commit", "-q", "-m", "init"]);
+      return { repoRoot, committed };
+    }
+
+    function readContextInput(repoRoot: string, localPath: string) {
+      return {
+        projectRoot: repoRoot,
+        projectName: "demo",
+        branchName: "read-run",
+        baseRef: "HEAD",
+        git: false as const,
+        localPath,
+        materializeReadCheckout: true,
+      };
+    }
+
+    test("materializes a readable checkout at cwd matching the fixture blobs", async () => {
+      const { repoRoot, committed } = await initGitFixture();
+      const stageDir = join(repoRoot, "..", "stage");
+      const input = readContextInput(repoRoot, stageDir);
+      let callbackCwd: string | undefined;
+
+      const result = await withExternalWorktree(input, (worktree) => {
+        callbackCwd = worktree.path;
+      });
+
+      expect(callbackCwd).toBe(stageDir);
+      expect(callbackCwd).toBe(getExternalWorktreePath(input));
+      expect(existsSync(stageDir)).toBe(true);
+      expect(readFileSync(join(stageDir, "tracked.txt"), "utf8")).toBe(committed);
+      expect(readFileSync(join(stageDir, "nested", "leaf.txt"), "utf8")).toBe("nested blob\n");
+      // `.git`-less content tree: no HEAD interrogation possible.
+      expect(existsSync(join(stageDir, ".git"))).toBe(false);
+      expect(result.lock.kind).toBe("acquired");
+    });
+
+    test("a git-less run without a read-context request preserves mkdirSync-only stage behavior", async () => {
+      const { repoRoot } = await initGitFixture();
+      const stageDir = join(repoRoot, "..", "empty-stage");
+      const input = {
+        projectRoot: repoRoot,
+        projectName: "demo",
+        branchName: "read-run",
+        baseRef: "HEAD",
+        git: false as const,
+        localPath: stageDir,
+      };
+
+      await withExternalWorktree(input, () => undefined);
+
+      expect(existsSync(stageDir)).toBe(true);
+      expect(existsSync(join(stageDir, "tracked.txt"))).toBe(false);
+    });
   });
 });

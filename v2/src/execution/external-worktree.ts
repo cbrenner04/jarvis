@@ -24,6 +24,12 @@ export type ExternalWorktreeInput = {
   jarvisRoot?: string;
   git?: boolean;
   localPath?: string;
+  /**
+   * Opt-in on the `git === false` + `localPath` branch: when `true`, materialize a
+   * `.git`-less readable checkout of `projectRoot` content at `baseRef` into `localPath`
+   * before the callback. Absent/false preserves the `mkdirSync`-only empty-stage behavior.
+   */
+  materializeReadCheckout?: boolean;
 };
 
 export type ExternalWorktree = {
@@ -92,6 +98,9 @@ export async function withExternalWorktree<T>(
   throwIfAborted(signal);
   if (args.git === false && args.localPath !== undefined) {
     mkdirSync(args.localPath, { recursive: true });
+    if (args.materializeReadCheckout === true) {
+      await materializeReadCheckout(args.projectRoot, args.baseRef, args.localPath, runner, signal);
+    }
     return {
       worktree: { path: args.localPath, reused: true },
       lock: { kind: "acquired" },
@@ -110,6 +119,28 @@ export async function withExternalWorktree<T>(
     // the external-worktree lock-hold regression RED.
     releaseExternalWorktreeLock(lockRoot);
   }
+}
+
+/**
+ * Extract a `.git`-less readable content checkout of `projectRoot` at `baseRef` into
+ * `destPath` via `git archive | tar -x`. The tree has no `.git`/HEAD; it is a disposable
+ * readable copy for agent cwd, with no link back to the source repo.
+ */
+async function materializeReadCheckout(
+  projectRoot: string,
+  baseRef: string,
+  destPath: string,
+  runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const command = `git archive --format=tar ${shellQuote(baseRef)} | tar -x -C ${shellQuote(destPath)}`;
+  await runner.runAsync("sh", ["-c", command], projectRoot, { signal });
+  throwIfAborted(signal);
+}
+
+/** Single-quote a path for safe interpolation into a `sh -c` pipeline. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 /** Acquire the lock; a live holder throws {@link WorktreeBusyError} (refuse, don't queue). */

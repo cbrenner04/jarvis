@@ -645,20 +645,21 @@ function planSource(
     const specDir = join(target, `${timestamp}-${ready.name}`);
     const externalPlanPath = join(specsHome(project.key, root), "plans", ready.name);
     const durableSpecPath = git ? specDir : externalPlanPath;
+    const baseRef = await (deps.resolveBaseBranch ?? getBaseBranch)(project.root);
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
       stepId: "plan",
       role: "plan",
       promptId: PUBLICATIONS.plan.promptId,
-      promptPlaceholders: { WORKDIR: cwd },
+      promptPlaceholders: { WORKDIR: git ? cwd : externalPlanPath },
       stepRules: DEFAULT_WRITE_STEP_RULES,
       worktree: {
         projectRoot: project.root,
         projectName: project.key,
         branchName: branch,
-        baseRef: git ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none",
+        baseRef,
         jarvisRoot: root,
-        ...(git ? {} : { git: false, localPath: externalPlanPath }),
+        ...(git ? {} : { git: false, localPath: externalPlanPath, materializeReadCheckout: true }),
       },
       specPath: durableSpecPath,
       expectedArtifactPath: PLAN_STAGE,

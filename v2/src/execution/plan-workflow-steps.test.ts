@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -8,6 +8,7 @@ import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { jarvisHome } from "../paths.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
@@ -600,6 +601,81 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
     const reviewStep = result.steps[1];
     if (reviewStep?.behavior !== "review") throw new Error("expected review step");
     expect(reviewStep.verdictPath.startsWith(`${localPath}/`)).toBe(true);
+  });
+});
+
+describe("external plan draft read-context checkout", () => {
+  async function initGitProject(): Promise<{ repoRoot: string; committed: string }> {
+    const root = mkdtempSync(join(tmpdir(), "plan-readctx-repo-"));
+    roots.push(root);
+    const repoRoot = join(root, "repo");
+    mkdirSync(join(repoRoot, "spec/ready-intents"), { recursive: true });
+    const run = (args: string[]) => realAsyncSubprocessRunner.runAsync("git", args, repoRoot);
+    await run(["init", "-q", "-b", "trunk"]);
+    await run(["config", "user.email", "t@t"]);
+    await run(["config", "user.name", "t"]);
+    const committed = "committed source the prerequisite gate can read\n";
+    writeFileSync(join(repoRoot, "src.txt"), committed);
+    writeFileSync(join(repoRoot, "spec/ready-intents/feature.md"), "---\nname: feature\n---\n\n## Prerequisites\n");
+    await run(["add", "-A"]);
+    await run(["commit", "-q", "-m", "init"]);
+    return { repoRoot, committed };
+  }
+
+  test("invokes the agent in a materialized target-repo checkout at the resolved base", async () => {
+    const { repoRoot, committed } = await initGitProject();
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const configPath = join(repoRoot, "config.json");
+    writeFileSync(configPath, JSON.stringify({ projects: { demo: { root: repoRoot, specs: "external" } } }));
+
+    const built = await buildPlanWorkflowSteps(
+      { cwd: repoRoot, readyIntent: "spec/ready-intents/feature.md", configPath, jarvisRoot, reviewPasses: 0 },
+      {
+        resolveProjectMatch: () => ({ key: "demo", root: repoRoot }),
+        loadWorkflowSteps: load,
+        resolveBaseBranch: () => "trunk",
+      },
+    );
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const draftStep = built.steps[0];
+    if (draftStep?.behavior !== "write") throw new Error("expected write step");
+
+    let capturedCwd = "";
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          capturedCwd = cwd;
+          const specDir = join(cwd, draftStep.specPath);
+          mkdirSync(specDir, { recursive: true });
+          writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
+          writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ];
+    await executeWrite({
+      worktree: draftStep.worktree,
+      specPath: draftStep.specPath,
+      stepRules: draftStep.stepRules,
+      expectedArtifactPath: draftStep.expectedArtifactPath,
+      bindings,
+      ...(draftStep.promptId !== undefined ? { promptId: draftStep.promptId } : {}),
+      ...(draftStep.promptPlaceholders !== undefined ? { promptPlaceholders: draftStep.promptPlaceholders } : {}),
+      ...(draftStep.intentSeed !== undefined
+        ? { intentSeed: draftStep.intentSeed, intentBefore: draftStep.intentSeed }
+        : {}),
+    });
+
+    // The invocation cwd is the stage dir the WORKDIR placeholder advertises, on disk.
+    expect(draftStep.promptPlaceholders?.WORKDIR).toBe(capturedCwd);
+    expect(existsSync(capturedCwd)).toBe(true);
+    // A readable checkout of the target repo at the base — committed source, not just the seeded intent.
+    // opencode reads this same dir via `--dir cwd`, so its `--dir` target now holds materialized repo content.
+    expect(readFileSync(join(capturedCwd, "src.txt"), "utf8")).toBe(committed);
+    expect(existsSync(join(capturedCwd, "spec/ready-intents/feature.md"))).toBe(true);
   });
 });
 

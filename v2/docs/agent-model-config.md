@@ -25,6 +25,10 @@ The top-level `codexSandboxMode` key in `~/.jarvis/config.json` selects the sand
 
 `danger-full-access` grants ambient trust so trusted local toolchains (e.g. Xcode/CoreSimulator) are reachable — parity with the trust cursor already takes via `--force` and claude via `--permission-mode acceptEdits`. There is no per-project override or command flag; per-project Codex trust is gated on the non-functional v2 per-project config read tracked by #3026.
 
+## Repo read context
+
+External (`specs: external`) plan draft delivers the target-repo read context as the agent cwd: the write step invokes the agent in a materialized `.git`-less checkout of the target repo at the base, so every vendor reads it natively (opencode via its `--dir cwd` argv, claude/codex via cwd) with no read-dir flag. Per-vendor read-dir surfaces — claude/codex `--add-dir`, opencode `permission.external_directory` — apply only when the read root diverges from cwd (e.g. external-plan implement, where the spec tree lives outside the code worktree).
+
 ## Types
 
 Resolution keys are concrete **roles** from the closed union in [`role-resolution.md`](role-resolution.md). This schema uses role names only.

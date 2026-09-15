@@ -130,6 +130,31 @@ describe("publication landing hooks", () => {
     expect(readFileSync(join(root, "v2/spec/tree/intent.md"), "utf8")).toBe("intent\n");
   });
 
+  test("external topology: a read-context checkout carrying root index.md/NN-*.md does not collide with the durable plan tree", async () => {
+    // Reproduces the external plan-draft topology: the agent cwd (read-context checkout) holds a full
+    // copy of the target repo — including a committed root index.md and NN-*.md shaped files — while
+    // the durable plan tree lands at a distinct, absolute durablePath. Extracted repo files must never
+    // masquerade as pre-existing durable plan-tree files and hard-fail landing.
+    const readContext = mkdtempSync(join(tmpdir(), "jarvis-external-read-context-"));
+    writeFileSync(join(readContext, "index.md"), "target repo README-shaped index\n");
+    writeFileSync(join(readContext, "00-module.md"), "target repo module doc\n");
+    mkdirSync(join(readContext, ".jarvis-plan-stage"));
+    writeFileSync(join(readContext, ".jarvis-plan-stage", "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
+    writeFileSync(join(readContext, ".jarvis-plan-stage", "intent.md"), "intent\n");
+    writeFileSync(join(readContext, ".jarvis-plan-stage", "00-first.md"), "# First\n");
+
+    const durablePath = join(mkdtempSync(join(tmpdir(), "jarvis-external-durable-")), "plans", "feature");
+    const result = await landPublication(
+      { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath },
+      readContext,
+    );
+
+    expect(result.files.sort()).toEqual(["00-first.md", "index.md", "intent.md"]);
+    expect(readFileSync(join(durablePath, "index.md"), "utf8")).toContain("Plan");
+    expect(readFileSync(join(durablePath, "00-first.md"), "utf8")).toBe("# First\n");
+    expect(existsSync(join(durablePath, "00-module.md"))).toBe(false);
+  });
+
   test("lands a plan tree without its optional verdict, including an empty verdict", async () => {
     const root = repo();
     const cases: Array<[string, string]> = [

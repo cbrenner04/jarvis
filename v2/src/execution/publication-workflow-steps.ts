@@ -644,21 +644,26 @@ function planSource(
     const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
     const specDir = join(target, `${timestamp}-${ready.name}`);
     const externalPlanPath = join(specsHome(project.key, root), "plans", ready.name);
+    // The external read-context checkout is the agent cwd; it is a distinct directory from the
+    // durable plan-tree landing target (`externalPlanPath`) so extracted target-repo content can
+    // never masquerade as a pre-existing durable plan-tree file at landing.
+    const externalReadContextPath = join(specsHome(project.key, root), "plans", `${ready.name}-read-context`);
     const durableSpecPath = git ? specDir : externalPlanPath;
+    const baseRef = await (deps.resolveBaseBranch ?? getBaseBranch)(project.root);
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
       stepId: "plan",
       role: "plan",
       promptId: PUBLICATIONS.plan.promptId,
-      promptPlaceholders: { WORKDIR: cwd },
+      promptPlaceholders: { WORKDIR: git ? cwd : externalReadContextPath },
       stepRules: DEFAULT_WRITE_STEP_RULES,
       worktree: {
         projectRoot: project.root,
         projectName: project.key,
         branchName: branch,
-        baseRef: git ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none",
+        baseRef,
         jarvisRoot: root,
-        ...(git ? {} : { git: false, localPath: externalPlanPath }),
+        ...(git ? {} : { git: false, localPath: externalReadContextPath, materializeReadCheckout: true }),
       },
       specPath: durableSpecPath,
       expectedArtifactPath: PLAN_STAGE,

@@ -64,12 +64,43 @@ test("plan specs decision honors project specs: external like intent", async () 
   expect(result.ok).toBe(true);
   if (!result.ok) return;
   const externalPlanPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature");
+  const externalReadContextPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature-read-context");
   expect(result.steps[0]).toMatchObject({
     specPath: externalPlanPath,
-    worktree: { git: false, localPath: externalPlanPath },
+    worktree: { git: false, localPath: externalReadContextPath, materializeReadCheckout: true },
     publishCompletion: false,
-    landing: { inputs: { consumeFrom: "source" } },
+    landing: { inputs: { consumeFrom: "source" }, durablePath: externalPlanPath },
   });
+});
+
+test("external plan draft materializes a read checkout at the stage dir with a real base", async () => {
+  const root = mkdtempSync(join(tmpdir(), "plan-specs-external-readctx-"));
+  const jarvisRoot = join(root, "jarvis");
+  const configPath = writeMachineConfig({ projects: { demo: { root, specs: "external" } } });
+  const readyIntent = "spec/ready-intents/feature.md";
+  mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
+  writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+
+  const result = await buildPlanWorkflowSteps(
+    { cwd: root, readyIntent, configPath, jarvisRoot, reviewPasses: 0 },
+    { resolveProjectMatch: () => project, loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+  );
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  const step = result.steps[0];
+  if (step?.behavior !== "write") throw new Error("expected write step");
+  const externalPlanPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature");
+  const externalReadContextPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature-read-context");
+  // WORKDIR advertises the read-context checkout dir the agent is invoked in — distinct from the
+  // durable landing target and never the never-created managed worktree.
+  expect(step.promptPlaceholders?.WORKDIR).toBe(externalReadContextPath);
+  expect(step.promptPlaceholders?.WORKDIR).not.toBe(externalPlanPath);
+  expect(step.promptPlaceholders?.WORKDIR).not.toMatch(/worktrees\//);
+  expect(step.worktree.localPath).toBe(externalReadContextPath);
+  expect(step.specPath).toBe(externalPlanPath);
+  expect(step.worktree.materializeReadCheckout).toBe(true);
+  // A real base ref, never the `"none"` sentinel that would fail archive extraction.
+  expect(step.worktree.baseRef).toBe("trunk");
 });
 
 test("plan build publishes in-repo when the project sets specs: repo", async () => {
@@ -92,6 +123,10 @@ test("plan build publishes in-repo when the project sets specs: repo", async () 
   const writeStep = result.steps[0];
   if (writeStep?.behavior !== "write") throw new Error("expected write step");
   expect(writeStep.worktree.git).toBeUndefined();
+  // specs: repo keeps the managed-worktree WORKDIR and never requests a read checkout.
+  expect(writeStep.promptPlaceholders?.WORKDIR).toMatch(/worktrees\/demo\/plan\/feature$/);
+  expect(writeStep.worktree.materializeReadCheckout).toBeUndefined();
+  expect(writeStep.worktree.localPath).toBeUndefined();
 });
 
 test.each([

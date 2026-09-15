@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
@@ -1860,5 +1871,90 @@ describe("write behavior: implement-path blocker-text contract", () => {
     });
 
     expect(result.result.kind).toBe("blocked");
+  });
+});
+
+describe("external plan-draft prerequisite gate reads the materialized read checkout", () => {
+  function initTargetRepo(prerequisiteBehavior: string | undefined): string {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-prereq-gate-repo-"));
+    roots.push(root);
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "t@t"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "t"], { cwd: root });
+    if (prerequisiteBehavior !== undefined) {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "feature.ts"), `export function ${prerequisiteBehavior}() {}\n`);
+    } else {
+      writeFileSync(join(root, "README.md"), "unrelated content\n");
+    }
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+    return root;
+  }
+
+  // Drive the real external write-step worktree (git:false + materializeReadCheckout) so the agent
+  // cwd is an actual target-repo checkout, and capture what the prerequisite gate can read there.
+  async function draftAgainst(projectRoot: string, jarvisRoot: string): Promise<{ cwd: string; prompt: string }> {
+    let captured: { cwd: string; prompt: string } | undefined;
+    const readContextPath = join(jarvisRoot, "specs", "demo", "plans", "feature-read-context");
+    await executeWrite({
+      worktree: {
+        projectRoot,
+        projectName: "demo",
+        branchName: "plan/feature",
+        baseRef: "HEAD",
+        jarvisRoot,
+        git: false,
+        localPath: readContextPath,
+        materializeReadCheckout: true,
+      },
+      specPath: join(jarvisRoot, "specs", "demo", "plans", "feature"),
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      promptPlaceholders: { WORKDIR: readContextPath },
+      intentSeed: "---\nname: feature\n---\n\n## Prerequisites\n\n- widgetHandler exists\n",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt, cwd }) => {
+            captured = { cwd, prompt };
+            const stage = join(cwd, ".jarvis-plan-stage");
+            mkdirSync(stage, { recursive: true });
+            writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
+            writeFileSync(join(stage, "intent.md"), "intent\n", "utf8");
+            writeFileSync(join(stage, "00-first.md"), "## Acceptance criteria\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+    if (captured === undefined) throw new Error("agent was not invoked");
+    return captured;
+  }
+
+  test("passes when the declared prerequisite behavior is present in committed code at the base", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const projectRoot = initTargetRepo("widgetHandler");
+
+    const { cwd, prompt } = await draftAgainst(projectRoot, jarvisRoot);
+
+    // The gate reads the materialized checkout at cwd; the committed prerequisite source is present.
+    expect(readFileSync(join(cwd, "src", "feature.ts"), "utf8")).toContain("widgetHandler");
+    // The prompt carries the prerequisite section the gate acts on.
+    expect(prompt).toContain("## Prerequisites");
+    expect(prompt).toContain("widgetHandler exists");
+  });
+
+  test("blocks: the checkout the gate reads lacks the declared prerequisite behavior", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const projectRoot = initTargetRepo(undefined);
+
+    const { cwd } = await draftAgainst(projectRoot, jarvisRoot);
+
+    // The checkout is real target-repo content, but the declared behavior is absent — the gate would
+    // find no committed evidence and block.
+    expect(existsSync(join(cwd, "README.md"))).toBe(true);
+    expect(existsSync(join(cwd, "src", "feature.ts"))).toBe(false);
   });
 });

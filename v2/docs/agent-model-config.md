@@ -27,7 +27,7 @@ The top-level `codexSandboxMode` key in `~/.jarvis/config.json` selects the sand
 
 ## Repo read context
 
-External (`specs: external`) plan draft delivers the target-repo read context as the agent cwd: the write step invokes the agent in a materialized `.git`-less checkout of the target repo at the base, so every vendor reads it natively (opencode via its `--dir cwd` argv, claude/codex via cwd) with no read-dir flag. Per-vendor read-dir surfaces — claude/codex `--add-dir`, opencode `permission.external_directory` — apply only when the read root diverges from cwd (e.g. external-plan implement, where the spec tree lives outside the code worktree).
+External (`specs: external`) plan draft delivers the target-repo read context as the agent cwd: the write step invokes the agent in a materialized `.git`-less checkout of the target repo at the base, held in a dedicated read-context dir distinct from the durable plan-tree landing home, so every vendor reads it natively (opencode via its `--dir cwd` argv, claude/codex via cwd) with no read-dir flag. Per-vendor read-dir surfaces — claude/codex `--add-dir`, opencode `permission.external_directory` — apply only when the read root diverges from cwd (e.g. external-plan implement, where the spec tree lives outside the code worktree).
 
 ## Types
 

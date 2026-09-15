@@ -64,11 +64,12 @@ test("plan specs decision honors project specs: external like intent", async () 
   expect(result.ok).toBe(true);
   if (!result.ok) return;
   const externalPlanPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature");
+  const externalReadContextPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature-read-context");
   expect(result.steps[0]).toMatchObject({
     specPath: externalPlanPath,
-    worktree: { git: false, localPath: externalPlanPath, materializeReadCheckout: true },
+    worktree: { git: false, localPath: externalReadContextPath, materializeReadCheckout: true },
     publishCompletion: false,
-    landing: { inputs: { consumeFrom: "source" } },
+    landing: { inputs: { consumeFrom: "source" }, durablePath: externalPlanPath },
   });
 });
 
@@ -89,9 +90,14 @@ test("external plan draft materializes a read checkout at the stage dir with a r
   const step = result.steps[0];
   if (step?.behavior !== "write") throw new Error("expected write step");
   const externalPlanPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature");
-  // WORKDIR advertises the stage dir the agent is invoked in — not the never-created managed worktree.
-  expect(step.promptPlaceholders?.WORKDIR).toBe(externalPlanPath);
+  const externalReadContextPath = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature-read-context");
+  // WORKDIR advertises the read-context checkout dir the agent is invoked in — distinct from the
+  // durable landing target and never the never-created managed worktree.
+  expect(step.promptPlaceholders?.WORKDIR).toBe(externalReadContextPath);
+  expect(step.promptPlaceholders?.WORKDIR).not.toBe(externalPlanPath);
   expect(step.promptPlaceholders?.WORKDIR).not.toMatch(/worktrees\//);
+  expect(step.worktree.localPath).toBe(externalReadContextPath);
+  expect(step.specPath).toBe(externalPlanPath);
   expect(step.worktree.materializeReadCheckout).toBe(true);
   // A real base ref, never the `"none"` sentinel that would fail archive extraction.
   expect(step.worktree.baseRef).toBe("trunk");

@@ -124,7 +124,10 @@ export async function withExternalWorktree<T>(
 /**
  * Extract a `.git`-less readable content checkout of `projectRoot` at `baseRef` into
  * `destPath` via `git archive | tar -x`. The tree has no `.git`/HEAD; it is a disposable
- * readable copy for agent cwd, with no link back to the source repo.
+ * readable copy for agent cwd, with no link back to the source repo. `destPath` is cleaned
+ * before extraction so prior-run debris never survives into the fresh checkout. The base ref
+ * is resolved to a local tree-ish first, degrading a non-local base to the local `HEAD` rather
+ * than surfacing a raw `git archive` failure.
  */
 async function materializeReadCheckout(
   projectRoot: string,
@@ -133,9 +136,32 @@ async function materializeReadCheckout(
   runner: AsyncSubprocessRunner,
   signal: AbortSignal | undefined,
 ): Promise<void> {
-  const command = `git archive --format=tar ${shellQuote(baseRef)} | tar -x -C ${shellQuote(destPath)}`;
+  rmSync(destPath, { recursive: true, force: true });
+  mkdirSync(destPath, { recursive: true });
+  const archiveRef = await resolveLocalArchiveRef(projectRoot, baseRef, runner, signal);
+  const command = `git archive --format=tar ${shellQuote(archiveRef)} | tar -x -C ${shellQuote(destPath)}`;
   await runner.runAsync("sh", ["-c", command], projectRoot, { signal });
   throwIfAborted(signal);
+}
+
+/**
+ * Resolve `baseRef` to a tree-ish that exists in the local `projectRoot`. GitHub's default-branch
+ * name (or the `"main"` fallback) is not guaranteed to exist as a local ref; when it does not,
+ * fall back to the local `HEAD` so extraction always runs against a present tree-ish.
+ */
+async function resolveLocalArchiveRef(
+  projectRoot: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
+): Promise<string> {
+  try {
+    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{tree}`], projectRoot, { signal });
+    return baseRef;
+  } catch {
+    throwIfAborted(signal);
+    return "HEAD";
+  }
 }
 
 /** Single-quote a path for safe interpolation into a `sh -c` pipeline. */

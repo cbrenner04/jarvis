@@ -637,5 +637,32 @@ describe("external worktree helper", () => {
       expect(existsSync(stageDir)).toBe(true);
       expect(existsSync(join(stageDir, "tracked.txt"))).toBe(false);
     });
+
+    test("cleans prior-run debris at the stable stage path before extracting", async () => {
+      const { repoRoot, committed } = await initGitFixture();
+      const stageDir = join(repoRoot, "..", "reused-stage");
+      // Simulate a prior same-name draft that left landed plan-tree files at the stable path.
+      mkdirSync(stageDir, { recursive: true });
+      writeFileSync(join(stageDir, "index.md"), "stale index\n");
+      writeFileSync(join(stageDir, "00-stale.md"), "stale subspec\n");
+
+      await withExternalWorktree(readContextInput(repoRoot, stageDir), () => undefined);
+
+      // Debris is gone; only fresh target-repo content remains.
+      expect(existsSync(join(stageDir, "index.md"))).toBe(false);
+      expect(existsSync(join(stageDir, "00-stale.md"))).toBe(false);
+      expect(readFileSync(join(stageDir, "tracked.txt"), "utf8")).toBe(committed);
+    });
+
+    test("degrades a base ref absent locally to HEAD instead of failing extraction", async () => {
+      const { repoRoot, committed } = await initGitFixture();
+      const stageDir = join(repoRoot, "..", "absent-base-stage");
+      const input = { ...readContextInput(repoRoot, stageDir), baseRef: "origin/does-not-exist-locally" };
+
+      await withExternalWorktree(input, () => undefined);
+
+      // Extraction still runs against the local HEAD tree rather than surfacing a git archive error.
+      expect(readFileSync(join(stageDir, "tracked.txt"), "utf8")).toBe(committed);
+    });
   });
 });

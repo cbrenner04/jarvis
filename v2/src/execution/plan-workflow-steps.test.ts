@@ -266,9 +266,10 @@ describe("plan ready-intent output routing", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const externalPlanPath = join(jarvisHome(), "specs", "Org-Repo", "plans", "feature");
+      const externalReadContextPath = join(jarvisHome(), "specs", "Org-Repo", "plans", "feature-read-context");
       expect(result.steps[0]).toMatchObject({
         specPath: externalPlanPath,
-        worktree: { git: false, localPath: externalPlanPath },
+        worktree: { git: false, localPath: externalReadContextPath },
       });
     }
   });
@@ -277,6 +278,7 @@ describe("plan ready-intent output routing", () => {
     const { root, jarvisRoot, config, projectKey, externalReadyIntent } = stageExternalReadyIntent({ external: true });
     const safeId = projectSafeId(projectKey);
     const externalPlanPath = join(jarvisRoot, "specs", safeId, "plans", "feature");
+    const externalReadContextPath = join(jarvisRoot, "specs", safeId, "plans", "feature-read-context");
 
     const result = await buildPlanWorkflowSteps(
       { cwd: root, readyIntent: externalReadyIntent, configPath: config, jarvisRoot },
@@ -286,7 +288,7 @@ describe("plan ready-intent output routing", () => {
     if (!result.ok) return;
     expect(result.steps[0]).toMatchObject({
       specPath: externalPlanPath,
-      worktree: { git: false, localPath: externalPlanPath },
+      worktree: { git: false, localPath: externalReadContextPath },
       landing: {
         kind: "plan-tree",
         // The external home, not the project root: consumption skips any input not inside

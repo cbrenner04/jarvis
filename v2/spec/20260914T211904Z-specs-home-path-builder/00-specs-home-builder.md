@@ -10,10 +10,10 @@ Behavior-preserving: `v2/src/paths.ts` gains `specsHome(projectKey, jarvisRoot?)
 
 ## Acceptance criteria
 
-- [ ] `v2/src/paths.ts` exports `specsHome` and `specsRoot`.
-- [ ] A structural test greps `v2/src` and fails on any `"specs"` path join outside `paths.ts`.
-- [ ] Existing pipeline-stage-resolve, cleanup, and publication/implement workflow-step tests stay green (behavior unchanged).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/paths.ts` exports `specsHome` and `specsRoot`.
+- [x] A structural test greps `v2/src` and fails on any `"specs"` path join outside `paths.ts`.
+- [x] Existing pipeline-stage-resolve, cleanup, and publication/implement workflow-step tests stay green (behavior unchanged).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -27,7 +27,7 @@ import {
   readProjectRegistry,
 } from "../config/machine-config-loader.ts";
 import { resolveSpecsHome } from "../config/specs-home.ts";
-import { jarvisHome, MACHINE_CONFIG_PATH } from "../paths.ts";
+import { jarvisHome, MACHINE_CONFIG_PATH, specsRoot } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import {
@@ -215,10 +215,10 @@ export function planSourcePublishesExternally(projectConfig: Record<string, unkn
 }
 
 function parseExternalPlanSpecPath(resolvedSpecPath: string): { safeId: string; specReadRoot: string } | undefined {
-  const specsRoot = join(jarvisHome(), "specs");
-  let resolvedSpecsRoot = specsRoot;
+  const externalSpecsRoot = specsRoot(jarvisHome());
+  let resolvedSpecsRoot = externalSpecsRoot;
   try {
-    resolvedSpecsRoot = realpathSync(specsRoot);
+    resolvedSpecsRoot = realpathSync(externalSpecsRoot);
   } catch {
     return undefined;
   }

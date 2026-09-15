@@ -9,10 +9,10 @@ Intent scratch moves from `<jarvisRoot>/intent-work/<safeId>/<slug>` to `<specsH
 
 ## Acceptance criteria
 
-- [ ] A test pins intent scratch resolving under `<jarvisRoot>/specs/<safeId>/intent-work/<slug>`; it fails against the pre-fix code.
-- [ ] `v2/src/daemon/pipeline-stage-resolve.test.ts` intent-work fixtures use the new location and pass.
-- [ ] The structural `"specs"` guard from subspec 00 stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test pins intent scratch resolving under `<jarvisRoot>/specs/<safeId>/intent-work/<slug>`; it fails against the pre-fix code.
+- [x] `v2/src/daemon/pipeline-stage-resolve.test.ts` intent-work fixtures use the new location and pass.
+- [x] The structural `"specs"` guard from subspec 00 stays green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

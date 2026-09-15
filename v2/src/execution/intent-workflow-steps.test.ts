@@ -170,7 +170,7 @@ describe("buildIntentWorkflowSteps", () => {
     expect(result.steps[0]).toMatchObject({
       specPath: "/jarvis/specs/Org-Repo/ready-intents",
       publishCompletion: false,
-      worktree: { baseRef: "none", git: false, localPath: "/jarvis/intent-work/Org-Repo/one-thing" },
+      worktree: { baseRef: "none", git: false, localPath: "/jarvis/specs/Org-Repo/intent-work/one-thing" },
     });
   });
 
@@ -442,7 +442,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const workspace = "/jarvis/intent-work/demo/one-thing";
+    const workspace = "/jarvis/specs/demo/intent-work/one-thing";
     const reviewStep = result.steps[1];
     if (reviewStep?.behavior !== "review") throw new Error("expected review step");
     expect(reviewStep).toMatchObject({

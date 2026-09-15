@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { getBaseBranch, isGitRepoAsync } from "../../../shared/git.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
@@ -15,7 +14,7 @@ import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/public
 import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { IpcClient } from "../ipc/client.ts";
-import { jarvisHome } from "../paths.ts";
+import { specsHome, specsRoot } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
 import {
@@ -264,19 +263,19 @@ function locateExternalReadyIntentDownstreamInput(
   if (!isReadyIntentRelativePath(relativePath) || !isChainedPlanReadyIntentPath(relativePath)) return undefined;
   const owner = resolveChainedStageOwnerProject(context);
   if (owner === undefined) return undefined;
-  const specsHome = chainedStageSpecsHome(context, owner);
-  if (!specsHome.ok) return { ok: false, error: `pipeline-stage-resolve: ${specsHome.error}` };
-  if (specsHome.specsHome !== "external") return undefined;
+  const specsHomeResolution = chainedStageSpecsHome(context, owner);
+  if (!specsHomeResolution.ok) return { ok: false, error: `pipeline-stage-resolve: ${specsHomeResolution.error}` };
+  if (specsHomeResolution.specsHome !== "external") return undefined;
 
-  const externalPlansHome = join(jarvisHome(), "specs");
-  const ownerReadyIntentsHome = join(externalPlansHome, projectSafeId(owner.key), "ready-intents");
+  const externalPlansHome = specsRoot();
+  const ownerReadyIntentsHome = join(specsHome(owner.key), "ready-intents");
   const externalFile = join(ownerReadyIntentsHome, basename(relativePath));
   if (!existsSync(externalFile)) return undefined;
 
   const resolvedExternalHome = resolve(externalPlansHome);
   const resolvedFile = resolve(externalFile);
   if (!resolvedFile.startsWith(`${resolvedExternalHome}${sep}`)) return undefined;
-  const ownerSpecsPrefix = join(resolvedExternalHome, projectSafeId(owner.key));
+  const ownerSpecsPrefix = resolve(specsHome(owner.key));
   if (!resolvedFile.startsWith(`${ownerSpecsPrefix}${sep}`)) return undefined;
   if (!resolvedFile.startsWith(`${resolve(ownerReadyIntentsHome)}${sep}`)) return undefined;
 
@@ -562,7 +561,7 @@ async function resolveChainedExternalPlanIdentity(
   if (context.configPath === undefined) return undefined;
   // Only Jarvis-owned external plan homes can yield an external identity. Ordinary chained Git
   // worktrees must not pay for a machine-config read here, and must never fail this resolution.
-  const externalPlansHome = join(jarvisHome(), "specs");
+  const externalPlansHome = specsRoot();
   if (!resolve(readRoot).startsWith(`${resolve(externalPlansHome)}${sep}`)) return undefined;
   const projects = readMachineConfigDocument(context.configPath)?.projects;
   const registry =

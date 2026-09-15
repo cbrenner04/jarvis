@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
-import { jarvisHome } from "../paths.ts";
+import { jarvisHome, specsRoot } from "../paths.ts";
 
 export type ArtifactSpec = {
   /** Configured v2 spec home containing this immediate child. */
@@ -68,10 +68,10 @@ type ArtifactEligibility = { status: "eligible" } | { status: "ineligible"; reas
 
 /** True when `home` is `~/.jarvis/specs/<safeId>/plans`. */
 export function isExternalPlanArtifact(spec: ArtifactSpec): boolean {
-  const specsRoot = resolve(jarvisHome(), "specs");
+  const resolvedSpecsRoot = resolve(specsRoot(jarvisHome()));
   const resolvedHome = resolve(spec.home);
   if (basename(resolvedHome) !== "plans") return false;
-  const relativeToSpecs = relative(specsRoot, resolvedHome);
+  const relativeToSpecs = relative(resolvedSpecsRoot, resolvedHome);
   return relativeToSpecs !== "" && !relativeToSpecs.startsWith("..") && !isAbsolute(relativeToSpecs);
 }
 

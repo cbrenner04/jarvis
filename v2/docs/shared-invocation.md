@@ -79,7 +79,9 @@ Bindings:
   ignore stdin, classify quota/model-config/transient with their own opencode
   signals (quota phrasing plus a guarded 429; `no provider configured for` as
   terminal model-config; guarded HTTP 500 with `UnknownError` context as
-  transient), and parse the `--format json`
+  transient) over **stderr only** (`classifierDiagnostics`), since opencode's
+  `--format json` stdout is the agent event stream carrying file contents it
+  read/grepped and must not be scanned for signals, and parse the `--format json`
   NDJSON stream: token and cost fields are summed only from clean `step_finish`
   frames (`part.tokens.{input,output,cache.read,cache.write}` and `part.cost`),
   with `text` `part.text` frames supplying display text (raw stdout fallback

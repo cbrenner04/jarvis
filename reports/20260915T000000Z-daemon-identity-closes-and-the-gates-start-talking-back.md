@@ -28,7 +28,7 @@ Spec/plan PRs: #3889, #3890, #3892, #3896, #3898, #3910, #3911, #3913, #3915, #3
 
 ## Carried over
 
-- [#3916](https://github.com/cbrenner04/jarvis/pull/3916) specs-home path builder — reviewed, green, **conflicts with #3918**; rebase then merge. Merged without shrink/review via the link-row resume bug (independently diff-reviewed).
+- ~~#3916~~ landed after this report ([#3916](https://github.com/cbrenner04/jarvis/pull/3916), rebased onto #3918; published without shrink/review via the link-row resume bug, independently diff-reviewed). Completed specs archived in [#3923](https://github.com/cbrenner04/jarvis/pull/3923).
 - Observability pipeline `25784a7e`: telemetry implement failed `quota_exhausted` (resume/re-dispatch), then approve `cleanup-reaps-orphan-session-logs`.
 - Spec-home: plan `single-spec-home-predicate` after #3916 lands, then implement.
 

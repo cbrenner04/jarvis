@@ -574,8 +574,10 @@ A second review pass then caught that resumable outcomes (kill, pause, budget st
 | `route-draining-run-logs-to-owner` | #3883 | #3887 closed | dropped: premise false (#3888) |
 | `tui-follows-daemon-source-revision` | #3901, #3909 | #3904, #3912 | landed |
 | `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | #3918 (session logs) | telemetry impl `quota_exhausted`; cleanup lane unapproved |
-| `project-spec-home-is-one-knob-default-external` | #3911, #3913, #3915 | #3917 | path-builder #3916 open (conflict); predicate lane unplanned |
+| `project-spec-home-is-one-knob-default-external` | #3911, #3913, #3915 | #3917, #3916 | landed; predicate lane unplanned |
 | `artifact-count-exempts-references-and-rules-out-clauses` | — | — | seeded #3914, P0 |
 | `intent-landing-accepts-no-prerequisites` | — | — | seeded #3914, P0 |
 | `resuming-a-failed-link-row-runs-the-whole-workflow` | — | — | seeded #3919, P0 |
 | `pipeline-lane-ready-pr-notifies` | — | — | seeded #3919, P0 |
+
+Specs archived 2026-09-15 ([#3923](https://github.com/cbrenner04/jarvis/pull/3923)): unified-pipeline-namespace, protect-draining-run-ownership, route-pipeline-verbs, remove-client-daemon-socket-discovery, retire-digest-daemon-artifacts, project-specs-config-key, tui-monitor and tui-log-follow revision-follow, session-logs-honor-jarvis-home (cleanup's two unpushed `cleanup/archive-*` branches plus two by hand).

@@ -46,6 +46,8 @@ type RetryNotice = (message: string) => void;
 
 type FetchPrBody = RefreshPrBodyInput["fetchPrBody"];
 type WritePrBody = RefreshPrBodyInput["writePrBody"];
+type FetchPrTitle = RefreshPrBodyInput["fetchPrTitle"];
+type WritePrTitle = RefreshPrBodyInput["writePrTitle"];
 type RenderFooter = NonNullable<RefreshPrBodyInput["renderFooter"]>;
 
 type PublisherSeams = {
@@ -55,9 +57,38 @@ type PublisherSeams = {
   retryNotice: RetryNotice;
   fetchPrBody?: FetchPrBody;
   writePrBody?: WritePrBody;
+  fetchPrTitle?: FetchPrTitle;
+  writePrTitle?: WritePrTitle;
   renderFooter?: RenderFooter;
   subprocessRunner?: AsyncSubprocessRunner;
 };
+
+function buildRefreshPrBodyInput(
+  input: CompletionPublisherInput,
+  specPath: string,
+  effectiveBaseRef: string,
+  git: Git,
+  bodySummary: string | undefined,
+  seams: Partial<PublisherSeams> | undefined,
+): RefreshPrBodyInput {
+  return {
+    specPath,
+    branch: input.branch,
+    base: effectiveBaseRef,
+    cwd: input.worktreePath,
+    git,
+    rawSpecPath: input.specPath,
+    ...(input.creationTitle !== undefined ? { creationTitle: input.creationTitle } : {}),
+    ...(bodySummary !== undefined ? { bodySummary } : {}),
+    ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
+    ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
+    ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
+    ...(seams?.fetchPrTitle !== undefined ? { fetchPrTitle: seams.fetchPrTitle } : {}),
+    ...(seams?.writePrTitle !== undefined ? { writePrTitle: seams.writePrTitle } : {}),
+    signal: input.signal,
+    ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
+  };
+}
 
 function defaultCommand(
   command: string,
@@ -136,19 +167,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
                 ...externalSpecGitScope(input),
               })
             : input.bodySummary;
-          await refreshPrBody({
-            specPath,
-            branch: input.branch,
-            base: effectiveBaseRef,
-            cwd: input.worktreePath,
-            git,
-            ...(bodySummary !== undefined ? { bodySummary } : {}),
-            ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
-            ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
-            ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
-            ...(input.signal !== undefined ? { signal: input.signal } : {}),
-            ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
-          });
+          await refreshPrBody(buildRefreshPrBodyInput(input, specPath, effectiveBaseRef, git, bodySummary, seams));
           return true;
         },
         { delay, retryNotice },

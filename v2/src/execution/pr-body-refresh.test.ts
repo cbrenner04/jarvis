@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   defaultWritePrBody,
+  defaultWritePrTitle,
   extractNarrative,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
@@ -391,6 +392,165 @@ describe("refreshPrBody", () => {
     expect(writtenBody1).not.toContain(NARRATIVE_START_MARKER);
     expect(writtenBody2).not.toContain(NARRATIVE_START_MARKER);
   });
+});
+
+describe("refreshPrBody title refresh", () => {
+  test("edits the PR title when the resolved title differs from current, and skips when equal", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    try {
+      mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
+      writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n\nBody.\n");
+
+      let writtenTitle: string | undefined;
+      await refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        rawSpecPath: "v2/spec/test/index.md",
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: async () => "",
+        writePrBody: async () => {},
+        fetchPrTitle: async () => "Old Title",
+        writePrTitle: async (_branch, title) => {
+          writtenTitle = title;
+        },
+        renderFooter: async () => "",
+      });
+
+      expect(writtenTitle).toBe("New Title");
+
+      writtenTitle = undefined;
+      await refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        rawSpecPath: "v2/spec/test/index.md",
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: async () => "",
+        writePrBody: async () => {},
+        fetchPrTitle: async () => "New Title",
+        writePrTitle: async (_branch, title) => {
+          writtenTitle = title;
+        },
+        renderFooter: async () => "",
+      });
+
+      expect(writtenTitle).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicit creationTitle overrides the index.md heading", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    try {
+      mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
+      writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# Heading Title\n");
+
+      let writtenTitle: string | undefined;
+      await refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        rawSpecPath: "v2/spec/test/index.md",
+        creationTitle: "Explicit Title",
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: async () => "",
+        writePrBody: async () => {},
+        fetchPrTitle: async () => "Old Title",
+        writePrTitle: async (_branch, title) => {
+          writtenTitle = title;
+        },
+        renderFooter: async () => "",
+      });
+
+      expect(writtenTitle).toBe("Explicit Title");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed title fetch logs a warning without failing the refresh, and still writes the body", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    try {
+      mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
+      writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n");
+
+      let writtenBody = "";
+      await refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        rawSpecPath: "v2/spec/test/index.md",
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: async () => "",
+        writePrBody: async (_branch, body) => {
+          writtenBody = body;
+        },
+        fetchPrTitle: async () => {
+          throw new Error("gh pr view failed");
+        },
+        writePrTitle: async () => {},
+        renderFooter: async () => "",
+      });
+
+      expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed title write logs a warning without failing the refresh, and still writes the body", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    try {
+      mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
+      writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n");
+
+      let writtenBody = "";
+      await refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        rawSpecPath: "v2/spec/test/index.md",
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: async () => "",
+        writePrBody: async (_branch, body) => {
+          writtenBody = body;
+        },
+        fetchPrTitle: async () => "Old Title",
+        writePrTitle: async () => {
+          throw new Error("gh pr edit failed");
+        },
+        renderFooter: async () => "",
+      });
+
+      expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("defaultWritePrTitle", () => {
+  test("invokes gh pr edit <branch> --title <new>", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-write-"));
+    const fakeGh = join(dir, "gh");
+    const capturedArgsPath = join(dir, "args.txt");
+    writeFileSync(fakeGh, `#!/bin/sh\necho "$@" > "${capturedArgsPath}"\n`);
+    chmodSync(fakeGh, 0o755);
+    try {
+      await defaultWritePrTitle("feature", "New Title", dir, fakeGh);
+      const captured = readFileSync(capturedArgsPath, "utf8").trim();
+      expect(captured).toBe("pr edit feature --title New Title");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 5000);
 });
 
 describe("defaultWritePrBody", () => {

@@ -1,11 +1,16 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   AmbiguousOpenPrError,
   type CompletionPublisherInput,
   createCompletionPublisher,
 } from "./completion-publisher.ts";
+import * as prBodyRefreshModule from "./pr-body-refresh.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
+
+const realRefreshPrBody = prBodyRefreshModule.refreshPrBody;
 
 describe("createCompletionPublisher", () => {
   const baseInput: CompletionPublisherInput = {
@@ -23,6 +28,10 @@ describe("createCompletionPublisher", () => {
     renderFooter: async () => "",
   };
   const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
+
+  afterEach(() => {
+    mock.module("./pr-body-refresh.ts", () => ({ refreshPrBody: realRefreshPrBody }));
+  });
 
   function originPresenceRunner(presentRefs: ReadonlySet<string>, defaultBranch = "main"): AsyncSubprocessRunner {
     return {
@@ -922,6 +931,91 @@ describe("createCompletionPublisher", () => {
     expect(writtenBody).toContain(`Spec: ${baseInput.specPath}`);
     expect(writtenBody).toContain("Written by Claude Opus 4.8 through Jarvis.");
     expect(writtenBody).toContain("---");
+  });
+
+  it("wires title fetch/write seams and input.creationTitle/input.specPath into refreshPrBody, editing when the resolved title differs", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const externalRoot = mkdtempSync(join(process.cwd(), ".scratch", "publisher-external-"));
+    try {
+      const specDir = join(externalRoot, "20260101T000000Z-external-spec");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# Live Heading\n");
+      const externalSpecPath = join(specDir, "index.md");
+
+      let fetchedTitleBranch = "";
+      let writtenTitle = "";
+      const publisher = createCompletionPublisher({
+        git: async (_cwd, args) => {
+          if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+          if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+          return "";
+        },
+        gh: async (_cwd, args) => {
+          if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+          if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+          if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
+          return "";
+        },
+        delay: noopDelay,
+        fetchPrBody: async () => "",
+        writePrBody: async () => {},
+        fetchPrTitle: async (branch) => {
+          fetchedTitleBranch = branch;
+          return "Stale Title";
+        },
+        writePrTitle: async (_branch, title) => {
+          writtenTitle = title;
+        },
+        renderFooter: async () => "",
+      });
+
+      await publisher({
+        ...baseInput,
+        specPath: externalSpecPath,
+        creationTitle: undefined,
+      });
+
+      expect(fetchedTitleBranch).toBe(baseInput.branch);
+      expect(writtenTitle).toBe("Live Heading");
+
+      await publisher({
+        ...baseInput,
+        specPath: externalSpecPath,
+        creationTitle: "Explicit Publisher Title",
+      });
+
+      expect(writtenTitle).toBe("Explicit Publisher Title");
+    } finally {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards a defined input.signal through to refreshPrBody", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    mock.module("./pr-body-refresh.ts", () => ({
+      refreshPrBody: async (input: { signal?: AbortSignal }) => {
+        capturedSignal = input.signal;
+      },
+    }));
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
+        return "";
+      },
+      delay: noopDelay,
+    });
+    const controller = new AbortController();
+
+    await publisher({ ...baseInput, signal: controller.signal });
+
+    expect(capturedSignal).toBe(controller.signal);
   });
 
   it("renders the PR-body Spec line as the spec dir name, not an absolute path, for an out-of-worktree external spec", async () => {

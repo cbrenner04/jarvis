@@ -315,6 +315,77 @@ describe("plan ready-intent output routing", () => {
   });
 });
 
+describe("plan base ref", () => {
+  const repoInput = {
+    cwd: "/repo",
+    readyIntent: "spec/ready-intents/reviewed-plan.md",
+    configPath: repoSpecsConfigPath,
+  };
+
+  test("without --base resolves the repository default base", async () => {
+    let resolveBaseCalled = false;
+    const result = await buildPlanWorkflowSteps(repoInput, {
+      ...builderDeps,
+      resolveBaseBranch: () => {
+        resolveBaseCalled = true;
+        return "trunk";
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    if (step?.behavior !== "write") throw new Error("expected write step");
+    expect(step.worktree.baseRef).toBe("trunk");
+    expect(resolveBaseCalled).toBe(true);
+  });
+
+  test("threads an explicit --base into the specs:repo worktree and skips default resolution", async () => {
+    let resolveBaseCalled = false;
+    const result = await buildPlanWorkflowSteps(
+      { ...repoInput, baseRef: "feature/x" },
+      {
+        ...builderDeps,
+        resolveBaseBranch: () => {
+          resolveBaseCalled = true;
+          return "trunk";
+        },
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    if (step?.behavior !== "write") throw new Error("expected write step");
+    expect(step.worktree.baseRef).toBe("feature/x");
+    expect(resolveBaseCalled).toBe(false);
+  });
+
+  test("threads an explicit --base into the specs:external read-context worktree", async () => {
+    const root = mkdtempSync(join(tmpdir(), "plan-base-ext-"));
+    const config = join(root, "config.json");
+    const readyIntent = "spec/ready-intents/feature.md";
+    mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
+    writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+    writeFileSync(config, JSON.stringify({ projects: { "Org/Repo": { root, specs: "external" } } }));
+    let resolveBaseCalled = false;
+    const result = await buildPlanWorkflowSteps(
+      { cwd: root, readyIntent, configPath: config, baseRef: "epic/base" },
+      {
+        loadWorkflowSteps: load,
+        resolveBaseBranch: () => {
+          resolveBaseCalled = true;
+          return "trunk";
+        },
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    if (step?.behavior !== "write") throw new Error("expected write step");
+    expect(step.worktree).toMatchObject({ git: false, materializeReadCheckout: true, baseRef: "epic/base" });
+    expect(resolveBaseCalled).toBe(false);
+  });
+});
+
 describe("buildPlanWorkflowSteps review composition", () => {
   const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", configPath: repoSpecsConfigPath };
 

@@ -23,6 +23,7 @@ import {
   type BuildImplementWorkflowStepsInput,
   buildImplementWorkflowSteps,
 } from "../execution/implement-workflow-steps.ts";
+import { buildPlanWorkflowSteps, type PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { ReadyGateError, SurvivingMutationError } from "../execution/ready-finalize.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "../execution/workflow-loader.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
@@ -118,7 +119,7 @@ const IMPLEMENT_USAGE =
 const INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--detach]\n";
 const PLAN_USAGE =
-  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
+  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--base <ref>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
 
 function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
   return sent.filter((frame) => (frame as { method?: string }).method === method);
@@ -1364,6 +1365,110 @@ describe("workflow attached entry-terminal wait", () => {
       });
     },
   );
+});
+
+describe("plan --base validation", () => {
+  test("rejects an unresolvable --base before daemon contact, without running the builder", async () => {
+    const cap = captureIo();
+    let builderRan = false;
+    const code = await main(
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "no-such-ref"],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command === "git" && args.includes("rev-parse")) throw new Error("fatal: no-such-ref");
+            return "";
+          },
+        },
+        workflowPresetBuilders: {
+          plan: () => {
+            builderRan = true;
+            return { ok: true, steps: [] };
+          },
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    const { stdout, stderr } = cap.read();
+    expect(stdout).toBe("");
+    expect(stderr).toContain("no-such-ref");
+    expect(stderr).toContain("does not resolve to a tree-ish in the local clone");
+    expect(builderRan).toBe(false);
+  });
+
+  test("rejects a --base strictly behind its upstream (base_behind_origin), like implement", async () => {
+    const cap = captureIo();
+    let builderRan = false;
+    const code = await main(
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "epic/base"],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command !== "git") return "";
+            if (args[0] === "rev-parse") {
+              if (args.includes("--verify")) return ""; // tree-ish exists locally
+              if (args.some((a) => a.includes("@{upstream}"))) return "origin/epic-base";
+              const ref = args[args.length - 1];
+              if (ref === "epic/base") return "aaaaaaaaaaaa";
+              if (ref === "origin/epic-base") return "bbbbbbbbbbbb";
+              return "";
+            }
+            if (args[0] === "merge-base") return ""; // --is-ancestor success: local is behind upstream
+            return ""; // fetch, etc.
+          },
+        },
+        workflowPresetBuilders: {
+          plan: () => {
+            builderRan = true;
+            return { ok: true, steps: [] };
+          },
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("base_behind_origin");
+    expect(builderRan).toBe(false);
+  });
+
+  test("admits a resolvable --base, threads it into the builder input, and dispatches", async () => {
+    const cap = captureIo();
+    const revParseCalls: string[][] = [];
+    let builtBaseRef: string | undefined;
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "epic/base"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command === "git" && args[0] === "rev-parse") revParseCalls.push(args);
+            return ""; // tree-ish resolves; empty @{upstream} => no upstream => freshness admits
+          },
+        },
+        workflowPresetBuilders: {
+          plan: (input) => {
+            builtBaseRef = (input as { baseRef?: string }).baseRef;
+            return { ok: true, steps: fx.fakeImplementSteps };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-777", COMPLETED_WAIT_RESULT), { sent: [] }),
+      }),
+    );
+
+    // Validated the tree-ish against the local clone, threaded the base into the builder, and dispatched.
+    expect(revParseCalls).toContainEqual(["rev-parse", "--verify", "--quiet", "epic/base^{tree}"]);
+    expect(builtBaseRef).toBe("epic/base");
+    expect(code).toBe(0);
+    expect(cap.read().stderr).toBe("");
+  });
 });
 
 describe("review-passes and review-behavior resolution", () => {
@@ -3753,6 +3858,115 @@ describe("implement preflight stale workspace reset", () => {
       await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
     ).trim();
     expect(branchTip).toBe(worktreeHead);
+  });
+
+  test("run workflow plan --base drives the stale-workspace descendant gate instead of the repository default", async () => {
+    // Inversion target: planSource in publication-workflow-steps.ts — ignoring `input.baseRef` (always
+    // resolving the repository default) turns the `--base feature` half RED.
+    const planBranch = "plan/improve-api";
+    const worktreePath = await materializeStaleWorktree(planBranch);
+    const featureHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "feature", featureHead], resetProjectRoot);
+    await commitLaneWork(worktreePath, "base-driven");
+    const { baseHead } = await advanceBasePastStaleWorktree(worktreePath, "base-driven");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-B", "main"], resetProjectRoot);
+    const configPath = join(resetTmp, "plan-base-config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ projects: { demo: { root: realpathSync(resetProjectRoot), specs: "repo" } } }),
+      "utf8",
+    );
+    const resolvedDefaults: string[] = [];
+    // Built outside main's fixed-UUID window (the real builder mints its own ids); the fake preset
+    // hands main the real build for whatever `--base` the CLI threaded into the builder input.
+    const buildFor = async (baseRef: string | undefined) => {
+      const built = await buildPlanWorkflowSteps(
+        {
+          cwd: resetProjectRoot,
+          readyIntent: "index.md",
+          configPath,
+          jarvisRoot: resetJarvisRoot,
+          ...(baseRef === undefined ? {} : { baseRef }),
+        },
+        {
+          resolveProjectMatch: () => ({ key: "demo", root: realpathSync(resetProjectRoot) }),
+          readReadyIntent: () => ({ ok: true, name: "improve-api", content: "---\nname: improve-api\n---\n" }),
+          resolveBaseBranch: () => {
+            resolvedDefaults.push("main");
+            return "main";
+          },
+          loadWorkflowSteps: (steps) =>
+            steps.map((step) =>
+              step.behavior === "write"
+                ? { ...step, agents: ["claude"], agentModelConfig: {} }
+                : step.behavior === "review"
+                  ? { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} }
+                  : {
+                      ...step,
+                      agents: {
+                        adversary: ["claude"],
+                        advocate: ["claude"],
+                        adjudicator: ["claude"],
+                        actuator: ["claude"],
+                      },
+                      agentModelConfig: {},
+                    },
+            ),
+        },
+      );
+      if (!built.ok) throw new Error(built.error);
+      return built;
+    };
+    const builds = new Map([
+      ["<default>", await buildFor(undefined)],
+      ["feature", await buildFor("feature")],
+    ]);
+    const baseRefsSeen: string[] = [];
+    const planBuilder = (input: unknown) => {
+      const built = builds.get((input as PlanWorkflowInput).baseRef ?? "<default>");
+      if (built === undefined) throw new Error("unexpected base");
+      const step = built.steps[0];
+      if (step?.behavior === "write") baseRefsSeen.push(step.worktree.baseRef);
+      return built;
+    };
+
+    const refusedCap = captureIo();
+    const refusedCode = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        refusedCap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: planBuilder },
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+    expect(refusedCode).toBe(1);
+    const refused = refusedCap.read().stderr;
+    expect(refused).toContain("not a descendant");
+    expect(refused).toContain(baseHead);
+    expect(baseRefsSeen).toEqual(["main"]);
+
+    const cap = captureIo();
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md", "--base", "feature"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: planBuilder },
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-plan-base", COMPLETED_WAIT_RESULT)),
+        }),
+      ),
+    );
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("not a descendant");
+    expect(stderr).not.toContain("stale reuse refused");
+    expect(code).toBe(0);
+    expect(baseRefsSeen).toEqual(["main", "feature"]);
+    expect(resolvedDefaults).toEqual(["main"]);
   });
 
   test("run workflow plan preserves the lane and refuses when the never-landed probe is inconclusive", async () => {

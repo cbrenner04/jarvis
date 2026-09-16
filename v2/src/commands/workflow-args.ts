@@ -12,6 +12,7 @@ export const INTENT_WORKFLOW_PARSE_OPTIONS = {
 export const PLAN_WORKFLOW_PARSE_OPTIONS = {
   "ready-intent": { type: "string" },
   "target-dir": { type: "string" },
+  base: { type: "string" },
   "review-passes": { type: "string" },
   "review-behavior": { type: "string" },
   "reset-despite-dirty": { type: "boolean" },
@@ -153,6 +154,7 @@ export type PlanWorkflowCliInput =
       ok: true;
       readyIntent: string;
       targetDir?: string;
+      baseRef?: string;
       resetDespiteDirty?: boolean;
       resetDespiteLandedCriteria?: boolean;
     } & ReviewCliInput)
@@ -173,6 +175,7 @@ export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliI
 
   const readyIntent = typeof values["ready-intent"] === "string" ? values["ready-intent"] : undefined;
   const targetDir = typeof values["target-dir"] === "string" ? values["target-dir"] : undefined;
+  const baseRef = typeof values.base === "string" ? values.base : undefined;
   const review = parseReviewCliInput(values);
   if (review === undefined) return { ok: false };
 
@@ -187,6 +190,7 @@ export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliI
     ok: true,
     readyIntent,
     ...(targetDir !== undefined ? { targetDir } : {}),
+    ...(baseRef !== undefined ? { baseRef } : {}),
     ...review,
     ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
     ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),

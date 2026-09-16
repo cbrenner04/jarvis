@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
+import { findProjectMatch } from "../../../shared/project-registry.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -377,6 +378,32 @@ async function admitStandalonePlanLane(
   return { exitCode, handled: true };
 }
 
+/**
+ * Validate an explicit plan `--base` before any daemon contact: the ref must resolve to a tree-ish
+ * in the matched project's local clone, because both the git-true plan worktree base and the
+ * git-false read-context archive read from that clone. Rejecting a missing ref here (exit 1) means no
+ * run row, worktree, or read-context checkout is ever created for an unresolvable base, and the
+ * git-false read checkout never silently falls back to `HEAD` for an operator-named base.
+ */
+async function validateExplicitPlanBase(
+  baseRef: string | undefined,
+  deps: CliDeps,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (baseRef === undefined) return { ok: true };
+  const project = findProjectMatch(deps.cwd(), deps.readProjectRegistry());
+  if (project === undefined) return { ok: true };
+  const runner = deps.subprocessRunner ?? realAsyncSubprocessRunner;
+  try {
+    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{tree}`], project.root);
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      message: `plan: --base ref '${baseRef}' does not resolve to a local tree-ish in ${project.root}`,
+    };
+  }
+}
+
 export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const resolved = resolveWorkflowPresetBuilder(argv[0], deps);
   if (resolved === undefined) {
@@ -394,6 +421,16 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   }
   const builderInputResult = buildWorkflowBuilderInput(canonicalName, parsed, isIntentPreset, isPlanPreset, deps);
   if (!builderInputResult.ok) return 1;
+  if (isPlanPreset) {
+    const baseValidation = await validateExplicitPlanBase(
+      (parsed as Extract<PlanWorkflowCliInput, { ok: true }>).baseRef,
+      deps,
+    );
+    if (!baseValidation.ok) {
+      io.stderr(`${baseValidation.message}\n`);
+      return 1;
+    }
+  }
   const recovery =
     canonicalName === "implement"
       ? resolveImplementRecoveryRequest(parsed as Extract<ImplementWorkflowCliInput, { ok: true }>, deps)

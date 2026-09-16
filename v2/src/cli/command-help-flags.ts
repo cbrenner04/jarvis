@@ -181,6 +181,11 @@ export const WORKFLOW_INTENT_HELP_FLAGS: readonly CommandFlag[] = [
 export const WORKFLOW_PLAN_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--ready-intent", argumentShape: "<path>", description: "Path to a ready intent file." },
   { name: "--target-dir", argumentShape: "<dir>", description: "Directory for the new spec tree." },
+  {
+    name: "--base",
+    argumentShape: "<ref>",
+    description: "Base git ref the plan reads and branches from (must be a local ref).",
+  },
   ...WORKFLOW_REVIEW_FLAGS,
   WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
   WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG,

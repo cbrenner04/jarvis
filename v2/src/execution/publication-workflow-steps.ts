@@ -48,6 +48,7 @@ export type PlanWorkflowInput = {
   cwd: string;
   readyIntent: string;
   targetDir?: string;
+  baseRef?: string;
   configPath?: string;
   jarvisRoot?: string;
   reviewPasses?: number;
@@ -649,7 +650,10 @@ function planSource(
     // never masquerade as a pre-existing durable plan-tree file at landing.
     const externalReadContextPath = join(specsHome(project.key, root), "plans", `${ready.name}-read-context`);
     const durableSpecPath = git ? specDir : externalPlanPath;
-    const baseRef = await (deps.resolveBaseBranch ?? getBaseBranch)(project.root);
+    // An explicit operator `--base` overrides the repository default; the CLI has already validated
+    // it resolves to a local tree-ish (git-true worktree base and git-false read-context archive both
+    // read from the local clone), so the read checkout never silently falls back to `HEAD`.
+    const baseRef = input.baseRef ?? (await (deps.resolveBaseBranch ?? getBaseBranch)(project.root));
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
       stepId: "plan",

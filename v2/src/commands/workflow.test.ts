@@ -118,7 +118,7 @@ const IMPLEMENT_USAGE =
 const INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--detach]\n";
 const PLAN_USAGE =
-  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
+  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--base <ref>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
 
 function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
   return sent.filter((frame) => (frame as { method?: string }).method === method);
@@ -1364,6 +1364,70 @@ describe("workflow attached entry-terminal wait", () => {
       });
     },
   );
+});
+
+describe("plan --base validation", () => {
+  test("rejects an unresolvable --base before daemon contact, without running the builder", async () => {
+    const cap = captureIo();
+    let builderRan = false;
+    const code = await main(
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "no-such-ref"],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command === "git" && args.includes("rev-parse")) throw new Error("fatal: no-such-ref");
+            return "";
+          },
+        },
+        workflowPresetBuilders: {
+          plan: () => {
+            builderRan = true;
+            return { ok: true, steps: [] };
+          },
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    const { stdout, stderr } = cap.read();
+    expect(stdout).toBe("");
+    expect(stderr).toContain("no-such-ref");
+    expect(stderr).toContain("does not resolve to a local tree-ish");
+    expect(builderRan).toBe(false);
+  });
+
+  test("admits a resolvable --base and proceeds to daemon dispatch", async () => {
+    const cap = captureIo();
+    let revParseArgs: string[] | undefined;
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "epic/base"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command === "git" && args.includes("rev-parse")) {
+              revParseArgs = args;
+              return "";
+            }
+            return "";
+          },
+        },
+        workflowPresetBuilders: {
+          plan: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-777", COMPLETED_WAIT_RESULT), { sent: [] }),
+      }),
+    );
+
+    // Validation ran against the base ref and did not reject; dispatch proceeded.
+    expect(revParseArgs).toEqual(["rev-parse", "--verify", "--quiet", "epic/base^{tree}"]);
+    expect(code).toBe(0);
+    expect(cap.read().stderr).toBe("");
+  });
 });
 
 describe("review-passes and review-behavior resolution", () => {

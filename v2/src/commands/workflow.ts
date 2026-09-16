@@ -13,6 +13,7 @@ import { resolveWritePathIterationBounds } from "../config/machine-config-loader
 import { parseStartResult } from "../daemon/daemon-wire.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import {
+  checkBaseFreshness,
   resolveImplementSpecIdentity,
   validateImplementSpecTreeCompletion,
 } from "../execution/implement-workflow-steps.ts";
@@ -379,29 +380,39 @@ async function admitStandalonePlanLane(
 }
 
 /**
- * Validate an explicit plan `--base` before any daemon contact: the ref must resolve to a tree-ish
- * in the matched project's local clone, because both the git-true plan worktree base and the
- * git-false read-context archive read from that clone. Rejecting a missing ref here (exit 1) means no
- * run row, worktree, or read-context checkout is ever created for an unresolvable base, and the
- * git-false read checkout never silently falls back to `HEAD` for an operator-named base.
+ * Validate an explicit plan `--base` before any daemon contact. The ref must resolve to a tree-ish in
+ * the matched project's local clone (which includes remote-tracking refs like `origin/feature`), because
+ * both the git-true plan worktree base and the git-false read-context archive read from that clone; and,
+ * mirroring `implement --base` (#3381), a local base strictly behind its upstream is refused
+ * `base_behind_origin` so a plan never reads a stale checkout of a predecessor lane. Rejecting here (exit
+ * 1) means no run row, worktree, or read-context checkout is created for an unresolvable or stale base,
+ * and the git-false read checkout never silently falls back to `HEAD` for an operator-named base.
  */
 async function validateExplicitPlanBase(
   baseRef: string | undefined,
   deps: CliDeps,
+  io: Io,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   if (baseRef === undefined) return { ok: true };
+  // No project match is left to the builder, which emits the canonical "no registered project matches"
+  // error; base validation has no project root to resolve the ref against, so it defers rather than
+  // inventing a second no-project message.
   const project = findProjectMatch(deps.cwd(), deps.readProjectRegistry());
   if (project === undefined) return { ok: true };
   const runner = deps.subprocessRunner ?? realAsyncSubprocessRunner;
   try {
     await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{tree}`], project.root);
-    return { ok: true };
   } catch {
     return {
       ok: false,
-      message: `plan: --base ref '${baseRef}' does not resolve to a local tree-ish in ${project.root}`,
+      message: `plan: --base ref '${baseRef}' does not resolve to a tree-ish in the local clone at ${project.root}`,
     };
   }
+  const freshness = await checkBaseFreshness(project.root, baseRef, runner, (message) => io.stderr(`${message}\n`));
+  if (!freshness.ok) {
+    return { ok: false, message: `plan: ${freshness.error}` };
+  }
+  return { ok: true };
 }
 
 export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
@@ -425,6 +436,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
     const baseValidation = await validateExplicitPlanBase(
       (parsed as Extract<PlanWorkflowCliInput, { ok: true }>).baseRef,
       deps,
+      io,
     );
     if (!baseValidation.ok) {
       io.stderr(`${baseValidation.message}\n`);

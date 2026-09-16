@@ -362,8 +362,8 @@ describe("plan base ref", () => {
   test("threads an explicit --base into the specs:external read-context worktree", async () => {
     const root = mkdtempSync(join(tmpdir(), "plan-base-ext-"));
     const config = join(root, "config.json");
-    const readyIntent = "v1/spec/ready-intents/feature.md";
-    mkdirSync(join(root, "v1/spec/ready-intents"), { recursive: true });
+    const readyIntent = "spec/ready-intents/feature.md";
+    mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
     writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
     writeFileSync(config, JSON.stringify({ projects: { "Org/Repo": { root, specs: "external" } } }));
     let resolveBaseCalled = false;

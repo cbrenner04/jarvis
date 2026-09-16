@@ -139,7 +139,7 @@ async function gitStdout(runner: AsyncSubprocessRunner, projectRoot: string, arg
  * No upstream, up-to-date/ahead, diverged, or an unfetchable upstream all admit; `--base origin/main`
  * is the escape hatch.
  */
-async function checkBaseFreshness(
+export async function checkBaseFreshness(
   projectRoot: string,
   baseRef: string,
   runner: AsyncSubprocessRunner,

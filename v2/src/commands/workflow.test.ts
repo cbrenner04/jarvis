@@ -1395,36 +1395,76 @@ describe("plan --base validation", () => {
     const { stdout, stderr } = cap.read();
     expect(stdout).toBe("");
     expect(stderr).toContain("no-such-ref");
-    expect(stderr).toContain("does not resolve to a local tree-ish");
+    expect(stderr).toContain("does not resolve to a tree-ish in the local clone");
     expect(builderRan).toBe(false);
   });
 
-  test("admits a resolvable --base and proceeds to daemon dispatch", async () => {
+  test("rejects a --base strictly behind its upstream (base_behind_origin), like implement", async () => {
     const cap = captureIo();
-    let revParseArgs: string[] | undefined;
+    let builderRan = false;
+    const code = await main(
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "epic/base"],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command !== "git") return "";
+            if (args[0] === "rev-parse") {
+              if (args.includes("--verify")) return ""; // tree-ish exists locally
+              if (args.some((a) => a.includes("@{upstream}"))) return "origin/epic-base";
+              const ref = args[args.length - 1];
+              if (ref === "epic/base") return "aaaaaaaaaaaa";
+              if (ref === "origin/epic-base") return "bbbbbbbbbbbb";
+              return "";
+            }
+            if (args[0] === "merge-base") return ""; // --is-ancestor success: local is behind upstream
+            return ""; // fetch, etc.
+          },
+        },
+        workflowPresetBuilders: {
+          plan: () => {
+            builderRan = true;
+            return { ok: true, steps: [] };
+          },
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("base_behind_origin");
+    expect(builderRan).toBe(false);
+  });
+
+  test("admits a resolvable --base, threads it into the builder input, and dispatches", async () => {
+    const cap = captureIo();
+    const revParseCalls: string[][] = [];
+    let builtBaseRef: string | undefined;
     const code = await withWorkflowUuids("start", "wait", () =>
       main(["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "epic/base"], cap.io, {
         cwd: () => fx.repoSub,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         subprocessRunner: {
           runAsync: async (command: string, args: string[]) => {
-            if (command === "git" && args.includes("rev-parse")) {
-              revParseArgs = args;
-              return "";
-            }
-            return "";
+            if (command === "git" && args[0] === "rev-parse") revParseCalls.push(args);
+            return ""; // tree-ish resolves; empty @{upstream} => no upstream => freshness admits
           },
         },
         workflowPresetBuilders: {
-          plan: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+          plan: (input) => {
+            builtBaseRef = (input as { baseRef?: string }).baseRef;
+            return { ok: true, steps: fx.fakeImplementSteps };
+          },
         },
         connectIpcClient: async () =>
           makeIpcClient(workflowFrames("start", "wait", "run-777", COMPLETED_WAIT_RESULT), { sent: [] }),
       }),
     );
 
-    // Validation ran against the base ref and did not reject; dispatch proceeded.
-    expect(revParseArgs).toEqual(["rev-parse", "--verify", "--quiet", "epic/base^{tree}"]);
+    // Validated the tree-ish against the local clone, threaded the base into the builder, and dispatched.
+    expect(revParseCalls).toContainEqual(["rev-parse", "--verify", "--quiet", "epic/base^{tree}"]);
+    expect(builtBaseRef).toBe("epic/base");
     expect(code).toBe(0);
     expect(cap.read().stderr).toBe("");
   });

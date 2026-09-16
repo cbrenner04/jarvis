@@ -1,4 +1,4 @@
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, relative } from "node:path";
 import { resolveSpecIndexPath } from "./spec-creation-title.ts";
 
 /** Worktree-relative path for PR bodies and completion commit messages. */
@@ -15,7 +15,7 @@ export function normalizePublicationSpecPath(worktreePath: string, specPath: str
 export function formatPublicationSpecPathForPrBody(worktreePath: string, specPath: string): string {
   const normalized = normalizePublicationSpecPath(worktreePath, specPath);
   if (!isAbsolute(normalized)) return normalized;
-  const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+  // normalized is only absolute when specPath was already absolute (see above).
   const indexPath = resolveSpecIndexPath(worktreePath, specPath);
-  return indexPath ? basename(dirname(indexPath)) : basename(resolvedSpecPath);
+  return indexPath ? basename(dirname(indexPath)) : basename(specPath);
 }

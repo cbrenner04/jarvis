@@ -929,7 +929,6 @@ describe("createCompletionPublisher", () => {
 
   it("wires title fetch/write seams and input.creationTitle/input.specPath into refreshPrBody, editing when the resolved title differs", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const worktreeDir = mkdtempSync(join(process.cwd(), ".scratch", "publisher-worktree-"));
     const externalRoot = mkdtempSync(join(process.cwd(), ".scratch", "publisher-external-"));
     try {
       const specDir = join(externalRoot, "20260101T000000Z-external-spec");
@@ -966,7 +965,6 @@ describe("createCompletionPublisher", () => {
 
       await publisher({
         ...baseInput,
-        worktreePath: worktreeDir,
         specPath: externalSpecPath,
         creationTitle: undefined,
       });
@@ -976,14 +974,12 @@ describe("createCompletionPublisher", () => {
 
       await publisher({
         ...baseInput,
-        worktreePath: worktreeDir,
         specPath: externalSpecPath,
         creationTitle: "Explicit Publisher Title",
       });
 
       expect(writtenTitle).toBe("Explicit Publisher Title");
     } finally {
-      rmSync(worktreeDir, { recursive: true, force: true });
       rmSync(externalRoot, { recursive: true, force: true });
     }
   });

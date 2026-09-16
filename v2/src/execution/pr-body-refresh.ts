@@ -63,19 +63,15 @@ function buildHeaderBlock(specPath: string, worktreePath: string, bodySummary?: 
   return summary ? `${header}\n\n${summary}` : header;
 }
 
-function defaultFetchPrBody(branch: string, cwd: string, signal: AbortSignal | undefined): Promise<string> {
+function defaultFetchPrField(
+  field: "body" | "title",
+  branch: string,
+  cwd: string,
+  signal: AbortSignal | undefined,
+): Promise<string> {
   return realAsyncSubprocessRunner.runAsync(
     "gh",
-    ["pr", "view", branch, "--json", "body", "-q", ".body"],
-    cwd,
-    networkSubprocessOptions({ signal }),
-  );
-}
-
-function defaultFetchPrTitle(branch: string, cwd: string, signal: AbortSignal | undefined): Promise<string> {
-  return realAsyncSubprocessRunner.runAsync(
-    "gh",
-    ["pr", "view", branch, "--json", "title", "-q", ".title"],
+    ["pr", "view", branch, "--json", field, "-q", `.${field}`],
     cwd,
     networkSubprocessOptions({ signal }),
   );
@@ -138,7 +134,7 @@ export function defaultWritePrBody(
 
 /** Rewrite the ensured PR body: regenerated `Spec:` header, preserved narrative markers, attribution footer. */
 export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
-  const fetchPrBody = input.fetchPrBody ?? ((branch, cwd) => defaultFetchPrBody(branch, cwd, input.signal));
+  const fetchPrBody = input.fetchPrBody ?? ((branch, cwd) => defaultFetchPrField("body", branch, cwd, input.signal));
   const writePrBody =
     input.writePrBody ??
     ((branch, body, cwd) => defaultWritePrBody(branch, body, cwd, NETWORK_SUBPROCESS_TIMEOUT_MS, "gh", input.signal));
@@ -166,7 +162,7 @@ export async function refreshPrBody(input: RefreshPrBodyInput): Promise<void> {
 
 /** Re-derives and, if changed, edits the PR title. Cosmetic: failures are logged, not thrown. */
 async function refreshPrTitle(input: RefreshPrBodyInput): Promise<void> {
-  const fetchPrTitle = input.fetchPrTitle ?? ((branch, cwd) => defaultFetchPrTitle(branch, cwd, input.signal));
+  const fetchPrTitle = input.fetchPrTitle ?? ((branch, cwd) => defaultFetchPrField("title", branch, cwd, input.signal));
   const writePrTitle =
     input.writePrTitle ?? ((branch, title, cwd) => defaultWritePrTitle(branch, title, cwd, "gh", input.signal));
 

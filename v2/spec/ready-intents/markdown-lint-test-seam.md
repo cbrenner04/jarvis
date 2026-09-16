@@ -15,12 +15,12 @@ Unit tests stop spawning real `markdownlint-cli2`. `validateIntentStage` → `ru
 
 - [ ] A structural test fails when a file outside the integration slice reaches the real lint runner.
 - [ ] One real-binary integration test exists for the intent-landing path and one for the staged-lint path.
-- [ ] `intent-output.test.ts` per-test time falls below 0.5s (before/after in the PR body).
+- [ ] `intent-output.test.ts` per-test time falls below 0.5s.
 - [ ] Test count per slice is unchanged or higher versus the merge base.
 - [ ] `bun run typecheck`, `bun run test`, and `bun run check` pass.
 
 ## Documentation updates
 
-- `v2/docs/test-writing.md` — lint stub seam.
+- `v2/docs/test-writing.md` — lint stub seam; note before/after per-test time.
 
 ## Prerequisites

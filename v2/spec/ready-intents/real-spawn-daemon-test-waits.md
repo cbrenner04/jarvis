@@ -14,12 +14,12 @@ name: real-spawn-daemon-test-waits
 
 ## Acceptance criteria
 
-- [ ] The three files' combined time drops by at least a third (before/after in the PR body) with the same test titles passing.
+- [ ] The three files' combined time drops by at least a third, with the same test titles passing.
 - [ ] Test count per slice is unchanged or higher versus the merge base.
 - [ ] `bun run typecheck`, `bun run test`, and `bun run check` pass.
 
 ## Documentation updates
 
-- `v2/docs/test-writing.md` — real-spawn wait guidance.
+- `v2/docs/test-writing.md` — real-spawn wait guidance; note before/after combined time.
 
 ## Prerequisites

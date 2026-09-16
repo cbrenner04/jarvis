@@ -12,13 +12,13 @@ name: workflow-runner-resume-test-split
 
 ## Acceptance criteria
 
-- [ ] Split files together carry exactly the original test titles (title-count comparison against the pre-split file in the PR body).
+- [ ] Split files together carry exactly the original test titles (full title-set comparison against the pre-split file: same titles, no additions, drops, or renames).
 - [ ] No resulting file exceeds 40s.
 - [ ] `bun run typecheck`, `bun run test`, and `bun run check` pass.
 
 ## Documentation updates
 
-- None; test layout only.
+- None; test layout only. Note the title-set diff against the pre-split file.
 
 ## Prerequisites
 

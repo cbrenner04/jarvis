@@ -292,6 +292,31 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   return { attempts, final, telemetryFailures };
 }
 
+/** Max chars retained for a telemetry text field (`exit_reason`, each `warnings` entry). */
+export const TEXT_FIELD_CAP_CHARS = 4096;
+
+/**
+ * Caps `text` at `TEXT_FIELD_CAP_CHARS`, replacing the head with a
+ * `[truncated, dropped N chars]` marker sized so marker + tail together equal
+ * the cap exactly (the marker counts toward the cap). Keeps the tail, not the
+ * head, since the actionable quota/error line is usually at the end.
+ */
+function capTextField(text: string): string {
+  if (text.length <= TEXT_FIELD_CAP_CHARS) return text;
+  let markerLength = 0;
+  let marker = "";
+  // Marker length depends on droppedChars' digit count, which depends on marker length;
+  // a handful of fixed-point iterations settles this (droppedChars only grows in tiny
+  // steps as markerLength changes, so digit-count crossings are rare and shallow).
+  for (let i = 0; i < 5; i++) {
+    const droppedChars = text.length - (TEXT_FIELD_CAP_CHARS - markerLength);
+    marker = `[truncated, dropped ${droppedChars} chars] `;
+    if (marker.length === markerLength) break;
+    markerLength = marker.length;
+  }
+  return marker + text.slice(text.length - (TEXT_FIELD_CAP_CHARS - marker.length));
+}
+
 function createInvocationCompletedRecord(args: {
   telemetry: InvocationTelemetryContext;
   invocationId: string;
@@ -333,13 +358,11 @@ function createInvocationCompletedRecord(args: {
     usage_source: okResult?.usage_source ?? "unavailable",
     cost_usd: okResult?.cost_usd ?? null,
     cost_source: okResult?.cost_source ?? "unavailable",
-    warnings: okResult?.warnings ?? [],
+    warnings: (okResult?.warnings ?? []).map(capTextField),
     exit_kind: args.result.kind,
     exit_reason:
       args.result.kind === "ok"
         ? null
-        : args.result.kind === "error"
-          ? `exit_code:${args.result.exitCode}`
-          : args.result.stderr,
+        : capTextField(args.result.kind === "error" ? `exit_code:${args.result.exitCode}` : args.result.stderr),
   };
 }

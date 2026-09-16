@@ -15,9 +15,9 @@ The invocation-completed record builder in `shared/invocation/execute.ts` copies
 
 ## Acceptance criteria
 
-- [ ] A test in `shared/invocation/execute.test.ts` drives a `quota`-kind invocation whose single-line `stderr` exceeds the cap and asserts the appended record's `exit_reason` equals the marker plus the stderr tail (combined length `TEXT_FIELD_CAP_CHARS`), and that the session log file contains the full untruncated stderr line; it fails against the pre-fix code.
-- [ ] A test in `shared/invocation/execute.test.ts` drives an `ok`-kind invocation whose `warnings` array holds one oversized entry and one under-cap entry, and asserts the oversized entry is capped the same way (marker + tail), the under-cap entry is unchanged, and the array length is unchanged; it fails against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `shared/invocation/execute.test.ts` drives a `quota`-kind invocation whose single-line `stderr` exceeds the cap and asserts the appended record's `exit_reason` equals the marker plus the stderr tail (combined length `TEXT_FIELD_CAP_CHARS`), and that the session log file contains the full untruncated stderr line; it fails against the pre-fix code.
+- [x] A test in `shared/invocation/execute.test.ts` drives an `ok`-kind invocation whose `warnings` array holds one oversized entry and one under-cap entry, and asserts the oversized entry is capped the same way (marker + tail), the under-cap entry is unchanged, and the array length is unchanged; it fails against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

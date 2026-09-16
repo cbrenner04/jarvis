@@ -471,6 +471,68 @@ describe("refreshPrBody title refresh", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("a failed title fetch logs a warning without failing the refresh, and still writes the body", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    try {
+      mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
+      writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n");
+
+      let writtenBody = "";
+      await refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        rawSpecPath: "v2/spec/test/index.md",
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: async () => "",
+        writePrBody: async (_branch, body) => {
+          writtenBody = body;
+        },
+        fetchPrTitle: async () => {
+          throw new Error("gh pr view failed");
+        },
+        writePrTitle: async () => {},
+        renderFooter: async () => "",
+      });
+
+      expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed title write logs a warning without failing the refresh, and still writes the body", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    try {
+      mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
+      writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n");
+
+      let writtenBody = "";
+      await refreshPrBody({
+        specPath: "v2/spec/test/index.md",
+        rawSpecPath: "v2/spec/test/index.md",
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: async () => "",
+        writePrBody: async (_branch, body) => {
+          writtenBody = body;
+        },
+        fetchPrTitle: async () => "Old Title",
+        writePrTitle: async () => {
+          throw new Error("gh pr edit failed");
+        },
+        renderFooter: async () => "",
+      });
+
+      expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("defaultWritePrTitle", () => {

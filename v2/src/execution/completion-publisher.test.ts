@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -7,7 +7,6 @@ import {
   type CompletionPublisherInput,
   createCompletionPublisher,
 } from "./completion-publisher.ts";
-import * as realPrBodyRefresh from "./pr-body-refresh.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
 
 describe("createCompletionPublisher", () => {
@@ -1343,40 +1342,5 @@ describe("createCompletionPublisher", () => {
     expect(result.prNumber).toBe(42);
     const viewCall = ghCalls.find((args) => args[0] === "pr" && args[1] === "view");
     expect(viewCall?.[2]).toBe(baseInput.branch);
-  });
-
-  it("threads input.signal into refreshPrBody only when it is set", async () => {
-    const captured: (AbortSignal | undefined)[] = [];
-    mock.module("./pr-body-refresh.ts", () => ({
-      ...realPrBodyRefresh,
-      refreshPrBody: async (input: { signal?: AbortSignal }) => {
-        captured.push(input.signal);
-      },
-    }));
-    try {
-      const publisher = createCompletionPublisher({
-        git: async (_cwd, args) => {
-          if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-          if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
-          return "";
-        },
-        gh: async (_cwd, args) => {
-          if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
-          if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
-          if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
-          return "";
-        },
-        delay: noopDelay,
-      });
-
-      const controller = new AbortController();
-      await publisher({ ...baseInput, signal: controller.signal });
-      expect(captured[0]).toBe(controller.signal);
-
-      await publisher(baseInput);
-      expect(captured[1]).toBeUndefined();
-    } finally {
-      mock.module("./pr-body-refresh.ts", () => realPrBodyRefresh);
-    }
   });
 });

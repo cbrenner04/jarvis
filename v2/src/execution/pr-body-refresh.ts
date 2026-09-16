@@ -6,7 +6,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { renderAttribution } from "./pr-attribution.ts";
-import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
+import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
 
 export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
@@ -44,7 +44,7 @@ export function extractNarrative(prBody: string): string | null {
 }
 
 function buildSpecHeader(specPath: string, worktreePath: string): string {
-  return `Spec: ${normalizePublicationSpecPath(worktreePath, specPath)}`;
+  return `Spec: ${formatPublicationSpecPathForPrBody(worktreePath, specPath)}`;
 }
 
 function buildHeaderBlock(specPath: string, worktreePath: string, bodySummary?: string): string {

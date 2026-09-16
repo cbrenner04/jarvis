@@ -154,6 +154,37 @@ describe("createCompletionCommitter", () => {
     expect(message).toContain("Jarvis-Agent: claude");
   });
 
+  test("commit-body Spec trailer keeps the full absolute path for an external spec, unlike the PR-body formatter", async () => {
+    const { worktreePath, gitDir } = setupWorktree();
+    const calls: GitCall[] = [];
+    const externalSpecPath = "/external/specs/20260916T203232Z-external-demo/index.md";
+
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "rev-parse" && args[1] === "base-head^{tree}") return "base-tree";
+      if (args[0] === "symbolic-ref") return "refs/heads/feature";
+      if (args[0] === "commit-tree") return "new-commit";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+
+    const committer = createCompletionCommitter(runGit);
+    await committer({
+      worktreePath,
+      baseRef: "main",
+      specPath: externalSpecPath,
+      agent: "claude",
+      title: "Test Spec Title",
+    });
+
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    const message = commitCall?.args[commitCall.args.indexOf("-m") + 1];
+    expect(message).toContain(`Spec: ${externalSpecPath}`);
+  });
+
   test("an intent landing directory (no index.md) commits with the caller-supplied title", async () => {
     // Regression: intent workflows land into `v2/spec/ready-intents`, a directory
     // with no index.md. The committer used to re-resolve its subject from that

@@ -18,6 +18,34 @@ function firstProseLine(body: string): string | undefined {
   return undefined;
 }
 
+/** First paragraph under the index's H1, or undefined when the H1 is immediately followed by a heading/list/EOF. */
+function indexOverviewParagraph(content: string): string | undefined {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const h1Index = lines.findIndex((line) => /^#\s+/.test(line));
+  if (h1Index === -1) return undefined;
+  let i = h1Index + 1;
+  while (i < lines.length && (lines[i] ?? "").trim() === "") i += 1;
+  const paraLines: string[] = [];
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "" || /^#{1,6}\s/.test(line) || /^\s*[-*+]\s/.test(line)) break;
+    paraLines.push(line.trim());
+    i += 1;
+  }
+  return paraLines.length === 0 ? undefined : paraLines.join(" ");
+}
+
+/** `## Overview`: opening paragraph plus one bullet per linked subspec's H1 title; omitted when both are empty. */
+function renderOverview(paragraph: string | undefined, subspecTitles: readonly string[]): string[] {
+  if (paragraph === undefined && subspecTitles.length === 0) return [];
+  const lines = ["## Overview"];
+  if (paragraph !== undefined) lines.push("", paragraph);
+  if (subspecTitles.length > 0) {
+    lines.push("", ...subspecTitles.map((title) => `- ${title}`));
+  }
+  return lines;
+}
+
 function area(path: string): string {
   const parts = path.split("/");
   return parts.length === 1 ? "(root)" : parts.slice(0, 2).join("/");
@@ -41,12 +69,14 @@ function commitBullet(commit: CommitInfo): string {
 }
 
 function renderTemplate(
+  overview: { paragraph: string | undefined; subspecTitles: readonly string[] },
   subspecs: readonly { title: string; why: string | undefined }[],
   commits: readonly CommitInfo[],
   diffs: readonly DiffStat[],
 ): string {
-  const lines: string[] = [];
+  const lines: string[] = [...renderOverview(overview.paragraph, overview.subspecTitles)];
   if (subspecs.length > 0) {
+    if (lines.length > 0) lines.push("");
     lines.push("## Subspecs");
     for (const { title, why } of subspecs) {
       lines.push(`- ${title}${why === undefined ? "" : ` — ${why}`}`);
@@ -131,7 +161,8 @@ export async function deriveSpecRunBodySummary(
 ): Promise<string> {
   const indexPath = resolveSpecIndexPath(input.worktreePath, input.specPath);
   if (!existsSync(indexPath)) return "(no content)";
-  const index = parseSpec(readFileSync(indexPath, "utf8"));
+  const indexContent = readFileSync(indexPath, "utf8");
+  const index = parseSpec(indexContent);
   const bodies = index.linkedSubspecs.map((subspec) => {
     try {
       return readFileSync(join(dirname(indexPath), subspec.path), "utf8");
@@ -145,6 +176,10 @@ export async function deriveSpecRunBodySummary(
     readDiffStats(input.worktreePath, input.baseRef, git, input),
   ]);
   return renderTemplate(
+    {
+      paragraph: indexOverviewParagraph(indexContent),
+      subspecTitles: index.linkedSubspecs.map((subspec, i) => parseSpec(bodies[i] ?? "").h1 ?? subspec.text),
+    },
     index.linkedSubspecs.map((subspec, i) => ({ title: subspec.text, why: firstProseLine(bodies[i] ?? "") })),
     commits,
     diffs,

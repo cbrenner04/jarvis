@@ -581,3 +581,13 @@ A second review pass then caught that resumable outcomes (kill, pause, budget st
 | `pipeline-lane-ready-pr-notifies` | — | — | seeded #3919, P0 |
 
 Specs archived 2026-09-15 ([#3923](https://github.com/cbrenner04/jarvis/pull/3923)): unified-pipeline-namespace, protect-draining-run-ownership, route-pipeline-verbs, remove-client-daemon-socket-discovery, retire-digest-daemon-artifacts, project-specs-config-key, tui-monitor and tui-log-follow revision-follow, session-logs-honor-jarvis-home (cleanup's two unpushed `cleanup/archive-*` branches plus two by hand).
+
+## 2026-09-16 session
+
+| Seed / lane | Plan | Impl | Status |
+| --- | --- | --- | --- |
+| `implement-pr-body-is-reviewer-facing` (#3934) | — | — | seeded, P0 (operator-directed first) |
+| `opencode-adapter-read-dir-grant` | — | — | ready-intent re-queued from closed #3929 (docs claim opencode `permission.external_directory`; no code emits it) |
+| `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | telemetry lane hand-finish pending | pipeline `25784a7e` dismissed; cleanup lane unapproved, carried |
+
+Closed at session start: #3595, #3464 (daemon-identity chain); PRs #3929, #3930, #3932 superseded by #3931/#3933.

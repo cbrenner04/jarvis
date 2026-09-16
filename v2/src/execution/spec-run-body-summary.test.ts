@@ -11,7 +11,7 @@ describe("deriveSpecRunBodySummary", () => {
     tempDir = "";
   });
 
-  test("renders why lines, commits, risk, totals, ordered areas, truncation, and binaries", async () => {
+  test("renders why lines, risk, totals, ordered areas, truncation, and binaries; drops commits", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "spec-summary-"));
     const specDir = join(tempDir, "v2/spec/demo");
     mkdirSync(specDir, { recursive: true });
@@ -46,8 +46,8 @@ describe("deriveSpecRunBodySummary", () => {
       "- 00 - First — This is a deliberately long explanation that exceeds the fixed renderer bound an…",
     );
     expect(summary).toContain("- 01 - Second — Second why.");
-    expect(summary).toContain("- older subject \u2014 Claude Opus 4.8");
-    expect(summary).toContain("- new subject \u2014 Codex GPT-5.3");
+    expect(summary).not.toContain("## Commits");
+    expect(summary).not.toContain("- older subject \u2014 Claude Opus 4.8");
     expect(summary).toContain("## Risk cues\n- no test changes");
     expect(summary).toContain("3 files changed (+13/-3)");
     expect(summary).toContain("- v2/src: 1 file (+10/-2)");

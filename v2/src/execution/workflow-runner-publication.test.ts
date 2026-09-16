@@ -2327,8 +2327,7 @@ describe("executeWorkflow completion publication", () => {
       const summary = summaries[0];
       expect(summary).toContain("## Subspecs");
       expect(summary).toContain("- 00 - First — Implement the feature.");
-      expect(summary).toContain("## Commits");
-      expect(summary).toContain("- add feature \u2014 unknown");
+      expect(summary).not.toContain("## Commits");
       expect(summary).toContain("## Risk cues\n- no test changes");
       expect(summary).toContain("## Change summary");
       expect(summary).toContain("v2/src");
@@ -2370,55 +2369,6 @@ describe("executeWorkflow completion publication", () => {
       expect(specTemplates).toEqual([true, true]);
       expect(summaries[0]).toBe(summaries[1]);
     });
-  });
-
-  test("implement spec-run body summary Commits block lists each per-turn commit with its Jarvis-Agent", async () => {
-    const summaries: Array<string | undefined> = [];
-    const workspace = initGitWorkspace("implement-commits-agents-");
-    mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
-    writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
-    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
-    const branch = "implement-commits-agents";
-    const first = publicationWriteStep({
-      workspace,
-      baseRef,
-      branch,
-      stepId: "implement-first",
-      artifact: "first.txt",
-      title: "First subspec",
-      suppressShrink: true,
-    });
-    const second = publicationWriteStep({
-      workspace,
-      baseRef,
-      branch,
-      stepId: "implement-second",
-      artifact: "second.txt",
-      title: "Second subspec",
-      suppressShrink: true,
-    });
-
-    await withStateStore(async (store) => {
-      const result = await executeWorkflow({
-        steps: [first, second, publicationReviewStep(workspace, branch)],
-        stateStore: store,
-        completionPublisher: async (input) => {
-          summaries.push(input.bodySummary);
-          return {};
-        },
-        readyFinalizer: async () => {},
-      });
-      expect(result.kind).toBe("complete");
-    });
-
-    const summary = summaries[0];
-    expect(summary).toContain("## Commits");
-    expect(summary).toContain("- First subspec \u2014 claude");
-    expect(summary).toContain("- Second subspec \u2014 claude");
-    expect(summary).toContain("- review(1): Publication history \u2014 codex");
-    expect(summary).not.toMatch(
-      /## Commits[\s\S]*- review\(1\): Publication history \u2014 codex[\s\S]*- First subspec/,
-    );
   });
 
   /** Commit `fileName` in `workspace` as the base commit, returning its sha. */

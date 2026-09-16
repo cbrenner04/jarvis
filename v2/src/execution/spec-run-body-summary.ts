@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
-import { type CommitInfo, readBranchCommits } from "./pr-attribution.ts";
 import { resolveSpecIndexPath } from "./spec-creation-title.ts";
 
 type DiffStat = { added: number; removed: number; path: string };
@@ -63,15 +62,9 @@ function riskCue(diffs: readonly DiffStat[]): string | undefined {
   return source && !tests ? "no test changes" : undefined;
 }
 
-function commitBullet(commit: CommitInfo): string {
-  const label = commit.jarvisAgentTrailers.length === 0 ? "unknown" : commit.jarvisAgentTrailers.join(", ");
-  return `- ${commit.subject} \u2014 ${label}`;
-}
-
 function renderTemplate(
   overview: { paragraph: string | undefined; subspecTitles: readonly string[] },
   subspecs: readonly { title: string; why: string | undefined }[],
-  commits: readonly CommitInfo[],
   diffs: readonly DiffStat[],
 ): string {
   const lines: string[] = [...renderOverview(overview.paragraph, overview.subspecTitles)];
@@ -81,10 +74,6 @@ function renderTemplate(
     for (const { title, why } of subspecs) {
       lines.push(`- ${title}${why === undefined ? "" : ` — ${why}`}`);
     }
-  }
-  if (commits.length > 0) {
-    if (lines.length > 0) lines.push("");
-    lines.push("## Commits", ...commits.map(commitBullet));
   }
   if (diffs.length > 0) {
     if (lines.length > 0) lines.push("");
@@ -171,17 +160,13 @@ export async function deriveSpecRunBodySummary(
     }
   });
   const git = input.git ?? ((cwd, args) => realAsyncSubprocessRunner.runAsync("git", [...args], cwd));
-  const [commits, diffs] = await Promise.all([
-    readBranchCommits({ cwd: input.worktreePath, base: input.baseRef, git }).catch(() => []),
-    readDiffStats(input.worktreePath, input.baseRef, git, input),
-  ]);
+  const diffs = await readDiffStats(input.worktreePath, input.baseRef, git, input);
   return renderTemplate(
     {
       paragraph: indexOverviewParagraph(indexContent),
       subspecTitles: index.linkedSubspecs.map((subspec, i) => parseSpec(bodies[i] ?? "").h1 ?? subspec.text),
     },
     index.linkedSubspecs.map((subspec, i) => ({ title: subspec.text, why: firstProseLine(bodies[i] ?? "") })),
-    commits,
     diffs,
   );
 }

@@ -6,7 +6,7 @@ const COMMIT_FIELD_SEP = "\x1f";
 const COMMIT_RECORD_SEP = "\x1e";
 const TRAILER_VALUE_SEP = "\x02";
 
-export type CommitInfo = {
+type CommitInfo = {
   shortSha: string;
   subject: string;
   firstBodyLine: string;
@@ -169,7 +169,7 @@ export async function renderAttribution(opts: { cwd: string; base: string; git?:
       lines.push(stepLine);
     }
   }
-  return lines.join("\n");
+  return `<details><summary>Jarvis attribution</summary>\n\n${lines.join("\n")}\n\n</details>`;
 }
 
 /** Per-agent `<Label> — Steps: ...` lines for agents whose classified commits span more than

@@ -198,9 +198,6 @@ Spec: v2/spec/your-spec/index.md
 ## Subspecs
 - 00 - Safer checkout — Prevents unsafe checkout state.
 
-## Commits
-- implement safer checkout
-
 ## Change summary
 2 files changed (+18/-4)
 
@@ -208,7 +205,7 @@ Spec: v2/spec/your-spec/index.md
 - v2/test: 1 file (+3/-1)
 ```
 
-Plan and implement PR bodies contain the deterministic template after `Spec:`: linked subspec why lines, branch commit subjects, risk cues, and a diff summary. The template is regenerated on each publication retry; plain narrative markers and the attribution footer remain around it. Intent PRs retain their landed-file summary.
+Plan and implement PR bodies contain the deterministic template after `Spec:`: linked subspec why lines, risk cues, and a diff summary. The template is regenerated on each publication retry; plain narrative markers and the attribution footer remain around it. Commits appear once, in the attribution footer. Intent PRs retain their landed-file summary.
 
 ### Finding the branch and PR
 

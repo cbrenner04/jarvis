@@ -325,6 +325,65 @@ describe("refreshPrBody", () => {
     expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
   });
 
+  test("renders the spec dir name, not an absolute path, for an out-of-worktree external spec", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const worktreePath = mkdtempSync(join(process.cwd(), ".scratch", "pr-body-worktree-"));
+    const externalRoot = mkdtempSync(join(process.cwd(), ".scratch", "pr-body-external-"));
+    try {
+      const specDir = join(externalRoot, "20260101T000000Z-my-spec");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "index.md"), "# My Spec\n", "utf8");
+
+      let writtenBody = "";
+      await refreshPrBody({
+        specPath: join(specDir, "index.md"),
+        branch: "feature",
+        base: "main",
+        cwd: worktreePath,
+        fetchPrBody: async () => "",
+        writePrBody: async (_branch, body) => {
+          writtenBody = body;
+        },
+        renderFooter: async () => "",
+      });
+
+      expect(writtenBody).toBe("Spec: 20260101T000000Z-my-spec");
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("renders the spec file's own basename, not its parent directory, for a single-file external spec", async () => {
+    mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
+    const worktreePath = mkdtempSync(join(process.cwd(), ".scratch", "pr-body-worktree-"));
+    const externalRoot = mkdtempSync(join(process.cwd(), ".scratch", "pr-body-external-"));
+    try {
+      const specDir = join(externalRoot, "parent-dir-name");
+      mkdirSync(specDir, { recursive: true });
+      const specFile = join(specDir, "foo.md");
+      writeFileSync(specFile, "# Foo\n", "utf8");
+
+      let writtenBody = "";
+      await refreshPrBody({
+        specPath: specFile,
+        branch: "feature",
+        base: "main",
+        cwd: worktreePath,
+        fetchPrBody: async () => "",
+        writePrBody: async (_branch, body) => {
+          writtenBody = body;
+        },
+        renderFooter: async () => "",
+      });
+
+      expect(writtenBody).toBe("Spec: foo.md");
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+
   test("treats empty or whitespace-only supplied narrative as absent", async () => {
     let writtenBody1 = "";
     await refreshPrBody({

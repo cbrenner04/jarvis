@@ -12,7 +12,7 @@ import {
   defaultPublicationRetryNotice,
   runPublicationWithRetry,
 } from "./publication-retry.ts";
-import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
+import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 
@@ -79,7 +79,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
   return async (input) => {
     const git: Git = seams?.git ?? ((cwd, args, env) => defaultCommand("git", cwd, args, env, input.signal));
     const gh: GhCommand = seams?.gh ?? ((cwd, args, env) => defaultCommand("gh", cwd, args, env, input.signal));
-    const specPath = normalizePublicationSpecPath(input.worktreePath, input.specPath);
+    const specPath = formatPublicationSpecPathForPrBody(input.worktreePath, input.specPath);
     const subprocessRunner = seams?.subprocessRunner ?? realAsyncSubprocessRunner;
     const requestedBaseRef = input.baseRef;
     let effectiveBaseRef = requestedBaseRef;

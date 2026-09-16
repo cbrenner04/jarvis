@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync, execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   defaultWritePrBody,
@@ -9,6 +11,7 @@ import {
   NARRATIVE_START_MARKER,
   refreshPrBody,
 } from "./pr-body-refresh.ts";
+import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 
 describe("extractNarrative", () => {
   test("returns null when markers are absent", () => {
@@ -568,4 +571,56 @@ describe("defaultWritePrBody", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 5000);
+});
+
+describe("refreshPrBody with real git fixture", () => {
+  test("lists a qualifying commit's subject and label exactly once, with no ## Commits heading", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "v2-pr-body-refresh-fixture-"));
+    try {
+      execSync("git init -q", { cwd: dir, stdio: "pipe" });
+      execSync("git config user.email 'test@example.com'", { cwd: dir, stdio: "pipe" });
+      execSync("git config user.name 'Test User'", { cwd: dir, stdio: "pipe" });
+      execSync("git config commit.gpgsign false", { cwd: dir, stdio: "pipe" });
+      execSync("git checkout -q -b base", { cwd: dir, stdio: "pipe" });
+      writeFileSync(join(dir, "seed.txt"), "seed\n");
+      execSync("git add -A", { cwd: dir, stdio: "pipe" });
+      execSync("git commit -q -m 'seed'", { cwd: dir, stdio: "pipe" });
+      execSync("git checkout -q -b feature", { cwd: dir, stdio: "pipe" });
+
+      mkdirSync(join(dir, "v2", "spec", "demo"), { recursive: true });
+      writeFileSync(join(dir, "v2", "spec", "demo", "index.md"), "# Demo\n\n- [x] [00 - First](./00-first.md)\n");
+      writeFileSync(join(dir, "v2", "spec", "demo", "00-first.md"), "# First\n\nWhy.\n");
+      execSync("git add -A", { cwd: dir, stdio: "pipe" });
+      execFileSync("git", ["commit", "-q", "-F", "-"], {
+        cwd: dir,
+        input: "jarvis: complete run\n\nSpec: v2/spec/demo/index.md\n\nJarvis-Agent: Claude Opus 4.8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      const bodySummary = await deriveSpecRunBodySummary({
+        worktreePath: dir,
+        specPath: "v2/spec/demo/index.md",
+        baseRef: "base",
+      });
+
+      let writtenBody = "";
+      await refreshPrBody({
+        specPath: "v2/spec/demo/index.md",
+        branch: "feature",
+        base: "base",
+        cwd: dir,
+        bodySummary,
+        fetchPrBody: async () => "",
+        writePrBody: async (_branch, body) => {
+          writtenBody = body;
+        },
+      });
+
+      const bullet = "jarvis: complete run — Claude Opus 4.8";
+      expect(writtenBody.split(bullet).length - 1).toBe(1);
+      expect(writtenBody).not.toContain("## Commits");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

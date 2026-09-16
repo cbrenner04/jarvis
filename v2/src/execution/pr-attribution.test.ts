@@ -60,9 +60,15 @@ describe("renderAttribution", () => {
     commitWithMessage("a.txt", "jarvis: complete run\n\nSpec: spec/foo/index.md\n\nJarvis-Agent: Claude Opus 4.8");
     const sha = shortSha("HEAD");
     expect(await renderAttribution({ cwd: dir, base: "base" })).toBe(
-      [`- ${sha} jarvis: complete run \u2014 Claude Opus 4.8`, "", "Written by Claude Opus 4.8 through Jarvis."].join(
-        "\n",
-      ),
+      [
+        "<details><summary>Jarvis attribution</summary>",
+        "",
+        `- ${sha} jarvis: complete run \u2014 Claude Opus 4.8`,
+        "",
+        "Written by Claude Opus 4.8 through Jarvis.",
+        "",
+        "</details>",
+      ].join("\n"),
     );
   });
 
@@ -80,14 +86,22 @@ describe("renderAttribution", () => {
     commitWithMessage("c.txt", "Third\n\nSpec: spec/foo/02-third.md\n\nJarvis-Agent: Claude Opus 4.8");
     commitWithMessage("d.txt", "Fourth\n\nSpec: spec/foo/03-fourth.md\n\nJarvis-Agent: Cursor Composer 2");
     const out = await renderAttribution({ cwd: dir, base: "base" });
-    expect(out.endsWith("Written by Claude Opus 4.8, Codex GPT-5.3, Cursor Composer 2 through Jarvis.")).toBe(true);
+    expect(out).toContain("Written by Claude Opus 4.8, Codex GPT-5.3, Cursor Composer 2 through Jarvis.\n\n</details>");
   });
 
   test("renders 'unknown' for commits missing the trailer", async () => {
     commitWithMessage("a.txt", "No-trailer subspec\n\nSpec: spec/foo/00-first.md\n");
     const sha = shortSha("HEAD");
     const out = await renderAttribution({ cwd: dir, base: "base" });
-    expect(out).toBe(`- ${sha} No-trailer subspec \u2014 unknown`);
+    expect(out).toBe(
+      [
+        "<details><summary>Jarvis attribution</summary>",
+        "",
+        `- ${sha} No-trailer subspec \u2014 unknown`,
+        "",
+        "</details>",
+      ].join("\n"),
+    );
     expect(out).not.toContain("Written by");
   });
 
@@ -107,7 +121,7 @@ describe("renderAttribution", () => {
     );
     const sha = shortSha("HEAD");
     const out = await renderAttribution({ cwd: dir, base: "base" });
-    expect(out.split("\n")[0]).toBe(`- ${sha} First \u2014 Claude Opus 4.8, Codex GPT-5.3`);
+    expect(out.split("\n")[2]).toBe(`- ${sha} First \u2014 Claude Opus 4.8, Codex GPT-5.3`);
   });
 
   test("renders ordered mixed step counts per agent", async () => {
@@ -175,6 +189,42 @@ describe("renderAttribution", () => {
     commitWithMessage("b.txt", "WIP: progress\n\nNo Spec: line here\n\nJarvis-Agent: Z\nJarvis-Step: review 1");
     const out = await renderAttribution({ cwd: dir, base: "base" });
     expect(out).not.toContain("Steps:");
+  });
+
+  test("wraps bullets, Written by, and Steps lines inside a collapsed <details> block", async () => {
+    commitWithMessage(
+      "a.txt",
+      "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: write",
+    );
+    commitWithMessage(
+      "b.txt",
+      "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: review 1",
+    );
+    const shaA = shortSha("HEAD~1");
+    const shaB = shortSha("HEAD");
+    const out = await renderAttribution({ cwd: dir, base: "base" });
+
+    const openTag = "<details><summary>Jarvis attribution</summary>";
+    const closeTag = "</details>";
+    const openIdx = out.indexOf(openTag);
+    const closeIdx = out.indexOf(closeTag);
+    expect(openIdx).toBe(0);
+    expect(closeIdx).toBeGreaterThan(openIdx);
+
+    const before = out.slice(0, openIdx + openTag.length);
+    const inside = out.slice(openIdx + openTag.length, closeIdx);
+    const after = out.slice(closeIdx + closeTag.length);
+
+    for (const needle of [
+      `- ${shaA} First — Claude Opus 4.8`,
+      `- ${shaB} Second — Claude Opus 4.8`,
+      "Written by Claude Opus 4.8 through Jarvis.",
+      "Claude Opus 4.8 — Steps:",
+    ]) {
+      expect(inside).toContain(needle);
+      expect(before).not.toContain(needle);
+      expect(after).not.toContain(needle);
+    }
   });
 });
 

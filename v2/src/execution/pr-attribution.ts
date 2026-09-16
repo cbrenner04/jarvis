@@ -169,7 +169,7 @@ export async function renderAttribution(opts: { cwd: string; base: string; git?:
       lines.push(stepLine);
     }
   }
-  return lines.join("\n");
+  return `<details><summary>Jarvis attribution</summary>\n\n${lines.join("\n")}\n\n</details>`;
 }
 
 /** Per-agent `<Label> — Steps: ...` lines for agents whose classified commits span more than

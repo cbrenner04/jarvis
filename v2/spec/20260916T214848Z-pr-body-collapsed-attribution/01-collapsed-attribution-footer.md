@@ -13,9 +13,9 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/execution/pr-attribution.test.ts` asserts `Written by`, `— Steps:`, and each `<shortSha> <subject> — <label>` bullet appear only between `<details><summary>Jarvis attribution</summary>` and `</details>`; it fails against the pre-fix code.
-- [ ] A test in `v2/src/execution/pr-body-refresh.test.ts` drives `refreshPrBody` through a real git-repo fixture (à la `pr-attribution.test.ts`'s `gitInit`/`commitWithMessage` helpers) with one `Spec:`-prefixed qualifying commit, using the real (unmocked) `deriveSpecRunBodySummary` as `bodySummary` and the real (unmocked) `renderAttribution` footer (only `fetchPrBody`/`writePrBody` are stubbed). It asserts the written body contains that commit's subject and `— <label>` exactly once, and contains no `## Commits` heading; it fails against the pre-fix code (today `## Commits`, from the unfiltered commit list, duplicates the footer's subject/label bullet for any commit qualifying under both).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/execution/pr-attribution.test.ts` asserts `Written by`, `— Steps:`, and each `<shortSha> <subject> — <label>` bullet appear only between `<details><summary>Jarvis attribution</summary>` and `</details>`; it fails against the pre-fix code.
+- [x] A test in `v2/src/execution/pr-body-refresh.test.ts` drives `refreshPrBody` through a real git-repo fixture (à la `pr-attribution.test.ts`'s `gitInit`/`commitWithMessage` helpers) with one `Spec:`-prefixed qualifying commit, using the real (unmocked) `deriveSpecRunBodySummary` as `bodySummary` and the real (unmocked) `renderAttribution` footer (only `fetchPrBody`/`writePrBody` are stubbed). It asserts the written body contains that commit's subject and `— <label>` exactly once, and contains no `## Commits` heading; it fails against the pre-fix code (today `## Commits`, from the unfiltered commit list, duplicates the footer's subject/label bullet for any commit qualifying under both).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

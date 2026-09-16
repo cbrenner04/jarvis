@@ -6,7 +6,7 @@ name: pr-body-collapsed-attribution
 
 ## Prerequisites
 
-- Implement PR bodies open with `## Overview` and carry no absolute spec path.
+- Implement PR bodies open with `## Overview` and carry no absolute spec path (`pr-body-spec-line-and-overview`) — both subspecs edit `spec-run-body-summary.ts`'s `renderTemplate`/`commitBullet` output; land after it to avoid conflicting edits to the same section-assembly code.
 
 ## Problem
 

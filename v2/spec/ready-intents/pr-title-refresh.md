@@ -6,8 +6,7 @@ name: pr-title-refresh
 
 ## Prerequisites
 
-- Implement PR bodies open with `## Overview` and carry no absolute spec path.
-- Implement PR body attribution renders in a single collapsed `<details>` block with one commit list.
+- Implement PR bodies open with `## Overview` and carry no absolute spec path (`pr-body-spec-line-and-overview`) — that subspec also edits `pr-body-refresh.ts`'s `buildSpecHeader`/`refreshPrBody`, the same function the title-diff check hooks into; land after it to avoid conflicting edits there.
 
 ## Problem
 

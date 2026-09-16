@@ -85,7 +85,7 @@ function buildRefreshPrBodyInput(
     ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
     ...(seams?.fetchPrTitle !== undefined ? { fetchPrTitle: seams.fetchPrTitle } : {}),
     ...(seams?.writePrTitle !== undefined ? { writePrTitle: seams.writePrTitle } : {}),
-    ...(input.signal !== undefined ? { signal: input.signal } : {}),
+    signal: input.signal,
     ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
   };
 }

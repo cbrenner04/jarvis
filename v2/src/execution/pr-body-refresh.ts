@@ -37,7 +37,7 @@ export type RefreshPrBodyInput = {
   renderFooter?: (opts: { cwd: string; base: string; git?: Git }) => Promise<string>;
   git?: Git;
   /** Aborts the default `gh` fetch/write. */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 };
 
 export function extractNarrative(prBody: string): string | null {

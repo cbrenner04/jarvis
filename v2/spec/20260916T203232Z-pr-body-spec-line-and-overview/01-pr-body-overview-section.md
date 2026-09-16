@@ -15,11 +15,11 @@ Implement PR bodies (`v2/src/execution/spec-run-body-summary.ts`) carry only Sub
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/spec-run-body-summary.test.ts` asserts the rendered body's first `##` section is `## Overview` carrying the spec index opening paragraph and each subspec title, followed by `## Subspecs`; it fails against the pre-fix code.
-- [ ] A new test in `v2/src/execution/spec-run-body-summary.test.ts` drives an index with no opening paragraph and asserts `## Overview` keeps the subspec-title bullets with no paragraph line.
-- [ ] A new test in `v2/src/execution/spec-run-body-summary.test.ts` drives an index with no opening paragraph and no linked subspecs and asserts the rendered body omits `## Overview` entirely.
-- [ ] `v2/src/execution/pr-body-refresh.test.ts` narrative-marker tests stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A new test in `v2/src/execution/spec-run-body-summary.test.ts` asserts the rendered body's first `##` section is `## Overview` carrying the spec index opening paragraph and each subspec title, followed by `## Subspecs`; it fails against the pre-fix code.
+- [x] A new test in `v2/src/execution/spec-run-body-summary.test.ts` drives an index with no opening paragraph and asserts `## Overview` keeps the subspec-title bullets with no paragraph line.
+- [x] A new test in `v2/src/execution/spec-run-body-summary.test.ts` drives an index with no opening paragraph and no linked subspecs and asserts the rendered body omits `## Overview` entirely.
+- [x] `v2/src/execution/pr-body-refresh.test.ts` narrative-marker tests stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

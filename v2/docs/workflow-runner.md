@@ -428,7 +428,7 @@ No new workflow-level budget, pause, or abort concept — each step inherits its
 
 ## Implement PR body template
 
-Implement completion uses `deriveSpecRunBodySummary` (same renderer as plan) with `specTemplate: true` so publication retries re-derive from the spec tree and `baseRef...HEAD` diff. Sections: Subspecs, Commits, optional Risk cues, Change summary — after the `Spec:` line, before narrative markers and attribution. Sources: `v2/src/execution/workflow-runner.ts`, `v2/src/execution/spec-run-body-summary.ts`, `v2/src/execution/completion-publisher.ts`, `v2/src/execution/pr-body-refresh.ts`.
+Implement completion uses `deriveSpecRunBodySummary` (same renderer as plan) with `specTemplate: true` so publication retries re-derive from the spec tree and `baseRef...HEAD` diff. Sections: optional Overview (spec index's opening paragraph plus each linked subspec's H1 title as a bullet — omitted only when both are empty), Subspecs, Commits, optional Risk cues, Change summary — after the `Spec:` line, before narrative markers and attribution. Sources: `v2/src/execution/workflow-runner.ts`, `v2/src/execution/spec-run-body-summary.ts`, `v2/src/execution/completion-publisher.ts`, `v2/src/execution/pr-body-refresh.ts`.
 
 ## PR body narrative markers
 

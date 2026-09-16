@@ -434,6 +434,8 @@ Implement completion uses `deriveSpecRunBodySummary` (same renderer as plan) wit
 
 v2 `refreshPrBody` manages a reserved narrative marker block in PR body text: `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`. The block carries machine-authored narrative text (e.g., generated intent summary, run context, or authored notes).
 
+Full section order after the `Spec:` line (see [Implement PR body template](#implement-pr-body-template) above): `## Overview` → `## Subspecs` → `## Commits` → `## Risk cues` → `## Change summary` → narrative block → attribution footer.
+
 ### Narrative authoring in implement workflows
 
 The shrink pass (see above: [execution contract](#execution-contract)) authors a review-altitude narrative summarizing what changed, why, and how to verify, distinct from the spec header. The shrink agent writes the narrative to `.scratch/shrink-narrative.md` inside the worktree; the runner reads it after shrink completes and threads it into the publication input. The publication path passes the narrative to `refreshPrBody`, which renders it inside marker blocks in the PR body. Only implement workflows generate a narrative; plan and intent publication paths do not. If the narrative file is absent or unreadable, publication succeeds without one (graceful fallback — missing narrative does not fail the run).

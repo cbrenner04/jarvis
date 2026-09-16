@@ -2116,7 +2116,9 @@ describe("executeWorkflow completion publication", () => {
       });
 
       expect(result.kind).toBe("complete");
-      expect(summaries).toEqual(["## Subspecs\n- 00 - First\n- 01 - Second"]);
+      expect(summaries).toEqual([
+        "## Overview\n\n- 00 - First\n- 01 - Second\n\n## Subspecs\n- 00 - First\n- 01 - Second",
+      ]);
     });
   });
 
@@ -2166,7 +2168,8 @@ describe("executeWorkflow completion publication", () => {
         readyFinalizer: async () => {},
       });
       expect(retried.kind).toBe("complete");
-      expect(summaries).toEqual(["## Subspecs\n- 00 - Only", "## Subspecs\n- 00 - Only"]);
+      const expected = "## Overview\n\n- 00 - Only\n\n## Subspecs\n- 00 - Only";
+      expect(summaries).toEqual([expected, expected]);
     });
   });
 
@@ -2221,7 +2224,10 @@ describe("executeWorkflow completion publication", () => {
         readyFinalizer: async () => {},
       });
       expect(retried.kind).toBe("complete");
-      expect(summaries).toEqual(["## Subspecs\n- 00 - Alpha", "## Subspecs\n- 00 - Alpha\n- 01 - Beta"]);
+      expect(summaries).toEqual([
+        "## Overview\n\n- 00 - Alpha\n\n## Subspecs\n- 00 - Alpha",
+        "## Overview\n\n- 00 - Alpha\n- 01 - Beta\n\n## Subspecs\n- 00 - Alpha\n- 01 - Beta",
+      ]);
     });
   });
 
@@ -2259,7 +2265,7 @@ describe("executeWorkflow completion publication", () => {
         readyFinalizer: async () => {},
       });
       expect(result.kind).toBe("complete");
-      expect(summaries).toEqual(["(no content)"]);
+      expect(summaries).toEqual(["## Overview\n\nDraft prose."]);
     });
   });
 

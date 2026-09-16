@@ -325,6 +325,40 @@ describe("refreshPrBody", () => {
     expect(writtenBody).toBe("Spec: v2/spec/test/index.md");
   });
 
+  test("renders the spec dir name, not an absolute path, for an out-of-worktree external spec", async () => {
+    let writtenBody = "";
+    await refreshPrBody({
+      specPath: "/external/root/20260101T000000Z-my-spec/index.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    expect(writtenBody).toBe("Spec: 20260101T000000Z-my-spec");
+  });
+
+  test("renders the spec file's own basename, not its parent directory, for a single-file external spec", async () => {
+    let writtenBody = "";
+    await refreshPrBody({
+      specPath: "/external/root/parent-dir-name/foo.md",
+      branch: "feature",
+      base: "main",
+      cwd: "/tmp/worktree",
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    expect(writtenBody).toBe("Spec: foo.md");
+  });
+
   test("treats empty or whitespace-only supplied narrative as absent", async () => {
     let writtenBody1 = "";
     await refreshPrBody({

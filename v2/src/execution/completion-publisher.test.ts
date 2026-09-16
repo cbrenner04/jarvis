@@ -924,6 +924,39 @@ describe("createCompletionPublisher", () => {
     expect(writtenBody).toContain("---");
   });
 
+  it("renders the PR-body Spec line as the spec dir name, not an absolute path, for an out-of-worktree external spec", async () => {
+    const externalSpecPath = "/external/specs/20260916T203232Z-external-demo/index.md";
+    let writtenBody = "";
+    let createBody: string | undefined;
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") {
+          createBody = args[args.indexOf("--body") + 1];
+          return "https://github.com/user/repo/pull/42";
+        }
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
+        return "";
+      },
+      delay: noopDelay,
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: async () => "",
+    });
+
+    await publisher({ ...baseInput, specPath: externalSpecPath });
+
+    expect(createBody).toBe("Spec: 20260916T203232Z-external-demo");
+    expect(writtenBody).toBe("Spec: 20260916T203232Z-external-demo");
+  });
+
   it("passes bodySummary through to PR body refresh", async () => {
     const summary = "## Summary\n\nWhat landed.";
     const mockGit = async (_cwd: string, args: readonly string[]) => {

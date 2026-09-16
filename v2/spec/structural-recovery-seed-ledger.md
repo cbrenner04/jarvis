@@ -588,6 +588,8 @@ Specs archived 2026-09-15 ([#3923](https://github.com/cbrenner04/jarvis/pull/392
 | --- | --- | --- | --- |
 | `implement-pr-body-is-reviewer-facing` (#3934) | — | — | seeded, P0 (operator-directed first) |
 | `opencode-adapter-read-dir-grant` | — | — | ready-intent re-queued from closed #3929 (docs claim opencode `permission.external_directory`; no code emits it) |
-| `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | telemetry lane hand-finish pending | pipeline `25784a7e` dismissed; cleanup lane unapproved, carried |
+| `pr-body-spec-line-and-overview` (lane 1/3 of #3934) | #3939 closed (superseded) | #3941 | landed unattended; no lane notification (`pipeline-lane-ready-pr-notifies` recurred) |
+| `test-suite-wall-clock` | — | — | seeded; operator picked lint stub, real-spawn waits, resume split, template repo (CI pool width declined) |
+| `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | #3937 (telemetry caps, hand-published after quota) | pipeline `25784a7e` dismissed; cleanup lane unapproved, carried |
 
 Closed at session start: #3595, #3464 (daemon-identity chain); PRs #3929, #3930, #3932 superseded by #3931/#3933.

@@ -9,7 +9,7 @@ The stale-workspace preflight gates (descendant check, landed criteria, dirty re
 ## Prerequisites
 
 - plan accepts --base <ref> and threads the resolved base into the plan workflow input
-- the resolved base drives the specs:repo plan worktree checkout via buildPlanWorkflowSteps
+- the resolved base determines what the plan agent reads on both spec homes (drives the specs:repo plan worktree checkout via buildPlanWorkflowSteps)
 
 ## Documentation updates
 

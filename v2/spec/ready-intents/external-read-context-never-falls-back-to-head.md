@@ -11,7 +11,7 @@ An explicit operator-named base that is not a local tree-ish must fail rather th
 ## Prerequisites
 
 - plan accepts --base <ref> and threads the resolved base into the plan workflow input
-- the resolved base drives the specs:external read-context archive via materializeReadCheckout
+- the resolved base determines what the plan agent reads on both spec homes (drives the specs:external read-context archive via materializeReadCheckout)
 
 ## Documentation updates
 

@@ -23,6 +23,7 @@ import {
   type BuildImplementWorkflowStepsInput,
   buildImplementWorkflowSteps,
 } from "../execution/implement-workflow-steps.ts";
+import { buildPlanWorkflowSteps, type PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { ReadyGateError, SurvivingMutationError } from "../execution/ready-finalize.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "../execution/workflow-loader.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
@@ -3857,6 +3858,115 @@ describe("implement preflight stale workspace reset", () => {
       await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
     ).trim();
     expect(branchTip).toBe(worktreeHead);
+  });
+
+  test("run workflow plan --base drives the stale-workspace descendant gate instead of the repository default", async () => {
+    // Inversion target: planSource in publication-workflow-steps.ts — ignoring `input.baseRef` (always
+    // resolving the repository default) turns the `--base feature` half RED.
+    const planBranch = "plan/improve-api";
+    const worktreePath = await materializeStaleWorktree(planBranch);
+    const featureHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "feature", featureHead], resetProjectRoot);
+    await commitLaneWork(worktreePath, "base-driven");
+    const { baseHead } = await advanceBasePastStaleWorktree(worktreePath, "base-driven");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-B", "main"], resetProjectRoot);
+    const configPath = join(resetTmp, "plan-base-config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ projects: { demo: { root: realpathSync(resetProjectRoot), specs: "repo" } } }),
+      "utf8",
+    );
+    const resolvedDefaults: string[] = [];
+    // Built outside main's fixed-UUID window (the real builder mints its own ids); the fake preset
+    // hands main the real build for whatever `--base` the CLI threaded into the builder input.
+    const buildFor = async (baseRef: string | undefined) => {
+      const built = await buildPlanWorkflowSteps(
+        {
+          cwd: resetProjectRoot,
+          readyIntent: "index.md",
+          configPath,
+          jarvisRoot: resetJarvisRoot,
+          ...(baseRef === undefined ? {} : { baseRef }),
+        },
+        {
+          resolveProjectMatch: () => ({ key: "demo", root: realpathSync(resetProjectRoot) }),
+          readReadyIntent: () => ({ ok: true, name: "improve-api", content: "---\nname: improve-api\n---\n" }),
+          resolveBaseBranch: () => {
+            resolvedDefaults.push("main");
+            return "main";
+          },
+          loadWorkflowSteps: (steps) =>
+            steps.map((step) =>
+              step.behavior === "write"
+                ? { ...step, agents: ["claude"], agentModelConfig: {} }
+                : step.behavior === "review"
+                  ? { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} }
+                  : {
+                      ...step,
+                      agents: {
+                        adversary: ["claude"],
+                        advocate: ["claude"],
+                        adjudicator: ["claude"],
+                        actuator: ["claude"],
+                      },
+                      agentModelConfig: {},
+                    },
+            ),
+        },
+      );
+      if (!built.ok) throw new Error(built.error);
+      return built;
+    };
+    const builds = new Map([
+      ["<default>", await buildFor(undefined)],
+      ["feature", await buildFor("feature")],
+    ]);
+    const baseRefsSeen: string[] = [];
+    const planBuilder = (input: unknown) => {
+      const built = builds.get((input as PlanWorkflowInput).baseRef ?? "<default>");
+      if (built === undefined) throw new Error("unexpected base");
+      const step = built.steps[0];
+      if (step?.behavior === "write") baseRefsSeen.push(step.worktree.baseRef);
+      return built;
+    };
+
+    const refusedCap = captureIo();
+    const refusedCode = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        refusedCap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: planBuilder },
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+    expect(refusedCode).toBe(1);
+    const refused = refusedCap.read().stderr;
+    expect(refused).toContain("not a descendant");
+    expect(refused).toContain(baseHead);
+    expect(baseRefsSeen).toEqual(["main"]);
+
+    const cap = captureIo();
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md", "--base", "feature"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: planBuilder },
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-plan-base", COMPLETED_WAIT_RESULT)),
+        }),
+      ),
+    );
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("not a descendant");
+    expect(stderr).not.toContain("stale reuse refused");
+    expect(code).toBe(0);
+    expect(baseRefsSeen).toEqual(["main", "feature"]);
+    expect(resolvedDefaults).toEqual(["main"]);
   });
 
   test("run workflow plan preserves the lane and refuses when the never-landed probe is inconclusive", async () => {

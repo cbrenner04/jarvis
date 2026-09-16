@@ -6,7 +6,7 @@ const COMMIT_FIELD_SEP = "\x1f";
 const COMMIT_RECORD_SEP = "\x1e";
 const TRAILER_VALUE_SEP = "\x02";
 
-export type CommitInfo = {
+type CommitInfo = {
   shortSha: string;
   subject: string;
   firstBodyLine: string;

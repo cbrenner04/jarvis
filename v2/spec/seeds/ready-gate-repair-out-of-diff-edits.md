@@ -10,6 +10,8 @@ When the ready gate red-fails on files outside the run's diff (e.g. suite-wide c
 
 Recurred 2026-09-14 (twice), both settling `completion_commit_failed` on the fence: #3894 — the needed fix (drop a now-dead `export` in `query-daemon-lists-from-sockets.ts` after the lane deleted its caller) was outside the diff; #3897 — the gate needed one out-of-diff deletion (`merge-run-lists.ts`, dead export) but repair also edited 35 unrelated files (unused imports, `biome-ignore` removals in `shared/prompts/*`) for warnings that never fail the gate. Both hand-finished. The dominant trigger is a lane deletion orphaning an export in a sibling file.
 
+Recurred 2026-09-16 on #3951 with a worse shape: the only red step was `guard-dead-exports` on `CommitInfo` in `pr-attribution.ts` — a file **inside** the run diff — yet repair left it unfixed and instead edited 36 out-of-diff files (unused-import and lint *warnings* across `shared/prompts/**`, daemon, tests), all refused by the fence. Hand fix was one keyword. Repair is not steered at the failing step's output.
+
 ## Decisions
 
 - The staging fence stays: out-of-diff repair edits never land in the completion commit. This seed changes what happens to the refused edits, not the refusal.

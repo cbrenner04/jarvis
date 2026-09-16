@@ -586,10 +586,11 @@ Specs archived 2026-09-15 ([#3923](https://github.com/cbrenner04/jarvis/pull/392
 
 | Seed / lane | Plan | Impl | Status |
 | --- | --- | --- | --- |
-| `implement-pr-body-is-reviewer-facing` (#3934) | — | — | seeded, P0 (operator-directed first) |
-| `opencode-adapter-read-dir-grant` | — | — | ready-intent re-queued from closed #3929 (docs claim opencode `permission.external_directory`; no code emits it) |
+| `implement-pr-body-is-reviewer-facing` (#3934) | #3939, #3943, #3944 (closed, superseded) | #3941, #3947, #3951 | **landed**; #3934 closed. #3947 hand-fixed an unkillable signal-guard mutant then `run resume`; #3951 hand-fixed a dead export after repair wandered 36 files out of diff (`ready-gate-repair-out-of-diff-edits` recurred); a `run resume`-recovered lane leaves its pipeline stage `failed` |
+| `opencode-adapter-read-dir-grant` | — | — | re-queued from #3929, then removed by operator as obsolete (#3950) |
+| `plan-bases-off-a-declared-prerequisite-branch` | — | #3948 | landed by operator hand; operator review added freshness reuse + descendant-gate test |
 | `pr-body-spec-line-and-overview` (lane 1/3 of #3934) | #3939 closed (superseded) | #3941 | landed unattended; no lane notification (`pipeline-lane-ready-pr-notifies` recurred) |
-| `test-suite-wall-clock` | — | — | seeded; operator picked lint stub, real-spawn waits, resume split, template repo (CI pool width declined) |
+| `test-suite-wall-clock` | lint seam (recovered 2×, artifact-count), daemon waits | in progress | seeded; operator picked lint stub, real-spawn waits, resume split, template repo (CI pool width declined) |
 | `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | #3937 (telemetry caps, hand-published after quota) | pipeline `25784a7e` dismissed; cleanup lane unapproved, carried |
 
 Closed at session start: #3595, #3464 (daemon-identity chain); PRs #3929, #3930, #3932 superseded by #3931/#3933.

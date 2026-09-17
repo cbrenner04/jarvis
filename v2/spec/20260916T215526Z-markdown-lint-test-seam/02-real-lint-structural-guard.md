@@ -9,9 +9,9 @@ Prevent regression: unit-slice tests must not reach the real markdownlint runner
 
 ## Acceptance criteria
 
-- [ ] A structural test fails when a file outside the integration slice reaches the real lint runner, proven by a fixture violation it rejects.
-- [ ] Test count per slice is unchanged or higher versus the merge base.
-- [ ] `bun run typecheck`, `bun run test`, and `bun run check` pass.
+- [x] A structural test fails when a file outside the integration slice reaches the real lint runner, proven by a fixture violation it rejects.
+- [x] Test count per slice is unchanged or higher versus the merge base.
+- [x] `bun run typecheck`, `bun run test`, and `bun run check` pass.
 
 ## Documentation updates
 

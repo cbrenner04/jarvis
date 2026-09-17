@@ -20,8 +20,8 @@ import {
   nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
-  type ReadyGateScopeInput,
   ReadyGateError,
+  type ReadyGateScopeInput,
   type ReadyGateScopeSeams,
   readyGateFailureLogFields,
   readyGateSubprocessTimeoutMs,
@@ -174,6 +174,35 @@ function initBaseRefProbeFixture(
     writeFileSync(join(depDir, "index.js"), "module.exports = { ok: true };\n", "utf8");
   }
   return { worktreePath, baseRef, testPath: PROBE_FIXTURE_TEST_PATH };
+}
+
+/** Materializes {@link initBaseRefProbeFixture}, hands `run` the resulting scope and test path, and
+ *  always cleans up the temp root — the setup/teardown shared by every conclusive-reproduction test. */
+async function withBaseRefProbeFixture(
+  branchName: string,
+  options: { baseTestBody: string; branchTestBody: string; dependencyPresent: boolean },
+  run: (ctx: { scope: ReadyGateScopeInput; testPath: string }) => Promise<void>,
+): Promise<void> {
+  const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-"));
+  try {
+    const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, branchName, options);
+    await run({ scope: { worktreePath, baseRef, specPath: "spec.md" }, testPath });
+  } finally {
+    rmSync(jarvisRoot, { recursive: true, force: true });
+  }
+}
+
+/** The `ReadyGateError` every conclusive-reproduction test drives: `testPath` as the sole
+ *  attributed failing file under a terminal `bun run test:shared` step. */
+function probeFixtureGateFailure(testPath: string): ReadyGateError {
+  return new ReadyGateError(
+    "bun run ready",
+    1,
+    gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: testPath }],
+    }),
+  );
 }
 
 const scope = {
@@ -817,83 +846,66 @@ describe("hasFailingTestEvidence", () => {
 
 describe("base-ref probe conclusive reproduction", () => {
   it("reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed", async () => {
-    const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-conclusive-"));
-    try {
-      const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, "regression-75ca2a7a", {
-        baseTestBody: PROBE_FIXTURE_TEST_PASSING,
-        branchTestBody: PROBE_FIXTURE_TEST_FAILING,
-        dependencyPresent: true,
-      });
-      const probeScope: ReadyGateScopeInput = { worktreePath, baseRef, specPath: "spec.md" };
-      const error = new ReadyGateError(
-        "bun run ready",
-        1,
-        gateOutput({
-          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
-          failingFiles: [{ attemptId: "2.1", path: testPath }],
-        }),
-      );
-      const classified = await classifyReadyGateFailure(error, [testPath], new Set<string>(), probeScope, {});
-      expect(classified.kind).toBe("ready_gate_failed");
-      expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
-      // No baseRefProbeError: the base tree must have conclusively *passed*, not merely probed
-      // inconclusively (e.g. a crash from a missing `node_modules` symlink) — otherwise this test
-      // would also pass with only the failing-test-evidence fix and none of the root-cause fix.
-      expect(classified.baseRefProbeError).toBeUndefined();
-    } finally {
-      rmSync(jarvisRoot, { recursive: true, force: true });
-    }
+    await withBaseRefProbeFixture(
+      "regression-75ca2a7a",
+      { baseTestBody: PROBE_FIXTURE_TEST_PASSING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_failed");
+        expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+        // No baseRefProbeError: the base tree must have conclusively *passed*, not merely probed
+        // inconclusively (e.g. a crash from a missing `node_modules` symlink) — otherwise this test
+        // would also pass with only the failing-test-evidence fix and none of the root-cause fix.
+        expect(classified.baseRefProbeError).toBeUndefined();
+      },
+    );
   });
 
   it("settles ready_gate_out_of_scope when a path fails with test-failure evidence on both a verified base tree and the branch", async () => {
-    const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-out-of-scope-"));
-    try {
-      const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, "deterministic-both-red", {
-        baseTestBody: PROBE_FIXTURE_TEST_FAILING,
-        branchTestBody: PROBE_FIXTURE_TEST_FAILING,
-        dependencyPresent: true,
-      });
-      const probeScope: ReadyGateScopeInput = { worktreePath, baseRef, specPath: "spec.md" };
-      const error = new ReadyGateError(
-        "bun run ready",
-        1,
-        gateOutput({
-          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
-          failingFiles: [{ attemptId: "2.1", path: testPath }],
-        }),
-      );
-      const classified = await classifyReadyGateFailure(error, [testPath], new Set<string>(), probeScope, {});
-      expect(classified.kind).toBe("ready_gate_out_of_scope");
-      expect(classified.outsidePaths).toEqual([testPath]);
-    } finally {
-      rmSync(jarvisRoot, { recursive: true, force: true });
-    }
+    await withBaseRefProbeFixture(
+      "deterministic-both-red",
+      { baseTestBody: PROBE_FIXTURE_TEST_FAILING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_out_of_scope");
+        expect(classified.outsidePaths).toEqual([testPath]);
+      },
+    );
   });
 
   it("keeps a crash with no failing-test evidence inconclusive, not a conclusive fail", async () => {
-    const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-inconclusive-crash-"));
-    try {
-      const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, "missing-dependency", {
+    await withBaseRefProbeFixture(
+      "missing-dependency",
+      {
         baseTestBody: PROBE_FIXTURE_TEST_PASSING,
         branchTestBody: PROBE_FIXTURE_TEST_PASSING,
         dependencyPresent: false,
-      });
-      const probeScope: ReadyGateScopeInput = { worktreePath, baseRef, specPath: "spec.md" };
-      const error = new ReadyGateError(
-        "bun run ready",
-        1,
-        gateOutput({
-          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
-          failingFiles: [{ attemptId: "2.1", path: testPath }],
-        }),
-      );
-      const classified = await classifyReadyGateFailure(error, [testPath], new Set<string>(), probeScope, {});
-      expect(classified.kind).toBe("ready_gate_failed");
-      expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
-      expect(classified.baseRefProbeError).toContain("no failing-test evidence");
-    } finally {
-      rmSync(jarvisRoot, { recursive: true, force: true });
-    }
+      },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_failed");
+        expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+        expect(classified.baseRefProbeError).toContain("no failing-test evidence");
+      },
+    );
   });
 
   it("settles ready_gate_failed, not ready_gate_out_of_scope, when the terminal step or scope is missing even though every failing path is outside the allowset", async () => {

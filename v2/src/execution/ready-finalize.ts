@@ -401,9 +401,7 @@ export function selectTerminalFailedReadyTestStep(output: string): ReadyStepComp
 const BASE_REF_PROBE_OUTPUT_TAIL_CHARS = 4096;
 
 function capBaseRefProbeOutputTail(output: string): string {
-  const tail =
-    output.length <= BASE_REF_PROBE_OUTPUT_TAIL_CHARS ? output : output.slice(-BASE_REF_PROBE_OUTPUT_TAIL_CHARS);
-  return tail.trim();
+  return output.slice(-BASE_REF_PROBE_OUTPUT_TAIL_CHARS).trim();
 }
 
 function formatBaseRefProbeError(error: unknown, exitCode?: number, output?: string): string {

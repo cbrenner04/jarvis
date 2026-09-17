@@ -2440,17 +2440,18 @@ async function listRebaseConflictPaths(worktreePath: string, runner: AsyncSubpro
   }
 }
 
-type RebaseOutcome = { status: "rebased" } | { status: "conflict"; conflictPaths: string[] };
-
-/** Rebase the worktree's checked-out branch onto `baseHead`; a conflict is aborted, leaving the worktree unchanged. */
+/**
+ * Rebase the worktree's checked-out branch onto `baseHead`; a conflict is aborted, leaving the
+ * worktree unchanged. Returns `undefined` on a clean rebase, or the conflicting paths otherwise.
+ */
 async function rebaseWorktreeOntoBase(
   worktreePath: string,
   baseHead: string,
   runner: AsyncSubprocessRunner,
-): Promise<RebaseOutcome> {
+): Promise<string[] | undefined> {
   try {
     await runner.runAsync("git", ["rebase", baseHead], worktreePath);
-    return { status: "rebased" };
+    return undefined;
   } catch {
     const conflictPaths = await listRebaseConflictPaths(worktreePath, runner);
     try {
@@ -2458,14 +2459,12 @@ async function rebaseWorktreeOntoBase(
     } catch {
       // best effort — conflictPaths were already captured before the abort attempt
     }
-    return { status: "conflict", conflictPaths };
+    return conflictPaths;
   }
 }
 
-type CommittedLaneContinuationResult =
-  | { status: "continue" }
-  | { status: "fallthrough" }
-  | { status: "refused"; reason: string };
+/** `undefined` means no verdict — the caller falls through to the pre-continuation gates unchanged. */
+type CommittedLaneContinuationResult = { status: "continue" } | { status: "refused"; reason: string };
 
 /** Post-descent decision: no trackable spec continues unconditionally; a trackable spec continues once every checked-absent-from-base criterion is commit-backed, unless the override forces retirement. */
 async function evaluateContinuationTickBacking(args: {
@@ -2476,10 +2475,10 @@ async function evaluateContinuationTickBacking(args: {
   trackableSpecPath: string | undefined;
   skipLandedCriteriaGate: boolean;
   runner: AsyncSubprocessRunner;
-}): Promise<CommittedLaneContinuationResult> {
+}): Promise<CommittedLaneContinuationResult | undefined> {
   const { projectRoot, worktreePath, branch, baseRef, trackableSpecPath, skipLandedCriteriaGate, runner } = args;
   if (trackableSpecPath === undefined) return { status: "continue" };
-  if (skipLandedCriteriaGate) return { status: "fallthrough" };
+  if (skipLandedCriteriaGate) return undefined;
   const unbackedPaths = await unbackedCheckedCriteriaPaths(
     { projectRoot, worktreePath, baseRef, specPath: trackableSpecPath, runner },
     branch,
@@ -2506,7 +2505,7 @@ async function evaluateCommittedLaneContinuation(args: {
   trackableSpecPath: string | undefined;
   skipLandedCriteriaGate: boolean;
   runner: AsyncSubprocessRunner;
-}): Promise<CommittedLaneContinuationResult> {
+}): Promise<CommittedLaneContinuationResult | undefined> {
   const { projectRoot, worktreePath, baseRef, baseHead, worktreeHead, trackableSpecPath, runner } = args;
 
   if (await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) {
@@ -2514,16 +2513,16 @@ async function evaluateCommittedLaneContinuation(args: {
   }
 
   if (await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner)) {
-    return { status: "fallthrough" };
+    return undefined;
   }
 
   if (trackableSpecPath === undefined || !(await hasCommonAncestor(worktreeHead, baseHead, projectRoot, runner))) {
     return { status: "refused", reason: staleResetDescendantGateReason(baseRef, baseHead, worktreeHead) };
   }
 
-  const rebase = await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
-  if (rebase.status === "conflict") {
-    return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, rebase.conflictPaths) };
+  const conflictPaths = await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
+  if (conflictPaths !== undefined) {
+    return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, conflictPaths) };
   }
   return evaluateContinuationTickBacking(args);
 }
@@ -2789,9 +2788,9 @@ export async function resetStaleWorkspace(
           skipLandedCriteriaGate,
           runner,
         });
-        if (continuation.status === "refused") {
+        if (continuation?.status === "refused") {
           refusalParts.push(continuation.reason);
-        } else if (continuation.status === "continue") {
+        } else if (continuation?.status === "continue") {
           continuationEligible = true;
         }
       }

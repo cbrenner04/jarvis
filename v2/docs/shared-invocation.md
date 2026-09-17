@@ -23,7 +23,7 @@ Contract:
   with source metadata records those exact values on the row; results without
   them or non-`ok` results default to null usage and "unavailable" sources.
   Callers that omit that pair stay telemetry no-op.
-- When the caller also passes a `sessionLog` (opened via `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt in the fallback chain writes `harness` (binding id, agent, model) and `outbound` (prompt) lines before `binding.invoke` runs, then `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes stdout under `inbound_stdout` and stderr under `inbound_stderr`; a `quota`/`model_config`/`error` result writes only its `stderr` under `inbound_stderr`; a `stall` result carries buffered stderr followed by buffered stdout in its `stderr` diagnostics and writes that combined payload only under `inbound_stderr`, never `inbound_stdout`. An empty stalled inbound payload therefore means neither stream produced output. A throwing `sessionLog.append` is swallowed and never fails the invocation. Callers that omit `sessionLog` stay unaffected.
+- When the caller also passes a `sessionLog` (opened via `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt in the fallback chain writes `harness` (binding id, agent, model) and `outbound` (prompt) lines before `binding.invoke` runs, then `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes stdout under `inbound_stdout` and stderr under `inbound_stderr`; a `quota`/`model_config`/`error` result writes its `stderr` under `inbound_stderr`, plus, when it carries a retained observability `diagnostics` stream (opencode, whose classified `stderr` is scoped away — see below), that stream under `inbound_stdout`; a `stall` result carries buffered stderr followed by buffered stdout in its `stderr` diagnostics and writes that combined payload only under `inbound_stderr`, never `inbound_stdout`. An empty stalled inbound payload therefore means neither stream produced output. A throwing `sessionLog.append` is swallowed and never fails the invocation. Callers that omit `sessionLog` stay unaffected.
 - Optional `onAgentShellCommand` on each `binding.invoke` call (and forwarded by `executeWithQuotaFallback`) fires synchronously when a claude or cursor binding's live `stream-json` stdout announces a shell-tool invocation, at or just before the agent CLI executes it. The callback receives the extracted shell command string. A matching shell-tool completion frame invokes optional `onAgentShellCommandComplete`. Codex bindings emit no live structured stream today (only post-hoc session rollout reads), so they never fire either callback. `singleSpawn` incrementally parses NDJSON stdout lines for per-agent shell-tool frames; claude frames include `assistant`/`tool_use` Bash blocks and `tool_result` completions, cursor frames use `tool_call` `shellToolCall` started/completed events.
 
 Fallback default is quota-only: `model_config` and other `error` kinds are terminal unless a binding's `shouldAdvance` opts in. No live v2 binding overrides `shouldAdvance` today; the review actuator's advance-past-a-timed-out-rung behavior is loop logic in `invokeReviewRole` (see [`agent-model-config.md`](./agent-model-config.md)), not a `shouldAdvance` predicate.
@@ -79,9 +79,15 @@ Bindings:
   ignore stdin, classify quota/model-config/transient with their own opencode
   signals (quota phrasing plus a guarded 429; `no provider configured for` as
   terminal model-config; guarded HTTP 500 with `UnknownError` context as
-  transient) over **stderr only** (`classifierDiagnostics`), since opencode's
-  `--format json` stdout is the agent event stream carrying file contents it
-  read/grepped and must not be scanned for signals, and parse the `--format json`
+   transient) over **stderr only** (`classifierDiagnostics`), since opencode's
+   `--format json` stdout is the agent event stream carrying file contents it
+   read/grepped and must not be scanned for signals. Because that scoping leaves an
+   opencode `quota`/`model_config`/`error` result with an empty classified `stderr`,
+   the excluded stdout stream is retained on the result's observability-only
+   `diagnostics` field (`errBuf+outBuf`) so the failure is still diagnosable; it is
+   surfaced by the session log and `invocation_failure_diagnostic` but is never fed
+   back into classification (settle-time or the transient-retry re-scan). The bindings
+   also parse the `--format json`
   NDJSON stream: token and cost fields are summed only from clean `step_finish`
   frames (`part.tokens.{input,output,cache.read,cache.write}` and `part.cost`),
   with `text` `part.text` frames supplying display text (raw stdout fallback

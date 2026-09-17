@@ -621,6 +621,15 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       idleTimer.unref?.();
     };
 
+    // When `classifierDiagnostics` scopes the classified `stderr` down (opencode, whose JSON
+    // result envelope lands on stdout), the excluded stream is retained here as observability-only
+    // `diagnostics` so an `error`/`quota`/`model_config` result is not left with nothing to show.
+    // Must never be routed back into classification.
+    const retainedDiagnosticsSpread = (): { diagnostics?: string } => {
+      if (config.classifier !== "opencode" || outBuf.length === 0) return {};
+      return { diagnostics: `${errBuf}${outBuf}` };
+    };
+
     const settleZeroExit = () => {
       if (config.classifier === "claude") {
         if (isClaudeZeroExitQuotaEnvelope(outBuf)) {
@@ -630,11 +639,11 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       } else {
         const diagnostics = classifierDiagnostics(config.classifier, errBuf, outBuf);
         if (config.classifier === "codex" && codexCredentialAuthPatterns.some((pattern) => pattern.test(errBuf))) {
-          settle({ kind: "quota", stderr: diagnostics, authFailure: true });
+          settle({ kind: "quota", stderr: diagnostics, authFailure: true, ...retainedDiagnosticsSpread() });
           return;
         }
         if (quotaPatternsFor(config.classifier).some((pattern) => pattern.test(diagnostics))) {
-          settle({ kind: "quota", stderr: diagnostics });
+          settle({ kind: "quota", stderr: diagnostics, ...retainedDiagnosticsSpread() });
           return;
         }
       }
@@ -645,16 +654,17 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     // recovers on retry, and a stray transport line elsewhere in the tail must not mask the banner.
     const settleNonZeroExit = (exitCode: number) => {
       const diagnostics = classifierDiagnostics(config.classifier, errBuf, outBuf);
+      const retained = retainedDiagnosticsSpread();
       if (isCredentialAuthSignal(config.classifier, exitCode, diagnostics)) {
-        settle({ kind: "quota", stderr: diagnostics, authFailure: true });
+        settle({ kind: "quota", stderr: diagnostics, authFailure: true, ...retained });
       } else if (isQuotaSignal(config.classifier, exitCode, diagnostics)) {
-        settle({ kind: "quota", stderr: diagnostics });
+        settle({ kind: "quota", stderr: diagnostics, ...retained });
       } else if (isTransientSignal(config.classifier, exitCode, diagnostics)) {
-        settle({ kind: "error", exitCode, stderr: diagnostics });
+        settle({ kind: "error", exitCode, stderr: diagnostics, ...retained });
       } else if (isModelConfigurationSignal(config.classifier, diagnostics)) {
-        settle({ kind: "model_config", stderr: diagnostics });
+        settle({ kind: "model_config", stderr: diagnostics, ...retained });
       } else {
-        settle({ kind: "error", exitCode, stderr: diagnostics });
+        settle({ kind: "error", exitCode, stderr: diagnostics, ...retained });
       }
     };
 

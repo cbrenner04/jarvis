@@ -19,6 +19,7 @@ import {
   executeWithQuotaFallback,
   type InvocationBinding,
   type InvocationExecution,
+  invocationDiagnosticText,
 } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { hasUncheckedNonHumanOnlyCriteria } from "../../../shared/linked-subspec-routing.ts";
@@ -2028,7 +2029,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           ...(attempt.binding.metadata?.agent !== undefined ? { agent: attempt.binding.metadata.agent } : {}),
           ...(attempt.binding.metadata?.model !== undefined ? { model: attempt.binding.metadata.model } : {}),
         }));
-      const finalStderr = result.kind === "invocation_failure" ? result.invocation.final?.result.stderr : undefined;
+      const finalResult = result.kind === "invocation_failure" ? result.invocation.final?.result : undefined;
+      const finalStderr = finalResult ? invocationDiagnosticText(finalResult) : undefined;
       const boundedStderrTail = finalStderr?.slice(-INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS);
       const echoedInput = result.kind === "invocation_failure" && result.echoedInput;
       const detail =

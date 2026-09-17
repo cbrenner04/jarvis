@@ -2359,6 +2359,26 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls.length).toBe(1);
   });
 
+  test("opencode error retains the JSON stdout stream as observability diagnostics", async () => {
+    // Regression: opencode surfaces its result envelope on `--format json` stdout, which is
+    // excluded from classification. An `error` with clean stderr must not leave operators blind:
+    // `stderr` stays scoped (empty) while `diagnostics` retains the full stdout stream for the
+    // session log / invocation_failure_diagnostic. The retained stream must NOT be reclassified.
+    const envelope = JSON.stringify({ type: "text", part: { text: "read code: http status 429 rate limit" } });
+    const fake = fakeSpawn([{ kind: "settle", code: 1, stdout: envelope, stderr: "" }]);
+    const result = await createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      // Classification-scoped stderr stays empty (the polluting stdout is never folded in) …
+      expect(result.stderr).toBe("");
+      // … but the stream is retained for diagnosis so the failure is not silent.
+      expect(result.diagnostics).toBe(envelope);
+    }
+  });
+
   test("opencode does not classify quota from agent content on stdout (zero exit)", async () => {
     const pollutedStdout = JSON.stringify({
       type: "text",
@@ -2388,7 +2408,11 @@ describe("createResolvedAgentBinding", () => {
     ).invoke({ prompt: "p", cwd: "/repo" });
     expect(result.kind).toBe("quota");
     // Diagnostics are scoped to stderr, so the JSON content stream is not folded into the result.
-    if (result.kind === "quota") expect(result.stderr).toBe("rate limit reached");
+    if (result.kind === "quota") {
+      expect(result.stderr).toBe("rate limit reached");
+      // The stdout stream is still retained separately for observability, never for classification.
+      expect(result.diagnostics).toContain("benign content");
+    }
   });
 
   test("wired bindings forward output progress notifications from stdout and stderr", async () => {

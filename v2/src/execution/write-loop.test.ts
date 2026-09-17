@@ -3349,6 +3349,38 @@ describe("write loop", () => {
     }
   });
 
+  test("terminal invocation failure surfaces retained diagnostics when the classification-scoped stderr is empty", async () => {
+    // opencode scopes `stderr` for classification (its result envelope lands on stdout). An
+    // `error` with empty stderr must still surface the retained stdout stream via `diagnostics`,
+    // otherwise the failure diagnostic and persisted message are blank (the observed regression).
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const retained = '{"type":"text","part":{"text":"opencode run ended: unexpected exit"}}';
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      logSink: sink,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "error", exitCode: 1, stderr: "", diagnostics: retained }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+    expect(detail?.message).toBe(retained);
+
+    const diagnostic = sink
+      .getEventsForRun(result.runId)
+      .find((event) => event.kind === "invocation_failure_diagnostic");
+    expect(diagnostic).toBeDefined();
+    if (diagnostic?.kind === "invocation_failure_diagnostic") {
+      expect(diagnostic.stderrTail).toBe(retained);
+    }
+  });
+
   const invalidTokenBindings: InvocationBinding[] = [
     {
       id: "agent",

@@ -6,6 +6,8 @@ name: base-ref-probe-exonerates-only-on-conclusive-base-failure
 
 Run `75ca2a7a` settled `ready_gate_out_of_scope` for `v2/src/daemon/daemon-run-failure-capture.test.ts`, but on an idle machine that file passes on `main` (12/0) and fails on the branch (11/1). The lane caused the failure, and the settlement exonerated it with `nextAction: "stop"`.
 
+Recurred twice on 2026-09-17, both regressions the lane itself introduced: run `823a8185` (owner-stamp persistence) blamed main for `v2/src/persistence/state-store-baseline-migration.test.ts` (main 4/4, branch 2/4 deterministic); run `29b222de` (resume orchestration) blamed main for `v2/src/daemon/daemon-workflow-start.test.ts` (main 41/41, branch 39/41 deterministic). Both ran with three implement lanes live.
+
 ## Decisions
 
 - Before changing classification, confirm why `createDefaultReproduceReadyGateAtBaseRef` (`v2/src/execution/ready-finalize.ts`) reported `fail` for `v2/src/daemon/daemon-run-failure-capture.test.ts`, which passes at base (run `75ca2a7a`). Check whether the probe tree is really at `baseRef`, which cwd and env the v2-mode spawn uses, and whether any non-zero exit counts as reproduction.

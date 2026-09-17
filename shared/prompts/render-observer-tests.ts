@@ -34,6 +34,7 @@ const RENDER_OBSERVER_TESTS: Readonly<Record<string, readonly string[]>> = {
   "prompts/implement/instructions.md": ["v2/src/execution/write-prompt.test.ts"],
   "prompts/implement/rules.md": ["v2/src/execution/write-prompt.test.ts", "shared/prompts/review-implement.test.ts"],
   "prompts/patch/shrink.md": ["v2/src/execution/write-prompt.test.ts"],
+  "prompts/plan/decisions-ledger.md": ["shared/prompts/cross-path-render.test.ts"],
   "prompts/plan/draft.md": ["shared/prompts/plan-draft.test.ts", "v2/src/execution/write-prompt.test.ts"],
   "prompts/plan/review-adjudicator.md": [
     "shared/prompts/review-plan-contract-preservation.test.ts",

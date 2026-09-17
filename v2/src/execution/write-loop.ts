@@ -2080,8 +2080,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         outcomeKind: terminal.outcomeKind,
         ...(detail !== undefined ? { invocationFailureDetail: detail } : {}),
         ...(completionAgent ? { completionAgent } : {}),
-        ...(isTerminalRunStatus(boundaryRunStatus) && boundaryRunStatus !== "completed"
-          ? completionBoundarySettlementFields(terminal.kind, detail)
+        ...(isTerminalRunStatus(boundaryRunStatus)
+          ? boundaryRunStatus === "completed"
+            ? // A superseded link/publishCompletion:false row settling directly `completed` (no
+              // deferred publish tail) still needs its own terminal cause set: a row reused after an
+              // earlier failed attempt (linked-workflow resume) otherwise keeps that attempt's stale
+              // `terminal_cause`, misreading as a failure once `status` flips to `completed`.
+              { terminalCause: "complete" as const }
+            : completionBoundarySettlementFields(terminal.kind, detail)
           : {}),
       });
       args.logSink?.append(runId, {

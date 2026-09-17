@@ -18,6 +18,13 @@ function configureIdentity(dir: string): void {
   execFileSync("git", ["config", "user.name", "Test"], { cwd: dir });
 }
 
+function initGitDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-git-fixture-template-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  configureIdentity(dir);
+  return dir;
+}
+
 function lazyGitFixtureTemplate(build: () => string): GitFixtureTemplate {
   let templatePath: string | undefined;
   return {
@@ -38,9 +45,7 @@ export function createCommittedGitFixtureTemplate(options: CommittedGitFixtureOp
   const files = options.files ?? { seed: "base\n" };
   const commitMessage = options.commitMessage ?? "base";
   return lazyGitFixtureTemplate(() => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-git-fixture-template-"));
-    execFileSync("git", ["init", "-q"], { cwd: dir });
-    configureIdentity(dir);
+    const dir = initGitDir();
     for (const [name, content] of Object.entries(files)) {
       writeFileSync(join(dir, name), content, "utf8");
     }
@@ -52,10 +57,5 @@ export function createCommittedGitFixtureTemplate(options: CommittedGitFixtureOp
 
 /** Template repo with `.git` initialized and identity configured, but no commit. */
 export function createUncommittedGitFixtureTemplate(): GitFixtureTemplate {
-  return lazyGitFixtureTemplate(() => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-git-fixture-template-"));
-    execFileSync("git", ["init", "-q"], { cwd: dir });
-    configureIdentity(dir);
-    return dir;
-  });
+  return lazyGitFixtureTemplate(initGitDir);
 }

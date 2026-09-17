@@ -22,6 +22,19 @@ function writeIntent(dir: string, name: string, content: string): string {
   return path;
 }
 
+const NOOP_ASYNC_RUNNER: AsyncSubprocessRunner = {
+  async runAsync() {
+    return "";
+  },
+};
+
+async function repairPrerequisitesBody(body: string): Promise<string> {
+  const dir = stage();
+  const path = writeIntent(dir, "one-thing", `---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n${body}`);
+  await repairIntentStageContent(dir, () => {}, undefined, NOOP_ASYNC_RUNNER);
+  return path;
+}
+
 function expectValidPrerequisitesIntent(prerequisitesBody: string): void {
   const dir = stage();
   const path = writeIntent(
@@ -91,6 +104,41 @@ describe("intent stage contract", () => {
     };
     await repairIntentStageContent(dir, () => {}, undefined, runner);
     expect(calls).toHaveLength(1);
+  });
+
+  test("normalizes a bare `none` Prerequisites body to empty at intent repair", async () => {
+    const path = await repairPrerequisitesBody("none\n");
+    expect(readFileSync(path, "utf8")).toBe("---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n");
+    expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(true);
+  });
+
+  test("normalizes a `None.` Prerequisites body to empty at intent repair", async () => {
+    const path = await repairPrerequisitesBody("None.\n");
+    expect(readFileSync(path, "utf8")).toBe("---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n");
+    expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(true);
+  });
+
+  test("normalizes a `none` Prerequisites body followed by another section at intent repair", async () => {
+    // Mutation checkpoint: flipping normalizeNonePrerequisites' `next === -1` guard to
+    // `!==` would take the whole remainder (including the next heading) as the body,
+    // fail the none-body check, and leave this section unnormalized with the following
+    // heading swallowed into it.
+    const path = await repairPrerequisitesBody("none\n\n## Motivation\n\nsome text\n");
+    expect(readFileSync(path, "utf8")).toBe(
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n## Motivation\n\nsome text\n",
+    );
+  });
+
+  test("leaves a prose Prerequisites body untouched at intent repair and still refuses it", async () => {
+    // Mutation checkpoint: inverting isNonePrerequisitesBody's guard would empty this prose
+    // body instead of leaving it, and this test would go RED (no refusal).
+    const path = await repairPrerequisitesBody("some prose here\n");
+    expect(readFileSync(path, "utf8")).toBe(
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\nsome prose here\n",
+    );
+    const result = validateIntentStageContent([{ slug: "one-thing", path }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("must list prerequisites as one bullet per line");
   });
 
   test("normalizes NN- ordering prefix on staged filename", async () => {

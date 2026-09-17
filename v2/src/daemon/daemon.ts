@@ -305,6 +305,30 @@ export function workflowInvocationIsLive(
   return false;
 }
 
+/** The RPC or signal that started a daemon generation's retire transition. */
+export type DaemonRetireTrigger = "supersede" | "changeover" | "shutdown" | "sigterm" | "sigint";
+
+const RETIRE_TRIGGER_LOG_PREFIX = "JARVIS_DAEMON_RETIRE_TRIGGER:";
+const DRAIN_EXIT_LOG_PREFIX = "JARVIS_DAEMON_DRAIN_EXIT:";
+
+/** Structured stderr marker: which RPC or signal started this generation's retire transition. */
+export function formatRetireTriggerLogLine(trigger: DaemonRetireTrigger): string {
+  return `${RETIRE_TRIGGER_LOG_PREFIX}${JSON.stringify({ trigger })}`;
+}
+
+/** Structured stderr marker written at actual drain exit, naming the first trigger recorded this generation. */
+export function formatDrainExitLogLine(trigger: DaemonRetireTrigger | null): string {
+  return `${DRAIN_EXIT_LOG_PREFIX}${JSON.stringify({ trigger })}`;
+}
+
+/** First trigger wins: a later genuine trigger still logs its own line, but never displaces the one named at drain exit. */
+export function nextFirstRetireTrigger(
+  current: DaemonRetireTrigger | null,
+  incoming: DaemonRetireTrigger,
+): DaemonRetireTrigger {
+  return current ?? incoming;
+}
+
 /**
  * The daemon shuts down when a stop was explicitly requested, or when it is
  * retiring (superseded) and no run is still active. A retiring daemon with an
@@ -331,12 +355,16 @@ export function startDrainExitLoop(deps: {
   close: () => Promise<void>;
   processExit: (code: number) => void;
   intervalMs?: number;
+  /** First retire trigger recorded this generation; logged at actual exit. Defaults to none recorded. */
+  firstRetireTrigger?: () => DaemonRetireTrigger | null;
 }): { stop: () => void } {
+  const firstRetireTrigger = deps.firstRetireTrigger ?? (() => null);
   const timer = setInterval(() => {
     if (deps.shouldShutdown()) {
       void deps
         .close()
         .then(() => {
+          console.error(formatDrainExitLogLine(firstRetireTrigger()));
           deps.processExit(0);
         })
         .catch((err: unknown) => {
@@ -844,6 +872,8 @@ type HandoffHandlersDeps = ChangeoverHandlerDeps & {
   probePublicServer: () => Promise<boolean>;
   /** Bounds an unanswered handoff. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   fallbackMs?: number;
+  /** Records the `changeover` retire trigger once this handoff actually begins. */
+  recordChangeoverTrigger: () => void;
 };
 
 /**
@@ -980,6 +1010,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }
 
     deps.setRetiring();
+    deps.recordChangeoverTrigger();
     const handoffId = crypto.randomUUID();
     let releaseDone: (() => void) | undefined;
     const releasePromise = new Promise<void>((resolve) => {
@@ -1041,6 +1072,21 @@ export function createChangeoverHandler(deps: ChangeoverHandlerDeps): RpcHandler
       });
     });
     return { kind: "response", result: { ok: true, privateSocketPath } };
+  };
+}
+
+/**
+ * SIGTERM/SIGINT handler factory: requests shutdown and records which signal triggered it.
+ * Extracted (same shape as {@link createChangeoverHandler}) so signal-driven retire logging is
+ * testable without sending a real signal.
+ */
+export function createSignalHandler(deps: {
+  setShutdownRequested: () => void;
+  recordRetireTrigger: (trigger: "sigterm" | "sigint") => void;
+}): (signal: NodeJS.Signals) => void {
+  return (signal) => {
+    deps.setShutdownRequested();
+    deps.recordRetireTrigger(signal === "SIGINT" ? "sigint" : "sigterm");
   };
 }
 
@@ -1197,6 +1243,14 @@ export async function startDaemonRuntime(
     reconciliationLogSink.close();
   }
   let shutdownRequested = false;
+  // Every genuine retire trigger logs on its own turn; `firstRetireTrigger` additionally pins the
+  // one named by the drain-exit summary line, since a second trigger arriving mid-drain does not
+  // change what actually started this generation's retirement.
+  let firstRetireTrigger: DaemonRetireTrigger | null = null;
+  const recordRetireTrigger = (trigger: DaemonRetireTrigger): void => {
+    console.error(formatRetireTriggerLogLine(trigger));
+    firstRetireTrigger = nextFirstRetireTrigger(firstRetireTrigger, trigger);
+  };
   const operatorSessionId = crypto.randomUUID();
 
   let loadedRevision: string;
@@ -1242,6 +1296,7 @@ export async function startDaemonRuntime(
 
   const shutdownHandler: RpcHandler = () => {
     shutdownRequested = true;
+    recordRetireTrigger("shutdown");
     return { kind: "response", result: { ok: true } };
   };
 
@@ -1357,6 +1412,7 @@ export async function startDaemonRuntime(
   const supersedHandler: RpcHandler = () => {
     superseded = true;
     setRetiring();
+    recordRetireTrigger("supersede");
     return { kind: "response", result: { ok: true } };
   };
 
@@ -1373,6 +1429,7 @@ export async function startDaemonRuntime(
       runControlContext.retiring = false;
     },
     wasSuperseded: () => superseded,
+    recordChangeoverTrigger: () => recordRetireTrigger("changeover"),
     bindPublicServer: async () => {
       try {
         server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
@@ -1534,9 +1591,12 @@ export async function startDaemonRuntime(
     });
   }
 
-  const signalHandler = () => {
-    shutdownRequested = true;
-  };
+  const signalHandler = createSignalHandler({
+    setShutdownRequested: () => {
+      shutdownRequested = true;
+    },
+    recordRetireTrigger,
+  });
 
   process.on("SIGTERM", signalHandler);
   process.on("SIGINT", signalHandler);
@@ -1575,6 +1635,7 @@ export async function startDaemonRuntime(
       shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns(), handoffHandlers.isPending()),
     close,
     processExit,
+    firstRetireTrigger: () => firstRetireTrigger,
   });
 
   console.error(`Daemon running on socket ${socketPath} with PID ${process.pid}`);

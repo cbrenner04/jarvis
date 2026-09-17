@@ -6,7 +6,10 @@ import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
-import { writeLintCleanIntentStageFile } from "../execution/workflow-runner.test-support.ts";
+import {
+  createStubMarkdownlintRunner,
+  writeLintCleanIntentStageFile,
+} from "../execution/workflow-runner.test-support.ts";
 import {
   resolveCompletionCommitFailedResumeContext,
   resolveExhaustedRedResumeContext,
@@ -33,6 +36,8 @@ import { composeRunOperatorError, type TerminalLogRecord, terminalResumeRefusalM
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 const { roots } = trackedTempRoots();
+/** No test in this file exercises a real markdownlint rule violation; stubs out the real spawn on every `executeWriteLoop`/`lintStagedMarkdown` call below. */
+const runner = createStubMarkdownlintRunner();
 
 let stateStore: StateStore;
 let starts: WriteLoopInput[];
@@ -204,6 +209,7 @@ function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarv
           withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
           sessionsDir: join(jarvisRoot, "sessions"),
           publishCompletion: false,
+          stagedMarkdownLintRunner: runner,
         });
       } finally {
         resumeLogSink.close();
@@ -485,6 +491,7 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
       workflowSnapshot,
       maxIterations: 2,
       publishCompletion: false,
+      stagedMarkdownLintRunner: runner,
       verifyDiffDerivedMutations: async () => {
         verifyCalls += 1;
         return {
@@ -525,6 +532,7 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
               sessionsDir: join(jarvisRoot, "sessions"),
               publishCompletion: false,
               bindings,
+              stagedMarkdownLintRunner: runner,
               verifyDiffDerivedMutations: async () => {
                 verifyCalls += 1;
                 return {
@@ -631,6 +639,7 @@ test("resume rehydrates the persisted idle-output watchdog bound and a silent ag
     stateStore,
     withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
     sessionsDir: join(jarvisRoot, "sessions"),
+    stagedMarkdownLintRunner: runner,
   });
 
   expect(result.kind).toBe("idle_output_timeout");
@@ -1634,7 +1643,7 @@ test("admits a populated-stage intent finalization landing_failed row instead of
   const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-"));
   try {
     writeLintCleanIntentStageFile(join(worktreePath, ".jarvis-intent-stage"), "example.md");
-    expect(await lintStagedMarkdown(".jarvis-intent-stage", { worktreePath })).toEqual({ kind: "clean" });
+    expect(await lintStagedMarkdown(".jarvis-intent-stage", { worktreePath, runner })).toEqual({ kind: "clean" });
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
 
     const { reviewRunId } = createIntentFinalizationRuns({
@@ -2532,6 +2541,7 @@ async function driveExhaustedRedImplementCompletion(): Promise<{
     sessionsDir: join(jarvisRoot, "sessions"),
     logSink,
     maxIterations: 10,
+    stagedMarkdownLintRunner: runner,
     ...completionHooks,
     readyFinalizer: async () => {
       gateCalls += 1;
@@ -3590,6 +3600,7 @@ test("resume after idle_output_timeout retains worktree commits without stale re
       iterationTimeoutMs: 10_000,
       idleOutputMs: 20,
       publishCompletion: false,
+      stagedMarkdownLintRunner: runner,
     });
     logSink.close();
 
@@ -3615,6 +3626,7 @@ test("resume after idle_output_timeout retains worktree commits without stale re
               withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
               sessionsDir: join(jarvisRoot, "sessions"),
               publishCompletion: false,
+              stagedMarkdownLintRunner: runner,
             });
           } finally {
             resumeLogSink.close();
@@ -3716,6 +3728,7 @@ test("resume after iteration_timeout retains worktree commits without stale rese
       workflowSnapshot,
       iterationTimeoutMs: 15,
       publishCompletion: false,
+      stagedMarkdownLintRunner: runner,
     });
     logSink.close();
 

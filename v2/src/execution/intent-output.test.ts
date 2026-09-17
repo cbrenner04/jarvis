@@ -3,8 +3,22 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { findIntentLandingRoguePaths, intentHandoffSpecPath, landIntentWorkflowOutput } from "./intent-output.ts";
+
+/** Delegates `git` calls to the real runner but skips the real `markdownlint-cli2` spawn. */
+function stubMarkdownlintRunner(onMarkdownlint?: (args: string[]) => void): AsyncSubprocessRunner {
+  return {
+    async runAsync(cmd, args, cwd, options) {
+      if (cmd === "bun") {
+        onMarkdownlint?.(args);
+        return "";
+      }
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+    },
+  };
+}
 
 function createRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), "jarvis-intent-output-"));
@@ -42,6 +56,7 @@ describe("landIntentWorkflowOutput", () => {
       worktreePath: repo,
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
+      runner: stubMarkdownlintRunner(),
     });
     expect(result.files).toEqual(["example.md"]);
     expect(result.specPath).toBe("ready-intents/example.md");
@@ -49,19 +64,21 @@ describe("landIntentWorkflowOutput", () => {
     expect(existsSync(join(repo, "ready-intents", "01-example.md"))).toBe(false);
   });
 
-  test("lands one valid intent and records file handoff specPath", async () => {
+  test("injected runner receives the markdownlint invocation when landing an intent", async () => {
+    // Fails against pre-change code: the landing path ignored its injected runner for
+    // markdownlint, so this assertion never sees a call.
     const repo = createRepo();
     stage(repo);
+    const markdownlintCalls: string[][] = [];
     const result = await landIntentWorkflowOutput({
       worktreePath: repo,
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
+      runner: stubMarkdownlintRunner((args) => markdownlintCalls.push(args)),
     });
     expect(result.files).toEqual(["one.md"]);
-    expect(result.specPath).toBe("ready-intents/one.md");
-    expect(result.specPath).not.toBe("ready-intents");
-    expect(result.downstreamInputs).toBeUndefined();
-    expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
+    expect(markdownlintCalls).toHaveLength(1);
+    expect(markdownlintCalls[0]?.some((arg) => arg.includes("markdownlint-cli2"))).toBe(true);
   });
 
   test("single-file handoff names the landed file, not the durable directory", () => {
@@ -77,6 +94,7 @@ describe("landIntentWorkflowOutput", () => {
       worktreePath: repo,
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
+      runner: stubMarkdownlintRunner(),
     });
     expect(result.files).toEqual(["one.md", "two.md"]);
     expect(result.specPath).toBe("ready-intents");
@@ -95,6 +113,7 @@ describe("landIntentWorkflowOutput", () => {
       worktreePath: repo,
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
+      runner: stubMarkdownlintRunner(),
     });
     // Mutation checkpoint: intent-output.test.ts unrelated ready-intents files
     expect(result.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
@@ -110,6 +129,7 @@ describe("landIntentWorkflowOutput", () => {
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
       invocationId,
+      runner: stubMarkdownlintRunner(),
     });
     expect(first.specPath).toBe("ready-intents");
     expect(first.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
@@ -118,6 +138,7 @@ describe("landIntentWorkflowOutput", () => {
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
       invocationId,
+      runner: stubMarkdownlintRunner(),
     });
     expect(second.specPath).toBe("ready-intents");
     // Mutation checkpoint: intent-output.test.ts multi-file idempotent re-land
@@ -131,6 +152,7 @@ describe("landIntentWorkflowOutput", () => {
       worktreePath: repo,
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
+      runner: stubMarkdownlintRunner(),
     });
     expect(result.files).toEqual(["alpha.md", "beta.md"]);
     // Mutation checkpoint: intent-output.test.ts downstreamInputs order
@@ -146,6 +168,7 @@ describe("landIntentWorkflowOutput", () => {
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
       invocationId,
+      runner: stubMarkdownlintRunner(),
     });
     expect(first.specPath).toBe("ready-intents/one.md");
     const second = await landIntentWorkflowOutput({
@@ -153,6 +176,7 @@ describe("landIntentWorkflowOutput", () => {
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
       invocationId,
+      runner: stubMarkdownlintRunner(),
     });
     expect(second.specPath).toBe("ready-intents/one.md");
     expect(second.specPath).not.toBe("ready-intents");
@@ -164,6 +188,7 @@ describe("landIntentWorkflowOutput", () => {
     stage(repo);
     writeFileSync(join(repo, "rogue"), "no\n", "utf8");
     await expect(
+      // guard-real-lint-in-unit-tests: rejects on the rogue-path check before markdownlint runs
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
     ).rejects.toThrow("rogue");
     expect(readFileSync(join(repo, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");
@@ -185,6 +210,7 @@ describe("landIntentWorkflowOutput", () => {
       worktreePath: repo,
       baseRef: "HEAD",
       output: { durableDir: "ready-intents" },
+      runner: stubMarkdownlintRunner(),
     });
     expect(result.files).toEqual(["one.md"]);
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
@@ -205,6 +231,7 @@ describe("landIntentWorkflowOutput", () => {
       }),
     ).toEqual(["node_modules/index.js"]);
     await expect(
+      // guard-real-lint-in-unit-tests: rejects on the rogue-path check before markdownlint runs
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
     ).rejects.toThrow("node_modules/index.js");
   });
@@ -230,7 +257,12 @@ describe("landIntentWorkflowOutput", () => {
     mkdirSync(join(repo, "ready-intents"), { recursive: true });
     writeFileSync(join(repo, "ready-intents", "one.md"), "other\n", "utf8");
     await expect(
-      landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
+      landIntentWorkflowOutput({
+        worktreePath: repo,
+        baseRef: "HEAD",
+        output: { durableDir: "ready-intents" },
+        runner: stubMarkdownlintRunner(),
+      }),
     ).rejects.toThrow("different contents");
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toBe("other\n");
   });
@@ -243,6 +275,7 @@ describe("landIntentWorkflowOutput", () => {
       baseRef: "none",
       output: { durableDir: "ready-intents" },
       invocationId: "no-git",
+      runner: stubMarkdownlintRunner(),
     });
     expect(result.specPath).toBe("ready-intents/one.md");
     expect(existsSync(join(root, ".jarvis-intent-stage"))).toBe(false);
@@ -253,6 +286,7 @@ describe("landIntentWorkflowOutput", () => {
     stage(root);
     writeFileSync(join(root, "rogue"), "no\n", "utf8");
     await expect(
+      // guard-real-lint-in-unit-tests: rejects on the rogue-path check before markdownlint runs
       landIntentWorkflowOutput({ worktreePath: root, baseRef: "none", output: { durableDir: "ready-intents" } }),
     ).rejects.toThrow("rogue");
     expect(readFileSync(join(root, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");

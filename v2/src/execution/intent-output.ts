@@ -220,7 +220,7 @@ export async function landIntentWorkflowOutput(input: {
   if (rogue.length > 0) failure(`intent: splitter wrote outside .jarvis-intent-stage/: ${rogue.join(", ")}`);
   const allPaths = await listWorktreeChangedPaths(input.worktreePath, input.baseRef, runner);
   const paths = intentStageModifiedPaths(allPaths);
-  const validation = await validateIntentStage(stageDir, paths, input.warn ?? (() => undefined));
+  const validation = await validateIntentStage(stageDir, paths, input.warn ?? (() => undefined), undefined, runner);
   if (!validation.ok) failure(validation.error);
 
   const files = validation.intents.map((intent) => basename(intent.path));
@@ -293,6 +293,8 @@ export async function evaluateIntentSplitLandingGate(input: {
   stagingDir: string;
   durableDir: string;
   warn?: (message: string) => void;
+  /** Markdownlint autofix runner for the landing validation; default is the real spawn. */
+  runner?: AsyncSubprocessRunner;
 }): Promise<{ ok: true } | { ok: false; error: string; offendingFile: string; repromptable: boolean }> {
   const rogue = await findIntentLandingRoguePaths({
     worktreePath: input.worktreePath,
@@ -311,7 +313,13 @@ export async function evaluateIntentSplitLandingGate(input: {
   }
   const stageDir = join(input.worktreePath, input.stagingDir);
   const modifiedPaths = intentStageModifiedPaths(await listWorktreeChangedPaths(input.worktreePath, input.baseRef));
-  const validation = await validateIntentStage(stageDir, modifiedPaths, input.warn ?? (() => undefined));
+  const validation = await validateIntentStage(
+    stageDir,
+    modifiedPaths,
+    input.warn ?? (() => undefined),
+    undefined,
+    input.runner,
+  );
   if (validation.ok) {
     return { ok: true };
   }

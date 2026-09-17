@@ -10,6 +10,7 @@ import {
   resolvePinnedLinkedSubspec,
 } from "../../../shared/linked-subspec-routing.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   findSnapshotStepForRunStepId,
   isWriteSiblingStepId,
@@ -670,6 +671,8 @@ export type PlanStageRecoveryRequest = Omit<WorkflowRunnerInput, "steps"> & {
   writeStepId: string;
   recoveryLanding: PlanStageRecoveryLanding;
   stateStore: StateStore;
+  /** Test seam for the plan-recovery staged-lint invocation; default stays `realAsyncSubprocessRunner`. */
+  runner?: AsyncSubprocessRunner;
 };
 
 export type PlanStageRecoveryOutcome =
@@ -844,9 +847,10 @@ function stripHarnessPlanBlocker(run: Run & { attempts: Attempt[] }, provenance:
 async function lintPlanRecoveryStage(
   worktreePath: string,
   provenance: PlanBlockerProvenance,
+  runner?: AsyncSubprocessRunner,
 ): ReturnType<typeof lintStagedMarkdown> {
   if (provenance.kind !== "harness") {
-    return lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath });
+    return lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath, ...(runner !== undefined ? { runner } : {}) });
   }
   // The copy lives outside the worktree: this path only validates, and the worktree is an arbitrary
   // target project that may not ignore `.scratch/` — or may already have a *file* there, which made
@@ -861,7 +865,10 @@ async function lintPlanRecoveryStage(
     const intentPath = join(lintStage, "intent.md");
     const content = readFileSync(intentPath, "utf8");
     writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
-    return await lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath: lintWorktree });
+    return await lintStagedMarkdown(PLAN_STAGE_DIR, {
+      worktreePath: lintWorktree,
+      ...(runner !== undefined ? { runner } : {}),
+    });
   } finally {
     rmSync(lintWorktree, { recursive: true, force: true });
   }
@@ -929,7 +936,7 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
   if (!contract.ok) {
     return { ok: false, code: "plan_stage_invalid", message: contract.reason };
   }
-  const lint = await lintPlanRecoveryStage(run.worktreePath, blockerProvenance);
+  const lint = await lintPlanRecoveryStage(run.worktreePath, blockerProvenance, request.runner);
   if (lint.kind === "violation") {
     return { ok: false, code: "plan_stage_invalid", message: `${lint.ruleId}: ${lint.message} (${lint.filePath})` };
   }
@@ -1061,6 +1068,8 @@ export type IntentFinalizationResumeDeps = {
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
   /** Aborted by `run kill`; reaches the ready gate / required integration / repair invocations. */
   signal?: AbortSignal;
+  /** Test seam: injected runner for the reviewed staged-Markdown lint gate; production default is the real markdownlint spawn resolved inside `lintStagedMarkdown`. */
+  runner?: AsyncSubprocessRunner;
 };
 
 function settleIntentResumeStagedMarkdownLintFailure(
@@ -1404,7 +1413,9 @@ export async function resumePopulatedIntentPublication(
       );
     }
 
-    const lintResult = await lintReviewedStagedMarkdownOrFail(context.worktreePath, context.landing);
+    const lintResult = await lintReviewedStagedMarkdownOrFail(context.worktreePath, context.landing, {
+      ...(deps.runner !== undefined ? { runner: deps.runner } : {}),
+    });
     if (lintResult.kind === "violation" || lintResult.kind === "invocation_error") {
       return settleIntentResumeStagedMarkdownLintFailure(
         store,

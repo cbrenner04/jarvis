@@ -126,6 +126,12 @@ function invocationErrorMessage(err: unknown): string {
   return String(err);
 }
 
+function missingLintAsset(binaryPath: string, configPath: string): string | undefined {
+  if (!existsSync(binaryPath)) return "markdownlint binary not found";
+  if (!existsSync(configPath)) return "markdownlint config not found";
+  return undefined;
+}
+
 export async function lintStagedMarkdown(
   stagingRoot: string,
   deps?: LintStagedMarkdownDeps,
@@ -141,21 +147,22 @@ export async function lintStagedMarkdown(
     return { kind: "clean" };
   }
 
-  const harnessRoot = resolveHarnessRoot(deps?.harnessRootOverride);
+  // An injected runner owns the spawn, so the real binary and config need not exist on disk.
+  const injectedRunner = deps?.runner;
+  const harnessRoot =
+    resolveHarnessRoot(deps?.harnessRootOverride) ?? (injectedRunner !== undefined ? worktreePath : null);
   if (harnessRoot === null) {
     return { kind: "invocation_error", message: "could not locate markdownlint harness root" };
   }
 
   const binaryPath = join(harnessRoot, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js");
   const configPath = join(harnessRoot, ".markdownlint-cli2.jsonc");
-  if (!existsSync(binaryPath)) {
-    return { kind: "invocation_error", message: "markdownlint binary not found" };
-  }
-  if (!existsSync(configPath)) {
-    return { kind: "invocation_error", message: "markdownlint config not found" };
+  const missing = injectedRunner === undefined ? missingLintAsset(binaryPath, configPath) : undefined;
+  if (missing !== undefined) {
+    return { kind: "invocation_error", message: missing };
   }
 
-  const runner = deps?.runner ?? realAsyncSubprocessRunner;
+  const runner = injectedRunner ?? realAsyncSubprocessRunner;
   const lintArgs = [binaryPath, "--no-globs", "--config", configPath, ...stagedFiles];
 
   const tracked = trackProcessGroup(deps?.processGroups);

@@ -10,6 +10,7 @@ import type {
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
@@ -479,6 +480,58 @@ export function skipReviewWithoutHarnessMarkdownlint(reason: string): boolean {
   if (hasHarnessMarkdownlintForReview()) return false;
   process.stderr.write(`skip: ${reason}; pinned markdownlint binary not installed in this worktree\n`);
   return true;
+}
+
+/**
+ * Fake `AsyncSubprocessRunner` for staged-Markdown lint: recognizes the known violation bytes in
+ * {@link REVIEW_MD_LINT_FIXTURE_IDS} by exact content match and reports the same rule/line/message
+ * the pinned `markdownlint-cli2` binary reports for them (captured once against the real binary);
+ * anything else — including the clean fixtures and inline scaffold content — reports clean. Lets
+ * staged-lint-reprompt tests exercise the real markdownlint output shape without spawning the
+ * binary.
+ */
+export function createStubMarkdownlintRunner(): AsyncSubprocessRunner {
+  const knownViolations = new Map<string, { line: number; rule: string; message: string }>([
+    [
+      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012ViolationSubspec),
+      {
+        line: 3,
+        rule: "MD012/no-multiple-blanks",
+        message: "Multiple consecutive blank lines [Expected: 1; Actual: 2]",
+      },
+    ],
+    [
+      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec),
+      { line: 3, rule: "MD038/no-space-in-code", message: 'Spaces inside code span elements [Context: "` foo`"]' },
+    ],
+    [
+      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Violation),
+      {
+        line: 7,
+        rule: "MD025/single-title/single-h1",
+        message: 'Multiple top-level headings in the same document [Context: "Second H1"]',
+      },
+    ],
+    [
+      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentLandingAndMd038Violation),
+      {
+        line: 7,
+        rule: "MD025/single-title/single-h1",
+        message: 'Multiple top-level headings in the same document [Context: "Second H1"]',
+      },
+    ],
+  ]);
+  return {
+    runAsync: async (_command, args) => {
+      const lines: string[] = [];
+      for (const arg of args) {
+        if (arg.startsWith("--") || arg.endsWith(".js") || arg.endsWith(".jsonc") || !existsSync(arg)) continue;
+        const known = knownViolations.get(readFileSync(arg, "utf8"));
+        if (known !== undefined) lines.push(`${arg}:${known.line} ${known.rule} ${known.message}`);
+      }
+      return lines.join("\n");
+    },
+  };
 }
 
 export function writeLintCleanPlanStage(

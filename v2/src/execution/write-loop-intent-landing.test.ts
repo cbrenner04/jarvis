@@ -13,6 +13,7 @@ import {
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
+import { createStubMarkdownlintRunner } from "./workflow-runner.test-support.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
@@ -88,7 +89,7 @@ async function runIntentSplitLoop(args: {
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
   };
   try {
-    return await executeWriteLoop(loopInput);
+    return await executeWriteLoop({ ...loopInput, stagedMarkdownLintRunner: createStubMarkdownlintRunner() });
   } finally {
     store.close();
   }
@@ -412,6 +413,7 @@ name: bad-intent
     try {
       const exhausted = await executeWriteLoop({
         ...sharedLoop,
+        stagedMarkdownLintRunner: createStubMarkdownlintRunner(),
         freshDispatch: true,
         maxIterations: 1,
         bindings: [
@@ -433,6 +435,7 @@ name: bad-intent
 
       const resumed = await executeWriteLoop({
         ...sharedLoop,
+        stagedMarkdownLintRunner: createStubMarkdownlintRunner(),
         bindings: [
           {
             id: "split",

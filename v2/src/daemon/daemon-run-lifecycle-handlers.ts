@@ -87,6 +87,7 @@ import {
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
+  RUN_OPERATOR_ERROR_RECOVERY,
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
@@ -404,12 +405,14 @@ export function createRunLifecycleHandlers(
       return { ok: false, message: "snapshot step is missing write resume context" };
     }
 
-    if (run.status === "paused" && matchesLinkedSiblingStepId(stepId, step.stepId)) {
+    if (matchesLinkedSiblingStepId(stepId, step.stepId)) {
       const linked = reconstructPausedWriteResumeInput({
         ...run,
         attempts: (run as Run & { attempts?: Attempt[] }).attempts ?? [],
       });
-      if (!linked.ok) return linked;
+      if (!linked.ok) {
+        return { ok: false, message: `${linked.message} — ${RUN_OPERATOR_ERROR_RECOVERY.unsupported_resume_context}` };
+      }
       return resolveWriteLoopBindings(linked.input, writeLoopBindingSourceDeps);
     }
 

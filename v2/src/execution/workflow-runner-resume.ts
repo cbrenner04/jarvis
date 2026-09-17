@@ -1554,7 +1554,8 @@ function linkedResumeExpectedArtifactPath(
 }
 
 /**
- * Reconstruct write-loop input for a paused linked-implement row (`<stepId>~link-N`): resolve the
+ * Reconstruct write-loop input for a linked-implement row (`<stepId>~link-N`), paused or an
+ * admitted resumable terminal status (e.g. a `failed` `gate_invocation_refused` row): resolve the
  * authored snapshot write step, re-read pinned linked-index routing for `N`, and thread
  * `resumeReentry`, `specReadRoot` (external plans only), and the active subspec
  * `expectedArtifactPath` into the result. Daemon `reconstructWriteResume` is the intended consumer.
@@ -1562,9 +1563,6 @@ function linkedResumeExpectedArtifactPath(
 export function reconstructPausedWriteResumeInput(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
 ): PausedWriteResumeReconstruction {
-  if (run.status !== "paused") {
-    return { ok: false, message: "paused write resume requires a paused run" };
-  }
   const snapshot = run.workflowSnapshot;
   const stepId = run.stepId;
   if (!snapshot || !stepId) {
@@ -1576,7 +1574,7 @@ export function reconstructPausedWriteResumeInput(
   }
   const authoredStepId = snapshotStep.stepId;
   if (!matchesLinkedSiblingStepId(stepId, authoredStepId)) {
-    return { ok: false, message: "run is not a paused linked write row" };
+    return { ok: false, message: "run is not a linked write row" };
   }
   const linkIndex = parseLinkedRowIndex(stepId, authoredStepId);
   if (linkIndex === undefined) {

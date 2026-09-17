@@ -391,7 +391,10 @@ ${guardFlipHunk}
   }
 
   async function expectOnlyProductionCandidate(testFile: string) {
-    const diff = guardFlipFileDiff("src/safe.ts", "safe(x: any)") + guardFlipFileDiff(testFile, "helper()");
+    // testFile goes FIRST: the first survivor short-circuits the run, so if testFile were still a
+    // candidate it would win and sourceSite.file would name it. With production first the
+    // assertion below passes either way, which is what made this non-falsifiable.
+    const diff = guardFlipFileDiff(testFile, "helper()") + guardFlipFileDiff("src/safe.ts", "safe(x: any)");
     const originalContent = `export function safe(x: any) {
   if (!x) return "safe";
   return x;

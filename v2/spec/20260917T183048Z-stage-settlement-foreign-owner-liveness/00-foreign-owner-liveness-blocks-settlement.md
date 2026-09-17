@@ -14,19 +14,26 @@ Fix: before settling, treat the invocation as live when any of its sibling rows 
 - A null `owner_identity` on a non-terminal row does not make the invocation live — unowned non-terminal rows are exactly the interrupted case the rollup already handles.
 - No workflow snapshot on the entry run means no sibling rows to enumerate — the gate is a no-op and local liveness (the entry row's own terminal/non-terminal status) decides unchanged.
 - The sweep re-reads each stage's row and liveness state from the store immediately before applying the gate, rather than reusing the `listPipelines()` snapshot taken at sweep start — the sweep is now async, and an earlier stage's settlement in the same pass can change a later stage's state across the await.
-- `settleStagesForEntryRun`'s other two callers (`pipeline-stage-dispatch.ts` post-wait settlement, `daemon-workflow-admission-handlers.ts` terminal-event settlement) stay synchronous with their existing `() => false` probes: both settle immediately after this same daemon dispatched and drove the entry run start-to-finish, so every sibling row written during that window carries this daemon's own `owner_identity` — a foreign live owner cannot appear there. Only the sweep (daemon start, `pipeline_resume` precondition) gains the gate.
+- Sibling `owner_identity` is read through the ordinary run-row surface, not another bespoke `SELECT`: `owner_identity` joins `RUN_COLUMNS` and `ownerIdentity` joins the exported `Run` type, so `findRunsByInvocationId` returns owned rows. Today `RUN_COLUMNS` omits it (only `PIPELINE_COLUMNS` selects it) and four call sites hand-roll their own owner query; rules out a fifth bespoke query and the "persistence is unchanged" reading of this lane.
+- `adoptAndSettlePipelineStage` (`v2/src/daemon/pipeline-stage-dispatch.ts`) gets the same gate as the sweep, not an exemption. It links a **pre-existing** admitted entry run it did not dispatch and settles with `isEntryRunLive ?? (() => false)` — the same restart/re-entry shape the sweep guards, so a foreign live owner reaches it. Rules out ruling the path out by assertion.
+- `daemon-workflow-admission-handlers.ts` terminal-event settlement stays synchronous with its existing `() => false` probe: it settles immediately after this same daemon dispatched and drove the entry run start-to-finish, so every sibling row written in that window carries this daemon's own `owner_identity`. This exemption is narrow and rests on that dispatch ownership, not on being a non-sweep caller.
 
 ## Task checklist
 
 - [ ] Add the foreign-owner liveness gate to the sweep with a memoized, injectable probe, re-reading stage/row state per stage rather than off the sweep-start snapshot.
 - [ ] Thread `recoverContinuablePipelines`'s existing `isOwnerAliveProbe` into its `settleOrphanedRunningStages` call.
 - [ ] Await the now-async sweep at both call sites in `v2/src/daemon/pipeline-execution.ts`.
-- [ ] Add the failing regression test.
+- [ ] Add `owner_identity AS ownerIdentity` to `RUN_COLUMNS` and `ownerIdentity` to the exported `Run` type.
+- [ ] Apply the same gate to `adoptAndSettlePipelineStage`.
+- [ ] Add the failing regression tests.
 - [ ] Update `v2/docs/pipeline-execution.md` and the matching `v2/docs/v1-behaviors.md` entry.
 
 ## Acceptance criteria
 
 - [ ] A test builds an invocation whose authored step's row is `completed` and whose hidden `~shrink` sibling row is `in-progress` under a live foreign `owner_identity`, runs the startup sweep, and asserts the linked stage stays `running`; it fails against the pre-fix code (which settles it `succeeded`/`failed`).
+- [ ] A test asserts `findRunsByInvocationId` returns rows carrying `ownerIdentity` for an owner-stamped run; it fails against the current `RUN_COLUMNS`, which does not select the column.
+- [ ] A test drives `adoptAndSettlePipelineStage` over an adopted entry run whose hidden `~shrink` sibling is `in-progress` under a live foreign owner, and asserts the stage stays `running`; it fails against the pre-fix code, which settles it.
+- [ ] A test asserts the `pipeline_resume` precondition sweep call site (`v2/src/daemon/pipeline-execution.ts:629`) is gated the same way as the daemon-start call site; it fails while only one of the two threads the probe.
 - [ ] A test asserts the same invocation with a dead foreign owner identity still settles its stage.
 - [ ] A test asserts a non-terminal sibling row owned by this daemon's own identity does not block settlement (local liveness decides, unchanged).
 - [ ] `v2/src/daemon/pipeline-execution.test.ts` and `v2/src/daemon/pipeline-stage-dispatch.test.ts` stay green (settlement of locally-owned and unowned invocations unchanged).

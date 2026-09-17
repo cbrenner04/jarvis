@@ -8,7 +8,9 @@ Unsplit rationale: one small predicate change on test-code classification, share
 
 ## Primary implementation surface
 
-- `v2/src/execution/diff-derived-mutation-verifier.ts` test-code classification (`:864`), using one exported predicate shared with `scripts/guard-production-test-support-imports.ts`.
+- `v2/src/execution/diff-scan.ts` `isProductionFile` (`:19-22`), the diff-candidate gate consumed by `diff-derived-mutation-verifier.ts:970` via `changedPathsFromDiff` — not the killing-test resolver at `:864`, which only runs after a file already passed this gate.
+- Shared predicate lives in `scripts/production-files.ts` (already exports `TEST_SUPPORT_SUFFIX` and `isProductionSourceFile`, already consumed by `scripts/guard-production-test-support-imports.ts`): extend or reuse it from `diff-scan.ts` rather than inventing a second one. `v2/src` already imports directly from `scripts/` elsewhere in this same file (`diff-derived-mutation-verifier.ts:5` imports `guarded` from `scripts/guard-deterministic-daemon-tests.ts`), so this crossing has precedent — no new layering exception needed.
+- Note the two predicates aren't identical today (`isProductionSourceFile` also requires a `v2/`or `shared/` root prefix and excludes the `v2/src/testing/` harness root; `isProductionFile` excludes `test/`, `v1/`, `v2/spec/`, `v2/docs/` path prefixes instead): drafting must reconcile this, not just import one into the other blindly.
 
 ## Prerequisites
 

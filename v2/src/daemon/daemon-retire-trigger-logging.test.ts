@@ -38,12 +38,22 @@ export async function waitFor(predicate: () => boolean, boundMs: number, stepMs 
   return predicate();
 }
 
+/** Random suffix for tmp file/socket names, unique enough across concurrent test runs. */
+export function uniqueId(): string {
+  return `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** A fresh private-socket path for a `changeover`-initiated handoff. */
+function makePrivateSocketPath(): string {
+  return join(tmpdir(), `jarvis-retire-trigger-private-${uniqueId()}.sock`);
+}
+
 let store: StateStore;
 let dbPath: string;
 let socketPath: string;
 
 beforeEach(() => {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const unique = uniqueId();
   dbPath = join(tmpdir(), `jarvis-retire-trigger-${unique}.sqlite`);
   socketPath = join(tmpdir(), `jarvis-retire-trigger-${unique}.sock`);
   store = openStateStore(dbPath);
@@ -62,9 +72,8 @@ export async function startFakeDaemon(
   extraDeps: Parameters<typeof startDaemonRuntime>[3] = {},
 ): Promise<{ handlers: Record<string, RpcHandler>; close: () => Promise<void> }> {
   let handlers: Record<string, RpcHandler> = {};
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const runtime = await startDaemonRuntime(socketPath, store, undefined, {
-    logsPath: join(tmpdir(), `jarvis-retire-trigger-logs-${unique}.jsonl`),
+    logsPath: join(tmpdir(), `jarvis-retire-trigger-logs-${uniqueId()}.jsonl`),
     openLogSink: () => ({ append: () => undefined, close: () => undefined }),
     enumerateOtherDaemonSockets: () => [],
     readNotificationSinkCommand: () => undefined,
@@ -102,8 +111,7 @@ test("shutdown logs the retire-trigger line naming shutdown", async () => {
 });
 
 test("changeover logs the retire-trigger line naming changeover once the handoff actually begins", async () => {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
+  const privateSocketPath = makePrivateSocketPath();
   const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath });
   const capture = captureConsoleError();
   try {
@@ -139,8 +147,7 @@ test("formatHandoffSettlementLogLine includes resolution only when the caller pa
 });
 
 test("handoff_commit logs the retire-trigger line naming handoff_commit before committing", async () => {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
+  const privateSocketPath = makePrivateSocketPath();
   const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath });
   const capture = captureConsoleError();
   try {
@@ -158,8 +165,7 @@ test("handoff_commit logs the retire-trigger line naming handoff_commit before c
 });
 
 test("handoff_rollback logs the retire-trigger line naming handoff_rollback before rolling back", async () => {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
+  const privateSocketPath = makePrivateSocketPath();
   const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath });
   const capture = captureConsoleError();
   try {
@@ -177,8 +183,7 @@ test("handoff_rollback logs the retire-trigger line naming handoff_rollback befo
 });
 
 test("fallback timer logs handoff_fallback naming rollback when no successor answers", async () => {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
+  const privateSocketPath = makePrivateSocketPath();
   const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath, handoffFallbackMs: 20 });
   const capture = captureConsoleError();
   try {

@@ -10,6 +10,7 @@ import {
   beginChangeover,
   captureConsoleError,
   startFakeDaemon,
+  uniqueId,
   waitFor,
 } from "./daemon-retire-trigger-logging.test.ts";
 
@@ -20,7 +21,7 @@ let dbPath: string;
 let socketPath: string;
 
 beforeEach(() => {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const unique = uniqueId();
   dbPath = join(tmpdir(), `jarvis-retire-trigger-live-${unique}.sqlite`);
   socketPath = join(tmpdir(), `jarvis-retire-trigger-live-${unique}.sock`);
   store = openStateStore(dbPath);
@@ -32,8 +33,7 @@ afterEach(() => {
 });
 
 socketTest("fallback timer logs handoff_fallback naming commit when a successor answers live", async () => {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-live-private-${unique}.sock`);
+  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-live-private-${uniqueId()}.sock`);
   const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath, handoffFallbackMs: 150 });
   const capture = captureConsoleError();
   let successor: IpcServer | undefined;

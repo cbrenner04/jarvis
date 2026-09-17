@@ -159,9 +159,14 @@ export function isMissingReadyGateCommandOutput(output: string, spawnCode?: stri
   return findMissingReadyGateCommandEvidence(output, spawnCode) !== undefined;
 }
 
+/** A confirmed out-of-scope path's base-ref probe observation: the per-test reporter counts and
+ *  the verified merge-base commit the probe reproduced against. */
+export type BaseRefProbeObservation = { pass: number; fail: number; baseCommit: string };
+
 export type ReadyGateClassification = {
   kind: ReadyGateFailureKind;
   outsidePaths?: readonly string[];
+  outsidePathObservations?: Record<string, BaseRefProbeObservation>;
   gateRepairAllowsetPaths?: readonly string[];
   baseRefProbeError?: string;
   commandMissingEvidence?: string;
@@ -178,7 +183,10 @@ export type ReadyGateScopeInput = {
   verifierProcessGroups?: VerifierProcessGroupRecorder;
 };
 
-export type BaseRefProbeResult = "pass" | "fail" | { kind: "error"; message: string };
+export type BaseRefProbeResult =
+  | "pass"
+  | ({ kind: "fail" } & BaseRefProbeObservation)
+  | { kind: "error"; message: string };
 
 export type ReproduceReadyGateAtBaseRef = (
   scope: ReadyGateScopeInput,
@@ -196,6 +204,7 @@ export type ReadyGateScopeSeams = {
 export class ReadyGateError extends Error {
   readonly gateFailureKind: ReadyGateFailureKind;
   readonly outsidePaths?: readonly string[];
+  readonly outsidePathObservations?: Record<string, BaseRefProbeObservation>;
   readonly gateRepairAllowsetPaths?: readonly string[];
   readonly baseRefProbeError?: string;
   readonly scopeBaseRef?: string;
@@ -216,6 +225,9 @@ export class ReadyGateError extends Error {
     this.gateFailureKind = classification?.kind ?? "ready_gate_failed";
     if (classification?.outsidePaths !== undefined) {
       this.outsidePaths = classification.outsidePaths;
+    }
+    if (classification?.outsidePathObservations !== undefined) {
+      this.outsidePathObservations = classification.outsidePathObservations;
     }
     if (classification?.gateRepairAllowsetPaths !== undefined) {
       this.gateRepairAllowsetPaths = classification.gateRepairAllowsetPaths;
@@ -481,15 +493,33 @@ function formatBaseRefProbeInconclusiveReason(reason: string, output: string): s
   return tail.length === 0 ? reason : `${reason}: ${tail}`;
 }
 
+/** A base-ref probe's conclusive-fail outcome before `baseCommit` is attached: the caller that
+ *  already verified the probe's merge-base attaches it once, rather than re-deriving it here. */
+type BaseRefProbeFailureClassification =
+  | { kind: "fail"; pass: number; fail: number }
+  | { kind: "error"; message: string };
+
+/** Count bun's per-test reporter lines (e.g. `(pass) `/`(fail) `) for the given marker. */
+function countBunTestReporterLines(output: string, marker: "pass" | "fail"): number {
+  const matches = output.match(new RegExp(`^\\s*\\(${marker}\\)\\s`, "gm"));
+  return matches?.length ?? 0;
+}
+
 /** Decide a base-ref probe's `bun test <path>` outcome from its captured output: a timeout is
  *  always inconclusive (its output cannot name a failing test); otherwise a conclusive `fail`
- *  requires named failing-test evidence, not merely the non-zero exit that got us here. */
-function classifyBaseRefProbeFailure(output: string, timedOut: boolean): BaseRefProbeResult {
+ *  requires named failing-test evidence, not merely the non-zero exit that got us here. The
+ *  pass/fail counts come from bun's per-test reporter lines, the same evidence this gate anchors
+ *  on, not bun's aggregate summary line (which can disagree with the per-test lines). */
+function classifyBaseRefProbeFailure(output: string, timedOut: boolean): BaseRefProbeFailureClassification {
   if (timedOut) {
     return { kind: "error", message: formatBaseRefProbeInconclusiveReason("base-ref probe timed out", output) };
   }
   if (hasFailingTestEvidence(output)) {
-    return "fail";
+    return {
+      kind: "fail",
+      pass: countBunTestReporterLines(output, "pass"),
+      fail: countBunTestReporterLines(output, "fail"),
+    };
   }
   return {
     kind: "error",
@@ -530,7 +560,7 @@ async function runBaseRefProbeCommand(
   terminalCommand: string,
   path: string,
   probeEnv: NodeJS.ProcessEnv,
-): Promise<BaseRefProbeResult> {
+): Promise<"pass" | BaseRefProbeFailureClassification> {
   const v2Mode = v2ProbeModeFromTerminalCommand(terminalCommand);
   try {
     if (v2Mode !== undefined) {
@@ -592,7 +622,8 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
       }
       symlinkProbeNodeModules(scope.worktreePath, worktreeDir);
       const probeEnv = await deriveReadyGateChildEnv(runner, scope.worktreePath, scope.baseRef);
-      return await runBaseRefProbeCommand(runner, scope, worktreeDir, terminalCommand, path, probeEnv);
+      const outcome = await runBaseRefProbeCommand(runner, scope, worktreeDir, terminalCommand, path, probeEnv);
+      return outcome === "pass" || outcome.kind === "error" ? outcome : { ...outcome, baseCommit };
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
@@ -619,11 +650,13 @@ async function probeOutsidePathsAtBaseRef(
 ): Promise<{
   inScopePaths: string[];
   confirmedOutsidePaths: string[];
+  outsidePathObservations: Record<string, BaseRefProbeObservation>;
   baseRefProbeError?: string;
 }> {
   const reproduce = seams?.reproduceReadyGateAtBaseRef ?? createDefaultReproduceReadyGateAtBaseRef(runner);
   const inScopePaths: string[] = [];
   const confirmedOutsidePaths: string[] = [];
+  const outsidePathObservations: Record<string, BaseRefProbeObservation> = {};
   let baseRefProbeError: string | undefined;
   for (const path of outsidePaths) {
     const outcome = await reproduce(scope, terminalCommand, path);
@@ -631,8 +664,9 @@ async function probeOutsidePathsAtBaseRef(
       inScopePaths.push(path);
       continue;
     }
-    if (outcome === "fail") {
+    if (outcome.kind === "fail") {
       confirmedOutsidePaths.push(path);
+      outsidePathObservations[path] = { pass: outcome.pass, fail: outcome.fail, baseCommit: outcome.baseCommit };
       continue;
     }
     inScopePaths.push(path);
@@ -641,8 +675,8 @@ async function probeOutsidePathsAtBaseRef(
     }
   }
   return baseRefProbeError === undefined
-    ? { inScopePaths, confirmedOutsidePaths }
-    : { inScopePaths, confirmedOutsidePaths, baseRefProbeError };
+    ? { inScopePaths, confirmedOutsidePaths, outsidePathObservations }
+    : { inScopePaths, confirmedOutsidePaths, outsidePathObservations, baseRefProbeError };
 }
 
 /** Classify a ready gate failure from terminal test evidence, allowed paths, and base-ref reproduction. */
@@ -684,13 +718,8 @@ export async function classifyReadyGateFailure(
     return { kind: "ready_gate_failed" };
   }
 
-  const { inScopePaths, confirmedOutsidePaths, baseRefProbeError } = await probeOutsidePathsAtBaseRef(
-    outsidePaths,
-    terminalStep.command,
-    scope,
-    seams,
-    runner,
-  );
+  const { inScopePaths, confirmedOutsidePaths, outsidePathObservations, baseRefProbeError } =
+    await probeOutsidePathsAtBaseRef(outsidePaths, terminalStep.command, scope, seams, runner);
   const probeFields =
     inScopePaths.length > 0 || baseRefProbeError !== undefined
       ? {
@@ -702,7 +731,11 @@ export async function classifyReadyGateFailure(
   if (mixedAttribution || inScopePaths.length > 0 || baseRefProbeError !== undefined) {
     return { kind: "ready_gate_failed", ...probeFields };
   }
-  return { kind: "ready_gate_out_of_scope", outsidePaths: confirmedOutsidePaths };
+  return {
+    kind: "ready_gate_out_of_scope",
+    outsidePaths: confirmedOutsidePaths,
+    ...(Object.keys(outsidePathObservations).length > 0 ? { outsidePathObservations } : {}),
+  };
 }
 
 function parseNulDelimitedPaths(output: string): string[] | undefined {
@@ -872,6 +905,7 @@ export async function classifyReadyGateError(
   if (
     classification.kind === error.gateFailureKind &&
     classification.outsidePaths === error.outsidePaths &&
+    classification.outsidePathObservations === error.outsidePathObservations &&
     classification.gateRepairAllowsetPaths === error.gateRepairAllowsetPaths &&
     classification.baseRefProbeError === error.baseRefProbeError &&
     classification.commandMissingEvidence === error.commandMissingEvidence &&

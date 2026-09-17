@@ -141,6 +141,100 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
     rmSync(worktreePath, { recursive: true, force: true });
   });
 
+  test("carries specReadRoot into the rebuilt review step's profileContext only when the write step is an admitted external plan", async () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-external-plan-wt-"));
+    const specReadRoot = mkdtempSync(join(tmpdir(), "linked-workflow-resume-external-plan-root-"));
+    writeTwoLinkIndexFixture(specReadRoot);
+    const specPath = join(specReadRoot, "index.md");
+
+    await withStateStore(async (store) => {
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath,
+        branch: "linked-resume/external-plan",
+        specPath,
+        stepId: "implement~link-0",
+        workflowSnapshot: {
+          invocationId: "linked-resume-external-plan",
+          steps: [
+            {
+              stepId: "implement",
+              role: "implement",
+              stepRules: "implement rules",
+              expectedArtifactPath: specPath,
+              agents: ["claude"],
+              agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+              externalPlanSpec: true,
+              specReadRoot,
+            },
+            { stepId: "implement-review", role: "", behavior: "review" },
+          ],
+          reviewPasses: 1,
+          reviewBehavior: "light",
+        },
+      });
+      store.setRunStatus(runId, "paused");
+
+      const run = store.loadRun(runId);
+      if (!run) throw new Error("expected paused linked run");
+      const reconstructed = reconstructLinkedWorkflowResumeSteps(run);
+      expect(reconstructed.ok).toBe(true);
+      if (!reconstructed.ok) return;
+      const reviewStep = reconstructed.steps[1];
+      if (reviewStep?.behavior !== "review") throw new Error("expected review step");
+      expect(reviewStep.profileContext).toMatchObject({ specReadRoot });
+    });
+
+    rmSync(worktreePath, { recursive: true, force: true });
+    rmSync(specReadRoot, { recursive: true, force: true });
+  });
+
+  test("omits specReadRoot from the rebuilt review step's profileContext when the write step is not an external plan", async () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-non-external-plan-"));
+    writeTwoLinkIndexFixture(worktreePath);
+
+    await withStateStore(async (store) => {
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath,
+        branch: "linked-resume/non-external-plan",
+        specPath: "index.md",
+        stepId: "implement~link-0",
+        workflowSnapshot: {
+          invocationId: "linked-resume-non-external-plan",
+          steps: [
+            {
+              stepId: "implement",
+              role: "implement",
+              stepRules: "implement rules",
+              expectedArtifactPath: "index.md",
+              agents: ["claude"],
+              agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+              specReadRoot: worktreePath,
+            },
+            { stepId: "implement-review", role: "", behavior: "review" },
+          ],
+          reviewPasses: 1,
+          reviewBehavior: "light",
+        },
+      });
+      store.setRunStatus(runId, "paused");
+
+      const run = store.loadRun(runId);
+      if (!run) throw new Error("expected paused linked run");
+      const reconstructed = reconstructLinkedWorkflowResumeSteps(run);
+      expect(reconstructed.ok).toBe(true);
+      if (!reconstructed.ok) return;
+      const reviewStep = reconstructed.steps[1];
+      if (reviewStep?.behavior !== "review") throw new Error("expected review step");
+      expect(reviewStep.profileContext).not.toHaveProperty("specReadRoot");
+    });
+
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
   test("omits the review step when the workflow has no review/review-debate step in its snapshot", async () => {
     const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-no-review-"));
     writeTwoLinkIndexFixture(worktreePath);

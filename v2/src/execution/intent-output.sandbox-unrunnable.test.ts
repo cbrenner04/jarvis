@@ -41,4 +41,18 @@ describe("landIntentWorkflowOutput (real markdownlint binary)", () => {
     expect(result.downstreamInputs).toBeUndefined();
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
   });
+
+  test("applies the real markdownlint autofix to a landed intent", async () => {
+    const repo = createRepo();
+    const dir = stage(repo);
+    // A padded code span (MD038) is fixed only by markdownlint --fix, not by the structural intent repair.
+    writeFileSync(
+      join(dir, "one.md"),
+      "---\nname: one\n---\n\n# one\n\nRun `  bun test` first.\n\n## Prerequisites\n",
+      "utf8",
+    );
+    await landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } });
+    const landed = readFileSync(join(repo, "ready-intents", "one.md"), "utf8");
+    expect(landed).toContain("Run `bun test` first.");
+  });
 });

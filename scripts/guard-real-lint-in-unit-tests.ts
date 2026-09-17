@@ -11,51 +11,56 @@ export type LintCallViolation = { file: string; line: number; functionName: stri
  */
 export const ALLOW_MARKER = "guard-real-lint-in-unit-tests:";
 
+/** Where an entry point accepts its runner: an object-literal property key, or a positional argument index. */
+type RunnerInjection = { property: string } | { position: number };
+
+const RUNNER_PROPERTY: RunnerInjection = { property: "runner" };
+
 /**
- * Real markdown-lint entry points: production functions whose optional `runner` parameter
+ * Real markdown-lint entry points: production functions whose optional runner dependency
  * defaults to a real `bun markdownlint-cli2` spawn (`shared/subprocess.ts#realAsyncSubprocessRunner`).
- * A unit-slice test file calling one of these without threading a `runner` identifier through the
- * call reaches the real binary instead of a stub.
+ * A unit-slice test file calling one of these without the entry point's specific injection
+ * reaches the real binary instead of a stub.
  */
-const LINT_ENTRY_POINTS: readonly { modulePattern: RegExp; functionName: string }[] = [
-  { modulePattern: /markdownlint-repair\.ts$/, functionName: "runMarkdownlintAutofix" },
-  { modulePattern: /staged-markdown-lint\.ts$/, functionName: "lintStagedMarkdown" },
-  { modulePattern: /intent-stage\.ts$/, functionName: "validateIntentStage" },
-  { modulePattern: /intent-stage\.ts$/, functionName: "repairIntentStageContent" },
-  { modulePattern: /intent-output\.ts$/, functionName: "landIntentWorkflowOutput" },
-  { modulePattern: /workflow-runner-resume\.ts$/, functionName: "recoverPlanStage" },
-  { modulePattern: /workflow-runner-resume\.ts$/, functionName: "resumePopulatedIntentPublication" },
-  { modulePattern: /write-loop\.ts$/, functionName: "executeWriteLoop" },
+const LINT_ENTRY_POINTS: readonly { modulePattern: RegExp; functionName: string; injection: RunnerInjection }[] = [
+  { modulePattern: /markdownlint-repair\.ts$/, functionName: "runMarkdownlintAutofix", injection: RUNNER_PROPERTY },
+  { modulePattern: /staged-markdown-lint\.ts$/, functionName: "lintStagedMarkdown", injection: RUNNER_PROPERTY },
+  { modulePattern: /intent-stage\.ts$/, functionName: "validateIntentStage", injection: { position: 4 } },
+  { modulePattern: /intent-stage\.ts$/, functionName: "repairIntentStageContent", injection: { position: 3 } },
+  { modulePattern: /intent-output\.ts$/, functionName: "landIntentWorkflowOutput", injection: RUNNER_PROPERTY },
+  { modulePattern: /workflow-runner-resume\.ts$/, functionName: "recoverPlanStage", injection: RUNNER_PROPERTY },
+  {
+    modulePattern: /workflow-runner-resume\.ts$/,
+    functionName: "resumePopulatedIntentPublication",
+    injection: RUNNER_PROPERTY,
+  },
+  {
+    modulePattern: /write-loop\.ts$/,
+    functionName: "executeWriteLoop",
+    injection: { property: "stagedMarkdownLintRunner" },
+  },
 ];
 
 /**
- * Files that call a lint entry point without an injected runner for reasons outside the
- * intent-landing (00) and staged-lint-resume (01) seams this guard protects: pre-existing
- * real-binary assertions that predate the runner threading. Fixing them is a separate concern.
+ * Files exempt from the call-site check. Entries without real-binary assertions were verified by a
+ * spawn trap (default runners made to throw): the file never reaches the real binary. The guard
+ * does not re-check them, so a new lint-reaching call in one of these files goes unflagged.
  */
 const ALLOWLISTED_FILES = new Map<string, string>([
-  ["shared/intent-stage.test.ts", "pre-existing real-binary landing-repair assertions"],
-  ["v2/src/execution/staged-markdown-lint.test.ts", "direct unit coverage of the real binary path"],
-  [
-    "v2/src/execution/workflow-runner-review.test.ts",
-    "pre-existing real-binary review-actuator staged-lint reprompt assertions predating this seam",
-  ],
-  ["v2/src/daemon/daemon-start-list.test.ts", "pre-existing write-loop calls predate the staged-lint runner seam"],
+  ["shared/intent-stage.test.ts", "direct real-binary landing-repair (autofix) assertions"],
+  ["v2/src/execution/staged-markdown-lint.test.ts", "direct real-binary violation/clean assertions"],
+  ["v2/src/daemon/daemon-start-list.test.ts", "write-loop stages contain no .md files; never spawns (trap-verified)"],
   [
     "v2/src/execution/write-loop.test.ts",
-    "pre-existing write-loop calls predate the staged-lint runner seam; none exercise the lint gate",
+    "runLoop helpers inject a clean stub runner; other executeWriteLoop calls stage no .md files (trap-verified)",
   ],
   [
     "v2/src/execution/write-loop-idle-watchdog.test.ts",
-    "pre-existing write-loop calls predate the staged-lint runner seam; none exercise the lint gate",
-  ],
-  [
-    "v2/src/execution/write-loop-intent-landing.test.ts",
-    "pre-existing write-loop calls predate the staged-lint runner seam; landing-contract checks precede the lint gate",
+    "write-loop stages contain no .md files; never spawns (trap-verified)",
   ],
   [
     "v2/src/execution/write-loop-session-log.test.ts",
-    "pre-existing write-loop calls predate the staged-lint runner seam; none exercise the lint gate",
+    "write-loop stages contain no .md files; never spawns (trap-verified)",
   ],
 ]);
 
@@ -96,8 +101,37 @@ function importedBindings(source: string, functionName: string, modulePattern: R
   return bindings;
 }
 
-function hasInjectedRunner(argsText: string): boolean {
-  return /\brunner\b/.test(stripComments(argsText));
+/** Top-level comma-separated arguments of a `(...)` argument list (lexical; brackets inside strings are not special-cased). */
+function splitTopLevelArguments(argsText: string): string[] {
+  const inner = argsText.slice(1, -1);
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < inner.length; index += 1) {
+    const char = inner[index] ?? "";
+    if ("([{".includes(char)) depth += 1;
+    else if (")]}".includes(char)) depth -= 1;
+    else if (char === "," && depth === 0) {
+      parts.push(inner.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(inner.slice(start));
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
+/**
+ * True when the call injects the entry point's runner: the named property key (shorthand or
+ * `key: value`) in an object literal in the arguments, or the positional argument. An explicit
+ * `undefined` value does not count.
+ */
+function hasInjectedRunner(argsText: string, injection: RunnerInjection): boolean {
+  const text = stripComments(argsText);
+  if ("position" in injection) {
+    const arg = splitTopLevelArguments(text)[injection.position];
+    return arg !== undefined && arg !== "undefined";
+  }
+  return new RegExp(`(?<=[{,]\\s*)${injection.property}\\s*(?:[,}]|:\\s*(?!undefined\\b)[^\\s,}])`).test(text);
 }
 
 function allowedByMarker(lines: readonly string[], line: number): boolean {
@@ -109,12 +143,12 @@ export function findRealLintCallViolations(files: readonly SourceFile[]): LintCa
   for (const { file, source } of files) {
     if (!file.endsWith(".test.ts") || isSandboxUnrunnable(file) || ALLOWLISTED_FILES.has(file)) continue;
     const lines = source.split("\n");
-    for (const { modulePattern, functionName } of LINT_ENTRY_POINTS) {
+    for (const { modulePattern, functionName, injection } of LINT_ENTRY_POINTS) {
       for (const binding of importedBindings(source, functionName, modulePattern)) {
         for (const match of source.matchAll(new RegExp(`(?<![.\\w])${binding}\\s*\\(`, "g"))) {
           const open = match.index + match[0].length - 1;
           const line = lineAt(source, match.index);
-          if (!hasInjectedRunner(callArguments(source, open)) && !allowedByMarker(lines, line)) {
+          if (!hasInjectedRunner(callArguments(source, open), injection) && !allowedByMarker(lines, line)) {
             violations.push({ file, line, functionName });
           }
         }

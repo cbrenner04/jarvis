@@ -25,7 +25,7 @@ import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
 import * as sharedGit from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
@@ -503,6 +503,9 @@ async function runAbortWatchdogOrdering(args: {
   return resultPromise;
 }
 
+/** Stub markdownlint: reports no violations, so plan-draft tests never spawn the real binary. */
+const CLEAN_MARKDOWNLINT_RUNNER: AsyncSubprocessRunner = { runAsync: async () => "" };
+
 async function runLoop(args: {
   jarvisRoot: string;
   stateDbPath: string;
@@ -595,7 +598,7 @@ async function runLoop(args: {
     ...(args.pauseSignal !== undefined ? { pauseSignal: args.pauseSignal } : {}),
   };
   try {
-    return await executeWriteLoop(loopInput);
+    return await executeWriteLoop({ ...loopInput, stagedMarkdownLintRunner: CLEAN_MARKDOWNLINT_RUNNER });
   } finally {
     store.close();
   }
@@ -662,7 +665,7 @@ async function runLoopWithPause(args: {
     loopInput.logSink = args.logSink;
   }
   try {
-    return await executeWriteLoop(loopInput);
+    return await executeWriteLoop({ ...loopInput, stagedMarkdownLintRunner: CLEAN_MARKDOWNLINT_RUNNER });
   } finally {
     store.close();
   }

@@ -86,11 +86,9 @@ describe("real-lint-in-unit-tests guard", () => {
     ].join("\n");
     expect(violations(source, "v2/src/execution/staged-markdown-lint.test.ts")).toEqual([]);
     expect(violations(source, "shared/intent-stage.test.ts")).toEqual([]);
-    expect(violations(source, "v2/src/execution/workflow-runner-review.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/daemon/daemon-start-list.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/execution/write-loop.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/execution/write-loop-idle-watchdog.test.ts")).toEqual([]);
-    expect(violations(source, "v2/src/execution/write-loop-intent-landing.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/execution/write-loop-session-log.test.ts")).toEqual([]);
   });
 
@@ -99,6 +97,8 @@ describe("real-lint-in-unit-tests guard", () => {
     "v2/src/daemon/daemon-resume.test.ts",
     "v2/src/daemon/daemon-pipeline-recover.test.ts",
     "v2/src/daemon/pipeline-stage-recovery.test.ts",
+    "v2/src/execution/workflow-runner-review.test.ts",
+    "v2/src/execution/write-loop-intent-landing.test.ts",
   ])("flags stubbed-seam file %s (no longer allowlisted)", (file) => {
     const source = [
       'import { lintStagedMarkdown } from "./staged-markdown-lint.ts";',
@@ -113,6 +113,58 @@ describe("real-lint-in-unit-tests guard", () => {
   ])("rejects %s called without an injected runner", (functionName, modulePath, call) => {
     const source = [`import { ${functionName} } from "${modulePath}";`, call].join("\n");
     expect(violations(source)).toMatchObject([{ line: 2, functionName }]);
+  });
+
+  test.each([
+    ["executeWriteLoop", "./write-loop.ts", "await executeWriteLoop({ ...input, runner });"],
+    [
+      "lintStagedMarkdown",
+      "./staged-markdown-lint.ts",
+      "await lintStagedMarkdown(root, { worktreePath, stubRunner });",
+    ],
+    ["lintStagedMarkdown", "./staged-markdown-lint.ts", "await lintStagedMarkdown(root, { runner: undefined });"],
+    [
+      "executeWriteLoop",
+      "./write-loop.ts",
+      "await executeWriteLoop({ ...input, stagedMarkdownLintRunner: undefined });",
+    ],
+    ["recoverPlanStage", "./workflow-runner-resume.ts", "await recoverPlanStage({ ...request, runnerLike: runner });"],
+    [
+      "validateIntentStage",
+      "../../../shared/intent-stage.ts",
+      "await validateIntentStage(dir, paths, warn, null, undefined);",
+    ],
+    [
+      "repairIntentStageContent",
+      "../../../shared/intent-stage.ts",
+      "await repairIntentStageContent(dir, warn, runner);",
+    ],
+  ])("flags %s (%s) with a wrong or undefined injection: %s", (functionName, modulePath, call) => {
+    const source = [`import { ${functionName} } from "${modulePath}";`, call].join("\n");
+    expect(violations(source)).toMatchObject([{ line: 2, functionName }]);
+  });
+
+  test.each([
+    ["executeWriteLoop", "./write-loop.ts", "await executeWriteLoop({ ...input, stagedMarkdownLintRunner: runner });"],
+    ["executeWriteLoop", "./write-loop.ts", "await executeWriteLoop({ ...input, stagedMarkdownLintRunner });"],
+    [
+      "resumePopulatedIntentPublication",
+      "./workflow-runner-resume.ts",
+      "await resumePopulatedIntentPublication(run, store, { runner: stub });",
+    ],
+    [
+      "validateIntentStage",
+      "../../../shared/intent-stage.ts",
+      "await validateIntentStage(dir, paths, () => {}, undefined, runner);",
+    ],
+    [
+      "repairIntentStageContent",
+      "../../../shared/intent-stage.ts",
+      "await repairIntentStageContent(dir, warn, undefined, runner);",
+    ],
+  ])("accepts %s (%s) with the correct injection: %s", (functionName, modulePath, call) => {
+    const source = [`import { ${functionName} } from "${modulePath}";`, call].join("\n");
+    expect(violations(source)).toEqual([]);
   });
 
   test("exit code is 1 when violations exist, 0 otherwise", () => {

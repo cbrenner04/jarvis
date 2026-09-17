@@ -1,12 +1,14 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { truncateLogText } from "../persistence/log-stream.ts";
 import type { Attempt, Run, StateStore, WorkflowSnapshot } from "../persistence/state-store.ts";
+import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import {
   type InvocationFailureDetail,
   type InvocationFailureKind,
@@ -644,37 +646,102 @@ async function repromptReviewedStagedMarkdownLintOrFail(
       message: lintResult.message,
     };
     const prompt = await actuatorContext.resolveActuatorPrompt(reprompt);
-    const execution = await invokeReviewRole(
-      {
-        cwd: actuatorContext.cwd,
-        ...(actuatorContext.roleTimeoutMs !== undefined ? { roleTimeoutMs: actuatorContext.roleTimeoutMs } : {}),
-        ...(actuatorContext.idleOutputMs !== undefined ? { idleOutputMs: actuatorContext.idleOutputMs } : {}),
-        ...(actuatorContext.signal !== undefined ? { signal: actuatorContext.signal } : {}),
-        ...(actuatorContext.telemetry !== undefined ? { telemetry: actuatorContext.telemetry } : {}),
-        onRoleStart: () => actuatorContext.onActuatorStart?.(),
-      },
-      "actuator",
+    const failure = await invokeLandingRepromptActuator(
+      actuatorContext,
       prompt,
-      actuatorContext.bindings,
+      attemptId,
+      runId,
+      iterationsConsumed,
+      store,
     );
-    const failureKind = reviewRoleFailureKind(execution);
-    if (failureKind !== null) {
-      const detail = buildReviewInvocationFailureDetail(failureKind, "actuator", execution);
-      store.commitCompletionBoundary({
-        attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: detail,
-        ...completionBoundarySettlementFields("invocation_failure", detail),
-      });
-      return {
-        kind: "invocation_failure",
-        runId,
-        iterationsConsumed,
-        resumable: isPostCommitReviewRetryableFailureKind(detail),
-      };
-    }
+    if (failure !== undefined) return failure;
   }
+}
+
+async function invokeLandingRepromptActuator(
+  actuatorContext: ReviewedLandingActuatorRepromptContext,
+  prompt: string,
+  attemptId: string,
+  runId: string,
+  iterationsConsumed: number,
+  store: StateStore,
+): Promise<ReviewDebateStepOutcome | undefined> {
+  const execution = await invokeReviewRole(
+    {
+      cwd: actuatorContext.cwd,
+      ...(actuatorContext.roleTimeoutMs !== undefined ? { roleTimeoutMs: actuatorContext.roleTimeoutMs } : {}),
+      ...(actuatorContext.idleOutputMs !== undefined ? { idleOutputMs: actuatorContext.idleOutputMs } : {}),
+      ...(actuatorContext.signal !== undefined ? { signal: actuatorContext.signal } : {}),
+      ...(actuatorContext.telemetry !== undefined ? { telemetry: actuatorContext.telemetry } : {}),
+      onRoleStart: () => actuatorContext.onActuatorStart?.(),
+    },
+    "actuator",
+    prompt,
+    actuatorContext.bindings,
+  );
+  const failureKind = reviewRoleFailureKind(execution);
+  if (failureKind === null) return undefined;
+  const detail = buildReviewInvocationFailureDetail(failureKind, "actuator", execution);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: detail,
+    ...completionBoundarySettlementFields("invocation_failure", detail),
+  });
+  return {
+    kind: "invocation_failure",
+    runId,
+    iterationsConsumed,
+    resumable: isPostCommitReviewRetryableFailureKind(detail),
+  };
+}
+
+/**
+ * Intent-stage landing-contract reprompt for the review step's deferred landing, mirroring the
+ * write loop. Runs only after a failed landing: `evaluateIntentSplitLandingGate` classifies the
+ * staged tree, and a repromptable violation (e.g. prose `## Prerequisites`) re-invokes the actuator
+ * once via `write.landing-contract-reprompt`. Returns `"reprompted"` when the caller should retry
+ * landing, `"stop"` for pass/non-repromptable (collision, rogue path, I/O), or a settled failure.
+ */
+async function repromptReviewedIntentLandingContract(
+  landing: Extract<PublicationLanding, { kind: "intent-stage" }>,
+  worktreePath: string,
+  attemptId: string,
+  runId: string,
+  iterationsConsumed: number,
+  store: StateStore,
+  logSink: LogSink | undefined,
+  actuatorContext: ReviewedLandingActuatorRepromptContext,
+): Promise<"reprompted" | "stop" | ReviewDebateStepOutcome> {
+  const stagingDir = relative(worktreePath, resolve(worktreePath, landing.stagingDir));
+  if (!existsSync(join(worktreePath, stagingDir))) return "stop";
+  const gate = await evaluateIntentSplitLandingGate({
+    worktreePath,
+    baseRef: landing.baseRef,
+    stagingDir,
+    durableDir: landing.output.durableDir,
+  });
+  if (gate.ok || !gate.repromptable) return "stop";
+  logSink?.append(runId, {
+    kind: "landing_contract_reprompt",
+    attemptId,
+    violation: truncateLogText(gate.error),
+    offendingFile: gate.offendingFile,
+  });
+  const prompt = renderPromptForStep({
+    stepPromptId: "write.landing-contract-reprompt",
+    placeholders: { VIOLATION: gate.error, OFFENDING_FILE: gate.offendingFile, STAGING_DIR: stagingDir },
+  });
+  const failure = await invokeLandingRepromptActuator(
+    actuatorContext,
+    prompt,
+    attemptId,
+    runId,
+    iterationsConsumed,
+    store,
+  );
+  return failure ?? "reprompted";
 }
 
 export async function landReviewedOutputOrFail(
@@ -710,23 +777,52 @@ export async function landReviewedOutputOrFail(
   if (lintFailure !== undefined) {
     return lintFailure;
   }
+  let contractRepromptsRemaining = maxReprompts;
+  for (;;) {
+    const landed = await deps.landReviewedPublicationOutput(step.cwd, landing, step.verdictPath, {
+      logSink,
+      runId,
+      branch: step.branch,
+      persistHandoff: { store, project: step.project, branch: step.branch, writeTarget: { reviewRunId: runId } },
+    });
+    if (landed.ok) return undefined;
+    if (landing.kind === "intent-stage" && actuatorContext !== undefined && contractRepromptsRemaining > 0) {
+      const reprompt = await repromptReviewedIntentLandingContract(
+        landing,
+        step.cwd,
+        attemptId,
+        runId,
+        iterationsConsumed,
+        store,
+        logSink,
+        actuatorContext,
+      );
+      if (reprompt === "reprompted") {
+        contractRepromptsRemaining -= 1;
+        continue;
+      }
+      if (reprompt !== "stop") return reprompt;
+    }
+    return settleReviewedLandingFailure(store, attemptId, runId, iterationsConsumed, landed.message);
+  }
+}
 
-  const landed = await deps.landReviewedPublicationOutput(step.cwd, landing, step.verdictPath, {
-    logSink,
-    runId,
-    branch: step.branch,
-    persistHandoff: { store, project: step.project, branch: step.branch, writeTarget: { reviewRunId: runId } },
-  });
-  if (landed.ok) return undefined;
+function settleReviewedLandingFailure(
+  store: StateStore,
+  attemptId: string,
+  runId: string,
+  iterationsConsumed: number,
+  message: string,
+): ReviewDebateStepOutcome {
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "failed",
     outcomeKind: "invocation_failure",
-    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landed.message },
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
     ...completionBoundarySettlementFields("invocation_failure", {
       failureKind: "landing",
       bindingAttempts: [],
-      message: landed.message,
+      message,
     }),
   });
   return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };

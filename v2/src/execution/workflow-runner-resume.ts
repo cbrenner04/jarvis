@@ -9,6 +9,7 @@ import {
   requiredIntegrationScopeForTerminalSubspec,
   resolvePinnedLinkedSubspec,
 } from "../../../shared/linked-subspec-routing.ts";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import {
   implementReviewPromptProfile,
   PATCH_REVIEW_CRITIC_PROMPT_ID,
@@ -30,6 +31,7 @@ import {
   type PersistedRecord,
   priorLogRecordsFromSink,
   type RunExecutionFailedEvent,
+  truncateLogText,
 } from "../persistence/log-stream.ts";
 import type {
   Attempt,
@@ -51,7 +53,7 @@ import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope, withExternalSpecTreeReadOnly } from "./external-spec-git.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
-import { configuredIntentDurableDir, listLandedIntentFiles } from "./intent-output.ts";
+import { configuredIntentDurableDir, evaluateIntentSplitLandingGate, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
@@ -68,6 +70,7 @@ import {
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
 import { excludeVerdictFromStaging, VERDICT_FILE } from "./review-intent-enforcement.ts";
+import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";
 import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lint.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
@@ -81,7 +84,7 @@ import type {
   WorkflowRunnerInput,
   WriteWorkflowStep,
 } from "./workflow-runner.ts";
-import { revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
+import { buildReviewInvocationFailureDetail, revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import {
   appendRuntimeSmokeOutcome,
   DEFAULT_ITERATION_TIMEOUT_MS,
@@ -1088,7 +1091,109 @@ export type IntentFinalizationResumeDeps = {
   signal?: AbortSignal;
   /** Test seam: injected runner for the reviewed staged-Markdown lint gate; production default is the real markdownlint spawn resolved inside `lintStagedMarkdown`. */
   runner?: AsyncSubprocessRunner;
+  /** Test seam: binding factory for the landing-contract-reprompt actuator invocation; production default is `createResolvedAgentBinding`. */
+  createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
+
+/** Bound on the landing-contract reprompt when the write sibling's own iteration budget is unreachable. */
+const REVIEW_LANDING_CONTRACT_RESUME_MAX_REPROMPTS = 1;
+
+/**
+ * Repromptable-violation gate for a review row's deferred intent landing resume, mirroring
+ * `evaluateIntentSplitLandingGate`'s write-loop reprompt: a prose-Prerequisites (or other
+ * agent-fixable) violation re-invokes the write sibling's own agent via
+ * `write.landing-contract-reprompt` and re-validates, bounded by the write sibling's persisted
+ * `maxIterations` when reachable, else one reprompt. A non-repromptable violation (rogue path,
+ * collision, I/O) settles `landing_failed` immediately without spending the budget.
+ */
+async function repromptIntentLandingContractOnResume(
+  context: IntentFinalizationResumeContext,
+  writeSibling: WriteSiblingCommandSource | undefined,
+  attemptId: string,
+  store: StateStore,
+  deps: IntentFinalizationResumeDeps,
+): Promise<IntentFinalizationResumeOutcome | undefined> {
+  const bindingResolution = writeSibling?.queuedInput?.bindingResolution;
+  let repromptsRemaining = writeSibling?.queuedInput?.maxIterations ?? REVIEW_LANDING_CONTRACT_RESUME_MAX_REPROMPTS;
+
+  for (;;) {
+    const gate = await evaluateIntentSplitLandingGate({
+      worktreePath: context.worktreePath,
+      baseRef: context.landing.baseRef,
+      stagingDir: context.landing.stagingDir,
+      durableDir: context.landing.output.durableDir,
+      ...(deps.runner !== undefined ? { runner: deps.runner } : {}),
+    });
+    if (gate.ok) return undefined;
+    if (bindingResolution === undefined || !gate.repromptable || repromptsRemaining <= 0) {
+      return settlePublicationResumeFailure(
+        store,
+        context,
+        attemptId,
+        "landing_failed",
+        0,
+        gate.error,
+        deps.logSink,
+        INTENT_FINALIZATION_RESUME_POLICY,
+      );
+    }
+    repromptsRemaining -= 1;
+    deps.logSink?.append(context.runId, {
+      kind: "landing_contract_reprompt",
+      attemptId,
+      violation: truncateLogText(gate.error),
+      offendingFile: gate.offendingFile,
+    });
+    const prompt = renderPromptForStep({
+      stepPromptId: "write.landing-contract-reprompt",
+      placeholders: {
+        VIOLATION: gate.error,
+        OFFENDING_FILE: gate.offendingFile,
+        STAGING_DIR: context.landing.stagingDir,
+      },
+    });
+    let bindings: readonly InvocationBinding[];
+    try {
+      bindings = resolveInvocationBindings(
+        resolveExecutableRole(bindingResolution.role),
+        bindingResolution.agents,
+        bindingResolution.agentModelConfig,
+        deps.createBinding ?? createResolvedAgentBinding,
+      );
+    } catch (error) {
+      return settlePublicationResumeFailure(
+        store,
+        context,
+        attemptId,
+        "invocation_failure",
+        0,
+        errorMessage(error),
+        deps.logSink,
+        INTENT_FINALIZATION_RESUME_POLICY,
+      );
+    }
+    const execution = await invokeReviewRole(
+      { cwd: context.worktreePath, ...(deps.signal !== undefined ? { signal: deps.signal } : {}) },
+      "actuator",
+      prompt,
+      bindings,
+    );
+    const failureKind = reviewRoleFailureKind(execution);
+    if (failureKind !== null) {
+      const detail = buildReviewInvocationFailureDetail(failureKind, "actuator", execution);
+      return settlePublicationResumeFailure(
+        store,
+        context,
+        attemptId,
+        "invocation_failure",
+        0,
+        detail.message ?? `review: actuator invocation failed (${failureKind})`,
+        deps.logSink,
+        INTENT_FINALIZATION_RESUME_POLICY,
+      );
+    }
+  }
+}
 
 function settleIntentResumeStagedMarkdownLintFailure(
   store: StateStore,
@@ -1443,6 +1548,15 @@ export async function resumePopulatedIntentPublication(
         deps,
       );
     }
+
+    const landingContractFailure = await repromptIntentLandingContractOnResume(
+      context,
+      writeSibling,
+      attemptId,
+      store,
+      deps,
+    );
+    if (landingContractFailure !== undefined) return landingContractFailure;
 
     const landed = await landReviewedPublicationOutput(context.worktreePath, context.landing, context.verdictPath, {
       logSink: deps.logSink,

@@ -20,7 +20,6 @@ import {
   type LinkedStageSettlementOptions,
   settleLinkedStagesFromEntryRunWith,
 } from "./pipeline-stage-settlement.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 /** Timeout for the state store to wait when the database is locked (busy_timeout in ms). Must exceed the longest single store transaction. */
 export const STATE_STORE_BUSY_TIMEOUT_MS = 5000;
@@ -303,6 +302,21 @@ type RunDismissalOutcome =
   | { kind: "applied"; runId: string }
   | { kind: "refused"; runId: string; reason: RunDismissalRefusalReason };
 
+type RunAdmissionRefusalReason = "owner_alive" | "claim_lost";
+
+type RunAdmissionOutcome = { kind: "applied" } | { kind: "refused"; reason: RunAdmissionRefusalReason };
+
+/** Thrown by resume call sites when {@link StateStore.admitRunForResume} refuses. */
+export class RunAdmissionRefusedError extends Error {
+  constructor(
+    readonly runId: string,
+    readonly reason: RunAdmissionRefusalReason,
+  ) {
+    super(`Run ${runId} resume admission refused: ${reason}`);
+    this.name = "RunAdmissionRefusedError";
+  }
+}
+
 type TerminalRunSettlementEvidence = {
   terminalCause?: WriteLoopOutcomeKind | null;
   prNumber?: number | null;
@@ -316,6 +330,15 @@ type CommitTerminalRunSettlementInput = TerminalRunSettlementEvidence & {
   status: RunStatus;
   beforeSecondWrite?: () => void;
 };
+
+/**
+ * Outcome of {@link StateStore.commitTerminalRunSettlement}. `rejected` fires when the row is
+ * already terminal and stamped with a different, non-null owner identity than the caller's —
+ * a non-owner daemon settling over a prior generation's terminal write.
+ */
+type RunSettlementOutcome =
+  | { kind: "applied" }
+  | { kind: "rejected"; attemptedStatus: RunStatus; reportingIdentity: string };
 
 type CommitCompletionBoundaryInput = {
   attemptId: string;
@@ -883,11 +906,26 @@ export interface StateStore {
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
 
+  /**
+   * Re-admit a run for resume: stamps `owner_identity` to the current process and sets
+   * status `in-progress`. Admits without a liveness probe when the row's prior owner is
+   * `NULL` or already this process. Otherwise probes liveness first and refuses
+   * `owner_alive` before any write when a different owner is still alive; a write that
+   * matches zero rows because the owner changed between the probe and the write refuses
+   * `claim_lost`.
+   */
+  admitRunForResume(runId: string): Promise<RunAdmissionOutcome>;
+
   /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
   commitGuardedKill(runId: string): void;
 
-  /** Terminal status, finish metadata, and optional evidence in one transaction; `beforeSecondWrite` is a test seam. */
-  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): void;
+  /**
+   * Terminal status, finish metadata, and optional evidence in one transaction; `beforeSecondWrite`
+   * is a test seam. When the row is already terminal, drops the write and returns `rejected` if the
+   * row's `owner_identity` is non-null and not the current identity; a null owner or a not-yet-terminal
+   * row always applies.
+   */
+  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): RunSettlementOutcome;
 
   /**
    * Mark a run dismissed from display. Preserves the first dismissal timestamp on
@@ -2688,6 +2726,32 @@ class StateStoreImpl implements StateStore {
       .run(status, finishedAt, changedAt, runId);
   }
 
+  async admitRunForResume(runId: string): Promise<RunAdmissionOutcome> {
+    const row = this.db.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+      ownerIdentity: string | null;
+    } | null;
+    const priorOwnerIdentity = row?.ownerIdentity ?? null;
+    if (
+      priorOwnerIdentity !== null &&
+      priorOwnerIdentity !== this.currentIdentity &&
+      (await this.isOwnerAliveProbe(priorOwnerIdentity))
+    ) {
+      return { kind: "refused", reason: "owner_alive" };
+    }
+
+    const changedAt = Date.now();
+    const result = this.db
+      .prepare(
+        `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?
+         WHERE id = ? AND owner_identity IS ?`,
+      )
+      .run(this.currentIdentity, changedAt, runId, priorOwnerIdentity);
+    if (result.changes === 0) {
+      return { kind: "refused", reason: "claim_lost" };
+    }
+    return { kind: "applied" };
+  }
+
   commitGuardedKill(runId: string): void {
     this.db.transaction(() => {
       const row = this.db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: RunStatus } | null;
@@ -2700,14 +2764,24 @@ class StateStoreImpl implements StateStore {
     })();
   }
 
-  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): void {
+  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): RunSettlementOutcome {
     if (!isTerminalRunStatus(args.status)) {
       throw new Error(`Terminal run settlement requires a terminal status: ${args.status}`);
     }
     this.validateTerminalCause(args.terminalCause);
 
+    let outcome: RunSettlementOutcome = { kind: "applied" };
+
     const applySettlement = () => {
-      if (!this.runRowExists(args.runId)) throw new Error(`Run ${args.runId} not found`);
+      const row = this.db
+        .prepare("SELECT status, owner_identity AS ownerIdentity FROM runs WHERE id = ?")
+        .get(args.runId) as { status: RunStatus; ownerIdentity: string | null } | null;
+      if (!row) throw new Error(`Run ${args.runId} not found`);
+
+      if (isTerminalRunStatus(row.status) && row.ownerIdentity !== null && row.ownerIdentity !== this.currentIdentity) {
+        outcome = { kind: "rejected", attemptedStatus: args.status, reportingIdentity: this.currentIdentity };
+        return;
+      }
 
       const finishedAt = Date.now();
       this.db
@@ -2718,6 +2792,7 @@ class StateStoreImpl implements StateStore {
     };
 
     this.db.transaction(applySettlement)();
+    return outcome;
   }
 
   private extractTerminalSettlementEvidence(

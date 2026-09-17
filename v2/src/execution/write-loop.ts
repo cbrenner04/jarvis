@@ -256,14 +256,27 @@ function landingFailedTerminalFailureDetail(message?: string): InvocationFailure
   return { failureKind: "error", bindingAttempts: [], message };
 }
 
-function settleCompletedPublication(store: StateStore, runId: string, prNumber?: number, prUrl?: string): void {
-  store.commitTerminalRunSettlement({
+function settleCompletedPublication(
+  store: StateStore,
+  runId: string,
+  logSink: LogSink | undefined,
+  prNumber?: number,
+  prUrl?: string,
+): void {
+  const outcome = store.commitTerminalRunSettlement({
     runId,
     status: "completed",
     terminalCause: "complete",
     ...(prNumber !== undefined ? { prNumber } : {}),
     ...(prUrl !== undefined ? { prUrl } : {}),
   });
+  if (outcome.kind === "rejected") {
+    logSink?.append(runId, {
+      kind: "run_settlement_rejected",
+      attemptedStatus: outcome.attemptedStatus,
+      reportingIdentity: outcome.reportingIdentity,
+    });
+  }
 }
 
 function completionBoundarySettlementFields(
@@ -1231,13 +1244,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               settleCompletedPublication(
                 store,
                 prepared.result.runId,
+                args.logSink,
                 publication.success.prNumber,
                 publication.success.prUrl,
               );
               prepared.result.prNumber = publication.success.prNumber;
               prepared.result.prUrl = publication.success.prUrl;
             } else {
-              settleCompletedPublication(store, prepared.result.runId);
+              settleCompletedPublication(store, prepared.result.runId, args.logSink);
             }
             appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.success?.runtimeSmokeOutcome);
             if (publication.success?.requestedBase !== undefined && publication.success.resolvedBase !== undefined) {
@@ -1257,7 +1271,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
               );
             }
-            settleCompletedPublication(store, prepared.result.runId);
+            settleCompletedPublication(store, prepared.result.runId, args.logSink);
           }
           args.logSink?.append(prepared.result.runId, {
             kind: "loop_finished",
@@ -2249,11 +2263,17 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             publication.success.prNumber !== undefined &&
             publication.success.prUrl !== undefined
           ) {
-            settleCompletedPublication(store, runId, publication.success.prNumber, publication.success.prUrl);
+            settleCompletedPublication(
+              store,
+              runId,
+              args.logSink,
+              publication.success.prNumber,
+              publication.success.prUrl,
+            );
             attributed.prNumber = publication.success.prNumber;
             attributed.prUrl = publication.success.prUrl;
           } else {
-            settleCompletedPublication(store, runId);
+            settleCompletedPublication(store, runId, args.logSink);
           }
           appendRuntimeSmokeOutcome(args.logSink, runId, publication.success?.runtimeSmokeOutcome);
           if (publication.success?.requestedBase !== undefined && publication.success?.resolvedBase !== undefined) {
@@ -2273,7 +2293,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
             );
           }
-          settleCompletedPublication(store, runId);
+          settleCompletedPublication(store, runId, args.logSink);
         }
         args.logSink?.append(runId, {
           kind: "loop_finished",

@@ -1312,6 +1312,88 @@ describe("commitGuardedKill", () => {
   });
 });
 
+describe("commitTerminalRunSettlement stale-owner guard", () => {
+  const PRIOR_IDENTITY = "11111:1000000";
+  const CURRENT_IDENTITY = "22222:2000000";
+
+  let seedStore: StateStore;
+  let otherStore: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: PRIOR_IDENTITY });
+    otherStore = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY });
+  });
+
+  afterEach(() => {
+    seedStore.close();
+    otherStore.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function setOwnerIdentity(runId: string, ownerIdentity: string | null): void {
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(ownerIdentity, runId);
+    raw.close();
+  }
+
+  test("rejects a non-owner settlement onto an already-terminal row, leaving status finishedAt and evidence unchanged", () => {
+    const runId = seedRun(seedStore);
+    seedStore.commitTerminalRunSettlement({
+      runId,
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: 42,
+      prUrl: "https://github.com/example/pr/42",
+    });
+    const before = loadRunOrThrow(seedStore, runId);
+
+    const outcome = otherStore.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "invocation_failure",
+    });
+
+    expect(outcome).toEqual({ kind: "rejected", attemptedStatus: "failed", reportingIdentity: CURRENT_IDENTITY });
+    const after = loadRunOrThrow(seedStore, runId);
+    expect(after.status).toBe(before.status);
+    expect(after.finishedAt).toBe(before.finishedAt);
+    expect(after.terminalCause).toBe(before.terminalCause);
+    expect(after.prNumber).toBe(before.prNumber);
+    expect(after.prUrl).toBe(before.prUrl);
+  });
+
+  test("applies when the terminal row's owner_identity is null", () => {
+    const runId = seedRun(seedStore);
+    seedStore.commitTerminalRunSettlement({ runId, status: "completed" });
+    setOwnerIdentity(runId, null);
+
+    const outcome = otherStore.commitTerminalRunSettlement({ runId, status: "failed" });
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(loadRunOrThrow(seedStore, runId).status).toBe("failed");
+  });
+
+  test("applies when the terminal row's owner_identity equals the reporting identity", () => {
+    const runId = seedRun(seedStore);
+    seedStore.commitTerminalRunSettlement({ runId, status: "completed" });
+
+    const outcome = seedStore.commitTerminalRunSettlement({ runId, status: "failed" });
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(loadRunOrThrow(seedStore, runId).status).toBe("failed");
+  });
+
+  test("applies a non-owner settlement when the row is not yet terminal", () => {
+    const runId = seedRun(seedStore, { status: "in-progress" });
+
+    const outcome = otherStore.commitTerminalRunSettlement({ runId, status: "completed" });
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(loadRunOrThrow(seedStore, runId).status).toBe("completed");
+  });
+});
+
 function insertStageRow(
   raw: Database,
   args: { id: string; pipelineId: string; stageId: string; position: number; branchKey?: string },
@@ -3577,6 +3659,92 @@ describe("ready gate sweep candidates", () => {
       { runId: deadOwnerRunId, readyGatePgid: 5353 },
     ]);
     sweepStore.close();
+  });
+});
+
+describe("admitRunForResume", () => {
+  const PRIOR_IDENTITY = "11111:1000000";
+  const CURRENT_IDENTITY = "22222:2000000";
+
+  let seedStore: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: PRIOR_IDENTITY });
+  });
+
+  afterEach(() => {
+    seedStore.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function openResumeStore(isOwnerAliveProbe: OwnerLivenessProbe): StateStore {
+    return openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive: isOwnerAliveProbe });
+  }
+
+  function readOwnerIdentity(runId: string): string | null {
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      const row = raw.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+        ownerIdentity: string | null;
+      };
+      return row.ownerIdentity;
+    } finally {
+      raw.close();
+    }
+  }
+
+  async function expectAdmitted(resumeStore: StateStore, runId: string): Promise<void> {
+    const outcome = await resumeStore.admitRunForResume(runId);
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
+    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+  }
+
+  test("stamps the calling identity and sets in-progress when the prior owner is null", async () => {
+    const runId = seedRun(seedStore, { branch: "null-owner", status: "failed" });
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET owner_identity = NULL WHERE id = ?").run(runId);
+    raw.close();
+
+    const resumeStore = openResumeStore(async () => {
+      throw new Error("liveness probe should not be called for a NULL owner");
+    });
+    await expectAdmitted(resumeStore, runId);
+    resumeStore.close();
+  });
+
+  test("stamps the calling identity and sets in-progress when the prior owner is already this process", async () => {
+    const runId = seedRun(seedStore, { branch: "same-owner", status: "failed" });
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(CURRENT_IDENTITY, runId);
+    raw.close();
+
+    const resumeStore = openResumeStore(async () => {
+      throw new Error("liveness probe should not be called for the current identity");
+    });
+    await expectAdmitted(resumeStore, runId);
+    resumeStore.close();
+  });
+
+  test("stamps the calling identity and sets in-progress when the prior owner is dead", async () => {
+    const runId = seedRun(seedStore, { branch: "dead-owner", status: "failed" });
+
+    const resumeStore = openResumeStore(async () => false);
+    await expectAdmitted(resumeStore, runId);
+    resumeStore.close();
+  });
+
+  test("refuses owner_alive and leaves owner_identity and status unchanged when a different owner is alive", async () => {
+    const runId = seedRun(seedStore, { branch: "live-owner", status: "failed" });
+
+    const resumeStore = openResumeStore(async (identity) => identity === PRIOR_IDENTITY);
+    const outcome = await resumeStore.admitRunForResume(runId);
+
+    expect(outcome).toEqual({ kind: "refused", reason: "owner_alive" });
+    expect(resumeStore.loadRun(runId)?.status).toBe("failed");
+    expect(readOwnerIdentity(runId)).toBe(PRIOR_IDENTITY);
+    resumeStore.close();
   });
 });
 

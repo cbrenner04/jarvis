@@ -136,10 +136,6 @@ const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
 const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] = [
   { file: "workflow-runner.ts", functionName: "settlePostCommitShrinkForResume", status: "paused" },
   { file: "workflow-runner.ts", functionName: "executeWorkflow", status: "in-progress" },
-  { file: "workflow-runner-resume.ts", functionName: "runIntentResumeCommitAndPublish", status: "in-progress" },
-  { file: "workflow-runner-resume.ts", functionName: "runMutationRepairAttempt", status: "in-progress" },
-  { file: "workflow-runner-resume.ts", functionName: "runReviewMutationCommitAndPublish", status: "in-progress" },
-  { file: "workflow-runner-resume.ts", functionName: "replayMutationFinalization", status: "in-progress" },
   { file: "write-loop.ts", functionName: "executeWriteLoop", status: "in-progress", count: 3 },
   { file: "write-loop.ts", functionName: "executeWriteLoop", status: "paused", count: 6 },
   { file: "write-loop.ts", functionName: "executeWriteLoop", status: "budget-soft-stopped" },

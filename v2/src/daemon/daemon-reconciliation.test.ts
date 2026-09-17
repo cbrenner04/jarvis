@@ -208,7 +208,7 @@ test("startup reconciliation routes admitted orphan terminals through atomic set
   const commitTerminalRunSettlement = sweepStore.commitTerminalRunSettlement.bind(sweepStore);
   sweepStore.commitTerminalRunSettlement = (args) => {
     settlements.push({ runId: args.runId, status: args.status });
-    commitTerminalRunSettlement(args);
+    return commitTerminalRunSettlement(args);
   };
   sweepStore.commitGuardedKill = () => {
     throw new Error("legacy guarded kill called");
@@ -968,6 +968,29 @@ test("failed restart recovery admission settles with its diagnostic", async () =
       },
     },
   ]);
+});
+
+test("recoverReconciledRuns settles failed a reconciled killed row owned by a dead prior daemon", async () => {
+  const runId = createRun(seedStore, "in-progress");
+  setOwnerIdentity(runId, PRIOR_IDENTITY);
+  const sweepStore = openSweepStore(async () => false);
+  try {
+    await reconcileOrphanedRuns(sweepStore, { append: () => undefined, close: () => undefined });
+    expect(sweepStore.loadRun(runId)?.status).toBe("killed");
+    const events: Array<{ runId: string; event: LogEvent }> = [];
+
+    await recoverReconciledRuns(
+      [runId],
+      sweepStore,
+      { append: (id, event) => events.push({ runId: id, event }), close: () => undefined },
+      async () => ({ kind: "error", code: "worktree_claimed", message: "worktree still claimed" }),
+    );
+
+    expect(sweepStore.loadRun(runId)).toMatchObject({ status: "failed", terminalCause: "invocation_failure" });
+    expect(events.map((entry) => entry.event.kind)).toEqual(["run_recovery"]);
+  } finally {
+    sweepStore.close();
+  }
 });
 
 test("recoverReconciledRuns auto-resume re-resolves write bindings from the edited machine profile", async () => {

@@ -386,6 +386,10 @@ describe("state store baseline migration", () => {
     }
 
     seedEquivalentBaselineDb(freshDbPath, ids);
+    // The fixture row is terminal and owned by another identity; clear the owner so the stale-owner guard permits re-settlement.
+    const rawFresh = new Database(freshDbPath);
+    rawFresh.prepare("UPDATE runs SET owner_identity = NULL WHERE id = ?").run(ids.runId);
+    rawFresh.close();
     let freshStore = openStateStore(freshDbPath);
     freshStore.commitTerminalRunSettlement({
       runId: ids.runId,
@@ -406,6 +410,8 @@ describe("state store baseline migration", () => {
     const raw = new Database(legacyDbPath);
     raw.exec("DELETE FROM _migrations");
     raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES ('031-baseline-squash', ?)").run(Date.now());
+    // The fixture row is terminal and owned by another identity; clear the owner so the stale-owner guard permits re-settlement.
+    raw.prepare("UPDATE runs SET owner_identity = NULL WHERE id = ?").run(ids.runId);
     const columnsBefore = raw.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
     raw.close();
     expect(columnsBefore.some((column) => column.name === "operator_failure_record")).toBe(false);

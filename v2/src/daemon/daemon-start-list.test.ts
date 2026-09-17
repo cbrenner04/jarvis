@@ -1056,7 +1056,7 @@ test("active deferred and forced kill use terminal settlement after admission", 
   const commitTerminalRunSettlement = stateStore.commitTerminalRunSettlement.bind(stateStore);
   stateStore.commitTerminalRunSettlement = (args) => {
     settlementCalls.push({ runId: args.runId, status: args.status });
-    commitTerminalRunSettlement(args);
+    return commitTerminalRunSettlement(args);
   };
   stateStore.commitGuardedKill = () => {
     throw new Error("legacy guarded kill called");

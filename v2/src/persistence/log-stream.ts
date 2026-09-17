@@ -143,6 +143,13 @@ type RunRecoveryEvent = {
   message?: string;
 };
 
+/** A terminal settlement from a non-owner identity onto an already-terminal row was dropped. */
+type RunSettlementRejectedEvent = {
+  kind: "run_settlement_rejected";
+  attemptedStatus: RunStatus;
+  reportingIdentity: string;
+};
+
 /** Agent stdout excerpt when token parsing fails; truncated at append time. */
 type InvalidTokenDetailEvent = {
   kind: "invalid_token_detail";
@@ -290,6 +297,7 @@ type LogEventWithoutLoopFinished =
   | RunReconciledEvent
   | RunTimeoutEvent
   | RunRecoveryEvent
+  | RunSettlementRejectedEvent
   | InvalidTokenDetailEvent
   | TokenRepromptEvent
   | BlockerRepromptEvent

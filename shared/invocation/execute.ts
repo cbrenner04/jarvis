@@ -20,6 +20,8 @@ export type InvocationQuota = {
   kind: "quota";
   stderr: string;
   authFailure?: true;
+  /** See `InvocationError.diagnostics`. */
+  diagnostics?: string;
 };
 
 export type InvocationStall = {
@@ -31,11 +33,23 @@ export type InvocationError =
   | {
       kind: "model_config";
       stderr: string;
+      /** See the `error` variant's `diagnostics`. */
+      diagnostics?: string;
     }
   | {
       kind: "error";
       exitCode: number;
       stderr: string;
+      /**
+       * The agent stdout stream that was excluded from classification, retained for observability
+       * only. opencode's result envelope arrives on stdout (`--format json`), which is deliberately
+       * excluded from `stderr` so a quota/transport phrase inside a file the agent read cannot
+       * misclassify the failure (see `classifierDiagnostics`). Without this field an opencode
+       * `error` whose stderr is empty leaves the session log and `invocation_failure_diagnostic`
+       * with nothing to show. Diagnostic surfaces prefer a non-empty `stderr` and only fall back to
+       * this stream (see `invocationDiagnosticText`); it must never be fed back into classification.
+       */
+      diagnostics?: string;
     };
 
 export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall | InvocationError;
@@ -160,7 +174,40 @@ function logBindingInbound(sessionLog: SessionLog | undefined, result: Invocatio
     appendSessionLog(sessionLog, "inbound_stderr", result.stderr);
   } else {
     appendSessionLog(sessionLog, "inbound_stderr", result.stderr);
+    // opencode-class failures scope `stderr` for classification; the retained full stream
+    // (e.g. opencode's JSON result envelope) is logged as stdout so the session log is not empty.
+    const retained = retainedDiagnostics(result);
+    if (retained !== undefined) {
+      appendSessionLog(sessionLog, "inbound_stdout", retained);
+    }
   }
+}
+
+/**
+ * Full agent output retained for diagnosis, or `undefined` when the result carries no
+ * scoped-away stream beyond `stderr`. Only `quota`/`error`/`model_config` results populate
+ * `diagnostics`; see `InvocationError.diagnostics`. Never feed the return value back into
+ * classification — it exists purely for operator-facing observability.
+ */
+function retainedDiagnostics(result: InvocationResult): string | undefined {
+  if ("diagnostics" in result && typeof result.diagnostics === "string" && result.diagnostics.length > 0) {
+    return result.diagnostics;
+  }
+  return undefined;
+}
+
+/**
+ * Text a diagnostic surface (session-log tail, persisted `message`/`error.message`,
+ * `invocation_failure_diagnostic`) should show for a result. The classification-scoped `stderr`
+ * wins whenever it is non-empty: it holds the phrase that decided quota/model_config/transient and
+ * must survive the caller's fixed tail slice, which a long retained stdout stream would otherwise
+ * push out. Only when `stderr` is empty (opencode's envelope lands wholly on stdout) do we fall
+ * back to the retained stream. Preferring `stderr` here also keeps the persisted message aligned
+ * with the echo check, which reads `result.stderr`.
+ */
+export function invocationDiagnosticText(result: InvocationResult): string {
+  if (result.stderr.trim().length > 0) return result.stderr;
+  return retainedDiagnostics(result) ?? result.stderr;
 }
 
 async function appendInvocationTelemetry<T extends InvocationResult>(

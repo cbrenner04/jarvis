@@ -3352,6 +3352,72 @@ describe("write loop", () => {
     }
   });
 
+  test("terminal invocation failure surfaces retained diagnostics when the classification-scoped stderr is empty", async () => {
+    // opencode scopes `stderr` for classification (its result envelope lands on stdout). An
+    // `error` with empty stderr must still surface the retained stdout stream via `diagnostics`,
+    // otherwise the failure diagnostic and persisted message are blank (the observed regression).
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const retained = '{"type":"text","part":{"text":"opencode run ended: unexpected exit"}}';
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      logSink: sink,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "error", exitCode: 1, stderr: "", diagnostics: retained }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+    expect(detail?.message).toBe(retained);
+
+    const diagnostic = sink
+      .getEventsForRun(result.runId)
+      .find((event) => event.kind === "invocation_failure_diagnostic");
+    expect(diagnostic).toBeDefined();
+    if (diagnostic?.kind === "invocation_failure_diagnostic") {
+      expect(diagnostic.stderrTail).toBe(retained);
+    }
+  });
+
+  test("terminal invocation failure with non-empty stderr keeps the classifying phrase even under a huge retained stdout stream", async () => {
+    // Regression guard: the retained diagnostics stream must not evict the classification-scoped
+    // stderr from the bounded (2048-code-unit) tail. A real opencode quota/model_config/transient
+    // failure carries the deciding phrase on stderr while streaming tens of KB of JSON on stdout;
+    // the persisted message and diagnostic tail must show the phrase, not a truncated event frame.
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const phrase = "rate limit reached";
+    const hugeStdout = `{"type":"text","part":{"text":"${"x".repeat(50_000)}"}}`;
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      logSink: sink,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "error", exitCode: 1, stderr: phrase, diagnostics: hugeStdout }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+    expect(detail?.message).toBe(phrase);
+
+    const diagnostic = sink
+      .getEventsForRun(result.runId)
+      .find((event) => event.kind === "invocation_failure_diagnostic");
+    expect(diagnostic).toBeDefined();
+    if (diagnostic?.kind === "invocation_failure_diagnostic") {
+      expect(diagnostic.stderrTail).toBe(phrase);
+    }
+  });
+
   const invalidTokenBindings: InvocationBinding[] = [
     {
       id: "agent",

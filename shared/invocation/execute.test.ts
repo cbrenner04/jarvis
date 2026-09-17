@@ -298,6 +298,24 @@ describe("shared invocation fallback", () => {
     expect(lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual(["quota-diagnostic"]);
   });
 
+  test("non-ok result retained diagnostics are logged under inbound_stdout so a scoped-stderr failure is not blank", async () => {
+    // opencode-class failures scope `stderr` for classification; the retained full stream lands on
+    // `diagnostics`. The session log must surface it (as stdout) so an empty-stderr error is visible.
+    const { log, lines } = fakeSessionLog();
+    const retained = '{"type":"text","part":{"text":"opencode ended unexpectedly"}}';
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: log,
+      bindings: [binding("only", { kind: "error", exitCode: 1, stderr: "", diagnostics: retained })],
+    });
+
+    // The scoped stderr is empty (dropped by the log), but the retained stream surfaces as stdout.
+    expect(lines.filter((l) => l.tag === "inbound_stderr")).toHaveLength(0);
+    expect(lines.filter((l) => l.tag === "inbound_stdout").map((l) => l.text)).toEqual([retained]);
+  });
+
   test("a throwing session log does not fail the invocation", async () => {
     const throwingLog: SessionLog = {
       append() {

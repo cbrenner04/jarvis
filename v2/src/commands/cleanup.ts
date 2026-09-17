@@ -2814,7 +2814,9 @@ export async function resetStaleWorkspace(
     return { status: "refused", reason: combineStaleResetRefusalReasons(refusalParts) };
   }
 
-  if (continuationEligible && dirtyList.status === "clean") {
+  // continuationEligible is only ever set inside the branch gated on `dirtyList.status === "clean"`
+  // (see the `else` above), and dirtyList is never reassigned, so that condition is already implied.
+  if (continuationEligible) {
     return { status: "continue" };
   }
 

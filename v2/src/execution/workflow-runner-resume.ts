@@ -160,6 +160,11 @@ function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string)
   return { failureKind: "error", bindingAttempts: [], message };
 }
 
+async function admitRunForResumeOrThrow(store: StateStore, runId: string): Promise<void> {
+  const admission = await store.admitRunForResume(runId);
+  if (admission.kind === "refused") throw new RunAdmissionRefusedError(runId, admission.reason);
+}
+
 function readyGateTerminalFailureDetail(error?: Error): InvocationFailureDetail {
   if (error instanceof ReadyGateError) {
     const output = error.output.trim().slice(-4096);
@@ -1294,8 +1299,7 @@ async function runIntentResumeCommitAndPublish(
     resumable: false,
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   };
-  const admission = await store.admitRunForResume(context.runId);
-  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
+  await admitRunForResumeOrThrow(store, context.runId);
   // No push/PR/gate once `run kill` aborted the resumed tail.
   throwIfAborted(deps.signal);
   const publication = await publishWithReadyRepair(
@@ -2093,8 +2097,7 @@ async function runMutationRepairAttempt(
     };
   }
 
-  const admission = await store.admitRunForResume(context.runId);
-  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
+  await admitRunForResumeOrThrow(store, context.runId);
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
   const mutationRepairStep: CompletionStepMetadata = { kind: "mutation-repair" };
   try {
@@ -2364,8 +2367,7 @@ async function runReviewMutationCommitAndPublish(
     resumable: false,
     completionAgent: context.completionAgent as string,
   };
-  const admission = await store.admitRunForResume(context.runId);
-  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
+  await admitRunForResumeOrThrow(store, context.runId);
   // No push/PR/gate once `run kill` aborted the resumed tail.
   throwIfAborted(deps.signal);
   const publication = await publishWithReadyRepair(
@@ -2532,8 +2534,7 @@ async function replayMutationFinalization(
   const { context } = resolved;
 
   const attemptId = store.recordAttemptStart(context.runId);
-  const admission = await store.admitRunForResume(context.runId);
-  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
+  await admitRunForResumeOrThrow(store, context.runId);
   deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
 
   try {

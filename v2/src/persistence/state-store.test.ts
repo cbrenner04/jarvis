@@ -3694,6 +3694,13 @@ describe("admitRunForResume", () => {
     }
   }
 
+  async function expectAdmitted(resumeStore: StateStore, runId: string): Promise<void> {
+    const outcome = await resumeStore.admitRunForResume(runId);
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
+    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+  }
+
   test("stamps the calling identity and sets in-progress when the prior owner is null", async () => {
     const runId = seedRun(seedStore, { branch: "null-owner", status: "failed" });
     const raw = new Database(TEST_DB_PATH);
@@ -3703,11 +3710,7 @@ describe("admitRunForResume", () => {
     const resumeStore = openResumeStore(async () => {
       throw new Error("liveness probe should not be called for a NULL owner");
     });
-    const outcome = await resumeStore.admitRunForResume(runId);
-
-    expect(outcome).toEqual({ kind: "applied" });
-    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
-    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+    await expectAdmitted(resumeStore, runId);
     resumeStore.close();
   });
 
@@ -3720,11 +3723,7 @@ describe("admitRunForResume", () => {
     const resumeStore = openResumeStore(async () => {
       throw new Error("liveness probe should not be called for the current identity");
     });
-    const outcome = await resumeStore.admitRunForResume(runId);
-
-    expect(outcome).toEqual({ kind: "applied" });
-    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
-    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+    await expectAdmitted(resumeStore, runId);
     resumeStore.close();
   });
 
@@ -3732,11 +3731,7 @@ describe("admitRunForResume", () => {
     const runId = seedRun(seedStore, { branch: "dead-owner", status: "failed" });
 
     const resumeStore = openResumeStore(async () => false);
-    const outcome = await resumeStore.admitRunForResume(runId);
-
-    expect(outcome).toEqual({ kind: "applied" });
-    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
-    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+    await expectAdmitted(resumeStore, runId);
     resumeStore.close();
   });
 

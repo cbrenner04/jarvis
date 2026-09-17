@@ -2741,20 +2741,12 @@ class StateStoreImpl implements StateStore {
     }
 
     const changedAt = Date.now();
-    const result =
-      priorOwnerIdentity === null
-        ? this.db
-            .prepare(
-              `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?
-               WHERE id = ? AND owner_identity IS NULL`,
-            )
-            .run(this.currentIdentity, changedAt, runId)
-        : this.db
-            .prepare(
-              `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?
-               WHERE id = ? AND owner_identity = ?`,
-            )
-            .run(this.currentIdentity, changedAt, runId, priorOwnerIdentity);
+    const result = this.db
+      .prepare(
+        `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?
+         WHERE id = ? AND owner_identity IS ?`,
+      )
+      .run(this.currentIdentity, changedAt, runId, priorOwnerIdentity);
     if (result.changes === 0) {
       return { kind: "refused", reason: "claim_lost" };
     }

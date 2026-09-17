@@ -70,6 +70,8 @@ Wording that matches neither exemption is refused (fail closed). A bullet mixing
 
 A backticked token containing glob syntax (`*`, `?`, or a bracketed character class) names a file convention rather than a concrete artifact, not a counted artifact path. It may accompany the one concrete artifact that the bullet builds or changes.
 
+A slash-free backticked token that begins with `.` and has a second `.` later (`.test-support.ts`, the un-starred form of the `*.test-support.ts` glob convention) is a bare extension or naming-convention suffix, not a counted artifact path. A single-dot root dotfile (`.gitignore`) has no second dot, so it is untouched by this rule and stays excluded solely by the existing extension allowlist.
+
 Paths named inside a `rules out` clause are mentions, not artifacts, in any section. The clause runs from `rules out` to the end of the bullet, or to an earlier `;` or ` — ` (em dash), whichever comes first — so a trailing clause after the semicolon or dash still counts as a build claim. Example: "builds `a.ts` — rules out `b.ts`; adds `c.ts`" still names two artifacts (`a.ts`, `c.ts`); `b.ts` is exempt.
 
 Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.

@@ -88,6 +88,36 @@ describe("plan draft normalization", () => {
     expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
   });
 
+  test("excludes a bare backticked suffix from referenced artifacts", () => {
+    expect(referencedArtifactPaths("`.test-support.ts`")).toEqual([]);
+  });
+
+  test("accepts a bullet naming one artifact path plus a bare backticked suffix", () => {
+    const dir = scratchDir("bare-suffix");
+    stageDraft(dir, {
+      "00-support.md":
+        "# Support\n\n## Acceptance criteria\n\n- [ ] `shared/example.ts` follows the `.test-support.ts` naming convention.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("does not exempt a bare-suffix-shaped token when it carries a real path", () => {
+    expect(referencedArtifactPaths("`./a.test-support.ts`")).toEqual(["./a.test-support.ts"]);
+  });
+
+  test("leaves a single-dot root dotfile excluded by the extension allowlist, not the bare-suffix rule", () => {
+    expect(referencedArtifactPaths("`.gitignore`")).toEqual([]);
+
+    const dir = scratchDir("dotfile-unaffected");
+    stageDraft(dir, {
+      "00-ignore.md":
+        "# Ignore\n\n## Acceptance criteria\n\n- [ ] `shared/example.ts` updates `.gitignore` to add the new pattern.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
   test("still rejects a glob convention beside two concrete artifacts", () => {
     const dir = scratchDir("glob-with-two-concrete-artifacts");
     stageDraft(dir, {

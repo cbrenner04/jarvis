@@ -40,6 +40,14 @@ function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp
 const SPEC_SCAFFOLDING_FILENAMES: ReadonlySet<string> = new Set(["index.md", "intent.md"]);
 const GLOB_PATTERN = /[*?]|\[[^\]]+\]/u;
 
+/** A bare extension or naming-convention suffix (`.test-support.ts`, the un-starred form of
+ * `*.test-support.ts`) rather than a real filename: starts with `.` and has a second `.` later.
+ * A single-dot root dotfile (`.gitignore`) has no second dot, so it is untouched by this check and
+ * stays excluded solely by the extension allowlist, as before. */
+function isBareSuffix(path: string): boolean {
+  return path.startsWith(".") && path.indexOf(".", 1) !== -1;
+}
+
 const RULES_OUT_PATTERN = /rules out/giu;
 // A rules-out clause ends at the bullet's end, or earlier at a `;` or em dash that starts a
 // distinct trailing clause — whichever comes first — so a second build claim after the rules-out
@@ -64,6 +72,7 @@ export function referencedArtifactPaths(text: string): string[] {
   for (const match of text.matchAll(BACKTICKED_PATH_PATTERN)) {
     const path = match[1] ?? match[2];
     if (path === undefined || SPEC_SCAFFOLDING_FILENAMES.has(path) || GLOB_PATTERN.test(path)) continue;
+    if (match[1] === undefined && isBareSuffix(path)) continue;
     const matchIndex = match.index ?? 0;
     if (rulesOutRanges.some(([start, end]) => matchIndex >= start && matchIndex < end)) continue;
     paths.add(path);

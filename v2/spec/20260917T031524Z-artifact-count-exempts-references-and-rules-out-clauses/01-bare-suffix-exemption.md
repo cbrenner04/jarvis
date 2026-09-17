@@ -9,11 +9,11 @@ A backticked, slash-free token with no real filename — a bare extension or nam
 
 ## Acceptance criteria
 
-- [ ] A test proves a bullet naming one artifact path plus a bare backticked suffix (`.test-support.ts`) passes; it fails against the pre-fix check.
-- [ ] A test proves a single-dot root dotfile (`.gitignore`) is unaffected: still excluded via the existing extension allowlist, not reclassified by the new rule.
-- [ ] `v2/src/execution/intent-split-regression.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] A test proves a bullet naming one artifact path plus a bare backticked suffix (`.test-support.ts`) passes; it fails against the pre-fix check.
+- [x] A test proves a single-dot root dotfile (`.gitignore`) is unaffected: still excluded via the existing extension allowlist, not reclassified by the new rule.
+- [x] `v2/src/execution/intent-split-regression.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

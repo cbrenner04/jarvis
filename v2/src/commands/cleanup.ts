@@ -9,7 +9,7 @@ import {
 } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
+import { type AcceptanceCriterion, parseSpec } from "../../../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -2295,6 +2295,239 @@ async function resolveStaleResetRef(
   return (await runner.runAsync("git", ["rev-parse", gitRef], projectRoot)).trim();
 }
 
+/** A commit's diff hunk for one path, split from a multi-commit `git log -p --format=%H` run. */
+function splitPerCommitDiffBlocks(log: string): string[] {
+  const blocks: string[] = [];
+  let current: string[] = [];
+  for (const line of log.split("\n")) {
+    if (/^[0-9a-f]{40}$/.test(line)) {
+      if (current.length > 0) blocks.push(current.join("\n"));
+      current = [];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) blocks.push(current.join("\n"));
+  return blocks;
+}
+
+/**
+ * True when one commit's diff both adds a checked `criterionText` line and either creates the file
+ * or removes that same unchecked line — a genuine new-file introduction or unchecked-to-checked
+ * transition. An added checked line with neither (e.g. a brand-new bullet typed in already checked)
+ * is not evidence of completed work, only of a line that now exists.
+ */
+function blockBacksCheckedCriterion(block: string, criterionText: string): boolean {
+  const isNewFile = block.split("\n").some((line) => line.startsWith("new file mode"));
+  let addedChecked = false;
+  let removedUnchecked = false;
+  for (const line of block.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) {
+      const match = line.slice(1).match(/^\s*-\s\[([ xX])\]\s+(.*)$/);
+      if (match !== null && (match[1] ?? " ").toLowerCase() === "x" && (match[2] ?? "").trim() === criterionText) {
+        addedChecked = true;
+      }
+    } else if (line.startsWith("-")) {
+      const match = line.slice(1).match(/^\s*-\s\[([ xX])\]\s+(.*)$/);
+      if (match !== null && (match[1] ?? " ").toLowerCase() !== "x" && (match[2] ?? "").trim() === criterionText) {
+        removedUnchecked = true;
+      }
+    }
+  }
+  return addedChecked && (isNewFile || removedUnchecked);
+}
+
+/** True when some commit in `baseRef..branch` genuinely backs `criterionText` becoming checked in `relPath`. */
+async function checkedCriterionBackedByCommit(
+  projectRoot: string,
+  baseRef: string,
+  branch: string,
+  relPath: string,
+  criterionText: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  let log: string;
+  try {
+    log = await runner.runAsync(
+      "git",
+      ["log", `${baseRef}..${branch}`, "-p", "--format=%H", "--", relPath],
+      projectRoot,
+    );
+  } catch {
+    return false;
+  }
+  return splitPerCommitDiffBlocks(log).some((block) => blockBacksCheckedCriterion(block, criterionText));
+}
+
+async function hasUnbackedCheckedCriterion(
+  worktreeCriteria: AcceptanceCriterion[],
+  baseCriteria: AcceptanceCriterion[],
+  projectRoot: string,
+  baseRef: string,
+  branch: string,
+  relPath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  for (let index = 0; index < worktreeCriteria.length; index += 1) {
+    const worktreeCriterion = worktreeCriteria[index];
+    if (worktreeCriterion === undefined || !worktreeCriterion.checked) continue;
+    const baseCriterion = baseCriteria[index];
+    if (baseCriterion?.checked) continue;
+    const backed = await checkedCriterionBackedByCommit(
+      projectRoot,
+      baseRef,
+      branch,
+      relPath,
+      worktreeCriterion.text,
+      runner,
+    );
+    if (!backed) return true;
+  }
+  return false;
+}
+
+/** Subspec paths (within `specTree`) carrying at least one checked-absent-from-base criterion with no backing `base..branch` commit. */
+async function unbackedCheckedCriteriaPaths(specTree: LandedCriteriaSpecTree, branch: string): Promise<string[]> {
+  const { projectRoot, worktreePath, baseRef, specPath, runner } = specTree;
+  const relPaths = specTreeRelPaths(projectRoot, specPath, (absPath) => {
+    const worktreeAbsPath = join(worktreePath, relative(projectRoot, absPath));
+    if (!existsSync(worktreeAbsPath)) throw new Error(`worktree spec unreadable: ${relative(projectRoot, absPath)}`);
+    return readFileSync(worktreeAbsPath, "utf8");
+  });
+  const unbacked: string[] = [];
+  for (const relPath of relPaths) {
+    const worktreeAbsPath = join(worktreePath, relPath);
+    if (!existsSync(worktreeAbsPath)) continue;
+    const worktreeCriteria = parseSpec(readFileSync(worktreeAbsPath, "utf8")).acceptanceCriteria.filter(
+      (criterion) => !criterion.humanOnly,
+    );
+    const baseContent = await readGitFileAtRef(projectRoot, baseRef, relPath, runner);
+    const baseCriteria =
+      baseContent !== undefined ? parseSpec(baseContent).acceptanceCriteria.filter((c) => !c.humanOnly) : [];
+    if (
+      await hasUnbackedCheckedCriterion(worktreeCriteria, baseCriteria, projectRoot, baseRef, branch, relPath, runner)
+    ) {
+      unbacked.push(relPath);
+    }
+  }
+  return unbacked;
+}
+
+async function hasCommonAncestor(
+  a: string,
+  b: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    await runner.runAsync("git", ["merge-base", a, b], projectRoot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listRebaseConflictPaths(worktreePath: string, runner: AsyncSubprocessRunner): Promise<string[]> {
+  try {
+    const output = await runner.runAsync("git", ["diff", "--name-only", "--diff-filter=U"], worktreePath);
+    return output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+type RebaseOutcome = { status: "rebased" } | { status: "conflict"; conflictPaths: string[] };
+
+/** Rebase the worktree's checked-out branch onto `baseHead`; a conflict is aborted, leaving the worktree unchanged. */
+async function rebaseWorktreeOntoBase(
+  worktreePath: string,
+  baseHead: string,
+  runner: AsyncSubprocessRunner,
+): Promise<RebaseOutcome> {
+  try {
+    await runner.runAsync("git", ["rebase", baseHead], worktreePath);
+    return { status: "rebased" };
+  } catch {
+    const conflictPaths = await listRebaseConflictPaths(worktreePath, runner);
+    try {
+      await runner.runAsync("git", ["rebase", "--abort"], worktreePath);
+    } catch {
+      // best effort — conflictPaths were already captured before the abort attempt
+    }
+    return { status: "conflict", conflictPaths };
+  }
+}
+
+type CommittedLaneContinuationResult =
+  | { status: "continue" }
+  | { status: "fallthrough" }
+  | { status: "refused"; reason: string };
+
+/** Post-descent decision: no trackable spec continues unconditionally; a trackable spec continues once every checked-absent-from-base criterion is commit-backed, unless the override forces retirement. */
+async function evaluateContinuationTickBacking(args: {
+  projectRoot: string;
+  worktreePath: string;
+  branch: string;
+  baseRef: string;
+  trackableSpecPath: string | undefined;
+  skipLandedCriteriaGate: boolean;
+  runner: AsyncSubprocessRunner;
+}): Promise<CommittedLaneContinuationResult> {
+  const { projectRoot, worktreePath, branch, baseRef, trackableSpecPath, skipLandedCriteriaGate, runner } = args;
+  if (trackableSpecPath === undefined) return { status: "continue" };
+  if (skipLandedCriteriaGate) return { status: "fallthrough" };
+  const unbackedPaths = await unbackedCheckedCriteriaPaths(
+    { projectRoot, worktreePath, baseRef, specPath: trackableSpecPath, runner },
+    branch,
+  );
+  if (unbackedPaths.length > 0) {
+    return { status: "refused", reason: staleResetForgedTickGateReason(unbackedPaths) };
+  }
+  return { status: "continue" };
+}
+
+/**
+ * Committed-lane continuation for the non-disposable, commits-ahead-of-base case: a descendant lane
+ * continues subject to tick-backing; a lane behind a moved base rebases first (only when a trackable
+ * spec makes continuation meaningful) and continues on a clean rebase, or refuses naming conflicts;
+ * one with no shared history, or no trackable spec to rebase for, refuses as a plain non-descendant.
+ */
+async function evaluateCommittedLaneContinuation(args: {
+  projectRoot: string;
+  worktreePath: string;
+  branch: string;
+  baseRef: string;
+  baseHead: string;
+  worktreeHead: string;
+  trackableSpecPath: string | undefined;
+  skipLandedCriteriaGate: boolean;
+  runner: AsyncSubprocessRunner;
+}): Promise<CommittedLaneContinuationResult> {
+  const { projectRoot, worktreePath, baseRef, baseHead, worktreeHead, trackableSpecPath, runner } = args;
+
+  if (await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) {
+    return evaluateContinuationTickBacking(args);
+  }
+
+  if (await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner)) {
+    return { status: "fallthrough" };
+  }
+
+  if (trackableSpecPath === undefined || !(await hasCommonAncestor(worktreeHead, baseHead, projectRoot, runner))) {
+    return { status: "refused", reason: staleResetDescendantGateReason(baseRef, baseHead, worktreeHead) };
+  }
+
+  const rebase = await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
+  if (rebase.status === "conflict") {
+    return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, rebase.conflictPaths) };
+  }
+  return evaluateContinuationTickBacking(args);
+}
+
 function staleResetDescendantGateReason(baseRef: string, baseHead: string, worktreeHead: string): string {
   return `worktree HEAD ${worktreeHead} is not a descendant of base ${baseRef} (${baseHead}); stale reuse refused`;
 }
@@ -2329,6 +2562,18 @@ export function staleResetUnlandedCommitsGateReason(tipSha: string, commitCount:
 /** Refusal when the worktree holds a commit the branch ref cannot reach, so retiring it would lose work. */
 export function staleResetUnreachableWorktreeHeadGateReason(branch: string, worktreeHead: string): string {
   return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so retiring the branch would discard it; ${staleResetUnlandedSalvageRecovery}`;
+}
+
+/** Refusal when a checked criterion absent from base has no backing `base..HEAD` commit — a forged tick, not committed progress. */
+export function staleResetForgedTickGateReason(unbackedSubspecPaths: string[]): string {
+  const pathDetail = unbackedSubspecPaths.join(", ");
+  return `worktree spec has acceptance criteria ticked with no backing commit (${pathDetail}); untick the criteria or run \`jarvis cleanup --abandon <branch>\` before re-running`;
+}
+
+/** Refusal when rebasing a committed lane onto a moved base conflicts; the worktree is left exactly as it was. */
+export function staleResetRebaseConflictGateReason(baseHead: string, conflictPaths: string[]): string {
+  const pathDetail = conflictPaths.length > 0 ? conflictPaths.join(", ") : "unknown conflicting paths";
+  return `rebase onto base ${baseHead} conflicted (${pathDetail}); rebase aborted, worktree unchanged; resolve manually or run \`jarvis cleanup --abandon <branch>\``;
 }
 
 async function unlandedNonStagingPaths(
@@ -2444,6 +2689,7 @@ export async function resetStaleWorkspace(
   options: ResetStaleWorkspaceOptions = {},
 ): Promise<
   | { status: "reset" | "no-op"; destroyed?: DestroyedArtifacts }
+  | { status: "continue" }
   | { status: "refused"; code: "worktree_claimed"; message: string }
   | { status: "refused"; reason: string; destroyed?: DestroyedArtifacts }
 > {
@@ -2481,43 +2727,72 @@ export async function resetStaleWorkspace(
   const disposableLane = options.disposableLane === true;
   const baseRef = options.baseRef;
   const specPath = options.specPath;
+  let continuationEligible = false;
 
   if (baseRef !== undefined) {
     const [worktreeHead, baseHead] = await Promise.all([
       resolveStaleResetRef(worktreePath, "HEAD", runner),
       resolveStaleResetRef(projectRoot, baseRef, runner),
     ]);
-    if (prGate.pr === undefined) {
-      const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
-      if (commitCount > 0) {
-        const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
-        if (nonStagingPaths.length > 0 && !(await carriesNoUnlandedCommits(branch, baseRef, projectRoot, runner))) {
-          refusalParts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
+    if (disposableLane) {
+      if (prGate.pr === undefined) {
+        const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
+        if (commitCount > 0) {
+          const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
+          if (nonStagingPaths.length > 0 && !(await carriesNoUnlandedCommits(branch, baseRef, projectRoot, runner))) {
+            refusalParts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
+          }
         }
       }
-    }
-    // Never-landed classification reasons entirely from the *branch* ref (`unlandedCommitCount` and
-    // `unlandedNonStagingPaths` compare `branch` against `baseRef` in `projectRoot`), so commits the
-    // worktree made that the branch ref cannot reach are invisible to it — a detached `HEAD`, or a
-    // branch ref moved back while the worktree kept committing. The descendant gate below was the
-    // only check that resolved `HEAD` inside the worktree, and `disposableLane` skips it. This gate
-    // survives the bypass: it does not require descent from base, only that retiring the branch
-    // cannot destroy a commit reachable only from the worktree.
-    if (disposableLane && !(await isDescendantOfBase(branch, worktreeHead, projectRoot, runner))) {
-      refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
-    }
-    if (!disposableLane) {
-      if (
-        !(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) &&
-        !(await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner))
-      ) {
-        refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
+      // Never-landed classification reasons entirely from the *branch* ref (`unlandedCommitCount` and
+      // `unlandedNonStagingPaths` compare `branch` against `baseRef` in `projectRoot`), so commits the
+      // worktree made that the branch ref cannot reach are invisible to it — a detached `HEAD`, or a
+      // branch ref moved back while the worktree kept committing. The descendant gate below was the
+      // only check that resolved `HEAD` inside the worktree, and `disposableLane` skips it. This gate
+      // survives the bypass: it does not require descent from base, only that retiring the branch
+      // cannot destroy a commit reachable only from the worktree.
+      if (!(await isDescendantOfBase(branch, worktreeHead, projectRoot, runner))) {
+        refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
       }
-      if (specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath)) {
-        const specTree = { projectRoot, worktreePath, baseRef, specPath, runner };
-        const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
-        if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {
-          refusalParts.push(staleResetLandedCriteriaGateReason(driftedSubspecPaths));
+    } else {
+      const trackableSpecPath =
+        specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath) ? specPath : undefined;
+      const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
+      // Continuation is clean-tree-only: attempting it (including a rebase) against a dirty worktree
+      // would misreport a plain dirty-tree refusal as a rebase conflict. A dirty lane, like one with
+      // nothing ahead of base, falls through to the ordinary descendant/landed-criteria-drift gates
+      // (unconditional in the pre-continuation code this restores) — the dirty gate below then refuses
+      // or, on override, lets an ordinary reset proceed.
+      if (commitCount === 0 || dirtyList.status !== "clean") {
+        if (
+          !(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) &&
+          !(await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner))
+        ) {
+          refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
+        }
+        if (trackableSpecPath !== undefined) {
+          const specTree = { projectRoot, worktreePath, baseRef, specPath: trackableSpecPath, runner };
+          const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
+          if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {
+            refusalParts.push(staleResetLandedCriteriaGateReason(driftedSubspecPaths));
+          }
+        }
+      } else {
+        const continuation = await evaluateCommittedLaneContinuation({
+          projectRoot,
+          worktreePath,
+          branch,
+          baseRef,
+          baseHead,
+          worktreeHead,
+          trackableSpecPath,
+          skipLandedCriteriaGate,
+          runner,
+        });
+        if (continuation.status === "refused") {
+          refusalParts.push(continuation.reason);
+        } else if (continuation.status === "continue") {
+          continuationEligible = true;
         }
       }
     }
@@ -2538,6 +2813,10 @@ export async function resetStaleWorkspace(
 
   if (refusalParts.length > 0) {
     return { status: "refused", reason: combineStaleResetRefusalReasons(refusalParts) };
+  }
+
+  if (continuationEligible && dirtyList.status === "clean") {
+    return { status: "continue" };
   }
 
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);

@@ -2855,6 +2855,125 @@ describe("implement preflight stale workspace reset", () => {
     expect(sent).toHaveLength(4);
   });
 
+  /** A `spec/continue-lane` tree with two subspecs already committed-and-checked on the branch and one still unchecked. */
+  async function materializeContinueLane(): Promise<{
+    worktreePath: string;
+    specName: string;
+    specRelPath: string;
+    branchTipBefore: string;
+  }> {
+    const specName = "continue-lane";
+    const specDir = join(resetProjectRoot, "spec", specName);
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Index\n\n- [ ] [00](./00-first.md)\n- [ ] [01](./01-second.md)\n- [ ] [02](./02-third.md)\n",
+    );
+    writeFileSync(join(specDir, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [ ] done\n");
+    writeFileSync(join(specDir, "01-second.md"), "# Second\n\n## Acceptance criteria\n\n- [ ] done\n");
+    writeFileSync(join(specDir, "02-third.md"), "# Third\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add continue-lane spec"], resetProjectRoot);
+
+    const worktreePath = await materializeStaleWorktree();
+    const firstRel = join("spec", specName, "00-first.md");
+    const secondRel = join("spec", specName, "01-second.md");
+    writeFileSync(join(worktreePath, firstRel), "# First\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", firstRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    writeFileSync(join(worktreePath, secondRel), "# Second\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", secondRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 01"], worktreePath);
+    const branchTipBefore = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    return { worktreePath, specName, specRelPath: join("spec", specName, "index.md"), branchTipBefore };
+  }
+
+  function continueLaneImplementBuilder(specRelPath: string) {
+    return () => {
+      const base = resetImplementSteps()[0];
+      if (base === undefined || base.behavior !== "write") throw new Error("expected implement write step");
+      return {
+        ok: true as const,
+        steps: [{ ...base, specPath: specRelPath, expectedArtifactPath: specRelPath }] as AnyWorkflowStep[],
+      };
+    };
+  }
+
+  test("run workflow implement continues a lane with two committed subspecs at the unchecked one, no PR yet", async () => {
+    const { worktreePath, specRelPath, branchTipBefore } = await materializeContinueLane();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = emptyPrListSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", specRelPath],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: continueLaneImplementBuilder(specRelPath) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-continue-lane", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(stderr).not.toContain("Removed worktree");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const branchTipAfter = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(branchTipAfter).toBe(branchTipBefore);
+    expect(readFileSync(join(worktreePath, "spec", "continue-lane", "00-first.md"), "utf8")).toContain("[x]");
+    expect(readFileSync(join(worktreePath, "spec", "continue-lane", "02-third.md"), "utf8")).toContain("[ ]");
+  });
+
+  test("run workflow implement continues a committed lane with an existing open draft PR, leaving it open and unmodified", async () => {
+    const { worktreePath, specRelPath, branchTipBefore } = await materializeContinueLane();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const closedPrs: number[] = [];
+    const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", specRelPath],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: continueLaneImplementBuilder(specRelPath) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-continue-lane-pr", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([]);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const branchTipAfter = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(branchTipAfter).toBe(branchTipBefore);
+    const prListAfter = await subprocessRunner.runAsync("gh", ["pr", "list"], resetProjectRoot);
+    expect(JSON.parse(prListAfter)).toEqual([{ number: 55, isDraft: true }]);
+  });
+
   test("run workflow implement resets stale code worktree for an incomplete external plan", async () => {
     const worktreePath = await materializeStaleWorktree();
     const planName = `stale-reset-${process.pid}-${Date.now()}`;
@@ -3511,7 +3630,7 @@ describe("implement preflight stale workspace reset", () => {
     expect(branchList).toContain(resetBranch);
   });
 
-  test("run workflow implement refuses re-run when worktree HEAD is not a descendant of base", async () => {
+  test("run workflow implement rebases and continues when worktree HEAD is not a descendant of base", async () => {
     const worktreePath = await materializeStaleWorktree();
     await commitLaneWork(worktreePath, "non-descendant");
     const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
@@ -3524,7 +3643,7 @@ describe("implement preflight stale workspace reset", () => {
     const sent: unknown[] = [];
     const cap = captureIo();
     const teardownCalls: string[] = [];
-    const code = await withStaleResetPreflightUuids(() =>
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
         cap.io,
@@ -3533,22 +3652,31 @@ describe("implement preflight stale workspace reset", () => {
             if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
             return undefined;
           }),
-          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-rebase-continues", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
         }),
       ),
     );
 
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     const { stderr } = cap.read();
-    expect(stderr).toContain("Cannot re-run incomplete spec:");
-    expect(stderr).toContain("HEAD");
-    expect(stderr).toContain(baseHead);
-    expect(stderr).toContain(worktreeHead);
-    expect(stderr).toContain("not a descendant");
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
     expect(teardownCalls).toEqual([]);
-    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).toContain(worktreePath);
+    const rebasedTip = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(rebasedTip).not.toBe(worktreeHead);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["merge-base", "--is-ancestor", baseHead, rebasedTip],
+      resetProjectRoot,
+    );
+    expect(existsSync(join(worktreePath, "lane-non-descendant.txt"))).toBe(true);
   });
 
   test("run workflow implement refuses stale reuse when HEAD lags base despite reset-despite-dirty", async () => {
@@ -3601,7 +3729,7 @@ describe("implement preflight stale workspace reset", () => {
     expect(list).toContain(worktreePath);
   });
 
-  test("redispatch-materializes-from-base-after-preflight-reset-stale-remote-tracking-ref", async () => {
+  test("redispatch continues a committed lane, leaving a stale remote-tracking ref untouched", async () => {
     const cap = captureIo();
     const originRoot = join(resetTmp, "origin.git");
     await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], resetTmp);
@@ -3625,6 +3753,7 @@ describe("implement preflight stale workspace reset", () => {
     await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, resetBranch], resetProjectRoot);
     expect(await originTrackingRefResolvesAsync(resetProjectRoot, resetBranch, realAsyncSubprocessRunner)).toBe(true);
 
+    const sent: unknown[] = [];
     const subprocessRunner = staleResetSubprocessRunner();
     const baseStep = resetImplementSteps()[0];
     if (baseStep === undefined || baseStep.behavior !== "write") {
@@ -3649,34 +3778,26 @@ describe("implement preflight stale workspace reset", () => {
           connectIpcClient: async () =>
             makeStaleResetIpcClient(
               workflowFrames("start", "wait", "run-redispatch-stale-origin", COMPLETED_WAIT_RESULT),
+              { sent },
             ),
         }),
       ),
     );
 
     expect(code).toBe(0);
-    expect(await originTrackingRefResolvesAsync(resetProjectRoot, resetBranch, realAsyncSubprocessRunner)).toBe(false);
-
-    await withExternalWorktree(
-      {
-        projectRoot: resetProjectRoot,
-        projectName: "demo",
-        branchName: resetBranch,
-        baseRef: baseHead,
-        jarvisRoot: resetJarvisRoot,
-      },
-      async (worktree) => {
-        const branchTip = (
-          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
-        ).trim();
-        expect(branchTip).toBe(baseHead);
-        const worktreeHead = (
-          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktree.path)
-        ).trim();
-        expect(worktreeHead).toBe(baseHead);
-      },
-      subprocessRunner,
-    );
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    // Continuation never retires the workspace, so a stale `origin/<branch>` tracking ref (the
+    // branch was deleted upstream after push) is left exactly as it was — pruning it is only a
+    // retirement step.
+    expect(await originTrackingRefResolvesAsync(resetProjectRoot, resetBranch, realAsyncSubprocessRunner)).toBe(true);
+    const branchTip = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(branchTip).toBe(staleTip);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
   });
 
   /** No `gh pr list` result for any branch: makes `classifyNeverLandedLane` see no open PR. */
@@ -3783,7 +3904,7 @@ describe("implement preflight stale workspace reset", () => {
     expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
   });
 
-  test("run workflow plan refuses an ahead-of-base non-staging commit, preserving the worktree, branch tip, and commit", async () => {
+  test("run workflow plan continues an ahead-of-base non-staging commit lane, preserving the worktree, branch tip, and commit", async () => {
     const worktreePath = await materializeStaleWorktree();
     writeFileSync(join(worktreePath, "impl.txt"), "implementation\n");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "impl.txt"], worktreePath);
@@ -3793,31 +3914,30 @@ describe("implement preflight stale workspace reset", () => {
     ).trim();
 
     const cap = captureIo();
+    const sent: unknown[] = [];
     const subprocessRunner = emptyPrListSubprocessRunner();
 
-    const code = await withStaleResetPreflightUuids(() =>
+    // This lane is a descendant of base (it is ahead of it) with no criteria to check, so it
+    // continues on the same worktree and branch instead of being refused or retired.
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         ["run", "workflow", "plan", "--ready-intent", "index.md"],
         cap.io,
         resetImplementDeps({
           workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
           subprocessRunner,
-          connectIpcClient: async () => makeStaleResetIpcClient([]),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-continue-plan", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
         }),
       ),
     );
 
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     const { stderr } = cap.read();
-    expect(stderr).toContain("hand-finish");
-    expect(stderr).toContain("jarvis cleanup --abandon");
     expect(stderr).not.toContain("retired-and-rematerialized from base");
-    // Pins which gate refused, so a change that swaps the mechanism cannot keep this green on the
-    // shared salvage wording alone. Note the honest limit: this lane *is* a descendant of base (it
-    // is ahead of it), so the descendant gate passes either way and stderr cannot distinguish a
-    // `landed` classification from an erroneous `disposable` one — `disposableLane` does not bypass
-    // the unlanded-commits gate. The teeth here are the preservation assertions below.
-    expect(stderr).toContain("commit(s) not on base");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).toContain(worktreePath);
     const branchTipAfter = (
@@ -3826,38 +3946,49 @@ describe("implement preflight stale workspace reset", () => {
     expect(branchTipAfter).toBe(branchTipBefore);
   });
 
-  test("run workflow plan refuses a non-descendant lane with an open PR, preserving the worktree and branch tip", async () => {
+  test("run workflow plan rebases and continues a non-descendant lane with an open PR", async () => {
     const worktreePath = await materializeStaleWorktree();
     await commitLaneWork(worktreePath, "open-pr");
     const { worktreeHead, baseHead } = await advanceBasePastStaleWorktree(worktreePath, "open-pr");
     expect(worktreeHead).not.toBe(baseHead);
 
     const cap = captureIo();
+    const sent: unknown[] = [];
     const subprocessRunner = staleResetSubprocessRunner();
 
-    const code = await withStaleResetPreflightUuids(() =>
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         ["run", "workflow", "plan", "--ready-intent", "index.md"],
         cap.io,
         resetImplementDeps({
           workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
           subprocessRunner,
-          connectIpcClient: async () => makeStaleResetIpcClient([]),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(
+              workflowFrames("start", "wait", "run-plan-rebase-continues", COMPLETED_WAIT_RESULT),
+              { sent },
+            ),
         }),
       ),
     );
 
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     const { stderr } = cap.read();
-    expect(stderr).toContain("Cannot re-run incomplete spec:");
-    expect(stderr).toContain("not a descendant");
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
     expect(stderr).not.toContain("retired-and-rematerialized from base");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).toContain(worktreePath);
-    const branchTip = (
+    const rebasedTip = (
       await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
     ).trim();
-    expect(branchTip).toBe(worktreeHead);
+    expect(rebasedTip).not.toBe(worktreeHead);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["merge-base", "--is-ancestor", baseHead, rebasedTip],
+      resetProjectRoot,
+    );
+    expect(existsSync(join(worktreePath, "lane-open-pr.txt"))).toBe(true);
   });
 
   test("run workflow plan --base drives the stale-workspace descendant gate instead of the repository default", async () => {

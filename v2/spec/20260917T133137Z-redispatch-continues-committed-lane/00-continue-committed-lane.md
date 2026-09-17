@@ -16,16 +16,16 @@ Today an incomplete re-dispatch whose lane holds commits ahead of base refuses v
 
 ## Acceptance criteria
 
-- [ ] A workflow-command test drives a lane with two committed subspecs (each tick backed by its own commit) and one unchecked subspec, a clean tree, no live owner, and no PR yet, through the CLI dispatch path, and asserts re-dispatch continues on the same worktree and branch at the unchecked subspec with no retirement; it fails against the current unlanded-commits refusal.
-- [ ] The same lane with an existing open draft PR on the branch asserts continuation leaves the PR open and unmodified; it fails against the current landed-criteria-drift refusal.
-- [ ] A test drives the same lane through the daemon pipeline dispatch path (`preparePipelineStageWorkflow`) and asserts the same continuation; it fails against the current refusal.
-- [ ] A test drives a lane where a checked criterion (absent from base) has no corresponding commit on the branch and asserts continuation refuses, naming the offending subspec path(s) and the fix, with a refusal reason distinct from the unlanded-commits and landed-criteria-drift messages; it fails against a build that has the relaxed gate but no branch-commit check.
-- [ ] A test asserts `--reset-despite-landed-criteria` on an otherwise-continuable lane retires the workspace instead of continuing, regardless of tick provenance.
-- [ ] A test covers continuation for an external (`specs: external`) plan tree, including a criterion ticked without a matching commit, and asserts the tick guard does not apply while continuation still proceeds on the existing gates; it fails against the current refusal.
-- [ ] `reset refuses when worktree has uncommitted tracked changes`, `resetStaleWorkspace still refuses a non-descendant lane with an unlanded commit`, and `resetStaleWorkspace refuses when worktree key is claimed` (`cleanup.test.ts`) stay green — dirty-tree, non-descendant-`HEAD`, and live-owner refusals unchanged.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] A test forks a lane, advances the base with a non-conflicting commit, and asserts re-dispatch rebases the lane onto the new base and continues at the unchecked subspec; it fails against a descendant-only rule.
-- [ ] A test advances the base with a conflicting commit and asserts re-dispatch aborts the rebase, leaves the worktree and branch unchanged, and refuses naming the conflicting path.
+- [x] A workflow-command test drives a lane with two committed subspecs (each tick backed by its own commit) and one unchecked subspec, a clean tree, no live owner, and no PR yet, through the CLI dispatch path, and asserts re-dispatch continues on the same worktree and branch at the unchecked subspec with no retirement; it fails against the current unlanded-commits refusal.
+- [x] The same lane with an existing open draft PR on the branch asserts continuation leaves the PR open and unmodified; it fails against the current landed-criteria-drift refusal.
+- [x] A test drives the same lane through the daemon pipeline dispatch path (`preparePipelineStageWorkflow`) and asserts the same continuation; it fails against the current refusal.
+- [x] A test drives a lane where a checked criterion (absent from base) has no corresponding commit on the branch and asserts continuation refuses, naming the offending subspec path(s) and the fix, with a refusal reason distinct from the unlanded-commits and landed-criteria-drift messages; it fails against a build that has the relaxed gate but no branch-commit check.
+- [x] A test asserts `--reset-despite-landed-criteria` on an otherwise-continuable lane retires the workspace instead of continuing, regardless of tick provenance.
+- [x] A test covers continuation for an external (`specs: external`) plan tree, including a criterion ticked without a matching commit, and asserts the tick guard does not apply while continuation still proceeds on the existing gates; it fails against the current refusal.
+- [x] `reset refuses when worktree has uncommitted tracked changes`, `resetStaleWorkspace still refuses a non-descendant lane with an unlanded commit`, and `resetStaleWorkspace refuses when worktree key is claimed` (`cleanup.test.ts`) stay green — dirty-tree, non-descendant-`HEAD`, and live-owner refusals unchanged.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test forks a lane, advances the base with a non-conflicting commit, and asserts re-dispatch rebases the lane onto the new base and continues at the unchecked subspec; it fails against a descendant-only rule.
+- [x] A test advances the base with a conflicting commit and asserts re-dispatch aborts the rebase, leaves the worktree and branch unchanged, and refuses naming the conflicting path.
 
 ## Documentation updates
 

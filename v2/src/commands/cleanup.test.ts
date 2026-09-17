@@ -4740,18 +4740,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
-  test("resetStaleWorkspace refuses unlanded commits with no PR before retirement", async () => {
+  test("resetStaleWorkspace continues a clean descendant lane with unlanded commits and no PR", async () => {
     const branch = "impl/unlanded-no-pr";
     const worktreePath = await setupWorktreeAndBranch(branch);
     const implRel = "impl-work.txt";
     writeFileSync(join(worktreePath, implRel), "implementation\n");
     await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
-    const tipSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
-    const commitCount = Number.parseInt(
-      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
-      10,
-    );
 
     const teardownCalls: string[] = [];
     const base = ghPrListRunner(projectRoot, []);
@@ -4769,13 +4764,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       { baseRef: "HEAD" },
     );
 
-    expect(result.status).toBe("refused");
-    const reason = genericRefusalReason(result);
-    expect(reason).toContain(tipSha);
-    expect(reason).toContain(String(commitCount));
-    expect(reason).toContain("commit(s) not on base");
-    expect(reason).toContain("hand-finish");
-    expect(reason).toContain("jarvis cleanup --abandon");
+    expect(result.status).toBe("continue");
     expect(teardownCalls).toEqual([]);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
@@ -4958,6 +4947,145 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const reason = genericRefusalReason(result);
     expect(reason).toContain(`worktree HEAD ${laneSha} is not a descendant of base HEAD`);
     expect(reason).toContain("stale reuse refused");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  async function setupSpecTree(specName: string, subspecContents: Record<string, string>): Promise<string> {
+    const specDir = join(projectRoot, "v2", "spec", specName);
+    mkdirSync(specDir, { recursive: true });
+    const links = Object.keys(subspecContents)
+      .map((name) => `- [ ] [${name}](./${name})`)
+      .join("\n");
+    writeFileSync(join(specDir, "index.md"), `# Index\n\n${links}\n`);
+    for (const [name, content] of Object.entries(subspecContents)) {
+      writeFileSync(join(specDir, name), content);
+    }
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `add spec ${specName}`], projectRoot);
+    return join("v2", "spec", specName, "index.md");
+  }
+
+  test("resetStaleWorkspace refuses a checked criterion with no backing commit, naming the subspec and fix", async () => {
+    const branch = "impl/forged-tick";
+    const subspecRel = "v2/spec/forged-spec/00-task.md";
+    const indexRel = await setupSpecTree("forged-spec", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] one\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    // A brand-new bullet typed in already checked, not a transition from an unchecked line and not a
+    // new file — no commit ever did the work of completing it.
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] one\n- [x] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "forge a tick"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain("no backing commit");
+    expect(reason).toContain("untick");
+    expect(reason).toContain("jarvis cleanup --abandon");
+    expect(reason).not.toContain("commit(s) not on base");
+    expect(reason).not.toContain("unticked on base");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace rebases a lane past a non-conflicting moved base and continues", async () => {
+    const branch = "impl/rebase-continues";
+    const subspecRel = "v2/spec/rebase-lane/00-task.md";
+    const indexRel = await setupSpecTree("rebase-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+      "01-task.md": "# Task 2\n\n## Acceptance criteria\n\n- [ ] pending\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    // Advance base with an unrelated, non-conflicting file.
+    writeFileSync(join(projectRoot, "unrelated-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("continue");
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(newTip).not.toBe(preRebaseSha);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", baseHead, newTip], projectRoot);
+    expect(readFileSync(join(worktreePath, subspecRel), "utf8")).toContain("- [x] done");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace aborts a conflicting rebase and refuses, leaving the lane unchanged", async () => {
+    const branch = "impl/rebase-conflict";
+    const subspecRel = "v2/spec/rebase-conflict-lane/00-task.md";
+    const indexRel = await setupSpecTree("rebase-conflict-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    // Advance base with a conflicting edit to the very same line.
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] done differently\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "reword criterion on base"], projectRoot);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain("conflicted");
+    expect(reason).toContain("worktree unchanged");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(preRebaseSha);
+    const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
+    expect(statusOutput.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace continues an external plan tree despite an unbacked tick, since the tick guard is out of root", async () => {
+    const branch = "impl/external-continue";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-work.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+
+    // Lives outside projectRoot, like a Jarvis-owned `specs: external` plan tree — never readable via
+    // `join(worktreePath, relative(projectRoot, specPath))`, so the tick guard cannot apply to it.
+    const externalSpecDir = join(tempRoot, "external-spec");
+    mkdirSync(externalSpecDir, { recursive: true });
+    const externalIndexPath = join(externalSpecDir, "index.md");
+    writeFileSync(externalIndexPath, "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(externalSpecDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [x] never landed\n");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: externalIndexPath,
+    });
+
+    expect(result.status).toBe("continue");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });

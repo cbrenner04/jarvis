@@ -4,6 +4,9 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import ts from "typescript";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { CliDeps } from "../cli/deps.ts";
+import type { Io } from "../cli/io.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import { resolveReadyGateCommand } from "../execution/ready-finalize.ts";
@@ -25,7 +28,7 @@ import type {
   WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
-import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
+import { makeStaleResetIpcClient, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createMinimalDispatchWriteStep } from "../testing/workflow-step-fixtures.ts";
 import { listProductionDaemonSources } from "./daemon-terminal-settlement-guard.ts";
@@ -38,7 +41,7 @@ import {
   shouldStopForInFlightStageRow,
 } from "./pipeline-stage-dispatch.ts";
 import { createChainedStageProjectMatch, type PipelineContext } from "./pipeline-stage-resolve.ts";
-import { preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts";
+import { type PipelineStaleResetPreparation, preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 
@@ -1465,5 +1468,84 @@ describe("pipeline stage dispatch step-config stamping", () => {
     });
     expect(resolveReadyGateCommand(stampedWrite.readyCommand).display).toBe("bun run ready");
     expect(stampedWrite.fixCommand ?? "bun run fix").toBe("bun run fix");
+  });
+});
+
+describe("preparePipelineStageWorkflow stale-reset continuation", () => {
+  test("continues a lane with two committed subspecs at the unchecked one, through the daemon pipeline dispatch path", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-"));
+    initGitRepo(repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+
+    const specRelPath = "spec/continue-lane/index.md";
+    const specDir = join(repoRoot, "spec", "continue-lane");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Index\n\n- [ ] [00](./00-first.md)\n- [ ] [01](./01-second.md)\n- [ ] [02](./02-third.md)\n",
+      "utf8",
+    );
+    writeFileSync(join(specDir, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [ ] done\n", "utf8");
+    writeFileSync(join(specDir, "01-second.md"), "# Second\n\n## Acceptance criteria\n\n- [ ] done\n", "utf8");
+    writeFileSync(join(specDir, "02-third.md"), "# Third\n\n## Acceptance criteria\n\n- [ ] done\n", "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "add continue-lane spec"], { cwd: repoRoot });
+
+    const branch = "implement-continue-lane";
+    const jarvisWorktreesDir = join(repoRoot, ".jarvis-worktrees");
+    mkdirSync(jarvisWorktreesDir, { recursive: true });
+    const worktreePath = join(jarvisWorktreesDir, branch);
+    execFileSync("git", ["branch", branch], { cwd: repoRoot });
+    execFileSync("git", ["worktree", "add", worktreePath, branch], { cwd: repoRoot });
+
+    const firstRel = "spec/continue-lane/00-first.md";
+    const secondRel = "spec/continue-lane/01-second.md";
+    writeFileSync(join(worktreePath, firstRel), "# First\n\n## Acceptance criteria\n\n- [x] done\n", "utf8");
+    execFileSync("git", ["add", firstRel], { cwd: worktreePath });
+    execFileSync("git", ["commit", "-qm", "complete 00"], { cwd: worktreePath });
+    writeFileSync(join(worktreePath, secondRel), "# Second\n\n## Acceptance criteria\n\n- [x] done\n", "utf8");
+    execFileSync("git", ["add", secondRel], { cwd: worktreePath });
+    execFileSync("git", ["commit", "-qm", "complete 01"], { cwd: worktreePath });
+    const branchTipBefore = execFileSync("git", ["rev-parse", branch], { cwd: repoRoot, encoding: "utf8" }).trim();
+
+    const jarvisRoot = mkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-jarvis-"));
+    const step = createMinimalDispatchWriteStep({
+      worktree: { projectRoot: repoRoot, projectName: "demo", branchName: branch, baseRef: "HEAD", jarvisRoot },
+      specPath: specRelPath,
+      expectedArtifactPath: specRelPath,
+    });
+
+    const context: PipelineContext = {
+      cwd: repoRoot,
+      configPath: writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } }),
+      seed: "unused",
+    };
+    const staleReset: PipelineStaleResetPreparation = {
+      deps: { jarvisRoot, subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps,
+      io: { stdout: () => {}, stderr: () => {} } satisfies Io,
+      flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
+    };
+
+    const result = await preparePipelineStageWorkflow(
+      "implement",
+      "implement",
+      { cwd: repoRoot, baseRef: "HEAD", specPath: specRelPath } as BuildImplementWorkflowStepsInput,
+      context,
+      { ...WORKFLOW_PRESET_BUILDERS, implement: async () => ({ ok: true as const, steps: [step] }) },
+      staleReset,
+    );
+    if (!result.ok) throw new Error(result.error);
+
+    const exitCode = await result.runStaleResetPreflight(makeStaleResetIpcClient([]));
+
+    expect(exitCode).toBeUndefined();
+    const listOutput = execFileSync("git", ["worktree", "list"], { cwd: repoRoot, encoding: "utf8" });
+    expect(listOutput).toContain(worktreePath);
+    const branchTipAfter = execFileSync("git", ["rev-parse", branch], { cwd: repoRoot, encoding: "utf8" }).trim();
+    expect(branchTipAfter).toBe(branchTipBefore);
+    expect(readFileSync(join(worktreePath, firstRel), "utf8")).toContain("[x]");
+    expect(readFileSync(join(worktreePath, "spec", "continue-lane", "02-third.md"), "utf8")).toContain("[ ]");
   });
 });

@@ -276,6 +276,10 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "resumes paused implement~link-N into linked subspec routing and records iteration_started",
   "resumes failed gate_invocation_refused implement~link-N into linked subspec routing",
   "failed gate_invocation_refused implement~link-N resume does not restore surviving-mutation reprompt context",
+  // Incomplete re-dispatch on a committed, tick-backed lane now continues instead of refusing
+  // (redispatch-continues-committed-lane); replaced by "pipeline resume continues a landed lane
+  // with unpushed commits, preserving the worktree and branch tip" in the same file.
+  "pipeline resume refuses never-landed lane with unpushed commits and names salvage path",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

@@ -1601,7 +1601,7 @@ function failedPlanRedraftRequiresStaleReset(
 
 type FailedPlanWorktreeDisposition = "retired-and-rematerialized from base" | "reused existing worktree";
 
-type StaleResetWorkspaceOutcome = "reset" | "no-op";
+type StaleResetWorkspaceOutcome = "reset" | "no-op" | "continue";
 
 function failedPlanWorktreeDisposition(outcome: StaleResetWorkspaceOutcome): FailedPlanWorktreeDisposition {
   return outcome === "reset" ? "retired-and-rematerialized from base" : "reused existing worktree";

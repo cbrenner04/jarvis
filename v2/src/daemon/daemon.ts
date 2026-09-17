@@ -887,10 +887,8 @@ type HandoffHandlersDeps = ChangeoverHandlerDeps & {
   probePublicServer: () => Promise<boolean>;
   /** Bounds an unanswered handoff. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   fallbackMs?: number;
-  /** Records the `changeover` retire trigger once this handoff actually begins. */
-  recordChangeoverTrigger: () => void;
-  /** Records a handoff settlement (`handoff_commit`/`handoff_rollback`/`handoff_fallback`) before it acts. */
-  recordHandoffSettlementTrigger: (trigger: HandoffSettlementTrigger, resolution?: "commit" | "rollback") => void;
+  /** Records this generation's retire trigger; called with "changeover" once this handoff actually begins. */
+  recordRetireTrigger: (trigger: "changeover") => void;
 };
 
 /**
@@ -1000,7 +998,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
       return;
     }
     const verdict = fallbackVerdict(publicDaemonLive);
-    deps.recordHandoffSettlementTrigger("handoff_fallback", verdict);
+    console.error(formatHandoffSettlementLogLine("handoff_fallback", verdict));
     const result = verdict === "commit" ? await commit(active) : await rollback(active);
     if (result.kind === "error") {
       console.error(`Daemon handoff fallback failed: ${result.message}`);
@@ -1029,7 +1027,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }
 
     deps.setRetiring();
-    deps.recordChangeoverTrigger();
+    deps.recordRetireTrigger("changeover");
     const handoffId = crypto.randomUUID();
     let releaseDone: (() => void) | undefined;
     const releasePromise = new Promise<void>((resolve) => {
@@ -1049,7 +1047,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
       const active = transaction;
       const handoffId = handoffIdentity(frame);
       if (active === undefined || handoffId === undefined || active.id !== handoffId) return handoffMismatch();
-      deps.recordHandoffSettlementTrigger(resolution === "commit" ? "handoff_commit" : "handoff_rollback");
+      console.error(formatHandoffSettlementLogLine(resolution === "commit" ? "handoff_commit" : "handoff_rollback"));
       return resolution === "commit" ? commit(active) : rollback(active);
     };
   };
@@ -1449,9 +1447,7 @@ export async function startDaemonRuntime(
       runControlContext.retiring = false;
     },
     wasSuperseded: () => superseded,
-    recordChangeoverTrigger: () => recordRetireTrigger("changeover"),
-    recordHandoffSettlementTrigger: (trigger, resolution) =>
-      console.error(formatHandoffSettlementLogLine(trigger, resolution)),
+    recordRetireTrigger,
     bindPublicServer: async () => {
       try {
         server = await bindIpcServer(socketPath, handlers, tailStreamHandler);

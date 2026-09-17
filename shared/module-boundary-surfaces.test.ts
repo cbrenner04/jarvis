@@ -565,6 +565,20 @@ describe("plan draft normalization", () => {
       );
     });
 
+    test("leaves bare lines inside a fenced block within Decisions untouched and unwritten", () => {
+      const dir = scratchDir("bulletize-fenced-decisions");
+      const file = "00-case.md";
+      const body =
+        "# Case\n\n## Decisions\n\n```\nfenced bare line one\nfenced bare line two\n```\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n";
+      stageDraft(dir, { [file]: body });
+      const beforeMtime = statSync(join(dir, file)).mtimeMs;
+
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+
+      expect(readFileSync(join(dir, file), "utf8")).toBe(body);
+      expect(statSync(join(dir, file)).mtimeMs).toBe(beforeMtime);
+    });
+
     test("never writes to disk in validate-only mode even with bare Decisions lines", () => {
       const dir = scratchDir("bulletize-durable-no-write");
       const file = "00-case.md";

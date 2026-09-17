@@ -590,7 +590,11 @@ Specs archived 2026-09-15 ([#3923](https://github.com/cbrenner04/jarvis/pull/392
 | `opencode-adapter-read-dir-grant` | — | — | re-queued from #3929, then removed by operator as obsolete (#3950) |
 | `plan-bases-off-a-declared-prerequisite-branch` | — | #3948 | landed by operator hand; operator review added freshness reuse + descendant-gate test |
 | `pr-body-spec-line-and-overview` (lane 1/3 of #3934) | #3939 closed (superseded) | #3941 | landed unattended; no lane notification (`pipeline-lane-ready-pr-notifies` recurred) |
-| `test-suite-wall-clock` | lint seam (recovered 2×, artifact-count), daemon waits | in progress | seeded; operator picked lint stub, real-spawn waits, resume split, template repo (CI pool width declined) |
+| `test-suite-wall-clock` | 4 lanes (lint-seam plan recovered 2×, split plan recovered 2× — artifact-count) | #3953, #3956 landed; #3957 split in review; fixture template held behind split | #3953 hand-finished (review actuator `role_timeout`; review found 4 defects, fixed); #3956 hand-finished (agent sandbox cannot bind sockets → new seed); split lane hit the owner-stamp split-brain (new seed) but its draining daemon published |
 | `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | #3937 (telemetry caps, hand-published after quota) | pipeline `25784a7e` dismissed; cleanup lane unapproved, carried |
+| `run-admission-stamps-its-owner` | — | — | seeded (stranded run `64b09d5d`; pipeline `39d79f62` went `interrupted`) |
+| `implement-can-run-integration-slice-tests` | — | — | seeded (`agent_blocked` on #3956's lane) |
 
 Closed at session start: #3595, #3464 (daemon-identity chain); PRs #3929, #3930, #3932 superseded by #3931/#3933.
+
+**Mutation verification measured, kept as is (operator decision 2026-09-16).** 17 days of in-loop reprompting: 137 reprompts over 48 of 536 implement rows, ~6% of implement agent time and ~4% of cost; ~70–75% of sampled reprompts produced a real killing test; 27 mutation-caused terminal failures and ~50 maintenance commits over six weeks. Operator kept reprompt uncapped (a cap raises failure rate), terminal mutation failures stay blocking (a known gap would be hand-finished in review anyway), and no verification timing events. Do not reopen without new data.

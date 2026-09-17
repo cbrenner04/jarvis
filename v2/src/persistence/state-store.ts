@@ -660,10 +660,10 @@ export type Attempt = {
 };
 
 /** Why a workflow invocation settled, for the durable settled marker. */
-export type WorkflowInvocationSettledCause = "completed" | "failed" | "killed";
+type WorkflowInvocationSettledCause = "completed" | "failed" | "killed";
 
 /** Durable settled marker for one workflow invocation, keyed by entry run id. */
-export type WorkflowInvocationSettledMarker = {
+type WorkflowInvocationSettledMarker = {
   cause: WorkflowInvocationSettledCause;
   settledAt: number;
 };

@@ -55,10 +55,16 @@ const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
     functionName: "createRunLifecycleHandlers",
     writer: "commitCompletionBoundary",
   },
+  {
+    file: "daemon-run-lifecycle-handlers.ts",
+    functionName: "restoreRunAfterFailedResume",
+    writer: "commitTerminalRunSettlement",
+  },
 ];
 
 const PERMITTED_DAEMON_NONTERMINAL_SET_RUN_STATUS: PermittedDaemonNonterminalSetRunStatus[] = [
   { file: "daemon.ts", functionName: "promoteQueuedRunImpl", status: "in-progress" },
+  { file: "daemon-run-lifecycle-handlers.ts", functionName: "restoreRunAfterFailedResume", status: "paused" },
 ];
 
 function isProductionDaemonSource(name: string): boolean {
@@ -301,7 +307,8 @@ export function regexPinnedDaemonSettlementGuard(
   const setRunStatusCaptures = [...concatenatedProductionSources.matchAll(/\.setRunStatus\s*\(([^)]*)\)/g)].map(
     (match) => match[1]?.trim(),
   );
-  if (setRunStatusCaptures.length !== 1 || setRunStatusCaptures[0] !== 'run.id, "in-progress"') {
+  // Queue promotion, plus the failed-resume restore of a pre-admission `paused` row.
+  if (setRunStatusCaptures.sort().join("|") !== 'prior.id, "paused"|run.id, "in-progress"') {
     return false;
   }
   if (reconciliationAdmissionSlice.includes("UPDATE runs SET status")) return false;

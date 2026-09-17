@@ -99,7 +99,12 @@ type LifecycleStartResult =
 
 type RunLifecycleHandlerDeps = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => LifecycleStartResult;
-  resumeLinkedWorkflowStart?: (steps: AnyWorkflowStep[], workflowSnapshot: WorkflowSnapshot) => LifecycleStartResult;
+  resumeLinkedWorkflowStart?: (
+    steps: AnyWorkflowStep[],
+    workflowSnapshot: WorkflowSnapshot,
+    admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>,
+    rollbackRunAdmission?: () => void,
+  ) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
 };
@@ -138,6 +143,60 @@ function runOwnerConflictError(runId: string): { kind: "error"; code: "run_owner
     code: "run_owner_conflict",
     message: `Run ${runId} is owned by a reachable draining predecessor daemon`,
   };
+}
+
+/**
+ * Stamps this daemon as `runId`'s owner before any resume spawn, so a later successor sees the
+ * resuming daemon — not the dispatching generation — as the live owner. Refused (a different live
+ * owner, or the row's owner changed underneath this call) before any spawn or status write; never
+ * a silent local takeover.
+ */
+async function admitRunForResumeOrRefusal(
+  store: StateStore,
+  runId: string,
+): Promise<{ kind: "error"; code: string; message: string } | undefined> {
+  const admission = await store.admitRunForResume(runId);
+  if (admission.kind === "applied") return undefined;
+  return {
+    kind: "error",
+    code: admission.reason,
+    message: `Run ${runId} resume admission refused: ${admission.reason}`,
+  };
+}
+
+/**
+ * Undo an applied resume admission whose resume failed before a live loop owned the row: restore
+ * the pre-admission status (and terminal cause/detail) so the row stays resumable, not an
+ * ownerless `in-progress` orphan. Settles as this daemon, the owner admission stamped. No-op once
+ * anything else moved the row off `in-progress`.
+ */
+function restoreRunAfterFailedResume(store: StateStore, prior: Run): void {
+  if (store.loadRun(prior.id)?.status !== "in-progress") return;
+  if (prior.status === "paused") {
+    store.setRunStatus(prior.id, "paused");
+    return;
+  }
+  if (!isTerminalRunStatus(prior.status)) return;
+  store.commitTerminalRunSettlement({
+    runId: prior.id,
+    status: prior.status,
+    terminalCause: prior.terminalCause ?? null,
+    terminalFailureDetail: prior.terminalFailureDetail ?? null,
+  });
+}
+
+/** A finalization tail's `{ok:false}`: restore the pre-admission status unless a kill owns settlement. */
+function failedFinalizationTailResult(
+  store: StateStore,
+  run: Run,
+  outcome: { ok: false; message: string },
+  aborted: boolean,
+  failureAsResponse: boolean,
+): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+  if (!aborted) restoreRunAfterFailedResume(store, run);
+  return failureAsResponse
+    ? { kind: "response", result: outcome }
+    : { kind: "error", code: "internal_error", message: outcome.message };
 }
 
 /** Terminal or paused — any status with no live write loop to disturb. */
@@ -1066,11 +1125,11 @@ export function createRunLifecycleHandlers(
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
-  const resumePausedRun = (
+  const resumePausedRun = async (
     run: LoadedRun,
     key: OwnershipKey,
     runId: string,
-  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } => {
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const reconstructed = reconstructWriteResume(run, logReader?.tail(runId));
     if (!reconstructed.ok) {
       return {
@@ -1081,6 +1140,8 @@ export function createRunLifecycleHandlers(
     }
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
+    const admissionError = await admitRunForResumeOrRefusal(store, runId);
+    if (admissionError) return admissionError;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
   };
@@ -1093,6 +1154,8 @@ export function createRunLifecycleHandlers(
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
+    const admissionError = await admitRunForResumeOrRefusal(store, run.id);
+    if (admissionError) return admissionError;
     registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
     const activeKey = ownershipKeyString(key);
@@ -1108,8 +1171,7 @@ export function createRunLifecycleHandlers(
       };
       const outcome = await execute(resumeDeps);
       if (!outcome.ok) {
-        if (failureAsResponse) return { kind: "response", result: outcome };
-        return { kind: "error", code: "internal_error", message: outcome.message };
+        return failedFinalizationTailResult(store, run, outcome, abortController.signal.aborted, failureAsResponse);
       }
       return { kind: "response", result: outcome };
     } catch (error) {
@@ -1201,7 +1263,38 @@ export function createRunLifecycleHandlers(
         message: `${reconstructedSteps.message} — ${RUN_OPERATOR_ERROR_RECOVERY.unsupported_resume_context}`,
       };
     }
-    return deps.resumeLinkedWorkflowStart(reconstructedSteps.steps, snapshot);
+    let admitted = false;
+    return deps.resumeLinkedWorkflowStart(
+      reconstructedSteps.steps,
+      snapshot,
+      async () => {
+        const refusal = await admitRunForResumeOrRefusal(store, run.id);
+        admitted = refusal === undefined;
+        return refusal;
+      },
+      () => {
+        if (admitted) restoreRunAfterFailedResume(store, run);
+      },
+    );
+  };
+
+  /** Bare (non-paused, non-linked) resume: reconstruct, claim-check, admit, then spawn the write loop. */
+  const resumeReconstructedRun = async (
+    run: LoadedRun,
+    runId: string,
+    logRecords: ReturnType<NonNullable<typeof logReader>["tail"]> | undefined,
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
+    const reconstructed = reconstructWriteResume(run, logRecords);
+    if (!reconstructed.ok) {
+      return { kind: "error", code: "resume_unsupported", message: reconstructed.message };
+    }
+    const key: OwnershipKey = { project: run.project, branch: run.branch };
+    const claimError = checkWorktreeClaimed(registry, key);
+    if (claimError) return claimError;
+    const admissionError = await admitRunForResumeOrRefusal(store, runId);
+    if (admissionError) return admissionError;
+    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
+    return { kind: "response", result: { ok: true } };
   };
 
   const resumeHandler: RpcHandler = async (frame) => {
@@ -1244,20 +1337,7 @@ export function createRunLifecycleHandlers(
       return resumePausedRun(run, key, runId);
     }
 
-    const reconstructed = reconstructWriteResume(run, logRecords);
-    if (!reconstructed.ok) {
-      return {
-        kind: "error",
-        code: "resume_unsupported",
-        message: reconstructed.message,
-      };
-    }
-    const key: OwnershipKey = { project: run.project, branch: run.branch };
-    const claimError = checkWorktreeClaimed(registry, key);
-    if (claimError) return claimError;
-    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
-
-    return { kind: "response", result: { ok: true } };
+    return resumeReconstructedRun(run, runId, logRecords);
   };
 
   const waitForWorkflowEntryRun = async (

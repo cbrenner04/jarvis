@@ -509,11 +509,18 @@ function setUpLinkedResumeMachineProfile(): {
   };
 }
 
+type CapturedLinkedResume = {
+  steps: AnyWorkflowStep[];
+  workflowSnapshot: WorkflowSnapshot;
+  admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>;
+  rollbackRunAdmission?: () => void;
+};
+
 function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps): {
   handlers: ReturnType<typeof createRunLifecycleHandlers>;
-  captured: { steps: AnyWorkflowStep[]; workflowSnapshot: WorkflowSnapshot }[];
+  captured: CapturedLinkedResume[];
 } {
-  const captured: { steps: AnyWorkflowStep[]; workflowSnapshot: WorkflowSnapshot }[] = [];
+  const captured: CapturedLinkedResume[] = [];
   const ctx = createRunControlHandlerContext({
     stateStore,
     logReader: { tail: () => [], async *follow() {} },
@@ -525,8 +532,13 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
-    resumeLinkedWorkflowStart: (steps, workflowSnapshot) => {
-      captured.push({ steps, workflowSnapshot });
+    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun, rollbackRunAdmission) => {
+      captured.push({
+        steps,
+        workflowSnapshot,
+        ...(admitRun !== undefined ? { admitRun } : {}),
+        ...(rollbackRunAdmission !== undefined ? { rollbackRunAdmission } : {}),
+      });
       return { kind: "response", result: { runId: "fake-entry-run" } };
     },
   });
@@ -579,6 +591,11 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
     });
     // The bare write loop (`spawnWriteLoop`/`writeLoopExecutor`) never runs for this row.
     expect(fakeExecutor.pendingCount()).toBe(0);
+    // A workflow start that fails after the admission applied restores the prior terminal status.
+    expect(await captured[0]?.admitRun?.()).toBeUndefined();
+    expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
+    captured[0]?.rollbackRunAdmission?.();
+    expect(stateStore.loadRun(runId)?.status).toBe("failed");
   } finally {
     profile.cleanup();
     rmSync(worktreePath, { recursive: true, force: true });
@@ -611,6 +628,10 @@ test("resume routes a paused implement~link-N row to resumeLinkedWorkflowStart t
     expect(captured).toHaveLength(1);
     expect(captured[0]?.steps[0]).toMatchObject({ stepId: "implement", linkedIndexRouting: true });
     expect(fakeExecutor.pendingCount()).toBe(0);
+    // The linked route hands the workflow start a resume admission for this row, applied before any spawn.
+    expect(stateStore.loadRun(runId)?.status).toBe("paused");
+    expect(await captured[0]?.admitRun?.()).toBeUndefined();
+    expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
   } finally {
     profile.cleanup();
     rmSync(worktreePath, { recursive: true, force: true });

@@ -309,8 +309,8 @@ describe("daemon self-handoff (real sockets)", () => {
         expect(changeoverFrame.kind).toBe("response");
 
         // The sampler is divergent from the very first tick; absent the isRetiring() cutoff this
-        // would trigger within two intervals.
-        await new Promise((resolve) => setTimeout(resolve, SELF_HANDOFF_INTERVAL_MS * 2));
+        // would trigger within two intervals; hold 2x that.
+        await new Promise((resolve) => setTimeout(resolve, SELF_HANDOFF_INTERVAL_MS * 4));
         expect(callCount).toBe(0);
       } finally {
         await harness.close();

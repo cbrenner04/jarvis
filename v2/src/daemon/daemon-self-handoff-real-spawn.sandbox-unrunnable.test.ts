@@ -124,8 +124,8 @@ describe("daemon self-handoff (real processes)", () => {
         expect(await waitFor(() => answersHealth(publicSocketPath), 15_000)).toBe(true);
 
         // An "unknown" sample never triggers: nothing hands off while the file is unchanged.
-        // Absence can't be awaited, so this holds for one digest-sampling interval only.
-        await new Promise((r) => setTimeout(r, SELF_HANDOFF_INTERVAL_MS));
+        // Absence can't be awaited; hold 2x the sampling interval (1x can end before any sample lands).
+        await new Promise((r) => setTimeout(r, SELF_HANDOFF_INTERVAL_MS * 2));
         expect(existsSync(pidPath)).toBe(false);
 
         writeFileSync(digestFile, "changed-observed-digest");
@@ -143,10 +143,11 @@ describe("daemon self-handoff (real processes)", () => {
         expect(await waitFor(() => incumbentExited, 15_000)).toBe(true);
         // The successor must outlive its spawning incumbent, not merely be alive at the instant it
         // exits: sample alive+health repeatedly across a real window after the incumbent is gone.
-        for (let sample = 0; sample < 3; sample++) {
+        // ~500ms window, sampled every 100ms.
+        for (let sample = 0; sample < 6; sample++) {
           expect(successorPid !== undefined && isAlive(successorPid)).toBe(true);
           expect(await answersHealth(publicSocketPath)).toBe(true);
-          if (sample < 2) await new Promise((r) => setTimeout(r, SELF_HANDOFF_INTERVAL_MS));
+          if (sample < 5) await new Promise((r) => setTimeout(r, 100));
         }
       } finally {
         for (const pid of [readPid(pidPath), incumbentPid]) {

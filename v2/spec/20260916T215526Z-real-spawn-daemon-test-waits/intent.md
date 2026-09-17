@@ -22,8 +22,8 @@ name: real-spawn-daemon-test-waits
 
 - `v2/docs/test-writing.md` — real-spawn wait guidance; note before/after combined time.
 
-## Blocker
+## Outcome
 
-Subspec 03 could not obtain a real combined `bun test <file>` measurement: this implement session's sandbox denies Unix-socket binds under `tmpdir()` (`EPERM`) and unconditionally refuses `dangerouslyDisableSandbox`, so none of the three files can run with a real socket/process. A static estimate counting only the landed diffs' guaranteed fixed-value sleep reductions (~5.68s off the ~30.8s merge-base combined time, ~25.1s estimated) falls short of the ~20.53s (two-thirds) target by ~4.6s; the gap depends on unquantifiable `waitFor` poll-interval and condition-wait speedups that only a real run can settle. See `03-combined-time-and-docs.md`'s Blocker for detail. Needs an operator run outside the sandbox to produce the real number.
+Measured (`bun test <file>`, sandbox off, median of 3): merge base 25.3s combined (real-spawn 8.47s, changeover 10.11s, self-handoff 6.72s) → 19.57s (3.33s, 10.05s, 6.19s), ratio 0.77 (~23% cut). One-third target waived by operator 2026-09-17. `daemon-changeover` is flat: its floor is the kept 5.5s probe plus per-test boots. The spec's recorded ~30.8s base was wrong; the real base is 25.3s.
 
 ## Prerequisites

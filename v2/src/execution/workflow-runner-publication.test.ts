@@ -12,7 +12,12 @@ import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
 import { renderAttribution } from "./pr-attribution.ts";
 import { refreshPrBody } from "./pr-body-refresh.ts";
-import { baseRefProbeFailsSeam, gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
+import {
+  baseRefProbeFailsSeam,
+  gateFailureOutput,
+  initGateScopeWorktree,
+  PLACEHOLDER_BASE_REF_PROBE_OBSERVATION,
+} from "./ready-finalize.test.ts";
 import {
   formatReadyGateOutOfScopeDetail,
   ReadyFlipError,
@@ -919,7 +924,8 @@ describe("executeWorkflow completion publication", () => {
     const logSink = new TestLogSink();
     let inScopeGateCalls = 0;
     const outsidePath = "v2/src/untouched.test.ts";
-    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef);
+    const expectedObservations = { [outsidePath]: PLACEHOLDER_BASE_REF_PROBE_OBSERVATION };
+    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef, expectedObservations);
 
     await withStateStore(async (store) => {
       const outOfScope = await executeWorkflow({
@@ -985,7 +991,8 @@ describe("executeWorkflow completion publication", () => {
     const branchName = "workflow-gate-out-of-scope-durable";
     const { baseRef } = initGateScopeWorktree(home.jarvisRoot, branchName);
     const outsidePath = "v2/src/untouched.test.ts";
-    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef);
+    const expectedObservations = { [outsidePath]: PLACEHOLDER_BASE_REF_PROBE_OBSERVATION };
+    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef, expectedObservations);
     const logsPath = join(home.jarvisRoot, "logs.jsonl");
     const logSink = openLogSink(logsPath);
 
@@ -1014,6 +1021,7 @@ describe("executeWorkflow completion publication", () => {
         resumable: false,
         readyGateOutsidePaths: [outsidePath],
         readyGateOutOfScopeDetail: outOfScopeDetail,
+        readyGateOutOfScopeObservations: expectedObservations,
       });
 
       const terminal = findTerminalLogRecord([persisted]);
@@ -1026,6 +1034,7 @@ describe("executeWorkflow completion publication", () => {
         nextAction: "stop",
         readyGateOutsidePaths: [outsidePath],
         readyGateOutOfScopeDetail: outOfScopeDetail,
+        readyGateOutOfScopeObservations: expectedObservations,
       });
 
       const loopEvent = persisted.event;

@@ -24,6 +24,7 @@ import {
   type ReadyGateScopeInput,
   type ReadyGateScopeSeams,
   readyGateFailureLogFields,
+  readyGateOutOfScopeLogFields,
   readyGateSubprocessTimeoutMs,
   SurvivingMutationError,
   selectTerminalFailingPaths,
@@ -139,6 +140,15 @@ test("uses fixture dependency", () => {
 });
 `;
 
+const PROBE_FIXTURE_TEST_MIXED = `import { expect, test } from "bun:test";
+import dep from "probe-fixture-dep";
+test("pass one", () => expect(dep.ok).toBe(true));
+test("pass two", () => expect(dep.ok).toBe(true));
+test("pass three", () => expect(dep.ok).toBe(true));
+test("fail one", () => expect(dep.ok).toBe(false));
+test("fail two", () => expect(dep.ok).toBe(false));
+`;
+
 /**
  * A real git repo for driving `createDefaultReproduceReadyGateAtBaseRef` end to end: a base
  * commit with `baseTestBody`, then an iteration commit with `branchTestBody`. Its imported
@@ -214,15 +224,20 @@ const scope = {
   specPath: "v2/spec/demo/index.md",
 };
 
+/** A fixed placeholder conclusive-fail probe outcome for seam stubs that don't care about its
+ *  observation values, just that the probe confirmed the failure reproduces at the base ref. */
+export const PLACEHOLDER_BASE_REF_PROBE_FAIL = { kind: "fail" as const, pass: 0, fail: 1, baseCommit: "abc1234" };
+export const PLACEHOLDER_BASE_REF_PROBE_OBSERVATION = { pass: 0, fail: 1, baseCommit: "abc1234" };
+
 const allowedSeams: ReadyGateScopeSeams = {
   gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
   gitUntracked: async () => "",
   listSpecTreePaths: async () => ["v2/spec/demo/index.md", "v2/spec/demo/01-task.md"],
-  reproduceReadyGateAtBaseRef: async () => "fail",
+  reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
 };
 
 export const baseRefProbeFailsSeam: ReadyGateScopeSeams = {
-  reproduceReadyGateAtBaseRef: async () => "fail",
+  reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
 };
 
 describe("ready gate untouched-path classification", () => {
@@ -268,7 +283,7 @@ describe("ready gate untouched-path classification", () => {
     const classified = await classifyReadyGateError(error, directSubspecScope, {
       gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
       gitUntracked: async () => "",
-      reproduceReadyGateAtBaseRef: async () => "fail",
+      reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
     });
     expect(classified.gateFailureKind).toBe("ready_gate_failed");
 
@@ -276,7 +291,7 @@ describe("ready gate untouched-path classification", () => {
       gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
       gitUntracked: async () => "",
       listSpecTreePaths: async () => ["v2/spec/demo/01-task.md"],
-      reproduceReadyGateAtBaseRef: async () => "fail",
+      reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
     });
     expect(singleFileEnumeration.gateFailureKind).toBe("ready_gate_out_of_scope");
   });
@@ -294,6 +309,36 @@ describe("ready gate untouched-path classification", () => {
     const classified = await classifyReadyGateError(error, scope, allowedSeams);
     expect(classified.gateFailureKind).toBe("ready_gate_out_of_scope");
     expect(classified.outsidePaths).toEqual(["v2/src/untouched.test.ts"]);
+  });
+
+  it("carries each confirmed out-of-scope path's probe pass/fail counts and verified base commit", async () => {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+      failingFiles: [
+        { attemptId: "2.1", path: "v2/src/untouched-a.test.ts" },
+        { attemptId: "2.1", path: "v2/src/untouched-b.test.ts" },
+      ],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const allowed = new Set(["v2/src/changed.ts"]);
+    const observations: Record<string, { pass: number; fail: number; baseCommit: string }> = {
+      "v2/src/untouched-a.test.ts": { pass: 3, fail: 2, baseCommit: "aaa1111" },
+      "v2/src/untouched-b.test.ts": { pass: 0, fail: 5, baseCommit: "bbb2222" },
+    };
+    const classified = await classifyReadyGateFailure(
+      error,
+      ["v2/src/untouched-a.test.ts", "v2/src/untouched-b.test.ts"],
+      allowed,
+      scope,
+      {
+        reproduceReadyGateAtBaseRef: async (_scope, _terminalCommand, path) => ({
+          kind: "fail",
+          ...observations[path]!,
+        }),
+      },
+    );
+    expect(classified.kind).toBe("ready_gate_out_of_scope");
+    expect(classified.outsidePathObservations).toEqual(observations);
   });
 
   it("classifies missing-command gate output as ready_gate_command_missing and keeps ordinary red output on ready_gate_failed", async () => {
@@ -612,6 +657,50 @@ describe("ready gate untouched-path classification", () => {
     );
   });
 
+  it("appends a per-path pass/fail/base-commit parenthetical when an observation is recorded", () => {
+    const observed = "v2/src/untouched-a.test.ts";
+    const unobserved = "v2/src/untouched-b.test.ts";
+    expect(
+      formatReadyGateOutOfScopeDetail([observed, unobserved], "main", {
+        [observed]: { pass: 3, fail: 2, baseCommit: "aaa1111" },
+      }),
+    ).toBe(
+      "ready gate failing paths also reproduce on main: " +
+        "v2/src/untouched-a.test.ts (base aaa1111: 3 pass / 2 fail), v2/src/untouched-b.test.ts",
+    );
+  });
+
+  it("readyGateOutOfScopeLogFields includes observations only when the classification recorded them", () => {
+    const withObservations = new ReadyGateError("bun run ready", 1, "output", false, {
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["v2/src/untouched.test.ts"],
+      outsidePathObservations: { "v2/src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" } },
+    });
+    expect(readyGateOutOfScopeLogFields(withObservations).readyGateOutOfScopeObservations).toEqual({
+      "v2/src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" },
+    });
+
+    const withoutObservations = new ReadyGateError("bun run ready", 1, "output", false, {
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["v2/src/untouched.test.ts"],
+    });
+    expect(readyGateOutOfScopeLogFields(withoutObservations)).not.toHaveProperty("readyGateOutOfScopeObservations");
+  });
+
+  it("readyGateOutOfScopeLogFields round-trips observations from a plain log-fields source", () => {
+    const observations = { "v2/src/untouched.test.ts": { pass: 3, fail: 2, baseCommit: "abc1234" } };
+    expect(
+      readyGateOutOfScopeLogFields({
+        readyGateOutsidePaths: ["v2/src/untouched.test.ts"],
+        readyGateOutOfScopeObservations: observations,
+      }).readyGateOutOfScopeObservations,
+    ).toEqual(observations);
+
+    expect(readyGateOutOfScopeLogFields({ readyGateOutsidePaths: ["v2/src/untouched.test.ts"] })).not.toHaveProperty(
+      "readyGateOutOfScopeObservations",
+    );
+  });
+
   it("base-ref probe's v2-mode spawn passes the derived probe env through to the runner", async () => {
     const failingPath = "v2/src/untouched.test.ts";
     const probeScope = {
@@ -842,30 +931,31 @@ describe("ready gate untouched-path classification", () => {
 
     expect(
       await classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed, scope, {
-        reproduceReadyGateAtBaseRef: async () => "fail",
+        reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
       }),
     ).toEqual({
       kind: "ready_gate_out_of_scope",
       outsidePaths: ["v2/src/untouched.test.ts"],
+      outsidePathObservations: { "v2/src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" } },
     });
     expect(
       (
         await classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed, scope, {
-          reproduceReadyGateAtBaseRef: async () => "fail",
+          reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
         })
       ).kind,
     ).not.toBe("ready_gate_failed");
     expect(
       (
         await classifyReadyGateFailure(error, undefined, allowed, scope, {
-          reproduceReadyGateAtBaseRef: async () => "fail",
+          reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
         })
       ).kind,
     ).toBe("ready_gate_failed");
     expect(
       (
         await classifyReadyGateFailure(error, ["v2/src/changed.ts"], allowed, scope, {
-          reproduceReadyGateAtBaseRef: async () => "fail",
+          reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
         })
       ).kind,
     ).toBe("ready_gate_failed");
@@ -930,6 +1020,33 @@ describe("base-ref probe conclusive reproduction", () => {
         );
         expect(classified.kind).toBe("ready_gate_out_of_scope");
         expect(classified.outsidePaths).toEqual([testPath]);
+        // Pins the observation's baseCommit to the verified merge-base, not the raw "fail"
+        // classification with the field silently dropped.
+        expect(classified.outsidePathObservations).toEqual({
+          [testPath]: { pass: 0, fail: 1, baseCommit: probeScope.baseRef },
+        });
+      },
+    );
+  });
+
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("records the base tree's per-test pass and fail counts from mixed reporter output", async (terminalCommand) => {
+    await withBaseRefProbeFixture(
+      "mixed-counts",
+      { baseTestBody: PROBE_FIXTURE_TEST_MIXED, branchTestBody: PROBE_FIXTURE_TEST_MIXED, dependencyPresent: true },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath, terminalCommand),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_out_of_scope");
+        expect(classified.outsidePathObservations).toEqual({
+          [testPath]: { pass: 3, fail: 2, baseCommit: probeScope.baseRef },
+        });
       },
     );
   });
@@ -966,7 +1083,7 @@ describe("base-ref probe conclusive reproduction", () => {
     });
     const error = new ReadyGateError("bun run ready", 1, nonTestTerminalOutput);
     // The seam below would confirm "fail" if the probe ever ran; the assertions prove it never does.
-    const trapSeams: ReadyGateScopeSeams = { reproduceReadyGateAtBaseRef: async () => "fail" };
+    const trapSeams: ReadyGateScopeSeams = { reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL };
 
     const noTerminalStep = await classifyReadyGateFailure(
       error,

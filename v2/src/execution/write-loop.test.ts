@@ -45,10 +45,12 @@ import {
   initGateScopeWorktree,
   initOutsideDiffRepairWorktree,
   lintMdOnlyGateFailureOutput,
+  PLACEHOLDER_BASE_REF_PROBE_OBSERVATION,
 } from "./ready-finalize.test.ts";
 import {
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  formatReadyGateOutOfScopeDetail,
   isReadyTestCommand,
   NonTerminatingMutationError,
   type ReadyFinalizer,
@@ -5274,6 +5276,39 @@ describe("write loop", () => {
           nextAction: "stop",
           retryable: false,
           readyGateOutsidePaths: [outsidePath],
+        });
+      });
+
+      test("settlement persists per-path base-ref probe observations and names them in the detail", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-out-of-scope-observations";
+        const outsidePath = "v2/src/untouched.test.ts";
+        const { baseRef } = initGateScopeWorktree(jarvisRoot, branchName);
+        const logSink = new TestLogSink();
+
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          ...completionHooks,
+          logSink,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput(outsidePath));
+          },
+        });
+
+        expect(result.kind).toBe("ready_gate_out_of_scope");
+        const expectedObservations = { [outsidePath]: PLACEHOLDER_BASE_REF_PROBE_OBSERVATION };
+        const loopEvent = logSink.getEventsForRun(result.runId).at(-1);
+        expect(loopEvent).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_out_of_scope",
+          readyGateOutsidePaths: [outsidePath],
+          readyGateOutOfScopeObservations: expectedObservations,
+          readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail([outsidePath], baseRef, expectedObservations),
         });
       });
 

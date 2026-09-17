@@ -4,7 +4,7 @@ name: run-owner-stamp-persistence
 
 # State store stamps run ownership on re-admission and guards stale-owner settlement
 
-Seed: `v2/spec/seeds/run-admission-stamps-its-owner.md` (evidence: run `64b09d5d`, 2026-09-17).
+Seed: `v2/spec/seeds/run-admission-stamps-its-owner.md` (evidence: run `64b09d5d`).
 
 ## Problem
 
@@ -27,5 +27,6 @@ Seed: `v2/spec/seeds/run-admission-stamps-its-owner.md` (evidence: run `64b09d5d
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` § Daemon retirement on supersession — run ownership stamping and stale-owner settlement rule.
+- `v2/docs/v1-behaviors.md` — this changes existing ownership-persistence behavior (insert-only stamp, silent stale-owner overwrite); record the new baseline.
 
 ## Prerequisites

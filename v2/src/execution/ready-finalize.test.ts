@@ -24,6 +24,7 @@ import {
   type ReadyGateScopeInput,
   type ReadyGateScopeSeams,
   readyGateFailureLogFields,
+  readyGateOutOfScopeLogFields,
   readyGateSubprocessTimeoutMs,
   SurvivingMutationError,
   selectTerminalFailingPaths,
@@ -657,6 +658,23 @@ describe("ready gate untouched-path classification", () => {
       "ready gate failing paths also reproduce on main: " +
         "v2/src/untouched-a.test.ts (base aaa1111: 3 pass / 2 fail), v2/src/untouched-b.test.ts",
     );
+  });
+
+  it("readyGateOutOfScopeLogFields includes observations only when the classification recorded them", () => {
+    const withObservations = new ReadyGateError("bun run ready", 1, "output", false, {
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["v2/src/untouched.test.ts"],
+      outsidePathObservations: { "v2/src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" } },
+    });
+    expect(readyGateOutOfScopeLogFields(withObservations).readyGateOutOfScopeObservations).toEqual({
+      "v2/src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" },
+    });
+
+    const withoutObservations = new ReadyGateError("bun run ready", 1, "output", false, {
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["v2/src/untouched.test.ts"],
+    });
+    expect(readyGateOutOfScopeLogFields(withoutObservations)).not.toHaveProperty("readyGateOutOfScopeObservations");
   });
 
   it("base-ref probe's v2-mode spawn passes the derived probe env through to the runner", async () => {

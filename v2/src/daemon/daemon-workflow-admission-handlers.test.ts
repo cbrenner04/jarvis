@@ -460,6 +460,28 @@ test("resumeLinkedWorkflowStart forwards the resumed workflowSnapshot into execu
   expect(stateStore.loadRun(runId)?.workflowSnapshot?.invocationId).toBe("resumed-invocation-id");
 });
 
+test("resumeLinkedWorkflowStart returns a refused resume admission before starting the workflow, releasing its claim", async () => {
+  const branch = "resume-admission-refused";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1", branch, doneWithArtifactBindingFactory, {
+    suppressShrink: true,
+    workflowInvocationId: "step-own-invocation-id",
+  });
+  const { workflowStart } = workflowAdmission();
+  const snapshot: WorkflowSnapshot = {
+    invocationId: "resumed-refused-invocation-id",
+    steps: [{ stepId: "step-1", role: "implement", durable: true }],
+  };
+  const refusal = { kind: "error" as const, code: "owner_alive", message: "resume admission refused: owner_alive" };
+
+  const response = await workflowStart.resumeLinkedWorkflowStart([step], snapshot, async () => refusal);
+
+  expect(response).toEqual(refusal);
+  expect(stateStore.findRunsByInvocationId("resumed-refused-invocation-id")).toEqual([]);
+  expect(stateStore.findRunsByInvocationId("step-own-invocation-id")).toEqual([]);
+  expect(registry.get({ project: "demo", branch })).toBeUndefined();
+});
+
 test("resumeLinkedWorkflowStart claims the resumed step's real external worktree path, not an empty placeholder", async () => {
   const branch = "resume-claims-real-worktree";
   const { createWriteStep } = writeStepFixtures();

@@ -99,7 +99,11 @@ type LifecycleStartResult =
 
 type RunLifecycleHandlerDeps = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => LifecycleStartResult;
-  resumeLinkedWorkflowStart?: (steps: AnyWorkflowStep[], workflowSnapshot: WorkflowSnapshot) => LifecycleStartResult;
+  resumeLinkedWorkflowStart?: (
+    steps: AnyWorkflowStep[],
+    workflowSnapshot: WorkflowSnapshot,
+    admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>,
+  ) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
 };
@@ -1114,6 +1118,8 @@ export function createRunLifecycleHandlers(
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
+    const admissionError = await admitRunForResumeOrRefusal(store, run.id);
+    if (admissionError) return admissionError;
     registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
     const activeKey = ownershipKeyString(key);
@@ -1222,7 +1228,28 @@ export function createRunLifecycleHandlers(
         message: `${reconstructedSteps.message} — ${RUN_OPERATOR_ERROR_RECOVERY.unsupported_resume_context}`,
       };
     }
-    return deps.resumeLinkedWorkflowStart(reconstructedSteps.steps, snapshot);
+    return deps.resumeLinkedWorkflowStart(reconstructedSteps.steps, snapshot, () =>
+      admitRunForResumeOrRefusal(store, run.id),
+    );
+  };
+
+  /** Bare (non-paused, non-linked) resume: reconstruct, claim-check, admit, then spawn the write loop. */
+  const resumeReconstructedRun = async (
+    run: LoadedRun,
+    runId: string,
+    logRecords: ReturnType<NonNullable<typeof logReader>["tail"]> | undefined,
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
+    const reconstructed = reconstructWriteResume(run, logRecords);
+    if (!reconstructed.ok) {
+      return { kind: "error", code: "resume_unsupported", message: reconstructed.message };
+    }
+    const key: OwnershipKey = { project: run.project, branch: run.branch };
+    const claimError = checkWorktreeClaimed(registry, key);
+    if (claimError) return claimError;
+    const admissionError = await admitRunForResumeOrRefusal(store, runId);
+    if (admissionError) return admissionError;
+    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
+    return { kind: "response", result: { ok: true } };
   };
 
   const resumeHandler: RpcHandler = async (frame) => {
@@ -1265,22 +1292,7 @@ export function createRunLifecycleHandlers(
       return resumePausedRun(run, key, runId);
     }
 
-    const reconstructed = reconstructWriteResume(run, logRecords);
-    if (!reconstructed.ok) {
-      return {
-        kind: "error",
-        code: "resume_unsupported",
-        message: reconstructed.message,
-      };
-    }
-    const key: OwnershipKey = { project: run.project, branch: run.branch };
-    const claimError = checkWorktreeClaimed(registry, key);
-    if (claimError) return claimError;
-    const admissionError = await admitRunForResumeOrRefusal(store, runId);
-    if (admissionError) return admissionError;
-    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
-
-    return { kind: "response", result: { ok: true } };
+    return resumeReconstructedRun(run, runId, logRecords);
   };
 
   const waitForWorkflowEntryRun = async (

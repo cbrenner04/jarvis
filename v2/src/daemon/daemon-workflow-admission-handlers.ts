@@ -47,6 +47,9 @@ type WorkflowStartResult =
   | { kind: "error"; code: string; message: string }
   | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
+/** Resolves a refusal to return before any spawn, or `undefined` once the resumed row is admitted. */
+type ResumeRunAdmission = () => Promise<{ kind: "error"; code: string; message: string } | undefined>;
+
 type WorkflowStartLifecycle = {
   key: OwnershipKey;
   ownership: WorktreeOwnership;
@@ -63,7 +66,11 @@ type WorkflowStartLifecycle = {
 
 export type WorkflowStartAdmission = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => WorkflowStartResult;
-  resumeLinkedWorkflowStart: (steps: AnyWorkflowStep[], workflowSnapshot: WorkflowSnapshot) => WorkflowStartResult;
+  resumeLinkedWorkflowStart: (
+    steps: AnyWorkflowStep[],
+    workflowSnapshot: WorkflowSnapshot,
+    admitRun?: ResumeRunAdmission,
+  ) => WorkflowStartResult;
   admitWorkflowStart: (lifecycle: WorkflowStartLifecycle) => Promise<Awaited<WorkflowStartResult>>;
   check_workflow_start_claim: RpcHandler;
 };
@@ -444,6 +451,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
   const resumeLinkedWorkflowStart = (
     steps: AnyWorkflowStep[],
     workflowSnapshot: WorkflowSnapshot,
+    admitRun?: ResumeRunAdmission,
   ): WorkflowStartResult => {
     const workflowKey = workflowStartOwnershipKey(steps);
     const firstStep = steps[0];
@@ -455,7 +463,11 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
       ownership: { runId: claimRunId, worktreePath, workflow: true },
       activeKey: claimRunId,
       activeRun: { kind: "workflow", runId: claimRunId, abortController },
-      admit: () => ({ kind: "admitted" }),
+      // Admitted after the claim checks, before any spawn: a refusal leaves the row untouched.
+      admit: async () => {
+        const refusal = await admitRun?.();
+        return refusal ? { kind: "refused", result: refusal } : { kind: "admitted" };
+      },
       execute: (onSettled) => startWorkflowRun(steps, claimRunId, abortController, onSettled, false, workflowSnapshot),
     });
   };

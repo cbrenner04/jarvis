@@ -194,16 +194,19 @@ async function withBaseRefProbeFixture(
 
 /** The `ReadyGateError` every conclusive-reproduction test drives: `testPath` as the sole
  *  attributed failing file under a terminal `bun run test:shared` step. */
-function probeFixtureGateFailure(testPath: string): ReadyGateError {
+function probeFixtureGateFailure(testPath: string, command: string): ReadyGateError {
   return new ReadyGateError(
     "bun run ready",
     1,
     gateOutput({
-      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      completions: [{ stepId: "2", attemptId: "2.1", command, status: 1 }],
       failingFiles: [{ attemptId: "2.1", path: testPath }],
     }),
   );
 }
+
+/** Probe fixtures cover both the direct `bun test` path and the v2-mode `runV2TestFiles` path. */
+const PROBE_FIXTURE_TERMINAL_COMMANDS = ["bun run test:shared", "bun run test:v2"] as const;
 
 const scope = {
   worktreePath: "/tmp/worktree",
@@ -650,7 +653,9 @@ describe("ready gate untouched-path classification", () => {
   });
 
   it("base-ref probe invokes the terminal ready-step scoped command", async () => {
-    const realRunV2Tests = await import("../../../scripts/run-v2-tests.ts");
+    // Snapshot the real exports: the namespace is a live binding that `mock.module` rewrites, so
+    // restoring from it would re-install the mock and leak into later tests.
+    const realRunV2Tests = { ...(await import("../../../scripts/run-v2-tests.ts")) };
     const runV2Calls: Array<{ mode: string; files: string[] }> = [];
     const subprocessCalls: Array<{ cmd: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
     const failingPath = "v2/src/untouched.test.ts";
@@ -885,13 +890,15 @@ describe("hasFailingTestEvidence", () => {
 });
 
 describe("base-ref probe conclusive reproduction", () => {
-  it("reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed", async () => {
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed", async (terminalCommand) => {
     await withBaseRefProbeFixture(
       "regression-75ca2a7a",
       { baseTestBody: PROBE_FIXTURE_TEST_PASSING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
       async ({ scope: probeScope, testPath }) => {
         const classified = await classifyReadyGateFailure(
-          probeFixtureGateFailure(testPath),
+          probeFixtureGateFailure(testPath, terminalCommand),
           [testPath],
           new Set<string>(),
           probeScope,
@@ -907,13 +914,15 @@ describe("base-ref probe conclusive reproduction", () => {
     );
   });
 
-  it("settles ready_gate_out_of_scope when a path fails with test-failure evidence on both a verified base tree and the branch", async () => {
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("settles ready_gate_out_of_scope when a path fails with test-failure evidence on both a verified base tree and the branch", async (terminalCommand) => {
     await withBaseRefProbeFixture(
       "deterministic-both-red",
       { baseTestBody: PROBE_FIXTURE_TEST_FAILING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
       async ({ scope: probeScope, testPath }) => {
         const classified = await classifyReadyGateFailure(
-          probeFixtureGateFailure(testPath),
+          probeFixtureGateFailure(testPath, terminalCommand),
           [testPath],
           new Set<string>(),
           probeScope,
@@ -925,7 +934,9 @@ describe("base-ref probe conclusive reproduction", () => {
     );
   });
 
-  it("keeps a crash with no failing-test evidence inconclusive, not a conclusive fail", async () => {
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("keeps a crash with no failing-test evidence inconclusive, not a conclusive fail", async (terminalCommand) => {
     await withBaseRefProbeFixture(
       "missing-dependency",
       {
@@ -935,7 +946,7 @@ describe("base-ref probe conclusive reproduction", () => {
       },
       async ({ scope: probeScope, testPath }) => {
         const classified = await classifyReadyGateFailure(
-          probeFixtureGateFailure(testPath),
+          probeFixtureGateFailure(testPath, terminalCommand),
           [testPath],
           new Set<string>(),
           probeScope,

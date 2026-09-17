@@ -4996,6 +4996,32 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  test("resetStaleWorkspace continues when the backing commit for a checked criterion is not the newest commit touching the file", async () => {
+    const branch = "impl/multi-commit-backing";
+    const subspecRel = "v2/spec/multi-commit-lane/00-task.md";
+    const indexRel = await setupSpecTree("multi-commit-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] one\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    // Older commit: unrelated to "one" — must still be split into its own log block correctly.
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] one\n- [ ] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add unrelated pending item"], worktreePath);
+
+    // Newer commit: the genuine unchecked-to-checked transition backing "one".
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] one\n- [ ] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete one"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("continue");
+  });
+
   test("resetStaleWorkspace rebases a lane past a non-conflicting moved base and continues", async () => {
     const branch = "impl/rebase-continues";
     const subspecRel = "v2/spec/rebase-lane/00-task.md";

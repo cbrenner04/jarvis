@@ -17,3 +17,13 @@ Depends on 00, 01, and 02 landing first: this subspec measures the combined effe
 ## Documentation updates
 
 - `v2/docs/test-writing.md` — real-spawn wait guidance; merge-base vs post-change combined time.
+
+## Blocker
+
+This session's sandbox cannot produce a real `bun test <file>` wall-clock for any of the three files: Unix-socket binds under `tmpdir()` return `EPERM` (reproduced directly with a bare `net.createServer().listen()`, and independently via the pre-existing, unrelated `v2/src/ipc/server.test.ts` failing the same way), and `dangerouslyDisableSandbox` is unconditionally refused in this session — confirmed via repeated direct attempts and an independent subagent probe, both returning "Run outside of the sandbox". `bun test <file>` in-sandbox just reports the lone test skipped (`canUseUnixSockets()` is false), not a real duration.
+
+A static estimate from the landed 00/01/02 diffs, counting only guaranteed fixed-value reductions (not the unquantifiable `waitFor` poll-interval or condition-wait speedups): `daemon-self-handoff-real-spawn` ~5.15s (5000ms post-exit sleep → a ~100ms three-sample loop; 300ms negative window → 50ms), `daemon-self-handoff` ~0.53s (five negative windows cut from 150-200ms to 40-100ms), `daemon-changeover` ~0s guaranteed (both changes there are condition-wait replacements, not fixed-value cuts). That totals ~5.68s off the ~30.8s merge-base combined time — an estimated ~25.1s, short of the ~20.53s (two-thirds) bar by ~4.6s on guaranteed savings alone. Whether the untouched poll-interval/condition-wait speedups close that gap can only be settled by an actual run.
+
+Needs an operator (or a session with sandbox disabled) to run `bun test` on each of the three files, sum the wall-clock, and either tick AC 1 with the real figure and fill in `test-writing.md`'s post-change time, or record the shortfall in `intent.md` per this subspec's own Decision.
+
+`bun run typecheck` and `bun run check` pass clean. `bun run test:v2` fails only on the pre-existing, unrelated `v2/src/ipc/server.test.ts` (same `EPERM` root cause, untouched by this spec, not gated by `canUseUnixSockets()`).

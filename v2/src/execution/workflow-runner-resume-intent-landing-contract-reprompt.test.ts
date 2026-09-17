@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
@@ -128,6 +129,57 @@ describe("intent finalization resume landing-contract reprompt", () => {
       expect(repromptPrompt).toContain("bad-intent.md");
       expect(existsSync(join(workspace, "ready-intents", "bad-intent.md"))).toBe(true);
       expect(store.loadRun(reviewRunId)?.status).toBe("completed");
+    });
+  });
+
+  test("forwards the injected lint runner to the landing gate instead of falling back to the default spawn", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-landing-runner-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(join(workspace, ".jarvis-intent-stage", "bad-intent.md"), PROSE_PREREQUISITES_INTENT, "utf8");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const branch = "intent/landing-runner-injection";
+      const queuedInput: WriteLoopInput = {
+        ...mockWriteLoopInput({ projectRoot: workspace, projectName: "demo", branchName: branch, baseRef: "none" }),
+        maxIterations: 2,
+        bindingResolution: {
+          role: "plan",
+          agents: ["claude"],
+          agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "claude-model", priceKey: "claude" }] } } },
+        },
+      };
+      const reviewRunId = seedReviewRow(store, workspace, branch, "intent-landing-runner-injection", queuedInput);
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+
+      // The initial reviewed-staged-markdown lint check (staged-markdown-lint.ts) invokes
+      // markdownlint without `--fix`; only the landing gate's autofix (repairIntentStageContent,
+      // reached through the guard under test) passes `--fix`. Counting only `--fix` invocations
+      // isolates forwarding for that guard from the unrelated, always-forwarded initial check.
+      let autofixRunnerCalls = 0;
+      const spyRunner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd, options) => {
+          if (args.includes("--fix")) autofixRunnerCalls += 1;
+          return DEFAULT_STAGED_MARKDOWN_LINT_RUNNER.runAsync(cmd, args, cwd, options);
+        },
+      };
+
+      await resumePopulatedIntentPublication(run, store, {
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+        runner: spyRunner,
+        createBinding: () => ({
+          id: "claude/claude-model",
+          invoke: async () => {
+            writeFileSync(join(workspace, ".jarvis-intent-stage", "bad-intent.md"), FIXED_PREREQUISITES_INTENT, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        }),
+      });
+
+      expect(autofixRunnerCalls).toBeGreaterThan(0);
     });
   });
 

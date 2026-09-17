@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `shared/prompts/cross-path-render.test.ts` asserts the rendered `plan.decisions-ledger` body requires a Markdown bullet list (`- entry`) and keeps its atomicity, load-bearing-only, and no-narrative-paragraph guidance; it fails against the pre-change fragment.
-- [ ] A test in `test/markdownlint-no-hard-wrap.test.ts` lints a representative bullet-list decisions ledger clean under the `no-hard-wrap` rule.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] A test in `shared/prompts/cross-path-render.test.ts` asserts the rendered `plan.decisions-ledger` body requires a Markdown bullet list (`- entry`) and keeps its atomicity, load-bearing-only, and no-narrative-paragraph guidance; it fails against the pre-change fragment.
+- [x] A test in `test/markdownlint-no-hard-wrap.test.ts` lints a representative bullet-list decisions ledger clean under the `no-hard-wrap` rule.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

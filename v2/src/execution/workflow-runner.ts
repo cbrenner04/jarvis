@@ -60,7 +60,7 @@ import {
   type PublicationLanding,
 } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
-import type { ReadyFinalizer } from "./ready-finalize.ts";
+import type { BaseRefProbeObservation, ReadyFinalizer } from "./ready-finalize.ts";
 import {
   nonTerminatingMutationLogFields,
   ReadyGateError,
@@ -497,7 +497,7 @@ export type WorkflowResult = {
   readyGateError?: string;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
-  readyGateOutOfScopeObservations?: Record<string, { pass: number; fail: number; baseCommit: string }>;
+  readyGateOutOfScopeObservations?: Record<string, BaseRefProbeObservation>;
   readyFlipError?: string;
   readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;

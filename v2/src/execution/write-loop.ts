@@ -78,6 +78,7 @@ import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
+  type BaseRefProbeObservation,
   classifyReadyGateError,
   createReadyFinalizer,
   deriveGateAllowedPaths,
@@ -158,7 +159,7 @@ export type WriteLoopResult = {
   readyGateError?: string;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
-  readyGateOutOfScopeObservations?: Record<string, { pass: number; fail: number; baseCommit: string }>;
+  readyGateOutOfScopeObservations?: Record<string, BaseRefProbeObservation>;
   readyFlipError?: string;
   readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;

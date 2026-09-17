@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { sleep } from "../../../shared/sleep.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
+import type { BaseRefProbeObservation } from "../execution/ready-finalize.ts";
 import type { GateInvocationRefusalCause, WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
@@ -58,7 +59,7 @@ export type LoopFinishedEvent = {
   nonTerminatingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
-  readyGateOutOfScopeObservations?: Record<string, { pass: number; fail: number; baseCommit: string }>;
+  readyGateOutOfScopeObservations?: Record<string, BaseRefProbeObservation>;
   readyGateCommand?: string;
   readyGateOutput?: string;
   readyGateCommandMissingEvidence?: string;

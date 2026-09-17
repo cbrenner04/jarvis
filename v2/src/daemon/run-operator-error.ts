@@ -5,6 +5,7 @@ import {
 } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import {
+  type BaseRefProbeObservation,
   nonTerminatingMutationLogFields,
   readyGateOutOfScopeLogFields,
   survivingMutationLogFields,
@@ -77,7 +78,7 @@ export type RunOperatorError = {
   nonTerminatingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
-  readyGateOutOfScopeObservations?: Record<string, { pass: number; fail: number; baseCommit: string }>;
+  readyGateOutOfScopeObservations?: Record<string, BaseRefProbeObservation>;
   contractMissDetail?: string;
   completedSubspecPaths?: string[];
   remainingSubspecPaths?: string[];

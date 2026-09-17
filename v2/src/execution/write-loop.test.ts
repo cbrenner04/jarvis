@@ -45,7 +45,7 @@ import {
   initGateScopeWorktree,
   initOutsideDiffRepairWorktree,
   lintMdOnlyGateFailureOutput,
-  PLACEHOLDER_BASE_REF_PROBE_FAIL,
+  PLACEHOLDER_BASE_REF_PROBE_OBSERVATION,
 } from "./ready-finalize.test.ts";
 import {
   createReadyFinalizer,
@@ -5301,8 +5301,7 @@ describe("write loop", () => {
         });
 
         expect(result.kind).toBe("ready_gate_out_of_scope");
-        const { kind: _kind, ...observation } = PLACEHOLDER_BASE_REF_PROBE_FAIL;
-        const expectedObservations = { [outsidePath]: observation };
+        const expectedObservations = { [outsidePath]: PLACEHOLDER_BASE_REF_PROBE_OBSERVATION };
         const loopEvent = logSink.getEventsForRun(result.runId).at(-1);
         expect(loopEvent).toMatchObject({
           kind: "loop_finished",

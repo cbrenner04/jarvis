@@ -16,7 +16,7 @@ import {
   baseRefProbeFailsSeam,
   gateFailureOutput,
   initGateScopeWorktree,
-  PLACEHOLDER_BASE_REF_PROBE_FAIL,
+  PLACEHOLDER_BASE_REF_PROBE_OBSERVATION,
 } from "./ready-finalize.test.ts";
 import {
   formatReadyGateOutOfScopeDetail,
@@ -924,8 +924,7 @@ describe("executeWorkflow completion publication", () => {
     const logSink = new TestLogSink();
     let inScopeGateCalls = 0;
     const outsidePath = "v2/src/untouched.test.ts";
-    const { kind: _kind, ...observation } = PLACEHOLDER_BASE_REF_PROBE_FAIL;
-    const expectedObservations = { [outsidePath]: observation };
+    const expectedObservations = { [outsidePath]: PLACEHOLDER_BASE_REF_PROBE_OBSERVATION };
     const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef, expectedObservations);
 
     await withStateStore(async (store) => {
@@ -992,8 +991,7 @@ describe("executeWorkflow completion publication", () => {
     const branchName = "workflow-gate-out-of-scope-durable";
     const { baseRef } = initGateScopeWorktree(home.jarvisRoot, branchName);
     const outsidePath = "v2/src/untouched.test.ts";
-    const { kind: _kind, ...observation } = PLACEHOLDER_BASE_REF_PROBE_FAIL;
-    const expectedObservations = { [outsidePath]: observation };
+    const expectedObservations = { [outsidePath]: PLACEHOLDER_BASE_REF_PROBE_OBSERVATION };
     const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef, expectedObservations);
     const logsPath = join(home.jarvisRoot, "logs.jsonl");
     const logSink = openLogSink(logsPath);

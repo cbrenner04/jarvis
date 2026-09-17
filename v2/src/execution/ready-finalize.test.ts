@@ -218,6 +218,7 @@ const scope = {
 /** A fixed placeholder conclusive-fail probe outcome for seam stubs that don't care about its
  *  observation values, just that the probe confirmed the failure reproduces at the base ref. */
 export const PLACEHOLDER_BASE_REF_PROBE_FAIL = { kind: "fail" as const, pass: 0, fail: 1, baseCommit: "abc1234" };
+export const PLACEHOLDER_BASE_REF_PROBE_OBSERVATION = { pass: 0, fail: 1, baseCommit: "abc1234" };
 
 const allowedSeams: ReadyGateScopeSeams = {
   gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,

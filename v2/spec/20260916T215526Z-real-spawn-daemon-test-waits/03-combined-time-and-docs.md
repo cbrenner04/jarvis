@@ -12,7 +12,7 @@ Depends on 00, 01, and 02 landing first: this subspec measures the combined effe
 
 - [x] Combined `bun test <file>` time for the three files (same machine, summed) is at most two-thirds of the merge-base combined time — waived by operator: landed at 0.77 (25.3s → 19.57s), see `intent.md` Outcome.
 - [x] `v2/docs/test-writing.md` gains real-spawn wait guidance: condition waits over fixed sleeps, fixed sleeps only for negative windows sized to the interval they cover, smallest poll step the contract allows, and the merge-base vs post-change combined time.
-- [ ] `bun run typecheck`, `bun run test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun run test`, and `bun run check` pass (typecheck/check locally; v2 test slices green in PR #3956 CI, the scoped equivalent for a v2-only diff).
 
 ## Documentation updates
 

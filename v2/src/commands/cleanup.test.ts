@@ -4986,6 +4986,27 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  test("resetStaleWorkspace refuses to continue a lane whose worktree HEAD the branch cannot reach", async () => {
+    const branch = "impl/continue-detached-head";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+    // Detach the worktree and commit past the branch ref: the branch can no longer reach HEAD.
+    // Continuation rebases what the worktree has checked out, so without the guard these commits
+    // would end up reachable only from the detached HEAD and a later --abandon would discard them.
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], worktreePath);
+    const detachedSha = await commitInWorktree(worktreePath, "detached-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${detachedSha} is not reachable from ${branch}`);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
   async function setupSpecTree(specName: string, subspecContents: Record<string, string>): Promise<string> {
     const specDir = join(projectRoot, "v2", "spec", specName);
     mkdirSync(specDir, { recursive: true });

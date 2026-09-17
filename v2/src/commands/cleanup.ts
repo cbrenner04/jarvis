@@ -2838,6 +2838,14 @@ export async function resetStaleWorkspace(
       // — the dirty gate below then refuses or, on override, lets an ordinary reset proceed.
       if (commitCount === 0 || dirtyList.status !== "clean") {
         refusalParts.push(...(await applyPreContinuationGates(preContinuationGateArgs)));
+      } else if (!(await isDescendantOfBase(branch, worktreeHead, projectRoot, runner))) {
+        // Continuation rebases whatever the worktree has checked out, while never-landed reasoning
+        // and every later retirement key off the *branch* ref. A `HEAD` the branch cannot reach (a
+        // detached worktree, or a branch ref moved back while the worktree kept committing) would be
+        // rebased into commits reachable only from that `HEAD`, which a later `--abandon` of the
+        // branch would then discard. The disposable path keeps this same guarantee above; continuation
+        // must not be the one path that drops it.
+        refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
       } else {
         const continuation = await evaluateCommittedLaneContinuation({
           projectRoot,

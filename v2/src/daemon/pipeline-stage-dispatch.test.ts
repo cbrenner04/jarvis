@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import ts from "typescript";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -13,6 +13,7 @@ import { resolveReadyGateCommand } from "../execution/ready-finalize.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import { managedWorktreePath } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   type LinkedStageSettlementOptions,
@@ -1494,9 +1495,13 @@ describe("preparePipelineStageWorkflow stale-reset continuation", () => {
     execFileSync("git", ["commit", "-qm", "add continue-lane spec"], { cwd: repoRoot });
 
     const branch = "implement-continue-lane";
-    const jarvisWorktreesDir = join(repoRoot, ".jarvis-worktrees");
-    mkdirSync(jarvisWorktreesDir, { recursive: true });
-    const worktreePath = join(jarvisWorktreesDir, branch);
+    // The worktree must live where resetStaleWorkspace looks for it —
+    // managedWorktreePath(jarvisRoot, project, branch). Creating it anywhere else makes
+    // resetStaleWorkspace return no-op before any continuation logic runs, and every
+    // assertion below passes vacuously against unchanged code.
+    const jarvisRoot = mkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-jarvis-"));
+    const worktreePath = managedWorktreePath(jarvisRoot, "demo", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
     execFileSync("git", ["branch", branch], { cwd: repoRoot });
     execFileSync("git", ["worktree", "add", worktreePath, branch], { cwd: repoRoot });
 
@@ -1510,7 +1515,6 @@ describe("preparePipelineStageWorkflow stale-reset continuation", () => {
     execFileSync("git", ["commit", "-qm", "complete 01"], { cwd: worktreePath });
     const branchTipBefore = execFileSync("git", ["rev-parse", branch], { cwd: repoRoot, encoding: "utf8" }).trim();
 
-    const jarvisRoot = mkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-jarvis-"));
     const step = createMinimalDispatchWriteStep({
       worktree: { projectRoot: repoRoot, projectName: "demo", branchName: branch, baseRef: "HEAD", jarvisRoot },
       specPath: specRelPath,
@@ -1523,7 +1527,18 @@ describe("preparePipelineStageWorkflow stale-reset continuation", () => {
       seed: "unused",
     };
     const staleReset: PipelineStaleResetPreparation = {
-      deps: { jarvisRoot, subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps,
+      // gh is unreachable from a sandboxed test run, and an inconclusive PR probe refuses
+      // before continuation ever runs. Stub the probe to a definite "no open PR" so this
+      // exercises the continuation path rather than the probe-failure refusal.
+      deps: {
+        jarvisRoot,
+        subprocessRunner: {
+          runAsync: async (cmd: string, args: string[], cwd?: string) =>
+            cmd === "gh" && args[0] === "pr" && args[1] === "list"
+              ? "[]"
+              : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? repoRoot),
+        },
+      } as unknown as CliDeps,
       io: { stdout: () => {}, stderr: () => {} } satisfies Io,
       flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
     };

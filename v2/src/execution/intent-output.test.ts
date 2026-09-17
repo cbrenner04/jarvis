@@ -188,6 +188,7 @@ describe("landIntentWorkflowOutput", () => {
     stage(repo);
     writeFileSync(join(repo, "rogue"), "no\n", "utf8");
     await expect(
+      // guard-real-lint-in-unit-tests: rejects on the rogue-path check before markdownlint runs
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
     ).rejects.toThrow("rogue");
     expect(readFileSync(join(repo, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");
@@ -230,6 +231,7 @@ describe("landIntentWorkflowOutput", () => {
       }),
     ).toEqual(["node_modules/index.js"]);
     await expect(
+      // guard-real-lint-in-unit-tests: rejects on the rogue-path check before markdownlint runs
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
     ).rejects.toThrow("node_modules/index.js");
   });
@@ -284,6 +286,7 @@ describe("landIntentWorkflowOutput", () => {
     stage(root);
     writeFileSync(join(root, "rogue"), "no\n", "utf8");
     await expect(
+      // guard-real-lint-in-unit-tests: rejects on the rogue-path check before markdownlint runs
       landIntentWorkflowOutput({ worktreePath: root, baseRef: "none", output: { durableDir: "ready-intents" } }),
     ).rejects.toThrow("rogue");
     expect(readFileSync(join(root, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");

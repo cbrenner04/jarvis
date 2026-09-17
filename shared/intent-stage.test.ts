@@ -93,6 +93,60 @@ describe("intent stage contract", () => {
     expect(calls).toHaveLength(1);
   });
 
+  test("normalizes a bare `none` Prerequisites body to empty at intent repair", async () => {
+    const dir = stage();
+    const path = writeIntent(
+      dir,
+      "one-thing",
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\nnone\n",
+    );
+    const runner: AsyncSubprocessRunner = {
+      async runAsync() {
+        return "";
+      },
+    };
+    await repairIntentStageContent(dir, () => {}, undefined, runner);
+    expect(readFileSync(path, "utf8")).toBe("---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n");
+    expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(true);
+  });
+
+  test("normalizes a `None.` Prerequisites body to empty at intent repair", async () => {
+    const dir = stage();
+    const path = writeIntent(
+      dir,
+      "one-thing",
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\nNone.\n",
+    );
+    const runner: AsyncSubprocessRunner = {
+      async runAsync() {
+        return "";
+      },
+    };
+    await repairIntentStageContent(dir, () => {}, undefined, runner);
+    expect(readFileSync(path, "utf8")).toBe("---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n");
+    expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(true);
+  });
+
+  test("leaves a prose Prerequisites body untouched at intent repair and still refuses it", async () => {
+    // Mutation checkpoint: inverting isNonePrerequisitesBody's guard would empty this prose
+    // body instead of leaving it, and this test would go RED (no refusal).
+    const dir = stage();
+    const path = writeIntent(
+      dir,
+      "one-thing",
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\nsome prose here\n",
+    );
+    const runner: AsyncSubprocessRunner = {
+      async runAsync() {
+        return "";
+      },
+    };
+    await repairIntentStageContent(dir, () => {}, undefined, runner);
+    const result = validateIntentStageContent([{ slug: "one-thing", path }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("must list prerequisites as one bullet per line");
+  });
+
   test("normalizes NN- ordering prefix on staged filename", async () => {
     // Mutation checkpoint: running filename validation before prefix strip in validateIntentStage
     // must turn this test RED.

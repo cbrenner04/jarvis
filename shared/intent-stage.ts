@@ -99,6 +99,23 @@ function normalizePrerequisitesSpacing(text: string): string {
   return changed ? lines.join("\n") : text;
 }
 
+function isNonePrerequisitesBody(body: string): boolean {
+  const nonEmpty = body.split("\n").filter((line) => line.trim().length > 0);
+  return nonEmpty.length === 1 && /^none\.?$/i.test((nonEmpty[0] ?? "").trim());
+}
+
+function normalizeNonePrerequisites(text: string): string {
+  const match = /^## Prerequisites\s*$/m.exec(text);
+  if (match === null || match.index === undefined) return text;
+  const headingEnd = match.index + match[0].length;
+  const after = text.slice(headingEnd);
+  const next = after.search(/^##\s/m);
+  const body = next === -1 ? after : after.slice(0, next);
+  if (!isNonePrerequisitesBody(body)) return text;
+  const rest = next === -1 ? "" : after.slice(next);
+  return `${text.slice(0, headingEnd)}\n${rest}`;
+}
+
 function slugToTitle(slug: string): string {
   return slug
     .split("-")
@@ -174,6 +191,11 @@ function repairIntentFile(path: string, slug: string): void {
   }
   if (!hasPrerequisites(text)) {
     text = `${text.replace(/\n+$/, "")}\n\n## Prerequisites\n`;
+    modified = true;
+  }
+  const noneNormalized = normalizeNonePrerequisites(text);
+  if (noneNormalized !== text) {
+    text = noneNormalized;
     modified = true;
   }
   const normalized = normalizePrerequisitesSpacing(text);

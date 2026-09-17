@@ -57,6 +57,8 @@ Sibling seeds/intents that edit the same code seam must be planned (and implemen
 
 `intent` splits one seed into reviewed, one-per-surface ready-intents under `<targetDir>/ready-intents/` and opens a draft PR. `plan` consumes one ready-intent into a spec tree conforming to the agent core (index with H1 and task list, numbered subspecs each with an exact `## Acceptance criteria` section), runs its review passes, and opens a draft PR. The plan agent authors the numbered subspecs; Jarvis validates their shape and index links but runs no post-hoc surface split. Both commands accept `--target-dir <dir>`. Preset contracts and flags: [`workflow-runner.md`](./workflow-runner.md).
 
+For an independent intent with no prerequisites, leave the `## Prerequisites` body empty or write `none`; landing normalizes a `none`/`None.` body to empty.
+
 ### One artifact per bullet
 
 A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path claimed as built or changed; a bullet naming more than one is refused. Two wording-based exemptions apply regardless of section:

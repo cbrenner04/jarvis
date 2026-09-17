@@ -609,6 +609,46 @@ describe("ready gate untouched-path classification", () => {
     );
   });
 
+  it("base-ref probe's v2-mode spawn passes the derived probe env through to the runner", async () => {
+    const failingPath = "v2/src/untouched.test.ts";
+    const probeScope = {
+      worktreePath: "/tmp/run-worktree",
+      baseRef: "main",
+      specPath: "v2/spec/demo/index.md",
+    };
+    const allowed = new Set(["v2/src/changed.ts"]);
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["v2/spec/demo/index.md"],
+    };
+    const testCallEnvs: Array<NodeJS.ProcessEnv | undefined> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "git") {
+          if (args?.[0] === "merge-base") return "abc123\n";
+          if (args?.[0] === "worktree") return "";
+          if (args?.[0] === "rev-parse") return "abc123\n";
+          if (args?.[0] === "diff" && args?.[1] === "--name-only") return "v2/src/changed.ts\n";
+          if (args?.[0] === "ls-files") return "";
+        }
+        if (cmd === "bun" && args?.[0] === "test") {
+          testCallEnvs.push(options?.env);
+        }
+        return "";
+      },
+    };
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: failingPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    await classifyReadyGateFailure(error, [failingPath], allowed, probeScope, probeSeams, mockRunner);
+    expect(testCallEnvs).toHaveLength(1);
+    expect(testCallEnvs[0]?.JARVIS_READY_TIER).toBe("full");
+    expect(testCallEnvs[0]?.JARVIS_READY_TEST_SCOPE).toBe("test:v2 test:integration:v2");
+  });
+
   it("base-ref probe invokes the terminal ready-step scoped command", async () => {
     const realRunV2Tests = await import("../../../scripts/run-v2-tests.ts");
     const runV2Calls: Array<{ mode: string; files: string[] }> = [];

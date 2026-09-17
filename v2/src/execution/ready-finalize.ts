@@ -499,17 +499,19 @@ type BaseRefProbeFailureClassification =
   | { kind: "fail"; pass: number; fail: number }
   | { kind: "error"; message: string };
 
-/** Count bun's per-test reporter lines (e.g. `(pass) `/`(fail) `) for the given marker. */
+/** Count bun test outcomes for the given marker. Bun prints per-test `(pass)` lines only in some
+ *  reporter modes but always ends each file with `N pass` / `N fail` summary lines, so summaries
+ *  are preferred; per-test reporter lines are the fallback when no summary is present. */
 function countBunTestReporterLines(output: string, marker: "pass" | "fail"): number {
+  const summaries = [...output.matchAll(new RegExp(`^\\s*(\\d+) ${marker}\\s*$`, "gm"))];
+  if (summaries.length > 0) return summaries.reduce((total, match) => total + Number(match[1]), 0);
   const matches = output.match(new RegExp(`^\\s*\\(${marker}\\)\\s`, "gm"));
   return matches?.length ?? 0;
 }
 
 /** Decide a base-ref probe's `bun test <path>` outcome from its captured output: a timeout is
  *  always inconclusive (its output cannot name a failing test); otherwise a conclusive `fail`
- *  requires named failing-test evidence, not merely the non-zero exit that got us here. The
- *  pass/fail counts come from bun's per-test reporter lines, the same evidence this gate anchors
- *  on, not bun's aggregate summary line (which can disagree with the per-test lines). */
+ *  requires named failing-test evidence, not merely the non-zero exit that got us here. */
 function classifyBaseRefProbeFailure(output: string, timedOut: boolean): BaseRefProbeFailureClassification {
   if (timedOut) {
     return { kind: "error", message: formatBaseRefProbeInconclusiveReason("base-ref probe timed out", output) };

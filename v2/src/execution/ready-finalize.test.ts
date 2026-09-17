@@ -140,6 +140,15 @@ test("uses fixture dependency", () => {
 });
 `;
 
+const PROBE_FIXTURE_TEST_MIXED = `import { expect, test } from "bun:test";
+import dep from "probe-fixture-dep";
+test("pass one", () => expect(dep.ok).toBe(true));
+test("pass two", () => expect(dep.ok).toBe(true));
+test("pass three", () => expect(dep.ok).toBe(true));
+test("fail one", () => expect(dep.ok).toBe(false));
+test("fail two", () => expect(dep.ok).toBe(false));
+`;
+
 /**
  * A real git repo for driving `createDefaultReproduceReadyGateAtBaseRef` end to end: a base
  * commit with `baseTestBody`, then an iteration commit with `branchTestBody`. Its imported
@@ -1015,6 +1024,28 @@ describe("base-ref probe conclusive reproduction", () => {
         // classification with the field silently dropped.
         expect(classified.outsidePathObservations).toEqual({
           [testPath]: { pass: 0, fail: 1, baseCommit: probeScope.baseRef },
+        });
+      },
+    );
+  });
+
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("records the base tree's per-test pass and fail counts from mixed reporter output", async (terminalCommand) => {
+    await withBaseRefProbeFixture(
+      "mixed-counts",
+      { baseTestBody: PROBE_FIXTURE_TEST_MIXED, branchTestBody: PROBE_FIXTURE_TEST_MIXED, dependencyPresent: true },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath, terminalCommand),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_out_of_scope");
+        expect(classified.outsidePathObservations).toEqual({
+          [testPath]: { pass: 3, fail: 2, baseCommit: probeScope.baseRef },
         });
       },
     );

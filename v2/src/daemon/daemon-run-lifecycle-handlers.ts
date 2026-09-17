@@ -140,6 +140,25 @@ function runOwnerConflictError(runId: string): { kind: "error"; code: "run_owner
   };
 }
 
+/**
+ * Stamps this daemon as `runId`'s owner before any resume spawn, so a later successor sees the
+ * resuming daemon — not the dispatching generation — as the live owner. Refused (a different live
+ * owner, or the row's owner changed underneath this call) before any spawn or status write; never
+ * a silent local takeover.
+ */
+async function admitRunForResumeOrRefusal(
+  store: StateStore,
+  runId: string,
+): Promise<{ kind: "error"; code: string; message: string } | undefined> {
+  const admission = await store.admitRunForResume(runId);
+  if (admission.kind === "applied") return undefined;
+  return {
+    kind: "error",
+    code: admission.reason,
+    message: `Run ${runId} resume admission refused: ${admission.reason}`,
+  };
+}
+
 /** Terminal or paused — any status with no live write loop to disturb. */
 function isSettledRunStatus(status: RunStatus): boolean {
   return isTerminalRunStatus(status) || status === "paused";
@@ -1066,11 +1085,11 @@ export function createRunLifecycleHandlers(
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
-  const resumePausedRun = (
+  const resumePausedRun = async (
     run: LoadedRun,
     key: OwnershipKey,
     runId: string,
-  ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } => {
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const reconstructed = reconstructWriteResume(run, logReader?.tail(runId));
     if (!reconstructed.ok) {
       return {
@@ -1081,6 +1100,8 @@ export function createRunLifecycleHandlers(
     }
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
+    const admissionError = await admitRunForResumeOrRefusal(store, runId);
+    if (admissionError) return admissionError;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
   };
@@ -1255,6 +1276,8 @@ export function createRunLifecycleHandlers(
     const key: OwnershipKey = { project: run.project, branch: run.branch };
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
+    const admissionError = await admitRunForResumeOrRefusal(store, runId);
+    if (admissionError) return admissionError;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
 
     return { kind: "response", result: { ok: true } };

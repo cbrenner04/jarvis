@@ -12,10 +12,10 @@ Daemon `resume` re-enters runs through `setRunStatus(…, "in-progress")` paths,
 
 ## Acceptance criteria
 
-- [ ] A daemon test drives dispatch on generation A, handoff to B with the run paused, `run resume` on B, then handoff to C, and asserts C leaves the run live and owned by B (no `run_reconciled`); it fails against the pre-fix code.
-- [ ] A daemon test asserts automatic restart recovery leaves the resumed row's `owner_identity` equal to the recovering daemon's identity; it fails against the pre-fix code.
-- [ ] A daemon test asserts `resume` is refused with the claim refusal reason when a different live daemon owns the row, with `owner_identity` and status unchanged and no run spawned.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A daemon test drives dispatch on generation A, handoff to B with the run paused, `run resume` on B, then handoff to C, and asserts C leaves the run live and owned by B (no `run_reconciled`); it fails against the pre-fix code.
+- [x] A daemon test asserts automatic restart recovery leaves the resumed row's `owner_identity` equal to the recovering daemon's identity; it fails against the pre-fix code.
+- [x] A daemon test asserts `resume` is refused with the claim refusal reason when a different live daemon owns the row, with `owner_identity` and status unchanged and no run spawned.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

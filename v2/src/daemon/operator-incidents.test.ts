@@ -627,6 +627,216 @@ test("review settled, publication not yet dispatched, still live emits nothing",
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId: entryRunId, cause: "completed" })]);
 });
 
+function seedImplementLanePipeline(): string {
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "fan-out-implement",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "approve-plan", kind: "approval" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+      ],
+    },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: {
+      status: "succeeded",
+      workflowInvocationId: "run-intent",
+      artifact: {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: ["ready-intents/a.md", "ready-intents/b.md"],
+      },
+    },
+  });
+  for (const stageId of ["plan", "approve-plan", "implement"]) {
+    for (const branchKey of ["a", "b"]) store.createPipelineStageBranch({ pipelineId, stageId, branchKey });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
+  }
+  return pipelineId;
+}
+
+function landBranchAAtImplement(pipelineId: string, artifact: Record<string, unknown>): void {
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "a", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve-plan", branchKey: "a", patch: { status: "approved" } });
+  store.updateStage({ pipelineId, stageId: "implement", branchKey: "a", patch: { status: "succeeded", artifact } });
+}
+
+function implementArtifact(prNumber: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return { entryRunId: "run-a", specPath: "spec.md", prNumber, ...extra };
+}
+
+test("a fan-out lane's succeeded implement stage notifies while a sibling gate stays awaiting", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = seedImplementLanePipeline();
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "b", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve-plan", branchKey: "b", patch: { status: "awaiting" } });
+
+  landBranchAAtImplement(pipelineId, implementArtifact(42, { prUrl: "https://github.com/x/y/pull/42" }));
+
+  const succeeded = deriveOperatorIncidents(store).filter((incident) => incident.kind === "stage-succeeded");
+  expect(succeeded).toEqual([
+    expect.objectContaining({
+      pipelineId,
+      stageId: "implement",
+      branchKey: "a",
+      prNumber: 42,
+      prUrl: "https://github.com/x/y/pull/42",
+    }),
+  ]);
+});
+
+test("a succeeded stage named 'implement' whose definition workflow is not 'implement' derives no stage-succeeded incident", () => {
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "misnamed-stage",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "plan", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "implement", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
+});
+
+test("a lane's re-settled succeeded implement stage yields a transition distinct from its first settlement", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = seedImplementLanePipeline();
+  landBranchAAtImplement(pipelineId, implementArtifact(1));
+  const [first] = deriveOperatorIncidents(store).filter((incident) => incident.kind === "stage-succeeded");
+  if (first === undefined) throw new Error("expected first stage-succeeded incident");
+  expect(first.transition).toBe("succeeded:1000000");
+  deliverAll();
+
+  setSystemTime(new Date(1_005_000));
+  store.updateStage({ pipelineId, stageId: "implement", branchKey: "a", patch: { status: "running", endedAt: null } });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    branchKey: "a",
+    patch: { status: "succeeded", artifact: implementArtifact(2) },
+  });
+  const succeeded = deriveOperatorIncidents(store).filter((incident) => incident.kind === "stage-succeeded");
+  expect(succeeded).toEqual([expect.objectContaining({ transition: "succeeded:1005000", prNumber: 2 })]);
+});
+
+test("preview key derivation keeps a pipeline active for an undelivered stage-succeeded incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = seedImplementLanePipeline();
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "b", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve-plan", branchKey: "b", patch: { status: "awaiting" } });
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  landBranchAAtImplement(pipelineId, implementArtifact(7));
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "stage-succeeded", pipelineId, stageId: "implement", branchKey: "a", prNumber: 7 }),
+  ]);
+});
+
+test("a lane whose implement stage fails then later succeeds derives both a stage-failed and a stage-succeeded incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = seedImplementLanePipeline();
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "a", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve-plan", branchKey: "a", patch: { status: "approved" } });
+  store.updateStage({ pipelineId, stageId: "implement", branchKey: "a", patch: { status: "failed" } });
+
+  const incidentsAfterFailure = deriveOperatorIncidents(store);
+  const failedIncident = incidentsAfterFailure.find((incident) => incident.kind === "stage-failed");
+  if (failedIncident === undefined) throw new Error("expected stage-failed incident");
+  expect(failedIncident).toMatchObject({ pipelineId, stageId: "implement", branchKey: "a" });
+  expect(incidentsAfterFailure.some((incident) => incident.kind === "stage-succeeded")).toBe(false);
+  deliverAll();
+
+  setSystemTime(new Date(1_002_000));
+  store.updateStage({ pipelineId, stageId: "implement", branchKey: "a", patch: { status: "running", endedAt: null } });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    branchKey: "a",
+    patch: { status: "succeeded", artifact: implementArtifact(3) },
+  });
+  const succeededIncident = deriveOperatorIncidents(store).find((incident) => incident.kind === "stage-succeeded");
+  if (succeededIncident === undefined) throw new Error("expected stage-succeeded incident");
+  expect(succeededIncident).toMatchObject({ pipelineId, stageId: "implement", branchKey: "a" });
+  expect(succeededIncident.incidentId).toBe(failedIncident.incidentId);
+  expect(succeededIncident.transition).not.toBe(failedIncident.transition);
+});
+
+test("a succeeded implement stage row with a null endedAt derives no stage-succeeded incident", () => {
+  const pipelineId = seedImplementLanePipeline();
+  landBranchAAtImplement(pipelineId, implementArtifact(5));
+  const raw = new Database(dbPath);
+  try {
+    raw
+      .prepare("UPDATE pipeline_stages SET ended_at = NULL WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?")
+      .run(pipelineId, "implement", "a");
+  } finally {
+    raw.close();
+  }
+  expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
+});
+
+test("an undelivered stage-succeeded incident is not masked by an already-delivered gate incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "linear-implement",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "approve", kind: "approval" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+      ],
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "intent", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve", patch: { status: "awaiting" } });
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "succeeded",
+      artifact: implementArtifact(11, { prUrl: "https://github.com/x/y/pull/11" }),
+    },
+  });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "stage-succeeded", pipelineId, stageId: "implement", prNumber: 11 }),
+  ]);
+});
+
+test("a single-lane pipeline whose implement stage succeeded and is terminal emits only pipeline-terminal", () => {
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "single-lane-implement",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "none" }],
+    },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "succeeded",
+      artifact: implementArtifact(9, { prUrl: "https://github.com/x/y/pull/9" }),
+    },
+  });
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
+});
+
 test("resumed linked row that settles completed with a publication failure notifies again", () => {
   setSystemTime(new Date(1_000_000));
   const runId = seedInvocationRow("plan~link-0", "in-progress");

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
@@ -713,7 +714,9 @@ test("composeRunOperatorError renders a legacy ready_gate_out_of_scope row with 
     readyGateOutOfScopeDetail: detail,
   });
   expect(composed).not.toHaveProperty("readyGateOutOfScopeObservations");
-  expect(detail).not.toContain("(base");
+  expect(formatReadyGateOutOfScopeDetail([outsidePath], "baseRef")).toBe(
+    `ready gate failing paths also reproduce on baseRef: ${outsidePath}`,
+  );
 });
 
 test("ready_gate_out_of_scope recovery does not guide retry finalization", () => {

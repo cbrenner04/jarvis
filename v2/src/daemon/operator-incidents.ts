@@ -1,4 +1,5 @@
 import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
+import type { PipelineStageArtifact } from "../persistence/pipeline-stage-settlement.ts";
 import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
 import { resolveWorkflowRunRollup } from "../persistence/workflow-run-status-rollup.ts";
@@ -14,6 +15,7 @@ type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
   | "pipeline-terminal"
   | "stage-failed"
+  | "stage-succeeded"
   | "publication-failure"
   | "run-blocked"
   | "run-budget-soft-stopped"
@@ -44,6 +46,8 @@ export type OperatorIncident = {
   branchKey?: string;
   runId?: string;
   cause?: string;
+  prNumber?: number;
+  prUrl?: string;
   sinceMs: number | null;
 };
 
@@ -112,6 +116,30 @@ function stageFailedTransition(stage: PipelineStageRecord): string {
   return `failed:${stage.endedAt ?? stage.startedAt ?? 0}`;
 }
 
+/** True when the stage's admitted definition entry is a workflow stage running the `implement` workflow. */
+function isImplementWorkflowStage(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  stage: PipelineStageRecord,
+): boolean {
+  const definitionStage = pipeline.definition.stages.find((s) => s.stageId === stage.stageId);
+  return definitionStage?.kind === "workflow" && definitionStage.workflow === "implement";
+}
+
+/** Resumed lanes reuse their row; a null `endedAt` on a succeeded row emits no incident rather than falling back. */
+function stageSucceededTransition(stage: PipelineStageRecord): string | undefined {
+  return stage.endedAt === null ? undefined : `succeeded:${stage.endedAt}`;
+}
+
+/** Same narrowing `pipeline-execution.ts` applies before reading artifact PR fields. */
+function narrowStageArtifact(artifact: unknown): PipelineStageArtifact | undefined {
+  return artifact !== null &&
+    typeof artifact === "object" &&
+    typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
+    typeof (artifact as PipelineStageArtifact).specPath === "string"
+    ? (artifact as PipelineStageArtifact)
+    : undefined;
+}
+
 /**
  * When the gate row durably entered `awaiting`. Rows stamped before the `awaiting_since` column
  * existed fall back to the latest settlement among the gate's branch-suffix predecessors.
@@ -174,6 +202,12 @@ function previewPipelineIncidentKeys(
           incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
           transition: stageFailedTransition(stage),
         });
+      }
+      if (stage.status === "succeeded" && isImplementWorkflowStage(pipeline, stage)) {
+        const transition = stageSucceededTransition(stage);
+        if (transition !== undefined) {
+          keys.push({ incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey), transition });
+        }
       }
     }
   }
@@ -543,6 +577,29 @@ function pushPublicationFailureIncident(
   });
 }
 
+function pushStageSucceededIncident(
+  incidents: OperatorIncident[],
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  stage: PipelineStageRecord,
+  project: string | null,
+): void {
+  const transition = stageSucceededTransition(stage);
+  if (transition === undefined) return;
+  const artifact = narrowStageArtifact(stage.artifact);
+  incidents.push({
+    incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
+    kind: "stage-succeeded",
+    transition,
+    project,
+    pipelineId: pipeline.id,
+    stageId: stage.stageId,
+    branchKey: stage.branchKey,
+    ...(artifact?.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
+    ...(artifact?.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),
+    sinceMs: stageSinceMs(stage),
+  });
+}
+
 function collectPipelineIncidents(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
@@ -581,6 +638,9 @@ function collectPipelineIncidents(
         });
       }
       addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
+    }
+    if (stage.status === "succeeded" && !isPipelineTerminal(state) && isImplementWorkflowStage(pipeline, stage)) {
+      pushStageSucceededIncident(incidents, pipeline, stage, project);
     }
   }
 

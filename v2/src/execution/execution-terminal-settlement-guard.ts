@@ -63,12 +63,12 @@ const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   },
   {
     file: "workflow-runner-debate-landing.ts",
-    functionName: "repromptReviewedStagedMarkdownLintOrFail",
+    functionName: "invokeLandingRepromptActuator",
     writer: "commitCompletionBoundary",
   },
   {
     file: "workflow-runner-debate-landing.ts",
-    functionName: "landReviewedOutputOrFail",
+    functionName: "settleReviewedLandingFailure",
     writer: "commitCompletionBoundary",
   },
   {

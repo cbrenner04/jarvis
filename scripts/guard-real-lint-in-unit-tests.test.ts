@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { ALLOW_MARKER, findRealLintCallViolations } from "./guard-real-lint-in-unit-tests.ts";
+import {
+  ALLOW_MARKER,
+  exitCodeForLintCallViolations,
+  findRealLintCallViolations,
+} from "./guard-real-lint-in-unit-tests.ts";
 
 function violations(source: string, file = "v2/src/execution/example.test.ts") {
   return findRealLintCallViolations([{ file, source }]);
@@ -86,5 +90,10 @@ describe("real-lint-in-unit-tests guard", () => {
     expect(violations(source, "v2/src/daemon/daemon-resume.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/daemon/daemon-pipeline-recover.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/daemon/pipeline-stage-recovery.test.ts")).toEqual([]);
+  });
+
+  test("exit code is 1 when violations exist, 0 otherwise", () => {
+    expect(exitCodeForLintCallViolations([])).toBe(0);
+    expect(exitCodeForLintCallViolations([{ file: "a.test.ts", line: 1, functionName: "f" }])).toBe(1);
   });
 });

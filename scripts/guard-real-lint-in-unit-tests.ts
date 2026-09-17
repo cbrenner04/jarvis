@@ -105,6 +105,10 @@ export function findRealLintCallViolations(files: readonly SourceFile[]): LintCa
   return violations;
 }
 
+export function exitCodeForLintCallViolations(violations: readonly LintCallViolation[]): number {
+  return violations.length > 0 ? 1 : 0;
+}
+
 if (import.meta.main) {
   const cwd = process.cwd();
   const files = [...collectSourceFiles(join(cwd, "v2"), cwd), ...collectSourceFiles(join(cwd, "shared"), cwd)];
@@ -114,5 +118,5 @@ if (import.meta.main) {
       `${violation.file}:${violation.line}: unit-slice test reaches real ${violation.functionName} without an injected runner`,
     );
   }
-  if (violations.length > 0) process.exitCode = 1;
+  process.exitCode = exitCodeForLintCallViolations(violations);
 }

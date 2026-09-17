@@ -7,6 +7,7 @@ import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import {
   createSignalHandler,
   formatDrainExitLogLine,
+  formatHandoffSettlementLogLine,
   formatRetireTriggerLogLine,
   nextFirstRetireTrigger,
   startDaemonRuntime,
@@ -106,6 +107,71 @@ test("changeover logs the retire-trigger line naming changeover once the handoff
   try {
     await handlers.changeover?.({ kind: "request", id: "c1", method: "changeover" }, new AbortController().signal);
     expect(capture.lines).toContain(formatRetireTriggerLogLine("changeover"));
+  } finally {
+    capture.restore();
+    await close();
+  }
+});
+
+/** Drives `changeover` to create the pending transaction and returns its `handoffId`. */
+async function beginChangeover(handlers: Record<string, RpcHandler>): Promise<string> {
+  const response = await handlers.changeover?.(
+    { kind: "request", id: "c", method: "changeover" },
+    new AbortController().signal,
+  );
+  if (response?.kind !== "response") throw new Error("changeover did not return a response");
+  const handoffId = (response.result as { handoffId?: unknown }).handoffId;
+  if (typeof handoffId !== "string") throw new Error("changeover response missing handoffId");
+  return handoffId;
+}
+
+test("handoff_commit logs the retire-trigger line naming handoff_commit before committing", async () => {
+  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
+  const { handlers, close } = await startFakeDaemon({ privateSocketPath });
+  const capture = captureConsoleError();
+  try {
+    const handoffId = await beginChangeover(handlers);
+    const response = await handlers.handoff_commit?.(
+      { kind: "request", id: "hc1", method: "handoff_commit", params: { handoffId } },
+      new AbortController().signal,
+    );
+    expect(response?.kind).toBe("response");
+    expect(capture.lines).toContain(formatHandoffSettlementLogLine("handoff_commit"));
+  } finally {
+    capture.restore();
+    await close();
+  }
+});
+
+test("handoff_rollback logs the retire-trigger line naming handoff_rollback before rolling back", async () => {
+  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
+  const { handlers, close } = await startFakeDaemon({ privateSocketPath });
+  const capture = captureConsoleError();
+  try {
+    const handoffId = await beginChangeover(handlers);
+    const response = await handlers.handoff_rollback?.(
+      { kind: "request", id: "hr1", method: "handoff_rollback", params: { handoffId } },
+      new AbortController().signal,
+    );
+    expect(response?.kind).toBe("response");
+    expect(capture.lines).toContain(formatHandoffSettlementLogLine("handoff_rollback"));
+  } finally {
+    capture.restore();
+    await close();
+  }
+});
+
+test("fallback timer logs handoff_fallback naming rollback when no successor answers", async () => {
+  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
+  const { handlers, close } = await startFakeDaemon({ privateSocketPath, handoffFallbackMs: 20 });
+  const capture = captureConsoleError();
+  try {
+    await beginChangeover(handlers);
+    expect(await waitFor(() => capture.lines.some((line) => line.includes("handoff_fallback")), 2_000)).toBe(true);
+    expect(capture.lines).toContain(formatHandoffSettlementLogLine("handoff_fallback", "rollback"));
   } finally {
     capture.restore();
     await close();

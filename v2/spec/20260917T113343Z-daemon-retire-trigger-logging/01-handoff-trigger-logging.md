@@ -15,11 +15,11 @@ Split from [00](00-retire-trigger-logging.md) (see its path inventory) to keep e
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/` asserts `handoff_commit`, `handoff_rollback`, and the fallback-timer resolution — both a live-probe commit outcome and a dead-probe rollback outcome — each write a `JARVIS_DAEMON_RETIRE_TRIGGER:` line naming that trigger before the settlement acts; it fails against the pre-fix code.
-- [ ] `daemon-changeover.sandbox-unrunnable.test.ts` stays green (handoff settlement behavior unchanged).
-- [ ] `daemon-changeover-handler.test.ts` stays green (changeover handler behavior unchanged).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/daemon/` asserts `handoff_commit`, `handoff_rollback`, and the fallback-timer resolution — both a live-probe commit outcome and a dead-probe rollback outcome — each write a `JARVIS_DAEMON_RETIRE_TRIGGER:` line naming that trigger before the settlement acts; it fails against the pre-fix code.
+- [x] `daemon-changeover.sandbox-unrunnable.test.ts` stays green (handoff settlement behavior unchanged).
+- [x] `daemon-changeover-handler.test.ts` stays green (changeover handler behavior unchanged).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

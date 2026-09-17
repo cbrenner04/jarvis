@@ -329,6 +329,21 @@ export function nextFirstRetireTrigger(
   return current ?? incoming;
 }
 
+/** A handoff settlement: RPC-driven commit/rollback, or the fallback timer's liveness-probe verdict. */
+type HandoffSettlementTrigger = "handoff_commit" | "handoff_rollback" | "handoff_fallback";
+
+/**
+ * Structured stderr marker for a handoff settlement, written before commit/rollback runs.
+ * `resolution` names the fallback timer's computed verdict; RPC-driven settlements have none — the
+ * RPC name already says which way it settles.
+ */
+export function formatHandoffSettlementLogLine(
+  trigger: HandoffSettlementTrigger,
+  resolution?: "commit" | "rollback",
+): string {
+  return `${RETIRE_TRIGGER_LOG_PREFIX}${JSON.stringify(resolution === undefined ? { trigger } : { trigger, resolution })}`;
+}
+
 /**
  * The daemon shuts down when a stop was explicitly requested, or when it is
  * retiring (superseded) and no run is still active. A retiring daemon with an
@@ -874,6 +889,8 @@ type HandoffHandlersDeps = ChangeoverHandlerDeps & {
   fallbackMs?: number;
   /** Records the `changeover` retire trigger once this handoff actually begins. */
   recordChangeoverTrigger: () => void;
+  /** Records a handoff settlement (`handoff_commit`/`handoff_rollback`/`handoff_fallback`) before it acts. */
+  recordHandoffSettlementTrigger: (trigger: HandoffSettlementTrigger, resolution?: "commit" | "rollback") => void;
 };
 
 /**
@@ -982,7 +999,9 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (closed || transaction !== active || !isHandoffStillPending(transaction.id, transaction.state, handoffId)) {
       return;
     }
-    const result = fallbackVerdict(publicDaemonLive) === "commit" ? await commit(active) : await rollback(active);
+    const verdict = fallbackVerdict(publicDaemonLive);
+    deps.recordHandoffSettlementTrigger("handoff_fallback", verdict);
+    const result = verdict === "commit" ? await commit(active) : await rollback(active);
     if (result.kind === "error") {
       console.error(`Daemon handoff fallback failed: ${result.message}`);
       // A failed rollback (rebind still failing) must not strand the transaction pending forever:
@@ -1030,6 +1049,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
       const active = transaction;
       const handoffId = handoffIdentity(frame);
       if (active === undefined || handoffId === undefined || active.id !== handoffId) return handoffMismatch();
+      deps.recordHandoffSettlementTrigger(resolution === "commit" ? "handoff_commit" : "handoff_rollback");
       return resolution === "commit" ? commit(active) : rollback(active);
     };
   };
@@ -1430,6 +1450,8 @@ export async function startDaemonRuntime(
     },
     wasSuperseded: () => superseded,
     recordChangeoverTrigger: () => recordRetireTrigger("changeover"),
+    recordHandoffSettlementTrigger: (trigger, resolution) =>
+      console.error(formatHandoffSettlementLogLine(trigger, resolution)),
     bindPublicServer: async () => {
       try {
         server = await bindIpcServer(socketPath, handlers, tailStreamHandler);

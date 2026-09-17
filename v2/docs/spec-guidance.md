@@ -76,6 +76,8 @@ Paths named inside a `rules out` clause are mentions, not artifacts, in any sect
 
 In an `## Acceptance criteria` bullet only, a test path plus the production path it covers counts as one artifact: the test filename must match `<stem>.test.<ext>` and share a directory with a production file named `<stem>.<ext>`. Example: "`shared/state.ts` persists daemon state covered by `shared/state.test.ts`" names one artifact. A path left unpaired still counts on its own, so naming two production paths plus a test covering only one of them still names two artifacts. The collapse does not apply under `## Decisions` or `## Documentation updates` — the same pairing there still names two artifacts.
 
+In a `## Documentation updates` bullet only, the leading path (first occurrence, left to right) is the artifact; a later path is a mention, unless it is itself a markdown path, which still counts as a distinct artifact. Example: "`v2/docs/test-writing.md` — documents the new `shared/example.test.ts` coverage pattern" names one artifact; "`v2/docs/a.md` also updates `v2/docs/b.md`" still names two.
+
 Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.
 
 When work starts from a structured index (a feature checklist, a work queue): treat the item plus matching context docs as source input, write a concise build brief, draft with `intent`/`plan`, implement with `implement`. Do not frame work-start prompts as "draft a spec" — done is merged implementation code, not generated spec artifacts.

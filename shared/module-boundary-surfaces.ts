@@ -106,7 +106,9 @@ function isSharedDecisionBullet(text: string): boolean {
 }
 
 const ACCEPTANCE_CRITERIA_HEADING = "## Acceptance criteria";
+const DOCUMENTATION_UPDATES_HEADING = "## Documentation updates";
 const TEST_FILENAME_PATTERN = /^(.+)\.test\.([A-Za-z0-9]+)$/u;
+const MARKDOWN_PATH_PATTERN = /\.md$/u;
 
 /** The production path a test path would cover: same directory, filename with `.test` removed.
  * Undefined when the path isn't shaped like this repo's co-located test convention. */
@@ -132,10 +134,23 @@ function collapseTestCoveragePairs(paths: readonly string[]): string[] {
   return paths.filter((path) => remaining.has(path));
 }
 
+/** In a Documentation-updates bullet, the leading path (first occurrence order) is the artifact;
+ * a later path is a mention unless it is itself a markdown path, which still counts distinctly. */
+function collapseDocBulletMentions(paths: readonly string[]): string[] {
+  const [leading, ...rest] = paths;
+  if (leading === undefined) return [];
+  return [leading, ...rest.filter((path) => MARKDOWN_PATH_PATTERN.test(path))];
+}
+
 function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): void {
   for (const bullet of bullets) {
     const paths = referencedArtifactPaths(bullet);
-    const countedPaths = heading === ACCEPTANCE_CRITERIA_HEADING ? collapseTestCoveragePairs(paths) : paths;
+    const countedPaths =
+      heading === ACCEPTANCE_CRITERIA_HEADING
+        ? collapseTestCoveragePairs(paths)
+        : heading === DOCUMENTATION_UPDATES_HEADING
+          ? collapseDocBulletMentions(paths)
+          : paths;
     if (countedPaths.length <= 1) continue;
     if (isStaysUnchangedBullet(bullet) || isSharedDecisionBullet(bullet)) continue;
     // A bullet carrying exempt wording that reaches here did so because of its build claim; say so,

@@ -10,10 +10,10 @@ In a `## Documentation updates` bullet, the leading artifact path is the artifac
 
 ## Acceptance criteria
 
-- [ ] A test proves a Documentation updates bullet naming `v2/docs/test-writing.md` plus a test-file path it describes passes; it fails against the pre-fix check.
-- [ ] A test proves a Documentation updates bullet naming two doc paths is still refused.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] A test proves a Documentation updates bullet naming `v2/docs/test-writing.md` plus a test-file path it describes passes; it fails against the pre-fix check.
+- [x] A test proves a Documentation updates bullet naming two doc paths is still refused.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

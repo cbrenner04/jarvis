@@ -183,6 +183,28 @@ describe("plan draft normalization", () => {
     );
   });
 
+  test("accepts a Documentation updates bullet naming a doc path plus the test file it describes", () => {
+    const dir = scratchDir("doc-bullet-leading-path");
+    stageDraft(dir, {
+      "00-docs.md":
+        "# Docs\n\n## Documentation updates\n\n- `v2/docs/test-writing.md` — documents the new `shared/example.test.ts` coverage pattern.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("rejects a Documentation updates bullet naming two doc paths", () => {
+    const dir = scratchDir("doc-bullet-two-doc-paths");
+    stageDraft(dir, {
+      "00-docs.md":
+        "# Docs\n\n## Documentation updates\n\n- `v2/docs/test-writing.md` also updates `v2/docs/spec-guidance.md`.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Plan subspec 00-docs.md has a ## Documentation updates bullet naming multiple artifact paths (v2/docs/test-writing.md, v2/docs/spec-guidance.md)",
+    );
+  });
+
   // Each case below was accepted before the exemptions were made to fail closed: the shared-outcome
   // marker short-circuited the mixed-claim refusal, and the preservation vocabulary matched bare
   // "green" / "stops" in ordinary prose about new work.
@@ -357,11 +379,11 @@ describe("plan draft normalization", () => {
   test.each(["## Decisions", "## Documentation updates"])("rejects two artifact paths under %s", (heading) => {
     const dir = scratchDir("two-artifact-supporting-bullet");
     stageDraft(dir, {
-      "00-cart.md": `# Cart\n\n${heading}\n\n- \`src/cart.ts\` and \`test/cart.test.ts\` change together.\n\n## Acceptance criteria\n\n- [ ] Cart totals are correct.\n`,
+      "00-cart.md": `# Cart\n\n${heading}\n\n- \`src/cart.ts\` and \`docs/cart.md\` change together.\n\n## Acceptance criteria\n\n- [ ] Cart totals are correct.\n`,
     });
 
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
-      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, test/cart.test.ts)`,
+      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, docs/cart.md)`,
     );
   });
 
@@ -373,8 +395,8 @@ describe("plan draft normalization", () => {
     const dir = scratchDir("duplicate-governed-section");
     const bullet =
       heading === "## Acceptance criteria"
-        ? "- [ ] `src/cart.ts` and `test/cart.test.ts` change together."
-        : "- `src/cart.ts` and `test/cart.test.ts` change together.";
+        ? "- [ ] `src/cart.ts` and `docs/cart.md` change together."
+        : "- `src/cart.ts` and `docs/cart.md` change together.";
     stageDraft(dir, {
       "00-cart.md":
         heading === "## Acceptance criteria"
@@ -383,7 +405,7 @@ describe("plan draft normalization", () => {
     });
 
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
-      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, test/cart.test.ts)`,
+      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, docs/cart.md)`,
     );
   });
 

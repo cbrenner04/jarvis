@@ -14,6 +14,7 @@ import { canUseUnixSockets } from "../testing/unix-socket";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 const entrypoint = resolve(import.meta.dir, "../daemon-entrypoint.ts");
+const SELF_HANDOFF_INTERVAL_MS = 50;
 
 async function request(socketPath: string, method: string): Promise<IpcFrame> {
   const client = await connectIpcClient(socketPath);
@@ -53,7 +54,7 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, boundMs: num
   for (;;) {
     if (await predicate()) return true;
     if (Date.now() >= deadline) return false;
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 20));
   }
 }
 
@@ -109,7 +110,7 @@ describe("daemon self-handoff (real processes)", () => {
           "--test-self-handoff-digest-file",
           digestFile,
           "--test-self-handoff-interval-ms",
-          "50",
+          String(SELF_HANDOFF_INTERVAL_MS),
         ],
         { env: { ...process.env, JARVIS_HOME: home }, stdio: ["ignore", logFd, logFd] },
       );
@@ -123,7 +124,8 @@ describe("daemon self-handoff (real processes)", () => {
         expect(await waitFor(() => answersHealth(publicSocketPath), 15_000)).toBe(true);
 
         // An "unknown" sample never triggers: nothing hands off while the file is unchanged.
-        await new Promise((r) => setTimeout(r, 300));
+        // Absence can't be awaited, so this holds for one digest-sampling interval only.
+        await new Promise((r) => setTimeout(r, SELF_HANDOFF_INTERVAL_MS));
         expect(existsSync(pidPath)).toBe(false);
 
         writeFileSync(digestFile, "changed-observed-digest");
@@ -135,12 +137,17 @@ describe("daemon self-handoff (real processes)", () => {
         expect(existsSync(join(sockDir, "daemon-changed-observed.sock"))).toBe(true);
         expect(await answersHealth(publicSocketPath)).toBe(true);
 
-        // No runs to drain: the retired incumbent exits.
+        // No runs to drain: the retired incumbent exits. Node's `exit` event only fires once the OS
+        // has reaped the process and torn down its process group, so this is a real, not merely
+        // observed, exit.
         expect(await waitFor(() => incumbentExited, 15_000)).toBe(true);
-        // The successor must outlive its spawning incumbent, not merely be alive at the instant it exits.
-        await new Promise((r) => setTimeout(r, 5_000));
-        expect(successorPid !== undefined && isAlive(successorPid)).toBe(true);
-        expect(await answersHealth(publicSocketPath)).toBe(true);
+        // The successor must outlive its spawning incumbent, not merely be alive at the instant it
+        // exits: sample alive+health repeatedly across a real window after the incumbent is gone.
+        for (let sample = 0; sample < 3; sample++) {
+          expect(successorPid !== undefined && isAlive(successorPid)).toBe(true);
+          expect(await answersHealth(publicSocketPath)).toBe(true);
+          if (sample < 2) await new Promise((r) => setTimeout(r, SELF_HANDOFF_INTERVAL_MS));
+        }
       } finally {
         for (const pid of [readPid(pidPath), incumbentPid]) {
           if (pid !== undefined && isAlive(pid)) process.kill(pid, "SIGKILL");

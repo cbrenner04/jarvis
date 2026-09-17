@@ -104,6 +104,13 @@ This is a separate, slower-and-more-lenient measurement pass, not a `bun run tes
 
 Raw output: [`v2/docs/test-cost-baseline.txt`](test-cost-baseline.txt). Re-run `bun run test:cost` and update both the baseline file and these figures when the aggregate roster changes materially.
 
+### Real-spawn waits
+
+- Wait on a condition (poll `waitFor`) before positive assertions; never a fixed sleep.
+- Fixed sleeps only for negative windows (asserting something does *not* happen), sized ≥2× the interval they cover: a 1× window can end before the sampler fires even once, so the assertion passes vacuously.
+- Poll with the smallest step the contract allows (the daemon self-handoff tests use 20ms polls and 20–50ms sampling intervals).
+- Measured on the three daemon handoff files (`bun test <file>`, median of 3): merge base 25.3s combined → 19.6s after these rules; `daemon-changeover` stays ~10s because its 5.5s probe is a deliberate window.
+
 ## Shared socket fixtures
 
 Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Register socket-dependent tests with `test.skipIf(!canUseUnixSockets(), ...)` — do not use silent-return skip wrappers that report pass. Guard hooks with `canUseUnixSockets()`. Emit file-local stderr gated on `socketProbeErrored` when the suite needs operator-visible skip context — the shared probe does not write on failure.

@@ -16,6 +16,10 @@ import { startDaemonRuntime } from "./daemon";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
+/** Self-handoff sampling interval every harness below runs with. Negative-assertion windows are
+ * sized as small multiples of it, matched to the number of intervals each is documented to cover. */
+const SELF_HANDOFF_INTERVAL_MS = 20;
+
 function fakeReader(): LogReader {
   return { tail: () => [], async *follow() {} };
 }
@@ -177,7 +181,7 @@ async function startIncumbent(
       throw new Error(`unexpected daemon exit ${code}`);
     },
     ...(optIn ? { enableSelfHandoff: true } : {}),
-    selfHandoffSamplingIntervalMs: 20,
+    selfHandoffSamplingIntervalMs: SELF_HANDOFF_INTERVAL_MS,
     ...extraDeps,
   });
 
@@ -226,7 +230,9 @@ describe("daemon self-handoff (real sockets)", () => {
         false,
       );
       try {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        // No opt-in means no timer is ever scheduled; a few intervals' worth of real time is
+        // enough margin to catch a regression that scheduled one anyway.
+        await new Promise((resolve) => setTimeout(resolve, SELF_HANDOFF_INTERVAL_MS * 3));
         expect(samples).toBe(0);
         expect(successorCalls).toBe(0);
         expect(await isSuperseded(harness.privateSocketPath)).toBe(false);
@@ -278,7 +284,7 @@ describe("daemon self-handoff (real sockets)", () => {
         expect(await waitFor(() => callCount === 1, 3_000)).toBe(true);
         // The sampler keeps matching for many more intervals; once committed, admission stays cut
         // and the sampling loop must stay stopped rather than spawn a second successor.
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, SELF_HANDOFF_INTERVAL_MS * 5));
         expect(callCount).toBe(1);
       } finally {
         await harness.close();
@@ -303,8 +309,8 @@ describe("daemon self-handoff (real sockets)", () => {
         expect(changeoverFrame.kind).toBe("response");
 
         // The sampler is divergent from the very first tick; absent the isRetiring() cutoff this
-        // would trigger within two intervals.
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        // would trigger within two intervals; hold 2x that.
+        await new Promise((resolve) => setTimeout(resolve, SELF_HANDOFF_INTERVAL_MS * 4));
         expect(callCount).toBe(0);
       } finally {
         await harness.close();
@@ -342,7 +348,7 @@ describe("daemon self-handoff (real sockets)", () => {
         // second successor that would race the real one for the same private socket.
         digest.resolveOldest("d1");
 
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, SELF_HANDOFF_INTERVAL_MS * 3));
         expect(successorCalls).toBe(0);
       } finally {
         await harness.close();
@@ -382,7 +388,7 @@ describe("daemon self-handoff (real sockets)", () => {
 
         // One fresh matching sample after the rollback does not retrigger.
         digest.push("d2");
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, SELF_HANDOFF_INTERVAL_MS * 3));
         expect(attempts).toBe(1);
 
         // Two fresh matching samples do.

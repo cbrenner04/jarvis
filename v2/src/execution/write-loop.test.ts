@@ -869,8 +869,9 @@ function storeObservingCompletedWrites(inner: StateStore): {
     admitRunForResume: (runId) => inner.admitRunForResume(runId),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
     commitTerminalRunSettlement: (args) => {
-      inner.commitTerminalRunSettlement(args);
+      const outcome = inner.commitTerminalRunSettlement(args);
       if (args.status === "completed") recordCompletedSettlement(args.runId);
+      return outcome;
     },
     dismissRun: (runId) => inner.dismissRun(runId),
     undismissRun: (runId) => inner.undismissRun(runId),
@@ -6943,6 +6944,36 @@ export function isLoadSensitive(file: string): boolean {
       expect(successfulCompletedWrite?.prUrl).toBe(prUrl);
       expect(successfulCompletedWrite?.terminalCause).toBe("complete");
       expect(successfulCompletedWrite?.finishedAt).not.toBeNull();
+    });
+
+    test("logs run_settlement_rejected when the completion settlement is rejected by a stale owner", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const store = openStateStore(stateDbPath);
+      const commitTerminalRunSettlement = store.commitTerminalRunSettlement.bind(store);
+      store.commitTerminalRunSettlement = (args) => {
+        commitTerminalRunSettlement(args);
+        return { kind: "rejected", attemptedStatus: args.status, reportingIdentity: "stale-owner:999" };
+      };
+      const logSink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        store,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({ prNumber: 42, prUrl: "https://github.com/owner/repo/pull/42" }),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      const rejected = logSink.getEventsForRun(result.runId).find((event) => event.kind === "run_settlement_rejected");
+      expect(rejected).toEqual({
+        kind: "run_settlement_rejected",
+        attemptedStatus: "completed",
+        reportingIdentity: "stale-owner:999",
+      });
     });
 
     test("landing_failed budget exhaustion settles failed with terminal cause without a second status write", async () => {

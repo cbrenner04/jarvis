@@ -1312,6 +1312,88 @@ describe("commitGuardedKill", () => {
   });
 });
 
+describe("commitTerminalRunSettlement stale-owner guard", () => {
+  const PRIOR_IDENTITY = "11111:1000000";
+  const CURRENT_IDENTITY = "22222:2000000";
+
+  let seedStore: StateStore;
+  let otherStore: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: PRIOR_IDENTITY });
+    otherStore = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY });
+  });
+
+  afterEach(() => {
+    seedStore.close();
+    otherStore.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function setOwnerIdentity(runId: string, ownerIdentity: string | null): void {
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(ownerIdentity, runId);
+    raw.close();
+  }
+
+  test("rejects a non-owner settlement onto an already-terminal row, leaving status finishedAt and evidence unchanged", () => {
+    const runId = seedRun(seedStore);
+    seedStore.commitTerminalRunSettlement({
+      runId,
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: 42,
+      prUrl: "https://github.com/example/pr/42",
+    });
+    const before = loadRunOrThrow(seedStore, runId);
+
+    const outcome = otherStore.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "invocation_failure",
+    });
+
+    expect(outcome).toEqual({ kind: "rejected", attemptedStatus: "failed", reportingIdentity: CURRENT_IDENTITY });
+    const after = loadRunOrThrow(seedStore, runId);
+    expect(after.status).toBe(before.status);
+    expect(after.finishedAt).toBe(before.finishedAt);
+    expect(after.terminalCause).toBe(before.terminalCause);
+    expect(after.prNumber).toBe(before.prNumber);
+    expect(after.prUrl).toBe(before.prUrl);
+  });
+
+  test("applies when the terminal row's owner_identity is null", () => {
+    const runId = seedRun(seedStore);
+    seedStore.commitTerminalRunSettlement({ runId, status: "completed" });
+    setOwnerIdentity(runId, null);
+
+    const outcome = otherStore.commitTerminalRunSettlement({ runId, status: "failed" });
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(loadRunOrThrow(seedStore, runId).status).toBe("failed");
+  });
+
+  test("applies when the terminal row's owner_identity equals the reporting identity", () => {
+    const runId = seedRun(seedStore);
+    seedStore.commitTerminalRunSettlement({ runId, status: "completed" });
+
+    const outcome = seedStore.commitTerminalRunSettlement({ runId, status: "failed" });
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(loadRunOrThrow(seedStore, runId).status).toBe("failed");
+  });
+
+  test("applies a non-owner settlement when the row is not yet terminal", () => {
+    const runId = seedRun(seedStore, { status: "in-progress" });
+
+    const outcome = otherStore.commitTerminalRunSettlement({ runId, status: "completed" });
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(loadRunOrThrow(seedStore, runId).status).toBe("completed");
+  });
+});
+
 function insertStageRow(
   raw: Database,
   args: { id: string; pipelineId: string; stageId: string; position: number; branchKey?: string },

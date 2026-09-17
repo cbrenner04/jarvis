@@ -332,6 +332,15 @@ type CommitTerminalRunSettlementInput = TerminalRunSettlementEvidence & {
   beforeSecondWrite?: () => void;
 };
 
+/**
+ * Outcome of {@link StateStore.commitTerminalRunSettlement}. `rejected` fires when the row is
+ * already terminal and stamped with a different, non-null owner identity than the caller's —
+ * a non-owner daemon settling over a prior generation's terminal write.
+ */
+export type RunSettlementOutcome =
+  | { kind: "applied" }
+  | { kind: "rejected"; attemptedStatus: RunStatus; reportingIdentity: string };
+
 type CommitCompletionBoundaryInput = {
   attemptId: string;
   runStatus: RunStatus;
@@ -911,8 +920,13 @@ export interface StateStore {
   /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
   commitGuardedKill(runId: string): void;
 
-  /** Terminal status, finish metadata, and optional evidence in one transaction; `beforeSecondWrite` is a test seam. */
-  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): void;
+  /**
+   * Terminal status, finish metadata, and optional evidence in one transaction; `beforeSecondWrite`
+   * is a test seam. When the row is already terminal, drops the write and returns `rejected` if the
+   * row's `owner_identity` is non-null and not the current identity; a null owner or a not-yet-terminal
+   * row always applies.
+   */
+  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): RunSettlementOutcome;
 
   /**
    * Mark a run dismissed from display. Preserves the first dismissal timestamp on
@@ -2759,14 +2773,24 @@ class StateStoreImpl implements StateStore {
     })();
   }
 
-  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): void {
+  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): RunSettlementOutcome {
     if (!isTerminalRunStatus(args.status)) {
       throw new Error(`Terminal run settlement requires a terminal status: ${args.status}`);
     }
     this.validateTerminalCause(args.terminalCause);
 
+    let outcome: RunSettlementOutcome = { kind: "applied" };
+
     const applySettlement = () => {
-      if (!this.runRowExists(args.runId)) throw new Error(`Run ${args.runId} not found`);
+      const row = this.db
+        .prepare("SELECT status, owner_identity AS ownerIdentity FROM runs WHERE id = ?")
+        .get(args.runId) as { status: RunStatus; ownerIdentity: string | null } | null;
+      if (!row) throw new Error(`Run ${args.runId} not found`);
+
+      if (isTerminalRunStatus(row.status) && row.ownerIdentity !== null && row.ownerIdentity !== this.currentIdentity) {
+        outcome = { kind: "rejected", attemptedStatus: args.status, reportingIdentity: this.currentIdentity };
+        return;
+      }
 
       const finishedAt = Date.now();
       this.db
@@ -2777,6 +2801,7 @@ class StateStoreImpl implements StateStore {
     };
 
     this.db.transaction(applySettlement)();
+    return outcome;
   }
 
   private extractTerminalSettlementEvidence(

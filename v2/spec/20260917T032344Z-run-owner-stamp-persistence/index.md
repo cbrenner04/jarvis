@@ -2,5 +2,5 @@
 
 Intent: [intent.md](./intent.md)
 
-- [ ] [00-run-readmission-stamps-owner.md](./00-run-readmission-stamps-owner.md)
+- [x] [00-run-readmission-stamps-owner.md](./00-run-readmission-stamps-owner.md)
 - [ ] [01-stale-owner-settlement-guard.md](./01-stale-owner-settlement-guard.md)

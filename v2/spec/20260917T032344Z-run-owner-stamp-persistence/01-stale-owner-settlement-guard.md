@@ -14,10 +14,10 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/persistence/state-store.test.ts` asserts a non-owner settlement on an already-terminal row is rejected — status, `finished_at`, and evidence stay unchanged, and the call returns `{ kind: "rejected", attemptedStatus, reportingIdentity }`; it fails against the pre-fix unconditional overwrite.
-- [ ] A test in `v2/src/persistence/state-store.test.ts` asserts settlement applies when the row's `owner_identity` is null, equals the reporting identity, or when the row is not yet terminal (even from a non-owner identity), pinning that legacy rows and reconciliation-style non-terminal writes are unaffected.
-- [ ] A test covering `settleCompletedPublication` in `v2/src/execution/write-loop.test.ts` (or its equivalent split file) asserts a `rejected` outcome appends a `run_settlement_rejected` log entry naming `attemptedStatus` and `reportingIdentity`; it fails against the pre-fix code, which does not check the return value.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/persistence/state-store.test.ts` asserts a non-owner settlement on an already-terminal row is rejected — status, `finished_at`, and evidence stay unchanged, and the call returns `{ kind: "rejected", attemptedStatus, reportingIdentity }`; it fails against the pre-fix unconditional overwrite.
+- [x] A test in `v2/src/persistence/state-store.test.ts` asserts settlement applies when the row's `owner_identity` is null, equals the reporting identity, or when the row is not yet terminal (even from a non-owner identity), pinning that legacy rows and reconciliation-style non-terminal writes are unaffected.
+- [x] A test covering `settleCompletedPublication` in `v2/src/execution/write-loop.test.ts` (or its equivalent split file) asserts a `rejected` outcome appends a `run_settlement_rejected` log entry naming `attemptedStatus` and `reportingIdentity`; it fails against the pre-fix code, which does not check the return value.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

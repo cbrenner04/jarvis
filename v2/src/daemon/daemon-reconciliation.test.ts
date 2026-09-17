@@ -208,7 +208,7 @@ test("startup reconciliation routes admitted orphan terminals through atomic set
   const commitTerminalRunSettlement = sweepStore.commitTerminalRunSettlement.bind(sweepStore);
   sweepStore.commitTerminalRunSettlement = (args) => {
     settlements.push({ runId: args.runId, status: args.status });
-    commitTerminalRunSettlement(args);
+    return commitTerminalRunSettlement(args);
   };
   sweepStore.commitGuardedKill = () => {
     throw new Error("legacy guarded kill called");

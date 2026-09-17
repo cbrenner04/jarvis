@@ -12,10 +12,10 @@ A `ready_gate_out_of_scope` row records only `readyGateOutsidePaths` and a detai
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/write-loop.test.ts` settles a `ready_gate_out_of_scope` failure and asserts the persisted `loop_finished` row's `readyGateOutOfScopeObservations` carries, for each path, the pass/fail counts and verified base commit, and the detail string names them; it fails against the pre-fix code.
-- [ ] A new test in `v2/src/daemon/run-operator-error.test.ts` composes a `RunOperatorError` from a `ready_gate_out_of_scope` `loop_finished` event carrying `readyGateOutOfScopeObservations` and asserts the composed error carries the same observations; it fails against the pre-fix code.
-- [ ] A test asserts a `ready_gate_out_of_scope` settlement with no `readyGateOutOfScopeObservations` (a legacy row) still composes/renders without throwing, and its detail string lists the affected path with no parenthetical.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A new test in `v2/src/execution/write-loop.test.ts` settles a `ready_gate_out_of_scope` failure and asserts the persisted `loop_finished` row's `readyGateOutOfScopeObservations` carries, for each path, the pass/fail counts and verified base commit, and the detail string names them; it fails against the pre-fix code.
+- [x] A new test in `v2/src/daemon/run-operator-error.test.ts` composes a `RunOperatorError` from a `ready_gate_out_of_scope` `loop_finished` event carrying `readyGateOutOfScopeObservations` and asserts the composed error carries the same observations; it fails against the pre-fix code.
+- [x] A test asserts a `ready_gate_out_of_scope` settlement with no `readyGateOutOfScopeObservations` (a legacy row) still composes/renders without throwing, and its detail string lists the affected path with no parenthetical.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

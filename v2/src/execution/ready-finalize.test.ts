@@ -216,7 +216,7 @@ const scope = {
 
 /** A fixed placeholder conclusive-fail probe outcome for seam stubs that don't care about its
  *  observation values, just that the probe confirmed the failure reproduces at the base ref. */
-const PLACEHOLDER_BASE_REF_PROBE_FAIL = { kind: "fail" as const, pass: 0, fail: 1, baseCommit: "abc1234" };
+export const PLACEHOLDER_BASE_REF_PROBE_FAIL = { kind: "fail" as const, pass: 0, fail: 1, baseCommit: "abc1234" };
 
 const allowedSeams: ReadyGateScopeSeams = {
   gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
@@ -643,6 +643,19 @@ describe("ready gate untouched-path classification", () => {
   it("formats out-of-scope detail from base-ref reproduction semantics", () => {
     expect(formatReadyGateOutOfScopeDetail(["v2/src/untouched.test.ts"], "main")).toBe(
       "ready gate failing paths also reproduce on main: v2/src/untouched.test.ts",
+    );
+  });
+
+  it("appends a per-path pass/fail/base-commit parenthetical when an observation is recorded", () => {
+    const observed = "v2/src/untouched-a.test.ts";
+    const unobserved = "v2/src/untouched-b.test.ts";
+    expect(
+      formatReadyGateOutOfScopeDetail([observed, unobserved], "main", {
+        [observed]: { pass: 3, fail: 2, baseCommit: "aaa1111" },
+      }),
+    ).toBe(
+      "ready gate failing paths also reproduce on main: " +
+        "v2/src/untouched-a.test.ts (base aaa1111: 3 pass / 2 fail), v2/src/untouched-b.test.ts",
     );
   });
 

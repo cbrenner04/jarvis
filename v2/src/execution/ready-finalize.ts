@@ -987,10 +987,23 @@ export class NonTerminatingMutationError extends Error {
 export type ReadyGateOutOfScopeLogFields = {
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
+  readyGateOutOfScopeObservations?: Record<string, BaseRefProbeObservation>;
 };
 
-export function formatReadyGateOutOfScopeDetail(paths: readonly string[], baseRef = "baseRef"): string {
-  return `ready gate failing paths also reproduce on ${baseRef}: ${paths.join(", ")}`;
+/** Formats each path bare, or with a trailing `(base <sha>: <pass> pass / <fail> fail)` parenthetical
+ *  when the base-ref probe recorded an observation for it. */
+export function formatReadyGateOutOfScopeDetail(
+  paths: readonly string[],
+  baseRef = "baseRef",
+  observations?: Record<string, BaseRefProbeObservation>,
+): string {
+  const formattedPaths = paths.map((path) => {
+    const observation = observations?.[path];
+    return observation === undefined
+      ? path
+      : `${path} (base ${observation.baseCommit}: ${observation.pass} pass / ${observation.fail} fail)`;
+  });
+  return `ready gate failing paths also reproduce on ${baseRef}: ${formattedPaths.join(", ")}`;
 }
 
 /** Resumable when outside paths differ from the row's first `ready_gate_out_of_scope` settlement. */
@@ -1032,7 +1045,14 @@ export function readyGateOutOfScopeLogFields(
   ) {
     return {
       readyGateOutsidePaths: [...source.outsidePaths],
-      readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail(source.outsidePaths, source.scopeBaseRef),
+      readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail(
+        source.outsidePaths,
+        source.scopeBaseRef,
+        source.outsidePathObservations,
+      ),
+      ...(source.outsidePathObservations !== undefined
+        ? { readyGateOutOfScopeObservations: source.outsidePathObservations }
+        : {}),
     };
   }
   if (source instanceof Error) return {};
@@ -1042,6 +1062,9 @@ export function readyGateOutOfScopeLogFields(
   }
   if (source.readyGateOutOfScopeDetail !== undefined) {
     fields.readyGateOutOfScopeDetail = source.readyGateOutOfScopeDetail;
+  }
+  if (source.readyGateOutOfScopeObservations !== undefined) {
+    fields.readyGateOutOfScopeObservations = source.readyGateOutOfScopeObservations;
   }
   return fields;
 }

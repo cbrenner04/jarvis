@@ -58,6 +58,7 @@ export type LoopFinishedEvent = {
   nonTerminatingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
+  readyGateOutOfScopeObservations?: Record<string, { pass: number; fail: number; baseCommit: string }>;
   readyGateCommand?: string;
   readyGateOutput?: string;
   readyGateCommandMissingEvidence?: string;

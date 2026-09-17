@@ -673,6 +673,49 @@ test("composeRunOperatorError maps changed-path ready_gate_out_of_scope as resum
   });
 });
 
+test("composeRunOperatorError carries readyGateOutOfScopeObservations from the loop_finished event", () => {
+  const outsidePath = "v2/src/untouched.test.ts";
+  const observations = { [outsidePath]: { pass: 3, fail: 2, baseCommit: "abc1234" } };
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath} (base abc1234: 3 pass / 2 fail)`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: false,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+    readyGateOutOfScopeObservations: observations,
+  });
+
+  expect(composeRunOperatorError(runWith("failed"), event)).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: false,
+    nextAction: "stop",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+    readyGateOutOfScopeObservations: observations,
+  });
+});
+
+test("composeRunOperatorError renders a legacy ready_gate_out_of_scope row with no observations", () => {
+  const outsidePath = "v2/src/untouched.test.ts";
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: false,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+
+  expect(() => composeRunOperatorError(runWith("failed"), event)).not.toThrow();
+  const composed = composeRunOperatorError(runWith("failed"), event);
+  expect(composed).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: false,
+    nextAction: "stop",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+  expect(composed).not.toHaveProperty("readyGateOutOfScopeObservations");
+  expect(detail).not.toContain("(base");
+});
+
 test("ready_gate_out_of_scope recovery does not guide retry finalization", () => {
   expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).not.toContain("retry finalization");
   expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).not.toContain("fix the ready gate failure");

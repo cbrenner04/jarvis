@@ -77,6 +77,7 @@ export type RunOperatorError = {
   nonTerminatingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
+  readyGateOutOfScopeObservations?: Record<string, { pass: number; fail: number; baseCommit: string }>;
   contractMissDetail?: string;
   completedSubspecPaths?: string[];
   remainingSubspecPaths?: string[];

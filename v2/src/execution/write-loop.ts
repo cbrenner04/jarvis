@@ -158,6 +158,7 @@ export type WriteLoopResult = {
   readyGateError?: string;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
+  readyGateOutOfScopeObservations?: Record<string, { pass: number; fail: number; baseCommit: string }>;
   readyFlipError?: string;
   readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;

@@ -17,7 +17,7 @@
 - [x] No resulting `workflow-runner-resume-*.test.ts` file exceeds 40s when run alone with `bun test <file>`.
 - [x] `bun run typecheck` passes.
 - [x] `bun run check` passes.
-- [ ] `bun run test` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

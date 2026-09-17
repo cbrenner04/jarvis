@@ -137,9 +137,8 @@ describe("daemon self-handoff (real processes)", () => {
         expect(existsSync(join(sockDir, "daemon-changed-observed.sock"))).toBe(true);
         expect(await answersHealth(publicSocketPath)).toBe(true);
 
-        // No runs to drain: the retired incumbent exits. Node's `exit` event only fires once the OS
-        // has reaped the process and torn down its process group, so this is a real, not merely
-        // observed, exit.
+        // No runs to drain: the retired incumbent exits. Node's `exit` event fires once the child
+        // process has been reaped, so this is a real exit, not merely an observed one.
         expect(await waitFor(() => incumbentExited, 15_000)).toBe(true);
         // The successor must outlive its spawning incumbent, not merely be alive at the instant it
         // exits: sample alive+health repeatedly across a real window after the incumbent is gone.

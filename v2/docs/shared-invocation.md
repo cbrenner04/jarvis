@@ -79,15 +79,21 @@ Bindings:
   ignore stdin, classify quota/model-config/transient with their own opencode
   signals (quota phrasing plus a guarded 429; `no provider configured for` as
   terminal model-config; guarded HTTP 500 with `UnknownError` context as
-   transient) over **stderr only** (`classifierDiagnostics`), since opencode's
-   `--format json` stdout is the agent event stream carrying file contents it
-   read/grepped and must not be scanned for signals. Because that scoping leaves an
-   opencode `quota`/`model_config`/`error` result with an empty classified `stderr`,
-   the excluded stdout stream is retained on the result's observability-only
-   `diagnostics` field (`errBuf+outBuf`) so the failure is still diagnosable; it is
-   surfaced by the session log and `invocation_failure_diagnostic` but is never fed
-   back into classification (settle-time or the transient-retry re-scan). The bindings
-   also parse the `--format json`
+  transient) over **stderr only** (`classifierDiagnostics`), since opencode's
+  `--format json` stdout is the agent event stream carrying file contents it
+  read/grepped and must not be scanned for signals. Because that scoping leaves an
+  opencode `quota`/`model_config`/`error` result with an empty classified `stderr`
+  whenever the failure surfaces only on stdout, the excluded stdout stream is
+  retained on the result's observability-only `diagnostics` field so the failure is
+  still diagnosable; the session log writes it under `inbound_stdout` and the
+  bounded persisted message / `invocation_failure_diagnostic` fall back to it only
+  when `stderr` is empty (`invocationDiagnosticText` prefers a non-empty `stderr` so
+  the classifying phrase survives the fixed tail slice rather than being evicted by a
+  long stdout stream). It is never fed back into classification (settle-time or the
+  transient-retry re-scan). One caveat: when `stderr` is empty the fallback tail may
+  put a slice of read/grepped file contents into `message` / `error.message` (`run
+  list`); low severity (local, single operator, capped at 2048 code units). The
+  bindings also parse the `--format json`
   NDJSON stream: token and cost fields are summed only from clean `step_finish`
   frames (`part.tokens.{input,output,cache.read,cache.write}` and `part.cost`),
   with `text` `part.text` frames supplying display text (raw stdout fallback

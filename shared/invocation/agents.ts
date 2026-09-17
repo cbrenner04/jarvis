@@ -622,12 +622,13 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     };
 
     // When `classifierDiagnostics` scopes the classified `stderr` down (opencode, whose JSON
-    // result envelope lands on stdout), the excluded stream is retained here as observability-only
-    // `diagnostics` so an `error`/`quota`/`model_config` result is not left with nothing to show.
-    // Must never be routed back into classification.
+    // result envelope lands on stdout), the excluded stdout stream is retained here as
+    // observability-only `diagnostics` so an `error`/`quota`/`model_config` result is not left with
+    // nothing to show when stderr is empty. Never routed back into classification; the classified
+    // `stderr` still wins any diagnostic surface whenever it is non-empty.
     const retainedDiagnosticsSpread = (): { diagnostics?: string } => {
       if (config.classifier !== "opencode" || outBuf.length === 0) return {};
-      return { diagnostics: `${errBuf}${outBuf}` };
+      return { diagnostics: outBuf };
     };
 
     const settleZeroExit = () => {

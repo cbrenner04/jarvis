@@ -41,13 +41,13 @@ export type InvocationError =
       exitCode: number;
       stderr: string;
       /**
-       * Full agent output stream retained for observability, populated only when it would
-       * otherwise be lost because `stderr` is classification-scoped. opencode's result envelope
-       * arrives on stdout (`--format json`), which is deliberately excluded from `stderr` so a
-       * quota/transport phrase inside a file the agent read cannot misclassify the failure
-       * (see `classifierDiagnostics`). Without this field an opencode `error` leaves an empty
-       * `stderr`, so the session log and `invocation_failure_diagnostic` had nothing to show.
-       * Consumers must treat this as diagnostics only and never feed it back into classification.
+       * The agent stdout stream that was excluded from classification, retained for observability
+       * only. opencode's result envelope arrives on stdout (`--format json`), which is deliberately
+       * excluded from `stderr` so a quota/transport phrase inside a file the agent read cannot
+       * misclassify the failure (see `classifierDiagnostics`). Without this field an opencode
+       * `error` whose stderr is empty leaves the session log and `invocation_failure_diagnostic`
+       * with nothing to show. Diagnostic surfaces prefer a non-empty `stderr` and only fall back to
+       * this stream (see `invocationDiagnosticText`); it must never be fed back into classification.
        */
       diagnostics?: string;
     };
@@ -197,10 +197,16 @@ function retainedDiagnostics(result: InvocationResult): string | undefined {
 }
 
 /**
- * Text a diagnostic surface (session log tail, `invocation_failure_diagnostic`) should show for
- * a result: the retained full stream when present, otherwise the classification-scoped `stderr`.
+ * Text a diagnostic surface (session-log tail, persisted `message`/`error.message`,
+ * `invocation_failure_diagnostic`) should show for a result. The classification-scoped `stderr`
+ * wins whenever it is non-empty: it holds the phrase that decided quota/model_config/transient and
+ * must survive the caller's fixed tail slice, which a long retained stdout stream would otherwise
+ * push out. Only when `stderr` is empty (opencode's envelope lands wholly on stdout) do we fall
+ * back to the retained stream. Preferring `stderr` here also keeps the persisted message aligned
+ * with the echo check, which reads `result.stderr`.
  */
 export function invocationDiagnosticText(result: InvocationResult): string {
+  if (result.stderr.trim().length > 0) return result.stderr;
   return retainedDiagnostics(result) ?? result.stderr;
 }
 

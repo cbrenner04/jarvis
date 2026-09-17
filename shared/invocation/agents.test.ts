@@ -2394,11 +2394,12 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("opencode still classifies a real stderr quota signal alongside unrelated stdout content", async () => {
+    const benignStdout = '{"type":"text","part":{"text":"benign content"}}';
     const fake = fakeSpawn([
       {
         kind: "settle",
         code: 1,
-        stdout: '{"type":"text","part":{"text":"benign content"}}',
+        stdout: benignStdout,
         stderr: "rate limit reached",
       },
     ]);
@@ -2410,8 +2411,8 @@ describe("createResolvedAgentBinding", () => {
     // Diagnostics are scoped to stderr, so the JSON content stream is not folded into the result.
     if (result.kind === "quota") {
       expect(result.stderr).toBe("rate limit reached");
-      // The stdout stream is still retained separately for observability, never for classification.
-      expect(result.diagnostics).toContain("benign content");
+      // The excluded stdout stream is retained verbatim and separately, never for classification.
+      expect(result.diagnostics).toBe(benignStdout);
     }
   });
 

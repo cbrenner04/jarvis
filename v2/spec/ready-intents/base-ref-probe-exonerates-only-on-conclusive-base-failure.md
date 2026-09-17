@@ -8,13 +8,13 @@ Run `75ca2a7a` settled `ready_gate_out_of_scope` for `v2/src/daemon/daemon-run-f
 
 ## Decisions
 
-- Before changing classification, confirm why `createDefaultReproduceReadyGateAtBaseRef` (`v2/src/execution/ready-finalize.ts`) reported `fail` for a path that passes at base. Check whether the probe tree is really at `baseRef`, which cwd and env the v2-mode spawn uses, and whether any non-zero exit counts as reproduction. Fix the actual cause. Do not treat it as flake.
+- Before changing classification, confirm why `createDefaultReproduceReadyGateAtBaseRef` (`v2/src/execution/ready-finalize.ts`) reported `fail` for `v2/src/daemon/daemon-run-failure-capture.test.ts`, which passes at base (run `75ca2a7a`). Check whether the probe tree is really at `baseRef`, which cwd and env the v2-mode spawn uses, and whether any non-zero exit counts as reproduction.
 - `probeOutsidePathsAtBaseRef` puts a path in `confirmedOutsidePaths` only when the probe shows the path fails at a tree verified to be the base commit. An inconclusive probe keeps the path in scope, so the run settles the ordinary repairable red gate. This covers errors, timeouts, an unverified tree, or a failure that is not a test failure.
 - Scope is limited to the base-ref probe and the classification it feeds. Do not change what the ready gate runs.
 
 ## Acceptance criteria
 
-- [ ] A test drives a path that passes at `baseRef` and fails on the branch, and proves the run does not settle `ready_gate_out_of_scope`. This test fails against the current probe.
+- [ ] A test reproduces the run `75ca2a7a` case — a path that passes at `baseRef` and fails on the branch, matching `v2/src/daemon/daemon-run-failure-capture.test.ts`'s pass/fail split — and proves the run does not settle `ready_gate_out_of_scope`. This test fails against the current probe.
 - [ ] A test proves a path that fails on both base and branch still settles `ready_gate_out_of_scope`.
 - [ ] A test proves an inconclusive base-ref probe settles a repairable red gate, not the non-resumable out-of-scope verdict.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

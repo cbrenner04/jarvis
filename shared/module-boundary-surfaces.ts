@@ -200,9 +200,9 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
       throw new Error(`Plan subspec ${file} is missing ## Acceptance criteria`);
     }
     for (const [heading, bulletPattern] of [
-      ["## Acceptance criteria", CHECKBOX_BULLET_PATTERN],
+      [ACCEPTANCE_CRITERIA_HEADING, CHECKBOX_BULLET_PATTERN],
       ["## Decisions", PLAIN_BULLET_PATTERN],
-      ["## Documentation updates", PLAIN_BULLET_PATTERN],
+      [DOCUMENTATION_UPDATES_HEADING, PLAIN_BULLET_PATTERN],
     ] as const) {
       offenders.push(...assertSingleArtifactBullets(file, heading, sectionBulletTexts(body, heading, bulletPattern)));
     }

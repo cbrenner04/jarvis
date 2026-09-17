@@ -9,12 +9,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop-intent-landing.test.ts` `seedGitBaseline` uses the template-repo helper's uncommitted mode; per-test `git init` and `git config` execs are gone.
-- [ ] `v2/src/execution/write-loop-intent-landing.test.ts` stays green.
-- [ ] `v2/src/execution/write-loop-intent-landing.test.ts` test count is unchanged or higher versus the merge base.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
-- [ ] `bun run check` passes.
+- [x] `v2/src/execution/write-loop-intent-landing.test.ts` `seedGitBaseline` uses the template-repo helper's uncommitted mode; per-test `git init` and `git config` execs are gone.
+- [x] `v2/src/execution/write-loop-intent-landing.test.ts` stays green.
+- [x] `v2/src/execution/write-loop-intent-landing.test.ts` test count is unchanged or higher versus the merge base.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

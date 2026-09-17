@@ -17,10 +17,10 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/persistence/state-store.test.ts` asserts `admitRunForResume` stamps the calling identity (and sets status `in-progress`) when the run's prior owner is null, is the current identity, or is dead; it fails against the insert-only stamp.
-- [ ] A test in `v2/src/persistence/state-store.test.ts` asserts `admitRunForResume` refuses with `reason: "owner_alive"` when a different live owner holds the row, leaving `owner_identity` and status unchanged.
-- [ ] A test covering one of the four `workflow-runner-resume.ts` resume paths (e.g. `runIntentResumeCommitAndPublish`) asserts that when `admitRunForResume` refuses, the completion committer is never invoked and no further run state is written; it fails against the pre-fix unconditional `setRunStatus` call.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/persistence/state-store.test.ts` asserts `admitRunForResume` stamps the calling identity (and sets status `in-progress`) when the run's prior owner is null, is the current identity, or is dead; it fails against the insert-only stamp.
+- [x] A test in `v2/src/persistence/state-store.test.ts` asserts `admitRunForResume` refuses with `reason: "owner_alive"` when a different live owner holds the row, leaving `owner_identity` and status unchanged.
+- [x] A test covering one of the four `workflow-runner-resume.ts` resume paths (e.g. `runIntentResumeCommitAndPublish`) asserts that when `admitRunForResume` refuses, the completion committer is never invoked and no further run state is written; it fails against the pre-fix unconditional `setRunStatus` call.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

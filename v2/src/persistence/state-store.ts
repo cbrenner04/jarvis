@@ -303,6 +303,21 @@ type RunDismissalOutcome =
   | { kind: "applied"; runId: string }
   | { kind: "refused"; runId: string; reason: RunDismissalRefusalReason };
 
+type RunAdmissionRefusalReason = "owner_alive" | "claim_lost";
+
+type RunAdmissionOutcome = { kind: "applied" } | { kind: "refused"; reason: RunAdmissionRefusalReason };
+
+/** Thrown by resume call sites when {@link StateStore.admitRunForResume} refuses. */
+export class RunAdmissionRefusedError extends Error {
+  constructor(
+    readonly runId: string,
+    readonly reason: RunAdmissionRefusalReason,
+  ) {
+    super(`Run ${runId} resume admission refused: ${reason}`);
+    this.name = "RunAdmissionRefusedError";
+  }
+}
+
 type TerminalRunSettlementEvidence = {
   terminalCause?: WriteLoopOutcomeKind | null;
   prNumber?: number | null;
@@ -882,6 +897,16 @@ export interface StateStore {
 
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
+
+  /**
+   * Re-admit a run for resume: stamps `owner_identity` to the current process and sets
+   * status `in-progress`. Admits without a liveness probe when the row's prior owner is
+   * `NULL` or already this process. Otherwise probes liveness first and refuses
+   * `owner_alive` before any write when a different owner is still alive; a write that
+   * matches zero rows because the owner changed between the probe and the write refuses
+   * `claim_lost`.
+   */
+  admitRunForResume(runId: string): Promise<RunAdmissionOutcome>;
 
   /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
   commitGuardedKill(runId: string): void;
@@ -2686,6 +2711,40 @@ class StateStoreImpl implements StateStore {
     this.db
       .prepare("UPDATE runs SET status = ?, finished_at = ?, status_changed_at = ? WHERE id = ?")
       .run(status, finishedAt, changedAt, runId);
+  }
+
+  async admitRunForResume(runId: string): Promise<RunAdmissionOutcome> {
+    const row = this.db.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+      ownerIdentity: string | null;
+    } | null;
+    const priorOwnerIdentity = row?.ownerIdentity ?? null;
+    if (
+      priorOwnerIdentity !== null &&
+      priorOwnerIdentity !== this.currentIdentity &&
+      (await this.isOwnerAliveProbe(priorOwnerIdentity))
+    ) {
+      return { kind: "refused", reason: "owner_alive" };
+    }
+
+    const changedAt = Date.now();
+    const result =
+      priorOwnerIdentity === null
+        ? this.db
+            .prepare(
+              `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?
+               WHERE id = ? AND owner_identity IS NULL`,
+            )
+            .run(this.currentIdentity, changedAt, runId)
+        : this.db
+            .prepare(
+              `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?
+               WHERE id = ? AND owner_identity = ?`,
+            )
+            .run(this.currentIdentity, changedAt, runId, priorOwnerIdentity);
+    if (result.changes === 0) {
+      return { kind: "refused", reason: "claim_lost" };
+    }
+    return { kind: "applied" };
   }
 
   commitGuardedKill(runId: string): void {

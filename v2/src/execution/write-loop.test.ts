@@ -755,6 +755,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
+    admitRunForResume: (runId) => inner.admitRunForResume(runId),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
     commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
     dismissRun: (runId) => inner.dismissRun(runId),
@@ -865,6 +866,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
+    admitRunForResume: (runId) => inner.admitRunForResume(runId),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
     commitTerminalRunSettlement: (args) => {
       inner.commitTerminalRunSettlement(args);
@@ -7009,6 +7011,7 @@ export function isLoadSensitive(file: string): boolean {
             if (status === "failed") failedStatusWrites += 1;
             inner.setRunStatus(runId, status);
           },
+          admitRunForResume: (runId) => inner.admitRunForResume(runId),
           commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
           commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
           dismissRun: (runId) => inner.dismissRun(runId),

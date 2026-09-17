@@ -3580,6 +3580,97 @@ describe("ready gate sweep candidates", () => {
   });
 });
 
+describe("admitRunForResume", () => {
+  const PRIOR_IDENTITY = "11111:1000000";
+  const CURRENT_IDENTITY = "22222:2000000";
+
+  let seedStore: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: PRIOR_IDENTITY });
+  });
+
+  afterEach(() => {
+    seedStore.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function openResumeStore(isOwnerAliveProbe: OwnerLivenessProbe): StateStore {
+    return openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive: isOwnerAliveProbe });
+  }
+
+  function readOwnerIdentity(runId: string): string | null {
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      const row = raw.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+        ownerIdentity: string | null;
+      };
+      return row.ownerIdentity;
+    } finally {
+      raw.close();
+    }
+  }
+
+  test("stamps the calling identity and sets in-progress when the prior owner is null", async () => {
+    const runId = seedRun(seedStore, { branch: "null-owner", status: "failed" });
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET owner_identity = NULL WHERE id = ?").run(runId);
+    raw.close();
+
+    const resumeStore = openResumeStore(async () => {
+      throw new Error("liveness probe should not be called for a NULL owner");
+    });
+    const outcome = await resumeStore.admitRunForResume(runId);
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
+    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+    resumeStore.close();
+  });
+
+  test("stamps the calling identity and sets in-progress when the prior owner is already this process", async () => {
+    const runId = seedRun(seedStore, { branch: "same-owner", status: "failed" });
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(CURRENT_IDENTITY, runId);
+    raw.close();
+
+    const resumeStore = openResumeStore(async () => {
+      throw new Error("liveness probe should not be called for the current identity");
+    });
+    const outcome = await resumeStore.admitRunForResume(runId);
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
+    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+    resumeStore.close();
+  });
+
+  test("stamps the calling identity and sets in-progress when the prior owner is dead", async () => {
+    const runId = seedRun(seedStore, { branch: "dead-owner", status: "failed" });
+
+    const resumeStore = openResumeStore(async () => false);
+    const outcome = await resumeStore.admitRunForResume(runId);
+
+    expect(outcome).toEqual({ kind: "applied" });
+    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
+    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+    resumeStore.close();
+  });
+
+  test("refuses owner_alive and leaves owner_identity and status unchanged when a different owner is alive", async () => {
+    const runId = seedRun(seedStore, { branch: "live-owner", status: "failed" });
+
+    const resumeStore = openResumeStore(async (identity) => identity === PRIOR_IDENTITY);
+    const outcome = await resumeStore.admitRunForResume(runId);
+
+    expect(outcome).toEqual({ kind: "refused", reason: "owner_alive" });
+    expect(resumeStore.loadRun(runId)?.status).toBe("failed");
+    expect(readOwnerIdentity(runId)).toBe(PRIOR_IDENTITY);
+    resumeStore.close();
+  });
+});
+
 describe("isOwnerAlive", () => {
   test("same pid with a matching start epoch is alive", async () => {
     expect(await isOwnerAlive(`${process.pid}:1000`, async () => 1000)).toBe(true);

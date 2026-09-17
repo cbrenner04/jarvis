@@ -34,6 +34,7 @@ import type {
   WorkflowSnapshot,
   WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
+import { RunAdmissionRefusedError } from "../persistence/state-store.ts";
 import {
   type CompletionCommitter,
   type CompletionStepMetadata,
@@ -1293,7 +1294,8 @@ async function runIntentResumeCommitAndPublish(
     resumable: false,
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   };
-  store.setRunStatus(context.runId, "in-progress");
+  const admission = await store.admitRunForResume(context.runId);
+  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
   // No push/PR/gate once `run kill` aborted the resumed tail.
   throwIfAborted(deps.signal);
   const publication = await publishWithReadyRepair(
@@ -2091,7 +2093,8 @@ async function runMutationRepairAttempt(
     };
   }
 
-  store.setRunStatus(context.runId, "in-progress");
+  const admission = await store.admitRunForResume(context.runId);
+  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
   const mutationRepairStep: CompletionStepMetadata = { kind: "mutation-repair" };
   try {
@@ -2361,7 +2364,8 @@ async function runReviewMutationCommitAndPublish(
     resumable: false,
     completionAgent: context.completionAgent as string,
   };
-  store.setRunStatus(context.runId, "in-progress");
+  const admission = await store.admitRunForResume(context.runId);
+  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
   // No push/PR/gate once `run kill` aborted the resumed tail.
   throwIfAborted(deps.signal);
   const publication = await publishWithReadyRepair(
@@ -2528,7 +2532,8 @@ async function replayMutationFinalization(
   const { context } = resolved;
 
   const attemptId = store.recordAttemptStart(context.runId);
-  store.setRunStatus(context.runId, "in-progress");
+  const admission = await store.admitRunForResume(context.runId);
+  if (admission.kind === "refused") throw new RunAdmissionRefusedError(context.runId, admission.reason);
   deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
 
   try {

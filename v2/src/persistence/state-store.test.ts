@@ -250,6 +250,43 @@ describe("StateStore", () => {
     }
   });
 
+  test("readWorkflowInvocationSettledMarker returns null when unset", () => {
+    const runId = seedRun(store);
+    expect(store.readWorkflowInvocationSettledMarker(runId)).toBeNull();
+  });
+
+  test("writes and reads back a workflow invocation settled marker", () => {
+    const runId = seedRun(store);
+    store.writeWorkflowInvocationSettledMarker(runId, "completed", 1_700_000_000_000);
+    expect(store.readWorkflowInvocationSettledMarker(runId)).toEqual({
+      cause: "completed",
+      settledAt: 1_700_000_000_000,
+    });
+  });
+
+  test("writing a second settled marker replaces both the cause and the settled time", () => {
+    const runId = seedRun(store);
+    store.writeWorkflowInvocationSettledMarker(runId, "completed", 1_700_000_000_000);
+    store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_800_000_000_000);
+    expect(store.readWorkflowInvocationSettledMarker(runId)).toEqual({
+      cause: "failed",
+      settledAt: 1_800_000_000_000,
+    });
+  });
+
+  test("a second store opened on the same file reads a marker written by the first", () => {
+    const runId = seedRun(store);
+    store.writeWorkflowInvocationSettledMarker(runId, "killed", 1_900_000_000_000);
+
+    store.close();
+    const reopened = openStateStore(TEST_DB_PATH);
+    expect(reopened.readWorkflowInvocationSettledMarker(runId)).toEqual({
+      cause: "killed",
+      settledAt: 1_900_000_000_000,
+    });
+    reopened.close();
+  });
+
   test("clearRunDownstreamInputs removes a persisted multi-file handoff from the run row", () => {
     const runId = seedRun(store, { specPath: "ready-intents/one.md" });
     store.setRunDownstreamInputs(runId, ["ready-intents/one.md", "ready-intents/two.md"]);

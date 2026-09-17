@@ -233,6 +233,64 @@ function createPreSquashFixtureDb(dbPath: string): FixtureSeed {
   };
 }
 
+const BASELINE_SCHEMA_FIXTURE_RUN_ID = "baseline-schema-fixture-run";
+
+/**
+ * A store already stamped `031-baseline-squash` whose `runs` table matches the current baseline
+ * schema (not the pre-squash column set `createPreSquashFixtureDb` produces), missing the
+ * `workflow_invocation_settled` table — the shape a real baseline store reaches when opened
+ * before that table's `CREATE TABLE IF NOT EXISTS` migration is applied.
+ */
+function createBaselineFixtureDbMissingSettledTable(dbPath: string): void {
+  removeOrchestrationStore(dbPath);
+  const raw = new Database(dbPath);
+  raw.exec(`
+    CREATE TABLE _migrations (
+      id TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
+    CREATE TABLE runs (
+      id TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      spec_ref TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      worktree_path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      spec_path TEXT NOT NULL,
+      step_id TEXT,
+      workflow_snapshot TEXT,
+      queued_input TEXT,
+      creation_title TEXT,
+      reconciliation_pending INTEGER NOT NULL DEFAULT 0,
+      owner_identity TEXT,
+      pr_number INTEGER,
+      pr_url TEXT,
+      reconciled_at INTEGER,
+      ready_gate_repair_fence TEXT,
+      retained_finalization_checkpoint TEXT,
+      downstream_inputs TEXT,
+      finished_at INTEGER,
+      ready_gate_pgid INTEGER,
+      dismissed_at INTEGER,
+      terminal_cause TEXT,
+      terminal_failure_detail TEXT,
+      operator_failure_record TEXT,
+      status_changed_at INTEGER
+    );
+  `);
+  raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run("031-baseline-squash", Date.now());
+  raw
+    .prepare(
+      `INSERT INTO runs (
+        id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, finished_at, terminal_cause
+      ) VALUES (?, 'fixture-project', 'main', ?, 'completed', 1, '/tmp/fixture', 'fixture-branch', 'spec.md', ?, 'done')`,
+    )
+    .run(BASELINE_SCHEMA_FIXTURE_RUN_ID, FIXTURE_CREATED_AT, FIXTURE_CREATED_AT + 1000);
+  raw.close();
+}
+
 function seedEquivalentBaselineDb(dbPath: string, ids: FixtureSeed): void {
   const store = openStateStore(dbPath);
   const raw = new Database(dbPath);
@@ -446,6 +504,33 @@ describe("state store baseline migration", () => {
       const before = Date.now();
       store.setRunStatus(ids.runId, "paused");
       expect(store.loadRun(ids.runId)?.statusChangedAt).toBeGreaterThanOrEqual(before);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("stamped baseline databases create a missing workflow_invocation_settled table with no markers for existing invocations", () => {
+    createBaselineFixtureDbMissingSettledTable(legacyDbPath);
+    const raw = new Database(legacyDbPath);
+    const tableExistsBefore = raw
+      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_invocation_settled'")
+      .get() as { ok: number } | null;
+    raw.close();
+    expect(tableExistsBefore).toBeNull();
+
+    const store = openStateStore(legacyDbPath);
+    try {
+      expect(store.readWorkflowInvocationSettledMarker(BASELINE_SCHEMA_FIXTURE_RUN_ID)).toBeNull();
+      const verify = new Database(legacyDbPath);
+      const tableExistsAfter = verify
+        .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_invocation_settled'")
+        .get() as { ok: number } | null;
+      const markerCount = verify.prepare("SELECT COUNT(*) AS count FROM workflow_invocation_settled").get() as {
+        count: number;
+      };
+      verify.close();
+      expect(tableExistsAfter?.ok).toBe(1);
+      expect(markerCount.count).toBe(0);
     } finally {
       store.close();
     }

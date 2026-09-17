@@ -719,6 +719,9 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
     readRunBudgetConsumedMs: (budgetKey) => inner.readRunBudgetConsumedMs(budgetKey),
     writeRunBudgetConsumedMs: (budgetKey, consumedMs) => inner.writeRunBudgetConsumedMs(budgetKey, consumedMs),
+    readWorkflowInvocationSettledMarker: (entryRunId) => inner.readWorkflowInvocationSettledMarker(entryRunId),
+    writeWorkflowInvocationSettledMarker: (entryRunId, cause, settledAt) =>
+      inner.writeWorkflowInvocationSettledMarker(entryRunId, cause, settledAt),
     recordVerifierProcessGroup: (runId, pgid) => inner.recordVerifierProcessGroup(runId, pgid),
     verifierProcessGroups: (runId) => inner.verifierProcessGroups(runId),
     clearVerifierProcessGroup: (runId, pgid) => inner.clearVerifierProcessGroup(runId, pgid),
@@ -830,6 +833,9 @@ function storeObservingCompletedWrites(inner: StateStore): {
     setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
     readRunBudgetConsumedMs: (budgetKey) => inner.readRunBudgetConsumedMs(budgetKey),
     writeRunBudgetConsumedMs: (budgetKey, consumedMs) => inner.writeRunBudgetConsumedMs(budgetKey, consumedMs),
+    readWorkflowInvocationSettledMarker: (entryRunId) => inner.readWorkflowInvocationSettledMarker(entryRunId),
+    writeWorkflowInvocationSettledMarker: (entryRunId, cause, settledAt) =>
+      inner.writeWorkflowInvocationSettledMarker(entryRunId, cause, settledAt),
     recordVerifierProcessGroup: (runId, pgid) => inner.recordVerifierProcessGroup(runId, pgid),
     verifierProcessGroups: (runId) => inner.verifierProcessGroups(runId),
     clearVerifierProcessGroup: (runId, pgid) => inner.clearVerifierProcessGroup(runId, pgid),
@@ -7036,6 +7042,9 @@ export function isLoadSensitive(file: string): boolean {
           setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
           readRunBudgetConsumedMs: (budgetKey) => inner.readRunBudgetConsumedMs(budgetKey),
           writeRunBudgetConsumedMs: (budgetKey, consumedMs) => inner.writeRunBudgetConsumedMs(budgetKey, consumedMs),
+          readWorkflowInvocationSettledMarker: (entryRunId) => inner.readWorkflowInvocationSettledMarker(entryRunId),
+          writeWorkflowInvocationSettledMarker: (entryRunId, cause, settledAt) =>
+            inner.writeWorkflowInvocationSettledMarker(entryRunId, cause, settledAt),
           recordVerifierProcessGroup: (runId, pgid) => inner.recordVerifierProcessGroup(runId, pgid),
           verifierProcessGroups: (runId) => inner.verifierProcessGroups(runId),
           clearVerifierProcessGroup: (runId, pgid) => inner.clearVerifierProcessGroup(runId, pgid),

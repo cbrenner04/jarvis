@@ -126,6 +126,12 @@ Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnab
 
 `v2/src/execution/intent-output.test.ts` stubs the markdownlint call with a runner that delegates `git` commands to `realAsyncSubprocessRunner` but no-ops the `bun ... markdownlint-cli2` spawn — real git behavior stays under test, the slow real binary does not run. One real-binary landing test moved to [`intent-output.sandbox-unrunnable.test.ts`](../src/execution/intent-output.sandbox-unrunnable.test.ts) for genuine end-to-end coverage. Measured on operator hardware (2026-09-16): the 15-test `intent-output.test.ts` file dropped from 14.67s (0.98s/test) to 1.17s (0.08s/test); the moved real-binary test runs in ~1.46s under the integration slice.
 
+## Staged-lint seam on plan resume
+
+`recoverPlanStage` (`v2/src/execution/workflow-runner-resume.ts`) accepts an optional `runner?: AsyncSubprocessRunner` on its `PlanStageRecoveryRequest`, forwarded through `lintPlanRecoveryStage` into `lintStagedMarkdown` (`v2/src/execution/staged-markdown-lint.ts`); the production default stays `realAsyncSubprocessRunner`, resolved inside `lintStagedMarkdown` itself.
+
+`workflow-runner-resume.test.ts` gained one unit test ("uses the injected runner for plan-recovery staged lint") that stubs the markdownlint call and asserts recovery observes the stub's reported violation, proving the seam is wired. One real-binary test covering the same recovery path lives in [`plan-recovery-staged-lint.sandbox-unrunnable.test.ts`](../src/execution/plan-recovery-staged-lint.sandbox-unrunnable.test.ts) for genuine end-to-end coverage of `recoverPlanStage` against the pinned `markdownlint-cli2` binary.
+
 ## Deterministic daemon and execution tests
 
 Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) must not use direct timer-backed waits. **Bounded condition polling** and **bounded microtask spin** are allowed; **sleep-as-wait** is forbidden.

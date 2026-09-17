@@ -14,11 +14,11 @@
 
 ## Acceptance criteria
 
-- [ ] A unit test asserts an injected runner is used by plan-recovery staged lint; it fails against the pre-change code.
-- [ ] One real-binary integration test covers the staged-lint path and runs under `bun run test:integration:v2`.
-- [ ] `v2/src/execution/staged-markdown-lint.test.ts` stays green.
-- [ ] Test count per slice is unchanged or higher versus the merge base.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2`, and `bun run check` pass.
+- [x] A unit test asserts an injected runner is used by plan-recovery staged lint; it fails against the pre-change code.
+- [x] One real-binary integration test covers the staged-lint path and runs under `bun run test:integration:v2`.
+- [x] `v2/src/execution/staged-markdown-lint.test.ts` stays green.
+- [x] Test count per slice is unchanged or higher versus the merge base.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2`, and `bun run check` pass.
 
 ## Documentation updates
 

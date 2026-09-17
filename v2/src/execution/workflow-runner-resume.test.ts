@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
@@ -4037,6 +4038,76 @@ describe("recoverPlanStage", () => {
       expect(outcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
       expect(outcome).toMatchObject({ message: expect.stringContaining("MD038") });
       expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntent);
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
+  test("uses the injected runner for plan-recovery staged lint", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-lint-runner-seam-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-lint-runner-seam");
+    const branch = "recover-plan-stage-lint-runner-seam";
+    const stepId = "plan";
+    const specPath = "spec/2026-lint-runner-seam";
+    writeLintCleanPlanStage(stage, "00-first.md");
+
+    const calls: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (_cmd, args) => {
+        calls.push(args);
+        const stagedFile = args.at(-1) ?? "";
+        return `${stagedFile}:1 MD999/stub-rule stub violation from injected runner`;
+      },
+    };
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-lint-runner-seam-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.draft.shape",
+        responseText: "done",
+        failureReason: "reason",
+      });
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run when the injected lint runner reports a violation");
+        },
+      });
+
+      // Mutation checkpoint: dropping the `runner` forward into `lintPlanRecoveryStage` must turn
+      // this RED (the injected stub never sees a call; the real markdownlint binary runs instead).
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        recoveryLanding: planRecoveryLanding(reviewStep),
+        stateStore: store,
+        logSink,
+        runner,
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(outcome).toMatchObject({
+        ok: false,
+        code: "plan_stage_invalid",
+        message: expect.stringContaining("MD999"),
+      });
       expect(existsSync(durable)).toBe(false);
     });
   });

@@ -10,7 +10,6 @@ export interface GitFixtureTemplate {
 
 export interface CommittedGitFixtureOptions {
   files?: Record<string, string>;
-  commitMessage?: string;
 }
 
 function configureIdentity(dir: string): void {
@@ -43,14 +42,13 @@ function lazyGitFixtureTemplate(build: () => string): GitFixtureTemplate {
 /** Template repo with an initial commit; `options.files` (default `{ seed: "base\n" }`) become that commit's content. */
 export function createCommittedGitFixtureTemplate(options: CommittedGitFixtureOptions = {}): GitFixtureTemplate {
   const files = options.files ?? { seed: "base\n" };
-  const commitMessage = options.commitMessage ?? "base";
   return lazyGitFixtureTemplate(() => {
     const dir = initGitDir();
     for (const [name, content] of Object.entries(files)) {
       writeFileSync(join(dir, name), content, "utf8");
     }
     execFileSync("git", ["add", "."], { cwd: dir });
-    execFileSync("git", ["commit", "-qm", commitMessage], { cwd: dir });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: dir });
     return dir;
   });
 }

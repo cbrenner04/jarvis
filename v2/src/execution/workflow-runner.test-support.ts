@@ -15,6 +15,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { openStateStore } from "../persistence/state-store.ts";
+import { createCommittedGitFixtureTemplate } from "../testing/git-fixture-template.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import type { PublicationInputs } from "./publication-landing.ts";
@@ -168,11 +169,11 @@ export function externalWorktreeBinding(
   });
 }
 
+const intentWorktreeTemplate = createCommittedGitFixtureTemplate({ files: { "base.txt": "base\n" } });
+
 export function createIntentWorktreeHarness(branchName: string) {
-  const workspace = initGitWorkspace(`intent-workflow-${branchName}-`);
-  writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
-  execFileSync("git", ["add", "."], { cwd: workspace });
-  execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+  const workspace = mkdtempSync(join(tmpdir(), `intent-workflow-${branchName}-`));
+  intentWorktreeTemplate.copy(workspace);
   return {
     workspace,
     withExternalWorktree: externalWorktreeBinding(workspace),

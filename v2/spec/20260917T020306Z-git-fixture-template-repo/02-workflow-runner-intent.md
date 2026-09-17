@@ -12,17 +12,17 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test-support.ts` `createIntentWorktreeHarness` uses the template-repo helper for its git workspace.
-- [ ] `workflow-runner-intent.test.ts` stays green.
-- [ ] `workflow-runner-core.test.ts` stays green.
-- [ ] `workflow-runner-plan.test.ts` stays green.
-- [ ] `workflow-runner-publication.test.ts` stays green.
-- [ ] The `workflow-runner-resume-*.test.ts` split files (or `workflow-runner-resume.test.ts` if the split has not landed on the base) stay green.
-- [ ] Test counts of `workflow-runner-intent.test.ts`, the resume test file set (split `workflow-runner-resume-*.test.ts` files, summed), `workflow-runner-plan.test.ts`, `workflow-runner-publication.test.ts`, and `workflow-runner-core.test.ts` all remain unchanged or higher versus the merge base.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
-- [ ] `bun run check` passes.
-- [ ] `v2/docs/test-writing.md` records `bun run test:cost` before/after per-file times for `intent-output`, `write-loop-intent-landing`, and `workflow-runner-intent`, with "before" measured at the merge base.
+- [x] `v2/src/execution/workflow-runner.test-support.ts` `createIntentWorktreeHarness` uses the template-repo helper for its git workspace.
+- [x] `workflow-runner-intent.test.ts` stays green.
+- [x] `workflow-runner-core.test.ts` stays green.
+- [x] `workflow-runner-plan.test.ts` stays green.
+- [x] `workflow-runner-publication.test.ts` stays green.
+- [x] The `workflow-runner-resume-*.test.ts` split files (or `workflow-runner-resume.test.ts` if the split has not landed on the base) stay green.
+- [x] Test counts of `workflow-runner-intent.test.ts`, the resume test file set (split `workflow-runner-resume-*.test.ts` files, summed), `workflow-runner-plan.test.ts`, `workflow-runner-publication.test.ts`, and `workflow-runner-core.test.ts` all remain unchanged or higher versus the merge base.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `bun run check` passes.
+- [x] `v2/docs/test-writing.md` records `bun run test:cost` before/after per-file times for `intent-output`, `write-loop-intent-landing`, and `workflow-runner-intent`, with "before" measured at the merge base.
 
 ## Documentation updates
 

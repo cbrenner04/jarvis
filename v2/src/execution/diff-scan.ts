@@ -1,6 +1,6 @@
+/** Shared diff plumbing for the completion verifiers (mutation + runtime smoke). */
 import { readFileSync } from "node:fs";
 import { isTestCodePath } from "../../../scripts/production-files.ts";
-/** Shared diff plumbing for the completion verifiers (mutation + runtime smoke). */
 
 export async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");

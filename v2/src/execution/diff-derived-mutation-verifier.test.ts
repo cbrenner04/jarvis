@@ -434,8 +434,9 @@ ${guardFlipHunk}
   });
 
   it("inverting the .test. basename exclusion fails: test paths would produce candidates", async () => {
-    // Mutation checkpoint: inverting the `.test.` basename exclusion on `isProductionFile` in
-    // v2/src/execution/diff-scan.ts must turn this subcase RED.
+    // Mutation checkpoint: inverting the `.test.` basename exclusion in `isTestCodePath`
+    // (scripts/production-files.ts), consumed by `isProductionFile` in
+    // v2/src/execution/diff-scan.ts, must turn this subcase RED.
     await expectNoMutationCandidates(guardFlipFileDiff("v2/src/tui/tui-entry.test.tsx", "testFoo()"));
   });
 

@@ -7369,13 +7369,16 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  test("pipeline resume refuses never-landed lane with unpushed commits and names salvage path", async () => {
+  test("pipeline resume continues a landed lane with unpushed commits, preserving the worktree and branch tip", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
     writeFileSync(join(planWorktree, "impl.txt"), "implementation\n");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "impl.txt"], planWorktree);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], planWorktree);
+    const branchTipBefore = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", planBranch], projectRoot)
+    ).trim();
 
     const { store, stages } = fakeStore(
       planChainDefinition(),
@@ -7392,7 +7395,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
 
-    let stderr = "";
     let dispatchCalled = false;
     const rpc = daemonRpcClient();
     try {
@@ -7404,21 +7406,17 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         },
         wait: async () => "completed",
         resolveStage: resolveStageWithFixedPlanSteps,
-        staleResetPreflight: staleResetBundle(rpc, {
-          stdout: () => {},
-          stderr: (text) => {
-            stderr += text;
-          },
-        }),
+        staleResetPreflight: staleResetBundle(rpc),
       });
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
-      expect(dispatchCalled).toBe(false);
+      expect(dispatchCalled).toBe(true);
       expect(existsSync(planWorktree)).toBe(true);
-      expect(stderr).toContain("hand-finish");
-      expect(stderr).toContain("jarvis cleanup --abandon");
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
-      expect(detail).toContain("hand-finish");
+      expect(stageRecord(stages(), "plan")?.status).toBe("succeeded");
+      const branchTipAfter = (
+        await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", planBranch], projectRoot)
+      ).trim();
+      expect(branchTipAfter).toBe(branchTipBefore);
     } finally {
       rpc.close();
     }

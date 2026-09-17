@@ -52,7 +52,7 @@ export async function maybeResetStaleWorkspace(
   parsed: WorkflowStartResetFlags | ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
   client: IpcClient,
   onDestroyed?: (destroyed: DestroyedArtifacts) => void,
-  onOutcome?: (status: "reset" | "no-op") => void,
+  onOutcome?: (status: "reset" | "no-op" | "continue") => void,
 ): Promise<number | undefined> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
   const skipDirtyWorktreeGate =

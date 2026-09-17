@@ -339,7 +339,7 @@ async function resetDisposableStandalonePlanLane(
   deps: CliDeps,
   io: Io,
 ): Promise<number | undefined> {
-  const outcome: { status?: "reset" | "no-op" } = {};
+  const outcome: { status?: "reset" | "no-op" | "continue" } = {};
   const resetExitCode = await maybeResetStaleWorkspace(
     "plan",
     prepared.built,

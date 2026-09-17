@@ -204,27 +204,55 @@ const FENCE_DELIMITER_PATTERN = /^\s*```/u;
  * untouched, so a hard-wrapped multi-line bullet is not split. Lines inside a fenced block are never
  * touched. Returns the body unchanged (same string) when there is nothing to bulletize.
  */
-function bulletizeDecisionsSection(body: string): string {
-  const hasCRLF = body.includes("\r\n");
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const headingIndex = lines.indexOf(DECISIONS_HEADING);
-  if (headingIndex === -1) return body;
-  const end = sectionEnd(lines, headingIndex);
+/**
+ * Lines that are structure, not prose. Bulletizing any of these destroys it — a `###` subheading
+ * becomes `- ### Sub`, a table row becomes its own bullet, an ordered or `*`/`+` list item gets a
+ * second marker. The bulletizer only ever repairs a bare *prose* line, so everything else is left
+ * exactly as authored.
+ */
+const NON_PROSE_LINE_PATTERN = /^(?:#{1,6}\s|\s*[|>]|\s*\d+[.)]\s|\s*[*+]\s|\s{4,}|\s*<)/u;
+
+/**
+ * Every unfenced `## Decisions` heading in the body. Fence state is tracked from line 0, not from
+ * the heading — a fenced `## Decisions` inside a markdown example (which plan drafts about spec
+ * format routinely carry) would otherwise be found first, rewriting lines inside that fence and
+ * skipping the real section entirely. All occurrences are returned, matching `sectionBulletTexts`.
+ */
+function unfencedDecisionsHeadingIndexes(lines: string[]): number[] {
+  const indexes: number[] = [];
   let inFence = false;
-  let seenBulletMarker = false;
-  let changed = false;
-  for (let index = headingIndex + 1; index < end; index += 1) {
-    const line = lines[index] ?? "";
+  for (const [index, line] of lines.entries()) {
     if (FENCE_DELIMITER_PATTERN.test(line)) {
       inFence = !inFence;
       continue;
     }
-    if (inFence || line.trim() === "") continue;
-    if (BULLET_MARKER_PATTERN.test(line)) {
-      seenBulletMarker = true;
-      continue;
-    }
-    if (!seenBulletMarker) {
+    if (!inFence && line === DECISIONS_HEADING) indexes.push(index);
+  }
+  return indexes;
+}
+
+function bulletizeDecisionsSection(body: string): string {
+  const hasCRLF = body.includes("\r\n");
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  let changed = false;
+  for (const headingIndex of unfencedDecisionsHeadingIndexes(lines)) {
+    const end = sectionEnd(lines, headingIndex);
+    let inFence = false;
+    let seenBulletMarker = false;
+    for (let index = headingIndex + 1; index < end; index += 1) {
+      const line = lines[index] ?? "";
+      if (FENCE_DELIMITER_PATTERN.test(line)) {
+        inFence = !inFence;
+        continue;
+      }
+      if (inFence || line.trim() === "") continue;
+      if (BULLET_MARKER_PATTERN.test(line)) {
+        seenBulletMarker = true;
+        continue;
+      }
+      // A bare line after an authored bullet is left alone: it reads as that bullet's continuation,
+      // and splitting it would invent an entry the drafter did not write.
+      if (seenBulletMarker || NON_PROSE_LINE_PATTERN.test(line)) continue;
       lines[index] = `- ${line}`;
       changed = true;
     }

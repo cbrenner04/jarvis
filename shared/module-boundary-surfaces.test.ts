@@ -529,6 +529,46 @@ describe("plan draft normalization", () => {
       expect(readFileSync(join(dir, "00-case.md"), "utf8")).toBe(body);
     });
 
+    test("finds the real ## Decisions past a fenced one and leaves the fenced block untouched", () => {
+      const dir = scratchDir("bulletize-fenced-heading");
+      const body =
+        "# Fenced heading\n\n## Context\n\n```markdown\n## Decisions\n\nfenced example line.\n```\n\n## Decisions\n\nreal bare decision.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n";
+      stageDraft(dir, { "00-case.md": body });
+
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+
+      const rewritten = readFileSync(join(dir, "00-case.md"), "utf8");
+      // The fenced example keeps its exact bytes; only the real section is repaired.
+      expect(rewritten).toContain("```markdown\n## Decisions\n\nfenced example line.\n```");
+      expect(rewritten).toContain("- real bare decision.");
+    });
+
+    test("leaves structural lines in ## Decisions untouched — subheadings, tables, ordered and star bullets, quotes, comments, indented code", () => {
+      const dir = scratchDir("bulletize-structure");
+      const body =
+        "# Structure\n\n## Decisions\n\n### Sub\n| a | b |\n1. First.\n* Starred.\n+ Plussed.\n> Quoted note.\n<!-- note -->\n    indented code\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n";
+      stageDraft(dir, { "00-case.md": body });
+
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+
+      // Every one of these is structure, not a bare prose decision; prefixing `- ` destroys it.
+      expect(readFileSync(join(dir, "00-case.md"), "utf8")).toBe(body);
+    });
+
+    test("is idempotent: a second rewrite-allowed pass produces identical bytes", () => {
+      const dir = scratchDir("bulletize-idempotent");
+      stageDraft(dir, {
+        "00-case.md":
+          "# Idempotent\n\n## Decisions\n\nFirst bare decision line.\nSecond bare decision line.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+      });
+
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+      const afterFirst = readFileSync(join(dir, "00-case.md"), "utf8");
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+
+      expect(readFileSync(join(dir, "00-case.md"), "utf8")).toBe(afterFirst);
+    });
+
     test("leaves already-bulleted, blank-separated, and other-heading fenced content byte-identical and unwritten", () => {
       const dir = scratchDir("bulletize-noop");
       const subspecs = {

@@ -14,7 +14,7 @@ import {
   startDrainExitLoop,
 } from "./daemon.ts";
 
-function captureConsoleError(): { lines: string[]; restore: () => void } {
+export function captureConsoleError(): { lines: string[]; restore: () => void } {
   const lines: string[] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => {
@@ -29,7 +29,7 @@ function captureConsoleError(): { lines: string[]; restore: () => void } {
 }
 
 /** Bounded poll, not a bare timer wait: terminates on the condition or the deadline, whichever comes first. */
-async function waitFor(predicate: () => boolean, boundMs: number, stepMs = 5): Promise<boolean> {
+export async function waitFor(predicate: () => boolean, boundMs: number, stepMs = 5): Promise<boolean> {
   const deadline = Date.now() + boundMs;
   while (Date.now() < deadline) {
     if (predicate()) return true;
@@ -56,7 +56,9 @@ afterEach(() => {
 
 /** Boots the full RPC handler map with a faked IPC server, so `supersede`/`shutdown`/`changeover`
  * can be called directly without a real socket or real ambient `~/.jarvis` state. */
-async function startFakeDaemon(
+export async function startFakeDaemon(
+  store: StateStore,
+  socketPath: string,
   extraDeps: Parameters<typeof startDaemonRuntime>[3] = {},
 ): Promise<{ handlers: Record<string, RpcHandler>; close: () => Promise<void> }> {
   let handlers: Record<string, RpcHandler> = {};
@@ -76,7 +78,7 @@ async function startFakeDaemon(
 }
 
 test("supersede logs the retire-trigger line naming supersede", async () => {
-  const { handlers, close } = await startFakeDaemon();
+  const { handlers, close } = await startFakeDaemon(store, socketPath);
   const capture = captureConsoleError();
   try {
     await handlers.supersede?.({ kind: "request", id: "s1", method: "supersede" }, new AbortController().signal);
@@ -88,7 +90,7 @@ test("supersede logs the retire-trigger line naming supersede", async () => {
 });
 
 test("shutdown logs the retire-trigger line naming shutdown", async () => {
-  const { handlers, close } = await startFakeDaemon();
+  const { handlers, close } = await startFakeDaemon(store, socketPath);
   const capture = captureConsoleError();
   try {
     await handlers.shutdown?.({ kind: "request", id: "sh1", method: "shutdown" }, new AbortController().signal);
@@ -102,7 +104,7 @@ test("shutdown logs the retire-trigger line naming shutdown", async () => {
 test("changeover logs the retire-trigger line naming changeover once the handoff actually begins", async () => {
   const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
-  const { handlers, close } = await startFakeDaemon({ privateSocketPath });
+  const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath });
   const capture = captureConsoleError();
   try {
     await handlers.changeover?.({ kind: "request", id: "c1", method: "changeover" }, new AbortController().signal);
@@ -114,7 +116,7 @@ test("changeover logs the retire-trigger line naming changeover once the handoff
 });
 
 /** Drives `changeover` to create the pending transaction and returns its `handoffId`. */
-async function beginChangeover(handlers: Record<string, RpcHandler>): Promise<string> {
+export async function beginChangeover(handlers: Record<string, RpcHandler>): Promise<string> {
   const response = await handlers.changeover?.(
     { kind: "request", id: "c", method: "changeover" },
     new AbortController().signal,
@@ -139,7 +141,7 @@ test("formatHandoffSettlementLogLine includes resolution only when the caller pa
 test("handoff_commit logs the retire-trigger line naming handoff_commit before committing", async () => {
   const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
-  const { handlers, close } = await startFakeDaemon({ privateSocketPath });
+  const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath });
   const capture = captureConsoleError();
   try {
     const handoffId = await beginChangeover(handlers);
@@ -158,7 +160,7 @@ test("handoff_commit logs the retire-trigger line naming handoff_commit before c
 test("handoff_rollback logs the retire-trigger line naming handoff_rollback before rolling back", async () => {
   const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
-  const { handlers, close } = await startFakeDaemon({ privateSocketPath });
+  const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath });
   const capture = captureConsoleError();
   try {
     const handoffId = await beginChangeover(handlers);
@@ -177,7 +179,7 @@ test("handoff_rollback logs the retire-trigger line naming handoff_rollback befo
 test("fallback timer logs handoff_fallback naming rollback when no successor answers", async () => {
   const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);
-  const { handlers, close } = await startFakeDaemon({ privateSocketPath, handoffFallbackMs: 20 });
+  const { handlers, close } = await startFakeDaemon(store, socketPath, { privateSocketPath, handoffFallbackMs: 20 });
   const capture = captureConsoleError();
   try {
     await beginChangeover(handlers);

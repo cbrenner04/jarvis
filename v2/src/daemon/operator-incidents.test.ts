@@ -790,6 +790,36 @@ test("a succeeded implement stage row with a null endedAt derives no stage-succe
   expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
 });
 
+test("an undelivered stage-succeeded incident is not masked by an already-delivered gate incident", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "linear-implement",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "approve", kind: "approval" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+      ],
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "intent", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve", patch: { status: "awaiting" } });
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "succeeded",
+      artifact: { entryRunId: "run-a", specPath: "spec.md", prNumber: 11, prUrl: "https://github.com/x/y/pull/11" },
+    },
+  });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "stage-succeeded", pipelineId, stageId: "implement", prNumber: 11 }),
+  ]);
+});
+
 test("a single-lane pipeline whose implement stage succeeded and is terminal emits only pipeline-terminal", () => {
   const pipelineId = store.createPipeline({
     definition: {

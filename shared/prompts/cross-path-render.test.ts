@@ -116,5 +116,6 @@ describe("one assembler for every step prompt", () => {
     expect(body).toMatch(/load-bearing decisions/);
     expect(body).toMatch(/do not write narrative paragraphs/i);
     expect(body).toMatch(/narrative justification paragraphs/);
+    expect(body).not.toMatch(/one per line/i);
   });
 });

@@ -205,6 +205,31 @@ describe("plan draft normalization", () => {
     );
   });
 
+  test("reports every one-artifact offender across the tree in a single refusal", () => {
+    const dir = scratchDir("multiple-offenders-across-files");
+    stageDraft(dir, {
+      "00-first.md":
+        "# First\n\n## Decisions\n\n- Builds `shared/first.test.ts` and `shared/second.test.ts`.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+      "01-second.md": "# Second\n\n## Acceptance criteria\n\n- [ ] `package.json` and `README.md` both change.\n",
+    });
+
+    let thrown: unknown;
+    try {
+      normalizePlanDraftSpecDir(dir);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    const message = (thrown as Error).message;
+    expect(message).toContain(
+      "Plan subspec 00-first.md has a ## Decisions bullet naming multiple artifact paths (shared/first.test.ts, shared/second.test.ts)",
+    );
+    expect(message).toContain(
+      "Plan subspec 01-second.md has a ## Acceptance criteria bullet naming multiple artifact paths (package.json, README.md)",
+    );
+  });
+
   // Each case below was accepted before the exemptions were made to fail closed: the shared-outcome
   // marker short-circuited the mixed-claim refusal, and the preservation vocabulary matched bare
   // "green" / "stops" in ordinary prose about new work.

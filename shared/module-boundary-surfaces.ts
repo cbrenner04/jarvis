@@ -142,7 +142,8 @@ function collapseDocBulletMentions(paths: readonly string[]): string[] {
   return [leading, ...rest.filter((path) => MARKDOWN_PATH_PATTERN.test(path))];
 }
 
-function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): void {
+function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): string[] {
+  const offenders: string[] = [];
   for (const bullet of bullets) {
     const paths = referencedArtifactPaths(bullet);
     const countedPaths =
@@ -159,10 +160,11 @@ function assertSingleArtifactBullets(file: string, heading: string, bullets: rea
       PRESERVATION_VERB_PATTERN.test(bullet) || SHARED_OUTCOME_PATTERN.test(bullet)
         ? "mixes exempt wording with a build claim"
         : "read as built or changed";
-    throw new Error(
+    offenders.push(
       `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${countedPaths.join(", ")}): ${bullet} (${reading})`,
     );
   }
+  return offenders;
 }
 
 function assertIndexLinks(indexBody: string, sourceFiles: readonly string[]): void {
@@ -191,6 +193,7 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
     .sort();
   const indexBody = readFileSync(join(specDir, "index.md"), "utf8");
   assertIndexLinks(indexBody, sourceFiles);
+  const offenders: string[] = [];
   for (const file of sourceFiles) {
     const body = readFileSync(join(specDir, file), "utf8");
     if (!body.replace(/\r\n/g, "\n").split("\n").includes("## Acceptance criteria")) {
@@ -201,7 +204,8 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
       ["## Decisions", PLAIN_BULLET_PATTERN],
       ["## Documentation updates", PLAIN_BULLET_PATTERN],
     ] as const) {
-      assertSingleArtifactBullets(file, heading, sectionBulletTexts(body, heading, bulletPattern));
+      offenders.push(...assertSingleArtifactBullets(file, heading, sectionBulletTexts(body, heading, bulletPattern)));
     }
   }
+  if (offenders.length > 0) throw new Error(offenders.join("\n"));
 }

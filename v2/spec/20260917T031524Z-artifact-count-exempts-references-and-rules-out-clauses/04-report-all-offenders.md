@@ -11,10 +11,10 @@
 
 ## Acceptance criteria
 
-- [ ] A test proves a tree with several offending bullets across multiple files is refused once, naming all of them in a single error; it fails against the pre-fix check, which throws on only the first offender.
-- [ ] Existing single-offender tests in `shared/module-boundary-surfaces.test.ts` (e.g. "rejects two artifact paths without module-boundary vocabulary") stay green unmodified.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes (full aggregate: this subspec also touches `prompts/plan/draft.md`, outside the v2/shared surfaces).
+- [x] A test proves a tree with several offending bullets across multiple files is refused once, naming all of them in a single error; it fails against the pre-fix check, which throws on only the first offender.
+- [x] Existing single-offender tests in `shared/module-boundary-surfaces.test.ts` (e.g. "rejects two artifact paths without module-boundary vocabulary") stay green unmodified.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes (full aggregate: this subspec also touches `prompts/plan/draft.md`, outside the v2/shared surfaces).
 
 ## Documentation updates
 

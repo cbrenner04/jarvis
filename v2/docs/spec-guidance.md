@@ -78,6 +78,8 @@ In an `## Acceptance criteria` bullet only, a test path plus the production path
 
 In a `## Documentation updates` bullet only, the leading path (first occurrence, left to right) is the artifact; a later path is a mention, unless it is itself a markdown path, which still counts as a distinct artifact. Example: "`v2/docs/test-writing.md` — documents the new `shared/example.test.ts` coverage pattern" names one artifact; "`v2/docs/a.md` also updates `v2/docs/b.md`" still names two.
 
+The refusal scans every subspec in the tree before throwing, so a draft with offending bullets in more than one file is refused once, naming every offender across the whole tree in a single error rather than stopping at the first.
+
 Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.
 
 When work starts from a structured index (a feature checklist, a work queue): treat the item plus matching context docs as source input, write a concise build brief, draft with `intent`/`plan`, implement with `implement`. Do not frame work-start prompts as "draft a spec" — done is merged implementation code, not generated spec artifacts.

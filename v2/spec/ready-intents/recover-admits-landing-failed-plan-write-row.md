@@ -6,7 +6,9 @@ name: recover-admits-landing-failed-plan-write-row
 
 ## Problem
 
-`recoverPlanStage` admits only `blocked` plan write rows (`isBlockedPlanWriteRecoveryCandidate`, `v2/src/execution/workflow-runner-resume.ts:616`) or completed drafts with a failed review sibling (`:629`). A `landing_failed` plan write row is refused `unrelated_plan_stage`; `run resume` refuses, and `pipeline resume` only redrafts and reproduces the failure. A hand-corrected staged tree cannot be re-landed. Intent review rows already admit populated-stage resume; plan write rows have no equivalent.
+`recoverPlanStage` admits only `blocked` plan write rows (`isBlockedPlanWriteRecoveryCandidate`, `v2/src/execution/workflow-runner-resume.ts:637`) or completed drafts with a failed review sibling (`isReviewFailedPlanWriteRecoveryCandidate`, `:650`). A `landing_failed` plan write row is refused `unrelated_plan_stage`; `run resume` refuses, and `pipeline resume` only redrafts and reproduces the failure. A hand-corrected staged tree cannot be re-landed. Intent review rows already admit populated-stage resume; plan write rows have no equivalent.
+
+The write loop already reprompts a plan draft on staged-lint failure and settles `landing_failed` with `resumable: true` and the staged tree preserved only once the reprompt budget is exhausted (`v2/src/execution/write-loop.ts:1730-1799`) — that path is the source of the stranded, hand-correctable trees this subspec makes recoverable.
 
 ## Decisions
 
@@ -24,7 +26,6 @@ name: recover-admits-landing-failed-plan-write-row
 
 - The decisions-ledger prompt guidance requires a Markdown bullet list rather than one entry per bare line.
 - The plan-draft normalizer converts bare lines under `## Decisions` into bullets before staged lint runs.
-- A plan write-step staged-lint failure reprompts the drafter and only settles `landing_failed` with the staged tree preserved once the reprompt budget is exhausted.
 
 ## Documentation updates
 

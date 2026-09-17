@@ -25,7 +25,7 @@ import {
 } from "../execution/workflow-runner-resume.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
-import { isTerminalRunStatus, type Run, type RunStatus } from "../persistence/state-store.ts";
+import { isTerminalRunStatus, type Run, type RunStatus, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import {
   type ActiveRun,
   checkWorktreeClaimed,
@@ -63,6 +63,7 @@ type WorkflowStartLifecycle = {
 
 export type WorkflowStartAdmission = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => WorkflowStartResult;
+  resumeLinkedWorkflowStart: (steps: AnyWorkflowStep[], workflowSnapshot: WorkflowSnapshot) => WorkflowStartResult;
   admitWorkflowStart: (lifecycle: WorkflowStartLifecycle) => Promise<Awaited<WorkflowStartResult>>;
   check_workflow_start_claim: RpcHandler;
 };
@@ -179,6 +180,8 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     _claimRunId: string,
     abortController: AbortController,
     settleWorkflowStart: () => void,
+    freshDispatch = true,
+    workflowSnapshot?: WorkflowSnapshot,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
@@ -221,7 +224,8 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
         return executeWorkflow({
           steps: stepsForExecution,
           stateStore: store,
-          freshDispatch: true,
+          freshDispatch,
+          ...(workflowSnapshot !== undefined ? { workflowSnapshot } : {}),
           ...(logSink !== undefined ? { logSink } : {}),
           ...(telemetry !== undefined ? { telemetry } : {}),
           onReviewDebateProgress: reportReviewProgress,
@@ -424,6 +428,32 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     });
   };
 
+  /**
+   * Re-enter `executeWorkflow`'s linked/shrink/review/publication sequencing for an
+   * already-admitted linked-implement invocation, reusing its persisted `workflowSnapshot` (so the
+   * resumed run keeps its original `invocationId`) instead of minting a fresh one. Unlike
+   * `handleWorkflowStart`, dispatch is not fresh: `prepareWorkflowStep`/`prepareRun` reenter each
+   * step's existing durable row by `stepId` rather than creating new ones.
+   */
+  const resumeLinkedWorkflowStart = (
+    steps: AnyWorkflowStep[],
+    workflowSnapshot: WorkflowSnapshot,
+  ): WorkflowStartResult => {
+    const workflowKey = workflowStartOwnershipKey(steps);
+    const firstStep = steps[0];
+    const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
+    const claimRunId = crypto.randomUUID();
+    const abortController = new AbortController();
+    return admitWorkflowStart({
+      key: workflowKey,
+      ownership: { runId: claimRunId, worktreePath, workflow: true },
+      activeKey: claimRunId,
+      activeRun: { kind: "workflow", runId: claimRunId, abortController },
+      admit: () => ({ kind: "admitted" }),
+      execute: (onSettled) => startWorkflowRun(steps, claimRunId, abortController, onSettled, false, workflowSnapshot),
+    });
+  };
+
   const check_workflow_start_claim: RpcHandler = (frame) => {
     const params = frame.params as { project?: string; branch?: string } | undefined;
     if (typeof params?.project !== "string" || typeof params?.branch !== "string") {
@@ -437,7 +467,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     return { kind: "response", result: { ok: true } };
   };
 
-  return { handleWorkflowStart, admitWorkflowStart, check_workflow_start_claim };
+  return { handleWorkflowStart, resumeLinkedWorkflowStart, admitWorkflowStart, check_workflow_start_claim };
 }
 
 export function createImplementRecoverHandler(

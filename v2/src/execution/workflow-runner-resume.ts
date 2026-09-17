@@ -9,6 +9,11 @@ import {
   requiredIntegrationScopeForTerminalSubspec,
   resolvePinnedLinkedSubspec,
 } from "../../../shared/linked-subspec-routing.ts";
+import {
+  implementReviewPromptProfile,
+  PATCH_REVIEW_CRITIC_PROMPT_ID,
+  PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+} from "../../../shared/prompts/review-implement.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
@@ -68,7 +73,14 @@ import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
-import type { WorkflowResult, WorkflowRunnerInput, WriteWorkflowStep } from "./workflow-runner.ts";
+import type {
+  AnyWorkflowStep,
+  ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
+  WorkflowResult,
+  WorkflowRunnerInput,
+  WriteWorkflowStep,
+} from "./workflow-runner.ts";
 import { revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import {
   appendRuntimeSmokeOutcome,
@@ -1634,6 +1646,147 @@ export function reconstructPausedWriteResumeInput(
       ...(snapshotStep.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
     },
   };
+}
+
+type LinkedWorkflowResumeReconstruction = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; message: string };
+
+/**
+ * Build the review-role verdict path implement workflows use, matching the convention
+ * `buildImplementWorkflowSteps` (`implement-workflow-steps.ts`) stamps at fresh dispatch.
+ */
+function implementReviewVerdictPath(worktreePath: string): string {
+  return join(worktreePath, ".jarvis-implement-review", "verdict-patch.md");
+}
+
+/**
+ * Rebuild the `implement-review` step for a resumed linked-implement workflow. Review steps carry
+ * no `agents`/`agentModelConfig` of their own on the snapshot (`WorkflowSnapshotStep` only retains
+ * `behavior`/`fixCommand`/`readyCommand` for them); the write step's own captured `agents`/
+ * `agentModelConfig` are reused verbatim, matching `loadWorkflowSteps`' fresh-dispatch behavior of
+ * deriving every role in a workflow from the same machine-resolved order and model config.
+ */
+function buildResumedReviewStep(
+  run: Pick<Run, "worktreePath" | "project" | "branch" | "specPath" | "specRef">,
+  writeSnapshotStep: WorkflowSnapshotStep,
+  reviewSnapshotStep: WorkflowSnapshotStep,
+  reviewPasses: number,
+): ReviewWorkflowStep | ReviewDebateWorkflowStep | undefined {
+  const agents = writeSnapshotStep.agents;
+  const agentModelConfig = writeSnapshotStep.agentModelConfig;
+  if (!agents?.length || !agentModelConfig) return undefined;
+
+  const cwd = run.worktreePath;
+  const verdictPath = implementReviewVerdictPath(cwd);
+  // The executors stamp `passNumber`/prior-cycle verdict per cycle; 1 is always the correct
+  // starting value, resumed or not (mirrors `buildImplementWorkflowSteps`'s own fresh `profileContext`).
+  const profileContext = {
+    specPath: run.specPath,
+    cwd,
+    ...(writeSnapshotStep.externalPlanSpec === true && writeSnapshotStep.specReadRoot !== undefined
+      ? { specReadRoot: writeSnapshotStep.specReadRoot }
+      : {}),
+    baseBranch: run.specRef,
+    passNumber: 1,
+    totalPasses: reviewPasses,
+  };
+  const shared = {
+    stepId: reviewSnapshotStep.stepId,
+    project: run.project,
+    branch: run.branch,
+    cwd,
+    verdictPath,
+    maxCycles: reviewPasses,
+    profile: implementReviewPromptProfile,
+    profileContext,
+    agentModelConfig,
+    ...(reviewSnapshotStep.fixCommand !== undefined ? { fixCommand: reviewSnapshotStep.fixCommand } : {}),
+    ...(reviewSnapshotStep.readyCommand !== undefined ? { readyCommand: reviewSnapshotStep.readyCommand } : {}),
+    ...(writeSnapshotStep.externalPlanSpec === true
+      ? { externalPlanSpec: true as const, specReadRoot: writeSnapshotStep.specReadRoot }
+      : {}),
+  };
+
+  if (reviewSnapshotStep.behavior === "review") {
+    return {
+      ...shared,
+      behavior: "review",
+      prompt: PATCH_REVIEW_CRITIC_PROMPT_ID,
+      agents: { critic: agents, actuator: agents },
+    };
+  }
+  return {
+    ...shared,
+    behavior: "review-debate",
+    prompts: PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+    agents: { adversary: agents, advocate: agents, adjudicator: agents, actuator: agents },
+  };
+}
+
+/**
+ * Rebuild the full `[implement, implement-review?]` authored step array for a resumed
+ * linked-implement row, so `run resume` can re-enter `executeWorkflow`'s real linked/shrink/review/
+ * publication sequencing instead of the bare write loop. Validity is proven by reusing
+ * `reconstructPausedWriteResumeInput` (same reason/recovery on refusal); its pinned single-row
+ * output is discarded in favor of the outer authored write step, since `executeWorkflow`'s own
+ * `runLinkedImplementStep` loop re-resolves per-link routing itself.
+ */
+export function reconstructLinkedWorkflowResumeSteps(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+): LinkedWorkflowResumeReconstruction {
+  const validated = reconstructPausedWriteResumeInput(run);
+  if (!validated.ok) return { ok: false, message: validated.message };
+
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  const writeSnapshotStep = snapshot && stepId ? findSnapshotStepForRunStepId(snapshot.steps, stepId) : undefined;
+  if (!snapshot || !writeSnapshotStep) {
+    return { ok: false, message: "run has no matching workflow snapshot step" };
+  }
+
+  const writeStep: WriteWorkflowStep = {
+    behavior: "write",
+    stepId: writeSnapshotStep.stepId,
+    role: writeSnapshotStep.role,
+    worktree: {
+      projectRoot: run.worktreePath,
+      projectName: run.project,
+      branchName: run.branch,
+      baseRef: run.specRef,
+    },
+    specPath: run.specPath,
+    stepRules: writeSnapshotStep.stepRules ?? DEFAULT_WRITE_STEP_RULES,
+    expectedArtifactPath: writeSnapshotStep.expectedArtifactPath ?? run.specPath,
+    agents: writeSnapshotStep.agents ?? [],
+    agentModelConfig: writeSnapshotStep.agentModelConfig ?? {},
+    linkedIndexRouting: true,
+    ...(writeSnapshotStep.promptId !== undefined ? { promptId: writeSnapshotStep.promptId } : {}),
+    ...(writeSnapshotStep.promptPlaceholders !== undefined
+      ? { promptPlaceholders: writeSnapshotStep.promptPlaceholders }
+      : {}),
+    ...(writeSnapshotStep.iterationTimeoutMs !== undefined
+      ? { iterationTimeoutMs: writeSnapshotStep.iterationTimeoutMs }
+      : {}),
+    ...(writeSnapshotStep.iterationCeilingMs !== undefined
+      ? { iterationCeilingMs: writeSnapshotStep.iterationCeilingMs }
+      : {}),
+    ...(writeSnapshotStep.idleOutputMs !== undefined ? { idleOutputMs: writeSnapshotStep.idleOutputMs } : {}),
+    ...(writeSnapshotStep.fixCommand !== undefined ? { fixCommand: writeSnapshotStep.fixCommand } : {}),
+    ...(writeSnapshotStep.readyCommand !== undefined ? { readyCommand: writeSnapshotStep.readyCommand } : {}),
+    ...(writeSnapshotStep.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
+    ...(writeSnapshotStep.specReadRoot !== undefined ? { specReadRoot: writeSnapshotStep.specReadRoot } : {}),
+  };
+
+  const reviewSnapshotStep = snapshot.steps.find(
+    (candidate) => candidate.behavior === "review" || candidate.behavior === "review-debate",
+  );
+  if (reviewSnapshotStep === undefined) {
+    return { ok: true, steps: [writeStep] };
+  }
+  const reviewStep = buildResumedReviewStep(run, writeSnapshotStep, reviewSnapshotStep, snapshot.reviewPasses ?? 1);
+  if (reviewStep === undefined) {
+    return { ok: false, message: "snapshot step is missing write resume context" };
+  }
+  return { ok: true, steps: [writeStep, reviewStep] };
 }
 
 /** Reconstruct a durable review-mutation row's write-sibling context without admitting its outcome. */

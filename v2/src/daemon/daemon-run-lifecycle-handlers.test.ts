@@ -2,9 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput, workflowSnapshot } from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
@@ -440,6 +441,261 @@ test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", 
     if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousJarvisHome;
     rmSync(profileHome, { recursive: true, force: true });
+  }
+});
+
+function writeTwoLinkIndexFixture(worktreePath: string): void {
+  writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
+  writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
+  writeFileSync(join(worktreePath, "two.md"), "# Two\n\n## Acceptance criteria\n\n- [ ] Two\n", "utf8");
+}
+
+function linkedWorkflowRunSnapshot(invocationId: string): WorkflowSnapshot {
+  return {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "implement rules",
+        expectedArtifactPath: "index.md",
+        agents: ["claude"],
+        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+      },
+      { stepId: "implement-review", role: "", behavior: "review-debate" },
+    ],
+    reviewPasses: 1,
+    reviewBehavior: "debate",
+  };
+}
+
+/** Machine profile fixture for admission's own reconstructability check, which resolves write-loop bindings. */
+function setUpLinkedResumeMachineProfile(): {
+  writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
+  cleanup: () => void;
+} {
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-linked-resume-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  const machineProfile = "linked-resume-profile";
+  const previousJarvisHome = process.env.JARVIS_HOME;
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, `${machineProfile}.json`),
+    JSON.stringify({
+      models: {
+        claude: {
+          plan: rung("plan"),
+          implement: rung("M1"),
+          shrink: rung("S1"),
+          adversary: rung("adv"),
+          critic: rung("crit"),
+          advocate: rung("advoc"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
+  process.env.JARVIS_HOME = profileHome;
+  return {
+    writeLoopBindingSourceDeps: { machineConfigPath: join(profileHome, "config.json"), machinesDir },
+    cleanup: () => {
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
+      rmSync(profileHome, { recursive: true, force: true });
+    },
+  };
+}
+
+function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps): {
+  handlers: ReturnType<typeof createRunLifecycleHandlers>;
+  captured: { steps: AnyWorkflowStep[]; workflowSnapshot: WorkflowSnapshot }[];
+} {
+  const captured: { steps: AnyWorkflowStep[]; workflowSnapshot: WorkflowSnapshot }[] = [];
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    logReader: { tail: () => [], async *follow() {} },
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    resumeLinkedWorkflowStart: (steps, workflowSnapshot) => {
+      captured.push({ steps, workflowSnapshot });
+      return { kind: "response", result: { runId: "fake-entry-run" } };
+    },
+  });
+  return { handlers, captured };
+}
+
+test("resume routes a failed gate_invocation_refused implement~link-N row to resumeLinkedWorkflowStart, not the bare write loop", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-failed-"));
+  writeTwoLinkIndexFixture(worktreePath);
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath,
+    branch: "linked-route/failed",
+    specPath: "index.md",
+    stepId: "implement~link-0",
+    workflowSnapshot: linkedWorkflowRunSnapshot("linked-route-failed"),
+  });
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "gate_invocation_refused",
+    terminalCause: "gate_invocation_refused",
+  });
+  stateStore.setRunStatus(runId, "failed");
+
+  const profile = setUpLinkedResumeMachineProfile();
+  try {
+    const { handlers, captured } = capturingLinkedWorkflowHandlers(profile.writeLoopBindingSourceDeps);
+    const response = await handlers.resume(
+      { kind: "request", id: "r1", method: "resume", params: { runId } },
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({ kind: "response", result: { runId: "fake-entry-run" } });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.workflowSnapshot.invocationId).toBe("linked-route-failed");
+    expect(captured[0]?.steps).toHaveLength(2);
+    expect(captured[0]?.steps[0]).toMatchObject({
+      behavior: "write",
+      stepId: "implement",
+      linkedIndexRouting: true,
+      expectedArtifactPath: "index.md",
+    });
+    expect(captured[0]?.steps[1]).toMatchObject({
+      behavior: "review-debate",
+      stepId: "implement-review",
+      maxCycles: 1,
+    });
+    // The bare write loop (`spawnWriteLoop`/`writeLoopExecutor`) never runs for this row.
+    expect(fakeExecutor.pendingCount()).toBe(0);
+  } finally {
+    profile.cleanup();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("resume routes a paused implement~link-N row to resumeLinkedWorkflowStart the same way as a failed one", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-paused-"));
+  writeTwoLinkIndexFixture(worktreePath);
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath,
+    branch: "linked-route/paused",
+    specPath: "index.md",
+    stepId: "implement~link-0",
+    workflowSnapshot: linkedWorkflowRunSnapshot("linked-route-paused"),
+  });
+  stateStore.setRunStatus(runId, "paused");
+
+  const profile = setUpLinkedResumeMachineProfile();
+  try {
+    const { handlers, captured } = capturingLinkedWorkflowHandlers(profile.writeLoopBindingSourceDeps);
+    const response = await handlers.resume(
+      { kind: "request", id: "r1", method: "resume", params: { runId } },
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({ kind: "response", result: { runId: "fake-entry-run" } });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.steps[0]).toMatchObject({ stepId: "implement", linkedIndexRouting: true });
+    expect(fakeExecutor.pendingCount()).toBe(0);
+  } finally {
+    profile.cleanup();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("resume refuses resume_unsupported for a linked row whose pinned index entry can no longer be resolved, without calling resumeLinkedWorkflowStart", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-malformed-"));
+  // A single-entry index: the persisted `implement~link-1` row's pinned index position no longer exists.
+  writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n", "utf8");
+  writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath,
+    branch: "linked-route/malformed",
+    specPath: "index.md",
+    stepId: "implement~link-1",
+    workflowSnapshot: linkedWorkflowRunSnapshot("linked-route-malformed"),
+  });
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "gate_invocation_refused",
+    terminalCause: "gate_invocation_refused",
+  });
+  stateStore.setRunStatus(runId, "failed");
+
+  const profile = setUpLinkedResumeMachineProfile();
+  try {
+    const { handlers, captured } = capturingLinkedWorkflowHandlers(profile.writeLoopBindingSourceDeps);
+    const response = await handlers.resume(
+      { kind: "request", id: "r1", method: "resume", params: { runId } },
+      new AbortController().signal,
+    );
+
+    expect(response).toMatchObject({ kind: "error", code: "resume_unsupported" });
+    if (response.kind === "error") {
+      expect(response.message).toContain("re-run the spec");
+    }
+    expect(captured).toHaveLength(0);
+    expect(fakeExecutor.pendingCount()).toBe(0);
+  } finally {
+    profile.cleanup();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("resume does not route a non-linked write row to resumeLinkedWorkflowStart", async () => {
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "non-linked-resume",
+    specPath: "/tmp/spec.md",
+    status: "paused",
+    stepId: "implement",
+    workflowSnapshot: {
+      invocationId: "non-linked",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "implement rules",
+          expectedArtifactPath: "/tmp/artifact",
+          agents: ["claude"],
+          agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+
+  const profile = setUpLinkedResumeMachineProfile();
+  try {
+    const { handlers, captured } = capturingLinkedWorkflowHandlers(profile.writeLoopBindingSourceDeps);
+    const response = await handlers.resume(
+      { kind: "request", id: "r1", method: "resume", params: { runId } },
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({ kind: "response", result: { ok: true } });
+    expect(captured).toHaveLength(0);
+  } finally {
+    profile.cleanup();
   }
 });
 

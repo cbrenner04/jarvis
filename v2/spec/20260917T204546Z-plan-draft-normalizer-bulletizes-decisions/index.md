@@ -2,4 +2,4 @@
 
 Intent: [intent.md](./intent.md)
 
-- [ ] [00-bulletize-decisions-section.md](./00-bulletize-decisions-section.md)
+- [x] [00-bulletize-decisions-section.md](./00-bulletize-decisions-section.md)

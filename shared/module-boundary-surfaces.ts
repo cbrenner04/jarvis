@@ -9,13 +9,20 @@ const PLAIN_BULLET_PATTERN = /^\s*-\s+(?!\[[ xX]\])\s*(.*)$/u;
 const BACKTICKED_PATH_PATTERN =
   /`(?:([^`\s]*\/[^`\s]*\.[A-Za-z0-9]+)|([^`\s/]+\.(?:md|tsx?|jsx?|json|sh|ya?ml|toml|txt|swift)))`/gu;
 
+const HEADING_LINE_PATTERN = /^##\s/u;
+
+/** The index of the next `##` heading after `headingIndex`, or `lines.length` when the section runs to the end. */
+function sectionEnd(lines: readonly string[], headingIndex: number): number {
+  const nextHeading = lines.findIndex((line, index) => index > headingIndex && HEADING_LINE_PATTERN.test(line ?? ""));
+  return nextHeading === -1 ? lines.length : nextHeading;
+}
+
 function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp): string[] {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   const bullets: string[] = [];
   for (let headingIndex = 0; headingIndex < lines.length; headingIndex += 1) {
     if (lines[headingIndex] !== heading) continue;
-    const nextHeading = lines.findIndex((line, index) => index > headingIndex && /^##\s/u.test(line ?? ""));
-    const contentEnd = nextHeading === -1 ? lines.length : nextHeading;
+    const contentEnd = sectionEnd(lines, headingIndex);
     for (let index = headingIndex + 1; index < contentEnd; index += 1) {
       const match = (lines[index] ?? "").match(bulletPattern);
       if (!match?.[1]) continue;
@@ -202,13 +209,7 @@ function bulletizeDecisionsSection(body: string): string {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   const headingIndex = lines.indexOf(DECISIONS_HEADING);
   if (headingIndex === -1) return body;
-  let end = lines.length;
-  for (let index = headingIndex + 1; index < lines.length; index += 1) {
-    if (/^##\s/u.test(lines[index] ?? "")) {
-      end = index;
-      break;
-    }
-  }
+  const end = sectionEnd(lines, headingIndex);
   let inFence = false;
   let seenBulletMarker = false;
   let changed = false;

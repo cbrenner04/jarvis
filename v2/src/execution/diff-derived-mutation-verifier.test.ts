@@ -390,16 +390,11 @@ ${guardFlipHunk}
     }
   }
 
-  it("excludes *.test.tsx and *.sandbox-unrunnable.test.ts paths from candidates", async () => {
-    await expectNoMutationCandidates(
-      guardFlipFileDiff("v2/src/tui/tui-entry.test.tsx", "testFoo()") +
-        guardFlipFileDiff("v2/src/daemon/daemon.sandbox-unrunnable.test.ts", "testBar()"),
-    );
-  });
-
-  it("still derives production candidates when a mixed diff includes test files", async () => {
-    const diff =
-      guardFlipFileDiff("src/safe.ts", "safe(x: any)") + guardFlipFileDiff("src/helper.test.tsx", "helper()");
+  async function expectOnlyProductionCandidate(testFile: string) {
+    // testFile goes FIRST: the first survivor short-circuits the run, so if testFile were still a
+    // candidate it would win and sourceSite.file would name it. With production first the
+    // assertion below passes either way, which is what made this non-falsifiable.
+    const diff = guardFlipFileDiff(testFile, "helper()") + guardFlipFileDiff("src/safe.ts", "safe(x: any)");
     const originalContent = `export function safe(x: any) {
   if (!x) return "safe";
   return x;
@@ -420,11 +415,31 @@ ${guardFlipHunk}
     if (result.kind === "surviving-mutation") {
       expect(result.sourceSite.file).toBe("src/safe.ts");
     }
+  }
+
+  it("excludes *.test.tsx and *.sandbox-unrunnable.test.ts paths from candidates", async () => {
+    await expectNoMutationCandidates(
+      guardFlipFileDiff("v2/src/tui/tui-entry.test.tsx", "testFoo()") +
+        guardFlipFileDiff("v2/src/daemon/daemon.sandbox-unrunnable.test.ts", "testBar()"),
+    );
+  });
+
+  it("still derives production candidates when a mixed diff includes test files", async () => {
+    await expectOnlyProductionCandidate("src/helper.test.tsx");
+  });
+
+  it("excludes *.test-support.ts paths from candidates", async () => {
+    await expectNoMutationCandidates(guardFlipFileDiff("v2/src/execution/fixture.test-support.ts", "testFoo()"));
+  });
+
+  it("still derives production candidates when a mixed diff includes a test-support file", async () => {
+    await expectOnlyProductionCandidate("src/helper.test-support.ts");
   });
 
   it("inverting the .test. basename exclusion fails: test paths would produce candidates", async () => {
-    // Mutation checkpoint: inverting the `.test.` basename exclusion on `isProductionFile` in
-    // v2/src/execution/diff-scan.ts must turn this subcase RED.
+    // Mutation checkpoint: inverting the `.test.` basename exclusion in `isTestCodePath`
+    // (scripts/production-files.ts), consumed by `isProductionFile` in
+    // v2/src/execution/diff-scan.ts, must turn this subcase RED.
     await expectNoMutationCandidates(guardFlipFileDiff("v2/src/tui/tui-entry.test.tsx", "testFoo()"));
   });
 

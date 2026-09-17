@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
 /** Shared diff plumbing for the completion verifiers (mutation + runtime smoke). */
+import { readFileSync } from "node:fs";
+import { isTestCodePath } from "../../../scripts/production-files.ts";
 
 export async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
@@ -17,7 +18,7 @@ export async function defaultGitDiff(cwd: string, baseRef: string): Promise<stri
 const NON_PRODUCTION_PATTERNS = [/^test\//, /^v1\//, /^v2\/spec\//, /^v2\/docs\//];
 
 export function isProductionFile(path: string): boolean {
-  if (path.split("/").at(-1)?.includes(".test.")) return false;
+  if (isTestCodePath(path)) return false;
   return !NON_PRODUCTION_PATTERNS.some((pattern) => pattern.test(path));
 }
 

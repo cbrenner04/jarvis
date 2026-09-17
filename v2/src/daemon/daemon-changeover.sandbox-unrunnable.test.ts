@@ -319,17 +319,15 @@ describe("daemon handoff changeover (real sockets)", () => {
         expect(result.privateSocketPath).toBe(privateSocketPath);
         client.close();
 
-        let released = false;
-        for (let attempt = 0; attempt < 100; attempt++) {
+        const released = await waitFor(async () => {
           try {
             const probe = await connectIpcClient(publicSocketPath);
             probe.close();
+            return false;
           } catch {
-            released = true;
-            break;
+            return true;
           }
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
+        }, 5_000);
         expect(released).toBe(true);
 
         expect(await health(privateSocketPath)).toEqual({ ok: true });
@@ -399,7 +397,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         await startWork(incumbent.publicSocketPath, "active-through-commit");
         const handoffId = await beginChangeover(incumbent);
         expect(await waitFor(() => answersHealth(incumbent.publicSocketPath).then((live) => !live), 3_000)).toBe(true);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 3_000)).toBe(true);
         successor = await startIpcServer(incumbent.publicSocketPath, {
           health: () => ({ kind: "response", result: { ok: true } }),
         });

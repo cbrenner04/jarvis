@@ -12,9 +12,9 @@
 
 ## Acceptance criteria
 
-- [ ] `bun test v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` runs faster than the same command at the merge base, with identical test titles and test count unchanged or higher.
-- [ ] Any test sharing a boot with another test in this file also passes when run alone via `bun test -t "<title>"`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass; this file itself runs under `test:integration:v2` (the `.sandbox-unrunnable.test.ts` suffix routes it there, not `test:v2`) — run with the sandbox disabled (writable `/tmp`, Unix sockets).
+- [x] `bun test v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` runs faster than the same command at the merge base, with identical test titles and test count unchanged or higher.
+- [x] Any test sharing a boot with another test in this file also passes when run alone via `bun test -t "<title>"`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass; this file itself runs under `test:integration:v2` (the `.sandbox-unrunnable.test.ts` suffix routes it there, not `test:v2`) — run with the sandbox disabled (writable `/tmp`, Unix sockets).
 
 ## Documentation updates
 

@@ -10,7 +10,8 @@ Today an incomplete re-dispatch whose lane holds commits ahead of base refuses v
 - The refusal for an unbacked tick lists the offending subspec path(s) and names its fix (untick the criteria, or `jarvis cleanup --abandon <branch>`).
 - `specs: external` trees skip the branch-commit tick check, the same way `isStaleResetLandedCriteriaSpecPath` already skips the landed-criteria drift check outside the project root; continuation for external trees is gated only by the existing live-owner/dirty/descendant checks; rules out inventing a cross-repo provenance check the project's own git history can't answer.
 - `--reset-despite-landed-criteria` (`skipLandedCriteriaGate`) forces retirement instead of continuation on an otherwise-continuable lane, so it can never bypass the tick check by continuing on unverified ticks — the flag's purpose is retiring past landed-criteria drift, not resuming.
-- Dirty tree, non-descendant `HEAD` (including a lane whose base has moved past its fork point), and live-owner refusals reuse the existing gates and messages unchanged.
+- Dirty tree and live-owner refusals reuse the existing gates and messages unchanged.
+- A lane whose base has moved past its fork point (its `HEAD` is not a descendant of the resolved base but its fork point is an ancestor of it) is rebased onto the resolved base before continuing; a clean rebase continues, a conflicting rebase is aborted (worktree left exactly as before) and refused naming the conflicting paths. Rules out continuation that never applies once `main` moves, which is the common case (operator amendment 2026-09-17). A `HEAD` with no shared history with the base still refuses as today.
 - A lane where every non-human-only criterion is already ticked is not this subspec's concern: the existing write-step routing (`workflow-runner.ts`) already finalizes once continuation reaches it, per the pre-existing fresh-dispatch rule.
 
 ## Acceptance criteria
@@ -23,6 +24,8 @@ Today an incomplete re-dispatch whose lane holds commits ahead of base refuses v
 - [ ] A test covers continuation for an external (`specs: external`) plan tree, including a criterion ticked without a matching commit, and asserts the tick guard does not apply while continuation still proceeds on the existing gates; it fails against the current refusal.
 - [ ] `reset refuses when worktree has uncommitted tracked changes`, `resetStaleWorkspace still refuses a non-descendant lane with an unlanded commit`, and `resetStaleWorkspace refuses when worktree key is claimed` (`cleanup.test.ts`) stay green — dirty-tree, non-descendant-`HEAD`, and live-owner refusals unchanged.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [ ] A test forks a lane, advances the base with a non-conflicting commit, and asserts re-dispatch rebases the lane onto the new base and continues at the unchecked subspec; it fails against a descendant-only rule.
+- [ ] A test advances the base with a conflicting commit and asserts re-dispatch aborts the rebase, leaves the worktree and branch unchanged, and refuses naming the conflicting path.
 
 ## Documentation updates
 

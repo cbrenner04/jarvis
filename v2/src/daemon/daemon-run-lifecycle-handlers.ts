@@ -103,6 +103,7 @@ type RunLifecycleHandlerDeps = {
     steps: AnyWorkflowStep[],
     workflowSnapshot: WorkflowSnapshot,
     admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>,
+    rollbackRunAdmission?: () => void,
   ) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
@@ -161,6 +162,41 @@ async function admitRunForResumeOrRefusal(
     code: admission.reason,
     message: `Run ${runId} resume admission refused: ${admission.reason}`,
   };
+}
+
+/**
+ * Undo an applied resume admission whose resume failed before a live loop owned the row: restore
+ * the pre-admission status (and terminal cause/detail) so the row stays resumable, not an
+ * ownerless `in-progress` orphan. Settles as this daemon, the owner admission stamped. No-op once
+ * anything else moved the row off `in-progress`.
+ */
+function restoreRunAfterFailedResume(store: StateStore, prior: Run): void {
+  if (store.loadRun(prior.id)?.status !== "in-progress") return;
+  if (prior.status === "paused") {
+    store.setRunStatus(prior.id, "paused");
+    return;
+  }
+  if (!isTerminalRunStatus(prior.status)) return;
+  store.commitTerminalRunSettlement({
+    runId: prior.id,
+    status: prior.status,
+    terminalCause: prior.terminalCause ?? null,
+    terminalFailureDetail: prior.terminalFailureDetail ?? null,
+  });
+}
+
+/** A finalization tail's `{ok:false}`: restore the pre-admission status unless a kill owns settlement. */
+function failedFinalizationTailResult(
+  store: StateStore,
+  run: Run,
+  outcome: { ok: false; message: string },
+  aborted: boolean,
+  failureAsResponse: boolean,
+): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
+  if (!aborted) restoreRunAfterFailedResume(store, run);
+  return failureAsResponse
+    ? { kind: "response", result: outcome }
+    : { kind: "error", code: "internal_error", message: outcome.message };
 }
 
 /** Terminal or paused — any status with no live write loop to disturb. */
@@ -1135,8 +1171,7 @@ export function createRunLifecycleHandlers(
       };
       const outcome = await execute(resumeDeps);
       if (!outcome.ok) {
-        if (failureAsResponse) return { kind: "response", result: outcome };
-        return { kind: "error", code: "internal_error", message: outcome.message };
+        return failedFinalizationTailResult(store, run, outcome, abortController.signal.aborted, failureAsResponse);
       }
       return { kind: "response", result: outcome };
     } catch (error) {
@@ -1228,8 +1263,18 @@ export function createRunLifecycleHandlers(
         message: `${reconstructedSteps.message} — ${RUN_OPERATOR_ERROR_RECOVERY.unsupported_resume_context}`,
       };
     }
-    return deps.resumeLinkedWorkflowStart(reconstructedSteps.steps, snapshot, () =>
-      admitRunForResumeOrRefusal(store, run.id),
+    let admitted = false;
+    return deps.resumeLinkedWorkflowStart(
+      reconstructedSteps.steps,
+      snapshot,
+      async () => {
+        const refusal = await admitRunForResumeOrRefusal(store, run.id);
+        admitted = refusal === undefined;
+        return refusal;
+      },
+      () => {
+        if (admitted) restoreRunAfterFailedResume(store, run);
+      },
     );
   };
 

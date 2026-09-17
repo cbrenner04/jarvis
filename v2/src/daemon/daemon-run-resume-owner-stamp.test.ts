@@ -7,6 +7,8 @@ import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, reconcileOrphanedRuns, recoverReconciledRuns } from "./daemon.ts";
+import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
+import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 
 const IDENTITY_A = "11111:1000000";
 const IDENTITY_B = "22222:2000000";
@@ -135,6 +137,49 @@ test("automatic restart recovery leaves the resumed row's owner_identity equal t
   expect(recovery).toEqual({ resumed: 1 });
   expect(readOwnerIdentity(dbPath, runId)).toBe(IDENTITY_C);
   storeD.close();
+});
+
+test("a finalization-tail resume whose tail fails restores the prior terminal status, owned by the resuming daemon", async () => {
+  const dbPath = trackedDbPath("tail-fails");
+  const storeA = openStateStore(dbPath, { currentIdentity: IDENTITY_A });
+  const runId = storeA.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/resume-owner-worktree-tail-fails",
+    branch: "resume-owner-branch-tail-fails",
+    specPath: "/tmp/resume-owner-spec-tail-fails.md",
+    status: "failed",
+  });
+  storeA.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "invocation_failure" });
+  storeA.close();
+
+  const storeB = openStateStore(dbPath, { currentIdentity: IDENTITY_B, isOwnerAlive: async () => false });
+  const ctx = createRunControlHandlerContext({
+    stateStore: storeB,
+    writeLoopExecutor: trackedExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "unsupported" }),
+  });
+  const run = storeB.loadRun(runId);
+  if (!run) throw new Error("run missing");
+  const response = await handlers.resumeFinalizationOnly(
+    run,
+    { project: run.project, branch: run.branch },
+    async () => {
+      expect(storeB.loadRun(runId)?.status).toBe("in-progress");
+      return { ok: false, message: "tail failed" };
+    },
+  );
+
+  expect(response.kind).toBe("error");
+  expect(storeB.loadRun(runId)?.status).toBe("failed");
+  expect(storeB.loadRun(runId)?.terminalCause).toBe("invocation_failure");
+  expect(readOwnerIdentity(dbPath, runId)).toBe(IDENTITY_B);
+  storeB.close();
 });
 
 test("resume is refused with the claim refusal reason when a different live daemon owns the row", async () => {

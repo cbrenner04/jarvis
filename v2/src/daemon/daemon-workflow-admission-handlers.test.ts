@@ -482,6 +482,34 @@ test("resumeLinkedWorkflowStart returns a refused resume admission before starti
   expect(registry.get({ project: "demo", branch })).toBeUndefined();
 });
 
+test("resumeLinkedWorkflowStart rolls back an applied resume admission when execute fails", async () => {
+  const branch = "resume-admission-execute-fails";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("implement", branch, doneWithArtifactBindingFactory, {
+    suppressShrink: true,
+    linkedIndexRouting: true,
+    withExternalWorktree: async () => {
+      throw new Error("materialization boom");
+    },
+  });
+  const { workflowStart } = workflowAdmission();
+  const snapshot: WorkflowSnapshot = { invocationId: "resumed-fail-invocation-id", steps: [] };
+  let rollbacks = 0;
+
+  const response = await workflowStart.resumeLinkedWorkflowStart(
+    [step],
+    snapshot,
+    async () => undefined,
+    () => {
+      rollbacks += 1;
+    },
+  );
+
+  expect(response.kind).toBe("error");
+  expect(rollbacks).toBe(1);
+  expect(registry.get({ project: "demo", branch })).toBeUndefined();
+});
+
 test("resumeLinkedWorkflowStart claims the resumed step's real external worktree path, not an empty placeholder", async () => {
   const branch = "resume-claims-real-worktree";
   const { createWriteStep } = writeStepFixtures();

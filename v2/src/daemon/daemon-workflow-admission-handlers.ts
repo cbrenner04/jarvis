@@ -70,6 +70,7 @@ export type WorkflowStartAdmission = {
     steps: AnyWorkflowStep[],
     workflowSnapshot: WorkflowSnapshot,
     admitRun?: ResumeRunAdmission,
+    rollbackRunAdmission?: () => void,
   ) => WorkflowStartResult;
   admitWorkflowStart: (lifecycle: WorkflowStartLifecycle) => Promise<Awaited<WorkflowStartResult>>;
   check_workflow_start_claim: RpcHandler;
@@ -452,6 +453,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     steps: AnyWorkflowStep[],
     workflowSnapshot: WorkflowSnapshot,
     admitRun?: ResumeRunAdmission,
+    rollbackRunAdmission?: () => void,
   ): WorkflowStartResult => {
     const workflowKey = workflowStartOwnershipKey(steps);
     const firstStep = steps[0];
@@ -468,6 +470,8 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
         const refusal = await admitRun?.();
         return refusal ? { kind: "refused", result: refusal } : { kind: "admitted" };
       },
+      // An execute error after an applied admission restores the row's pre-admission status.
+      ...(rollbackRunAdmission !== undefined ? { rollbackAdmission: rollbackRunAdmission } : {}),
       execute: (onSettled) => startWorkflowRun(steps, claimRunId, abortController, onSettled, false, workflowSnapshot),
     });
   };

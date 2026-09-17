@@ -513,6 +513,7 @@ type CapturedLinkedResume = {
   steps: AnyWorkflowStep[];
   workflowSnapshot: WorkflowSnapshot;
   admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>;
+  rollbackRunAdmission?: () => void;
 };
 
 function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps): {
@@ -531,8 +532,13 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
-    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun) => {
-      captured.push({ steps, workflowSnapshot, ...(admitRun !== undefined ? { admitRun } : {}) });
+    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun, rollbackRunAdmission) => {
+      captured.push({
+        steps,
+        workflowSnapshot,
+        ...(admitRun !== undefined ? { admitRun } : {}),
+        ...(rollbackRunAdmission !== undefined ? { rollbackRunAdmission } : {}),
+      });
       return { kind: "response", result: { runId: "fake-entry-run" } };
     },
   });
@@ -585,6 +591,11 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
     });
     // The bare write loop (`spawnWriteLoop`/`writeLoopExecutor`) never runs for this row.
     expect(fakeExecutor.pendingCount()).toBe(0);
+    // A workflow start that fails after the admission applied restores the prior terminal status.
+    expect(await captured[0]?.admitRun?.()).toBeUndefined();
+    expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
+    captured[0]?.rollbackRunAdmission?.();
+    expect(stateStore.loadRun(runId)?.status).toBe("failed");
   } finally {
     profile.cleanup();
     rmSync(worktreePath, { recursive: true, force: true });

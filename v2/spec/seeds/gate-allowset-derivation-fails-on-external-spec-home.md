@@ -28,9 +28,13 @@ if (validated === undefined) { return null; }
 
 **Same root as #3417** (external plan tree tripping a path guard in the same phase of the same workflow), as the reporter suspected.
 
+**Second branch into the same dead end: an existing-but-empty scope root (#4004).** An `implement-review` run's `specPath` is `<worktree>/.jarvis-implement-review/verdict-patch.md`. When the review yields no verdict patch that file does not exist, so `resolveSpecScopeRoot` falls to the `.md` branch and returns `dirname(...)` — the `.jarvis-implement-review` directory, which exists and is empty. `enumerateSpecTreePaths` then hits `files.length === 0` (`v2/src/execution/ready-finalize.ts:817`) and returns `null`, so the allowset is `undefined` and `initializeFrozenRepairAllowset` (`v2/src/execution/write-loop.ts:3447`) hard-fails the terminal completion. A fence with **nothing to repair** collapses a complete, green, pushed lane at the flip-to-ready step. `jarvis run resume` replays the same derivation and returns `internal_error` instantly — a fixed point, same shape as the external-home branch above.
+
 Second, independent defect: **the failure is silent.** `deriveGateAllowedPaths` has eight distinct `undefined` returns (`:697`, `:701`, `:714`, `:718`, `:720`, `:725`, `:729`, `:735-737`) and logs on none of them. The call site (`v2/src/execution/write-loop.ts:2877-2884`) synthesizes a bare `Error` with no branch identity, so the detail string exists only on the `run list` row; the run log carries just `iteration_started` / `loop_finished`. Nothing tells an operator which input failed or what would make derivation succeed, and `nextAction: resume` is offered with no basis for expecting a different outcome.
 
 ## Evidence
+
+Issue #4004: the empty-scope branch, deterministic across two consecutive lanes (TESTENG-150 run `cdffb270`, TESTENG-151 run `a38ebfe2`) whose review yielded no patch; both hand-finished by flipping the draft PR to ready by hand. Work intact, lane stranded, `resume` reproduced it identically.
 
 Issue #3423, project `homestead-service`, jarvis `9096b1a87`, entry run `29069573`. Five-subspec external plan tree; every subspec row and the review row `completed`; seven commits on the branch, branch pushed, draft PR #12 open, `npm run ready` green (180 unit / 165 e2e). Only the completion-commit row failed. Hand-finished.
 
@@ -38,6 +42,7 @@ The reporter counts this as the fourth distinct way an implement lane failed to 
 
 ## Decisions
 
+- An empty spec scope root derives an **empty** allowset, not "cannot derive": nothing in the spec tree is repairable, which is a valid fence, not a failure; rules out `files.length === 0` returning `null` and collapsing a lane whose review produced no patch.
 - Spec-tree enumeration resolves paths relative to the **spec scope root**, not the code worktree, so an external spec home yields valid entries instead of `..`-prefixed rejects; rules out a guard intended for repo-relative safety rejecting a legitimately out-of-repo spec home.
 - An external spec home is classified before validation, not discovered by a rejected path: `resolveSpecScopeRoot` reports whether the root is inside the worktree, and out-of-worktree roots take the `normalizePublicationSpecPath` path the `scopeRoot === null` fallback already implements; rules out the fallback staying unreachable whenever the external directory happens to exist.
 - Every `undefined` return in `deriveGateAllowedPaths` carries a distinct named reason, and the caller records it as a durable log record before settling; rules out eight failure modes collapsing to one opaque string diagnosable only from `run list`.
@@ -47,6 +52,8 @@ The reporter counts this as the fourth distinct way an implement lane failed to 
 ## Acceptance criteria
 
 - [ ] A `ready-finalize` test proves `deriveGateAllowedPaths` returns a non-empty allowset for a worktree whose `specPath` is an absolute directory outside that worktree (the `plan.commit: false` shape); it fails against the current `..`-rejection returning `undefined`.
+- [ ] A `ready-finalize` test proves `deriveGateAllowedPaths` derives an allowset (not `undefined`) when the resolved scope root exists and contains no Markdown files — the `implement-review` empty-verdict-scope shape; it fails against the current `files.length === 0` → `null`.
+- [ ] A write-loop test proves an `implement-review` completion whose review scope is empty reaches its flip-to-ready instead of settling `completion_commit_failed`, and that `jarvis run resume` on such a row is not a fixed point.
 - [ ] A test proves the out-of-worktree spec-home path is taken when the external directory **exists**, not only when it is absent; it fails while `resolveSpecScopeRoot` returning a real directory bypasses the fallback.
 - [ ] A test asserts each distinct derivation failure returns its own named reason, and a write-loop test asserts that reason is written to the run log before settlement; it fails against the current unlogged bare `Error`.
 - [ ] A write-loop test proves a lane whose branch is pushed with an open PR and all criteria ticked does not settle `completion_commit_failed` on a fence-derivation failure, and does not advertise `nextAction: "resume"` for a failure resume cannot clear.

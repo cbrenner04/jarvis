@@ -620,3 +620,14 @@ Closed at session start: #3595, #3464 (daemon-identity chain); PRs #3929, #3930,
 | `mutation-verifier-skips-test-support-files` | #4001 | — | seeded #3996; implement failed on quota |
 | `implement-continues-committed-lane` | #4002 | — | from #3974; operator amended to rebase a moved base |
 | `ready-gate-repair-out-of-diff-edits` | — | — | 3 recurrences; queued |
+
+## 2026-09-18 session
+
+| Seed / lane | Plan | Impl | Status |
+| --- | --- | --- | --- |
+| `daemon-committed-successor-watch` | in flight | — | queue head; prior plan died on quota |
+| `stage-settlement-foreign-owner-liveness` | in flight | — | — |
+| `workflow-invocation-settled-marker-store` | #4000 | in flight | re-dispatched after the quota failure |
+| `mutation-verifier-skips-test-support-files` | #4001 | in flight | re-dispatched after the quota failure |
+| `gate-allowset-derivation-fails-on-external-spec-home` | — | — | seed extended with the empty-scope branch (#4004): an `implement-review` whose review yields no verdict patch resolves an existing-but-empty scope root, derives `undefined`, and strands the lane at flip-to-ready; deterministic over two lanes, `resume` a fixed point |
+| `worktree-materialization-fails-on-committed-node-modules-symlink` | — | — | seeded (#4003); `symlinkSync` never lstats the link path, and the harness's own `git add -A` commits the symlink past a `node_modules/` ignore rule, poisoning the base branch for every later lane |

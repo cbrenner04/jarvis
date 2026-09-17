@@ -4627,6 +4627,41 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).not.toContain(worktreePath);
   });
 
+  test("reset refuses unlanded commits with no PR even when dirty gate override is set", async () => {
+    const branch = "impl/unlanded-dirty-override";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-work.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+    const tipSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(worktreePath, "dirty.txt"), "uncommitted\n");
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", skipDirtyWorktreeGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(tipSha);
+    expect(reason).toContain("commit(s) not on base");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
   test("reset refuses when worktree spec has criteria ticked absent from base", async () => {
     const branch = "impl/landed-criteria-refuse";
     const specDir = join(projectRoot, "v2", "spec", "my-spec");

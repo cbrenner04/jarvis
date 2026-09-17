@@ -2490,6 +2490,61 @@ async function evaluateContinuationTickBacking(args: {
 }
 
 /**
+ * The three gates a non-disposable lane faced before continuation existed: unlanded commits (no open
+ * PR yet), non-descendant `HEAD`, and landed-criteria drift. Applied whenever continuation isn't
+ * attempted (dirty tree, nothing ahead of base) or was attempted but returned no verdict — never on a
+ * lane that continuation itself resolved to `continue` or `refused`, where these gates are moot.
+ */
+async function applyPreContinuationGates(args: {
+  projectRoot: string;
+  worktreePath: string;
+  branch: string;
+  baseRef: string;
+  baseHead: string;
+  worktreeHead: string;
+  commitCount: number;
+  hasOpenPr: boolean;
+  trackableSpecPath: string | undefined;
+  skipLandedCriteriaGate: boolean;
+  runner: AsyncSubprocessRunner;
+}): Promise<string[]> {
+  const {
+    projectRoot,
+    worktreePath,
+    branch,
+    baseRef,
+    baseHead,
+    worktreeHead,
+    commitCount,
+    hasOpenPr,
+    trackableSpecPath,
+    skipLandedCriteriaGate,
+    runner,
+  } = args;
+  const parts: string[] = [];
+  if (!hasOpenPr && commitCount > 0) {
+    const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
+    if (nonStagingPaths.length > 0 && !(await carriesNoUnlandedCommits(branch, baseRef, projectRoot, runner))) {
+      parts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
+    }
+  }
+  if (
+    !(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) &&
+    !(await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner))
+  ) {
+    parts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
+  }
+  if (trackableSpecPath !== undefined) {
+    const specTree = { projectRoot, worktreePath, baseRef, specPath: trackableSpecPath, runner };
+    const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
+    if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {
+      parts.push(staleResetLandedCriteriaGateReason(driftedSubspecPaths));
+    }
+  }
+  return parts;
+}
+
+/**
  * Committed-lane continuation for the non-disposable, commits-ahead-of-base case: a descendant lane
  * continues subject to tick-backing; a lane behind a moved base rebases first (only when a trackable
  * spec makes continuation meaningful) and continues on a clean rebase, or refuses naming conflicts;
@@ -2520,11 +2575,17 @@ async function evaluateCommittedLaneContinuation(args: {
     return { status: "refused", reason: staleResetDescendantGateReason(baseRef, baseHead, worktreeHead) };
   }
 
+  // Tick backing is evaluated against the pre-rebase `base..branch` range before the rebase mutates
+  // the branch: a clean rebase replays the same commit content under new SHAs, so the verdict doesn't
+  // change, and a refusal here never lands on a branch this call already rewrote.
+  const tickBacking = await evaluateContinuationTickBacking(args);
+  if (tickBacking?.status !== "continue") return tickBacking;
+
   const conflictPaths = await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
   if (conflictPaths !== undefined) {
     return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, conflictPaths) };
   }
-  return evaluateContinuationTickBacking(args);
+  return { status: "continue" };
 }
 
 function staleResetDescendantGateReason(baseRef: string, baseHead: string, worktreeHead: string): string {
@@ -2757,25 +2818,26 @@ export async function resetStaleWorkspace(
       const trackableSpecPath =
         specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath) ? specPath : undefined;
       const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
+      const preContinuationGateArgs = {
+        projectRoot,
+        worktreePath,
+        branch,
+        baseRef,
+        baseHead,
+        worktreeHead,
+        commitCount,
+        hasOpenPr: prGate.pr !== undefined,
+        trackableSpecPath,
+        skipLandedCriteriaGate,
+        runner,
+      };
       // Continuation is clean-tree-only: attempting it (including a rebase) against a dirty worktree
       // would misreport a plain dirty-tree refusal as a rebase conflict. A dirty lane, like one with
-      // nothing ahead of base, falls through to the ordinary descendant/landed-criteria-drift gates
-      // (unconditional in the pre-continuation code this restores) — the dirty gate below then refuses
-      // or, on override, lets an ordinary reset proceed.
+      // nothing ahead of base, falls through to the pre-continuation gates (unlanded-commits,
+      // descendant, landed-criteria-drift — unconditional in the pre-continuation code this restores)
+      // — the dirty gate below then refuses or, on override, lets an ordinary reset proceed.
       if (commitCount === 0 || dirtyList.status !== "clean") {
-        if (
-          !(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) &&
-          !(await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner))
-        ) {
-          refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
-        }
-        if (trackableSpecPath !== undefined) {
-          const specTree = { projectRoot, worktreePath, baseRef, specPath: trackableSpecPath, runner };
-          const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
-          if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {
-            refusalParts.push(staleResetLandedCriteriaGateReason(driftedSubspecPaths));
-          }
-        }
+        refusalParts.push(...(await applyPreContinuationGates(preContinuationGateArgs)));
       } else {
         const continuation = await evaluateCommittedLaneContinuation({
           projectRoot,
@@ -2792,6 +2854,10 @@ export async function resetStaleWorkspace(
           refusalParts.push(continuation.reason);
         } else if (continuation?.status === "continue") {
           continuationEligible = true;
+        } else {
+          // No verdict (e.g. `--reset-despite-landed-criteria` on an otherwise-continuable, descendant
+          // lane): fall through to the same pre-continuation gates as the dirty/nothing-ahead case.
+          refusalParts.push(...(await applyPreContinuationGates(preContinuationGateArgs)));
         }
       }
     }

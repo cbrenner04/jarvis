@@ -197,7 +197,7 @@ describe("plan draft normalization", () => {
     ],
     [
       "incidental same-directory prose is not an exemption",
-      "- [ ] Creates `v2/src/a.ts` and its test `v2/src/a.test.ts` in the same directory.\n",
+      "- [ ] Creates `v2/src/a.ts` and `v2/src/b.ts` in the same directory.\n",
     ],
     [
       "bare green is not preservation wording",
@@ -290,15 +290,37 @@ describe("plan draft normalization", () => {
     expect(treeBytes(dir)).toEqual(before);
   });
 
-  test("rejects an acceptance criterion naming two artifact paths with actionable context", () => {
+  test("accepts an acceptance criterion naming an artifact path plus the co-located test that covers it", () => {
     const dir = scratchDir("two-artifact-criterion");
     stageDraft(dir, {
       "00-runtime.md":
         "# Runtime\n\n## Acceptance criteria\n\n- [ ] `shared/state.ts` persists daemon state covered by `shared/state.test.ts`.\n",
     });
 
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("rejects an acceptance criterion naming two production paths and a test covering only one of them", () => {
+    const dir = scratchDir("three-artifact-partial-coverage");
+    stageDraft(dir, {
+      "00-runtime.md":
+        "# Runtime\n\n## Acceptance criteria\n\n- [ ] `shared/a.ts` and `shared/b.ts` land, with `shared/a.test.ts` covering `shared/a.ts`.\n",
+    });
+
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
-      "Plan subspec 00-runtime.md has a ## Acceptance criteria bullet naming multiple artifact paths (shared/state.ts, shared/state.test.ts): `shared/state.ts` persists daemon state covered by `shared/state.test.ts`.",
+      "Plan subspec 00-runtime.md has a ## Acceptance criteria bullet naming multiple artifact paths (shared/a.ts, shared/b.ts)",
+    );
+  });
+
+  test("rejects the same test-plus-production pairing under ## Decisions (collapse is AC-only)", () => {
+    const dir = scratchDir("test-coverage-pair-decisions");
+    stageDraft(dir, {
+      "00-runtime.md":
+        "# Runtime\n\n## Decisions\n\n- `shared/state.ts` persists daemon state covered by `shared/state.test.ts`.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Plan subspec 00-runtime.md has a ## Decisions bullet naming multiple artifact paths (shared/state.ts, shared/state.test.ts)",
     );
   });
 

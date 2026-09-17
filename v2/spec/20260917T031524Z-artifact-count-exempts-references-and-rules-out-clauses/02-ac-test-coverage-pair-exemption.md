@@ -11,12 +11,12 @@ In an `## Acceptance criteria` bullet only, a test-file path plus the production
 
 ## Acceptance criteria
 
-- [ ] A test proves an AC bullet naming `shared/state.ts` plus the shared/state.test.ts test that covers it passes — reversing the existing "rejects an acceptance criterion naming two artifact paths with actionable context" case in shared/module-boundary-surfaces.test.ts; it fails against the pre-fix check.
-- [ ] `shared/module-boundary-surfaces.test.ts`'s two-artifact-without-coverage rejections (e.g. "rejects two artifact paths without module-boundary vocabulary") stay green.
-- [ ] A test proves an AC bullet naming two production paths and one test path covering only one of them (three paths total) is still refused, since the unpaired production path remains a second distinct artifact.
-- [ ] A test proves the same production-path-plus-test-file pairing is still refused under `## Decisions` (the collapse is AC-only).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] A test proves an AC bullet naming `shared/state.ts` plus the shared/state.test.ts test that covers it passes — reversing the existing "rejects an acceptance criterion naming two artifact paths with actionable context" case in shared/module-boundary-surfaces.test.ts; it fails against the pre-fix check.
+- [x] `shared/module-boundary-surfaces.test.ts`'s two-artifact-without-coverage rejections (e.g. "rejects two artifact paths without module-boundary vocabulary") stay green.
+- [x] A test proves an AC bullet naming two production paths and one test path covering only one of them (three paths total) is still refused, since the unpaired production path remains a second distinct artifact.
+- [x] A test proves the same production-path-plus-test-file pairing is still refused under `## Decisions` (the collapse is AC-only).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

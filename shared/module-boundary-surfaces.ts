@@ -105,10 +105,38 @@ function isSharedDecisionBullet(text: string): boolean {
   return SHARED_OUTCOME_PATTERN.test(text) && !BUILD_VERB_PATTERN.test(text);
 }
 
+const ACCEPTANCE_CRITERIA_HEADING = "## Acceptance criteria";
+const TEST_FILENAME_PATTERN = /^(.+)\.test\.([A-Za-z0-9]+)$/u;
+
+/** The production path a test path would cover: same directory, filename with `.test` removed.
+ * Undefined when the path isn't shaped like this repo's co-located test convention. */
+function coveredProductionPath(testPath: string): string | undefined {
+  const slashIndex = testPath.lastIndexOf("/");
+  const dir = slashIndex === -1 ? "" : testPath.slice(0, slashIndex + 1);
+  const filename = slashIndex === -1 ? testPath : testPath.slice(slashIndex + 1);
+  const match = filename.match(TEST_FILENAME_PATTERN);
+  if (!match) return undefined;
+  const [, stem, ext] = match;
+  return `${dir}${stem}.${ext}`;
+}
+
+/** In an Acceptance-criteria bullet, a test path plus the production path it covers (same
+ * directory, `.test` removed) counts as one artifact — collapses each such pair down to the
+ * production path. A path not part of a pairing still counts individually. */
+function collapseTestCoveragePairs(paths: readonly string[]): string[] {
+  const remaining = new Set(paths);
+  for (const path of paths) {
+    const production = coveredProductionPath(path);
+    if (production !== undefined && remaining.has(production)) remaining.delete(path);
+  }
+  return paths.filter((path) => remaining.has(path));
+}
+
 function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): void {
   for (const bullet of bullets) {
     const paths = referencedArtifactPaths(bullet);
-    if (paths.length <= 1) continue;
+    const countedPaths = heading === ACCEPTANCE_CRITERIA_HEADING ? collapseTestCoveragePairs(paths) : paths;
+    if (countedPaths.length <= 1) continue;
     if (isStaysUnchangedBullet(bullet) || isSharedDecisionBullet(bullet)) continue;
     // A bullet carrying exempt wording that reaches here did so because of its build claim; say so,
     // rather than leaving the author to guess which reading fired.
@@ -117,7 +145,7 @@ function assertSingleArtifactBullets(file: string, heading: string, bullets: rea
         ? "mixes exempt wording with a build claim"
         : "read as built or changed";
     throw new Error(
-      `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${paths.join(", ")}): ${bullet} (${reading})`,
+      `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${countedPaths.join(", ")}): ${bullet} (${reading})`,
     );
   }
 }

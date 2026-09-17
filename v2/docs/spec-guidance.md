@@ -74,6 +74,8 @@ A slash-free backticked token that begins with `.` and has a second `.` later (`
 
 Paths named inside a `rules out` clause are mentions, not artifacts, in any section. The clause runs from `rules out` to the end of the bullet, or to an earlier `;` or ` — ` (em dash), whichever comes first — so a trailing clause after the semicolon or dash still counts as a build claim. Example: "builds `a.ts` — rules out `b.ts`; adds `c.ts`" still names two artifacts (`a.ts`, `c.ts`); `b.ts` is exempt.
 
+In an `## Acceptance criteria` bullet only, a test path plus the production path it covers counts as one artifact: the test filename must match `<stem>.test.<ext>` and share a directory with a production file named `<stem>.<ext>`. Example: "`shared/state.ts` persists daemon state covered by `shared/state.test.ts`" names one artifact. A path left unpaired still counts on its own, so naming two production paths plus a test covering only one of them still names two artifacts. The collapse does not apply under `## Decisions` or `## Documentation updates` — the same pairing there still names two artifacts.
+
 Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.
 
 When work starts from a structured index (a feature checklist, a work queue): treat the item plus matching context docs as source input, write a concise build brief, draft with `intent`/`plan`, implement with `implement`. Do not frame work-start prompts as "draft a spec" — done is merged implementation code, not generated spec artifacts.

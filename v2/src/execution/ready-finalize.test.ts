@@ -677,6 +677,20 @@ describe("ready gate untouched-path classification", () => {
     expect(readyGateOutOfScopeLogFields(withoutObservations)).not.toHaveProperty("readyGateOutOfScopeObservations");
   });
 
+  it("readyGateOutOfScopeLogFields round-trips observations from a plain log-fields source", () => {
+    const observations = { "v2/src/untouched.test.ts": { pass: 3, fail: 2, baseCommit: "abc1234" } };
+    expect(
+      readyGateOutOfScopeLogFields({
+        readyGateOutsidePaths: ["v2/src/untouched.test.ts"],
+        readyGateOutOfScopeObservations: observations,
+      }).readyGateOutOfScopeObservations,
+    ).toEqual(observations);
+
+    expect(readyGateOutOfScopeLogFields({ readyGateOutsidePaths: ["v2/src/untouched.test.ts"] })).not.toHaveProperty(
+      "readyGateOutOfScopeObservations",
+    );
+  });
+
   it("base-ref probe's v2-mode spawn passes the derived probe env through to the runner", async () => {
     const failingPath = "v2/src/untouched.test.ts";
     const probeScope = {

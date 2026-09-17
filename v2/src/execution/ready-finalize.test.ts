@@ -978,6 +978,11 @@ describe("base-ref probe conclusive reproduction", () => {
         );
         expect(classified.kind).toBe("ready_gate_out_of_scope");
         expect(classified.outsidePaths).toEqual([testPath]);
+        // Pins the observation's baseCommit to the verified merge-base, not the raw "fail"
+        // classification with the field silently dropped.
+        expect(classified.outsidePathObservations).toEqual({
+          [testPath]: { pass: 0, fail: 1, baseCommit: probeScope.baseRef },
+        });
       },
     );
   });

@@ -1114,12 +1114,21 @@ export async function recoverReconciledRuns(
 
     const message = `Automatic restart recovery admission failed: ${response.message}`;
     try {
-      stateStore.commitTerminalRunSettlement({
+      // Reconciliation left the row owned by the dead prior daemon; stamp this daemon so the stale-owner guard admits the settlement.
+      await stateStore.admitRunForResume(runId);
+      const settlement = stateStore.commitTerminalRunSettlement({
         runId,
         status: "failed",
         terminalCause: "invocation_failure",
         terminalFailureDetail: daemonFailureDetail("error", message),
       });
+      if (settlement.kind === "rejected") {
+        logSink.append(runId, {
+          kind: "run_settlement_rejected",
+          attemptedStatus: settlement.attemptedStatus,
+          reportingIdentity: settlement.reportingIdentity,
+        });
+      }
     } catch {
       // Log the diagnostic even if persistence is unavailable.
     }

@@ -40,11 +40,32 @@ function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp
 const SPEC_SCAFFOLDING_FILENAMES: ReadonlySet<string> = new Set(["index.md", "intent.md"]);
 const GLOB_PATTERN = /[*?]|\[[^\]]+\]/u;
 
+const RULES_OUT_PATTERN = /rules out/giu;
+// A rules-out clause ends at the bullet's end, or earlier at a `;` or em dash that starts a
+// distinct trailing clause — whichever comes first — so a second build claim after the rules-out
+// clause still counts (`builds a.ts — rules out b.ts; adds c.ts`).
+const CLAUSE_BOUNDARY_PATTERN = /;| — /u;
+
+/** Named paths inside a `rules out` clause are mentions, not artifacts — exempt from the count. */
+function rulesOutClauseRanges(text: string): Array<readonly [number, number]> {
+  const ranges: Array<readonly [number, number]> = [];
+  for (const match of text.matchAll(RULES_OUT_PATTERN)) {
+    const start = match.index ?? 0;
+    const boundary = text.slice(start).match(CLAUSE_BOUNDARY_PATTERN);
+    const end = boundary?.index === undefined ? text.length : start + boundary.index;
+    ranges.push([start, end]);
+  }
+  return ranges;
+}
+
 export function referencedArtifactPaths(text: string): string[] {
   const paths = new Set<string>();
+  const rulesOutRanges = rulesOutClauseRanges(text);
   for (const match of text.matchAll(BACKTICKED_PATH_PATTERN)) {
     const path = match[1] ?? match[2];
     if (path === undefined || SPEC_SCAFFOLDING_FILENAMES.has(path) || GLOB_PATTERN.test(path)) continue;
+    const matchIndex = match.index ?? 0;
+    if (rulesOutRanges.some(([start, end]) => matchIndex >= start && matchIndex < end)) continue;
     paths.add(path);
   }
   return [...paths];

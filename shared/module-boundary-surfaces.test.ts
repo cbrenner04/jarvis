@@ -131,6 +131,28 @@ describe("plan draft normalization", () => {
     expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
   });
 
+  test("accepts a Decisions bullet naming one built artifact plus a path inside a rules-out clause", () => {
+    const dir = scratchDir("rules-out-clause");
+    stageDraft(dir, {
+      "00-rules-out.md":
+        "# Rules out\n\n## Decisions\n\n- Adds `a.ts` — rules out `b.ts`.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("rejects a rules-out bullet with a distinct trailing build claim", () => {
+    const dir = scratchDir("rules-out-trailing-clause");
+    stageDraft(dir, {
+      "00-rules-out.md":
+        "# Rules out\n\n## Decisions\n\n- Builds `a.ts` — rules out `b.ts`; adds `c.ts`.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Plan subspec 00-rules-out.md has a ## Decisions bullet naming multiple artifact paths (a.ts, c.ts)",
+    );
+  });
+
   // Each case below was accepted before the exemptions were made to fail closed: the shared-outcome
   // marker short-circuited the mixed-claim refusal, and the preservation vocabulary matched bare
   // "green" / "stops" in ordinary prose about new work.

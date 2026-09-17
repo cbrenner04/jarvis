@@ -306,7 +306,7 @@ export function workflowInvocationIsLive(
 }
 
 /** The RPC or signal that started a daemon generation's retire transition. */
-export type DaemonRetireTrigger = "supersede" | "changeover" | "shutdown" | "sigterm" | "sigint";
+type DaemonRetireTrigger = "supersede" | "changeover" | "shutdown" | "sigterm" | "sigint";
 
 const RETIRE_TRIGGER_LOG_PREFIX = "JARVIS_DAEMON_RETIRE_TRIGGER:";
 const DRAIN_EXIT_LOG_PREFIX = "JARVIS_DAEMON_DRAIN_EXIT:";

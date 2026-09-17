@@ -14,6 +14,7 @@ Seed: `v2/spec/seeds/workflow-terminal-incident-fires-once.md`.
 ## Acceptance
 
 - A test asserts the marker is written with the matching cause for completed, failed, and killed settlements, and not before the publication tail ends.
+- A test drives a completed settlement followed by a republication failure and asserts the marker is rewritten to cause `failed`.
 
 ## Prerequisites
 

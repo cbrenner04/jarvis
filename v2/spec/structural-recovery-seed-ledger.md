@@ -590,8 +590,14 @@ Specs archived 2026-09-15 ([#3923](https://github.com/cbrenner04/jarvis/pull/392
 | `opencode-adapter-read-dir-grant` | — | — | re-queued from #3929, then removed by operator as obsolete (#3950) |
 | `plan-bases-off-a-declared-prerequisite-branch` | — | #3948 | landed by operator hand; operator review added freshness reuse + descendant-gate test |
 | `pr-body-spec-line-and-overview` (lane 1/3 of #3934) | #3939 closed (superseded) | #3941 | landed unattended; no lane notification (`pipeline-lane-ready-pr-notifies` recurred) |
-| `test-suite-wall-clock` | 4 lanes (lint-seam plan recovered 2×, split plan recovered 2× — artifact-count) | #3953, #3956 landed; #3957 split in review; fixture template held behind split | #3953 hand-finished (review actuator `role_timeout`; review found 4 defects, fixed); #3956 hand-finished (agent sandbox cannot bind sockets → new seed); split lane hit the owner-stamp split-brain (new seed) but its draining daemon published |
+| `test-suite-wall-clock` | 4 lanes (lint-seam and split plans each recovered 2× — artifact-count) | #3953, #3956, #3957, #3972 | **landed**; every lane hand-finished: #3953 review actuator `role_timeout` (review found 4 defects, fixed); #3956 agent sandbox cannot bind sockets; #3957 owner-stamp split-brain (old generation published); #3972 review actuator hit quota (3 verdict fixes by hand). Measured: intent-output 15.95s → ~0.7s, write-loop-intent-landing 16.4s → 2.8s, resume file 112s → max 36s, daemon real-spawn files 25.3s → 19.6s |
 | `observability-sinks-honor-jarvis-home-and-cap-blobs` | #3910 | #3937 (telemetry caps, hand-published after quota) | pipeline `25784a7e` dismissed; cleanup lane unapproved, carried |
+| `pipeline-lane-ready-pr-notifies` | #3964 (closed) | #3970 | landed (hand-published: gate slot refused; resume held pending resume-orchestration fix); key-format version bumped to avoid an upgrade flood |
+| `resuming-a-failed-link-row-runs-the-whole-workflow` | #3966 | in progress | agent blocked with a correct finding: resume never continued linked dispatch, paused rows included; subspec 01 added for the orchestration (operator chose the real fix) |
+| `artifact-count-exempts-references-and-rules-out-clauses` | #3967 | queued (`shared/**`) | intent amended to cover doc-bullet mentions and bare suffixes (4 false refusals on 2026-09-16) |
+| `intent-landing-accepts-no-prerequisites` | #3965 (none lane) | queued (`shared/**`); reprompt lane held | recurred on the owner-stamp intent (prose Prerequisites), fixed by hand + `run resume` |
+| `workflow-terminal-incident-fires-once` | — | — | seeded #3969 (5 invocations double-notified in 5 days) |
+| `wal-lock-holder-child-exits-silently` | — | — | seeded (2 occurrences 2026-09-16/17) |
 | `run-admission-stamps-its-owner` | — | — | seeded (stranded run `64b09d5d`; pipeline `39d79f62` went `interrupted`) |
 | `implement-can-run-integration-slice-tests` | — | — | seeded (`agent_blocked` on #3956's lane) |
 

@@ -18,14 +18,14 @@ No durable record says a workflow invocation finished; "settled" is derived from
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/state-store.ts` exposes `StateStore` ops to write and read the settled marker for an entry run id (cause + settled time), returning `null` when none exists.
-- [ ] A test in `v2/src/persistence/state-store.test.ts` writes a marker and reads back its cause and settled time; it fails against the pre-change store.
-- [ ] A test in `v2/src/persistence/state-store.test.ts` writes a second marker with a different cause and a different settled time than the first write, and asserts both the cause and settled time are replaced with the second write's values.
-- [ ] A test in `v2/src/persistence/state-store-baseline-migration.test.ts` opens a store already stamped `031-baseline-squash` and holding runs, built without the `workflow_invocation_settled` table, and asserts the table exists afterward with no markers for those invocations.
-- [ ] A second `StateStore` opened on the same database file reads a marker written by the first (covered in `v2/src/persistence/state-store.test.ts`).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/persistence/state-store.ts` exposes `StateStore` ops to write and read the settled marker for an entry run id (cause + settled time), returning `null` when none exists.
+- [x] A test in `v2/src/persistence/state-store.test.ts` writes a marker and reads back its cause and settled time; it fails against the pre-change store.
+- [x] A test in `v2/src/persistence/state-store.test.ts` writes a second marker with a different cause and a different settled time than the first write, and asserts both the cause and settled time are replaced with the second write's values.
+- [x] A test in `v2/src/persistence/state-store-baseline-migration.test.ts` opens a store already stamped `031-baseline-squash` and holding runs, built without the `workflow_invocation_settled` table, and asserts the table exists afterward with no markers for those invocations.
+- [x] A second `StateStore` opened on the same database file reads a marker written by the first (covered in `v2/src/persistence/state-store.test.ts`).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -659,6 +659,15 @@ export type Attempt = {
   completionReviewPass?: number | null;
 };
 
+/** Why a workflow invocation settled, for the durable settled marker. */
+export type WorkflowInvocationSettledCause = "completed" | "failed" | "killed";
+
+/** Durable settled marker for one workflow invocation, keyed by entry run id. */
+export type WorkflowInvocationSettledMarker = {
+  cause: WorkflowInvocationSettledCause;
+  settledAt: number;
+};
+
 /** Repository-style durable state API, keyed by IDs; no generic SQL surface. */
 export interface StateStore {
   /** This process's own owner identity (`<pid>:<process-start-epoch>`), stamped on rows it admits. */
@@ -701,6 +710,16 @@ export interface StateStore {
 
   /** Durably record the consumed whole-run wall-clock ms for `budgetKey`. */
   writeRunBudgetConsumedMs(budgetKey: string, consumedMs: number): void;
+
+  /** Read the durable settled marker for one workflow invocation (keyed by entry run id); `null` when unset. */
+  readWorkflowInvocationSettledMarker(entryRunId: string): WorkflowInvocationSettledMarker | null;
+
+  /** Upsert the settled marker for one workflow invocation, replacing both `cause` and `settledAt` on every write. */
+  writeWorkflowInvocationSettledMarker(
+    entryRunId: string,
+    cause: WorkflowInvocationSettledCause,
+    settledAt: number,
+  ): void;
 
   /** Record one verifier process group id without removing siblings already stored for the run. */
   recordVerifierProcessGroup(runId: string, pgid: number): void;
@@ -1231,6 +1250,11 @@ const SCHEMA = `
     pgid INTEGER NOT NULL,
     PRIMARY KEY (run_id, pgid),
     FOREIGN KEY (run_id) REFERENCES runs(id)
+  );
+  CREATE TABLE IF NOT EXISTS workflow_invocation_settled (
+    entry_run_id TEXT PRIMARY KEY,
+    cause TEXT NOT NULL,
+    settled_at INTEGER NOT NULL
   );
 `;
 
@@ -1958,6 +1982,25 @@ class StateStoreImpl implements StateStore {
         "INSERT INTO run_time_budgets (budget_key, consumed_ms) VALUES (?, ?) ON CONFLICT(budget_key) DO UPDATE SET consumed_ms = excluded.consumed_ms",
       )
       .run(budgetKey, Math.max(0, Math.round(consumedMs)));
+  }
+
+  readWorkflowInvocationSettledMarker(entryRunId: string): WorkflowInvocationSettledMarker | null {
+    const row = this.db
+      .prepare("SELECT cause, settled_at AS settledAt FROM workflow_invocation_settled WHERE entry_run_id = ?")
+      .get(entryRunId) as WorkflowInvocationSettledMarker | null;
+    return row ?? null;
+  }
+
+  writeWorkflowInvocationSettledMarker(
+    entryRunId: string,
+    cause: WorkflowInvocationSettledCause,
+    settledAt: number,
+  ): void {
+    this.db
+      .prepare(
+        "INSERT INTO workflow_invocation_settled (entry_run_id, cause, settled_at) VALUES (?, ?, ?) ON CONFLICT(entry_run_id) DO UPDATE SET cause = excluded.cause, settled_at = excluded.settled_at",
+      )
+      .run(entryRunId, cause, settledAt);
   }
 
   recordVerifierProcessGroup(runId: string, pgid: number): void {

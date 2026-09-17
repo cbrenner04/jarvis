@@ -450,4 +450,33 @@ describe("state store baseline migration", () => {
       store.close();
     }
   });
+
+  test("stamped baseline databases create a missing workflow_invocation_settled table with no markers for existing invocations", () => {
+    const ids = createPreSquashFixtureDb(legacyDbPath);
+    const raw = new Database(legacyDbPath);
+    raw.exec("DELETE FROM _migrations");
+    raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES ('031-baseline-squash', ?)").run(Date.now());
+    const tableExistsBefore = raw
+      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_invocation_settled'")
+      .get() as { ok: number } | null;
+    raw.close();
+    expect(tableExistsBefore).toBeNull();
+
+    const store = openStateStore(legacyDbPath);
+    try {
+      expect(store.readWorkflowInvocationSettledMarker(ids.runId)).toBeNull();
+      const verify = new Database(legacyDbPath);
+      const tableExistsAfter = verify
+        .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_invocation_settled'")
+        .get() as { ok: number } | null;
+      const markerCount = verify.prepare("SELECT COUNT(*) AS count FROM workflow_invocation_settled").get() as {
+        count: number;
+      };
+      verify.close();
+      expect(tableExistsAfter?.ok).toBe(1);
+      expect(markerCount.count).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
 });

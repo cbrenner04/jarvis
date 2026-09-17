@@ -12,7 +12,7 @@ import {
   startFakeDaemon,
   uniqueId,
   waitFor,
-} from "./daemon-retire-trigger-logging.test.ts";
+} from "./daemon-retire-trigger-logging.test-support.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 

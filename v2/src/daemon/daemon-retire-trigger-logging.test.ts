@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import {
   createSignalHandler,
@@ -10,38 +9,15 @@ import {
   formatHandoffSettlementLogLine,
   formatRetireTriggerLogLine,
   nextFirstRetireTrigger,
-  startDaemonRuntime,
   startDrainExitLoop,
 } from "./daemon.ts";
-
-export function captureConsoleError(): { lines: string[]; restore: () => void } {
-  const lines: string[] = [];
-  const original = console.error;
-  console.error = (...args: unknown[]) => {
-    lines.push(args.map((arg) => String(arg)).join(" "));
-  };
-  return {
-    lines,
-    restore: () => {
-      console.error = original;
-    },
-  };
-}
-
-/** Bounded poll, not a bare timer wait: terminates on the condition or the deadline, whichever comes first. */
-export async function waitFor(predicate: () => boolean, boundMs: number, stepMs = 5): Promise<boolean> {
-  const deadline = Date.now() + boundMs;
-  while (Date.now() < deadline) {
-    if (predicate()) return true;
-    await new Promise((resolve) => setTimeout(resolve, stepMs));
-  }
-  return predicate();
-}
-
-/** Random suffix for tmp file/socket names, unique enough across concurrent test runs. */
-export function uniqueId(): string {
-  return `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
+import {
+  beginChangeover,
+  captureConsoleError,
+  startFakeDaemon,
+  uniqueId,
+  waitFor,
+} from "./daemon-retire-trigger-logging.test-support.ts";
 
 /** A fresh private-socket path for a `changeover`-initiated handoff. */
 function makePrivateSocketPath(): string {
@@ -63,28 +39,6 @@ afterEach(() => {
   store.close();
   rmSync(dbPath, { force: true });
 });
-
-/** Boots the full RPC handler map with a faked IPC server, so `supersede`/`shutdown`/`changeover`
- * can be called directly without a real socket or real ambient `~/.jarvis` state. */
-export async function startFakeDaemon(
-  store: StateStore,
-  socketPath: string,
-  extraDeps: Parameters<typeof startDaemonRuntime>[3] = {},
-): Promise<{ handlers: Record<string, RpcHandler>; close: () => Promise<void> }> {
-  let handlers: Record<string, RpcHandler> = {};
-  const runtime = await startDaemonRuntime(socketPath, store, undefined, {
-    logsPath: join(tmpdir(), `jarvis-retire-trigger-logs-${uniqueId()}.jsonl`),
-    openLogSink: () => ({ append: () => undefined, close: () => undefined }),
-    enumerateOtherDaemonSockets: () => [],
-    readNotificationSinkCommand: () => undefined,
-    startIpcServer: async (boundSocketPath, h) => {
-      handlers = h ?? {};
-      return { socketPath: boundSocketPath, close: async () => undefined } as IpcServer;
-    },
-    ...extraDeps,
-  });
-  return { handlers, close: runtime.close };
-}
 
 test("supersede logs the retire-trigger line naming supersede", async () => {
   const { handlers, close } = await startFakeDaemon(store, socketPath);
@@ -122,18 +76,6 @@ test("changeover logs the retire-trigger line naming changeover once the handoff
     await close();
   }
 });
-
-/** Drives `changeover` to create the pending transaction and returns its `handoffId`. */
-export async function beginChangeover(handlers: Record<string, RpcHandler>): Promise<string> {
-  const response = await handlers.changeover?.(
-    { kind: "request", id: "c", method: "changeover" },
-    new AbortController().signal,
-  );
-  if (response?.kind !== "response") throw new Error("changeover did not return a response");
-  const handoffId = (response.result as { handoffId?: unknown }).handoffId;
-  if (typeof handoffId !== "string") throw new Error("changeover response missing handoffId");
-  return handoffId;
-}
 
 test("formatHandoffSettlementLogLine includes resolution only when the caller passes one", () => {
   // Hardcoded expected strings, not built via the function under test: comparing against a
@@ -224,6 +166,33 @@ test("createSignalHandler on SIGTERM requests shutdown and records sigterm", () 
   expect(recorded).toEqual(["sigterm"]);
 });
 
+test("a real SIGTERM drives the daemon's own signal wiring to log the retire-trigger line naming sigterm", async () => {
+  const { close } = await startFakeDaemon(store, socketPath);
+  const capture = captureConsoleError();
+  try {
+    // Emitting the event (not sending an OS signal) invokes exactly the listener
+    // `startDaemonRuntime` registered via `process.on("SIGTERM", ...)`, so this exercises the real
+    // `createSignalHandler` -> `recordRetireTrigger` path, not a stub.
+    process.emit("SIGTERM", "SIGTERM");
+    expect(capture.lines).toContain(formatRetireTriggerLogLine("sigterm"));
+  } finally {
+    capture.restore();
+    await close();
+  }
+});
+
+test("a real SIGINT drives the daemon's own signal wiring to log the retire-trigger line naming sigint", async () => {
+  const { close } = await startFakeDaemon(store, socketPath);
+  const capture = captureConsoleError();
+  try {
+    process.emit("SIGINT", "SIGINT");
+    expect(capture.lines).toContain(formatRetireTriggerLogLine("sigint"));
+  } finally {
+    capture.restore();
+    await close();
+  }
+});
+
 test("nextFirstRetireTrigger records the first trigger and ignores later ones", () => {
   // Inverting `current ?? incoming` to `incoming ?? current` would let a later trigger displace
   // the first one; assert both the "nothing recorded yet" and "already recorded" directions.
@@ -269,5 +238,20 @@ test("startDrainExitLoop logs a null trigger when none was recorded this generat
   } finally {
     capture.restore();
     loop.stop();
+  }
+});
+
+test("startDaemonRuntime wires its own firstRetireTrigger into the drain-exit loop end to end", async () => {
+  const { handlers, close } = await startFakeDaemon(store, socketPath);
+  const capture = captureConsoleError();
+  try {
+    await handlers.supersede?.({ kind: "request", id: "s1", method: "supersede" }, new AbortController().signal);
+    expect(await waitFor(() => capture.lines.includes(formatDrainExitLogLine("supersede")), 2_000)).toBe(true);
+    expect(capture.lines.filter((line) => line.startsWith("JARVIS_DAEMON_DRAIN_EXIT:"))).toEqual([
+      formatDrainExitLogLine("supersede"),
+    ]);
+  } finally {
+    capture.restore();
+    await close();
   }
 });

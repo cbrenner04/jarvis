@@ -918,14 +918,31 @@ describe("base-ref probe conclusive reproduction", () => {
     expect(noScope.kind).toBe("ready_gate_failed");
   });
 
-  it("treats a base-ref probe timeout as inconclusive, not a conclusive fail", async () => {
-    const failingPath = "v2/src/untouched.test.ts";
+  const BASE_REF_PROBE_UNTOUCHED_PATH = "v2/src/untouched.test.ts";
+
+  async function classifyWithBaseRefProbeRunner(mockRunner: AsyncSubprocessRunner) {
     const probeSeams: ReadyGateScopeSeams = {
       gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
       gitUntracked: async () => "",
       listSpecTreePaths: async () => ["v2/spec/demo/index.md"],
     };
-    const mockRunner: AsyncSubprocessRunner = {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: BASE_REF_PROBE_UNTOUCHED_PATH }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    return classifyReadyGateFailure(
+      error,
+      [BASE_REF_PROBE_UNTOUCHED_PATH],
+      new Set(["v2/src/changed.ts"]),
+      scope,
+      probeSeams,
+      mockRunner,
+    );
+  }
+
+  it("treats a base-ref probe timeout as inconclusive, not a conclusive fail", async () => {
+    const classified = await classifyWithBaseRefProbeRunner({
       async runAsync(cmd, args) {
         if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
         if (cmd === "git" && args?.[0] === "rev-parse") return "abc123\n";
@@ -935,52 +952,20 @@ describe("base-ref probe conclusive reproduction", () => {
         }
         return "";
       },
-    };
-    const output = gateOutput({
-      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
-      failingFiles: [{ attemptId: "2.1", path: failingPath }],
     });
-    const error = new ReadyGateError("bun run ready", 1, output);
-    const classified = await classifyReadyGateFailure(
-      error,
-      [failingPath],
-      new Set(["v2/src/changed.ts"]),
-      scope,
-      probeSeams,
-      mockRunner,
-    );
     expect(classified.kind).toBe("ready_gate_failed");
     expect(classified.baseRefProbeError).toContain("timed out");
   });
 
   it("treats a probe tree that failed to verify against the merge-base as inconclusive", async () => {
-    const failingPath = "v2/src/untouched.test.ts";
-    const probeSeams: ReadyGateScopeSeams = {
-      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
-      gitUntracked: async () => "",
-      listSpecTreePaths: async () => ["v2/spec/demo/index.md"],
-    };
-    const mockRunner: AsyncSubprocessRunner = {
+    const classified = await classifyWithBaseRefProbeRunner({
       async runAsync(cmd, args) {
         if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
         if (cmd === "git" && args?.[0] === "worktree") return "";
         if (cmd === "git" && args?.[0] === "rev-parse") return "mismatched-sha\n";
         return "";
       },
-    };
-    const output = gateOutput({
-      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
-      failingFiles: [{ attemptId: "2.1", path: failingPath }],
     });
-    const error = new ReadyGateError("bun run ready", 1, output);
-    const classified = await classifyReadyGateFailure(
-      error,
-      [failingPath],
-      new Set(["v2/src/changed.ts"]),
-      scope,
-      probeSeams,
-      mockRunner,
-    );
     expect(classified.kind).toBe("ready_gate_failed");
     expect(classified.baseRefProbeError).toContain("mismatched-sha");
   });

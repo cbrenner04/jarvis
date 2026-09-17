@@ -400,15 +400,19 @@ export function selectTerminalFailedReadyTestStep(output: string): ReadyStepComp
 
 const BASE_REF_PROBE_OUTPUT_TAIL_CHARS = 4096;
 
+function capBaseRefProbeOutputTail(output: string): string {
+  const tail =
+    output.length <= BASE_REF_PROBE_OUTPUT_TAIL_CHARS ? output : output.slice(-BASE_REF_PROBE_OUTPUT_TAIL_CHARS);
+  return tail.trim();
+}
+
 function formatBaseRefProbeError(error: unknown, exitCode?: number, output?: string): string {
   const parts: string[] = [];
   if (exitCode !== undefined) {
     parts.push(`exit ${exitCode}`);
   }
   if (output !== undefined && output.length > 0) {
-    const tail =
-      output.length <= BASE_REF_PROBE_OUTPUT_TAIL_CHARS ? output : output.slice(-BASE_REF_PROBE_OUTPUT_TAIL_CHARS);
-    parts.push(tail.trim());
+    parts.push(capBaseRefProbeOutputTail(output));
   }
   if (parts.length === 0) {
     return errorMessage(error);
@@ -475,13 +479,8 @@ export function hasFailingTestEvidence(output: string): boolean {
  *  but keeping `reason` even when output is present (that function drops its `error` argument's
  *  message whenever output is non-empty). */
 function formatBaseRefProbeInconclusiveReason(reason: string, output: string): string {
-  const trimmed = output.trim();
-  if (trimmed.length === 0) {
-    return reason;
-  }
-  const tail =
-    trimmed.length <= BASE_REF_PROBE_OUTPUT_TAIL_CHARS ? trimmed : trimmed.slice(-BASE_REF_PROBE_OUTPUT_TAIL_CHARS);
-  return `${reason}: ${tail}`;
+  const tail = capBaseRefProbeOutputTail(output);
+  return tail.length === 0 ? reason : `${reason}: ${tail}`;
 }
 
 /** Decide a base-ref probe's `bun test <path>` outcome from its captured output: a timeout is
@@ -525,6 +524,56 @@ async function removeDetachedWorktree(
   }
 }
 
+/** Runs the probed command in an already-verified base-ref worktree and classifies its outcome. */
+async function runBaseRefProbeCommand(
+  runner: AsyncSubprocessRunner,
+  scope: ReadyGateScopeInput,
+  worktreeDir: string,
+  terminalCommand: string,
+  path: string,
+  probeEnv: NodeJS.ProcessEnv,
+): Promise<BaseRefProbeResult> {
+  const v2Mode = v2ProbeModeFromTerminalCommand(terminalCommand);
+  try {
+    if (v2Mode !== undefined) {
+      let failure: { output: string; timedOut: boolean } | undefined;
+      const results = await runV2TestFiles(
+        v2Mode,
+        [path],
+        createWorktreeSpawn(runner, worktreeDir, scope.verifierProcessGroups, probeEnv, (outcome) => {
+          failure = outcome;
+        }),
+      );
+      if (aggregateExitCode(results) === 0) {
+        return "pass";
+      }
+      return failure === undefined
+        ? { kind: "error", message: "base-ref probe produced no captured output" }
+        : classifyBaseRefProbeFailure(failure.output, failure.timedOut);
+    }
+    const tracked = trackProcessGroup(scope.verifierProcessGroups);
+    try {
+      await runner.runAsync("bun", buildBaseRefProbeCommandArgs(terminalCommand, path), worktreeDir, {
+        maxBuffer: READY_GATE_MAX_BUFFER,
+        timeoutMs: readyGateSubprocessTimeoutMs(),
+        env: probeEnv,
+        processGroup: tracked.processGroup,
+      });
+    } finally {
+      tracked.settle();
+    }
+    return "pass";
+  } catch (error) {
+    if (error instanceof AsyncSubprocessError) {
+      if (error.status === 0) {
+        return "pass";
+      }
+      return classifyBaseRefProbeFailure(`${error.stdout}${error.stderr}`, isSubprocessTimeout(error));
+    }
+    return { kind: "error", message: formatBaseRefProbeError(error) };
+  }
+}
+
 function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner): ReproduceReadyGateAtBaseRef {
   return async (scope, terminalCommand, path) => {
     let worktreeDir: string | undefined;
@@ -545,45 +594,7 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
       }
       symlinkProbeNodeModules(scope.worktreePath, worktreeDir);
       const probeEnv = await deriveReadyGateChildEnv(runner, scope.worktreePath, scope.baseRef);
-      const v2Mode = v2ProbeModeFromTerminalCommand(terminalCommand);
-      try {
-        if (v2Mode !== undefined) {
-          let failure: { output: string; timedOut: boolean } | undefined;
-          const results = await runV2TestFiles(
-            v2Mode,
-            [path],
-            createWorktreeSpawn(runner, worktreeDir, scope.verifierProcessGroups, probeEnv, (outcome) => {
-              failure = outcome;
-            }),
-          );
-          if (aggregateExitCode(results) === 0) {
-            return "pass";
-          }
-          return failure === undefined
-            ? { kind: "error", message: "base-ref probe produced no captured output" }
-            : classifyBaseRefProbeFailure(failure.output, failure.timedOut);
-        }
-        const tracked = trackProcessGroup(scope.verifierProcessGroups);
-        try {
-          await runner.runAsync("bun", buildBaseRefProbeCommandArgs(terminalCommand, path), worktreeDir, {
-            maxBuffer: READY_GATE_MAX_BUFFER,
-            timeoutMs: readyGateSubprocessTimeoutMs(),
-            env: probeEnv,
-            processGroup: tracked.processGroup,
-          });
-        } finally {
-          tracked.settle();
-        }
-        return "pass";
-      } catch (error) {
-        if (error instanceof AsyncSubprocessError) {
-          if (error.status === 0) {
-            return "pass";
-          }
-          return classifyBaseRefProbeFailure(`${error.stdout}${error.stderr}`, isSubprocessTimeout(error));
-        }
-        return { kind: "error", message: formatBaseRefProbeError(error) };
-      }
+      return await runBaseRefProbeCommand(runner, scope, worktreeDir, terminalCommand, path, probeEnv);
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;

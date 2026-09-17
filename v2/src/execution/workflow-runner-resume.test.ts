@@ -4112,6 +4112,79 @@ describe("recoverPlanStage", () => {
     });
   });
 
+  test("uses the injected runner for plan-recovery staged lint with a proven harness blocker", async () => {
+    const matchReason = "harness contract reason for the injected-runner copy path";
+    const worktreePath = planWorktree("recover-plan-stage-lint-runner-seam-harness-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-lint-runner-seam-harness");
+    const branch = "recover-plan-stage-lint-runner-seam-harness";
+    const stepId = "plan";
+    const specPath = "spec/2026-lint-runner-seam-harness";
+    writeLintCleanPlanStage(stage, "00-first.md");
+    writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(matchReason)}`, "utf8");
+
+    const calls: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (_cmd, args) => {
+        calls.push(args);
+        const stagedFile = args.at(-1) ?? "";
+        return `${stagedFile}:1 MD999/stub-rule stub violation from injected runner`;
+      },
+    };
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-lint-runner-seam-harness-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.decisions-shape",
+        responseText: "done",
+        failureReason: matchReason,
+      });
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run when the injected lint runner reports a violation");
+        },
+      });
+
+      // Mutation checkpoint: dropping the `runner` forward into the harness-copy branch of
+      // `lintPlanRecoveryStage` must turn this RED (the injected stub never sees a call; the
+      // real markdownlint binary runs against the copied worktree instead).
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        recoveryLanding: planRecoveryLanding(reviewStep),
+        stateStore: store,
+        logSink,
+        runner,
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(outcome).toMatchObject({
+        ok: false,
+        code: "plan_stage_invalid",
+        message: expect.stringContaining("MD999"),
+      });
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
   test("refuses Git-disabled plan-stage recovery", async () => {
     const worktreePath = noGitPlanWorktree("recover-plan-stage-no-git-");
     const stage = join(worktreePath, ".jarvis-plan-stage");

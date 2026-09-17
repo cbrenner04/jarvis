@@ -1068,6 +1068,8 @@ export type IntentFinalizationResumeDeps = {
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
   /** Aborted by `run kill`; reaches the ready gate / required integration / repair invocations. */
   signal?: AbortSignal;
+  /** Test seam: injected runner for the reviewed staged-Markdown lint gate; production default is the real markdownlint spawn resolved inside `lintStagedMarkdown`. */
+  runner?: AsyncSubprocessRunner;
 };
 
 function settleIntentResumeStagedMarkdownLintFailure(
@@ -1411,7 +1413,9 @@ export async function resumePopulatedIntentPublication(
       );
     }
 
-    const lintResult = await lintReviewedStagedMarkdownOrFail(context.worktreePath, context.landing);
+    const lintResult = await lintReviewedStagedMarkdownOrFail(context.worktreePath, context.landing, {
+      ...(deps.runner !== undefined ? { runner: deps.runner } : {}),
+    });
     if (lintResult.kind === "violation" || lintResult.kind === "invocation_error") {
       return settleIntentResumeStagedMarkdownLintFailure(
         store,

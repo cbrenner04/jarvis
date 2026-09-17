@@ -39,6 +39,7 @@ import {
   createDebateStep,
   createIntentWorktreeHarness,
   createStep,
+  createStubMarkdownlintRunner,
   DEFAULT_AGENT_MODEL_CONFIG,
   doneBindingFactory,
   externalWorktreeBinding,
@@ -46,7 +47,6 @@ import {
   REVIEW_MD_LINT_FIXTURE_IDS,
   readReviewMdLintFixture,
   seedFailedIntentReviewResumeRun,
-  skipReviewWithoutHarnessMarkdownlint,
   stageReviewedIntent,
   TestLogSink,
   VALID_TWO_AGENT_CONFIG,
@@ -76,6 +76,9 @@ import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";
 
 /** Seed-less landing inputs: a recorded, empty seed set so resume admission is exercised without consumption. */
 const EMPTY_LANDING_INPUTS = { sourceRoot: tmpdir(), paths: [] as string[], consumeFrom: "worktree" as const };
+
+/** Shared stub for `recoverPlanStage`/`resumePopulatedIntentPublication` calls below that don't assert on the lint runner themselves. */
+const DEFAULT_STAGED_MARKDOWN_LINT_RUNNER = createStubMarkdownlintRunner();
 
 function planRecoveryLanding(step: ReviewWorkflowStep | ReviewDebateWorkflowStep): PlanStageRecoveryLanding {
   if (step.landing?.kind !== "plan-tree") throw new Error("expected plan-tree landing");
@@ -496,7 +499,10 @@ describe("executeWorkflow review dispatch", () => {
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
       const logSink = new TestLogSink();
-      const outcome = await resumePopulatedIntentPublication(run, store, { logSink });
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
+      });
 
       expect(outcome).toMatchObject({ ok: false });
       const settled = store.loadRun(reviewRunId);
@@ -530,6 +536,7 @@ describe("executeWorkflow review dispatch", () => {
         completionCommitter: async () => {
           throw new Error("commit exploded");
         },
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: false, message: "commit exploded" });
@@ -566,6 +573,7 @@ describe("executeWorkflow review dispatch", () => {
         const admissibleLogSink = new TestLogSink();
         const admissibleOutcome = await resumePopulatedIntentPublication(admissibleRun, store, {
           logSink: admissibleLogSink,
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
         expect(admissibleOutcome).toMatchObject({ ok: false });
         const admissibleTerminal = admissibleLogSink
@@ -591,6 +599,7 @@ describe("executeWorkflow review dispatch", () => {
           completionCommitter: async () => {
             throw new Error("commit exploded");
           },
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
         expect(inadmissibleOutcome).toMatchObject({ ok: false, message: "commit exploded" });
         const inadmissibleTerminal = inadmissibleLogSink
@@ -676,6 +685,7 @@ describe("executeWorkflow review dispatch", () => {
         },
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: true });
@@ -714,6 +724,7 @@ describe("executeWorkflow review dispatch", () => {
           completionCommitter: async () => ({ commitSha: "commit-1" }),
           completionPublisher: createCompletionPublisher({ git: failingGit }),
           readyFinalizer: async () => {},
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
 
         expect(outcome).toMatchObject({ ok: false });
@@ -771,6 +782,7 @@ describe("executeWorkflow review dispatch", () => {
             renderFooter: async () => "",
           }),
           readyFinalizer: async () => {},
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
 
         expect(outcome).toMatchObject({ ok: true, prNumber: 3, prUrl: "https://example.test/pr/3" });
@@ -820,6 +832,7 @@ describe("executeWorkflow review dispatch", () => {
             calls.push("flip");
           },
         }),
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: true });
@@ -853,6 +866,7 @@ describe("executeWorkflow review dispatch", () => {
         readyFinalizer: async (input) => {
           finalizerReadyCommand = input.readyCommand;
         },
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: true });
@@ -931,6 +945,7 @@ describe("executeWorkflow review dispatch", () => {
         readyFinalizer: async (input) => {
           finalizerReadyCommand = input.readyCommand;
         },
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(outcome).toMatchObject({ ok: true });
       expect(finalizerReadyCommand).toBe("persisted-ready");
@@ -3300,6 +3315,7 @@ describe("recoverPlanStage", () => {
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(true);
@@ -3385,6 +3401,7 @@ describe("recoverPlanStage", () => {
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(true);
@@ -3479,6 +3496,7 @@ describe("recoverPlanStage", () => {
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(true);
@@ -3533,6 +3551,7 @@ describe("recoverPlanStage", () => {
         writeStepId: stepId,
         recoveryLanding: nonPlanLandingStep as never,
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(false);
@@ -3592,6 +3611,7 @@ describe("recoverPlanStage", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(true);
@@ -3650,6 +3670,7 @@ describe("recoverPlanStage", () => {
           writeStepId: stepId,
           recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
 
         expect(outcome.ok).toBe(true);
@@ -3689,6 +3710,7 @@ describe("recoverPlanStage", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(missing).toMatchObject({ ok: false, code: "missing_plan_context" });
 
@@ -3711,6 +3733,7 @@ describe("recoverPlanStage", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(mismatched).toMatchObject({ ok: false, code: "stage_identity_mismatch" });
 
@@ -3739,6 +3762,7 @@ describe("recoverPlanStage", () => {
         writeStepId: "implement",
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(unrelated).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
 
@@ -3799,6 +3823,7 @@ describe("recoverPlanStage", () => {
           recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
           logSink,
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
 
         expect(outcome).toMatchObject({ ok: true, kind: "complete" });
@@ -3857,6 +3882,7 @@ describe("recoverPlanStage", () => {
           recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
           logSink,
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
 
         expect(outcome).toMatchObject({ ok: false, code: "operator_blocker" });
@@ -3907,6 +3933,7 @@ describe("recoverPlanStage", () => {
           writeStepId: stepId,
           recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
 
         expect(outcome).toMatchObject({ ok: false, code: "operator_blocker" });
@@ -3967,6 +3994,7 @@ describe("recoverPlanStage", () => {
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
@@ -3977,8 +4005,6 @@ describe("recoverPlanStage", () => {
   });
 
   test("retains staged intent bytes when lint validation refuses recovery", async () => {
-    if (skipReviewWithoutHarnessMarkdownlint("lint refusal retains recovered plan-stage intent")) return;
-
     const worktreePath = planWorktree("recover-plan-stage-lint-before-strip-");
     const stage = join(worktreePath, ".jarvis-plan-stage");
     const durable = join(worktreePath, "spec", "2026-lint-before-strip");
@@ -4033,6 +4059,7 @@ describe("recoverPlanStage", () => {
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
@@ -4225,6 +4252,7 @@ describe("recoverPlanStage", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: false, code: "recovery_requires_git" });
@@ -4288,6 +4316,7 @@ describe("recoverPlanStage", () => {
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(false);
@@ -4309,7 +4338,6 @@ describe("recoverPlanStage", () => {
       label: string;
       setup: (stage: string) => void;
       reasonContains: string;
-      requiresMarkdownlint?: boolean;
     };
     const scenarios: Scenario[] = [
       {
@@ -4340,7 +4368,6 @@ describe("recoverPlanStage", () => {
           writeFileSync(join(stage, "00-first.md"), violationBytes, "utf8");
         },
         reasonContains: "MD038",
-        requiresMarkdownlint: true,
       },
       {
         label: "landing",
@@ -4353,13 +4380,6 @@ describe("recoverPlanStage", () => {
     ];
 
     for (const scenario of scenarios) {
-      if (
-        scenario.requiresMarkdownlint &&
-        skipReviewWithoutHarnessMarkdownlint(`retains recovered plan-stage snapshot: ${scenario.label}`)
-      ) {
-        continue;
-      }
-
       const worktreePath = planWorktree(`recover-plan-stage-invalid-${scenario.label}-`);
       const stage = join(worktreePath, ".jarvis-plan-stage");
       const durable = join(worktreePath, "spec", `2026-invalid-${scenario.label}`);
@@ -4402,6 +4422,7 @@ describe("recoverPlanStage", () => {
           writeStepId: stepId,
           recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
+          runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
         });
 
         expect(outcome.ok).toBe(false);
@@ -4417,8 +4438,6 @@ describe("recoverPlanStage", () => {
   });
 
   test("an invalid-stage refusal names an on-disk file, never one only the agent's deleted draft contained", async () => {
-    if (skipReviewWithoutHarnessMarkdownlint("plan_stage_invalid refusal names an on-disk file")) return;
-
     const worktreePath = planWorktree("recover-plan-stage-named-file-");
     const stage = join(worktreePath, ".jarvis-plan-stage");
     const durable = join(worktreePath, "spec", "2026-named-file");
@@ -4463,6 +4482,7 @@ describe("recoverPlanStage", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(false);
@@ -4518,6 +4538,7 @@ describe("recoverPlanStage", () => {
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(true);
@@ -4707,6 +4728,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome.ok).toBe(true);
@@ -4780,6 +4802,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(failedWriteOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
 
@@ -4801,6 +4824,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(inProgressOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
 
@@ -4813,6 +4837,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(missingStageOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
       writeLintCleanPlanStage(stage, "00-first.md");
@@ -4826,6 +4851,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(invalidStageOutcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
       writeLintCleanPlanStage(stage, "00-first.md");
@@ -4839,6 +4865,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(blockerOutcome).toMatchObject({ ok: false, code: "operator_blocker" });
       writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
@@ -4865,6 +4892,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(liveClaimOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
 
@@ -4888,6 +4916,7 @@ describe("recoverPlanStage review-failed admission", () => {
         writeStepId: stepId,
         recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
       expect(nonTerminalReviewOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
     });
@@ -5115,6 +5144,7 @@ describe("intent finalization resume seed consumption", () => {
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toMatchObject({ ok: true });
@@ -5146,6 +5176,7 @@ describe("intent finalization resume seed consumption", () => {
         },
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
       expect(outcome).toEqual({ ok: false, message: INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED });

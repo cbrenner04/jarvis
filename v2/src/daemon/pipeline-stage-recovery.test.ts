@@ -5,13 +5,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
 import {
+  createStubMarkdownlintRunner,
   REVIEW_MD_LINT_FIXTURE_IDS,
   readReviewMdLintFixture,
-  skipReviewWithoutHarnessMarkdownlint,
 } from "../execution/workflow-runner.test-support.ts";
 import type {
   AnyWorkflowStep,
@@ -19,6 +20,7 @@ import type {
   ReviewWorkflowStep,
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
+import type { PlanStageRecoveryRequest } from "../execution/workflow-runner-resume.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
@@ -531,6 +533,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         writeStepId: resolution.target.writeStepId,
         recoveryLanding: resolution.target.recoveryLanding,
         stateStore: store,
+        runner: createStubMarkdownlintRunner(),
       });
 
       expect(outcome.ok).toBe(true);
@@ -1039,7 +1042,7 @@ describe("recoverPipelineBranchStage", () => {
   /** A real Git worktree carrying a blocked plan-draft run whose staged `.jarvis-plan-stage/` trips a contract miss, wired to a fan-out pipeline row. `correct: true` applies the operator's fix before recovery runs. */
   function setUpRealRecoveryFixture(
     store: StateStore,
-    args: { prefix: string; targetBranchKey: string; correct: boolean },
+    args: { prefix: string; targetBranchKey: string; correct: boolean; runner?: AsyncSubprocessRunner },
   ): {
     pipelineId: string;
     entryRunId: string;
@@ -1127,6 +1130,10 @@ describe("recoverPipelineBranchStage", () => {
       }),
       logSink,
     };
+    if (args.runner !== undefined) {
+      const runner = args.runner;
+      deps.attempt = (request: PlanStageRecoveryRequest) => recoverPlanStage({ ...request, runner });
+    }
 
     return {
       pipelineId,
@@ -1141,19 +1148,14 @@ describe("recoverPipelineBranchStage", () => {
   }
 
   test("recovers a corrected non-first fan-out branch and leaves siblings unchanged", async () => {
-    if (
-      skipReviewWithoutHarnessMarkdownlint(
-        "recovers a corrected non-first fan-out branch and leaves siblings unchanged",
-      )
-    ) {
-      return;
-    }
+    const stagedMarkdownLintRunner = createStubMarkdownlintRunner();
 
     await withStateStore(async (store) => {
       const setup = setUpRealRecoveryFixture(store, {
         prefix: "recover-branch-keystone",
         targetBranchKey: "branch-b",
         correct: true,
+        runner: stagedMarkdownLintRunner,
       });
       const before = store.loadPipeline(setup.pipelineId);
       const siblingRowsBefore = before?.stages.filter(
@@ -1170,7 +1172,12 @@ describe("recoverPipelineBranchStage", () => {
       expect(outcome.kind).toBe("recovered");
       expect(setup.draftAgentInvocations).toEqual([]);
       expect(setup.dispatchCalls).toEqual([]);
-      expect(await lintStagedMarkdown(setup.specPath, { worktreePath: dirname(setup.stage) })).toEqual({
+      expect(
+        await lintStagedMarkdown(setup.specPath, {
+          worktreePath: dirname(setup.stage),
+          runner: stagedMarkdownLintRunner,
+        }),
+      ).toEqual({
         kind: "clean",
       });
       expect(readFileSync(join(setup.durable, "intent.md"), "utf8")).not.toContain("## Blocker");

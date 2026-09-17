@@ -436,6 +436,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   runAutofixTypecheck?: (opts: { cwd: string; timeoutMs: number }) => Promise<AutofixTypecheckResult>;
   /** Test seam for ready-gate scope classification and base-ref reproduction. */
   readyGateScopeSeams?: ReadyGateScopeSeams;
+  /** Test seam: injected runner for the intent-split/plan-draft staged-Markdown lint gate; production default is the real markdownlint spawn resolved inside `lintStagedMarkdown`. */
+  stagedMarkdownLintRunner?: AsyncSubprocessRunner;
 };
 
 /**
@@ -1582,6 +1584,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           worktreePath,
           processGroups: storeVerifierProcessGroupRecorder(store, runId),
           ...(args.signal !== undefined ? { signal: args.signal } : {}),
+          ...(args.stagedMarkdownLintRunner !== undefined ? { runner: args.stagedMarkdownLintRunner } : {}),
         });
         // Mutation checkpoint: skipping the pre-finalization intent-split staged-Markdown lint guard must turn
         // "intent write step staged Markdown lint violation reprompts before finalize" RED.
@@ -1711,6 +1714,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           worktreePath,
           processGroups: storeVerifierProcessGroupRecorder(store, runId),
           ...(args.signal !== undefined ? { signal: args.signal } : {}),
+          ...(args.stagedMarkdownLintRunner !== undefined ? { runner: args.stagedMarkdownLintRunner } : {}),
         });
         // Mutation checkpoint: skipping the pre-finalization plan-draft staged-Markdown lint guard must turn
         // "plan write step staged Markdown lint violation reprompts before finalize" RED.

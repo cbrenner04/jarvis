@@ -3,29 +3,21 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
-import { REVIEW_MD_LINT_FIXTURE_IDS, readReviewMdLintFixture } from "./workflow-runner.test-support.ts";
+import {
+  createStubMarkdownlintRunner,
+  REVIEW_MD_LINT_FIXTURE_IDS,
+  readReviewMdLintFixture,
+} from "./workflow-runner.test-support.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
-const HARNESS_ROOT = resolveHarnessRoot(join(import.meta.dir, "..", "..", ".."));
 const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
 const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
-
-function hasHarnessMarkdownlint(): boolean {
-  if (HARNESS_ROOT === null) return false;
-  return existsSync(join(HARNESS_ROOT, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js"));
-}
-
-function skipWithoutHarnessMarkdownlint(reason: string): boolean {
-  if (hasHarnessMarkdownlint()) return false;
-  process.stderr.write(`skip: ${reason}; pinned markdownlint binary not installed in this worktree\n`);
-  return true;
-}
+const runner = createStubMarkdownlintRunner();
 
 function seedGitBaseline(worktreePath: string): void {
   if (existsSync(join(worktreePath, ".git"))) return;
@@ -107,7 +99,7 @@ async function runPlanDraftLoop(args: {
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
   };
   try {
-    return await executeWriteLoop(loopInput);
+    return await executeWriteLoop({ ...loopInput, stagedMarkdownLintRunner: runner });
   } finally {
     store.close();
   }
@@ -115,10 +107,6 @@ async function runPlanDraftLoop(args: {
 
 describe("plan write step staged Markdown lint", () => {
   test("plan write step staged Markdown lint violation reprompts before finalize", async () => {
-    if (skipWithoutHarnessMarkdownlint("plan write step staged Markdown lint violation reprompts before finalize")) {
-      return;
-    }
-
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     let invocations = 0;
@@ -169,10 +157,6 @@ describe("plan write step staged Markdown lint", () => {
   });
 
   test("plan write step clean staged Markdown finalizes without extra invocation", async () => {
-    if (skipWithoutHarnessMarkdownlint("plan write step clean staged Markdown finalizes without extra invocation")) {
-      return;
-    }
-
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     let invocations = 0;
     const branchName = `plan-md-lint-clean-${Date.now()}`;
@@ -200,14 +184,6 @@ describe("plan write step staged Markdown lint", () => {
   });
 
   test("plan write step lint-clean MD012 and MD038 golden fixtures finalize without reprompt", async () => {
-    if (
-      skipWithoutHarnessMarkdownlint(
-        "plan write step lint-clean MD012 and MD038 golden fixtures finalize without reprompt",
-      )
-    ) {
-      return;
-    }
-
     for (const fixtureId of [
       REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec,
       REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec,
@@ -240,12 +216,6 @@ describe("plan write step staged Markdown lint", () => {
   });
 
   test("plan write step staged Markdown lint budget exhaustion settles landing_failed", async () => {
-    if (
-      skipWithoutHarnessMarkdownlint("plan write step staged Markdown lint budget exhaustion settles landing_failed")
-    ) {
-      return;
-    }
-
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const branchName = `plan-md-lint-exhausted-${Date.now()}`;
     const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
@@ -275,10 +245,6 @@ describe("plan write step staged Markdown lint", () => {
   });
 
   test("plan write step staged Markdown lint reprompt preserves sibling stage files", async () => {
-    if (skipWithoutHarnessMarkdownlint("plan write step staged Markdown lint reprompt preserves sibling stage files")) {
-      return;
-    }
-
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     let invocations = 0;
     const branchName = `plan-md-lint-siblings-${Date.now()}`;
@@ -368,7 +334,7 @@ async function runIntentSplitLoop(args: {
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
   };
   try {
-    return await executeWriteLoop(loopInput);
+    return await executeWriteLoop({ ...loopInput, stagedMarkdownLintRunner: runner });
   } finally {
     store.close();
   }
@@ -376,10 +342,6 @@ async function runIntentSplitLoop(args: {
 
 describe("intent write step staged Markdown lint", () => {
   test("intent write step staged Markdown lint violation reprompts before finalize", async () => {
-    if (skipWithoutHarnessMarkdownlint("intent write step staged Markdown lint violation reprompts before finalize")) {
-      return;
-    }
-
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     let invocations = 0;
@@ -430,10 +392,6 @@ describe("intent write step staged Markdown lint", () => {
   });
 
   test("intent write step clean staged Markdown finalizes without extra invocation", async () => {
-    if (skipWithoutHarnessMarkdownlint("intent write step clean staged Markdown finalizes without extra invocation")) {
-      return;
-    }
-
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     let invocations = 0;
     const branchName = `intent-md-lint-clean-${Date.now()}`;

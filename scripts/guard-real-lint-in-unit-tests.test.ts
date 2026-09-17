@@ -85,11 +85,34 @@ describe("real-lint-in-unit-tests guard", () => {
       "await lintStagedMarkdown(stagingRoot, { worktreePath });",
     ].join("\n");
     expect(violations(source, "v2/src/execution/staged-markdown-lint.test.ts")).toEqual([]);
-    expect(violations(source, "v2/src/execution/workflow-runner-resume.test.ts")).toEqual([]);
     expect(violations(source, "shared/intent-stage.test.ts")).toEqual([]);
-    expect(violations(source, "v2/src/daemon/daemon-resume.test.ts")).toEqual([]);
-    expect(violations(source, "v2/src/daemon/daemon-pipeline-recover.test.ts")).toEqual([]);
-    expect(violations(source, "v2/src/daemon/pipeline-stage-recovery.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/execution/workflow-runner-review.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/daemon/daemon-start-list.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/execution/write-loop.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/execution/write-loop-idle-watchdog.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/execution/write-loop-intent-landing.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/execution/write-loop-session-log.test.ts")).toEqual([]);
+  });
+
+  test.each([
+    "v2/src/execution/workflow-runner-resume.test.ts",
+    "v2/src/daemon/daemon-resume.test.ts",
+    "v2/src/daemon/daemon-pipeline-recover.test.ts",
+    "v2/src/daemon/pipeline-stage-recovery.test.ts",
+  ])("flags stubbed-seam file %s (no longer allowlisted)", (file) => {
+    const source = [
+      'import { lintStagedMarkdown } from "./staged-markdown-lint.ts";',
+      "await lintStagedMarkdown(stagingRoot, { worktreePath });",
+    ].join("\n");
+    expect(violations(source, file)).toMatchObject([{ line: 2, functionName: "lintStagedMarkdown" }]);
+  });
+
+  test.each([
+    ["executeWriteLoop", "./write-loop.ts", "await executeWriteLoop(input);"],
+    ["resumePopulatedIntentPublication", "./workflow-runner-resume.ts", "await resumePopulatedIntentPublication(ctx);"],
+  ])("rejects %s called without an injected runner", (functionName, modulePath, call) => {
+    const source = [`import { ${functionName} } from "${modulePath}";`, call].join("\n");
+    expect(violations(source)).toMatchObject([{ line: 2, functionName }]);
   });
 
   test("exit code is 1 when violations exist, 0 otherwise", () => {

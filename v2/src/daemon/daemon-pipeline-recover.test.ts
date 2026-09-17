@@ -7,10 +7,7 @@ import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts"
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
-import {
-  skipReviewWithoutHarnessMarkdownlint,
-  writeLintCleanPlanStage,
-} from "../execution/workflow-runner.test-support.ts";
+import { createStubMarkdownlintRunner, writeLintCleanPlanStage } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
@@ -252,14 +249,7 @@ afterEach(async () => {
 });
 
 test("pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting", async () => {
-  if (
-    skipReviewWithoutHarnessMarkdownlint(
-      "pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting",
-    )
-  ) {
-    return;
-  }
-
+  const stagedMarkdownLintRunner = createStubMarkdownlintRunner();
   const worktreePath = createPlanWorktree("jarvis-pipeline-recover-branch-b-");
   const stage = join(worktreePath, ".jarvis-plan-stage");
   writeLintCleanPlanStage(stage, "00-first.md");
@@ -304,7 +294,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
     pipelineWait: async () => "completed",
     recoveryAttempt: async (request) => {
       try {
-        return await recoverPlanStage(request);
+        return await recoverPlanStage({ ...request, runner: stagedMarkdownLintRunner });
       } finally {
         settleAttempt();
       }
@@ -354,7 +344,9 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
   expect(draftAgentInvocations).toEqual([]);
   expect(dispatchCalls).toEqual([]);
   expect(staleResetConnections).toBe(0);
-  expect(await lintStagedMarkdown(specPath, { worktreePath })).toEqual({ kind: "clean" });
+  expect(await lintStagedMarkdown(specPath, { worktreePath, runner: stagedMarkdownLintRunner })).toEqual({
+    kind: "clean",
+  });
 
   const pipeline = stateStore.loadPipeline(pipelineId);
   const planRow = pipeline?.stages.find((stageRow) => stageRow.stageId === "plan" && stageRow.branchKey === "branch-b");

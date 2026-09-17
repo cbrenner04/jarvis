@@ -24,6 +24,8 @@ const LINT_ENTRY_POINTS: readonly { modulePattern: RegExp; functionName: string 
   { modulePattern: /intent-stage\.ts$/, functionName: "repairIntentStageContent" },
   { modulePattern: /intent-output\.ts$/, functionName: "landIntentWorkflowOutput" },
   { modulePattern: /workflow-runner-resume\.ts$/, functionName: "recoverPlanStage" },
+  { modulePattern: /workflow-runner-resume\.ts$/, functionName: "resumePopulatedIntentPublication" },
+  { modulePattern: /write-loop\.ts$/, functionName: "executeWriteLoop" },
 ];
 
 /**
@@ -34,10 +36,27 @@ const LINT_ENTRY_POINTS: readonly { modulePattern: RegExp; functionName: string 
 const ALLOWLISTED_FILES = new Map<string, string>([
   ["shared/intent-stage.test.ts", "pre-existing real-binary landing-repair assertions"],
   ["v2/src/execution/staged-markdown-lint.test.ts", "direct unit coverage of the real binary path"],
-  ["v2/src/execution/workflow-runner-resume.test.ts", "pre-existing real-binary plan-recovery assertions"],
-  ["v2/src/daemon/daemon-resume.test.ts", "pre-existing real-binary staged-lint assertion helper"],
-  ["v2/src/daemon/daemon-pipeline-recover.test.ts", "pre-existing real-binary staged-lint assertion helper"],
-  ["v2/src/daemon/pipeline-stage-recovery.test.ts", "pre-existing real-binary staged-lint assertion helper"],
+  [
+    "v2/src/execution/workflow-runner-review.test.ts",
+    "pre-existing real-binary review-actuator staged-lint reprompt assertions predating this seam",
+  ],
+  ["v2/src/daemon/daemon-start-list.test.ts", "pre-existing write-loop calls predate the staged-lint runner seam"],
+  [
+    "v2/src/execution/write-loop.test.ts",
+    "pre-existing write-loop calls predate the staged-lint runner seam; none exercise the lint gate",
+  ],
+  [
+    "v2/src/execution/write-loop-idle-watchdog.test.ts",
+    "pre-existing write-loop calls predate the staged-lint runner seam; none exercise the lint gate",
+  ],
+  [
+    "v2/src/execution/write-loop-intent-landing.test.ts",
+    "pre-existing write-loop calls predate the staged-lint runner seam; landing-contract checks precede the lint gate",
+  ],
+  [
+    "v2/src/execution/write-loop-session-log.test.ts",
+    "pre-existing write-loop calls predate the staged-lint runner seam; none exercise the lint gate",
+  ],
 ]);
 
 function lineAt(source: string, index: number): number {

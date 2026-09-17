@@ -390,6 +390,30 @@ ${guardFlipHunk}
     }
   }
 
+  async function expectOnlyProductionCandidate(testFile: string) {
+    const diff = guardFlipFileDiff("src/safe.ts", "safe(x: any)") + guardFlipFileDiff(testFile, "helper()");
+    const originalContent = `export function safe(x: any) {
+  if (!x) return "safe";
+  return x;
+}`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.sourceSite.file).toBe("src/safe.ts");
+    }
+  }
+
   it("excludes *.test.tsx and *.sandbox-unrunnable.test.ts paths from candidates", async () => {
     await expectNoMutationCandidates(
       guardFlipFileDiff("v2/src/tui/tui-entry.test.tsx", "testFoo()") +
@@ -398,28 +422,7 @@ ${guardFlipHunk}
   });
 
   it("still derives production candidates when a mixed diff includes test files", async () => {
-    const diff =
-      guardFlipFileDiff("src/safe.ts", "safe(x: any)") + guardFlipFileDiff("src/helper.test.tsx", "helper()");
-    const originalContent = `export function safe(x: any) {
-  if (!x) return "safe";
-  return x;
-}`;
-
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => diff,
-        untrackedFiles: async () => [],
-        readFile: async () => originalContent,
-        writeFile: async () => {},
-        runScopedTests: async () => true,
-      },
-    );
-
-    expect(result.kind).toBe("surviving-mutation");
-    if (result.kind === "surviving-mutation") {
-      expect(result.sourceSite.file).toBe("src/safe.ts");
-    }
+    await expectOnlyProductionCandidate("src/helper.test.tsx");
   });
 
   it("excludes *.test-support.ts paths from candidates", async () => {
@@ -427,28 +430,7 @@ ${guardFlipHunk}
   });
 
   it("still derives production candidates when a mixed diff includes a test-support file", async () => {
-    const diff =
-      guardFlipFileDiff("src/safe.ts", "safe(x: any)") + guardFlipFileDiff("src/helper.test-support.ts", "helper()");
-    const originalContent = `export function safe(x: any) {
-  if (!x) return "safe";
-  return x;
-}`;
-
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => diff,
-        untrackedFiles: async () => [],
-        readFile: async () => originalContent,
-        writeFile: async () => {},
-        runScopedTests: async () => true,
-      },
-    );
-
-    expect(result.kind).toBe("surviving-mutation");
-    if (result.kind === "surviving-mutation") {
-      expect(result.sourceSite.file).toBe("src/safe.ts");
-    }
+    await expectOnlyProductionCandidate("src/helper.test-support.ts");
   });
 
   it("inverting the .test. basename exclusion fails: test paths would produce candidates", async () => {

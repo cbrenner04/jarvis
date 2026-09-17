@@ -20,7 +20,6 @@ import {
   type LinkedStageSettlementOptions,
   settleLinkedStagesFromEntryRunWith,
 } from "./pipeline-stage-settlement.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 /** Timeout for the state store to wait when the database is locked (busy_timeout in ms). Must exceed the longest single store transaction. */
 export const STATE_STORE_BUSY_TIMEOUT_MS = 5000;

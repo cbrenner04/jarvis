@@ -31,7 +31,7 @@
 - [x] `daemon-resume.test.ts`'s `"paused implement run resumes surviving mutation reprompt context"` stays green, and a new assertion confirms a non-paused (`failed`) linked-row resume does not restore surviving-mutation reprompt context.
 - [x] `workflow-runner-resume-reconstruct-paused-write.test.ts` stays green.
 - [x] `v2/docs/v1-behaviors.md` records the changed link-row resume behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

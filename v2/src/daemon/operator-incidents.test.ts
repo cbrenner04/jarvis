@@ -670,18 +670,17 @@ function landBranchAAtImplement(pipelineId: string, artifact: Record<string, unk
   store.updateStage({ pipelineId, stageId: "implement", branchKey: "a", patch: { status: "succeeded", artifact } });
 }
 
+function implementArtifact(prNumber: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return { entryRunId: "run-a", specPath: "spec.md", prNumber, ...extra };
+}
+
 test("a fan-out lane's succeeded implement stage notifies while a sibling gate stays awaiting", () => {
   setSystemTime(new Date(1_000_000));
   const pipelineId = seedImplementLanePipeline();
   store.updateStage({ pipelineId, stageId: "plan", branchKey: "b", patch: { status: "succeeded" } });
   store.updateStage({ pipelineId, stageId: "approve-plan", branchKey: "b", patch: { status: "awaiting" } });
 
-  landBranchAAtImplement(pipelineId, {
-    entryRunId: "run-a",
-    specPath: "spec.md",
-    prNumber: 42,
-    prUrl: "https://github.com/x/y/pull/42",
-  });
+  landBranchAAtImplement(pipelineId, implementArtifact(42, { prUrl: "https://github.com/x/y/pull/42" }));
 
   const succeeded = deriveOperatorIncidents(store).filter((incident) => incident.kind === "stage-succeeded");
   expect(succeeded).toEqual([
@@ -715,7 +714,7 @@ test("a succeeded stage named 'implement' whose definition workflow is not 'impl
 test("a lane's re-settled succeeded implement stage yields a transition distinct from its first settlement", () => {
   setSystemTime(new Date(1_000_000));
   const pipelineId = seedImplementLanePipeline();
-  landBranchAAtImplement(pipelineId, { entryRunId: "run-a", specPath: "spec.md", prNumber: 1 });
+  landBranchAAtImplement(pipelineId, implementArtifact(1));
   const [first] = deriveOperatorIncidents(store).filter((incident) => incident.kind === "stage-succeeded");
   if (first === undefined) throw new Error("expected first stage-succeeded incident");
   expect(first.transition).toBe("succeeded:1000000");
@@ -727,7 +726,7 @@ test("a lane's re-settled succeeded implement stage yields a transition distinct
     pipelineId,
     stageId: "implement",
     branchKey: "a",
-    patch: { status: "succeeded", artifact: { entryRunId: "run-a", specPath: "spec.md", prNumber: 2 } },
+    patch: { status: "succeeded", artifact: implementArtifact(2) },
   });
   const succeeded = deriveOperatorIncidents(store).filter((incident) => incident.kind === "stage-succeeded");
   expect(succeeded).toEqual([expect.objectContaining({ transition: "succeeded:1005000", prNumber: 2 })]);
@@ -741,7 +740,7 @@ test("preview key derivation keeps a pipeline active for an undelivered stage-su
   deliverAll();
   expect(deriveOperatorIncidents(store)).toEqual([]);
 
-  landBranchAAtImplement(pipelineId, { entryRunId: "run-a", specPath: "spec.md", prNumber: 7 });
+  landBranchAAtImplement(pipelineId, implementArtifact(7));
   expect(deriveOperatorIncidents(store)).toEqual([
     expect.objectContaining({ kind: "stage-succeeded", pipelineId, stageId: "implement", branchKey: "a", prNumber: 7 }),
   ]);
@@ -767,7 +766,7 @@ test("a lane whose implement stage fails then later succeeds derives both a stag
     pipelineId,
     stageId: "implement",
     branchKey: "a",
-    patch: { status: "succeeded", artifact: { entryRunId: "run-a", specPath: "spec.md", prNumber: 3 } },
+    patch: { status: "succeeded", artifact: implementArtifact(3) },
   });
   const succeededIncident = deriveOperatorIncidents(store).find((incident) => incident.kind === "stage-succeeded");
   if (succeededIncident === undefined) throw new Error("expected stage-succeeded incident");
@@ -778,7 +777,7 @@ test("a lane whose implement stage fails then later succeeds derives both a stag
 
 test("a succeeded implement stage row with a null endedAt derives no stage-succeeded incident", () => {
   const pipelineId = seedImplementLanePipeline();
-  landBranchAAtImplement(pipelineId, { entryRunId: "run-a", specPath: "spec.md", prNumber: 5 });
+  landBranchAAtImplement(pipelineId, implementArtifact(5));
   const raw = new Database(dbPath);
   try {
     raw
@@ -812,7 +811,7 @@ test("an undelivered stage-succeeded incident is not masked by an already-delive
     stageId: "implement",
     patch: {
       status: "succeeded",
-      artifact: { entryRunId: "run-a", specPath: "spec.md", prNumber: 11, prUrl: "https://github.com/x/y/pull/11" },
+      artifact: implementArtifact(11, { prUrl: "https://github.com/x/y/pull/11" }),
     },
   });
   expect(deriveOperatorIncidents(store)).toEqual([
@@ -832,7 +831,7 @@ test("a single-lane pipeline whose implement stage succeeded and is terminal emi
     stageId: "implement",
     patch: {
       status: "succeeded",
-      artifact: { entryRunId: "run-a", specPath: "spec.md", prNumber: 9, prUrl: "https://github.com/x/y/pull/9" },
+      artifact: implementArtifact(9, { prUrl: "https://github.com/x/y/pull/9" }),
     },
   });
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);

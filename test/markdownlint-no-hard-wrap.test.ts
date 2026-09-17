@@ -94,4 +94,12 @@ describe("markdownlint no-hard-wrap rule", () => {
     const violations = lintMarkdown("alpha beta\ncontinued prose", { includeCustomRule: false });
     expect(violations).toEqual([]);
   });
+
+  test("lints a representative bullet-list decisions ledger clean", () => {
+    const content = [
+      "- Use Postgres for the queue store; rules out SQLite, which can't handle concurrent writers.",
+      "- Retry failed webhook deliveries up to 3 times with exponential backoff.",
+    ].join("\n");
+    expect(lintMarkdown(content)).toEqual([]);
+  });
 });

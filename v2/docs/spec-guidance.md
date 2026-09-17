@@ -59,6 +59,8 @@ Sibling seeds/intents that edit the same code seam must be planned (and implemen
 
 For an independent intent with no prerequisites, leave the `## Prerequisites` body empty or write `none`; landing normalizes a `none`/`None.` body to empty.
 
+The `## Decisions` section is authored as a Markdown bullet list (`- entry`), one entry per bullet — bare consecutive lines soft-wrap into a single paragraph and fail the `no-hard-wrap` lint.
+
 ### One artifact per bullet
 
 A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path claimed as built or changed; a bullet naming more than one is refused. Two wording-based exemptions apply regardless of section:

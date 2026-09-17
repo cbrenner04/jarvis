@@ -108,4 +108,13 @@ describe("one assembler for every step prompt", () => {
   test("a fragment or a step without a policy is refused by the assembler", () => {
     expect(() => assembleStepTemplate(registry, "global.terse")).toThrow("not a step artifact with a fragment policy");
   });
+
+  test("plan.decisions-ledger requires a Markdown bullet list and keeps its other guidance", () => {
+    const body = registry.getById("plan.decisions-ledger").body;
+    expect(body).toContain("- entry");
+    expect(body).toMatch(/atomic entries/);
+    expect(body).toMatch(/load-bearing decisions/);
+    expect(body).toMatch(/do not write narrative paragraphs/i);
+    expect(body).toMatch(/narrative justification paragraphs/);
+  });
 });

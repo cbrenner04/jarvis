@@ -17,6 +17,8 @@ Unsplit rationale: every change is to the bullet-artifact validation in `shared/
 - Paths inside a rules-out clause (text after `rules out` in the same bullet) count as mentions, not artifacts, regardless of section.
 - In an acceptance-criteria bullet only, a test-file path plus the production path(s) it exercises counts as one artifact. Scoped to AC bullets (not section-agnostic like the rules-out exemption) because only an AC bullet claims a test covers a build; Decisions/Documentation-updates bullets don't make that claim.
 - Refusal changes from throw-on-first-offense to collecting every offending bullet across the whole tree and reporting them in one refusal. Bundled into this intent rather than split out: it's the same `assertSingleArtifactBullets`/`normalizePlanDraftSpecDir` loop (`shared/module-boundary-surfaces.ts`) already being touched by the two exemptions above.
+- In a `## Documentation updates` bullet, the leading path is the artifact; any other path in the same bullet is a mention (2026-09-16: two doc bullets naming a test file whose timing or references they record were refused).
+- A backticked token with no directory and no stem (a bare suffix or extension such as `.test-support.ts`) is never an artifact path (2026-09-16: counted as a second artifact in a Decisions bullet).
 - Bullets that build two or more artifacts ("adds `a.ts` and `b.ts`") are still refused.
 
 ## Acceptance criteria
@@ -24,6 +26,8 @@ Unsplit rationale: every change is to the bullet-artifact validation in `shared/
 - [ ] A test proves a Decisions bullet naming one built artifact plus paths inside a rules-out clause passes; it fails against the pre-fix check.
 - [ ] A test proves an AC bullet naming `shared/state.ts` plus the `shared/state.test.ts` that covers it passes — reversing the existing "rejects an acceptance criterion naming two artifact paths with actionable context" case in `shared/module-boundary-surfaces.test.ts`; it fails against the pre-fix check.
 - [ ] `shared/module-boundary-surfaces.test.ts`'s two-artifact-without-coverage rejections (e.g. "rejects two artifact paths without module-boundary vocabulary") stay green.
+- [ ] A test proves a Documentation updates bullet naming `v2/docs/test-writing.md` plus a test-file path it describes passes; it fails against the pre-fix check.
+- [ ] A test proves a bullet naming one artifact path plus a bare backticked suffix (`.test-support.ts`) passes; it fails against the pre-fix check.
 - [ ] A test proves a tree with several offending bullets across multiple files is refused once, naming all of them in a single error; it fails against the pre-fix check, which throws on only the first offender.
 
 ## Documentation updates

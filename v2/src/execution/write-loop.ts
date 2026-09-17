@@ -436,6 +436,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   runAutofixTypecheck?: (opts: { cwd: string; timeoutMs: number }) => Promise<AutofixTypecheckResult>;
   /** Test seam for ready-gate scope classification and base-ref reproduction. */
   readyGateScopeSeams?: ReadyGateScopeSeams;
+  /** Test seam: injected markdownlint runner for the intent-split landing autofix and the intent-split/plan-draft staged-Markdown lint gate; production default is the real spawn. */
+  stagedMarkdownLintRunner?: AsyncSubprocessRunner;
 };
 
 /**
@@ -1501,6 +1503,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           baseRef: args.worktree.baseRef,
           stagingDir: args.expectedArtifactPath,
           durableDir: args.specPath,
+          ...(args.stagedMarkdownLintRunner !== undefined ? { runner: args.stagedMarkdownLintRunner } : {}),
         });
         // Mutation checkpoint: skipping the pre-completion landing-validation guard must turn
         // "intent split landing-contract violation reprompts before settle" RED.
@@ -1582,6 +1585,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           worktreePath,
           processGroups: storeVerifierProcessGroupRecorder(store, runId),
           ...(args.signal !== undefined ? { signal: args.signal } : {}),
+          ...(args.stagedMarkdownLintRunner !== undefined ? { runner: args.stagedMarkdownLintRunner } : {}),
         });
         // Mutation checkpoint: skipping the pre-finalization intent-split staged-Markdown lint guard must turn
         // "intent write step staged Markdown lint violation reprompts before finalize" RED.
@@ -1711,6 +1715,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           worktreePath,
           processGroups: storeVerifierProcessGroupRecorder(store, runId),
           ...(args.signal !== undefined ? { signal: args.signal } : {}),
+          ...(args.stagedMarkdownLintRunner !== undefined ? { runner: args.stagedMarkdownLintRunner } : {}),
         });
         // Mutation checkpoint: skipping the pre-finalization plan-draft staged-Markdown lint guard must turn
         // "plan write step staged Markdown lint violation reprompts before finalize" RED.

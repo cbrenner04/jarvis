@@ -15,6 +15,7 @@ import {
   createDebateBindingFactory,
   createDebateStep,
   createStep,
+  createStubMarkdownlintRunner,
   externalWorktreeBinding,
   LINT_CLEAN_INTENT_EXAMPLE_MD,
   REVIEW_MD_LINT_FIXTURE_IDS,
@@ -1074,6 +1075,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
 
       writeFileSync(join(workspace, ".jarvis-intent-stage", "existing.md"), LINT_CLEAN_INTENT_EXAMPLE_MD, "utf8");
       const outcome = await resumePopulatedIntentPublication(reviewRun, store, {
+        runner: createStubMarkdownlintRunner(),
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
         readyFinalizer: async () => {},
@@ -1086,14 +1088,6 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
   });
 
   test("intent publication resume re-lints staged Markdown and settles landing_failed on violation", async () => {
-    if (
-      skipReviewWithoutHarnessMarkdownlint(
-        "intent publication resume re-lints staged Markdown and settles landing_failed on violation",
-      )
-    ) {
-      return;
-    }
-
     const workspace = mkdtempSync(join(tmpdir(), "intent-resume-md-lint-"));
     const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Violation);
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"));
@@ -1137,6 +1131,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       if (!run) throw new Error("expected review run");
       const logSink = new TestLogSink();
       const outcome = await resumePopulatedIntentPublication(run, store, {
+        runner: createStubMarkdownlintRunner(),
         logSink,
         completionCommitter: async () => {
           actuatorCalls += 1;

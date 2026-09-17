@@ -74,6 +74,30 @@ describe("staged-markdown-lint", () => {
     }
   });
 
+  test("an injected runner is used even when the harness root has no markdownlint binary", async () => {
+    const { worktreePath, stagingRoot } = stageFixture("lint-clean.md");
+    const emptyHarnessRoot = mkdtempSync(join(tmpdir(), "jarvis-empty-harness-"));
+    const calls: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (_command, args) => {
+        calls.push(args);
+        return `${join(worktreePath, stagingRoot, "index.md")}:1 MD041/first-line-heading stub violation`;
+      },
+    };
+    try {
+      const result = await lintStagedMarkdown(stagingRoot, {
+        harnessRootOverride: emptyHarnessRoot,
+        worktreePath,
+        runner,
+      });
+      expect(calls).toHaveLength(1);
+      expect(result).toMatchObject({ kind: "violation", ruleId: "MD041" });
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+      rmSync(emptyHarnessRoot, { recursive: true, force: true });
+    }
+  });
+
   test("fails closed when the linter invocation errors", async () => {
     const { worktreePath, stagingRoot } = stageFixture("lint-clean.md");
     const runner: AsyncSubprocessRunner = {

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "./markdownlint-repair.ts";
 import { assembleBulletBlocks } from "./spec-parser.ts";
+import type { AsyncSubprocessRunner } from "./subprocess.ts";
 
 export type IntentStageFile = { slug: string; path: string };
 type Result = { ok: true; intents: IntentStageFile[] } | { ok: false; error: string };
@@ -187,12 +188,14 @@ export async function repairIntentStageContent(
   stagingDir: string,
   warn: (message: string) => void,
   harnessRootOverride?: string | null,
+  runner?: AsyncSubprocessRunner,
 ): Promise<void> {
   for (const path of listIntentStageMarkdownFiles(stagingDir)) repairIntentFile(path, basename(path, ".md"));
   await runMarkdownlintAutofix({
     files: listIntentStageMarkdownFiles(stagingDir),
     warn,
     ...(harnessRootOverride !== undefined ? { harnessRootOverride } : {}),
+    ...(runner !== undefined ? { runner } : {}),
   });
 }
 
@@ -258,6 +261,7 @@ export async function validateIntentStage(
   modifiedPaths: string[],
   warn: (message: string) => void,
   harnessRootOverride?: string | null,
+  runner?: AsyncSubprocessRunner,
 ): Promise<Result> {
   const allowedPrefix = ".jarvis-intent-stage/";
   const rogue = modifiedPaths.filter((path) => path !== ".jarvis-intent-stage" && !path.startsWith(allowedPrefix));
@@ -271,7 +275,7 @@ export async function validateIntentStage(
   const duplicateCheck = validateIntentFilenames(normalizedPaths);
   if (!duplicateCheck.ok) return duplicateCheck;
   normalizeIntentStageFilenames(stagingDir);
-  await repairIntentStageContent(stagingDir, warn, harnessRootOverride);
+  await repairIntentStageContent(stagingDir, warn, harnessRootOverride, runner);
   const filenames = validateIntentFilenames(listIntentStageMarkdownFiles(stagingDir));
   if (!filenames.ok) return filenames;
   return validateIntentStageContent(filenames.intents);

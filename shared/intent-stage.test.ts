@@ -10,6 +10,7 @@ import {
   validateIntentStageContent,
   validateIntentStageStructure,
 } from "./intent-stage.ts";
+import type { AsyncSubprocessRunner } from "./subprocess.ts";
 
 function stage(): string {
   return mkdtempSync(join(tmpdir(), "jarvis-intent-stage-"));
@@ -74,6 +75,22 @@ describe("intent stage contract", () => {
     expect(content).toContain("See: #123");
     expect(content).toContain("\n## Prerequisites\n");
     expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(true);
+  });
+
+  test("forwards an injected runner to markdownlint autofix instead of the real default", async () => {
+    // Mutation checkpoint: dropping the `runner !== undefined` forwarding guard in
+    // repairIntentStageContent must turn this RED (the injected stub never sees a call).
+    const dir = stage();
+    writeIntent(dir, "one-thing", "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n");
+    const calls: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        if (cmd === "bun") calls.push(args);
+        return "";
+      },
+    };
+    await repairIntentStageContent(dir, () => {}, undefined, runner);
+    expect(calls).toHaveLength(1);
   });
 
   test("normalizes NN- ordering prefix on staged filename", async () => {

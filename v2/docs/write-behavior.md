@@ -270,6 +270,8 @@ Critic role is read-only on the staged intent; actuator role may write only with
 
 On landing failure (collision, validation error, or I/O failure), the review returns failure with `resumable: true`. The verdict file remains. Resume retries landing without re-running critic or actuator, preserving the reviewed output.
 
+**Resume landing-contract reprompt:** `run resume` on a populated-stage `landing_failed`/landing `invocation_failure` row (`resolveIntentFinalizationResumeContext` / `resumePopulatedIntentPublication`) re-runs `evaluateIntentSplitLandingGate` before landing. A repromptable violation (prose or missing `## Prerequisites`, or any other agent-fixable shape `evaluateIntentSplitLandingGate` classifies as repromptable) re-invokes the durable write step's own agent via `write.landing-contract-reprompt`, bounded by that write step's persisted `maxIterations` when reachable, else one reprompt, and re-validates; each attempt appends a `landing_contract_reprompt` log event. A non-repromptable violation (rogue path, collision, I/O) settles `landing_failed` immediately, as before. This replaces the prior behavior of replaying the identical refusal straight to a terminal `failed` row.
+
 Unlike generic review's reusable verdict-only actuator, intent review's composed critic and actuator prompts are rendered at dispatch from the registered layered artifacts. They carry the stage-boundary contract inline, include the current filename-ordered staged Markdown and spec guidance, and pass the unchanged verdict byte-for-byte via a delimited data zone — enabling the enforcement mechanisms in this section.
 
 ## Plan light review cycle

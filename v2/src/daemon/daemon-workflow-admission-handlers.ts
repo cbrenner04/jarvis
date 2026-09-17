@@ -155,8 +155,14 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
   } = ctx;
 
   const settleFailedWorkflowRun = (runId: string, message: string, logSink: LogSink | undefined): void => {
-    const run = store.loadRun(runId);
-    if (!(run && isSettledRunStatus(run.status))) {
+    let alreadySettled = false;
+    try {
+      const run = store.loadRun(runId);
+      alreadySettled = run !== null && isSettledRunStatus(run.status);
+    } catch {
+      // best-effort read; store may already be closed (daemon shutdown races the last workflow)
+    }
+    if (!alreadySettled) {
       try {
         store.commitTerminalRunSettlement({
           runId,

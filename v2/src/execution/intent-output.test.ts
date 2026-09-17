@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { createCommittedGitFixtureTemplate } from "../testing/git-fixture-template.ts";
 import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { findIntentLandingRoguePaths, intentHandoffSpecPath, landIntentWorkflowOutput } from "./intent-output.ts";
 
@@ -20,15 +21,10 @@ function stubMarkdownlintRunner(onMarkdownlint?: (args: string[]) => void): Asyn
   };
 }
 
+const repoTemplate = createCommittedGitFixtureTemplate();
+
 function createRepo(): string {
-  const repo = mkdtempSync(join(tmpdir(), "jarvis-intent-output-"));
-  execFileSync("git", ["init", "-q"], { cwd: repo });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
-  execFileSync("git", ["config", "user.name", "Test"], { cwd: repo });
-  writeFileSync(join(repo, "seed"), "base\n", "utf8");
-  execFileSync("git", ["add", "."], { cwd: repo });
-  execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
-  return repo;
+  return repoTemplate.copy();
 }
 
 function stage(repo: string, names: string[] = ["one"]): string {

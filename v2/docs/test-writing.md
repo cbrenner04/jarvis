@@ -127,6 +127,16 @@ The daemon smoke test (`v2/src/daemon/daemon.sandbox-unrunnable.test.ts`) demons
 
 Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnable tests (`daemon-registry.test.ts`) without `.sandbox-unrunnable` markers, even when moved from a real-process context. Use DI seams to inject the registry instance under test with mocked state, not real OS operations.
 
+## Git fixture template repo
+
+Tests that need a real on-disk git repo per test (not a mock) should use [`v2/src/testing/git-fixture-template.ts`](../src/testing/git-fixture-template.ts) instead of running `git init`/`config`/`commit` per test. Building a repo from scratch runs several git execs; the helper builds one template repo lazily on first use and hands out a recursive filesystem copy (including `.git`) per call, which is far cheaper than repeating the execs.
+
+Two modes: `createCommittedGitFixtureTemplate(options?)` builds `.git`, an initial commit (default one `seed` file, message `base`; override the files via `options.files`), and configures a local git identity so commits made in a copy succeed. `createUncommittedGitFixtureTemplate()` only initializes `.git` and configures identity, with no commit — use it when the test needs to commit per-test content itself (the template can't pre-commit content it doesn't have).
+
+Call the factory once per test file (module scope) and call `.copy()` per test; the underlying template repo is built on the first `.copy()` call and reused (never rebuilt) for the rest of that file. Each `.copy()` returns an independent repo: mutating one copy never affects another or the template. `.copy(destDir)` copies into an existing directory instead of a fresh temp dir, for seeding `.git` onto worktree content a fake already wrote. `v2/src/execution/intent-output.test.ts` `createRepo()` uses the committed mode this way. When the baseline commit must capture per-test worktree content, use the uncommitted mode instead, then `add -A`/`commit` per test: `v2/src/execution/write-loop-intent-landing.test.ts` `seedGitBaseline()` does this. `v2/src/execution/workflow-runner.test-support.ts` `createIntentWorktreeHarness()` uses the committed mode too, with `options.files` overridden to keep its `base.txt` fixture content.
+
+Per-file wall clock, two runs each (before = merge base `3f3dde88a`; after = this branch): `intent-output.test.ts` 1.13s/1.81s → 0.69s/0.77s, a real gain. `write-loop-intent-landing.test.ts` 2.00s/3.01s → 2.00s/1.90s and `workflow-runner-intent.test.ts` 24.6s/35.9s → 32.8s/26.2s are within noise (base-commit setup is a small fraction of their wall clock).
+
 ## Intent-landing lint seam
 
 `repairIntentStageContent`/`validateIntentStage` (`shared/intent-stage.ts`) accept an optional `runner?: AsyncSubprocessRunner`, forwarded to `runMarkdownlintAutofix` (`shared/markdownlint-repair.ts`); the production default stays `realAsyncSubprocessRunner`, resolved inside `runMarkdownlintAutofix` itself. `landIntentWorkflowOutput` (`v2/src/execution/intent-output.ts`) forwards its own injected `runner` through the same landing call, so one seam covers both the `git` plumbing and the markdownlint autofix spawn.

@@ -11,18 +11,18 @@ import {
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { createUncommittedGitFixtureTemplate } from "../testing/git-fixture-template.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
 import { createStubMarkdownlintRunner } from "./workflow-runner.test-support.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
+const uncommittedGitTemplate = createUncommittedGitFixtureTemplate();
 
 function seedGitBaseline(worktreePath: string): void {
   if (existsSync(join(worktreePath, ".git"))) return;
-  execFileSync("git", ["init", "-q"], { cwd: worktreePath });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreePath });
-  execFileSync("git", ["config", "user.name", "Test"], { cwd: worktreePath });
+  uncommittedGitTemplate.copy(worktreePath);
   execFileSync("git", ["add", "-A"], { cwd: worktreePath });
   execFileSync("git", ["commit", "-qm", "baseline"], { cwd: worktreePath });
 }

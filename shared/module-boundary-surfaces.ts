@@ -40,11 +40,41 @@ function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp
 const SPEC_SCAFFOLDING_FILENAMES: ReadonlySet<string> = new Set(["index.md", "intent.md"]);
 const GLOB_PATTERN = /[*?]|\[[^\]]+\]/u;
 
+/** A bare extension or naming-convention suffix (`.test-support.ts`, the un-starred form of
+ * `*.test-support.ts`) rather than a real filename: starts with `.` and has a second `.` later.
+ * A single-dot root dotfile (`.gitignore`) has no second dot, so it is untouched by this check and
+ * stays excluded solely by the extension allowlist, as before. */
+function isBareSuffix(path: string): boolean {
+  return path.startsWith(".") && path.indexOf(".", 1) !== -1;
+}
+
+const RULES_OUT_PATTERN = /\brules out\b/giu;
+// A rules-out clause ends at the bullet's end, or earlier at a `;` or em dash that starts a
+// distinct trailing clause — whichever comes first — so a second build claim after the rules-out
+// clause still counts (`builds a.ts — rules out b.ts; adds c.ts`).
+const CLAUSE_BOUNDARY_PATTERN = /;| — /u;
+
+/** Named paths inside a `rules out` clause are mentions, not artifacts — exempt from the count. */
+function rulesOutClauseRanges(text: string): Array<readonly [number, number]> {
+  const ranges: Array<readonly [number, number]> = [];
+  for (const match of text.matchAll(RULES_OUT_PATTERN)) {
+    const start = match.index ?? 0;
+    const boundary = text.slice(start).match(CLAUSE_BOUNDARY_PATTERN);
+    const end = boundary?.index === undefined ? text.length : start + boundary.index;
+    ranges.push([start, end]);
+  }
+  return ranges;
+}
+
 export function referencedArtifactPaths(text: string): string[] {
   const paths = new Set<string>();
+  const rulesOutRanges = rulesOutClauseRanges(text);
   for (const match of text.matchAll(BACKTICKED_PATH_PATTERN)) {
     const path = match[1] ?? match[2];
     if (path === undefined || SPEC_SCAFFOLDING_FILENAMES.has(path) || GLOB_PATTERN.test(path)) continue;
+    if (match[1] === undefined && isBareSuffix(path)) continue;
+    const matchIndex = match.index ?? 0;
+    if (rulesOutRanges.some(([start, end]) => matchIndex >= start && matchIndex < end)) continue;
     paths.add(path);
   }
   return [...paths];
@@ -75,10 +105,54 @@ function isSharedDecisionBullet(text: string): boolean {
   return SHARED_OUTCOME_PATTERN.test(text) && !BUILD_VERB_PATTERN.test(text);
 }
 
-function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): void {
+const ACCEPTANCE_CRITERIA_HEADING = "## Acceptance criteria";
+const DOCUMENTATION_UPDATES_HEADING = "## Documentation updates";
+const TEST_FILENAME_PATTERN = /^(.+)\.test\.([A-Za-z0-9]+)$/u;
+const MARKDOWN_PATH_PATTERN = /\.md$/u;
+
+/** The production path a test path would cover: same directory, filename with `.test` removed.
+ * Undefined when the path isn't shaped like this repo's co-located test convention. */
+function coveredProductionPath(testPath: string): string | undefined {
+  const slashIndex = testPath.lastIndexOf("/");
+  const dir = slashIndex === -1 ? "" : testPath.slice(0, slashIndex + 1);
+  const filename = slashIndex === -1 ? testPath : testPath.slice(slashIndex + 1);
+  const match = filename.match(TEST_FILENAME_PATTERN);
+  if (!match) return undefined;
+  const [, stem, ext] = match;
+  return `${dir}${stem}.${ext}`;
+}
+
+/** In an Acceptance-criteria bullet, a test path plus the production path it covers (same
+ * directory, `.test` removed) counts as one artifact — collapses each such pair down to the
+ * production path. A path not part of a pairing still counts individually. */
+function collapseTestCoveragePairs(paths: readonly string[]): string[] {
+  const remaining = new Set(paths);
+  for (const path of paths) {
+    const production = coveredProductionPath(path);
+    if (production !== undefined && remaining.has(production)) remaining.delete(path);
+  }
+  return paths.filter((path) => remaining.has(path));
+}
+
+/** In a Documentation-updates bullet, the leading path (first occurrence order) is the artifact;
+ * a later path is a mention unless it is itself a markdown path, which still counts distinctly. */
+function collapseDocBulletMentions(paths: readonly string[]): string[] {
+  const [leading, ...rest] = paths;
+  if (leading === undefined) return [];
+  return [leading, ...rest.filter((path) => MARKDOWN_PATH_PATTERN.test(path))];
+}
+
+function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): string[] {
+  const offenders: string[] = [];
   for (const bullet of bullets) {
     const paths = referencedArtifactPaths(bullet);
-    if (paths.length <= 1) continue;
+    const countedPaths =
+      heading === ACCEPTANCE_CRITERIA_HEADING
+        ? collapseTestCoveragePairs(paths)
+        : heading === DOCUMENTATION_UPDATES_HEADING
+          ? collapseDocBulletMentions(paths)
+          : paths;
+    if (countedPaths.length <= 1) continue;
     if (isStaysUnchangedBullet(bullet) || isSharedDecisionBullet(bullet)) continue;
     // A bullet carrying exempt wording that reaches here did so because of its build claim; say so,
     // rather than leaving the author to guess which reading fired.
@@ -86,10 +160,11 @@ function assertSingleArtifactBullets(file: string, heading: string, bullets: rea
       PRESERVATION_VERB_PATTERN.test(bullet) || SHARED_OUTCOME_PATTERN.test(bullet)
         ? "mixes exempt wording with a build claim"
         : "read as built or changed";
-    throw new Error(
-      `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${paths.join(", ")}): ${bullet} (${reading})`,
+    offenders.push(
+      `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${countedPaths.join(", ")}): ${bullet} (${reading})`,
     );
   }
+  return offenders;
 }
 
 function assertIndexLinks(indexBody: string, sourceFiles: readonly string[]): void {
@@ -118,17 +193,19 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
     .sort();
   const indexBody = readFileSync(join(specDir, "index.md"), "utf8");
   assertIndexLinks(indexBody, sourceFiles);
+  const offenders: string[] = [];
   for (const file of sourceFiles) {
     const body = readFileSync(join(specDir, file), "utf8");
     if (!body.replace(/\r\n/g, "\n").split("\n").includes("## Acceptance criteria")) {
       throw new Error(`Plan subspec ${file} is missing ## Acceptance criteria`);
     }
     for (const [heading, bulletPattern] of [
-      ["## Acceptance criteria", CHECKBOX_BULLET_PATTERN],
+      [ACCEPTANCE_CRITERIA_HEADING, CHECKBOX_BULLET_PATTERN],
       ["## Decisions", PLAIN_BULLET_PATTERN],
-      ["## Documentation updates", PLAIN_BULLET_PATTERN],
+      [DOCUMENTATION_UPDATES_HEADING, PLAIN_BULLET_PATTERN],
     ] as const) {
-      assertSingleArtifactBullets(file, heading, sectionBulletTexts(body, heading, bulletPattern));
+      offenders.push(...assertSingleArtifactBullets(file, heading, sectionBulletTexts(body, heading, bulletPattern)));
     }
   }
+  if (offenders.length > 0) throw new Error(offenders.join("\n"));
 }

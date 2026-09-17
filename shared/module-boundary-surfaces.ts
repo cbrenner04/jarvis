@@ -48,7 +48,7 @@ function isBareSuffix(path: string): boolean {
   return path.startsWith(".") && path.indexOf(".", 1) !== -1;
 }
 
-const RULES_OUT_PATTERN = /rules out/giu;
+const RULES_OUT_PATTERN = /\brules out\b/giu;
 // A rules-out clause ends at the bullet's end, or earlier at a `;` or em dash that starts a
 // distinct trailing clause — whichever comes first — so a second build claim after the rules-out
 // clause still counts (`builds a.ts — rules out b.ts; adds c.ts`).

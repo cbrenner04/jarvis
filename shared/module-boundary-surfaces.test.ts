@@ -183,6 +183,18 @@ describe("plan draft normalization", () => {
     );
   });
 
+  test("rejects a bullet where 'overrules outdated' precedes a second built path", () => {
+    const dir = scratchDir("overrules-outdated");
+    stageDraft(dir, {
+      "00-overrules.md":
+        "# Overrules\n\n## Decisions\n\n- Adds `a.ts`; overrules outdated guidance and adds `b.ts`.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Plan subspec 00-overrules.md has a ## Decisions bullet naming multiple artifact paths (a.ts, b.ts)",
+    );
+  });
+
   test("accepts a Documentation updates bullet naming a doc path plus the test file it describes", () => {
     const dir = scratchDir("doc-bullet-leading-path");
     stageDraft(dir, {

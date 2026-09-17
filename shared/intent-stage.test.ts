@@ -127,6 +127,28 @@ describe("intent stage contract", () => {
     expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(true);
   });
 
+  test("normalizes a `none` Prerequisites body followed by another section at intent repair", async () => {
+    // Mutation checkpoint: flipping normalizeNonePrerequisites' `next === -1` guard to
+    // `!==` would take the whole remainder (including the next heading) as the body,
+    // fail the none-body check, and leave this section unnormalized with the following
+    // heading swallowed into it.
+    const dir = stage();
+    const path = writeIntent(
+      dir,
+      "one-thing",
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\nnone\n\n## Motivation\n\nsome text\n",
+    );
+    const runner: AsyncSubprocessRunner = {
+      async runAsync() {
+        return "";
+      },
+    };
+    await repairIntentStageContent(dir, () => {}, undefined, runner);
+    expect(readFileSync(path, "utf8")).toBe(
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n## Motivation\n\nsome text\n",
+    );
+  });
+
   test("leaves a prose Prerequisites body untouched at intent repair and still refuses it", async () => {
     // Mutation checkpoint: inverting isNonePrerequisitesBody's guard would empty this prose
     // body instead of leaving it, and this test would go RED (no refusal).

@@ -11,13 +11,13 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` asserts a diff changing only a `*.test-support.ts` file yields no mutation candidates; it fails against the pre-fix `.test.` substring check.
-- [ ] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` asserts a diff changing a production file and a `*.test-support.ts` file yields a candidate only for the production file.
-- [ ] A new `scripts/production-files.test.ts` directly tests `isTestCodePath`: true for `foo.test.ts`, `foo.test.tsx`, and `foo.test-support.ts`; false for a plain production path and for the mid-basename case `foo.test.helpers.ts` (confirms the anchored-suffix boundary above).
-- [ ] `v2/src/execution/diff-scan.ts` and `scripts/production-files.ts` classify test code through the same exported `isTestCodePath` predicate, consumed by `isProductionFile` and `isProductionSourceFile` respectively.
-- [ ] `scripts/guard-production-test-support-imports.test.ts`, `scripts/guard-dead-exports.test.ts`, `scripts/guard-sync-child-processes.test.ts`, and `scripts/guard-unbounded-subprocess.test.ts` stay green (import-guard and structural-guard scans unchanged).
-- [ ] `v2/src/execution/runtime-smoke-verifier.test.ts`, `v2/src/execution/uncovered-changed-lines.test.ts`, and `v2/src/execution/diff-derived-mutation-verifier.test.ts` stay green (killing-test resolution, coverage-scope resolution, and runtime-smoke diff scan unchanged apart from the new test-support exclusion).
-- [ ] `bun run typecheck` and `bun run test` (full suite — the change touches `scripts/`, which `scripts/ci-test-scope.ts` always routes to `full`) pass.
+- [x] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` asserts a diff changing only a `*.test-support.ts` file yields no mutation candidates; it fails against the pre-fix `.test.` substring check.
+- [x] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` asserts a diff changing a production file and a `*.test-support.ts` file yields a candidate only for the production file.
+- [x] A new `scripts/production-files.test.ts` directly tests `isTestCodePath`: true for `foo.test.ts`, `foo.test.tsx`, and `foo.test-support.ts`; false for a plain production path and for the mid-basename case `foo.test.helpers.ts` (confirms the anchored-suffix boundary above).
+- [x] `v2/src/execution/diff-scan.ts` and `scripts/production-files.ts` classify test code through the same exported `isTestCodePath` predicate, consumed by `isProductionFile` and `isProductionSourceFile` respectively.
+- [x] `scripts/guard-production-test-support-imports.test.ts`, `scripts/guard-dead-exports.test.ts`, `scripts/guard-sync-child-processes.test.ts`, and `scripts/guard-unbounded-subprocess.test.ts` stay green (import-guard and structural-guard scans unchanged).
+- [x] `v2/src/execution/runtime-smoke-verifier.test.ts`, `v2/src/execution/uncovered-changed-lines.test.ts`, and `v2/src/execution/diff-derived-mutation-verifier.test.ts` stay green (killing-test resolution, coverage-scope resolution, and runtime-smoke diff scan unchanged apart from the new test-support exclusion).
+- [x] `bun run typecheck` and `bun run test` (full suite — the change touches `scripts/`, which `scripts/ci-test-scope.ts` always routes to `full`) pass.
 
 ## Documentation updates
 

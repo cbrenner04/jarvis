@@ -18,7 +18,7 @@ Incidents derive only for approval gates, failed stages, and whole-pipeline term
 
 ## Decisions
 
-- New stage-scoped incident `stage-succeeded` (fields: `pipelineId`, `stageId`, `branchKey`, PR number/url when present) fires when an `implement` stage settles `succeeded` on a non-terminal pipeline.
+- New stage-scoped incident `stage-succeeded` (fields: `pipelineId`, `stageId`, `branchKey`, PR number/url when present) fires when a stage whose `workflow` field is `"implement"` settles `succeeded` on a non-terminal pipeline. Gate on `stage.workflow`, not `stageId` — `stageId` is a free-form per-pipeline label independent of workflow type (a stage can be named `stageId: "implement"` while running `workflow: "plan"`).
 - Keyed per stage settlement like `stage-failed`, so a re-run lane notifies again.
 - Whole-pipeline terminal incidents unchanged; a pipeline that is terminal emits only the terminal incident.
 

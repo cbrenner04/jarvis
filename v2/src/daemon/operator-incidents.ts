@@ -25,10 +25,10 @@ type OperatorIncidentKind =
 
 /**
  * Version of the `(incidentId, transition)` key format. Bump whenever a transition string
- * changes shape; `reconcileNotificationKeyFormat` then marks already-settled incidents delivered
- * under the new format instead of re-sending them.
+ * changes shape or a new incident kind is added; `reconcileNotificationKeyFormat` then marks
+ * already-settled incidents delivered under the new format instead of re-sending them.
  */
-export const NOTIFICATION_KEY_FORMAT_VERSION = 2;
+export const NOTIFICATION_KEY_FORMAT_VERSION = 3;
 
 export type OperatorIncidentDerivationOptions = {
   /** Whether this daemon still drives the workflow invocation whose entry run is `entryRunId`. */

@@ -2082,11 +2082,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         ...(completionAgent ? { completionAgent } : {}),
         ...(isTerminalRunStatus(boundaryRunStatus)
           ? boundaryRunStatus === "completed"
-            ? // A superseded link/publishCompletion:false row settling directly `completed` (no
-              // deferred publish tail) still needs its own terminal cause set: a row reused after an
-              // earlier failed attempt (linked-workflow resume) otherwise keeps that attempt's stale
-              // `terminal_cause`, misreading as a failure once `status` flips to `completed`.
-              { terminalCause: "complete" as const }
+            ? // A row reused after an earlier failed attempt (linked-workflow resume) must drop that
+              // attempt's stale cause; clear rather than stamp `complete`, so a later workflow-level
+              // `run_execution_failed` on this completed row still surfaces as harness_failure.
+              { terminalCause: null, terminalFailureDetail: null }
             : completionBoundarySettlementFields(terminal.kind, detail)
           : {}),
       });

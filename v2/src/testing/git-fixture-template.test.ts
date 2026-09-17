@@ -4,6 +4,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createCommittedGitFixtureTemplate, createUncommittedGitFixtureTemplate } from "./git-fixture-template.ts";
 
+function localConfig(dir: string, key: string): string {
+  return execFileSync("git", ["config", "--local", key], { cwd: dir }).toString().trim();
+}
+
 function headSha(dir: string): string {
   return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
 }
@@ -18,13 +22,19 @@ test("committed-mode copies are independent repos sharing the template's HEAD co
   expect(readFileSync(join(first, "seed"), "utf8")).toBe("base\n");
   expect(readFileSync(join(second, "seed"), "utf8")).toBe("base\n");
 
+  const baseSha = headSha(second);
   writeFileSync(join(first, "seed"), "changed\n", "utf8");
   expect(readFileSync(join(second, "seed"), "utf8")).toBe("base\n");
+  execFileSync("git", ["commit", "-qam", "changed"], { cwd: first });
+  expect(headSha(first)).not.toBe(baseSha);
+  expect(headSha(second)).toBe(baseSha);
 });
 
 test("committed-mode copy keeps the template's git identity, so a commit in the copy succeeds", () => {
   const template = createCommittedGitFixtureTemplate();
   const copy = template.copy();
+  expect(localConfig(copy, "user.email")).toBe("test@example.com");
+  expect(localConfig(copy, "user.name")).toBe("Test");
 
   writeFileSync(join(copy, "extra"), "more\n", "utf8");
   execFileSync("git", ["add", "."], { cwd: copy });
@@ -35,7 +45,7 @@ test("uncommitted-mode copy has an initialized .git with identity configured and
   const template = createUncommittedGitFixtureTemplate();
   const copy = template.copy();
 
-  expect(execFileSync("git", ["config", "user.email"], { cwd: copy }).toString().trim()).toBe("test@example.com");
-  expect(execFileSync("git", ["config", "user.name"], { cwd: copy }).toString().trim()).toBe("Test");
+  expect(localConfig(copy, "user.email")).toBe("test@example.com");
+  expect(localConfig(copy, "user.name")).toBe("Test");
   expect(() => execFileSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: copy, stdio: "pipe" })).toThrow();
 });

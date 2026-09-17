@@ -14,7 +14,7 @@
 - `findSurvivingMutationRepromptFromLog` stays gated on `run.status === "paused"` at its own call site (`daemon-run-lifecycle-handlers.ts:421`), independent of the status-neutral linked-reconstruction change above — a failed link row's resume never restores review-mutation reprompt context.
 - Bare write-loop resume stays for rows with no workflow snapshot (`run start`); unchanged.
 - The finalization-tail and intent-finalization admission checks (`resolveIntentFinalizationResumeContext`, `isFinalizationTailResumable`) run before `reconstructWriteResume` and resolve against review/completion-commit/exhausted-red/write-out-of-scope/write-non-terminating shapes, never a `<step>~link-N` write row — a failed link row always falls through to `reconstructWriteResume` unmolested; no reordering needed.
-- Once `reconstructWriteResume` returns a linked `ok` input, handing it to `spawnWriteLoop` is sufficient for the remaining links, `implement~shrink`, `implement-review`, and tail publication to run — this is exactly what `resumePausedRun` (`daemon-run-lifecycle-handlers.ts:1067`) already does for paused rows today; no new orchestration is needed, only reaching that same input construction from the non-paused branch (`daemon-run-lifecycle-handlers.ts:1210`).
+- This subspec delivers status-neutral linked-row reconstruction and the named refusal only. Handing the reconstructed input to `spawnWriteLoop` runs the bare write loop for that one row and self-publishes; continuing through remaining links, `implement~shrink`, `implement-review`, and tail publication is [01](01-resume-continues-linked-workflow.md).
 
 ## Task checklist
 
@@ -26,13 +26,10 @@
 
 ## Acceptance criteria
 
-- [ ] A daemon resume test proves `run resume` on a `failed` `gate_invocation_refused` `implement~link-0` row continues through linked finalization, `implement~shrink`, and `implement-review`, with publication exactly once at the workflow tail; it fails against the pre-fix bare write-loop resume.
-- [ ] A test proves the resumed invocation's roll-up reads `completed` (not `killed`) and `deriveOperatorIncidents` derives a `run-ad-hoc-terminal` incident with `cause: "completed"` for it; it fails against the pre-fix code.
 - [ ] A test proves a `failed` `implement~link-1` row whose linked index no longer contains that pinned entry (reachable today via `resolvePinnedLinkedSubspec` returning `errorKind: "malformed_link"`, `workflow-runner-resume.ts:998` route in `v2/src/execution/workflow-runner.ts` already exercises the same failure) is refused with `resume_unsupported`, a message naming the missing context, and a distinct recovery clause, with `spawnWriteLoop` not called; it fails against the pre-fix code (a link row reaching this point is a `failed` row, which pre-fix never enters the linked builder and instead succeeds via the bare loop rather than refusing).
 - [ ] `daemon-resume.test.ts`'s `"paused implement~link-N without linked index materialization projects unsupported_resume_context and list/wait/resume agree"` and `"resumes paused implement~link-N into linked subspec routing and records iteration_started"` stay green.
 - [ ] `daemon-resume.test.ts`'s `"paused implement run resumes surviving mutation reprompt context"` stays green, and a new assertion confirms a non-paused (`failed`) linked-row resume does not restore surviving-mutation reprompt context.
 - [ ] `workflow-runner-resume-reconstruct-paused-write.test.ts` stays green.
-- [ ] `v2/docs/operator-runbook.md` states `gate_invocation_refused` recovery via `run resume` continues through the linked workflow and names the refusal (reason plus recovery) for unreconstructable link rows.
 - [ ] `v2/docs/v1-behaviors.md` records the changed link-row resume behavior.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

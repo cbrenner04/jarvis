@@ -97,3 +97,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260914T041500Z-the-daemon-runs-itself-and-every-step-has-a-clock,12,9,3,1481700,1481700,402800000,367.88,367.88,164633,40.88
 20260915T000000Z-daemon-identity-closes-and-the-gates-start-talking-back,14,11,3,1133700,1133700,225000000,303.23,303.23,103064,27.57
 20260916T200000Z-recovery-honesty-chain-lands,18,18,0,,,,261.78,261.78,,14.54
+20260917T220136Z-every-implement-pr-carried-a-defect-the-gates-passed,12,5,7,,,,,,,

@@ -206,7 +206,7 @@ function probeFixtureGateFailure(testPath: string, command: string): ReadyGateEr
 }
 
 /** Probe fixtures cover both the direct `bun test` path and the v2-mode `runV2TestFiles` path. */
-const PROBE_FIXTURE_TERMINAL_COMMANDS = ["bun run test:shared", "bun run test:v2"] as const;
+const PROBE_FIXTURE_TERMINAL_COMMANDS: string[] = ["bun run test:shared", "bun run test:v2"];
 
 const scope = {
   worktreePath: "/tmp/worktree",

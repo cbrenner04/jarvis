@@ -41,6 +41,15 @@ describe("real-lint-in-unit-tests guard", () => {
     expect(violations(source)).toEqual([]);
   });
 
+  test("bounds argument scanning to the call's own parentheses, not the rest of the file", () => {
+    const source = [
+      'import { lintStagedMarkdown } from "./staged-markdown-lint.ts";',
+      "await lintStagedMarkdown(stagingRoot, { worktreePath });",
+      "const runner = null;",
+    ].join("\n");
+    expect(violations(source)).toMatchObject([{ line: 2, functionName: "lintStagedMarkdown" }]);
+  });
+
   test("ignores non-test files and the integration slice", () => {
     const source = [
       'import { lintStagedMarkdown } from "./staged-markdown-lint.ts";',

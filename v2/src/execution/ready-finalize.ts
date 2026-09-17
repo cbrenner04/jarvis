@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
@@ -24,6 +24,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
+import { MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import {
   defaultPublicationDelay,
@@ -433,6 +434,8 @@ function createWorktreeSpawn(
   runner: AsyncSubprocessRunner,
   worktreeDir: string,
   processGroups: VerifierProcessGroupRecorder | undefined,
+  env: NodeJS.ProcessEnv | undefined,
+  onFailure?: (outcome: { output: string; timedOut: boolean }) => void,
 ): (command: string, args: string[], options: { timeout: number }) => Promise<SpawnOutcome> {
   return async (command, args, options) => {
     const tracked = trackProcessGroup(processGroups);
@@ -440,22 +443,72 @@ function createWorktreeSpawn(
       await runner.runAsync(command, args, worktreeDir, {
         maxBuffer: READY_GATE_MAX_BUFFER,
         timeoutMs: options.timeout,
+        ...(env !== undefined ? { env } : {}),
         processGroup: tracked.processGroup,
       });
       return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
+        const timedOut = isSubprocessTimeout(error);
+        onFailure?.({ output: `${error.stdout}${error.stderr}`, timedOut });
         return {
           status: error.status ?? 1,
           signal: null,
           stdout: error.stdout,
           stderr: error.stderr,
-          timedOut: error.status === TIMEOUT_EXIT_CODE,
+          timedOut,
         };
       }
       throw error;
     }
   };
+}
+
+/** True when `output` names an individual bun-test test case as failing (bun's `(fail) ` reporter
+ *  line), not merely a non-zero exit — distinguishes a genuine test failure from a crash (e.g. a
+ *  missing-dependency import error) that also exits non-zero but never runs a test. */
+export function hasFailingTestEvidence(output: string): boolean {
+  return /^\s*\(fail\)\s/m.test(output);
+}
+
+/** Prefixes `reason` onto the probe output's tail, matching {@link formatBaseRefProbeError}'s cap
+ *  but keeping `reason` even when output is present (that function drops its `error` argument's
+ *  message whenever output is non-empty). */
+function formatBaseRefProbeInconclusiveReason(reason: string, output: string): string {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    return reason;
+  }
+  const tail =
+    trimmed.length <= BASE_REF_PROBE_OUTPUT_TAIL_CHARS ? trimmed : trimmed.slice(-BASE_REF_PROBE_OUTPUT_TAIL_CHARS);
+  return `${reason}: ${tail}`;
+}
+
+/** Decide a base-ref probe's `bun test <path>` outcome from its captured output: a timeout is
+ *  always inconclusive (its output cannot name a failing test); otherwise a conclusive `fail`
+ *  requires named failing-test evidence, not merely the non-zero exit that got us here. */
+function classifyBaseRefProbeFailure(output: string, timedOut: boolean): BaseRefProbeResult {
+  if (timedOut) {
+    return { kind: "error", message: formatBaseRefProbeInconclusiveReason("base-ref probe timed out", output) };
+  }
+  if (hasFailingTestEvidence(output)) {
+    return "fail";
+  }
+  return {
+    kind: "error",
+    message: formatBaseRefProbeInconclusiveReason("base-ref probe produced no failing-test evidence", output),
+  };
+}
+
+/** Symlink the source worktree's `node_modules` into a fresh probe worktree, mirroring
+ *  `ensureExternalWorktree`'s materialization: without it, `bun test` in a probe tree created
+ *  outside the project directory (via `mkdtempSync`) cannot resolve dependencies and crashes
+ *  before running any test, a non-zero exit indistinguishable from a real regression. */
+function symlinkProbeNodeModules(sourceWorktreePath: string, probeWorktreeDir: string): void {
+  const sourceNodeModules = join(sourceWorktreePath, MATERIALIZED_NODE_MODULES_PATH);
+  if (statSync(sourceNodeModules, { throwIfNoEntry: false })?.isDirectory()) {
+    symlinkSync(sourceNodeModules, join(probeWorktreeDir, MATERIALIZED_NODE_MODULES_PATH), "dir");
+  }
 }
 
 async function removeDetachedWorktree(
@@ -481,19 +534,34 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
       ).trim();
       worktreeDir = mkdtempSync(join(tmpdir(), "jarvis-ready-base-ref-probe-"));
       await runner.runAsync("git", ["worktree", "add", "--detach", worktreeDir, baseCommit], scope.worktreePath);
+      // Defense-in-depth: `git worktree add --detach` either lands on `baseCommit` or throws
+      // (already reported as inconclusive below), so this should never actually mismatch.
+      const probeHead = (await runner.runAsync("git", ["rev-parse", "HEAD"], worktreeDir)).trim();
+      if (probeHead !== baseCommit) {
+        return {
+          kind: "error",
+          message: `base-ref probe tree ${worktreeDir} is at ${probeHead}, expected verified merge-base ${baseCommit}`,
+        };
+      }
+      symlinkProbeNodeModules(scope.worktreePath, worktreeDir);
       const probeEnv = await deriveReadyGateChildEnv(runner, scope.worktreePath, scope.baseRef);
       const v2Mode = v2ProbeModeFromTerminalCommand(terminalCommand);
       try {
         if (v2Mode !== undefined) {
+          let failure: { output: string; timedOut: boolean } | undefined;
           const results = await runV2TestFiles(
             v2Mode,
             [path],
-            createWorktreeSpawn(runner, worktreeDir, scope.verifierProcessGroups),
+            createWorktreeSpawn(runner, worktreeDir, scope.verifierProcessGroups, probeEnv, (outcome) => {
+              failure = outcome;
+            }),
           );
           if (aggregateExitCode(results) === 0) {
             return "pass";
           }
-          return "fail";
+          return failure === undefined
+            ? { kind: "error", message: "base-ref probe produced no captured output" }
+            : classifyBaseRefProbeFailure(failure.output, failure.timedOut);
         }
         const tracked = trackProcessGroup(scope.verifierProcessGroups);
         try {
@@ -512,7 +580,7 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
           if (error.status === 0) {
             return "pass";
           }
-          return "fail";
+          return classifyBaseRefProbeFailure(`${error.stdout}${error.stderr}`, isSubprocessTimeout(error));
         }
         return { kind: "error", message: formatBaseRefProbeError(error) };
       }
@@ -601,10 +669,10 @@ export async function classifyReadyGateFailure(
   const mixedAttribution = outsidePaths.length < failingPaths.length;
   const terminalStep = selectTerminalFailedReadyTestStep(error.output);
   if (terminalStep === undefined || scope === undefined) {
-    if (mixedAttribution) {
-      return { kind: "ready_gate_failed" };
-    }
-    return { kind: "ready_gate_out_of_scope", outsidePaths };
+    // No base-ref probe is possible without a terminal test step or scope to probe with, so
+    // there is no conclusive base-tree failure to exonerate on: settle the ordinary repairable
+    // red gate rather than the non-resumable out-of-scope verdict.
+    return { kind: "ready_gate_failed" };
   }
 
   const { inScopePaths, confirmedOutsidePaths, baseRefProbeError } = await probeOutsidePathsAtBaseRef(

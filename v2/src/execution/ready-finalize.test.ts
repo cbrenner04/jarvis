@@ -15,10 +15,12 @@ import {
   deriveGateAllowedPaths,
   findMissingReadyGateCommandEvidence,
   formatReadyGateOutOfScopeDetail,
+  hasFailingTestEvidence,
   NonTerminatingMutationError,
   nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
+  type ReadyGateScopeInput,
   ReadyGateError,
   type ReadyGateScopeSeams,
   readyGateFailureLogFields,
@@ -119,6 +121,59 @@ export function initOutsideDiffRepairWorktree(
   execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
   execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
   return { worktreePath, baseRef };
+}
+
+const PROBE_FIXTURE_TEST_PATH = "probe-target.test.ts";
+
+const PROBE_FIXTURE_TEST_PASSING = `import { expect, test } from "bun:test";
+import dep from "probe-fixture-dep";
+test("uses fixture dependency", () => {
+  expect(dep.ok).toBe(true);
+});
+`;
+
+const PROBE_FIXTURE_TEST_FAILING = `import { expect, test } from "bun:test";
+import dep from "probe-fixture-dep";
+test("uses fixture dependency", () => {
+  expect(dep.ok).toBe(false);
+});
+`;
+
+/**
+ * A real git repo for driving `createDefaultReproduceReadyGateAtBaseRef` end to end: a base
+ * commit with `baseTestBody`, then an iteration commit with `branchTestBody`. Its imported
+ * dependency lives only on disk (gitignored, never committed) at `node_modules/probe-fixture-dep`
+ * — present only when `dependencyPresent`, so a probe tree materialized without the harness's
+ * `node_modules` symlink crashes on import (`Cannot find package`) rather than running the test.
+ */
+function initBaseRefProbeFixture(
+  jarvisRoot: string,
+  branchName: string,
+  options: { baseTestBody: string; branchTestBody: string; dependencyPresent: boolean },
+): { worktreePath: string; baseRef: string; testPath: string } {
+  const worktreePath = join(jarvisRoot, "worktrees", "probe", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, ".gitignore"), "node_modules/\n", "utf8");
+  writeFileSync(join(worktreePath, PROBE_FIXTURE_TEST_PATH), options.baseTestBody, "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  writeFileSync(join(worktreePath, PROBE_FIXTURE_TEST_PATH), options.branchTestBody, "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "--allow-empty", "-m", "iteration"], { stdio: "pipe" });
+  if (options.dependencyPresent) {
+    const depDir = join(worktreePath, "node_modules", "probe-fixture-dep");
+    mkdirSync(depDir, { recursive: true });
+    writeFileSync(join(depDir, "package.json"), `{"name":"probe-fixture-dep","main":"index.js"}\n`, "utf8");
+    writeFileSync(join(depDir, "index.js"), "module.exports = { ok: true };\n", "utf8");
+  }
+  return { worktreePath, baseRef, testPath: PROBE_FIXTURE_TEST_PATH };
 }
 
 const scope = {
@@ -550,6 +605,9 @@ describe("ready gate untouched-path classification", () => {
           if (args?.[0] === "worktree") {
             return "";
           }
+          if (args?.[0] === "rev-parse") {
+            return "abc123\n";
+          }
           if (args?.[0] === "diff" && args?.[1] === "--name-only") {
             return "v2/src/changed.ts\n";
           }
@@ -627,6 +685,7 @@ describe("ready gate untouched-path classification", () => {
     const mockRunner: AsyncSubprocessRunner = {
       async runAsync(cmd, args, _cwd, options) {
         if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "rev-parse") return "abc123\n";
         if (cmd === "bun") {
           // The probe spawn must be detached and bound: without a processGroup option this never fires.
           options?.processGroup?.onGroupId?.(777);
@@ -740,6 +799,190 @@ describe("ready gate untouched-path classification", () => {
     expect(findMissingReadyGateCommandEvidence("", "ENOENT")).toBe("ENOENT");
     expect(findMissingReadyGateCommandEvidence("", "EEXIST")).toBeUndefined();
     expect(findMissingReadyGateCommandEvidence("internal ENOENT error", undefined)).toBeUndefined();
+  });
+});
+
+describe("hasFailingTestEvidence", () => {
+  it("requires bun's own per-test failure line, not just a non-zero-exit summary", () => {
+    expect(hasFailingTestEvidence("(fail) a genuine failing assertion [0.11ms]\n\n 1 pass\n 1 fail\n")).toBe(true);
+    expect(hasFailingTestEvidence("  (fail) nested describe > test\n")).toBe(true);
+    expect(
+      hasFailingTestEvidence(
+        "# Unhandled error between tests\n-------\nerror: Cannot find package 'x'\n-------\n\n 0 pass\n 1 fail\n 1 error\n",
+      ),
+    ).toBe(false);
+    expect(hasFailingTestEvidence(" 12 pass\n 0 fail\n")).toBe(false);
+  });
+});
+
+describe("base-ref probe conclusive reproduction", () => {
+  it("reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed", async () => {
+    const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-conclusive-"));
+    try {
+      const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, "regression-75ca2a7a", {
+        baseTestBody: PROBE_FIXTURE_TEST_PASSING,
+        branchTestBody: PROBE_FIXTURE_TEST_FAILING,
+        dependencyPresent: true,
+      });
+      const probeScope: ReadyGateScopeInput = { worktreePath, baseRef, specPath: "spec.md" };
+      const error = new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: testPath }],
+        }),
+      );
+      const classified = await classifyReadyGateFailure(error, [testPath], new Set<string>(), probeScope, {});
+      expect(classified.kind).toBe("ready_gate_failed");
+      expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+      // No baseRefProbeError: the base tree must have conclusively *passed*, not merely probed
+      // inconclusively (e.g. a crash from a missing `node_modules` symlink) — otherwise this test
+      // would also pass with only the failing-test-evidence fix and none of the root-cause fix.
+      expect(classified.baseRefProbeError).toBeUndefined();
+    } finally {
+      rmSync(jarvisRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("settles ready_gate_out_of_scope when a path fails with test-failure evidence on both a verified base tree and the branch", async () => {
+    const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-out-of-scope-"));
+    try {
+      const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, "deterministic-both-red", {
+        baseTestBody: PROBE_FIXTURE_TEST_FAILING,
+        branchTestBody: PROBE_FIXTURE_TEST_FAILING,
+        dependencyPresent: true,
+      });
+      const probeScope: ReadyGateScopeInput = { worktreePath, baseRef, specPath: "spec.md" };
+      const error = new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: testPath }],
+        }),
+      );
+      const classified = await classifyReadyGateFailure(error, [testPath], new Set<string>(), probeScope, {});
+      expect(classified.kind).toBe("ready_gate_out_of_scope");
+      expect(classified.outsidePaths).toEqual([testPath]);
+    } finally {
+      rmSync(jarvisRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a crash with no failing-test evidence inconclusive, not a conclusive fail", async () => {
+    const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-inconclusive-crash-"));
+    try {
+      const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, "missing-dependency", {
+        baseTestBody: PROBE_FIXTURE_TEST_PASSING,
+        branchTestBody: PROBE_FIXTURE_TEST_PASSING,
+        dependencyPresent: false,
+      });
+      const probeScope: ReadyGateScopeInput = { worktreePath, baseRef, specPath: "spec.md" };
+      const error = new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: testPath }],
+        }),
+      );
+      const classified = await classifyReadyGateFailure(error, [testPath], new Set<string>(), probeScope, {});
+      expect(classified.kind).toBe("ready_gate_failed");
+      expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+      expect(classified.baseRefProbeError).toContain("no failing-test evidence");
+    } finally {
+      rmSync(jarvisRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("settles ready_gate_failed, not ready_gate_out_of_scope, when the terminal step or scope is missing even though every failing path is outside the allowset", async () => {
+    const allowed = new Set<string>(["v2/src/changed.ts"]);
+    const nonTestTerminalOutput = gateOutput({
+      completions: [{ stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 1 }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, nonTestTerminalOutput);
+    // The seam below would confirm "fail" if the probe ever ran; the assertions prove it never does.
+    const trapSeams: ReadyGateScopeSeams = { reproduceReadyGateAtBaseRef: async () => "fail" };
+
+    const noTerminalStep = await classifyReadyGateFailure(
+      error,
+      ["v2/src/untouched.test.ts"],
+      allowed,
+      scope,
+      trapSeams,
+    );
+    expect(noTerminalStep.kind).toBe("ready_gate_failed");
+
+    const noScope = await classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed, undefined, trapSeams);
+    expect(noScope.kind).toBe("ready_gate_failed");
+  });
+
+  it("treats a base-ref probe timeout as inconclusive, not a conclusive fail", async () => {
+    const failingPath = "v2/src/untouched.test.ts";
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["v2/spec/demo/index.md"],
+    };
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "rev-parse") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "worktree") return "";
+        if (cmd === "bun") {
+          throw new AsyncSubprocessError("Command timed out", undefined, "", "", "ETIMEDOUT");
+        }
+        return "";
+      },
+    };
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: failingPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateFailure(
+      error,
+      [failingPath],
+      new Set(["v2/src/changed.ts"]),
+      scope,
+      probeSeams,
+      mockRunner,
+    );
+    expect(classified.kind).toBe("ready_gate_failed");
+    expect(classified.baseRefProbeError).toContain("timed out");
+  });
+
+  it("treats a probe tree that failed to verify against the merge-base as inconclusive", async () => {
+    const failingPath = "v2/src/untouched.test.ts";
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["v2/spec/demo/index.md"],
+    };
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "worktree") return "";
+        if (cmd === "git" && args?.[0] === "rev-parse") return "mismatched-sha\n";
+        return "";
+      },
+    };
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: failingPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateFailure(
+      error,
+      [failingPath],
+      new Set(["v2/src/changed.ts"]),
+      scope,
+      probeSeams,
+      mockRunner,
+    );
+    expect(classified.kind).toBe("ready_gate_failed");
+    expect(classified.baseRefProbeError).toContain("mismatched-sha");
   });
 });
 

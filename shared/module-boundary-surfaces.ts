@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const CHECKBOX_BULLET_PATTERN = /^\s*-\s\[[ xX]\]\s+(.+)$/u;
@@ -186,8 +186,61 @@ function assertIndexLinks(indexBody: string, sourceFiles: readonly string[]): vo
   }
 }
 
-/** Validates that the authored plan index links every authored subspec exactly once. */
-export function normalizePlanDraftSpecDir(specDir: string): void {
+const DECISIONS_HEADING = "## Decisions";
+const BULLET_MARKER_PATTERN = /^\s*-\s/u;
+const FENCE_DELIMITER_PATTERN = /^\s*```/u;
+
+/**
+ * Turns a bare (unmarked) line under `## Decisions` into its own `- ` bullet, one bullet per line.
+ * A bare line already joined as a continuation of a preceding authored bullet — anything after the
+ * first `- `-marked line and before the next one, per `sectionBulletTexts`' own grouping — is left
+ * untouched, so a hard-wrapped multi-line bullet is not split. Lines inside a fenced block are never
+ * touched. Returns the body unchanged (same string) when there is nothing to bulletize.
+ */
+function bulletizeDecisionsSection(body: string): string {
+  const hasCRLF = body.includes("\r\n");
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const headingIndex = lines.indexOf(DECISIONS_HEADING);
+  if (headingIndex === -1) return body;
+  let end = lines.length;
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    if (/^##\s/u.test(lines[index] ?? "")) {
+      end = index;
+      break;
+    }
+  }
+  let inFence = false;
+  let seenBulletMarker = false;
+  let changed = false;
+  for (let index = headingIndex + 1; index < end; index += 1) {
+    const line = lines[index] ?? "";
+    if (FENCE_DELIMITER_PATTERN.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || line.trim() === "") continue;
+    if (BULLET_MARKER_PATTERN.test(line)) {
+      seenBulletMarker = true;
+      continue;
+    }
+    if (!seenBulletMarker) {
+      lines[index] = `- ${line}`;
+      changed = true;
+    }
+  }
+  return changed ? lines.join(hasCRLF ? "\r\n" : "\n") : body;
+}
+
+export type PlanDraftNormalizationMode = "rewrite-allowed" | "validate-only";
+
+/**
+ * Validates that the authored plan index links every authored subspec exactly once.
+ * In `rewrite-allowed` mode (the staging call), bare `## Decisions` lines are bulletized in memory
+ * and, only when a rewrite actually occurs, written back to the subspec file before validation runs
+ * against the rewritten bytes. In `validate-only` mode (the durable-dir fallback), the tree is never
+ * written to and bare lines are validated exactly as authored.
+ */
+export function normalizePlanDraftSpecDir(specDir: string, mode: PlanDraftNormalizationMode = "validate-only"): void {
   const sourceFiles = readdirSync(specDir)
     .filter((file) => /^\d{2}-.*\.md$/u.test(file))
     .sort();
@@ -195,13 +248,15 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
   assertIndexLinks(indexBody, sourceFiles);
   const offenders: string[] = [];
   for (const file of sourceFiles) {
-    const body = readFileSync(join(specDir, file), "utf8");
+    const original = readFileSync(join(specDir, file), "utf8");
+    const body = mode === "rewrite-allowed" ? bulletizeDecisionsSection(original) : original;
+    if (body !== original) writeFileSync(join(specDir, file), body);
     if (!body.replace(/\r\n/g, "\n").split("\n").includes("## Acceptance criteria")) {
       throw new Error(`Plan subspec ${file} is missing ## Acceptance criteria`);
     }
     for (const [heading, bulletPattern] of [
       [ACCEPTANCE_CRITERIA_HEADING, CHECKBOX_BULLET_PATTERN],
-      ["## Decisions", PLAIN_BULLET_PATTERN],
+      [DECISIONS_HEADING, PLAIN_BULLET_PATTERN],
       [DOCUMENTATION_UPDATES_HEADING, PLAIN_BULLET_PATTERN],
     ] as const) {
       offenders.push(...assertSingleArtifactBullets(file, heading, sectionBulletTexts(body, heading, bulletPattern)));

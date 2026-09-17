@@ -13,7 +13,10 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
-import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
+import {
+  normalizePlanDraftSpecDir,
+  type PlanDraftNormalizationMode,
+} from "../../../shared/module-boundary-surfaces.ts";
 import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import {
   buildIntentSplitPrompt,
@@ -207,6 +210,7 @@ function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: str
 function validatePlanDraft(
   draftDir: string,
   shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
+  mode: PlanDraftNormalizationMode = "validate-only",
 ): { ok: true } | { ok: false; reason: string } {
   const resolved = resolvePlanDraftStagingRoot(draftDir);
   if (!resolved.ok) {
@@ -227,7 +231,7 @@ function validatePlanDraft(
     if (resolved.root !== draftDir) {
       flattenNestedPlanDraftStaging(draftDir, resolved.root);
     }
-    normalizePlanDraftSpecDir(draftDir);
+    normalizePlanDraftSpecDir(draftDir, mode);
   } catch (err) {
     // Mutation checkpoint: replacing `message` with PLAN_DRAFT_SHAPE_REASON here must turn
     // "plan-draft normalizer contract_miss carries the normalizer message" RED.
@@ -253,14 +257,14 @@ function composePlanDraftArtifactCheck(
   durableDir: string,
   shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
 ): boolean | { ok: false; reason: string } {
-  const staging = validatePlanDraft(stagingDir, shapeValidator);
+  const staging = validatePlanDraft(stagingDir, shapeValidator, "rewrite-allowed");
   if (staging.ok) return true;
 
   if (staging.reason !== PLAN_DRAFT_SHAPE_REASON) {
     return staging;
   }
 
-  const durable = validatePlanDraft(durableDir, shapeValidator);
+  const durable = validatePlanDraft(durableDir, shapeValidator, "validate-only");
   return durable.ok ? true : { ok: false, reason: staging.reason };
 }
 

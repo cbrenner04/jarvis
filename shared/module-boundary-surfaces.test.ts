@@ -1,7 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import markdownlint from "markdownlint";
+import noHardWrapRule from "../scripts/markdownlint-no-hard-wrap-rule.ts";
 import { normalizePlanDraftSpecDir, referencedArtifactPaths } from "./module-boundary-surfaces.ts";
+
+function noHardWrapViolations(content: string): number[] {
+  const result = markdownlint.sync({
+    strings: { content },
+    customRules: [noHardWrapRule],
+    config: { default: false, "no-hard-wrap": true, MD041: false, MD047: false },
+  });
+  return (result.content ?? []).filter((error) => error.ruleNames.includes("no-hard-wrap")).map((e) => e.lineNumber);
+}
 
 const scratchRoot = resolve(".scratch");
 const tempDirs: string[] = [];
@@ -490,6 +501,83 @@ describe("plan draft normalization", () => {
     );
     // Later contracts still apply to this minimal draft; only the index-link verdict is asserted.
     expect(() => normalizePlanDraftSpecDir(annotated)).not.toThrow(/Plan index does not link/);
+  });
+
+  describe("## Decisions bulletization (staging rewrite)", () => {
+    test("bulletizes bare consecutive Decisions lines in rewrite-allowed mode, satisfying no-hard-wrap", () => {
+      const dir = scratchDir("bulletize-bare-lines");
+      stageDraft(dir, {
+        "00-case.md":
+          "# Case\n\n## Decisions\n\nFirst bare decision line.\nSecond bare decision line.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+      });
+
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+
+      const rewritten = readFileSync(join(dir, "00-case.md"), "utf8");
+      expect(rewritten).toContain("- First bare decision line.\n- Second bare decision line.\n");
+      expect(noHardWrapViolations(rewritten)).toEqual([]);
+    });
+
+    test("leaves a bare line following an authored bullet untouched as a continuation", () => {
+      const dir = scratchDir("bulletize-continuation");
+      const body =
+        "# Continuation\n\n## Decisions\n\n- Decision one.\ncontinuation of decision one.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n";
+      stageDraft(dir, { "00-case.md": body });
+
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+
+      expect(readFileSync(join(dir, "00-case.md"), "utf8")).toBe(body);
+    });
+
+    test("leaves already-bulleted, blank-separated, and other-heading fenced content byte-identical and unwritten", () => {
+      const dir = scratchDir("bulletize-noop");
+      const subspecs = {
+        "00-already-bulleted.md":
+          "# Already bulleted\n\n## Decisions\n\n- First decision.\n- Second decision.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+        "01-blank-separated.md":
+          "# Blank separated\n\n## Decisions\n\n- First decision.\n\n- Second decision.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+        "02-other-heading-fence.md":
+          "# Other heading\n\n## Tasks\n\n```\nbare line one\nbare line two\n```\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n",
+      };
+      stageDraft(dir, subspecs);
+      const beforeBytes = treeBytes(dir);
+      const beforeMtimes = Object.keys(subspecs).map((file) => statSync(join(dir, file)).mtimeMs);
+
+      normalizePlanDraftSpecDir(dir, "rewrite-allowed");
+
+      expect(treeBytes(dir)).toEqual(beforeBytes);
+      const afterMtimes = Object.keys(subspecs).map((file) => statSync(join(dir, file)).mtimeMs);
+      expect(afterMtimes).toEqual(beforeMtimes);
+    });
+
+    test("pins the offender set on both sides of the rewrite for a bare multi-artifact Decisions line", () => {
+      const body =
+        "# Case\n\n## Decisions\n\nBuilds `shared/first.test.ts` and `shared/second.test.ts`.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n";
+
+      const durableDir = scratchDir("bulletize-durable-multi-artifact");
+      stageDraft(durableDir, { "00-case.md": body });
+      expect(() => normalizePlanDraftSpecDir(durableDir, "validate-only")).not.toThrow();
+
+      const stagingDir = scratchDir("bulletize-staging-multi-artifact");
+      stageDraft(stagingDir, { "00-case.md": body });
+      expect(() => normalizePlanDraftSpecDir(stagingDir, "rewrite-allowed")).toThrow(
+        "Plan subspec 00-case.md has a ## Decisions bullet naming multiple artifact paths (shared/first.test.ts, shared/second.test.ts)",
+      );
+    });
+
+    test("never writes to disk in validate-only mode even with bare Decisions lines", () => {
+      const dir = scratchDir("bulletize-durable-no-write");
+      const file = "00-case.md";
+      const body =
+        "# Case\n\n## Decisions\n\nFirst bare decision line.\nSecond bare decision line.\n\n## Acceptance criteria\n\n- [ ] Behavior is proven.\n";
+      stageDraft(dir, { [file]: body });
+      const beforeMtime = statSync(join(dir, file)).mtimeMs;
+
+      normalizePlanDraftSpecDir(dir, "validate-only");
+
+      expect(readFileSync(join(dir, file), "utf8")).toBe(body);
+      expect(statSync(join(dir, file)).mtimeMs).toBe(beforeMtime);
+    });
   });
 
   test("production modules import no retired surface-classification export", () => {

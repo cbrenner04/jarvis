@@ -133,6 +133,9 @@ describe("intent stage contract", () => {
     // Mutation checkpoint: inverting isNonePrerequisitesBody's guard would empty this prose
     // body instead of leaving it, and this test would go RED (no refusal).
     const path = await repairPrerequisitesBody("some prose here\n");
+    expect(readFileSync(path, "utf8")).toBe(
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\nsome prose here\n",
+    );
     const result = validateIntentStageContent([{ slug: "one-thing", path }]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("must list prerequisites as one bullet per line");

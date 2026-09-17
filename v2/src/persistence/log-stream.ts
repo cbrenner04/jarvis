@@ -144,7 +144,7 @@ type RunRecoveryEvent = {
 };
 
 /** A terminal settlement from a non-owner identity onto an already-terminal row was dropped. */
-export type RunSettlementRejectedEvent = {
+type RunSettlementRejectedEvent = {
   kind: "run_settlement_rejected";
   attemptedStatus: RunStatus;
   reportingIdentity: string;

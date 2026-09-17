@@ -336,7 +336,7 @@ type CommitTerminalRunSettlementInput = TerminalRunSettlementEvidence & {
  * already terminal and stamped with a different, non-null owner identity than the caller's —
  * a non-owner daemon settling over a prior generation's terminal write.
  */
-export type RunSettlementOutcome =
+type RunSettlementOutcome =
   | { kind: "applied" }
   | { kind: "rejected"; attemptedStatus: RunStatus; reportingIdentity: string };
 

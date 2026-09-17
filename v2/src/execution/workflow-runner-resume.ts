@@ -2533,8 +2533,8 @@ async function replayMutationFinalization(
   if (!resolved.ok) return { ok: false, message: resolved.message };
   const { context } = resolved;
 
-  const attemptId = store.recordAttemptStart(context.runId);
   await admitRunForResumeOrThrow(store, context.runId);
+  const attemptId = store.recordAttemptStart(context.runId);
   deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
 
   try {

@@ -269,6 +269,13 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "Inverting the liveness filter makes at least one test fail",
   "Inverting the name-form filter makes at least one test fail",
   "Results are sorted lexicographically",
+  // Resumed linked-implement rows now re-enter the workflow runner's linked/shrink/review/
+  // publication sequencing (resumeLinkedWorkflowStart) instead of the bare write loop these
+  // covered; superseded by daemon-run-lifecycle-handlers.test.ts's resumeLinkedWorkflowStart
+  // routing tests and workflow-runner-resume-linked-continuation.test.ts.
+  "resumes paused implement~link-N into linked subspec routing and records iteration_started",
+  "resumes failed gate_invocation_refused implement~link-N into linked subspec routing",
+  "failed gate_invocation_refused implement~link-N resume does not restore surviving-mutation reprompt context",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

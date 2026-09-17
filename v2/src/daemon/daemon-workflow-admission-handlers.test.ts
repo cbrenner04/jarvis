@@ -3,9 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
 import {
   createBindingFactory,
@@ -434,4 +435,47 @@ test("only the first step-0 run is the entry: shrink rows neither re-point nor l
   } finally {
     settleSpy.mockRestore();
   }
+});
+
+test("resumeLinkedWorkflowStart forwards the resumed workflowSnapshot into executeWorkflow instead of minting a fresh one", async () => {
+  // If the snapshot argument is dropped, executeWorkflow falls back to buildWorkflowSnapshot,
+  // which (with no existing durable row to reuse) mints an invocationId from the step's own
+  // `workflowInvocationId` rather than the resumed invocation's id.
+  const branch = "resume-forwards-snapshot";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1", branch, doneWithArtifactBindingFactory, {
+    suppressShrink: true,
+    workflowInvocationId: "step-own-invocation-id",
+  });
+  const { workflowStart } = workflowAdmission();
+  const snapshot: WorkflowSnapshot = {
+    invocationId: "resumed-invocation-id",
+    steps: [{ stepId: "step-1", role: "implement", durable: true }],
+  };
+
+  const response = await workflowStart.resumeLinkedWorkflowStart([step], snapshot);
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+
+  expect(stateStore.loadRun(runId)?.workflowSnapshot?.invocationId).toBe("resumed-invocation-id");
+});
+
+test("resumeLinkedWorkflowStart claims the resumed step's real external worktree path, not an empty placeholder", async () => {
+  const branch = "resume-claims-real-worktree";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1", branch, doneWithArtifactBindingFactory, {
+    suppressShrink: true,
+    workflowInvocationId: "step-own-invocation-id",
+  });
+  const { workflowStart } = workflowAdmission();
+  const snapshot: WorkflowSnapshot = {
+    invocationId: "resumed-invocation-id",
+    steps: [{ stepId: "step-1", role: "implement", durable: true }],
+  };
+
+  const response = await workflowStart.resumeLinkedWorkflowStart([step], snapshot);
+  expect(response.kind).toBe("response");
+
+  const ownership = registry.get({ project: "demo", branch });
+  expect(ownership?.worktreePath).toBe(getExternalWorktreePath(step.worktree));
 });

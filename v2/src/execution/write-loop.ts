@@ -2080,8 +2080,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         outcomeKind: terminal.outcomeKind,
         ...(detail !== undefined ? { invocationFailureDetail: detail } : {}),
         ...(completionAgent ? { completionAgent } : {}),
-        ...(isTerminalRunStatus(boundaryRunStatus) && boundaryRunStatus !== "completed"
-          ? completionBoundarySettlementFields(terminal.kind, detail)
+        ...(isTerminalRunStatus(boundaryRunStatus)
+          ? boundaryRunStatus === "completed"
+            ? // A row reused after an earlier failed attempt (linked-workflow resume) must drop that
+              // attempt's stale cause; clear rather than stamp `complete`, so a later workflow-level
+              // `run_execution_failed` on this completed row still surfaces as harness_failure.
+              { terminalCause: null, terminalFailureDetail: null }
+            : completionBoundarySettlementFields(terminal.kind, detail)
           : {}),
       });
       args.logSink?.append(runId, {

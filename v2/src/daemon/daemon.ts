@@ -697,12 +697,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const workflowStart = createWorkflowStartAdmission(ctx);
   const {
     handleWorkflowStart,
+    resumeLinkedWorkflowStart,
     admitWorkflowStart,
     check_workflow_start_claim: checkWorkflowStartClaimHandler,
   } = workflowStart;
 
   const lifecycle = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart,
+    resumeLinkedWorkflowStart,
     ...(deps.pipelineDispatch !== undefined ? { pipelineDispatch: deps.pipelineDispatch } : {}),
     ...(deps.pipelineWait !== undefined ? { pipelineWait: deps.pipelineWait } : {}),
   });

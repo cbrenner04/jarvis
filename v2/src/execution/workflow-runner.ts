@@ -527,6 +527,13 @@ export type WorkflowRunnerInput = {
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
   /** When set, suppresses reuse of completed runs from prior invocations, forcing new run rows. */
   freshDispatch?: boolean;
+  /**
+   * A durably persisted snapshot to reuse verbatim instead of resolving one from `steps`. Lets a
+   * resumed linked-implement invocation keep its original `invocationId`/`reviewPasses`/
+   * `reviewBehavior` even though no bare (non-link-suffixed) row exists yet for `buildWorkflowSnapshot`
+   * to match against.
+   */
+  workflowSnapshot?: WorkflowSnapshot;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -1053,7 +1060,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
     if (args.steps.some(needsChainedSpecMaterialization)) await materializeChainedImplementSpecs(args.steps);
-    const workflowSnapshot = buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
+    const workflowSnapshot = args.workflowSnapshot ?? buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
     const reviewPassCommitDeps = buildReviewPassCommitDeps(args, workflowSnapshot);
     // The last write-behavior step in the workflow: when nothing durable follows it, its resolved
     // completion row (its hidden `~shrink` row when one exists, else its own row, or its terminal

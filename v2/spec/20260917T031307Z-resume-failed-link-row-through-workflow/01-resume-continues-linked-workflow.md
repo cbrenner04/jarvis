@@ -15,11 +15,11 @@
 
 ## Acceptance criteria
 
-- [ ] A daemon resume test proves `run resume` on a `failed` `gate_invocation_refused` `implement~link-0` row continues through linked finalization, `implement~shrink`, and `implement-review`, with publication exactly once at the workflow tail; it fails against the pre-fix bare write-loop resume.
-- [ ] A test proves the resumed invocation's roll-up reads `completed` (not `killed`) and `deriveOperatorIncidents` derives a `run-ad-hoc-terminal` incident with `cause: "completed"` for it; it fails against the pre-fix code.
-- [ ] `v2/docs/operator-runbook.md` states `gate_invocation_refused` recovery via `run resume` continues through the linked workflow and names the refusal (reason plus recovery) for unreconstructable link rows.
-- [ ] A test proves resuming the last link row runs `implement~shrink` and `implement-review` and publishes once, and that no resumed link row publishes on its own.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A daemon resume test proves `run resume` on a `failed` `gate_invocation_refused` `implement~link-0` row continues through linked finalization, `implement~shrink`, and `implement-review`, with publication exactly once at the workflow tail; it fails against the pre-fix bare write-loop resume.
+- [x] A test proves the resumed invocation's roll-up reads `completed` (not `killed`) and `deriveOperatorIncidents` derives a `run-ad-hoc-terminal` incident with `cause: "completed"` for it; it fails against the pre-fix code.
+- [x] `v2/docs/operator-runbook.md` states `gate_invocation_refused` recovery via `run resume` continues through the linked workflow and names the refusal (reason plus recovery) for unreconstructable link rows.
+- [x] A test proves resuming the last link row runs `implement~shrink` and `implement-review` and publishes once, and that no resumed link row publishes on its own.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import {
   findSnapshotStepForRunStepId,
   isHiddenShrinkStepId,
@@ -15,8 +14,8 @@ import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import {
   type IntentFinalizationResumeDeps,
+  reconstructLinkedWorkflowResumeSteps,
   reconstructPausedWriteResumeInput,
-  resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
@@ -28,7 +27,6 @@ import {
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import type { RpcHandler } from "../ipc/server.ts";
-import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
   type LogSink,
@@ -101,6 +99,7 @@ type LifecycleStartResult =
 
 type RunLifecycleHandlerDeps = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => LifecycleStartResult;
+  resumeLinkedWorkflowStart?: (steps: AnyWorkflowStep[], workflowSnapshot: WorkflowSnapshot) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
 };
@@ -1173,6 +1172,38 @@ export function createRunLifecycleHandlers(
     };
   };
 
+  /**
+   * A resumable `<step>~link-N` row (paused, or a resumable terminal status like `failed`
+   * `gate_invocation_refused`) re-enters `executeWorkflow`'s linked/shrink/review/publication
+   * sequencing instead of the bare write loop, which only ever finishes this one row and
+   * self-publishes. Returns `undefined` for a non-linked row so the caller falls through to the
+   * existing paused/bare-resume branches.
+   */
+  const resumeLinkedWorkflowRow = (run: LoadedRun): LifecycleStartResult | undefined => {
+    if (!deps.resumeLinkedWorkflowStart) return undefined;
+    const snapshot = run.workflowSnapshot;
+    const stepId = run.stepId;
+    const snapshotStep = snapshot && stepId ? findSnapshotStepForRunStepId(snapshot.steps, stepId) : undefined;
+    if (
+      !snapshot ||
+      snapshotStep === undefined ||
+      snapshotStep.behavior === "review" ||
+      snapshotStep.behavior === "review-debate" ||
+      !matchesLinkedSiblingStepId(stepId, snapshotStep.stepId)
+    ) {
+      return undefined;
+    }
+    const reconstructedSteps = reconstructLinkedWorkflowResumeSteps(run);
+    if (!reconstructedSteps.ok) {
+      return {
+        kind: "error",
+        code: "resume_unsupported",
+        message: `${reconstructedSteps.message} — ${RUN_OPERATOR_ERROR_RECOVERY.unsupported_resume_context}`,
+      };
+    }
+    return deps.resumeLinkedWorkflowStart(reconstructedSteps.steps, snapshot);
+  };
+
   const resumeHandler: RpcHandler = async (frame) => {
     if (ctx.retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
@@ -1204,6 +1235,9 @@ export function createRunLifecycleHandlers(
 
     const exhausted = runTimeoutRefusal(run);
     if (exhausted) return exhausted;
+
+    const linkedResume = resumeLinkedWorkflowRow(run);
+    if (linkedResume !== undefined) return linkedResume;
 
     if (run.status === "paused") {
       const key: OwnershipKey = { project: run.project, branch: run.branch };

@@ -134,12 +134,17 @@ export function assertDaemonWorkflowStartAdmissionRouting(sources: readonly stri
   expect(admitDefinition).toContain("activeRuns.set(");
 
   const callSites = collectAdmitWorkflowStartCallSites(sources);
-  expect(callSites).toHaveLength(2);
-  const workflowAdmission = callSites.find((site) => site.includes("workflow: true"));
-  const recoveryAdmission = callSites.find((site) => !site.includes("workflow: true"));
-  expect(workflowAdmission).toBeDefined();
-  expect(workflowAdmission).toContain('kind: "workflow"');
-  expect(workflowAdmission).toContain("admitWorkflowStart({");
+  // Workflow admissions: fresh start, plus linked-workflow resume (a real module's source only).
+  const workflowAdmissions = callSites.filter((site) => site.includes("workflow: true"));
+  const recoveryAdmissions = callSites.filter((site) => !site.includes("workflow: true"));
+  expect(workflowAdmissions.length).toBeGreaterThanOrEqual(1);
+  expect(workflowAdmissions.length).toBeLessThanOrEqual(2);
+  for (const workflowAdmission of workflowAdmissions) {
+    expect(workflowAdmission).toContain('kind: "workflow"');
+    expect(workflowAdmission).toContain("admitWorkflowStart({");
+  }
+  expect(recoveryAdmissions).toHaveLength(1);
+  const recoveryAdmission = recoveryAdmissions[0];
   expect(recoveryAdmission).toBeDefined();
   expect(recoveryAdmission).toContain("admitWorkflowStart({");
   expect(recoveryAdmission).not.toContain("_registry.claim(");

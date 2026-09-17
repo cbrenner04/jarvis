@@ -235,6 +235,102 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
     rmSync(worktreePath, { recursive: true, force: true });
   });
 
+  test("carries fixCommand/readyCommand from the review snapshot step into the rebuilt review step", async () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-fix-ready-"));
+    writeTwoLinkIndexFixture(worktreePath);
+
+    await withStateStore(async (store) => {
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath,
+        branch: "linked-resume/fix-ready",
+        specPath: "index.md",
+        stepId: "implement~link-0",
+        workflowSnapshot: {
+          invocationId: "linked-resume-fix-ready",
+          steps: [
+            {
+              stepId: "implement",
+              role: "implement",
+              stepRules: "implement rules",
+              expectedArtifactPath: "index.md",
+              agents: ["claude"],
+              agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+            },
+            {
+              stepId: "implement-review",
+              role: "",
+              behavior: "review",
+              fixCommand: "make fix",
+              readyCommand: "make ready",
+            },
+          ],
+          reviewPasses: 1,
+          reviewBehavior: "light",
+        },
+      });
+      store.setRunStatus(runId, "paused");
+
+      const run = store.loadRun(runId);
+      if (!run) throw new Error("expected paused linked run");
+      const reconstructed = reconstructLinkedWorkflowResumeSteps(run);
+      expect(reconstructed.ok).toBe(true);
+      if (!reconstructed.ok) return;
+      const reviewStep = reconstructed.steps[1];
+      if (reviewStep?.behavior !== "review") throw new Error("expected review step");
+      expect(reviewStep.fixCommand).toBe("make fix");
+      expect(reviewStep.readyCommand).toBe("make ready");
+    });
+
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
+  test("omits fixCommand/readyCommand from the rebuilt review step when the review snapshot step has none", async () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-no-fix-ready-"));
+    writeTwoLinkIndexFixture(worktreePath);
+
+    await withStateStore(async (store) => {
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath,
+        branch: "linked-resume/no-fix-ready",
+        specPath: "index.md",
+        stepId: "implement~link-0",
+        workflowSnapshot: {
+          invocationId: "linked-resume-no-fix-ready",
+          steps: [
+            {
+              stepId: "implement",
+              role: "implement",
+              stepRules: "implement rules",
+              expectedArtifactPath: "index.md",
+              agents: ["claude"],
+              agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+            },
+            { stepId: "implement-review", role: "", behavior: "review" },
+          ],
+          reviewPasses: 1,
+          reviewBehavior: "light",
+        },
+      });
+      store.setRunStatus(runId, "paused");
+
+      const run = store.loadRun(runId);
+      if (!run) throw new Error("expected paused linked run");
+      const reconstructed = reconstructLinkedWorkflowResumeSteps(run);
+      expect(reconstructed.ok).toBe(true);
+      if (!reconstructed.ok) return;
+      const reviewStep = reconstructed.steps[1];
+      if (reviewStep?.behavior !== "review") throw new Error("expected review step");
+      expect(reviewStep).not.toHaveProperty("fixCommand");
+      expect(reviewStep).not.toHaveProperty("readyCommand");
+    });
+
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
   test("omits the review step when the workflow has no review/review-debate step in its snapshot", async () => {
     const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-no-review-"));
     writeTwoLinkIndexFixture(worktreePath);

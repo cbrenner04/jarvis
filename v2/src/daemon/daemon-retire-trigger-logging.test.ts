@@ -125,6 +125,17 @@ async function beginChangeover(handlers: Record<string, RpcHandler>): Promise<st
   return handoffId;
 }
 
+test("formatHandoffSettlementLogLine includes resolution only when the caller passes one", () => {
+  // Hardcoded expected strings, not built via the function under test: comparing against a
+  // self-produced expectation would pass even if the `resolution === undefined` guard inverted.
+  expect(formatHandoffSettlementLogLine("handoff_commit")).toBe(
+    `JARVIS_DAEMON_RETIRE_TRIGGER:${JSON.stringify({ trigger: "handoff_commit" })}`,
+  );
+  expect(formatHandoffSettlementLogLine("handoff_fallback", "commit")).toBe(
+    `JARVIS_DAEMON_RETIRE_TRIGGER:${JSON.stringify({ trigger: "handoff_fallback", resolution: "commit" })}`,
+  );
+});
+
 test("handoff_commit logs the retire-trigger line naming handoff_commit before committing", async () => {
   const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const privateSocketPath = join(tmpdir(), `jarvis-retire-trigger-private-${unique}.sock`);

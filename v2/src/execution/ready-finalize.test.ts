@@ -1006,7 +1006,24 @@ describe("base-ref probe conclusive reproduction", () => {
       },
     });
     expect(classified.kind).toBe("ready_gate_failed");
-    expect(classified.baseRefProbeError).toContain("timed out");
+    // Empty stdout/stderr: no trailing ": " separator should be appended for an empty tail.
+    expect(classified.baseRefProbeError).toBe("base-ref probe timed out");
+  });
+
+  it("appends the probe output's tail to the no-failing-test-evidence reason when output is present", async () => {
+    const classified = await classifyWithBaseRefProbeRunner({
+      async runAsync(cmd, args) {
+        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "rev-parse") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "worktree") return "";
+        if (cmd === "bun") {
+          throw new AsyncSubprocessError("Command failed", 1, "crash-marker-output", "", undefined);
+        }
+        return "";
+      },
+    });
+    expect(classified.kind).toBe("ready_gate_failed");
+    expect(classified.baseRefProbeError).toBe("base-ref probe produced no failing-test evidence: crash-marker-output");
   });
 
   it("treats a probe tree that failed to verify against the merge-base as inconclusive", async () => {

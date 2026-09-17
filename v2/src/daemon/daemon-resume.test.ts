@@ -1400,7 +1400,7 @@ test.each(
   const run = stateStore.loadRun(runId);
   expect(run).toBeDefined();
   if (!run) return;
-  const terminalRecord = logReader.tail(runId)[0] as TerminalLogRecord;
+  const _terminalRecord = logReader.tail(runId)[0] as TerminalLogRecord;
   const admitted = await listResumable(localHandlers, runId);
 
   const waitRow = await waitResumable(localHandlers, runId);
@@ -1544,7 +1544,7 @@ test("wait and list resumable agrees for non-entry workflow step row", async () 
   const run = stateStore.loadRun(step2RunId);
   expect(run).toBeDefined();
   if (!run) return;
-  const terminalRecord = logReader.tail(step2RunId)[0] as TerminalLogRecord;
+  const _terminalRecord = logReader.tail(step2RunId)[0] as TerminalLogRecord;
   const admitted = await listResumable(localHandlers, step2RunId);
   expect(await waitResumable(localHandlers, step2RunId)).toBe(admitted);
   expect(await listResumable(localHandlers, step2RunId)).toBe(admitted);

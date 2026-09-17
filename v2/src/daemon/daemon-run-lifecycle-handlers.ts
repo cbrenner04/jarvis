@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import {
   findSnapshotStepForRunStepId,
   isHiddenShrinkStepId,
@@ -17,7 +16,6 @@ import {
   type IntentFinalizationResumeDeps,
   reconstructLinkedWorkflowResumeSteps,
   reconstructPausedWriteResumeInput,
-  resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
@@ -29,7 +27,6 @@ import {
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import type { RpcHandler } from "../ipc/server.ts";
-import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
   type LogSink,

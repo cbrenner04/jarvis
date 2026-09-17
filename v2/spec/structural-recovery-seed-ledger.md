@@ -604,3 +604,19 @@ Specs archived 2026-09-15 ([#3923](https://github.com/cbrenner04/jarvis/pull/392
 Closed at session start: #3595, #3464 (daemon-identity chain); PRs #3929, #3930, #3932 superseded by #3931/#3933.
 
 **Mutation verification measured, kept as is (operator decision 2026-09-16).** 17 days of in-loop reprompting: 137 reprompts over 48 of 536 implement rows, ~6% of implement agent time and ~4% of cost; ~70–75% of sampled reprompts produced a real killing test; 27 mutation-caused terminal failures and ~50 maintenance commits over six weeks. Operator kept reprompt uncapped (a cap raises failure rate), terminal mutation failures stay blocking (a known gap would be hand-finished in review anyway), and no verification timing events. Do not reopen without new data.
+
+## 2026-09-17 session
+
+| Seed / lane | Plan | Impl | Status |
+| --- | --- | --- | --- |
+| `resume-failed-link-row-through-workflow` | split spec | #3977, #3982 | **landed**; hand-fixed stale terminal cause; #3974 ask 1 |
+| `run-admission-stamps-its-owner` | persistence + daemon | #3981, #3987 | **landed**; audit caught restart-recovery regression; review caught post-admission stranding |
+| `intent-landing-accepts-no-prerequisites` | — | #3979, #3988 | **landed**; #3988 hand-finished after quota |
+| `artifact-count-exempts-references-and-rules-out-clauses` | — | #3984 | landed unattended |
+| `out-of-scope-probe-blames-main-for-the-lane-s-own-regression` | — | #3990, #3995 | **landed**; root cause: probe worktree lacked `node_modules`; #3995 fixed pass count always 0 |
+| `daemon-retire-trigger-logging` | — | #3994 | landed |
+| `daemon-survives-committed-successor-death` | intents on main | — | seeded #3989 (outage 05:48–06:24 CDT); next |
+| `workflow-terminal-incident-fires-once` | #4000 | — | implement failed on quota before starting |
+| `mutation-verifier-skips-test-support-files` | #4001 | — | seeded #3996; implement failed on quota |
+| `implement-continues-committed-lane` | #4002 | — | from #3974; operator amended to rebase a moved base |
+| `ready-gate-repair-out-of-diff-edits` | — | — | 3 recurrences; queued |

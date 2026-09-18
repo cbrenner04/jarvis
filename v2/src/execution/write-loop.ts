@@ -4364,7 +4364,7 @@ function completionCommitFailed(
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const retarget = publicationBaseRetarget(source);
   const completionCommitErrorMessage = error?.message ?? "completion commit failed";
-  const resumable = !(source !== undefined && !(source instanceof Error) && source.resumable === false);
+  const resumable = source instanceof Error || source?.resumable !== false;
   store.commitTerminalRunSettlement({
     runId: result.runId,
     status: resumable ? "completed" : "failed",

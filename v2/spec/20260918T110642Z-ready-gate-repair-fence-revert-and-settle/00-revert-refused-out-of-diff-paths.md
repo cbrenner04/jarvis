@@ -13,9 +13,9 @@ When `validateReadyGateRepairCompletion` (`v2/src/execution/write-loop.ts`) refu
 
 ## Acceptance criteria
 
-- [ ] A new `write-loop` test drives a repair pass that modifies a tracked path and creates an untracked path outside run diff and spec tree; afterward `git status --porcelain` is empty for both (tracked restored to pre-repair content, new file deleted) and the failure detail names both paths and states they were reverted; it fails against the pre-fix leave-dirty behavior (real git worktree; fence not stubbed).
-- [ ] Existing in-diff repair commit tests in `v2/src/execution/write-loop.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A new `write-loop` test drives a repair pass that modifies a tracked path and creates an untracked path outside run diff and spec tree; afterward `git status --porcelain` is empty for both (tracked restored to pre-repair content, new file deleted) and the failure detail names both paths and states they were reverted; it fails against the pre-fix leave-dirty behavior (real git worktree; fence not stubbed).
+- [x] Existing in-diff repair commit tests in `v2/src/execution/write-loop.test.ts` stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

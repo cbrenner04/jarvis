@@ -949,6 +949,50 @@ test("resume rejects unchanged-path ready_gate_out_of_scope finalization retry",
   }
 });
 
+test("resume rejects a non-resumable completion_commit_failed row", async () => {
+  const runId = createWorkflowRun({ invocationId: "completion-commit-failed-non-resumable" });
+  const doneAttemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId: doneAttemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    completionAgent: "codex",
+  });
+  stateStore.setRunStatus(runId, "failed");
+  const logsPath = join(tmpdir(), `jarvis-admission-ccf-${process.pid}-${Date.now()}.jsonl`);
+  const seedSink = openLogSink(logsPath);
+  seedSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: false,
+    completionCommitError:
+      "Ready-gate repair stages path outside run diff and spec tree: v2/src/untouched.test.ts; refused paths reverted",
+  });
+  seedSink.close();
+  try {
+    const localHandlers = logBackedHandlers(logsPath, {
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 4, prUrl: "https://example.test/pr/4" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+    const run = stateStore.loadRun(runId);
+    expect(run).toBeDefined();
+    if (!run) return;
+    const terminalRecord = openLogReader(logsPath).tail(runId).at(-1) as TerminalLogRecord;
+    expect(composeRunOperatorError(run, terminalRecord)?.nextAction).toBe("stop");
+
+    const response = await resumeDirect(localHandlers, runId);
+    expect(response.kind).toBe("error");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+    expect(starts).toHaveLength(0);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
 test("changed-path ready_gate_out_of_scope admits resume", async () => {
   const outsidePath = "v2/src/other-untouched.test.ts";
   const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath]);

@@ -9,7 +9,7 @@ import { reconstructPausedWriteResumeInput } from "./workflow-runner-resume.ts";
 
 describe("reconstructPausedWriteResumeInput", () => {
   test("a resumed run keeps the pre-rebase SHA recorded on its snapshot write step", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "paused-linked-lease-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "paused-linked-lease-"));
     writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n", "utf8");
     writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
 

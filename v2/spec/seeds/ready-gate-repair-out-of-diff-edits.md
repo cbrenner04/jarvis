@@ -19,7 +19,7 @@ Recurred 2026-09-16 on #3951 with a worse shape: the only red step was `guard-de
 - The refusal detail (already naming the paths) also states that the edits were reverted, so the operator knows the gate saw a suite-wide problem worth an operator decision (e.g. a `LOAD_SENSITIVE_FILES` lane join) without archaeology in the worktree.
 - Whether the repair loop should be allowed to *propose* such edits (e.g. as a report artifact rather than working-tree changes) is a possible follow-on decided at intent time, not assumed here.
 - **Fence policy decided 2026-09-05 (operator): the fence stays absolute — no production bypass, no repair-authored out-of-diff landings.** #3040's dead-end (a repair whose only valid fix is out-of-diff can never succeed, yet the run advertises retryable) is resolved by honest settlement, not wider write authority: the refusal settles the run **non-resumable** with an incident naming the refused paths and what the repair wanted, and the out-of-diff fix becomes an operator decision. Rules out the retryable-forever wedge and rules out repair silently editing shared test infrastructure.
-- Sequencing: this seed lands first (revert-on-refusal + honest settlement — the live operator pain), then [[remove-ready-gate-repair-fence-bypass-from-production]] (same enforcement code in `write-loop.ts`/`workflow-runner.ts`; one chain, not two racing runs).
+- Also: repair is not steered at the failing step's output (#3951 fixed 36 files for warnings while the one red step went untouched); the repair prompt names the failing gate step and its output, not the whole gate log.
 
 ## Acceptance criteria
 

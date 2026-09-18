@@ -16,7 +16,7 @@ Files named `*.sandbox-unrunnable.test.ts` (`scripts/test-slice.ts:4`) need real
 
 - The write step gives the agent a supported way to run named integration-slice test files outside its sandbox — a harness-executed command whose output returns to the agent — rather than asking the agent to escape its sandbox. Rules out disabling the agent sandbox.
 - The implement prompt names that command when the active subspec references a `*.sandbox-unrunnable.test.ts` path.
-- A criterion that requires running such a file and was ticked without a recorded harness execution of it is treated as unverified (not ticked) at the completion boundary. Rules out ticks the agent could not have earned.
+- Scope is criteria that require a *measurement* of such a file (timing, count), which `prompts/implement/rules.md` (#3867) does not cover: that rule lets the agent tick a criterion naming only harness-run suites once in-sandbox checks pass, which is right for pass/fail and wrong for a number the agent never observed. A measurement criterion ticked without a recorded harness execution is unverified at the completion boundary. Rules out ticks the agent could not have earned without contradicting #3867.
 - Scope is claude first (the only rung with the observed sandbox); other adapters follow [[agent-confinement-is-per-vendor-and-unexpressed]].
 
 ## Acceptance criteria

@@ -52,24 +52,24 @@ That matters for two reasons. First, an operator following the runbook's "run th
 
 **The seam already exists**: `LOAD_SENSITIVE_FILES` in `scripts/test-slice.ts:14`, with `isLoadSensitive` forcing no co-runners, and each entry carrying dated loaded-red / idle-green evidence. None of the five files above are listed. The file's own trailing comment anticipates exactly this ("Isolate a specific split file here … if one proves load-sensitive"), so adding entries is the sanctioned move — but a rotating set argues for bounding concurrency for wall-clock-bounded assertions as a class rather than enumerating files one incident at a time.
 
+## Status (2026-09-18)
+
+The probe half landed: `probeOutsidePathsAtBaseRef` (`ready-finalize.ts`) re-runs each failing path alone in a fresh merge-base worktree and exonerates only on a conclusive base failure (#3990, #3995); an isolation-pass path is now in-scope and resumable. What remains is the scheduling half below. `MAX_CONCURRENT_VERIFIER_TEST_RUNS` is now at `diff-derived-mutation-verifier.ts:171`; neither named file is in `LOAD_SENSITIVE_FILES` and both 5 s waits are unchanged.
+
 ## Decisions
 
 - Files whose assertions are wall-clock-bounded and files that spawn test subprocesses are not co-scheduled by the test runner; the isolation set is declared rather than discovered per-incident (`LOAD_SENSITIVE_FILES` in `scripts/test-slice.ts:14` is the existing seam); rules out a pairing that fails deterministically in ordinary scoped runs.
 - Because the failing set rotates between runs, the fix bounds concurrency for the wall-clock-bounded class rather than enumerating files as each one is observed; rules out per-incident whack-a-mole that leaves `main` red on the local aggregate between discoveries.
 - Better, where cheap: the two `workflow.test.ts` waits stop being wall-clock-bounded — they await the durable boundary rather than a 5 s deadline; rules out treating scheduling as the only lever for a test that could be deterministic.
-- The base-ref reproduction probe runs each failing path in the **same isolation** it will be judged in, and a path that passes in isolation on both base and branch is not classified out-of-scope; rules out a probe whose evidence is gathered under the condition that caused the failure.
-- An `out_of_scope` settlement whose outside-path set consists entirely of paths that pass in isolation is not terminal; rules out `nextAction: stop` on a lane with no defect (same honesty rule as [[terminal-state-honesty-invariant]]).
 
 ## Acceptance criteria
 
 - [ ] A test-slice test proves `v2/src/commands/workflow.test.ts` and `v2/src/execution/diff-derived-mutation-verifier.test.ts` are never scheduled in the same concurrent batch; it fails against the current roster.
 - [ ] Running the union of both files' resolved slice is green ten consecutive times on an idle machine; it fails against the current pairing.
-- [ ] A test proves the base-ref reproduction probe evaluates a failing path in isolation, and that a path passing in isolation on both base and branch is not reported in `readyGateOutsidePaths`; it fails against the current shared-scope probe.
-- [ ] A test proves an out-of-scope settlement whose outside paths all pass in isolation projects `resumable: true` / a recovery `nextAction`, not `stop`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/operator-runbook.md` — distinguish this deterministic co-scheduling shape from the ambient-load one already documented; record that isolation, not machine quiet, is the discriminator.
 - `v2/docs/test-writing.md` — the isolation set and why wall-clock-bounded assertions cannot share with subprocess-spawning suites.
-- `v2/docs/v1-behaviors.md` — record isolation-aware base-ref probing.
+- `v2/docs/v1-behaviors.md` — record the declared isolation class.

@@ -12,6 +12,10 @@ The sharpest case: **`--base` naming the same branch being retired.** Retirement
 
 Observed 2026-08-16: operator re-ran `jarvis run workflow implement --base 20260816T205749Z-v2-init-command --spec …/index.md` with `--base` == the implement branch (intending to continue committed-but-unmerged subspecs 00/01/02 without merging). Retirement removed the worktree, deleted the local branch, reported the remote already absent, then `git branch <branch> <branch>` failed. The branch tip (`1e393482`, a hand-committed WIP over the completed subspecs) survived only in the object store and was recovered by hand via `git branch <name> <dangling-sha>` after `git fsck`.
 
+## Status (2026-09-18)
+
+The motivating use (continue committed-but-unmerged subspecs) is now served by `--base main` continuation (#4014). The destroy-then-fail ordering and the `--base <own-branch>` collision remain: `--base <impl-branch>` reads as zero commits ahead, retires, then fails `git branch X X`. Plan-side base validation exists (`validateExplicitPlanBase`, #3948) and is the pattern to extend to implement.
+
 ## Decisions
 
 - Validate that rematerialization can succeed **before** destroying anything: `--base` must resolve to a real commit, and that commit must not be the branch about to be deleted. On any validation failure, refuse with a clear message and leave the worktree, local branch, remote branch, and PR intact. Rules out today's destroy-then-fail ordering.

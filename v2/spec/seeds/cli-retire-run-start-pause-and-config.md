@@ -8,6 +8,10 @@ name: cli-retire-run-start-pause-and-config
 
 With all real work on workflows/pipelines, the ad-hoc write-loop lane is vestigial but structurally load-bearing (2026-08-29 CLI inventory): `run start` is the only producer of `activeRuns` rows with `kind: "write-loop"` + `pauseController` (`daemon.ts:1113-1114`) and of `queuedInput`-backed resume (`daemon.ts:614`); `run pause` only acts on those rows, has one runbook mention, and its resume side is advertised unsupported (`run-operator-error.ts:306`) while `daemon.ts:614` implements it — a live code/message contradiction. `config` has no internal caller and is superseded by `init` for bootstrap; `install-and-config.md:22` uses `config path` as the smoke check. `run dismiss/undismiss` and `pipeline dismiss/undismiss` are near-identical implementations landed a day apart (`run.ts:359-422` vs `pipeline.ts:595-622`).
 
+## Open decision (2026-09-18)
+
+Two later landings invest in `run pause`: #3853 emits a `run-paused` incident on every paused row, and [[tui-dock-command-grammar-mirrors-cli]] aligns the dock to `run pause`. Decide whether `pause` stays before planning; if it stays, drop the first cut and keep the `run start` / `config` / dismiss-dedupe cuts.
+
 ## Decisions
 
 - Sequence: delete `run pause` (+ TUI `pause` verb + `pauseController` plumbing in `daemon.ts`/`write-loop.ts`), then `run start` (+ `queuedInput`, `reconstructDirectWriteResume`, `kind: "write-loop"` rows, `parseWriteCliInput`, help-parity entries), then `config` (fold `set-agents` into `init` or document hand-edit; re-point the install smoke check at `jarvis help`). Rules out deleting `run start` first and stranding pause plumbing.

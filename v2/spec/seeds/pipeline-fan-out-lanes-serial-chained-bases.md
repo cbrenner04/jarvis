@@ -25,6 +25,6 @@ Fan-out lanes dispatch concurrently and independently: every lane's plan bases o
 
 ## Documentation updates
 
-- `v2/docs/daemon-host.md` — branch fan-out execution: serial default, chaining, `independent` marker.
+- `v2/docs/pipeline-execution.md` — branch fan-out execution: serial default, chaining, `independent` marker. Interacts with the open spec `stage-success-reopens-skipped-successors` (skip provenance); the predecessor-failure skip here is terminal, not provisional.
 - `v2/docs/spec-guidance.md` — ready-intent frontmatter `independent`.
 - `v2/docs/first-workflow-walkthrough.md`, `v2/docs/operator-runbook.md` — fan-out expectations; `v2/docs/v1-behaviors.md` — record.

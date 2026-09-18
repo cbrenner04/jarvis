@@ -6,7 +6,7 @@ name: gate-allowset-derivation-fails-on-external-spec-home
 
 ## Problem
 
-On a `plan.commit: false` project the spec tree lives outside the repo (`~/.jarvis/specs/<project>/plans/<name>/`). `deriveGateAllowedPaths` enumerates the spec tree and rejects every path in it, returns `undefined`, and the run settles `completion_commit_failed: "Ready-gate repair fence could not derive allowed paths"` — **after** the branch is pushed and the draft PR is open, with all subspec work complete and the gate green. The lane cannot finish itself: the PR stays draft and the plan tree is never ticked (#3423).
+On an external-spec-home project (`specs: "external"`, the default; the seed predates the key and said `plan.commit: false`) the spec tree lives outside the repo (`~/.jarvis/specs/<project>/plans/<name>/`). `deriveGateAllowedPaths` enumerates the spec tree and rejects every path in it, returns `undefined`, and the run settles `completion_commit_failed: "Ready-gate repair fence could not derive allowed paths"` — **after** the branch is pushed and the draft PR is open, with all subspec work complete and the gate green. The lane cannot finish itself: the PR stays draft and the plan tree is never ticked (#3423).
 
 The near-miss is the whole bug. `resolveSpecScopeRoot` (`v2/src/execution/ready-finalize.ts:634`) *succeeds* on an external absolute `specPath`:
 
@@ -51,7 +51,7 @@ The reporter counts this as the fourth distinct way an implement lane failed to 
 
 ## Acceptance criteria
 
-- [ ] A `ready-finalize` test proves `deriveGateAllowedPaths` returns a non-empty allowset for a worktree whose `specPath` is an absolute directory outside that worktree (the `plan.commit: false` shape); it fails against the current `..`-rejection returning `undefined`.
+- [ ] A `ready-finalize` test proves `deriveGateAllowedPaths` returns a non-empty allowset for a worktree whose `specPath` is an absolute directory outside that worktree (the external spec-home shape); it fails against the current `..`-rejection returning `undefined`.
 - [ ] A `ready-finalize` test proves `deriveGateAllowedPaths` derives an allowset (not `undefined`) when the resolved scope root exists and contains no Markdown files — the `implement-review` empty-verdict-scope shape; it fails against the current `files.length === 0` → `null`.
 - [ ] A write-loop test proves an `implement-review` completion whose review scope is empty reaches its flip-to-ready instead of settling `completion_commit_failed`, and that `jarvis run resume` on such a row is not a fixed point.
 - [ ] A test proves the out-of-worktree spec-home path is taken when the external directory **exists**, not only when it is absent; it fails while `resolveSpecScopeRoot` returning a real directory bypasses the fallback.

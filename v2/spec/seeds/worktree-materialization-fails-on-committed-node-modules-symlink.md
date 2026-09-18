@@ -27,6 +27,8 @@ Issue #4003. Every re-run off base `TESTENG_144_Baseline_and_Diagnostics` reprod
 
 Base-poisoning, so the blast radius is every lane on the branch, not one run.
 
+**Half landed (2026-09-18 audit):** `completionStageArgs` (`completion-commit.ts`, #3022) already excludes the materialized symlink from the completion commit and the repair-staging preview. Not confirmed for iteration/checkpoint commits; the third criterion below is what remains of that half.
+
 ## Decisions
 
 - Materialization is idempotent at the link path: an existing correct symlink is accepted, a wrong-target symlink is replaced, and only a non-symlink entry is an error; rules out `EEXIST` from re-materializing over a tree that already carries the entry.
@@ -37,7 +39,7 @@ Base-poisoning, so the blast radius is every lane on the branch, not one run.
 
 - [ ] An `external-worktree` test proves materialization succeeds when the checked-out base tree already contains a `node_modules` symlink pointing at the project's `node_modules`; it fails against the current unconditional `symlinkSync` with `EEXIST`.
 - [ ] A test proves a `node_modules` symlink pointing somewhere else is replaced with the correct target, and a `node_modules` entry that is a regular file or real directory fails with a message naming the link path and its type.
-- [ ] A write-loop (or landing) test proves a boundary commit over a worktree carrying the materialized `node_modules` symlink stages no `node_modules` path, with an ignore file whose only rule is `node_modules/`; it fails against the current `git add -A` behavior.
+- [ ] A write-loop test proves an iteration/checkpoint commit over a worktree carrying the materialized `node_modules` symlink stages no `node_modules` path, with an ignore file whose only rule is `node_modules/`; it fails against the current `git add -A` behavior.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

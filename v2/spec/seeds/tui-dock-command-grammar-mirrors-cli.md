@@ -14,6 +14,7 @@ The friction is worst where the dock name is unguessable from the CLI: `start` (
 
 - Align dock verbs to the CLI subcommand path minus the `jarvis` prefix: `pipeline start`, `pipeline approve`, `pipeline reject`, `pipeline resume`, `run kill`, `run pause`, `run resume`, `run log`. Rules out the divergent bespoke names.
 - Selection-scoped shorthand still matters in the TUI (act on the highlighted row without retyping an id), so decide how the CLI grammar and selection coexist — e.g. accept the full CLI form with explicit id args *and* an id-omitted form that targets the current selection. This is the core design question for the intent/plan step; do not pre-decide the exact arg-optionality rules here.
+- `run pause` is under an open retirement decision ([[cli-retire-run-start-pause-and-config]]); align it only if it survives.
 - `expand`/`collapse` have no CLI analogue (they are pure view state); keep them as-is or namespace them (`view expand`?) — a smaller sub-decision, not the crux.
 - Preserve every current safety property: at-most-one in-flight admission, parse-error/selection-error feedback on `lastCommandResult`, and buffer retention on failure. Grammar realignment is a parser/verb-naming change, not a steering-semantics change.
 - Keep old verb names as accepted aliases for at least one iteration, or hard-cut — an explicit decision for the plan (single-operator repo, so churn tolerance is high but muscle memory is real).

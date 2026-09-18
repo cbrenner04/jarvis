@@ -124,12 +124,19 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
     rehydrated.delete(runId);
     if (slotRedriveCount === undefined || redrive === undefined) return "dropped";
     log(runId, { kind: "slot_redrive", slotRedriveCount, bound: MAX_SLOT_REDRIVES });
-    const result = await redrive(runId);
-    if (result.kind === "error") {
-      log(runId, { kind: "slot_redrive_refused", code: result.code, slotRedriveCount });
-      return "dropped";
+    let refusedCode: string | undefined;
+    try {
+      const result = await redrive(runId);
+      if (result.kind === "error") refusedCode = result.code;
+    } catch {
+      refusedCode = "exception";
     }
-    return "dispatched";
+    if (refusedCode === undefined) return "dispatched";
+    log(runId, { kind: "slot_redrive_refused", code: refusedCode, slotRedriveCount });
+    if (slotRedriveCount >= MAX_SLOT_REDRIVES) {
+      log(runId, { kind: "slot_redrive_exhausted", slotRedriveCount, bound: MAX_SLOT_REDRIVES });
+    }
+    return "dropped";
   };
 
   /** Waiting rows still eligible, oldest first; entries whose row moved on are dropped. */

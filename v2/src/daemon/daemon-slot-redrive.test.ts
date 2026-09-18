@@ -178,7 +178,11 @@ type ResumeCall = { runId: string };
 
 /** Coordinator over the shared store with a recording resume that leaves the row untouched. */
 function recordingCoordinator(
-  options: { resumeResult?: { kind: "error"; code: string; message: string }; predecessorOwns?: boolean } = {},
+  options: {
+    resumeResult?: { kind: "error"; code: string; message: string };
+    resumeThrows?: boolean;
+    predecessorOwns?: boolean;
+  } = {},
 ) {
   const calls: ResumeCall[] = [];
   const coordinator = createSlotRedriveCoordinator({
@@ -189,6 +193,7 @@ function recordingCoordinator(
   });
   coordinator.bindResume((runId) => {
     calls.push({ runId });
+    if (options.resumeThrows === true) throw new Error("resume blew up");
     return options.resumeResult ?? { kind: "response", result: { ok: true } };
   });
   return { coordinator, calls };
@@ -359,6 +364,51 @@ test("an admission rejection is logged as slot_redrive_refused, consumes the cou
   });
   coordinator.stop();
 });
+
+test("a thrown resume is logged as slot_redrive_refused with an exception code, consumes the count, drops the entry, and leaves the row resumable", async () => {
+  const runId = seedRefusedRun("resume-throws");
+  const holder = holdGate();
+  const { coordinator, calls } = recordingCoordinator({ resumeThrows: true });
+  coordinator.enqueue(runId);
+  holder.release();
+  await tick();
+  const again = holdGate();
+  again.release();
+  await tick();
+
+  expect(calls).toHaveLength(1);
+  expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive_refused")).toEqual([
+    { kind: "slot_redrive_refused", code: "exception", slotRedriveCount: 1 },
+  ]);
+  expect(eventKinds(runId)).not.toContain("slot_redrive_exhausted");
+  expect(store.loadRun(runId)).toMatchObject({
+    status: "failed",
+    terminalCause: "gate_invocation_refused",
+    gateRefusalRecoveryState: { cause: "slot_contention", slotRedriveCount: 1 },
+  });
+  coordinator.stop();
+});
+
+for (const [name, options] of [
+  ["rejected", { resumeResult: { kind: "error", code: "claim_lost", message: "lost" } }],
+  ["thrown", { resumeThrows: true }],
+] as const) {
+  test(`a ${name} re-drive that reaches the bound also logs one slot_redrive_exhausted`, async () => {
+    const runId = seedRefusedRun(`bound-${name}`, { count: MAX_SLOT_REDRIVES - 1 });
+    const holder = holdGate();
+    const { coordinator, calls } = recordingCoordinator(options);
+    coordinator.enqueue(runId);
+    holder.release();
+    await tick();
+
+    expect(calls).toHaveLength(1);
+    expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive_exhausted")).toEqual([
+      { kind: "slot_redrive_exhausted", slotRedriveCount: MAX_SLOT_REDRIVES, bound: MAX_SLOT_REDRIVES },
+    ]);
+    expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive_refused")).toHaveLength(1);
+    coordinator.stop();
+  });
+}
 
 test("a waiting lane owned by a different live process is skipped without resume or count, and logged", async () => {
   const otherStore = openStateStore(dbPath, { currentIdentity: OTHER, isOwnerAlive: async () => true });

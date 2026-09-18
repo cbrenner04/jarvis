@@ -73,6 +73,8 @@ export type LoopFinishedEvent = {
   inventoryError?: string;
   gateCommand?: string;
   gateRefusalCause?: GateInvocationRefusalCause;
+  /** Slot re-drive count carried forward from the run row's gate-refusal recovery state at settlement. */
+  slotRedriveCount?: number;
   gateInvocationCommand?: string;
   gateInvocationElapsedMs?: number;
 };

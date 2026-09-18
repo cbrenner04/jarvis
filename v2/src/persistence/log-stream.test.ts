@@ -498,6 +498,32 @@ describe("log-stream", () => {
     });
   });
 
+  it("persists gate_invocation_refused loop_finished evidence with the slot re-drive count", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+    const gateCommand = "bun run test:v2";
+
+    sink.append("run-1", {
+      kind: "loop_finished",
+      loopOutcomeKind: "gate_invocation_refused",
+      iterationsConsumed: 1,
+      resumable: true,
+      gateCommand,
+      gateRefusalCause: "slot_contention",
+      slotRedriveCount: 2,
+    });
+    sink.close();
+
+    const record = reader.tail("run-1").at(-1);
+    expect(record?.event).toMatchObject({
+      kind: "loop_finished",
+      loopOutcomeKind: "gate_invocation_refused",
+      gateCommand,
+      gateRefusalCause: "slot_contention",
+      slotRedriveCount: 2,
+    });
+  });
+
   it("persists completion_commit_failed error detail exactly", () => {
     const sink = openLogSink(storagePath);
     const reader = openLogReader(storagePath);

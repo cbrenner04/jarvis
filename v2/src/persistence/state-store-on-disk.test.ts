@@ -92,4 +92,36 @@ describe("orchestration store on-disk helpers", () => {
     expect(() => copyOrchestrationStore(":memory:", join(tmpdir(), "unused.sqlite"))).not.toThrow();
     expect(() => removeOrchestrationStore(":memory:")).not.toThrow();
   });
+
+  test("gate refusal recovery state is readable after closing and reopening the store", () => {
+    const dbPath = join(tmpdir(), `jarvis-on-disk-gate-refusal-${Date.now()}.sqlite`);
+    try {
+      let store = openStateStore(dbPath);
+      const runId = store.createRun({
+        project: "gate-refusal-proj",
+        specRef: "main",
+        worktreePath: "/tmp/wt",
+        branch: "gate-refusal-branch",
+        specPath: "spec.md",
+      });
+      store.commitTerminalRunSettlement({
+        runId,
+        status: "failed",
+        terminalCause: "gate_invocation_refused",
+        gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:v2", slotRedriveCount: 1 },
+      });
+      store.close();
+
+      store = openStateStore(dbPath);
+      const run = store.loadRun(runId);
+      expect(run?.gateRefusalRecoveryState).toEqual({
+        cause: "slot_contention",
+        gateCommand: "bun run test:v2",
+        slotRedriveCount: 1,
+      });
+      store.close();
+    } finally {
+      removeOrchestrationStore(dbPath);
+    }
+  });
 });

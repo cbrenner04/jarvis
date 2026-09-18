@@ -28,18 +28,18 @@ The run row carries a gate-refusal recovery record — closed cause, the gate co
 
 ## Acceptance criteria
 
-- [ ] A new `shared/gate-refusal-recovery-state.ts` exports the closed cause set and a non-throwing decoder returning absent/invalid/valid, with unit tests covering each cause, a missing count, a negative count, a non-integer count, and malformed JSON.
-- [ ] `v2/src/persistence/state-store.test.ts` gains a test proving each refusal cause round-trips on the run row with its gate command and slot re-drive count through terminal settlement and `loadRun`; it fails against the pre-fix single-cause record.
-- [ ] `v2/src/persistence/state-store-on-disk.test.ts` gains a test proving the same recovery state is readable after closing and reopening the store.
-- [ ] `v2/src/persistence/state-store-baseline-migration.test.ts` gains a compatibility test proving a run row created before the recovery column existed, whose terminal outcome is `gate_invocation_refused`, loads as an explicit `legacy_unknown` cause with no slot re-drive count, with no throw.
-- [ ] `v2/src/persistence/state-store.test.ts` gains a compatibility test proving a `gate_invocation_refused` row with an unparseable recovery value loads as `legacy_unknown` with a corrupt flag and no throw.
-- [ ] `v2/src/persistence/state-store.test.ts` gains a test proving a row whose current terminal outcome is not `gate_invocation_refused` loads with no gate-refusal recovery record even when the column holds a valid or stale refusal record (e.g., a resumed run that later completes); it fails if the load projection exposes a refusal cause whenever the column is non-null, without checking the row's current terminal outcome.
-- [ ] `v2/docs/write-behavior.md` documents the durable refusal cause, slot re-drive count, outcome-gated projection, and legacy-row fallback.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] A new `shared/gate-refusal-recovery-state.ts` exports the closed cause set and a non-throwing decoder returning absent/invalid/valid, with unit tests covering each cause, a missing count, a negative count, a non-integer count, and malformed JSON.
+- [x] `v2/src/persistence/state-store.test.ts` gains a test proving each refusal cause round-trips on the run row with its gate command and slot re-drive count through terminal settlement and `loadRun`; it fails against the pre-fix single-cause record.
+- [x] `v2/src/persistence/state-store-on-disk.test.ts` gains a test proving the same recovery state is readable after closing and reopening the store.
+- [x] `v2/src/persistence/state-store-baseline-migration.test.ts` gains a compatibility test proving a run row created before the recovery column existed, whose terminal outcome is `gate_invocation_refused`, loads as an explicit `legacy_unknown` cause with no slot re-drive count, with no throw.
+- [x] `v2/src/persistence/state-store.test.ts` gains a compatibility test proving a `gate_invocation_refused` row with an unparseable recovery value loads as `legacy_unknown` with a corrupt flag and no throw.
+- [x] `v2/src/persistence/state-store.test.ts` gains a test proving a row whose current terminal outcome is not `gate_invocation_refused` loads with no gate-refusal recovery record even when the column holds a valid or stale refusal record (e.g., a resumed run that later completes); it fails if the load projection exposes a refusal cause whenever the column is non-null, without checking the row's current terminal outcome.
+- [x] `v2/docs/write-behavior.md` documents the durable refusal cause, slot re-drive count, outcome-gated projection, and legacy-row fallback.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

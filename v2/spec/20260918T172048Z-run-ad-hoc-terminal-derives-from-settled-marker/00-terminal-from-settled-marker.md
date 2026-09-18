@@ -19,15 +19,15 @@ Evidence: on `main` after #4063, plan run `e9b69036-a276-4857-93ca-f86aee05b841`
 
 ## Acceptance criteria
 
-- [ ] An `operator-incidents` test with a review row `completed`, a running publication row, and no settled marker derives no `run-ad-hoc-terminal`; it fails against the pre-fix rollup (non-owning daemon fires on the `completed` row).
-- [ ] A test reproduces the `e9b69036` shape: a `completed` marker, one row settles `completed`, a sweep runs, a second row settles `completed` ~23 s later, another sweep runs; exactly one `run-ad-hoc-terminal` is delivered. It fails against the pre-fix timestamped transition.
-- [ ] A test writes the marker, delivers the incident, then rewrites a row's `status_changed_at`; the next sweep delivers nothing; it fails against the timestamped key.
-- [ ] A test with marker `completed` delivered, then marker rewritten to `failed` (republication failure), yields exactly two `run-ad-hoc-terminal` deliveries across sweeps, the second with `cause: "failed"`.
-- [ ] A test with a `run_timeout` row and a `failed` marker derives no `run-ad-hoc-terminal` (only `run-timeout` fires); it fails against a marker-only derivation.
-- [ ] A test with a `blocked` row and a `completed` or `failed` marker derives no `run-ad-hoc-terminal`; it fails without the blocked exclusion.
-- [ ] A test seeds the ledger with a pre-upgrade `terminal:<status>:<ms>` delivery for a settled invocation at the prior key-format version, with the marker's `settledAt` before daemon start; after key-format reconcile the sweep delivers nothing for it. It fails without the version bump.
-- [ ] The `isWorkflowInvocationLive` option, sweep dep, reconcile parameter, and `daemon.ts` wiring are gone; `bun run typecheck` passes with no leftover references.
-- [ ] `deriveOperatorIncidents` timed (median of 5) on a copy of the real `~/.jarvis` store, on `main` and on the branch, stays under 1.2x the `main` time and under 150 ms; both timings are recorded in the run summary.
-- [ ] `v2/docs/daemon-host.md` § Operator notifications and `v2/docs/operator-runbook.md` § Deciding a workflow is finished state that `run-ad-hoc-terminal` fires once per settled-marker cause, never without a marker, carries the marker cause (`completed|failed|killed`), and is not produced for invocations settled before markers existed.
-- [ ] `v2/docs/v1-behaviors.md` records the new ad-hoc terminal notification behavior (marker-derived, once per cause, marker cause as `cause`).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] An `operator-incidents` test with a review row `completed`, a running publication row, and no settled marker derives no `run-ad-hoc-terminal`; it fails against the pre-fix rollup (non-owning daemon fires on the `completed` row).
+- [x] A test reproduces the `e9b69036` shape: a `completed` marker, one row settles `completed`, a sweep runs, a second row settles `completed` ~23 s later, another sweep runs; exactly one `run-ad-hoc-terminal` is delivered. It fails against the pre-fix timestamped transition.
+- [x] A test writes the marker, delivers the incident, then rewrites a row's `status_changed_at`; the next sweep delivers nothing; it fails against the timestamped key.
+- [x] A test with marker `completed` delivered, then marker rewritten to `failed` (republication failure), yields exactly two `run-ad-hoc-terminal` deliveries across sweeps, the second with `cause: "failed"`.
+- [x] A test with a `run_timeout` row and a `failed` marker derives no `run-ad-hoc-terminal` (only `run-timeout` fires); it fails against a marker-only derivation.
+- [x] A test with a `blocked` row and a `completed` or `failed` marker derives no `run-ad-hoc-terminal`; it fails without the blocked exclusion.
+- [x] A test seeds the ledger with a pre-upgrade `terminal:<status>:<ms>` delivery for a settled invocation at the prior key-format version, with the marker's `settledAt` before daemon start; after key-format reconcile the sweep delivers nothing for it. It fails without the version bump.
+- [x] The `isWorkflowInvocationLive` option, sweep dep, reconcile parameter, and `daemon.ts` wiring are gone; `bun run typecheck` passes with no leftover references.
+- [x] `deriveOperatorIncidents` timed (median of 5) on a copy of the real `~/.jarvis` store, on `main` and on the branch, stays under 1.2x the `main` time and under 150 ms; both timings are recorded in the run summary.
+- [x] `v2/docs/daemon-host.md` § Operator notifications and `v2/docs/operator-runbook.md` § Deciding a workflow is finished state that `run-ad-hoc-terminal` fires once per settled-marker cause, never without a marker, carries the marker cause (`completed|failed|killed`), and is not produced for invocations settled before markers existed.
+- [x] `v2/docs/v1-behaviors.md` records the new ad-hoc terminal notification behavior (marker-derived, once per cause, marker cause as `cause`).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

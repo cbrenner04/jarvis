@@ -245,6 +245,12 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "refuses fan-out recovery when the named branch has no paired result",
   // Broadened to cover the added handoffId field alongside the existing privateSocketPath check.
   "parseChangeoverResult rejects a malformed envelope (privateSocketPath not a string)",
+  // `run-ad-hoc-terminal` derives from the settled marker: no row rollup, liveness input, or publication-cause path.
+  "ad-hoc workflow fail, resume, fail notifies twice",
+  "entry row terminal does not emit while this daemon still drives the invocation",
+  "a durable step with no row yet is a dispatch gap, not a killed invocation",
+  "review settled, publication not yet dispatched, still live emits nothing",
+  "resumed linked row that settles completed with a publication failure notifies again",
   // Route-loss ownership lookups now fall back to local handling instead of erroring.
   "failed ownership refresh returns an error without local handling",
   // Cross-socket owner resolution (`resolvePipelineDaemon`/`resolvePipelineDaemonFromSocketPaths`)

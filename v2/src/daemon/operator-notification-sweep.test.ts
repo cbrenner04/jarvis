@@ -148,3 +148,37 @@ test("reconcileNotificationKeyFormat is a no-op at the current version", () => {
   expect(reconcileNotificationKeyFormat({ store, nowMs: () => 70_000, daemonStartedAtMs: 50_000 })).toBeNull();
   expect(deriveOperatorIncidents(store, 70_000)).toHaveLength(1);
 });
+
+test("key-format reconcile keeps a pre-upgrade settled invocation from re-delivering under the marker key", () => {
+  expect(NOTIFICATION_KEY_FORMAT_VERSION).toBeGreaterThan(3);
+  const entryRunId = store.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath: "/tmp/w",
+    branch: "b",
+    specPath: "s.md",
+    stepId: "plan",
+    workflowSnapshot: { invocationId: "inv-upgrade", steps: [{ stepId: "plan", role: "plan" }] },
+  });
+  const incidentId = `run:${entryRunId}`;
+  patchRunRow(entryRunId, { status: "completed", finishedAt: 10_000, createdAt: 10_000 });
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 10_000);
+  store.tryRecordNotificationDelivery({ incidentId, transition: "terminal:completed:10000", deliveredAt: 11_000 });
+  store.recordNotificationKeyFormatVersion(NOTIFICATION_KEY_FORMAT_VERSION - 1);
+
+  expect(reconcileNotificationKeyFormat({ store, nowMs: () => 70_000, daemonStartedAtMs: 50_000 })).toEqual({
+    suppressed: 1,
+  });
+  const spawned: string[] = [];
+  runNotificationSweep({
+    store,
+    readSinkCommand: () => "sink",
+    spawnSink: (_command, json) => {
+      spawned.push(json);
+      return { ok: true };
+    },
+    nowMs: () => 70_000,
+  });
+  expect(spawned).toEqual([]);
+  expect(store.hasNotificationDelivery({ incidentId, transition: "terminal:completed" })).toBe(true);
+});

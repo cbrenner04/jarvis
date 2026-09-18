@@ -24,12 +24,12 @@ Both fix the *trigger*; this lane is the recovery path for a row that already se
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts `recoverPlanStage` admits a `landing_failed` plan write row with a corrected staged tree and lands it; it fails against the pre-fix `unrelated_plan_stage` refusal.
-- [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row with no `.jarvis-plan-stage/` directory is refused `unrelated_plan_stage`.
-- [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row with an empty `.jarvis-plan-stage/` directory (exists, no files) is also refused `unrelated_plan_stage`.
-- [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row whose staged tree still fails staged lint is admitted but not landed.
-- [ ] A test asserts a `landing_failed` plan write row whose worktree is held by a live claim is refused rather than landed; it fails against the pre-fix blocked-write branch, which runs no claim check.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts `recoverPlanStage` admits a `landing_failed` plan write row with a corrected staged tree and lands it; it fails against the pre-fix `unrelated_plan_stage` refusal.
+- [x] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row with no `.jarvis-plan-stage/` directory is refused `unrelated_plan_stage`.
+- [x] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row with an empty `.jarvis-plan-stage/` directory (exists, no files) is also refused `unrelated_plan_stage`.
+- [x] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row whose staged tree still fails staged lint is admitted but not landed.
+- [x] A test asserts a `landing_failed` plan write row whose worktree is held by a live claim is refused rather than landed; it fails against the pre-fix blocked-write branch, which runs no claim check.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

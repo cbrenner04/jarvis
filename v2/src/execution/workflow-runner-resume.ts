@@ -638,13 +638,11 @@ function isBlockedPlanWriteRecoveryCandidate(
   run: Run & { attempts: Attempt[] },
   writeStep: WorkflowSnapshotStep | undefined,
 ): boolean {
+  if (writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR) return false;
   const lastAttempt = run.attempts.at(-1);
   const outcomeKind = lastAttempt?.outcomeKind ?? null;
-  return (
-    run.status === "blocked" &&
-    (outcomeKind === "contract_miss" || outcomeKind === "blocked") &&
-    writeStep?.expectedArtifactPath === PLAN_STAGE_DIR
-  );
+  if (run.status === "blocked" && (outcomeKind === "contract_miss" || outcomeKind === "blocked")) return true;
+  return run.status === "failed" && outcomeKind === "landing_failed";
 }
 
 function isReviewFailedPlanWriteRecoveryCandidate(
@@ -810,16 +808,16 @@ async function commitRecoveredPlanLanding(
   }
 }
 
-/**
- * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
- * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
- * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
- * `.jarvis-plan-stage/`, admits it independently of `resumable`, validates the on-disk staged
- * tree, strips only a proven harness-authored blocker, then lands it directly via
- * {@link landReviewedPublicationOutput} — no review/actuator role runs between validation and
- * landing, so nothing can mutate the operator's correction — and, once landing completes,
- * commits the durable output via {@link commitRecoveredPlanLanding}.
- */
+/** Refuses `unrelated_plan_stage` when a live run still holds the worktree claim for this branch. */
+function refuseIfLiveWorktreeClaim(
+  store: StateStore,
+  run: Run & { attempts: Attempt[] },
+  excludedRunIds: Set<string>,
+): PlanStageRecoveryOutcome | undefined {
+  if (!hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) return undefined;
+  return { ok: false, code: "unrelated_plan_stage", message: "a live run holds the worktree claim for this branch" };
+}
+
 /** Admission-time blocker/claim checks for the two plan-recovery paths; returns a refusal outcome or `undefined` to proceed. */
 function admitPlanRecoveryBlockerAndClaim(
   run: Run & { attempts: Attempt[] },
@@ -836,15 +834,7 @@ function admitPlanRecoveryBlockerAndClaim(
     if (hasStagedPlanOperatorBlocker(run.worktreePath)) {
       return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
     }
-    const excludedRunIds = new Set([run.id, evidenceReview.id]);
-    if (hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) {
-      return {
-        ok: false,
-        code: "unrelated_plan_stage",
-        message: "a live run holds the worktree claim for this branch",
-      };
-    }
-    return undefined;
+    return refuseIfLiveWorktreeClaim(store, run, new Set([run.id, evidenceReview.id]));
   }
   const lastAttempt = run.attempts.at(-1);
   const outcomeKind = lastAttempt?.outcomeKind ?? null;
@@ -852,6 +842,10 @@ function admitPlanRecoveryBlockerAndClaim(
   if (provenance.kind === "operator") {
     return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
   }
+  // landing_failed is the one blocked-write state an operator plausibly already resumed (which
+  // redrafts the same branch) before reaching for recover; check the claim only here, not for
+  // ordinary contract_miss/blocked rows, which never race a redraft this way.
+  if (outcomeKind === "landing_failed") return refuseIfLiveWorktreeClaim(store, run, new Set([run.id]));
   return undefined;
 }
 
@@ -895,6 +889,16 @@ async function lintPlanRecoveryStage(
   }
 }
 
+/**
+ * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
+ * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
+ * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
+ * `.jarvis-plan-stage/`, admits it independently of `resumable`, validates the on-disk staged
+ * tree, strips only a proven harness-authored blocker, then lands it directly via
+ * {@link landReviewedPublicationOutput} — no review/actuator role runs between validation and
+ * landing, so nothing can mutate the operator's correction — and, once landing completes,
+ * commits the durable output via {@link commitRecoveredPlanLanding}.
+ */
 export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
   const store = request.stateStore;
   const run = store.loadRun(request.runId);

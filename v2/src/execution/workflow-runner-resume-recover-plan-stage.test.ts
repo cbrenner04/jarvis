@@ -81,7 +81,7 @@ describe("recoverPlanStage", () => {
       specPath: string;
       stepId: string;
       invocationId: string;
-      outcomeKind: "contract_miss" | "blocked";
+      outcomeKind: "contract_miss" | "blocked" | "landing_failed";
       expectedArtifactPath?: string;
     },
   ): string {
@@ -105,7 +105,8 @@ describe("recoverPlanStage", () => {
       },
     });
     const attemptId = store.recordAttemptStart(runId);
-    store.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: args.outcomeKind });
+    const runStatus = args.outcomeKind === "landing_failed" ? "failed" : "blocked";
+    store.commitCompletionBoundary({ attemptId, runStatus, outcomeKind: args.outcomeKind });
     return runId;
   }
 
@@ -1461,6 +1462,267 @@ describe("recoverPlanStage", () => {
       expect(store.listRuns().length).toBe(runCountBefore);
       expect(store.findRunByProjectBranch({ project: "demo", branch, stepId: reviewStep.stepId })).toBeNull();
       expect(logSink.getEventsForRun(runId).map((event) => event.kind)).not.toContain("iteration_started");
+    });
+  });
+
+  test("admits and lands a landing_failed plan write row with a corrected staged tree", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-landing-failed-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-landing-failed-recovered");
+    const branch = "recover-plan-stage-landing-failed";
+    const stepId = "plan";
+    const specPath = "spec/2026-landing-failed-recovered";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-landing-failed-inv",
+        outcomeKind: "landing_failed",
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("recovery must not dispatch a review role");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        recoveryLanding: planRecoveryLanding(reviewStep),
+        stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).toBe("complete");
+      expect(existsSync(join(durable, "00-first.md"))).toBe(true);
+    });
+  });
+
+  test("refuses a landing_failed plan write row with no staged plan tree", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-landing-failed-missing-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-landing-failed-missing");
+    const branch = "recover-plan-stage-landing-failed-missing";
+    const stepId = "plan";
+    const specPath = "spec/2026-landing-failed-missing";
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-landing-failed-missing-inv",
+        outcomeKind: "landing_failed",
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on a refused recovery");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        recoveryLanding: planRecoveryLanding(reviewStep),
+        stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
+      });
+
+      expect(outcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
+  test("refuses a landing_failed plan write row with an empty staged plan tree", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-landing-failed-empty-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-landing-failed-empty");
+    const branch = "recover-plan-stage-landing-failed-empty";
+    const stepId = "plan";
+    const specPath = "spec/2026-landing-failed-empty";
+
+    mkdirSync(stage, { recursive: true });
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-landing-failed-empty-inv",
+        outcomeKind: "landing_failed",
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on a refused recovery");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        recoveryLanding: planRecoveryLanding(reviewStep),
+        stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
+      });
+
+      expect(outcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
+  test("admits but does not land a landing_failed plan write row whose staged tree still fails lint", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-landing-failed-lint-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-landing-failed-lint");
+    const branch = "recover-plan-stage-landing-failed-lint";
+    const stepId = "plan";
+    const specPath = "spec/2026-landing-failed-lint";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    writeFileSync(
+      join(stage, "00-first.md"),
+      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec),
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-landing-failed-lint-inv",
+        outcomeKind: "landing_failed",
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on a lint-invalid recovered plan stage");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        recoveryLanding: planRecoveryLanding(reviewStep),
+        stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
+      });
+
+      expect(outcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
+      expect(outcome).toMatchObject({ message: expect.stringContaining("MD038") });
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
+  test("refuses a landing_failed plan write row whose worktree is held by a live claim", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-landing-failed-claim-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-landing-failed-claim");
+    const branch = "recover-plan-stage-landing-failed-claim";
+    const stepId = "plan";
+    const specPath = "spec/2026-landing-failed-claim";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-landing-failed-claim-inv",
+        outcomeKind: "landing_failed",
+      });
+
+      // A concurrent `pipeline resume` redraft on the same project/branch holds a live claim on
+      // this worktree; recovery must not land underneath it.
+      store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch,
+        specPath: "spec/live",
+        stepId: "plan",
+        workflowSnapshot: {
+          invocationId: "recover-plan-stage-landing-failed-claim-live-inv",
+          steps: [{ stepId: "plan", role: "plan", expectedArtifactPath: ".jarvis-plan-stage", agents: ["claude"] }],
+        },
+        status: "in-progress",
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on a refused recovery");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        recoveryLanding: planRecoveryLanding(reviewStep),
+        stateStore: store,
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
+      });
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        code: "unrelated_plan_stage",
+        message: "a live run holds the worktree claim for this branch",
+      });
+      expect(existsSync(durable)).toBe(false);
     });
   });
 });

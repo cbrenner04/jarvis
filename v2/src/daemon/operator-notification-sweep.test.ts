@@ -163,7 +163,7 @@ test("key-format reconcile keeps a pre-upgrade settled invocation from re-delive
   const incidentId = `run:${entryRunId}`;
   patchRunRow(entryRunId, { status: "completed", finishedAt: 10_000, createdAt: 10_000 });
   store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 10_000);
-  store.tryRecordNotificationDelivery({ incidentId, transition: "terminal:completed:10000", deliveredAt: 11_000 });
+  store.tryRecordNotificationDelivery({ incidentId, transition: "terminal:completed:10500", deliveredAt: 11_000 });
   store.recordNotificationKeyFormatVersion(NOTIFICATION_KEY_FORMAT_VERSION - 1);
 
   expect(reconcileNotificationKeyFormat({ store, nowMs: () => 70_000, daemonStartedAtMs: 50_000 })).toEqual({
@@ -180,5 +180,5 @@ test("key-format reconcile keeps a pre-upgrade settled invocation from re-delive
     nowMs: () => 70_000,
   });
   expect(spawned).toEqual([]);
-  expect(store.hasNotificationDelivery({ incidentId, transition: "terminal:completed" })).toBe(true);
+  expect(store.hasNotificationDelivery({ incidentId, transition: "terminal:completed:10000" })).toBe(true);
 });

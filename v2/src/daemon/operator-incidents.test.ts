@@ -528,7 +528,7 @@ test("multi-row workflow invocation emits one terminal incident", () => {
       kind: "run-ad-hoc-terminal",
       runId: entryRunId,
       cause: "completed",
-      transition: "terminal:completed",
+      transition: "terminal:completed:1005000",
       sinceMs: 1_005_000,
       project: "demo",
     }),
@@ -555,7 +555,12 @@ test("a successor row killed by reconciliation settles the invocation once", () 
   seedInvocationRow("review", "killed");
   store.writeWorkflowInvocationSettledMarker(entryRunId, "killed", 1_002_000);
   expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ runId: entryRunId, cause: "killed", transition: "terminal:killed", sinceMs: 1_002_000 }),
+    expect.objectContaining({
+      runId: entryRunId,
+      cause: "killed",
+      transition: "terminal:killed:1002000",
+      sinceMs: 1_002_000,
+    }),
   ]);
 });
 
@@ -636,19 +641,47 @@ test("a marker rewritten from completed to failed delivers a second incident wit
 
   store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 1_010_000);
   expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ runId: entryRunId, cause: "failed", transition: "terminal:failed", sinceMs: 1_010_000 }),
+    expect.objectContaining({
+      runId: entryRunId,
+      cause: "failed",
+      transition: "terminal:failed:1010000",
+      sinceMs: 1_010_000,
+    }),
   ]);
   deliverAll();
   expect(deriveOperatorIncidents(store)).toEqual([]);
 });
 
-test("a marker cause that returns to an earlier value is deduplicated", () => {
+test("a marker cause that returns to an earlier value notifies again", () => {
   const entryRunId = seedInvocationRow("plan", "completed");
   store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_000_000);
   deliverAll();
   store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 1_010_000);
   deliverAll();
   store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_020_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "completed", transition: "terminal:completed:1020000" }),
+  ]);
+});
+
+test("ad-hoc workflow fail, resume, fail notifies twice", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 1_000_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "failed", transition: "terminal:failed:1000000" }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  setSystemTime(new Date(2_000_000));
+  store.setRunStatus(entryRunId, "in-progress");
+  store.setRunStatus(entryRunId, "failed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 2_000_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "failed", transition: "terminal:failed:2000000" }),
+  ]);
+  deliverAll();
   expect(deriveOperatorIncidents(store)).toEqual([]);
 });
 
@@ -680,7 +713,7 @@ test("an invocation whose entry row is outside the recency window still derives 
   patchRunRow(entryRunId, { finishedAt: 1_000_000, createdAt: 1_000_000 });
   store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", outsideWindowMs);
   expect(deriveOperatorIncidents(store, outsideWindowMs)).toEqual([
-    expect.objectContaining({ runId: entryRunId, transition: "terminal:completed" }),
+    expect.objectContaining({ runId: entryRunId, transition: `terminal:completed:${outsideWindowMs}` }),
   ]);
 });
 
@@ -894,13 +927,13 @@ test("a single-lane pipeline whose implement stage succeeded and is terminal emi
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
 });
 
-test("a resumed linked row's failure settles once per marker cause", () => {
+test("a resumed linked row's settle without a marker write does not re-fire", () => {
   setSystemTime(new Date(1_000_000));
   const runId = seedInvocationRow("plan~link-0", "in-progress");
   store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "gate_invocation_refused" });
   store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
   expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ runId, cause: "failed", transition: "terminal:failed", sinceMs: 1_000_000 }),
+    expect.objectContaining({ runId, cause: "failed", transition: "terminal:failed:1000000", sinceMs: 1_000_000 }),
   ]);
   deliverAll();
 

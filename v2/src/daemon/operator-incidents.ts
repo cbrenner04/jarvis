@@ -292,8 +292,9 @@ function findInvocationEntryRun(rows: readonly Run[]): Run | undefined {
   );
 }
 
+/** Each marker write is one settle; row writes never mint a transition. */
 function terminalTransition(marker: InvocationSettledMarker): string {
-  return `terminal:${marker.cause}`;
+  return `terminal:${marker.cause}:${marker.settledAt}`;
 }
 
 /** The candidate rows' entry row, when it is itself a candidate; otherwise the invocation's siblings must load. */
@@ -304,7 +305,7 @@ function findCandidateEntryRun(candidateRows: readonly Run[]): Run | undefined {
 
 /**
  * Group every candidate terminal workflow row's invocation with all of its durable rows. Invocations
- * without a settled marker, or whose marker cause the ledger already shows delivered, are skipped so
+ * without a settled marker, or whose marker settle the ledger already shows delivered, are skipped so
  * the per-tick sibling load stays proportional to undelivered work, not to history inside the recency
  * window.
  */

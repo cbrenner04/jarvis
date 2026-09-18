@@ -246,7 +246,6 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   // Broadened to cover the added handoffId field alongside the existing privateSocketPath check.
   "parseChangeoverResult rejects a malformed envelope (privateSocketPath not a string)",
   // `run-ad-hoc-terminal` derives from the settled marker: no row rollup, liveness input, or publication-cause path.
-  "ad-hoc workflow fail, resume, fail notifies twice",
   "entry row terminal does not emit while this daemon still drives the invocation",
   "a durable step with no row yet is a dispatch gap, not a killed invocation",
   "review settled, publication not yet dispatched, still live emits nothing",

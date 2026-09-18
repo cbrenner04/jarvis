@@ -596,6 +596,28 @@ export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
 type GateInvocationLease = { release: () => void };
 
 const liveGateInvocationLeases = new Set<GateInvocationLease>();
+const gateInvocationLeaseReleaseListeners = new Set<() => void>();
+
+/** Subscribe to lease releases; listeners run in a microtask after the lease is deleted, and a throwing listener does not affect others. Returns an unsubscribe. */
+export function subscribeGateInvocationLeaseReleased(listener: () => void): () => void {
+  gateInvocationLeaseReleaseListeners.add(listener);
+  return () => {
+    gateInvocationLeaseReleaseListeners.delete(listener);
+  };
+}
+
+function notifyGateInvocationLeaseReleased(): void {
+  const listeners = [...gateInvocationLeaseReleaseListeners];
+  queueMicrotask(() => {
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        // A faulty listener must not starve the others.
+      }
+    }
+  });
+}
 
 /** Pure admission: one more full-suite gate invocation fits while the live count is below the limit. */
 export function gateInvocationAdmits(heldCount: number, limit: number): boolean {
@@ -607,7 +629,8 @@ export function acquireGateInvocationLease(): GateInvocationLease | undefined {
   if (!gateInvocationAdmits(liveGateInvocationLeases.size, MAX_CONCURRENT_AGENT_GATE_INVOCATIONS)) return undefined;
   const lease: GateInvocationLease = {
     release: () => {
-      liveGateInvocationLeases.delete(lease);
+      if (!liveGateInvocationLeases.delete(lease)) return;
+      notifyGateInvocationLeaseReleased();
     },
   };
   liveGateInvocationLeases.add(lease);

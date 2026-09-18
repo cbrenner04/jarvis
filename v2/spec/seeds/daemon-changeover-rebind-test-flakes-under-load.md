@@ -12,12 +12,13 @@ name: daemon-changeover-rebind-test-flakes-under-load
 
 1. Implement run for spec `20260918T110642Z-ready-gate-autofix-best-effort-on-unfixable-lint` (pipeline `f91e8816`, PR #4048): ready gate failed on this file; base-ref probe also saw 25 pass / 1 fail on `main` `fe48cd9bf` under load. Run settled `ready_gate_out_of_scope` / `nextAction: stop` (non-resumable); lane stranded and was hand-finished.
 2. Hand `bun run test:integration:v2` in that worktree on an otherwise idle machine failed the same test (276ms).
+3. CI on spec-only PR #4040 (run 35355728644, 2026-09-18) failed a sibling test in the same file, `a committed handoff reclaims the leftover socket and rebinds after a real successor process is killed` (`start failed: daemon_superseded`, 3105ms) — so the shape is not one test and not local load only.
 
 ## Decisions
 
 - Remove the private deadline the way `v2/spec/completed/20260909T042005Z-wal-handshake-has-no-private-deadline` did (`waitForStdoutMarker`): wait on the observable event (successful rebind / health answer) bounded only by the test's own suite timeout (`15_000`). Rules out raising the 3s number.
 - Prefer an event signal (e.g. resolve a promise when the injected `bind` succeeds for the third public bind) over polling where the seam allows.
-- Audit sibling `waitFor(..., N_000)` calls in the same file for the same shape; fix those that gate a pass/fail verdict on wall-clock, keep ones asserting a negative within a window.
+- Audit sibling `waitFor(..., N_000)` calls (the reclaim-after-successor-kill test is a confirmed second instance) in the same file for the same shape; fix those that gate a pass/fail verdict on wall-clock, keep ones asserting a negative within a window.
 - Test-only change; no daemon behavior change.
 
 ## Acceptance criteria

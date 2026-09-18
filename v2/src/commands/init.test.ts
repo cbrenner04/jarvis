@@ -3,7 +3,6 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -11,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { captureIo } from "../testing/cli-test-helpers.ts";
 import { type InitCommandDeps, MACHINE_PROFILES_DIR, runInitCommand } from "./init.ts";
 import {
@@ -47,7 +47,7 @@ afterEach(() => {
 
 function fixture(): Fixture {
   mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-  const root = mkdtempSync(join(process.cwd(), ".scratch", "init-machine-"));
+  const root = trackedMkdtempSync(join(process.cwd(), ".scratch", "init-machine-"));
   fixtureRoots.push(root);
   const machinesDir = join(root, "machines");
   const projectRoot = join(root, "project");

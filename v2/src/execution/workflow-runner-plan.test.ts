@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { buildPlanWorkflowSteps } from "./publication-workflow-steps.ts";
@@ -56,7 +57,7 @@ describe("executeWorkflow plan review dispatch", () => {
   });
 
   test("renders live draft context, persists verdict, and publishes actuator edits", async () => {
-    const root = mkdtempSync(join(tmpdir(), "workflow-plan-review-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-plan-review-"));
     const specDir = join(root, "spec", "2026-test-reviewed");
     mkdirSync(specDir, { recursive: true });
     const subspecPath = join(specDir, "01-test.md");
@@ -110,7 +111,7 @@ describe("executeWorkflow plan review dispatch", () => {
   });
 
   test("lands a reviewed light plan tree without publishing its verdict", async () => {
-    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
     writeLintCleanPlanStage(stage, "01-test.md", "# Before\n");
@@ -131,7 +132,7 @@ describe("executeWorkflow plan review dispatch", () => {
   });
 
   test("retains the staged plan and verdict when deferred landing fails", async () => {
-    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-failure-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-failure-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
     mkdirSync(durable, { recursive: true });
@@ -162,7 +163,7 @@ describe("executeWorkflow plan review dispatch", () => {
   });
 
   test("fresh plan review dispatches do not reuse a completed landing checkpoint", async () => {
-    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-fresh-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-reviewed-plan-fresh-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
     let criticCalls = 0;
@@ -187,7 +188,7 @@ describe("executeWorkflow plan review dispatch", () => {
   });
 
   test("reuses a completed debate landing checkpoint on retry but not on a fresh dispatch", async () => {
-    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-debate-fresh-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-reviewed-debate-fresh-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-debate-fresh");
@@ -226,7 +227,7 @@ describe("executeWorkflow plan review dispatch", () => {
   });
 
   test("lands a reviewed debate plan tree without publishing its empty verdict", async () => {
-    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-debate");
@@ -260,7 +261,7 @@ describe("executeWorkflow plan review dispatch", () => {
     roots.push(join(jarvisRoot, ".."));
     process.env.JARVIS_HOME = jarvisRoot;
     try {
-      const projectRoot = mkdtempSync(join(tmpdir(), "plan-default-landing-project-"));
+      const projectRoot = trackedMkdtempSync(join(tmpdir(), "plan-default-landing-project-"));
       roots.push(projectRoot);
       const readyIntentRel = "v2/spec/ready-intents/default-plan.md";
       const intentContent = "---\nname: default-plan\n---\n\n# Default Plan\n\n## Prerequisites\n\n- none\n";
@@ -432,7 +433,7 @@ describe("executeWorkflow plan review dispatch", () => {
   });
 
   test("retains the staged plan and verdict when a review-debate deferred landing fails", async () => {
-    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-failure-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-failure-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-debate");

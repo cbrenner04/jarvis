@@ -1,8 +1,9 @@
 // Exercises the real markdownlint-cli2 binary via resumePopulatedIntentPublication's staged-lint gate.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import {
@@ -17,7 +18,7 @@ ensureWorkflowRunnerResumeDepsWired();
 
 describe("resumePopulatedIntentPublication (real markdownlint binary)", () => {
   test("refuses to publish a staged intent with a real lint violation", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-real-lint-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-real-lint-"));
     const stage = join(workspace, ".jarvis-intent-stage");
     mkdirSync(stage, { recursive: true });
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });

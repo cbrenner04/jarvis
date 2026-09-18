@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { landPublication, PlanTreeLandingError } from "./publication-landing.ts";
 
 function repo(): string {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-publication-landing-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-publication-landing-"));
   execFileSync("git", ["init", "-q"], { cwd: root });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
@@ -84,7 +85,7 @@ describe("publication landing hooks", () => {
   test("consumes safe source inputs only and is idempotent", async () => {
     const source = repo();
     const workspace = repo();
-    const external = mkdtempSync(join(tmpdir(), "jarvis-external-input-"));
+    const external = trackedMkdtempSync(join(tmpdir(), "jarvis-external-input-"));
     mkdirSync(join(source, "queue"));
     writeFileSync(join(source, "queue", "safe.md"), "safe\n");
     writeFileSync(join(external, "outside.md"), "outside\n");
@@ -135,7 +136,7 @@ describe("publication landing hooks", () => {
     // copy of the target repo — including a committed root index.md and NN-*.md shaped files — while
     // the durable plan tree lands at a distinct, absolute durablePath. Extracted repo files must never
     // masquerade as pre-existing durable plan-tree files and hard-fail landing.
-    const readContext = mkdtempSync(join(tmpdir(), "jarvis-external-read-context-"));
+    const readContext = trackedMkdtempSync(join(tmpdir(), "jarvis-external-read-context-"));
     writeFileSync(join(readContext, "index.md"), "target repo README-shaped index\n");
     writeFileSync(join(readContext, "00-module.md"), "target repo module doc\n");
     mkdirSync(join(readContext, ".jarvis-plan-stage"));
@@ -143,7 +144,7 @@ describe("publication landing hooks", () => {
     writeFileSync(join(readContext, ".jarvis-plan-stage", "intent.md"), "intent\n");
     writeFileSync(join(readContext, ".jarvis-plan-stage", "00-first.md"), "# First\n");
 
-    const durablePath = join(mkdtempSync(join(tmpdir(), "jarvis-external-durable-")), "plans", "feature");
+    const durablePath = join(trackedMkdtempSync(join(tmpdir(), "jarvis-external-durable-")), "plans", "feature");
     const result = await landPublication(
       { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath },
       readContext,
@@ -244,7 +245,7 @@ describe("publication landing hooks", () => {
   test("consumes only safe plan inputs after landing and resumes idempotently", async () => {
     const source = repo();
     const workspace = repo();
-    const external = mkdtempSync(join(tmpdir(), "jarvis-external-plan-input-"));
+    const external = trackedMkdtempSync(join(tmpdir(), "jarvis-external-plan-input-"));
     mkdirSync(join(source, "ready-intents"));
     writeFileSync(join(source, "ready-intents/safe.md"), "safe\n");
     writeFileSync(join(external, "outside.md"), "outside\n");

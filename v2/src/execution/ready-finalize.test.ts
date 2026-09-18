@@ -1,11 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { READY_STEP_COMPLETION_MARKER, readyStepCompletionRecord } from "../../../scripts/ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../scripts/run-v2-tests.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import {
@@ -193,7 +194,7 @@ async function withBaseRefProbeFixture(
   options: { baseTestBody: string; branchTestBody: string; dependencyPresent: boolean },
   run: (ctx: { scope: ReadyGateScopeInput; testPath: string }) => Promise<void>,
 ): Promise<void> {
-  const jarvisRoot = mkdtempSync(join(tmpdir(), "base-ref-probe-"));
+  const jarvisRoot = trackedMkdtempSync(join(tmpdir(), "base-ref-probe-"));
   try {
     const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, branchName, options);
     await run({ scope: { worktreePath, baseRef, specPath: "spec.md" }, testPath });
@@ -242,7 +243,7 @@ export const baseRefProbeFailsSeam: ReadyGateScopeSeams = {
 
 describe("ready gate untouched-path classification", () => {
   it("includes sibling spec-tree markdown when specPath routes a direct subspec file", async () => {
-    const root = mkdtempSync(join(tmpdir(), "gate-allowed-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "gate-allowed-"));
     const specDir = join(root, "v2", "spec", "demo");
     mkdirSync(specDir, { recursive: true });
     writeFileSync(join(specDir, "index.md"), "# index\n");
@@ -1335,7 +1336,7 @@ index 1234567..abcdefg 100644
   });
 
   it("settles finalization after diff-derived verification on a shared multi-candidate diff", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mutation-finalize-fixture-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "mutation-finalize-fixture-"));
     try {
       execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
       execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
@@ -1910,7 +1911,7 @@ index 1234567..abcdefg 100644
   });
 
   it("detects the required integration script from the worktree package.json", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "ready-finalize-pkg-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "ready-finalize-pkg-"));
     try {
       let integrationCalls = 0;
       const finalizer = createReadyFinalizer({

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -283,7 +284,7 @@ test("resume admits a paused direct write run with durable queuedInput", async (
 test("resume admits a paused workflow write step with exact snapshot stepId", async () => {
   const resumedInputs: WriteLoopInput[] = [];
   const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-exact-step-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-exact-step-profile-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "exact-step-profile";
   const previousJarvisHome = process.env.JARVIS_HOME;
@@ -365,7 +366,7 @@ test("resume admits a paused workflow write step with exact snapshot stepId", as
 test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", async () => {
   const resumedInputs: WriteLoopInput[] = [];
   const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-hidden-shrink-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-hidden-shrink-profile-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "hidden-shrink-profile";
   const previousJarvisHome = process.env.JARVIS_HOME;
@@ -474,7 +475,7 @@ function setUpLinkedResumeMachineProfile(): {
   writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
   cleanup: () => void;
 } {
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-linked-resume-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-linked-resume-profile-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "linked-resume-profile";
   const previousJarvisHome = process.env.JARVIS_HOME;
@@ -546,7 +547,7 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
 }
 
 test("resume routes a failed gate_invocation_refused implement~link-N row to resumeLinkedWorkflowStart, not the bare write loop", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-failed-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-linked-resume-failed-"));
   writeTwoLinkIndexFixture(worktreePath);
   const runId = stateStore.createRun({
     project: "demo",
@@ -603,7 +604,7 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
 });
 
 test("resume routes a paused implement~link-N row to resumeLinkedWorkflowStart the same way as a failed one", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-paused-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-linked-resume-paused-"));
   writeTwoLinkIndexFixture(worktreePath);
   const runId = stateStore.createRun({
     project: "demo",
@@ -639,7 +640,7 @@ test("resume routes a paused implement~link-N row to resumeLinkedWorkflowStart t
 });
 
 test("resume refuses resume_unsupported for a linked row whose pinned index entry can no longer be resolved, without calling resumeLinkedWorkflowStart", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-malformed-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-linked-resume-malformed-"));
   // A single-entry index: the persisted `implement~link-1` row's pinned index position no longer exists.
   writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n", "utf8");
   writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");

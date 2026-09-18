@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 
 describe("deriveSpecRunBodySummary", () => {
@@ -12,7 +13,7 @@ describe("deriveSpecRunBodySummary", () => {
   });
 
   test("renders why lines, risk, totals, ordered areas, truncation, and binaries; drops commits", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "spec-summary-"));
+    tempDir = trackedMkdtempSync(join(tmpdir(), "spec-summary-"));
     const specDir = join(tempDir, "v2/spec/demo");
     mkdirSync(specDir, { recursive: true });
     writeFileSync(
@@ -56,7 +57,7 @@ describe("deriveSpecRunBodySummary", () => {
   });
 
   test("omits the overview paragraph but keeps subspec-title bullets when the index has no opening paragraph", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "spec-summary-no-paragraph-"));
+    tempDir = trackedMkdtempSync(join(tmpdir(), "spec-summary-no-paragraph-"));
     const specDir = join(tempDir, "v2/spec/demo");
     mkdirSync(specDir, { recursive: true });
     writeFileSync(join(specDir, "index.md"), "# Demo\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
@@ -74,7 +75,7 @@ describe("deriveSpecRunBodySummary", () => {
   });
 
   test("omits the Overview section entirely when the index has no opening paragraph and no linked subspecs", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "spec-summary-no-overview-"));
+    tempDir = trackedMkdtempSync(join(tmpdir(), "spec-summary-no-overview-"));
     const specDir = join(tempDir, "v2/spec/demo");
     mkdirSync(specDir, { recursive: true });
     writeFileSync(join(specDir, "index.md"), "# Demo\n\n- [ ] plain task, not a subspec link\n", "utf8");
@@ -88,7 +89,7 @@ describe("deriveSpecRunBodySummary", () => {
   });
 
   test("returns empty template when inputs are empty", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "spec-summary-empty-"));
+    tempDir = trackedMkdtempSync(join(tmpdir(), "spec-summary-empty-"));
     mkdirSync(join(tempDir, "spec"), { recursive: true });
     writeFileSync(join(tempDir, "spec/index.md"), "# Empty\n", "utf8");
     await expect(

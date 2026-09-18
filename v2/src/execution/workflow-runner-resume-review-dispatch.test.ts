@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
@@ -56,7 +57,7 @@ import {
 
 describe("executeWorkflow review dispatch", () => {
   test("retries reviewed-intent landing without rerunning review and persists its cause", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-retry-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-retry-"));
     stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
@@ -122,7 +123,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("re-entering a reviewed-intent landing checkpoint emits its own start and terminal log events", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-resume-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-log-resume-"));
     stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
@@ -181,7 +182,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("daemon resume retries landing failure without re-invoking write step", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "daemon-resume-landing-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "daemon-resume-landing-"));
     stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
@@ -240,7 +241,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("resumes intent finalization from a populated stage without review re-invocation", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const durableDir = join(workspace, "ready-intents");
     mkdirSync(durableDir, { recursive: true });
@@ -308,7 +309,7 @@ describe("executeWorkflow review dispatch", () => {
       }),
     };
 
-    const logsPath = join(mkdtempSync(join(tmpdir(), "intent-finalize-resume-log-")), "logs.jsonl");
+    const logsPath = join(trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-log-")), "logs.jsonl");
     const logSink = openLogSink(logsPath);
 
     await withStateStore(async (store) => {
@@ -377,7 +378,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("persists the review-debate step's real baseRef so resume publishes against it, not an empty specRef", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-debate-baseref-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-debate-baseref-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const durableDir = join(workspace, "ready-intents");
     mkdirSync(durableDir, { recursive: true });
@@ -449,7 +450,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("settles a visible failure, not a no-op, when resume can't resolve a completion agent", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-no-agent-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-no-agent-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -482,7 +483,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("intent-resume committer-throw failure logs the same completionCommitError as the resume outcome", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-commit-throw-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-commit-throw-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -515,12 +516,12 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("a settled intent-finalization resume failure emits a loop_finished whose resumable field agrees with resolveIntentFinalizationResumeContext admission", async () => {
-    const admissibleWorkspace = mkdtempSync(join(tmpdir(), "intent-finalize-settle-agrees-admit-"));
+    const admissibleWorkspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-settle-agrees-admit-"));
     mkdirSync(join(admissibleWorkspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(admissibleWorkspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(admissibleWorkspace, "ready-intents"), { recursive: true });
 
-    const inadmissibleWorkspace = mkdtempSync(join(tmpdir(), "intent-finalize-settle-agrees-refuse-"));
+    const inadmissibleWorkspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-settle-agrees-refuse-"));
     mkdirSync(join(inadmissibleWorkspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(inadmissibleWorkspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(inadmissibleWorkspace, "ready-intents"), { recursive: true });
@@ -584,7 +585,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("retains workflow step across publication and finalization resume", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-step-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-step-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -706,7 +707,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("resume publication push uses explicit refspec without upstream detection", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-explicit-push-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-explicit-push-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -761,7 +762,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("intent-finalization resume skips the ready gate but completes the remaining finalization tail", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-ready-gate-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-ready-gate-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -810,7 +811,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("intent-finalization resume uses write-sibling stamped fix and ready commands", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-stamped-commands-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-stamped-commands-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -839,7 +840,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("review row gate-command reconstruction prefers persisted snapshot step over write sibling", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-review-gate-commands-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-resume-review-gate-commands-"));
     const dbPath = join(tmpdir(), `intent-finalize-resume-review-gate-commands-${randomUUID()}.db`);
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
@@ -1100,7 +1101,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("resolveIntentFinalizationResumeContext derives durableDir from a file handoff path", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-file-handoff-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-file-handoff-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -1167,7 +1168,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("single-file intent handoff specPath passes plan-stage ready-intent validation", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-pipeline-handoff-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-pipeline-handoff-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const baseStep = createStep({
       stepId: "intent",
@@ -1245,7 +1246,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("admits populated-intent landing_failed even when the write sibling is not completed (unchanged from before the review-mutation tail)", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-write-not-completed-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-finalize-write-not-completed-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -1293,7 +1294,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("a settled review-mutation resume failure emits a loop_finished whose resumable field agrees with this resolver's own admission", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "review-mutation-settle-agrees-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "review-mutation-settle-agrees-"));
     const logsPath = join(workspace, "resume.jsonl");
     try {
       await withStateStore(async (store) => {

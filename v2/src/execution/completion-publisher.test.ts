@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   AmbiguousOpenPrError,
   type CompletionPublisherInput,
@@ -935,7 +936,7 @@ describe("createCompletionPublisher", () => {
 
   it("wires title fetch/write seams and input.creationTitle/input.specPath into refreshPrBody, editing when the resolved title differs", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const externalRoot = mkdtempSync(join(process.cwd(), ".scratch", "publisher-external-"));
+    const externalRoot = trackedMkdtempSync(join(process.cwd(), ".scratch", "publisher-external-"));
     try {
       const specDir = join(externalRoot, "20260101T000000Z-external-spec");
       mkdirSync(specDir, { recursive: true });

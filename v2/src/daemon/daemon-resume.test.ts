@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
@@ -101,7 +102,7 @@ beforeEach(() => {
   fakeExecutor = createFakeWriteLoopExecutor((input) => {
     starts.push(input);
   });
-  profileHome = mkdtempSync(join(tmpdir(), "jarvis-resume-profile-home-"));
+  profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-profile-home-"));
   machinesDir = join(profileHome, "machines");
   previousJarvisHome = process.env.JARVIS_HOME;
   process.env.JARVIS_HOME = profileHome;
@@ -646,7 +647,7 @@ test("resume rehydrates the persisted idle-output watchdog bound and a silent ag
 });
 
 test("resume resolves iterationCeilingMs when snapshot step has wall segment only", async () => {
-  const isolatedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-"));
+  const isolatedHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-"));
   const isolatedMachines = join(isolatedHome, "machines");
   const previousHome = process.env.JARVIS_HOME;
   process.env.JARVIS_HOME = isolatedHome;
@@ -684,8 +685,8 @@ test("resume resolves iterationCeilingMs when snapshot step has wall segment onl
 });
 
 test("resume resolves a missing iterationCeilingMs from the injected config", async () => {
-  const operatorHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-operator-home-"));
-  const injectedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-injected-"));
+  const operatorHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-operator-home-"));
+  const injectedHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-injected-"));
   const injectedMachines = join(injectedHome, "machines");
   const previousHome = process.env.JARVIS_HOME;
   process.env.JARVIS_HOME = operatorHome;
@@ -724,7 +725,7 @@ test("resume resolves a missing iterationCeilingMs from the injected config", as
 });
 
 test("resume keeps persisted iterationCeilingMs on snapshot steps", async () => {
-  const isolatedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-persisted-"));
+  const isolatedHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-persisted-"));
   const isolatedMachines = join(isolatedHome, "machines");
   const previousHome = process.env.JARVIS_HOME;
   process.env.JARVIS_HOME = isolatedHome;
@@ -1640,7 +1641,7 @@ async function listRow(h: Handlers, runId: string): Promise<{ error?: { reason?:
 }
 
 test("admits a populated-stage intent finalization landing_failed row instead of unsupported_resume_context", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "daemon-intent-finalize-"));
   try {
     writeLintCleanIntentStageFile(join(worktreePath, ".jarvis-intent-stage"), "example.md");
     expect(await lintStagedMarkdown(".jarvis-intent-stage", { worktreePath, runner })).toEqual({ kind: "clean" });
@@ -1675,7 +1676,7 @@ test("admits a populated-stage intent finalization landing_failed row instead of
 });
 
 test("admits a lint-exhausted populated-stage landing_failed row instead of unsupported_resume_context", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-lint-exhaust-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "daemon-intent-lint-exhaust-"));
   try {
     writeLintCleanIntentStageFile(join(worktreePath, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
@@ -1709,7 +1710,7 @@ test("admits a lint-exhausted populated-stage landing_failed row instead of unsu
 });
 
 test("rejects unsupported_resume_context for the same row when the stage is empty (admission-gate inversion)", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-empty-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "daemon-intent-finalize-empty-"));
   try {
     // No `.jarvis-intent-stage/` created: inverts the populated-stage precondition the gate requires.
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
@@ -1738,7 +1739,7 @@ test("rejects unsupported_resume_context for the same row when the stage is empt
 });
 
 test("resumes a populated-stage intent finalization end to end: landing_failed projects resumable, completed after republication", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-e2e-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "daemon-intent-finalize-e2e-"));
   try {
     writeLintCleanIntentStageFile(join(worktreePath, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
@@ -2241,7 +2242,7 @@ test("a stale pre-fix resumable:true record projects unsupported_resume_context 
 });
 
 test("paused implement~link-N without linked index materialization projects unsupported_resume_context and list/wait/resume agree", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-paused-linked-refusal-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "daemon-paused-linked-refusal-"));
   const runId = stateStore.createRun({
     project: "demo",
     specRef: "main",
@@ -2933,7 +2934,7 @@ Still prose after budget exhaustion.
 });
 
 test("failed implement~link-1 whose pinned linked index entry is gone refuses resume_unsupported with a recovery clause, never dispatching the write loop", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-failed-linked-malformed-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "daemon-failed-linked-malformed-"));
   // Only one linked entry (index 0) on disk, but the row pins link index 1.
   writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n", "utf8");
   writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");

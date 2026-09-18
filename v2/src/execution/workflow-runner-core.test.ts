@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
@@ -120,7 +121,7 @@ describe("intent publication input consumption", () => {
     );
     expect(existsSync(join(source, "queue/seed.md"))).toBe(true);
 
-    const noGitSource = mkdtempSync(join(tmpdir(), "intent-no-git-source-"));
+    const noGitSource = trackedMkdtempSync(join(tmpdir(), "intent-no-git-source-"));
     const noGitWorktree = createIntentWorktreeHarness("input-no-git").workspace;
     writeFileSync(join(noGitSource, "seed.md"), "seed\n");
     mkdirSync(join(noGitWorktree, ".jarvis-intent-stage"));
@@ -170,7 +171,7 @@ describe("intent publication input consumption", () => {
   });
 
   test("retains no-Git ready intents until a complete plan tree lands", async () => {
-    const source = mkdtempSync(join(tmpdir(), "plan-no-git-source-"));
+    const source = trackedMkdtempSync(join(tmpdir(), "plan-no-git-source-"));
     const workspace = createIntentWorktreeHarness("plan-no-git").workspace;
     const intentPath = join(source, "plan.md");
     writeFileSync(intentPath, "intent\n");
@@ -610,7 +611,7 @@ describe("executeWorkflow", () => {
   });
 
   test("blocked outcome retains the real git worktree, branch, registration, and uncommitted work", async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "blocked-retain-project-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "blocked-retain-project-"));
     roots.push(projectRoot);
     execFileSync("git", ["init", "-q"], { cwd: projectRoot });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: projectRoot });
@@ -1208,7 +1209,7 @@ describe("executeWorkflow", () => {
   });
 
   test("shrink telemetry records role shrink on a distinct binding chain", async () => {
-    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-shrink-telemetry-")), "telemetry.jsonl");
+    const telemetryPath = join(trackedMkdtempSync(join(tmpdir(), "workflow-shrink-telemetry-")), "telemetry.jsonl");
     const step = createStep({
       stepId: "implement",
       role: "implement",
@@ -1246,7 +1247,7 @@ describe("executeWorkflow", () => {
   });
 
   test("multi-step workflow completion requires review-step evidence, not just step-0 completion", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "workflow-review-completion-"));
+    const cwd = trackedMkdtempSync(join(tmpdir(), "workflow-review-completion-"));
     let criticInvoked = false;
     let actuatorInvoked = false;
     const writeStep = createStep({ stepId: "step-1", role: "implement", branchName: "review-completion-test" });
@@ -1631,16 +1632,16 @@ describe("executeWorkflow", () => {
   });
 
   test("persists stamped gate commands on review and review-debate workflow snapshot steps through store reload", async () => {
-    const stateDbPath = join(mkdtempSync(join(tmpdir(), "review-gate-snapshot-store-")), "store.sqlite");
+    const stateDbPath = join(trackedMkdtempSync(join(tmpdir(), "review-gate-snapshot-store-")), "store.sqlite");
     const gateCommands = { fixCommand: "make fix", readyCommand: "make test" };
-    const reviewWorkspace = mkdtempSync(join(tmpdir(), "review-gate-snapshot-"));
+    const reviewWorkspace = trackedMkdtempSync(join(tmpdir(), "review-gate-snapshot-"));
     stageReviewedIntent(reviewWorkspace);
     const reviewStep = reviewedIntentStep(reviewWorkspace, {
       branch: "intent/gate-snapshot",
       maxCycles: 0,
       ...gateCommands,
     });
-    const debateCwd = mkdtempSync(join(tmpdir(), "review-debate-gate-snapshot-"));
+    const debateCwd = trackedMkdtempSync(join(tmpdir(), "review-debate-gate-snapshot-"));
     const reviewDebateStep = {
       ...createPatchReviewDebateStep({
         branchName: "implement/gate-snapshot",

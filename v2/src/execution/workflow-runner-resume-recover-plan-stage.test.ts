@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { openStateStore } from "../persistence/state-store.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
@@ -41,7 +42,7 @@ describe("recoverPlanStage", () => {
   }
 
   function noGitPlanWorktree(prefix: string): string {
-    return mkdtempSync(join(tmpdir(), prefix));
+    return trackedMkdtempSync(join(tmpdir(), prefix));
   }
 
   function planWriteStep(args: {
@@ -146,7 +147,7 @@ describe("recoverPlanStage", () => {
   }
 
   function seedSourceReadyIntent(prefix: string): { sourceRoot: string; path: string } {
-    const sourceRoot = mkdtempSync(join(tmpdir(), prefix));
+    const sourceRoot = trackedMkdtempSync(join(tmpdir(), prefix));
     mkdirSync(join(sourceRoot, "ready-intents"), { recursive: true });
     const path = join(sourceRoot, "ready-intents", "test.md");
     writeFileSync(path, "---\nname: test\n---\n\n## Prerequisites\n", "utf8");

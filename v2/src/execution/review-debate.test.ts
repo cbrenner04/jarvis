@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { bindReviewPromptProfile, implementReviewProfile } from "../../../shared/prompts/review-profile.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { executeReviewDebate, type ReviewDebateInput } from "./review-debate.ts";
 
 function okBinding(id: string, stdout: string, calls: string[]): InvocationBinding {
@@ -54,7 +55,7 @@ function baseInput(opts: {
 describe("executeReviewDebate", () => {
   test("runs full debate order per cycle", async () => {
     const calls: string[] = [];
-    const verdictPath = join(mkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md");
+    const verdictPath = join(trackedMkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md");
     const result = await executeReviewDebate(
       baseInput({ calls, verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 1 }),
     );
@@ -66,7 +67,7 @@ describe("executeReviewDebate", () => {
   });
 
   test("creates a missing verdict parent before writing", async () => {
-    const verdictPath = join(mkdtempSync(join(tmpdir(), "review-debate-")), "missing", "verdict.md");
+    const verdictPath = join(trackedMkdtempSync(join(tmpdir(), "review-debate-")), "missing", "verdict.md");
     await executeReviewDebate(
       baseInput({ calls: [], verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 1 }),
     );
@@ -77,7 +78,7 @@ describe("executeReviewDebate", () => {
   test("invokes onMutatingCycleComplete for each mutating cycle", async () => {
     const calls: string[] = [];
     const completed: Array<{ pass: number; agent: string | undefined }> = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     let cycleIndex = 0;
     const adjudicatorInvoke = async () => {
@@ -104,7 +105,7 @@ describe("executeReviewDebate", () => {
 
   test("overwrites verdict file each cycle", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     let cycleIndex = 0;
     const adjudicatorInvoke = async () => {
@@ -126,7 +127,7 @@ describe("executeReviewDebate", () => {
 
   test("empty verdict skips the actuator and stops the loop", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "   ", maxCycles: 3 });
 
@@ -140,7 +141,7 @@ describe("executeReviewDebate", () => {
 
   test("non-empty verdict invokes the actuator", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "fix the bug", maxCycles: 1 });
 
@@ -153,7 +154,7 @@ describe("executeReviewDebate", () => {
 
   test("stops after maxCycles", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "fix it", maxCycles: 3 });
 
@@ -166,7 +167,7 @@ describe("executeReviewDebate", () => {
 
   test("maxCycles <= 0 runs zero cycles", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "fix it", maxCycles: 0 });
 
@@ -180,7 +181,7 @@ describe("executeReviewDebate", () => {
 
   test("early empty verdict stops before maxCycles", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     let cycleIndex = 0;
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "unused", maxCycles: 4 });
@@ -206,7 +207,7 @@ describe("executeReviewDebate", () => {
 
   test("a role's final:null aborts the cycle immediately as a failure outcome", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "fix it", maxCycles: 2 });
     // no bindings configured for advocate: executeWithQuotaFallback resolves final: null
@@ -226,7 +227,7 @@ describe("executeReviewDebate", () => {
 
   test("a quota-exhausted role also aborts the cycle as a failure outcome", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "fix it", maxCycles: 1 });
     input.bindings.adjudicator = [quotaBinding("adjudicator.1", calls)];
@@ -240,7 +241,7 @@ describe("executeReviewDebate", () => {
 
   test("onRoleStart fires with each role in order, across a second cycle", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "fix it", maxCycles: 2 });
     const roleStarts: string[] = [];
@@ -264,7 +265,7 @@ describe("executeReviewDebate", () => {
 
   test("emits one invocation_completed row per binding subprocess with role set to the debate role", async () => {
     const calls: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "review-debate-"));
     const verdictPath = join(dir, "verdict.md");
     const rows: InvocationCompletedRecord[] = [];
 
@@ -319,7 +320,7 @@ test("a hung adversary is aborted at the role wall clock", async () => {
   const result = await executeReviewDebate({
     ...baseInput({
       calls,
-      verdictPath: join(mkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md"),
       adjudicatorVerdict: "verdict",
       maxCycles: 1,
       overrides: { adversary: [hung] },
@@ -342,7 +343,7 @@ test("a hung adversary is aborted at the role wall clock", async () => {
 test("stamps pass metadata onto serializable object profile contexts", async () => {
   const contexts: unknown[] = [];
   const calls: string[] = [];
-  const verdictPath = join(mkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md");
+  const verdictPath = join(trackedMkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md");
   const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 2 });
   const result = await executeReviewDebate({
     ...input,

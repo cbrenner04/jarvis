@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "./workflow-runner.test-support.ts";
 import { reconstructPausedWriteResumeInput } from "./workflow-runner-resume.ts";
 
 describe("reconstructPausedWriteResumeInput", () => {
   test("threads specReadRoot and absolute expectedArtifactPath for a paused external implement~link-N row", async () => {
-    const specReadRoot = mkdtempSync(join(tmpdir(), "paused-linked-external-spec-"));
+    const specReadRoot = trackedMkdtempSync(join(tmpdir(), "paused-linked-external-spec-"));
     const indexPath = join(specReadRoot, "index.md");
     const firstSubspecPath = join(specReadRoot, "00-work.md");
     writeFileSync(indexPath, "- [ ] [Work](./00-work.md)\n- [ ] [More](./01-more.md)\n", "utf8");
@@ -17,7 +18,7 @@ describe("reconstructPausedWriteResumeInput", () => {
     const resolvedSpecReadRoot = realpathSync(specReadRoot);
     const resolvedIndexPath = realpathSync(indexPath);
     const resolvedFirstSubspecPath = realpathSync(firstSubspecPath);
-    const worktreePath = mkdtempSync(join(tmpdir(), "paused-linked-external-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "paused-linked-external-worktree-"));
 
     await withStateStore(async (store) => {
       const snapshot = {
@@ -61,7 +62,7 @@ describe("reconstructPausedWriteResumeInput", () => {
   });
 
   test("threads worktree-relative expectedArtifactPath without specReadRoot for a paused in-repo implement~link-N row", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "paused-linked-in-repo-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "paused-linked-in-repo-"));
     writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
     writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
     writeFileSync(join(worktreePath, "two.md"), "# Two\n\n## Acceptance criteria\n\n- [ ] Two\n", "utf8");

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
@@ -176,7 +177,7 @@ describe("successor-step-idle-watchdog workflow integration", () => {
 
   test("successor shell stall settles invocation failure atomically", async () => {
     mock.module("./review-cycle.ts", () => ({ executeReviewCycle: () => new Promise(() => {}) }));
-    const workspace = mkdtempSync(join(tmpdir(), "successor-shell-atomic-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "successor-shell-atomic-"));
     stageReviewedIntent(workspace);
     const logSink = new TestLogSink();
 
@@ -204,19 +205,19 @@ describe("successor-step-idle-watchdog workflow integration", () => {
 
   test("a silent durable review settles within the idle budget after iteration_started", async () => {
     mock.module("./review-cycle.ts", () => ({ executeReviewCycle: () => new Promise(() => {}) }));
-    const workspace = mkdtempSync(join(tmpdir(), "successor-shell-review-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "successor-shell-review-"));
     stageReviewedIntent(workspace);
     await assertSilentSuccessorSettles(createDurableReviewStep(workspace));
   });
 
   test("a silent review-debate successor settles within the idle budget after iteration_started", async () => {
     mock.module("./review-debate.ts", () => ({ executeReviewDebate: () => new Promise(() => {}) }));
-    const workspace = mkdtempSync(join(tmpdir(), "successor-shell-debate-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "successor-shell-debate-"));
     await assertSilentSuccessorSettles(createReviewDebateStep(workspace));
   });
 
   test("a silent actuator-only review-debate retry settles within the idle budget after iteration_started", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "successor-shell-actuator-retry-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "successor-shell-actuator-retry-"));
     const branch = "implement/shell-stall-actuator-retry";
     const verdictPath = join(workspace, "verdict-patch.md");
     writeFileSync(verdictPath, "apply this fix\n", "utf8");
@@ -273,7 +274,7 @@ describe("successor-step-idle-watchdog workflow integration", () => {
 
   test("pinning: shell idle arming settles a silent durable review within the idle budget", async () => {
     mock.module("./review-cycle.ts", () => ({ executeReviewCycle: () => new Promise(() => {}) }));
-    const workspace = mkdtempSync(join(tmpdir(), "successor-shell-pin-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "successor-shell-pin-"));
     stageReviewedIntent(workspace);
 
     await withStateStore(async (store) => {
@@ -285,7 +286,7 @@ describe("successor-step-idle-watchdog workflow integration", () => {
 
   test("idleOutputMs 0 disables shell idle arming for a silent durable review", async () => {
     mock.module("./review-cycle.ts", () => ({ executeReviewCycle: () => new Promise(() => {}) }));
-    const workspace = mkdtempSync(join(tmpdir(), "successor-shell-disabled-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "successor-shell-disabled-"));
     stageReviewedIntent(workspace);
 
     await withStateStore(async (store) => {

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "./workflow-runner.test-support.ts";
 import { reconstructLinkedWorkflowResumeSteps } from "./workflow-runner-resume.ts";
@@ -14,7 +15,7 @@ function writeTwoLinkIndexFixture(worktreePath: string): void {
 
 describe("reconstructLinkedWorkflowResumeSteps", () => {
   test("rebuilds the outer implement step plus a review-debate step from a failed link-0 row", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-debate-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-debate-"));
     writeTwoLinkIndexFixture(worktreePath);
 
     await withStateStore(async (store) => {
@@ -96,7 +97,7 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
   });
 
   test("rebuilds a light review step when the snapshot recorded reviewBehavior light", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-light-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-light-"));
     writeTwoLinkIndexFixture(worktreePath);
 
     await withStateStore(async (store) => {
@@ -142,8 +143,8 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
   });
 
   test("carries specReadRoot into the rebuilt review step's profileContext only when the write step is an admitted external plan", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-external-plan-wt-"));
-    const specReadRoot = mkdtempSync(join(tmpdir(), "linked-workflow-resume-external-plan-root-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-external-plan-wt-"));
+    const specReadRoot = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-external-plan-root-"));
     writeTwoLinkIndexFixture(specReadRoot);
     const specPath = join(specReadRoot, "index.md");
 
@@ -191,7 +192,7 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
   });
 
   test("omits specReadRoot from the rebuilt review step's profileContext when the write step is not an external plan", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-non-external-plan-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-non-external-plan-"));
     writeTwoLinkIndexFixture(worktreePath);
 
     await withStateStore(async (store) => {
@@ -236,7 +237,7 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
   });
 
   test("carries fixCommand/readyCommand from the review snapshot step into the rebuilt review step", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-fix-ready-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-fix-ready-"));
     writeTwoLinkIndexFixture(worktreePath);
 
     await withStateStore(async (store) => {
@@ -287,7 +288,7 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
   });
 
   test("omits fixCommand/readyCommand from the rebuilt review step when the review snapshot step has none", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-no-fix-ready-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-no-fix-ready-"));
     writeTwoLinkIndexFixture(worktreePath);
 
     await withStateStore(async (store) => {
@@ -332,7 +333,7 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
   });
 
   test("omits the review step when the workflow has no review/review-debate step in its snapshot", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-no-review-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-no-review-"));
     writeTwoLinkIndexFixture(worktreePath);
 
     await withStateStore(async (store) => {
@@ -371,7 +372,7 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
   });
 
   test("refuses with the same reason a malformed pinned link index gives reconstructPausedWriteResumeInput", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-workflow-resume-malformed-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-workflow-resume-malformed-"));
     // Only one linked entry (index 0) on disk, but the row pins link index 1.
     writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n", "utf8");
     writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");

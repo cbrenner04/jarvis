@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -322,7 +323,7 @@ describe("executeWorkflow implement patch light review", () => {
       implementStep.worktree.branchName,
     );
     const reviewStep = createPassingLightReviewStep(implementStep.worktree.branchName, worktreePath);
-    const logsPath = join(mkdtempSync(join(tmpdir(), "workflow-redirect-wait-")), "logs.jsonl");
+    const logsPath = join(trackedMkdtempSync(join(tmpdir(), "workflow-redirect-wait-")), "logs.jsonl");
     const logSink = openLogSink(logsPath);
 
     await withStateStore(async (store) => {
@@ -646,7 +647,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       return;
     }
 
-    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-block-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-review-md-lint-block-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-block");
@@ -693,7 +694,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       return;
     }
 
-    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-reprompt-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-review-md-lint-reprompt-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-reprompt");
@@ -761,7 +762,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       return;
     }
 
-    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-exhaust-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-review-md-lint-exhaust-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust");
@@ -816,7 +817,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       return;
     }
 
-    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-exhaust-recover-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-review-md-lint-exhaust-recover-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust-recover");
@@ -869,7 +870,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       return;
     }
 
-    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-checkpoint-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-review-md-lint-checkpoint-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint");
@@ -922,7 +923,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       return;
     }
 
-    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-checkpoint-reprompt-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "workflow-review-md-lint-checkpoint-reprompt-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint-reprompt");
@@ -1001,7 +1002,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       return;
     }
 
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-md-lint-exhaust-admit-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-md-lint-exhaust-admit-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Violation);
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -1088,7 +1089,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
   });
 
   test("intent publication resume re-lints staged Markdown and settles landing_failed on violation", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-md-lint-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-md-lint-"));
     const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Violation);
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"));
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });

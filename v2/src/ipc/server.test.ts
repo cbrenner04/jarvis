@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "./client.ts";
 import {
   DaemonSocketBindFailureError,
@@ -40,7 +41,7 @@ function probingSequence(...details: SocketProbeDetail[]) {
 }
 
 test("removeStaleSocketPath refuses to unlink a path a live daemon is serving", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -53,7 +54,7 @@ test("removeStaleSocketPath refuses to unlink a path a live daemon is serving", 
 });
 
 test("removeStaleSocketPath unlinks a stale path left by a dead daemon", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -68,7 +69,7 @@ test("removeStaleSocketPath unlinks a stale path left by a dead daemon", async (
 // classifies as `absent`. Removing on that false negative is what strands the running daemon, so
 // `absent` must leave the path alone — there is by definition nothing there to remove.
 test("removeStaleSocketPath leaves the path alone when the probe reports absent", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -80,7 +81,7 @@ test("removeStaleSocketPath leaves the path alone when the probe reports absent"
 });
 
 test("removeStaleSocketPath proceeds when nothing is at the path", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
   const path = join(dir, "daemon.sock");
   try {
     await removeStaleSocketPath(path, probing("absent"));
@@ -108,7 +109,7 @@ test("DaemonSocketBindFailureError and bind-failure log marker round-trip", () =
 });
 
 test("probeSocketLiveness reports a missing path absent without consulting the filesystem", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-probe-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-probe-"));
   try {
     expect(await probeSocketLiveness(join(dir, "nobody-here.sock"))).toBe("absent");
   } finally {
@@ -119,7 +120,7 @@ test("probeSocketLiveness reports a missing path absent without consulting the f
 // The initial probe reports `absent` (nothing accepting), so nothing is removed before `listen`.
 // `listen` then proves the path is occupied, and only the post-bind `stale` reprobe reclaims it.
 test("startIpcServer reclaims a socket file with no listener bound", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -140,7 +141,7 @@ test("startIpcServer reclaims a socket file with no listener bound", async () =>
 // more before unlinking. If a daemon came up in that window the removal is refused rather than
 // unlinking a socket now being served — the pre-bind path must not be skipped for a non-live verdict.
 test("startIpcServer refuses when a peer appears before the stale path is removed", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -157,7 +158,7 @@ test("startIpcServer refuses when a peer appears before the stale path is remove
 // live daemon that was merely slow. It must refuse, never bind over the incumbent — this is the
 // outage case the extended reprobe exists to distinguish, so `!peerConnected` must stay negated.
 test("startIpcServer refuses when the extended reprobe finds an answering peer", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -174,7 +175,7 @@ test("startIpcServer refuses when the extended reprobe finds an answering peer",
 // refuse and let `listen` adjudicate; deleting the extended-reprobe branch turns the first `live`
 // into a `DaemonSocketInUseError` and fails this test.
 test("startIpcServer proceeds to listen when both probes time out with no accepting peer", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -194,7 +195,7 @@ test("startIpcServer proceeds to listen when both probes time out with no accept
 // A first probe that times out but whose longer reprobe resolves `stale` is removed on the ordinary
 // pre-bind path — machine load must not convert a dead socket into an unrecoverable one.
 test("startIpcServer removes a stale path revealed by the extended reprobe", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -214,7 +215,7 @@ test("startIpcServer removes a stale path revealed by the extended reprobe", asy
 // The outage guard. A sandboxed caller gets ENOENT (`absent`) for a socket a live daemon is
 // serving, so `absent` must never authorize an unlink even when `listen` reports EADDRINUSE.
 test("startIpcServer refuses reclaim on EADDRINUSE when reprobe returns absent", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -228,7 +229,7 @@ test("startIpcServer refuses reclaim on EADDRINUSE when reprobe returns absent",
 });
 
 test("startIpcServer propagates first-attempt listen errors that never ran occupancy reclaim", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-bind-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-bind-"));
   chmodSync(dir, 0o500);
   const path = join(dir, "daemon.sock");
   try {
@@ -241,7 +242,7 @@ test("startIpcServer propagates first-attempt listen errors that never ran occup
 
 // A peer that actually answered is live regardless of occupancy: no extended reprobe, no reclaim.
 test("startIpcServer refuses immediately when a peer answers the probe", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   writeFileSync(path, "");
   try {
@@ -257,7 +258,7 @@ test("startIpcServer refuses immediately when a peer answers the probe", async (
 // The daemon's own full shutdown may close a server a changeover handler already closed; a second
 // call must not re-invoke Node's already-stopped `server.close()` or re-run the unlink race below.
 test("close is idempotent", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-idempotent-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-idempotent-"));
   const path = join(dir, "daemon.sock");
   try {
     const server = await startIpcServer(path);
@@ -270,7 +271,7 @@ test("close is idempotent", async () => {
 });
 
 test("startIpcServer refuses to unlink a live peer socket", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");
   try {
     const incumbent = await startIpcServer(path, {
@@ -288,7 +289,7 @@ test("startIpcServer refuses to unlink a live peer socket", async () => {
 });
 
 test("a handler that throws synchronously answers internal_error and keeps the connection open", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-throw-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-throw-"));
   const path = join(dir, "daemon.sock");
   try {
     const server = await startIpcServer(path, {
@@ -322,7 +323,7 @@ test("a handler that throws synchronously answers internal_error and keeps the c
 });
 
 test("a malformed frame still closes the connection", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-malformed-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-sock-malformed-"));
   const path = join(dir, "daemon.sock");
   try {
     const server = await startIpcServer(path, {

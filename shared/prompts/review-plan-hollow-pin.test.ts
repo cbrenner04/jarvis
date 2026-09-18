@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import {
   buildPlanReviewPassContext,
   renderPlanReviewActuatorPrompt,
@@ -9,7 +10,7 @@ import {
 } from "./review-plan.ts";
 
 function specDirWithIntent(): string {
-  const dir = mkdtempSync(join(tmpdir(), "plan-review-hollow-pin-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "plan-review-hollow-pin-"));
   writeFileSync(join(dir, "intent.md"), "# Intent\n", "utf8");
   return dir;
 }

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { trackedMkdtempSync } from "../../shared/tracked-temp-dir.test-support.ts";
 import { runEntrypoint } from "./cli.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import { canUseUnixSockets } from "./testing/unix-socket.ts";
@@ -36,7 +37,7 @@ function seededPipelines(count: number, nameBytes: number) {
 }
 
 function freshHome(): string {
-  const home = mkdtempSync(join(tmpdir(), "jcf-"));
+  const home = trackedMkdtempSync(join(tmpdir(), "jcf-"));
   homes.push(home);
   return home;
 }

@@ -1,13 +1,14 @@
 // Exercises the real markdownlint-cli2 binary via the intent-landing path's default runner.
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { landIntentWorkflowOutput } from "./intent-output.ts";
 
 function createRepo(): string {
-  const repo = mkdtempSync(join(tmpdir(), "jarvis-intent-output-"));
+  const repo = trackedMkdtempSync(join(tmpdir(), "jarvis-intent-output-"));
   execFileSync("git", ["init", "-q"], { cwd: repo });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: repo });

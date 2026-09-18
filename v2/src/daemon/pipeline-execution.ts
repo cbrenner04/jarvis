@@ -2136,7 +2136,12 @@ async function advanceFanOutStageResolution(
   }
 }
 
-/** Walk every admitted fan-out branch; report whether the caller's own branch failed. */
+/**
+ * Walk every admitted fan-out branch; report whether the caller's own branch failed. A lane whose
+ * snapshot row is already `succeeded` retries `reopenProvisionalSkippedStages` before skipping it, so
+ * a reopen lost to a crash between a prior pass's success write and its own reopen call — or a success
+ * written by any other path — self-heals on this pass instead of staying stranded forever.
+ */
 async function advanceFanOutBranches(
   args: AdvanceWorkflowStageArgs,
   opts: {
@@ -2159,7 +2164,13 @@ async function advanceFanOutBranches(
 
   for (const targetBranchKey of opts.branchKeys) {
     const targetRecord = findStageRecord(opts.loadedStages, stage.stageId, targetBranchKey);
-    if (targetRecord?.status === "succeeded") continue;
+    if (targetRecord?.status === "succeeded") {
+      // A crash between a prior pass's success write and its reopen call (or a success written by
+      // some other path) must not strand the successor: retry the reopen on every pass that observes
+      // this row already `succeeded`, not only the pass that settles it.
+      store.reopenProvisionalSkippedStages({ pipelineId, branchKey: targetBranchKey });
+      continue;
+    }
     const binding = fanOutPlanResultForBranch(opts.downstreamInputs, opts.results, targetBranchKey);
     if (!binding.ok) {
       bindingFailures.push({ targetBranchKey, error: binding.error });
@@ -2296,13 +2307,19 @@ async function runFanOutBranchAction(
 /**
  * Record one settled fan-out branch and report whether it failed. A branch still `running` against a
  * live entry run is left alone — its own settlement owns the terminal write — so later stages are not
- * skipped out from under it.
+ * skipped out from under it. The `succeeded` arm mutates: it reopens any provisional skips left on this
+ * branch's suffix, so a successor skipped by an earlier non-`succeeded` settlement of this same stage
+ * isn't stranded. `advanceFanOutBranches` repeats this same reopen call on every later pass that
+ * observes the row already `succeeded`, so a reopen lost to a crash right after this write still lands.
+ * Reopened rows dispatch only on the execution loop's next pass.
  */
 function settleFanOutBranch(args: AdvanceWorkflowStageArgs, targetBranchKey: string): boolean {
   const { pipelineId, stage, index, stageArtifacts, store } = args;
   const settledRecord = findStageRecord(store.loadPipeline(pipelineId)?.stages ?? [], stage.stageId, targetBranchKey);
   if (settledRecord?.status === "succeeded") {
     carryForwardArtifact(stageArtifacts, stage.stageId, targetBranchKey, settledRecord.artifact);
+    // `pipeline_not_found` is unreachable: settledRecord was just loaded from this same pipeline.
+    store.reopenProvisionalSkippedStages({ pipelineId, branchKey: targetBranchKey });
     return false;
   }
   if (settledRecord?.status === "running" && settlementLinkedEntryRunId(store, settledRecord) !== undefined) {

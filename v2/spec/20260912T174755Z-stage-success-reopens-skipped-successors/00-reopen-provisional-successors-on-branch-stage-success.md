@@ -19,22 +19,22 @@
 
 ## Task checklist
 
-- [ ] Call `store.reopenProvisionalSkippedStages({ pipelineId, branchKey: targetBranchKey })` on the `succeeded` arm of `settleFanOutBranch`; update its doc comment to note the arm now mutates.
-- [ ] Add the pipeline test below.
-- [ ] Update `v2/docs/pipeline-execution.md` and `v2/docs/v1-behaviors.md`.
+- [x] Call `store.reopenProvisionalSkippedStages({ pipelineId, branchKey: targetBranchKey })` on the `succeeded` arm of `settleFanOutBranch`; update its doc comment to note the arm now mutates.
+- [x] Add the pipeline test below.
+- [x] Update `v2/docs/pipeline-execution.md` and `v2/docs/v1-behaviors.md`.
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/pipeline-execution.test.ts` drives `settleFanOutBranch`'s existing non-`succeeded` fallthrough (e.g. a `running` branch stage settling with no live linked entry run) so its successor is skipped with `skipProvenance: "provisional"` and no `failed` row is ever written on the branch — not by hand-seeding a `skipped` row. It then re-drives that stage to `succeeded` and asserts the successor row is `pending` with `skipProvenance` cleared; it fails against the pre-fix code, where the successor stays `skipped`. Reachability on the pre-fix base: with no `failed` row on the branch, both `pipeline resume` and `pipeline recover` refuse `no_failed_stage`, so no operator verb can free the successor.
-- [ ] The same scenario, run through one further execution-loop pass, asserts the reopened successor dispatches; the settling pass's own in-flight `advanceFanOutBranches` call (holding the pre-reopen `opts.loadedStages`) does not dispatch it early.
-- [ ] The same scenario asserts the branch's stage rows at or before the settled stage's position are unchanged by the reopen.
-- [ ] `state-store.test.ts`'s "reopens only provisional skips on the default branch and clears lifecycle fields without a failed anchor" test stays green (terminal-skip and legacy-null-provenance exclusion for `reopenProvisionalSkippedStages` is already pinned at the store layer; not re-proved here against `pipeline-execution.test.ts`'s fake store).
-- [ ] `state-store.test.ts`'s "provisional skip reopen is branch-scoped and leaves a failed row unchanged" test stays green (branch scoping for `reopenProvisionalSkippedStages` is already pinned at the store layer).
-- [ ] `v2/docs/pipeline-execution.md` documents that a branch stage settling `succeeded` reopens that branch's provisional skips to `pending`, leaves terminal skips, sibling branches, and pre-`skip_provenance`-column legacy skips untouched, dispatches only on the loop's next pass, and needs no operator verb.
-- [ ] `v2/docs/v1-behaviors.md` records the execution-layer change: a fan-out branch suffix skip — including one written with no `failed` row ever appearing on the branch — is no longer terminal-by-default, distinct from the existing store-level `StateStore.reopenProvisionalSkippedStages` entry.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A test in `v2/src/daemon/pipeline-execution.test.ts` drives `settleFanOutBranch`'s existing non-`succeeded` fallthrough (e.g. a `running` branch stage settling with no live linked entry run) so its successor is skipped with `skipProvenance: "provisional"` and no `failed` row is ever written on the branch — not by hand-seeding a `skipped` row. It then re-drives that stage to `succeeded` and asserts the successor row is `pending` with `skipProvenance` cleared; it fails against the pre-fix code, where the successor stays `skipped`. Reachability on the pre-fix base: with no `failed` row on the branch, both `pipeline resume` and `pipeline recover` refuse `no_failed_stage`, so no operator verb can free the successor.
+- [x] The same scenario, run through one further execution-loop pass, asserts the reopened successor dispatches; the settling pass's own in-flight `advanceFanOutBranches` call (holding the pre-reopen `opts.loadedStages`) does not dispatch it early.
+- [x] The same scenario asserts the branch's stage rows at or before the settled stage's position are unchanged by the reopen.
+- [x] `state-store.test.ts`'s "reopens only provisional skips on the default branch and clears lifecycle fields without a failed anchor" test stays green (terminal-skip and legacy-null-provenance exclusion for `reopenProvisionalSkippedStages` is already pinned at the store layer; not re-proved here against `pipeline-execution.test.ts`'s fake store).
+- [x] `state-store.test.ts`'s "provisional skip reopen is branch-scoped and leaves a failed row unchanged" test stays green (branch scoping for `reopenProvisionalSkippedStages` is already pinned at the store layer).
+- [x] `v2/docs/pipeline-execution.md` documents that a branch stage settling `succeeded` reopens that branch's provisional skips to `pending`, leaves terminal skips, sibling branches, and pre-`skip_provenance`-column legacy skips untouched, dispatches only on the loop's next pass, and needs no operator verb.
+- [x] `v2/docs/v1-behaviors.md` records the execution-layer change: a fan-out branch suffix skip — including one written with no `failed` row ever appearing on the branch — is no longer terminal-by-default, distinct from the existing store-level `StateStore.reopenProvisionalSkippedStages` entry.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

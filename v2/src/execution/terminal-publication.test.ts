@@ -394,3 +394,27 @@ describe("executeTerminalPublication", () => {
     expect(deleteCalls).toHaveLength(0);
   });
 });
+
+describe("executeTerminalPublication production ready gate", () => {
+  it("runs the real ready gate for a ready action when no runReadyGate seam is injected", async () => {
+    const runnerCalls: string[] = [];
+    const flipCalls: Array<number | undefined> = [];
+    const execute = createExecuteTerminalPublication({
+      asyncSubprocessRunner: {
+        runAsync: async (cmd, args) => {
+          runnerCalls.push(`${cmd} ${args.join(" ")}`);
+          return "";
+        },
+      },
+      gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+      ghReadyFlip: async (prNumber) => {
+        flipCalls.push(prNumber);
+      },
+    });
+
+    await execute({ ...baseInput, terminalAction: "ready" });
+
+    expect(runnerCalls).toContain("bun run ready");
+    expect(flipCalls).toEqual([42]);
+  });
+});

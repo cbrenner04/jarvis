@@ -1,8 +1,18 @@
-import { networkSubprocessOptions, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  type AsyncSubprocessRunner,
+  networkSubprocessOptions,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { OpenPrNotDraftError, resolveOpenDraftPr } from "./completion-publisher.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
-import { type GhReadyFlip, type GhReadyFlipByNumber, type ReadyGate, ReadyGateError } from "./ready-finalize.ts";
+import {
+  createDefaultRunReadyGate,
+  type GhReadyFlip,
+  type GhReadyFlipByNumber,
+  type ReadyGate,
+  ReadyGateError,
+} from "./ready-finalize.ts";
 
 /** Raw `gh` command runner used for pre-flip open-draft resolution (`gh pr list` / `gh pr view`). */
 type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
@@ -37,6 +47,8 @@ export class TerminalPublicationError extends Error {
 
 type TerminalPublicationSeams = {
   runReadyGate?: ReadyGate;
+  /** Runner backing the default ready gate when `runReadyGate` is not injected. */
+  asyncSubprocessRunner?: AsyncSubprocessRunner;
   /** Raw `gh` command runner for the pre-flip open-draft re-resolution; independent of `ghReadyFlip`. */
   gh?: GhCommand;
   ghReadyFlip?: GhReadyFlipByNumber;
@@ -266,15 +278,13 @@ async function defaultGhCommand(cwd: string, args: readonly string[], signal?: A
   return (await realAsyncSubprocessRunner.runAsync("gh", [...args], cwd, networkSubprocessOptions({ signal }))).trim();
 }
 
-async function defaultRunReadyGate(): Promise<void> {
-  throw new Error("runReadyGate seam is required for ready and merge terminal actions");
-}
-
 const noopGh: GhReadyFlip = async () => {};
 
 export function createExecuteTerminalPublication(seams?: TerminalPublicationSeams) {
+  const runReadyGate =
+    seams?.runReadyGate ?? createDefaultRunReadyGate(seams?.asyncSubprocessRunner ?? realAsyncSubprocessRunner);
   const depsFor = (signal: AbortSignal | undefined): PublicationDeps => ({
-    runReadyGate: seams?.runReadyGate ?? defaultRunReadyGate,
+    runReadyGate,
     gh: seams?.gh ?? ((cwd, args) => defaultGhCommand(cwd, args, signal)),
     ghReadyFlip:
       seams?.ghReadyFlip ?? ((prNumber, worktreePath) => defaultGhReadyFlipByNumber(prNumber, worktreePath, signal)),

@@ -905,6 +905,40 @@ describe("daemon handoff changeover (real sockets)", () => {
     45_000,
   );
 
+  for (const settle of ["committed watch", "rollback"] as const) {
+    socketTest(`a ${settle} rebind admits work the new listener serves before its bind resolves`, async () => {
+      // Bun serves connections before `listen` resolves; admission must already be open by then.
+      let publicBinds = 0;
+      let startDuringBind: string | undefined;
+      const incumbent = await startIncumbent(`admit-during-rebind-${settle === "rollback" ? "rb" : "cw"}`, {
+        fallbackMs: settle === "rollback" ? 60_000 : 100,
+        bind: async (path, handlers) => {
+          const server = await startIpcServer(path, handlers);
+          if (path.endsWith("daemon.sock")) {
+            publicBinds += 1;
+            if (publicBinds === 2) {
+              const frame = await request(path, "start", {
+                input: mockWriteLoopInput({ projectName: "during-rebind", branchName: "during-rebind-branch" }),
+              });
+              startDuringBind = frame.kind === "response" ? "admitted" : JSON.stringify(frame);
+            }
+          }
+          return server;
+        },
+      });
+      try {
+        await startWork(incumbent.publicSocketPath, "active-through-admit-during-rebind");
+        const handoffId = await beginChangeover(incumbent);
+        const method = settle === "rollback" ? "handoff_rollback" : "handoff_commit";
+        await request(incumbent.privateSocketPath, method, { handoffId });
+        expect(await pollUntil(() => startDuringBind !== undefined)).toBe(true);
+        expect(startDuringBind).toBe("admitted");
+      } finally {
+        await incumbent.close();
+      }
+    });
+  }
+
   socketTest(
     "a committed handoff watch retries a rebind bind failure and eventually rebinds",
     async () => {

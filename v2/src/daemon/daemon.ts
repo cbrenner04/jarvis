@@ -881,7 +881,7 @@ type HandoffTransaction = {
 type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
 
 type HandoffHandlersDeps = ChangeoverHandlerDeps & {
-  /** Reopens admission only after the public listener has rebound; skipped when superseded. */
+  /** Reopens admission just before the public listener rebinds (restored on failure); skipped when superseded. */
   setAdmitting: () => void;
   /** True once this generation has been superseded (via `supersede` or `changeover`), before or
    * during the pending handoff — rollback must not reopen admission for it. */
@@ -996,9 +996,13 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
       scheduleWatch(active, handoffId);
       return;
     }
+    // Bun serves connections before `listen` resolves, so admission opens before the rebind;
+    // a failed rebind restores retiring.
+    deps.setAdmitting();
     try {
       await deps.bindPublicServer();
     } catch {
+      deps.setRetiring();
       if (transaction === active && isHandoffStillPending(transaction.id, transaction.state, handoffId, "committed")) {
         scheduleWatch(active, handoffId);
       }
@@ -1006,7 +1010,6 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }
     active.state = "rolled_back";
     console.error(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback"));
-    deps.setAdmitting();
   };
 
   const rollback = (active: HandoffTransaction): Promise<RpcHandlerResult> => {
@@ -1015,16 +1018,19 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.rollbackPromise !== undefined) return active.rollbackPromise;
     const rollbackPromise = (async (): Promise<RpcHandlerResult> => {
       await active.releasePromise;
+      // Opened before the rebind for the same reason as `tickWatch`; restored on failure.
+      const reopen = !deps.wasSuperseded();
+      if (reopen) deps.setAdmitting();
       try {
         await deps.bindPublicServer();
       } catch (error) {
+        if (reopen) deps.setRetiring();
         delete active.rollbackPromise;
         const message = error instanceof Error ? error.message : String(error);
         return { kind: "error", code: "handoff_rollback_failed", message };
       }
       active.state = "rolled_back";
       clearFallback(active);
-      if (!deps.wasSuperseded()) deps.setAdmitting();
       return handoffResponse("rolled_back");
     })();
     active.rollbackPromise = rollbackPromise;

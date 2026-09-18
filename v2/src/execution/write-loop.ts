@@ -3904,6 +3904,9 @@ export async function runBuiltInReadyGateAutofixBiome(
       { timeoutMs: opts.timeoutMs, env: process.env },
     );
   } catch (err) {
+    if (err instanceof AsyncSubprocessError && typeof err.status === "number") {
+      return;
+    }
     if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
       throw new FixCommandError(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
     }

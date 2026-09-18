@@ -11364,6 +11364,47 @@ index 1234567..abcdefg 100644
         expect(
           events.some((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused"),
         ).toBe(false);
+        expect(store.loadRun(result.runId)?.gateRefusalRecoveryState).toBeNull();
+      } finally {
+        otherLane?.release();
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("slot-contention gate refusal persists its cause and gate command onto the run row", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "slot-refused-recovery-state";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+      const otherLane = acquireGateInvocationLease();
+      expect(otherLane).toBeDefined();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "slot-refused-recovery-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.(gateCommand);
+          return settled;
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { logSink: sink }));
+
+        expect(result).toMatchObject({ kind: "gate_invocation_refused", gateRefusalCause: "slot_contention" });
+        expect(store.loadRun(result.runId)?.gateRefusalRecoveryState).toEqual({
+          cause: "slot_contention",
+          gateCommand,
+          slotRedriveCount: 0,
+        });
+        const finished = sink
+          .getEventsForRun(result.runId)
+          .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused");
+        expect(finished).toMatchObject({ gateCommand, gateRefusalCause: "slot_contention", slotRedriveCount: 0 });
       } finally {
         otherLane?.release();
         store.close();
@@ -11402,6 +11443,108 @@ index 1234567..abcdefg 100644
         expect(gitIn(worktreePath, ["status", "--porcelain"])).toContain("ceiling-headroom-proof.txt");
         const events = sink.getEventsForRun(result.runId);
         expect(events.some((event) => event.kind === "iteration_commit")).toBe(false);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("ceiling-headroom gate refusal persists its cause and gate command onto the run row", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "ceiling-headroom-recovery-state";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "ceiling-headroom-recovery-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.(gateCommand);
+          return settled;
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "gate_invocation_refused", gateRefusalCause: "ceiling_headroom" });
+        expect(store.loadRun(result.runId)?.gateRefusalRecoveryState).toEqual({
+          cause: "ceiling_headroom",
+          gateCommand,
+          slotRedriveCount: 0,
+        });
+        const finished = sink
+          .getEventsForRun(result.runId)
+          .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused");
+        expect(finished).toMatchObject({ gateCommand, gateRefusalCause: "ceiling_headroom", slotRedriveCount: 0 });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("gate refusal settlement preserves an existing slot re-drive count instead of resetting it", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "ceiling-headroom-redrive-preserved";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "ceiling-headroom-redrive-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.(gateCommand);
+          return settled;
+        },
+      }));
+
+      try {
+        const first = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+          }),
+        );
+        expect(first.kind).toBe("gate_invocation_refused");
+
+        // Simulates a slot re-drive count a future consumer has already bumped on this row.
+        store.commitTerminalRunSettlement({
+          runId: first.runId,
+          status: "failed",
+          terminalCause: "gate_invocation_refused",
+          gateRefusalRecoveryState: { cause: "ceiling_headroom", gateCommand, slotRedriveCount: 3 },
+        });
+
+        const second = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+          }),
+        );
+
+        expect(second.runId).toBe(first.runId);
+        expect(second.kind).toBe("gate_invocation_refused");
+        expect(store.loadRun(second.runId)?.gateRefusalRecoveryState).toEqual({
+          cause: "ceiling_headroom",
+          gateCommand,
+          slotRedriveCount: 3,
+        });
+        const finished = sink
+          .getEventsForRun(second.runId)
+          .filter((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused")
+          .at(-1);
+        expect(finished).toMatchObject({ slotRedriveCount: 3 });
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

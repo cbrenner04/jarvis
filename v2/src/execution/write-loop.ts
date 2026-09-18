@@ -2660,6 +2660,7 @@ async function finishGateInvocationRefused(
     );
     if (failure !== undefined) return failure;
   }
+  const slotRedriveCount = store.loadRun(runId)?.gateRefusalRecoveryState?.slotRedriveCount ?? 0;
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "failed",
@@ -2668,7 +2669,7 @@ async function finishGateInvocationRefused(
       "gate_invocation_refused",
       terminalFailureDetailFromError(undefined, "gate invocation refused"),
     ),
-    gateRefusalRecoveryState: { cause: gateRefusalCause, gateCommand, slotRedriveCount: 0 },
+    gateRefusalRecoveryState: { cause: gateRefusalCause, gateCommand, slotRedriveCount },
   });
   args.logSink?.append(runId, {
     kind: "boundary_committed",
@@ -2684,6 +2685,7 @@ async function finishGateInvocationRefused(
     resumable: true,
     gateCommand,
     gateRefusalCause,
+    slotRedriveCount,
   });
   return {
     ...loopResult,

@@ -4885,6 +4885,7 @@ describe("write loop", () => {
           completionAgent: "codex",
         });
         let invocations = 0;
+        const prompts: string[] = [];
 
         try {
           const publication = await publishWithReadyRepair(
@@ -4903,8 +4904,9 @@ describe("write loop", () => {
                 {
                   id: "sim.1",
                   metadata: { agent: "sim-agent-1", model: "sim-model-1" },
-                  invoke: async () => {
+                  invoke: async ({ prompt }) => {
                     invocations += 1;
+                    prompts.push(prompt);
                     return { kind: "ok", stdout: "done", stderr: "" } as const;
                   },
                 },
@@ -4933,6 +4935,10 @@ describe("write loop", () => {
 
           expect(publication.failure?.kind).toBe("ready_gate_failed");
           expect(invocations).toBeGreaterThan(0);
+          // A write.ready-repair reprompt renders the gate command/output into the prompt;
+          // a completion_commit_failed short-circuit before repair never invokes the binding.
+          expect(prompts[0]).toContain("Command: bun run ready");
+          expect(prompts[0]).toContain("lint still red");
         } finally {
           store.close();
         }

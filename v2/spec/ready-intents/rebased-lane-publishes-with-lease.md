@@ -4,7 +4,7 @@ name: rebased-lane-publishes-with-lease
 
 # A continued lane that was rebased publishes with a lease-forced push
 
-Unsplit rationale: the fix is one publication-push behavior in the completion publisher (plus threading the "this run rebased" fact and observed remote tip into its input), well under one reviewable PR.
+Unsplit rationale: the fix is one publication-push behavior in the completion publisher, self-contained — it resolves the rebased condition locally rather than threading an admission-time signal in — well under one reviewable PR.
 
 ## Primary implementation surface
 
@@ -16,9 +16,9 @@ Unsplit rationale: the fix is one publication-push behavior in the completion pu
 
 ## Decisions
 
-- The completion push uses `--force-with-lease=refs/heads/<branch>:<observed remote tip>` when, and only when, this run rebased the lane; rules out both a blanket force push and a lane that can never publish after a rebase.
+- Immediately before pushing, the publisher resolves the remote's current tip of `refs/heads/<branch>` (`git ls-remote origin`). If a tip exists and is not an ancestor of local `HEAD`, it pushes with `--force-with-lease=refs/heads/<branch>:<observed tip>`; this determines the rebased case locally, from git state, rather than requiring an admission-time flag to be threaded through the run — rules out both a blanket force push and a lane that can never publish after a rebase.
 - A lease rejection stays a permanent publication failure naming the branch and expected-versus-actual remote SHA; never escalates to `--force`.
-- A non-rebased lane keeps the current non-force push unchanged.
+- A lane with no remote tip, or whose remote tip is an ancestor of local `HEAD` (the ordinary, non-rebased case), keeps the current non-force push unchanged.
 
 ## Acceptance criteria
 
@@ -34,3 +34,5 @@ Unsplit rationale: the fix is one publication-push behavior in the completion pu
 - `v2/docs/v1-behaviors.md` — publication push behavior for rebased lanes.
 
 ## Prerequisites
+
+- None — the publisher determines the rebased condition locally from git ancestry at push time (`git ls-remote` plus a local ancestry check), so no admission-time "this run rebased" signal needs to already exist or be threaded in from the caller.

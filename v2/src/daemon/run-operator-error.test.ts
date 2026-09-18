@@ -1011,6 +1011,20 @@ test("composeRunOperatorError routes durable terminalCause invocation_failure th
   });
 });
 
+test("composeRunOperatorError defaults durable completion_commit_failed to resumable without a terminal log", () => {
+  const durable = (terminalCause: "completion_commit_failed" | "landing_failed") => ({
+    status: "failed" as RunStatus,
+    attempts: [],
+    terminalCause,
+  });
+  // Without a log the durable cause decides resumability: only completion_commit_failed defaults to
+  // resume; flipping the === guard would make it stop and make landing_failed resume.
+  expect(composeRunOperatorError(durable("completion_commit_failed"))).toEqual(
+    err("completion_commit_failed", "resume", true),
+  );
+  expect(composeRunOperatorError(durable("landing_failed"))).toEqual(err("landing_failed", "stop"));
+});
+
 test("composeRunOperatorError projects model_config message from durable terminalFailureDetail", () => {
   const run = {
     status: "failed" as RunStatus,

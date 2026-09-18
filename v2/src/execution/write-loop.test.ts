@@ -9,7 +9,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -31,6 +30,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
@@ -959,9 +959,9 @@ describe("buildSubspecCompletionInventory", () => {
   }
 
   test("buildSubspecCompletionInventory classifies linked subspecs when projectRoot differs from worktreePath", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
       { file: "00-first.md", title: "First", criteria: "- [x] done" },
@@ -975,9 +975,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory reports repo-relative paths when projectRoot differs from worktreePath", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
       { file: "00-first.md", title: "First", criteria: "- [x] done" },
@@ -991,9 +991,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory surfaces inventoryError for unrelativizable subspec paths", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const outsidePath = join(tmpdir(), `jarvis-outside-${Date.now()}.md`);
     writeFileSync(outsidePath, "# Outside\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
@@ -1015,9 +1015,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory surfaces inventoryError when index build throws", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const specRoot = join(worktreePath, "spec/implement");
     mkdirSync(specRoot, { recursive: true });
@@ -1034,9 +1034,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory yields empty lists without inventoryError for zero linked subspecs", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const specRoot = join(worktreePath, "spec/implement");
     mkdirSync(specRoot, { recursive: true });
@@ -1632,7 +1632,7 @@ describe("write loop", () => {
       externalSubspec: string;
       criterion: string;
     } {
-      const specReadRoot = mkdtempSync(join(tmpdir(), "write-loop-external-spec-"));
+      const specReadRoot = trackedMkdtempSync(join(tmpdir(), "write-loop-external-spec-"));
       roots.push(specReadRoot);
       const criterion = "external criterion satisfied";
       const externalSubspec = join(specReadRoot, "00-work.md");
@@ -6195,7 +6195,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair candidate contract covers staged change kinds and excludes unstaged metadata", async () => {
-        const parent = mkdtempSync(join(tmpdir(), "repair-fence-candidates-"));
+        const parent = trackedMkdtempSync(join(tmpdir(), "repair-fence-candidates-"));
         roots.push(parent);
         const root = join(parent, "main");
         const submoduleRepo = join(parent, "submodule-repo");
@@ -6268,7 +6268,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair completion candidates omit unchanged tracked paths the stage pathspec excludes", async () => {
-        const root = mkdtempSync(join(tmpdir(), "repair-fence-excluded-tracked-"));
+        const root = trackedMkdtempSync(join(tmpdir(), "repair-fence-excluded-tracked-"));
         roots.push(root);
         execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
         execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -6289,7 +6289,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair completion candidates omit the harness-materialized node_modules symlink", async () => {
-        const root = mkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
+        const root = trackedMkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
         roots.push(root);
         execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
         execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -10147,7 +10147,7 @@ index 1234567..abcdefg 100644
     });
 
     test("uncommitted paths omit the materialized node_modules symlink and keep other untracked work", async () => {
-      const worktreePath = mkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
+      const worktreePath = trackedMkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
       roots.push(worktreePath);
       execFileSync("git", ["init"], { cwd: worktreePath, stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -10230,7 +10230,7 @@ index 1234567..abcdefg 100644
     });
 
     test("getUncommittedPaths is fail-soft for Git failure and malformed status framing", async () => {
-      const plain = mkdtempSync(join(tmpdir(), "uncommitted-fail-soft-plain-"));
+      const plain = trackedMkdtempSync(join(tmpdir(), "uncommitted-fail-soft-plain-"));
       roots.push(plain);
       expect(await getUncommittedPaths(plain)).toEqual([]);
 

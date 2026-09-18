@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createRuntimeDeps } from "../cli/deps.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
@@ -195,7 +196,7 @@ describe("daemon command", () => {
 
   test("daemon log writes retained bytes to stdout and exits 0", async () => {
     const cap = captureIo();
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
     const logPath = join(dir, "daemon.log");
     writeFileSync(logPath, "line one\nline two\n");
 
@@ -207,7 +208,7 @@ describe("daemon command", () => {
 
   test("daemon log reports the missing configured path on stderr and exits nonzero", async () => {
     const cap = captureIo();
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
     const logPath = join(dir, "absent.log");
 
     const code = await main(["daemon", "log"], cap.io, { logPath });
@@ -219,7 +220,7 @@ describe("daemon command", () => {
 
   test("daemon log --follow replays retained content then stops on SIGINT with exit 130", async () => {
     const cap = captureIo();
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-daemon-log-"));
     const logPath = join(dir, "daemon.log");
     writeFileSync(logPath, "retained\n");
     let sigintHandler: (() => void) | undefined;
@@ -261,7 +262,7 @@ describe("daemon command", () => {
 
 describe("reapLegacyDaemonArtifacts", () => {
   test("preserves a PID-less keyed socket the real probe cannot prove dead (absent is not stale)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-"));
     const socket = join(dir, "daemon-0000000000000001.sock");
 
     // A regular file at the socket path is not a real listener: the real probe reads ENOENT
@@ -283,7 +284,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("enumeration failure leaves artifacts untouched", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-unreadable-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-unreadable-"));
     const socket = join(dir, "daemon-0000000000000006.sock");
     writeFileSync(socket, "");
     chmodSync(dir, 0o000);
@@ -299,7 +300,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("classifies each discovered unit independently", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-multiple-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-multiple-"));
     const socket1 = join(dir, "daemon-aaaaaaaaaaaaaaaa.sock");
     const socket2 = join(dir, "daemon-bbbbbbbbbbbbbbbb.sock");
     const socket3 = join(dir, "daemon-cccccccccccccccc.sock");
@@ -314,7 +315,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("ignores files that do not match the daemon-<16hex> pattern, including the stable triplet", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-filter-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-filter-"));
     const socket = join(dir, "daemon-0000000000000004.sock");
     const pid = join(dir, "daemon-0000000000000004.pid");
     const log = join(dir, "daemon-0000000000000004.log");
@@ -353,7 +354,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("discovers a socketless keyed PID/log pair and reaps it when the recorded process is dead", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-socketless-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-socketless-"));
     const pid = join(dir, "daemon-0000000000000009.pid");
     const log = join(dir, "daemon-0000000000000009.log");
     writeFileSync(pid, "999999");
@@ -366,7 +367,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("preserves a legacy unit whose recorded PID is running; the PID decides over its socket", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-live-pid-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-live-pid-"));
     const socket = join(dir, "daemon-000000000000000b.sock");
     const pid = join(dir, "daemon-000000000000000b.pid");
     writeFileSync(socket, ""); // present but never consulted: the parseable live PID decides first
@@ -383,7 +384,7 @@ describe("reapLegacyDaemonArtifacts", () => {
     // key while a stale pre-fix PID file from an earlier generation survives at that same key. The
     // dead PID must never short-circuit the socket check — only a probed-`stale` socket proves the
     // whole unit dead.
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-recurring-key-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-recurring-key-"));
     const socket = join(dir, "daemon-0000000000000012.sock");
     const pid = join(dir, "daemon-0000000000000012.pid");
     writeFileSync(socket, "");
@@ -402,7 +403,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("preserves a legacy unit with neither a parseable PID file nor a socket file", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-ambiguous-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-ambiguous-"));
     const log = join(dir, "daemon-000000000000000c.log");
     writeFileSync(log, "daemon output");
 
@@ -415,7 +416,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("preserves a legacy unit whose PID file is unparseable and has no socket, ambiguous not live", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-garbage-pid-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-garbage-pid-"));
     const pid = join(dir, "daemon-000000000000000d.pid");
     writeFileSync(pid, "not-a-pid");
 
@@ -428,7 +429,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("classifies a legacy unit's recorded PID via an injected isProcessAlive", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-pid-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-injected-pid-"));
     const pid = join(dir, "daemon-0000000000000010.pid");
     writeFileSync(pid, "424242");
     let checkedPid: number | undefined;
@@ -448,7 +449,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("preserves a PID-less keyed socket via an injected probe reporting live, without a real socket", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-live-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-injected-live-"));
     const socket = join(dir, "daemon-000000000000000e.sock");
     writeFileSync(socket, "");
     let probedPath: string | undefined;
@@ -468,7 +469,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("reaps a PID-less keyed socket via an injected probe reporting stale, without a real socket", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-stale-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-injected-stale-"));
     const socket = join(dir, "daemon-000000000000000f.sock");
     writeFileSync(socket, "");
 
@@ -483,7 +484,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   test("preserves a PID-less keyed socket via an injected probe reporting absent, without a real socket", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-injected-absent-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-injected-absent-"));
     const socket = join(dir, "daemon-0000000000000011.sock");
     writeFileSync(socket, "");
 
@@ -498,7 +499,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   socketTest("preserves a PID-less keyed socket a raw peer accepts on, without issuing an RPC", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-preserved-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-preserved-"));
     const socket = join(dir, "daemon-0000000000000005.sock");
     rmSync(socket, { force: true });
 
@@ -520,7 +521,7 @@ describe("reapLegacyDaemonArtifacts", () => {
   });
 
   socketTest("preserves a PID-less keyed socket a live daemon answers on, without issuing an RPC", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-live-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-reap-live-"));
     const socket = join(dir, "daemon-0000000000000007.sock");
     rmSync(socket, { force: true });
 

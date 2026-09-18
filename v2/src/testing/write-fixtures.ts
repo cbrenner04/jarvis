@@ -1,7 +1,8 @@
 import { afterEach } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "../execution/external-worktree.ts";
 import { orchestrationStorePath } from "../paths.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -18,7 +19,7 @@ export async function withStateStore<T>(callback: (store: StateStore) => Promise
 
 /** stateDbPath is an unopened path under jarvisRoot, safe to ignore if unused. */
 export function createJarvisHome(): { jarvisRoot: string; stateDbPath: string } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-"));
   const jarvisRoot = join(root, "jarvis-home");
   const stateDbPath = orchestrationStorePath(jarvisRoot);
   return { jarvisRoot, stateDbPath };

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { consumePublicationInputs } from "./publication-input-consumption.ts";
+import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 
 describe("publication input consumption", () => {
   // An external seed (git-disabled project) lives under ~/.jarvis/specs/<safeId>/seeds/, outside
@@ -11,7 +12,7 @@ describe("publication input consumption", () => {
   // never drained and the next run re-split the same seed. `sourceRoot` must be the root the
   // input was actually resolved against.
   test("consumes an external input when sourceRoot is the external home", () => {
-    const base = mkdtempSync(join(tmpdir(), "jarvis-external-consume-"));
+    const base = trackedMkdtempSync(join(tmpdir(), "jarvis-external-consume-"));
     const projectRoot = join(base, "project");
     const externalHome = join(base, "jarvis", "specs", "proj", "seeds");
     mkdirSync(projectRoot, { recursive: true });
@@ -39,7 +40,7 @@ describe("publication input consumption", () => {
   });
 
   test("deletes safe mapped inputs and skips missing, external, and symlink-escaped targets", () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-publication-input-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-publication-input-"));
     const source = join(root, "source");
     const publication = join(root, "publication");
     const outside = join(root, "outside");

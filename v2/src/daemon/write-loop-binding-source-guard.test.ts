@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize } from "node:path";
 import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { resolveWriteLoopBindings } from "./daemon.ts";
@@ -172,8 +173,8 @@ test("daemon binding resolution re-loads from the machine profile unless the sna
     agentModelConfig: stale,
   };
   const badProfileDeps = {
-    machinesDir: mkdtempSync(join(tmpdir(), "jarvis-guard-machines-")),
-    machineConfigPath: join(mkdtempSync(join(tmpdir(), "jarvis-guard-home-")), "config.json"),
+    machinesDir: trackedMkdtempSync(join(tmpdir(), "jarvis-guard-machines-")),
+    machineConfigPath: join(trackedMkdtempSync(join(tmpdir(), "jarvis-guard-home-")), "config.json"),
   };
   writeFileSync(
     badProfileDeps.machineConfigPath,

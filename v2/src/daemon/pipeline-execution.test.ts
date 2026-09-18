@@ -1,10 +1,11 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";
@@ -599,7 +600,7 @@ describe("runPipeline", () => {
     };
     const store = openStateStore(":memory:");
     const pipelineId = store.createPipeline({ definition, context: baseContext });
-    const logDir = mkdtempSync(join(tmpdir(), "pipeline-ready-gate-detail-"));
+    const logDir = trackedMkdtempSync(join(tmpdir(), "pipeline-ready-gate-detail-"));
     const logsPath = join(logDir, "logs.jsonl");
     const logSink = openLogSink(logsPath);
     const step = createWriteStep("implement", "ready-gate-detail", doneWithArtifactBindingFactory, {
@@ -6832,7 +6833,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   }
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "jarvis-pipeline-stale-reset-"));
+    tmp = trackedMkdtempSync(join(tmpdir(), "jarvis-pipeline-stale-reset-"));
     projectRoot = join(tmp, "project");
     jarvisRoot = join(tmp, "jarvis-home");
     mkdirSync(projectRoot, { recursive: true });
@@ -8723,7 +8724,7 @@ describe("pipeline chained plan and implement publication baseRef", () => {
   }
 
   test("chained pipeline plan and implement publication target repository default branch", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-publication-base-ref-"));
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-publication-base-ref-"));
     roots.push(repoRoot);
     initGitRepo(repoRoot);
     writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
@@ -8893,7 +8894,7 @@ describe("pipeline chained plan and implement publication baseRef", () => {
   });
 
   test("chained implement resolution lands spec progress on the default-branch worktree during workflow execution", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-chained-spec-landing-"));
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-chained-spec-landing-"));
     roots.push(repoRoot);
     initGitRepo(repoRoot);
     writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
@@ -9044,7 +9045,7 @@ describe("pipeline plan stage ready-intent consumption", () => {
     roots.push(join(jarvisRoot, ".."));
     process.env.JARVIS_HOME = jarvisRoot;
 
-    repoRoot = mkdtempSync(join(tmpdir(), "pipeline-plan-ready-intent-"));
+    repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-plan-ready-intent-"));
     roots.push(repoRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["init", "-q"], repoRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], repoRoot);

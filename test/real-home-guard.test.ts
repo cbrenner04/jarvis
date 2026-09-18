@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { diffRealHomeSnapshots, snapshotRealHome } from "../scripts/real-home-guard.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 
 function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
+  return trackedMkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));
 }
 
 function makeTempHome(): string {

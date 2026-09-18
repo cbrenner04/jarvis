@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { detectUnfalsifiablePremisesInMarkdown } from "../premise-falsification.ts";
+import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import { buildPlanReviewPassContext, renderPlanReviewDebateRolePrompt } from "./review-plan.ts";
 
 function specDirWithIntent(): string {
-  const dir = mkdtempSync(join(tmpdir(), "plan-review-premise-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "plan-review-premise-"));
   writeFileSync(join(dir, "intent.md"), "# Intent\n", "utf8");
   return dir;
 }

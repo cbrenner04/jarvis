@@ -1,15 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
@@ -19,6 +10,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createChainedStageProjectMatch } from "../daemon/pipeline-stage-resolve.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -34,7 +26,7 @@ import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { IMPLEMENT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 function writeJson(name: string, value: unknown): string {
-  const dir = mkdtempSync(join(tmpdir(), "implement-workflow-steps-test-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-test-"));
   const filePath = join(dir, name);
   writeFileSync(filePath, JSON.stringify(value));
   return filePath;
@@ -49,7 +41,7 @@ function initGitRepo(root: string): void {
 let machinesDir: string | undefined;
 
 function writeProfile(name: string, value: unknown): void {
-  machinesDir ??= mkdtempSync(join(tmpdir(), "implement-workflow-steps-machines-"));
+  machinesDir ??= trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-machines-"));
   writeFileSync(join(machinesDir, `${name}.json`), JSON.stringify(value));
 }
 
@@ -142,7 +134,7 @@ function writeRegisteredImplementRepo(
   implement?: { reviewPasses?: number; reviewBehavior?: string },
   pipeline?: unknown,
 ): { root: string; machineConfigPath: string; machineProfile: string } {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = trackedMkdtempSync(join(tmpdir(), prefix));
   mkdirSync(join(root, "specs"));
   writeFileSync(join(root, "specs", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
   writeFileSync(join(root, "specs", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
@@ -487,7 +479,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("builds a project-relative write step from the source checkout before its worktree exists", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
     mkdirSync(join(root, "spec"));
     writeFileSync(join(root, "spec", "index.md"), "- [ ] [Sub](./sub.md)\n", "utf8");
     writeFileSync(join(root, "spec", "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
@@ -560,7 +552,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("rejects a gitignored cwd-visible spec unavailable from the base ref before routing", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
     initGitRepo(root);
     writeFileSync(join(root, ".gitignore"), "local-spec/\n", "utf8");
     writeFileSync(join(root, "README.md"), "seed\n", "utf8");
@@ -591,7 +583,7 @@ describe("buildImplementWorkflowSteps", () => {
 
   /** Local clone whose `main` tracks `origin/main`; `aheadCommits` land on origin only. */
   function cloneWithStaleMain(aheadCommits: number): { root: string; originPath: string } {
-    const base = mkdtempSync(join(tmpdir(), "implement-workflow-steps-stale-base-"));
+    const base = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-stale-base-"));
     const seed = join(base, "seed");
     mkdirSync(seed);
     initGitRepo(seed);
@@ -669,7 +661,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("a base branch with no upstream admits without fetching", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-no-upstream-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-no-upstream-"));
     mkdirSync(join(root, "spec"));
     writeFileSync(join(root, "spec", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
     writeFileSync(join(root, "spec", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
@@ -742,7 +734,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("accepts a base-tracked spec launched below the registered project root", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
     mkdirSync(join(root, "spec", "nested"), { recursive: true });
     writeFileSync(join(root, "spec", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
     writeFileSync(join(root, "spec", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
@@ -873,7 +865,7 @@ describe("buildImplementWorkflowSteps", () => {
       "linked-escape",
       { specs: "external" },
     );
-    const outside = mkdtempSync(join(tmpdir(), "implement-external-linked-escape-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "implement-external-linked-escape-"));
     const escapedPath = join(specReadRoot, "00-work.md");
     writeFileSync(join(outside, "00-work.md"), "## Acceptance criteria\n\n- [ ] Outside\n", "utf8");
     rmSync(escapedPath);
@@ -908,8 +900,8 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("rejects an unresolved launch whose spec symlink escapes the registered root", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-contained-"));
-    const outside = mkdtempSync(join(tmpdir(), "implement-workflow-steps-outside-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-contained-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-outside-"));
     writeFileSync(join(outside, "index.md"), "- [ ] Work\n", "utf8");
     symlinkSync(join(outside, "index.md"), join(root, "escaped.md"));
     const configPath = writeJson("config.json", { projects: { registered: { root } } });
@@ -928,8 +920,8 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("executes a first launch in a new worktree with project-relative paths", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
-    const home = mkdtempSync(join(tmpdir(), "implement-workflow-steps-home-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
+    const home = trackedMkdtempSync(join(tmpdir(), "implement-workflow-steps-home-"));
     mkdirSync(join(root, "spec"));
     writeFileSync(join(root, "spec", "spec.md"), "## Acceptance criteria\n\n- [ ] Work\n", "utf8");
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
@@ -1073,7 +1065,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("chained pipeline preflight uses prior worktree as git root and prior branch for spec availability while publication baseRef is default branch", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-chained-preflight-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-chained-preflight-"));
     initGitRepo(root);
     writeFileSync(join(root, "README.md"), "base\n", "utf8");
     execFileSync("git", ["add", "README.md"], { cwd: root });
@@ -1181,7 +1173,7 @@ function writeRegisteredExternalPlanFixture(
   configPath: string;
   registry: Record<string, { root: string }>;
 } {
-  const root = mkdtempSync(join(tmpdir(), "implement-external-plan-project-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "implement-external-plan-project-"));
   const safeId = projectSafeId(projectKey);
   const specReadRoot = join(jarvisHome(), "specs", safeId, "plans", planName);
   mkdirSync(specReadRoot, { recursive: true });
@@ -1250,7 +1242,7 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
     mkdirSync(specReadRoot, { recursive: true });
     const indexPath = join(specReadRoot, "index.md");
     writeFileSync(indexPath, "- [ ] Work\n", "utf8");
-    const root = mkdtempSync(join(tmpdir(), "implement-external-plan-reject-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "implement-external-plan-reject-"));
     const configPath = writeJson("config.json", { projects: { demo: { root, specs: "external" } } });
     try {
       const identity = resolveImplementSpecIdentity(root, indexPath, { demo: { root } }, configPath);
@@ -1364,8 +1356,8 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
     mkdirSync(specReadRoot, { recursive: true });
     const indexPath = join(specReadRoot, "index.md");
     writeFileSync(indexPath, "- [ ] Work\n", "utf8");
-    const rootA = mkdtempSync(join(tmpdir(), "implement-external-plan-a-"));
-    const rootB = mkdtempSync(join(tmpdir(), "implement-external-plan-b-"));
+    const rootA = trackedMkdtempSync(join(tmpdir(), "implement-external-plan-a-"));
+    const rootB = trackedMkdtempSync(join(tmpdir(), "implement-external-plan-b-"));
     const configPath = writeJson("config.json", {
       projects: {
         "foo/bar": { root: rootA, specs: "external" },
@@ -1393,7 +1385,7 @@ describe("resolveImplementSpecIdentity external plan admission", () => {
       projectKey,
       "feature",
     );
-    const outside = mkdtempSync(join(tmpdir(), "implement-external-plan-outside-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "implement-external-plan-outside-"));
     writeFileSync(join(outside, "index.md"), "- [ ] Work\n", "utf8");
     const escapedLink = join(specReadRoot, "escaped.md");
     rmSync(join(specReadRoot, "index.md"));

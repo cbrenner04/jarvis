@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   createExecuteEntrypoint,
   type RuntimeSmokeVerifierInput,
@@ -1074,7 +1075,7 @@ index 1234567..abcdefg 100644
     // patterns). These tests run the real defaults against a throwaway git
     // fixture to prove the resolved command actually executes.
     function makeFixtureRepo(): string {
-      const dir = mkdtempSync(join(tmpdir(), "smoke-verifier-fixture-"));
+      const dir = trackedMkdtempSync(join(tmpdir(), "smoke-verifier-fixture-"));
       execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
       execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
       execFileSync("git", ["config", "user.name", "test"], { cwd: dir });

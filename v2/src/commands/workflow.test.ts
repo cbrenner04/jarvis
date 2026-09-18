@@ -1,21 +1,13 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
@@ -260,7 +252,7 @@ describe("run workflow dispatch", () => {
   });
 
   test("recovery uses the implement completion traversal and canonical spec identity", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-recovery-canonical-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-recovery-canonical-"));
     const rootLink = `${root}-link`;
     mkdirSync(join(root, "specs"));
     writeFileSync(join(root, "specs", "subspec.md"), "## Acceptance criteria\n\n- [x] done\n", "utf8");
@@ -321,7 +313,7 @@ describe("run workflow dispatch", () => {
 
   test("recovery reads a complete external plan tree from its plan directory", async () => {
     const projectKey = "Recovery/External-Plan";
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-external-recovery-project-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-external-recovery-project-"));
     const specReadRoot = join(
       jarvisHome(),
       "specs",
@@ -603,7 +595,7 @@ describe("ticked implement recovery", () => {
     claimed?: boolean;
     readyFinalizer?: () => Promise<void>;
   }) {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-ticked-recovery-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-ticked-recovery-"));
     const worktreePath = args.worktreePath ?? root;
     const branch = args.branch ?? "recover";
     const dbPath = join(root, "state.sqlite");
@@ -1022,7 +1014,7 @@ describe("workflow detach after admission", () => {
       const fixture: DetachContinuationFixture = { entryTerminal: false, releaseEntryTerminal: () => {} };
       const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, fixture);
       const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
-      const childDir = mkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+      const childDir = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
       const childScriptPath = join(childDir, "child.ts");
 
       try {
@@ -1296,7 +1288,7 @@ async function assertAttachedEntryTerminalWait(): Promise<void> {
   const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
   const steps = fx.fakeImplementSteps;
   const argv = [...IMPLEMENT_ARGS];
-  const childDir = mkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+  const childDir = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
   const childScriptPath = join(childDir, "child.ts");
 
   try {
@@ -2005,7 +1997,7 @@ describe("implement spec and artifact validation", () => {
   });
 
   test("run workflow implement rejects a missing spec before builder or daemon contact", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     const cap = captureIo();
     const built = false;
 
@@ -2021,7 +2013,7 @@ describe("implement spec and artifact validation", () => {
   });
 
   test("run workflow implement rejects a cwd-visible spec unavailable from the base ref before daemon contact", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-base-ref-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-base-ref-"));
     execFileSync("git", ["init", "-q"], { cwd: root });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
@@ -2044,7 +2036,7 @@ describe("implement spec and artifact validation", () => {
   });
 
   test("run workflow implement rejects a missing non-index artifact before daemon contact", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     writeFileSync(join(root, "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     const cap = captureIo();
 
@@ -2059,8 +2051,8 @@ describe("implement spec and artifact validation", () => {
   });
 
   test("run workflow implement rejects escaping spec and artifact symlinks before builder or daemon contact", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
-    const outside = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-outside-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-outside-"));
     writeFileSync(join(outside, "outside.md"), "# Outside\n", "utf8");
     symlinkSync(join(outside, "outside.md"), join(root, "escaped.md"));
     writeFileSync(join(root, "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
@@ -2086,7 +2078,7 @@ describe("implement spec and artifact validation", () => {
   });
 
   test("run workflow implement accepts contained symlinks and passes relative paths to the builder", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     mkdirSync(join(root, "specs"));
     writeFileSync(join(root, "specs", "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     writeFileSync(join(root, "specs", "artifact.md"), "# Artifact\n", "utf8");
@@ -2121,7 +2113,7 @@ describe("implement spec and artifact validation", () => {
   });
 
   test("run workflow implement ignores an unresolved registry root unrelated to the spec", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     writeFileSync(join(root, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     const cap = captureIo();
 
@@ -2140,7 +2132,7 @@ describe("implement spec and artifact validation", () => {
   });
 
   test("run workflow implement ignores --artifact for index specs", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     writeFileSync(join(root, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     const cap = captureIo();
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
@@ -2649,7 +2641,7 @@ describe("implement preflight stale workspace reset", () => {
   });
 
   beforeEach(async () => {
-    resetTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-reset-"));
+    resetTmp = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-reset-"));
     resetProjectRoot = join(resetTmp, "project");
     resetJarvisRoot = join(resetTmp, "jarvis-home");
     mkdirSync(resetProjectRoot, { recursive: true });

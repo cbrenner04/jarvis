@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   PIPELINE_APPROVE_USAGE,
   PIPELINE_DISMISS_USAGE,
@@ -602,7 +603,7 @@ describe("pipeline start", () => {
   });
 
   test("rejects --seed symlink escape outside registered project root before daemon connect", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "jarvis-pipeline-outside-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-pipeline-outside-"));
     writeFileSync(join(outside, "escaped.md"), "escaped", "utf8");
     symlinkSync(join(outside, "escaped.md"), join(fx.repoRoot, "escaped.md"));
     await expectSeedRejectedBeforeConnect(

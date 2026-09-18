@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   requiredIntegrationScopeForTerminalSubspec,
   resolveActiveLinkedSubspec,
 } from "./linked-subspec-routing.ts";
+import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 
 let root: string | undefined;
 afterEach(() => {
@@ -16,7 +17,7 @@ afterEach(() => {
   root = undefined;
 });
 function setup(index: string, files: Record<string, string> = {}): string {
-  root = mkdtempSync(join(tmpdir(), "shared-linked-routing-"));
+  root = trackedMkdtempSync(join(tmpdir(), "shared-linked-routing-"));
   writeFileSync(join(root, "index.md"), index);
   for (const [name, body] of Object.entries(files)) writeFileSync(join(root, name), body);
   return root;

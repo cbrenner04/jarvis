@@ -3,7 +3,6 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -22,6 +21,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
@@ -6238,7 +6238,7 @@ describe("cleanup: session log retention", () => {
   }
 
   beforeEach(() => {
-    tempRoot = mkdtempSync(join(tmpdir(), "jarvis-session-reap-"));
+    tempRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-session-reap-"));
     jarvisRoot = join(tempRoot, "jarvis-home");
     configPath = join(jarvisRoot, "config.json");
     mkdirSync(jarvisRoot, { recursive: true });
@@ -6442,8 +6442,8 @@ describe("stale-reset landed-criteria spec-path gate", () => {
   // Observed on chess-mvp-yolo-2 pipeline a00ca258, lane home-win-rate-display — it made the lane
   // permanently unresumable, whose only known workaround was discarding the whole pipeline.
   test("excludes a readable spec that resolves outside the project root", () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
-    const outside = mkdtempSync(join(tmpdir(), "jarvis-landed-outside-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-landed-outside-"));
     const specPath = join(outside, "index.md");
     writeFileSync(specPath, "# Spec\n\n- [ ] [00 - Thing](./00-thing.md)\n");
     try {
@@ -6456,7 +6456,7 @@ describe("stale-reset landed-criteria spec-path gate", () => {
   });
 
   test("includes a readable spec inside the project root", () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
     const specPath = join(root, "spec", "index.md");
     mkdirSync(dirname(specPath), { recursive: true });
     writeFileSync(specPath, "# Spec\n\n- [ ] [00 - Thing](./00-thing.md)\n");

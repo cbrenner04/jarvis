@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { locateMarkerSlice } from "../structural-test-locator.ts";
 import { realAsyncSubprocessRunner } from "../subprocess.ts";
+import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import { assembleStepTemplate } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
@@ -55,7 +56,7 @@ function extractBranchDiff(rendered: string): string {
 }
 
 function reviewContext(): ReviewDebateRenderContext {
-  const cwd = mkdtempSync(join(tmpdir(), "review-implement-branch-diff-"));
+  const cwd = trackedMkdtempSync(join(tmpdir(), "review-implement-branch-diff-"));
   tempDirs.push(cwd);
   execSync("git init -b main", { cwd, stdio: "pipe" });
   // CI runners have no global git identity; committing without one fails there but not locally.
@@ -114,7 +115,7 @@ describe("renderPatchReviewCriticPrompt branch diff", () => {
 
 test("roots external critic and debate SPEC_TREE labels at specReadRoot", async () => {
   const context = reviewContext();
-  const specReadRoot = mkdtempSync(join(tmpdir(), "review-implement-external-spec-"));
+  const specReadRoot = trackedMkdtempSync(join(tmpdir(), "review-implement-external-spec-"));
   tempDirs.push(specReadRoot);
   writeFileSync(join(specReadRoot, "index.md"), "# Index\n");
   writeFileSync(join(specReadRoot, "00-task.md"), "# Task\n");

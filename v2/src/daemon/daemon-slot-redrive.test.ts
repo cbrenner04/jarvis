@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -172,6 +173,13 @@ function seedRefusedRun(
     },
   });
   return runId;
+}
+
+/** Pins durable `finishedAt` so lane order never depends on clock resolution. */
+function setFinishedAt(runId: string, finishedAt: number): void {
+  const db = new Database(dbPath);
+  db.prepare("UPDATE runs SET finished_at = ? WHERE id = ?").run(finishedAt, runId);
+  db.close();
 }
 
 type ResumeCall = { runId: string };
@@ -460,8 +468,9 @@ test("each re-drive persists exactly one more count and a lane at the bound is n
 
 test("one release re-drives only the oldest waiting lane by finishedAt", async () => {
   const older = seedRefusedRun("older");
-  await Bun.sleep(5);
   const newer = seedRefusedRun("newer");
+  setFinishedAt(older, 1000);
+  setFinishedAt(newer, 2000);
   const holder = holdGate();
   const { coordinator, calls } = recordingCoordinator();
   coordinator.enqueue(newer);
@@ -585,8 +594,9 @@ test("a slot taken while the owner probe is in flight keeps the entry waiting wi
 
 test("a release arriving while a dispatch is in flight re-runs the drain for the next lane", async () => {
   const first = seedRefusedRun("in-flight-first");
-  await Bun.sleep(5);
   const second = seedRefusedRun("in-flight-second");
+  setFinishedAt(first, 1000);
+  setFinishedAt(second, 2000);
   const holder = holdGate();
   const calls: string[] = [];
   let finishFirst: (() => void) | undefined;
@@ -706,8 +716,9 @@ test("after a restart with two persisted lanes only the oldest re-drives, the ot
   const olderTree = retainedWorktree("wt-older");
   const newerTree = retainedWorktree("wt-newer");
   const older = seedRefusedRun("restart-older", { worktreePath: olderTree.path });
-  await Bun.sleep(5);
   const newer = seedRefusedRun("restart-newer", { worktreePath: newerTree.path });
+  setFinishedAt(older, 1000);
+  setFinishedAt(newer, 2000);
   restartStore();
   const { ctx, runs } = daemonHarness(() => {});
 

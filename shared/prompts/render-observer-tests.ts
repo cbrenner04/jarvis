@@ -67,6 +67,7 @@ const RENDER_OBSERVER_TESTS: Readonly<Record<string, readonly string[]>> = {
   "prompts/write/draft-contract-reprompt.md": ["v2/src/execution/write-loop.test.ts"],
   "prompts/write/guard-checkpoint-reprompt.md": ["v2/src/execution/write-prompt.test.ts"],
   "prompts/write/surviving-mutation-reprompt.md": ["v2/src/execution/write-prompt.test.ts"],
+  "prompts/write/ready-repair.md": ["v2/src/execution/write.test.ts"],
 };
 
 export function resolveRenderObserverTests(promptPath: string): readonly string[] | undefined {

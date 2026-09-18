@@ -84,7 +84,7 @@ test:cost` to refresh the per-file totals below ("Measured aggregate cost") in s
 
 Sources: `scripts/ready.ts`, `v2/src/execution/ready-finalize.test.ts`
 
-Each ready-step attempt ends with one `JARVIS_READY_STEP_COMPLETED` stderr boundary. Its JSON contains `stepId`, distinct `attemptId`, command identity, and numeric terminal `status`. A retry keeps the step identity and gets a new attempt identity; non-test steps emit completion boundaries but no failing-file records.
+Each ready-step attempt begins with one `JARVIS_READY_STEP_STARTED` record (stdout and stderr) and ends with one `JARVIS_READY_STEP_COMPLETED` stderr boundary. Its JSON contains `stepId`, distinct `attemptId`, command identity, and numeric terminal `status`. A retry keeps the step identity and gets a new attempt identity; non-test steps emit completion boundaries but no failing-file records.
 
 For a failed ready invocation, select its terminal failed completion boundary. Only failing-file records correlated to that test step's final attempt are attributable. A recovered retry, a later non-test failure, or missing completion boundary is unattributed. Validate repo-relative paths, normalize them, then deduplicate exact paths within that selected attempt only, preserving deterministic first-seen settlement order.
 

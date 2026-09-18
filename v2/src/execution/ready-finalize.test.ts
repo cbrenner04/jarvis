@@ -3,7 +3,12 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { READY_STEP_COMPLETION_MARKER, readyStepCompletionRecord } from "../../../scripts/ready.ts";
+import {
+  READY_STEP_COMPLETION_MARKER,
+  READY_STEP_START_MARKER,
+  readyStepCompletionRecord,
+  readyStepStartRecord,
+} from "../../../scripts/ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../scripts/run-v2-tests.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
@@ -29,6 +34,9 @@ import {
   readyGateSubprocessTimeoutMs,
   resolveSpecScopeRoot,
   SurvivingMutationError,
+  selectFailedReadyStepOutput,
+  selectTerminalFailedReadyStep,
+  selectTerminalFailedReadyTestStep,
   selectTerminalFailingPaths,
   validateRepoRelativePath,
 } from "./ready-finalize.ts";
@@ -2237,5 +2245,86 @@ describe("outOfScopeSettlementResumable", () => {
   it("returns false for missing or empty outside-path evidence", () => {
     expect(outOfScopeSettlementResumable(undefined, [outOfScopeRecord(["v2/src/a.test.ts"])])).toBe(false);
     expect(outOfScopeSettlementResumable([], [outOfScopeRecord(["v2/src/a.test.ts"])])).toBe(false);
+  });
+});
+
+describe("selectFailedReadyStepOutput", () => {
+  const start = (stepId: string, attemptId: string, command: string) =>
+    readyStepStartRecord({ stepId, attemptId, command });
+  const done = (stepId: string, attemptId: string, command: string, status: number) =>
+    readyStepCompletionRecord({ stepId, attemptId, command, status });
+  // Child output is inherited on stdout; the gate log is `${stdout}${stderr}`.
+  const gateLog = (stdout: string, stderr: string) => `${stdout}${stderr}`;
+
+  it("returns the failing step's command and only its own output", () => {
+    const stdout = `${start("1", "1.1", "bun install")}${start("2", "2.1", "bun run check")}warning: unrelated\n${start("3", "3.1", "bun run typecheck")}error TS1: boom\n`;
+    const stderr = `${start("1", "1.1", "bun install")}${done("1", "1.1", "bun install", 0)}${start("2", "2.1", "bun run check")}ready: …still running (15s)\n${done("2", "2.1", "bun run check", 0)}${start("3", "3.1", "bun run typecheck")}${done("3", "3.1", "bun run typecheck", 2)}`;
+
+    const selected = selectFailedReadyStepOutput("bun run ready", gateLog(stdout, stderr));
+
+    expect(selected.step).toBe("bun run typecheck");
+    expect(selected.output).toContain("error TS1: boom");
+    expect(selected.output).not.toContain("warning: unrelated");
+    expect(selected.output).not.toContain(READY_STEP_START_MARKER);
+  });
+
+  it("scopes to the failing step when it is the first step", () => {
+    const stdout = `${start("1", "1.1", "bun run check")}lint: red\n`;
+    const stderr = `${start("1", "1.1", "bun run check")}${done("1", "1.1", "bun run check", 1)}`;
+
+    const selected = selectFailedReadyStepOutput("bun run ready", gateLog(stdout, stderr));
+
+    expect(selected.step).toBe("bun run check");
+    expect(selected.output).toContain("lint: red");
+    expect(selected.output).toContain("JARVIS_READY_STEP_COMPLETED");
+  });
+
+  it("returns both attempts' output for a retried failing test step", () => {
+    const stdout = `${start("2", "2.1", "bun run test:v2")}first attempt fail\n${start("2", "2.2", "bun run test:v2")}second attempt fail\n`;
+    const stderr = `${start("2", "2.1", "bun run test:v2")}${done("2", "2.1", "bun run test:v2", 1)}${start("2", "2.2", "bun run test:v2")}${done("2", "2.2", "bun run test:v2", 1)}`;
+
+    const selected = selectFailedReadyStepOutput("bun run ready", gateLog(stdout, stderr));
+
+    expect(selected.step).toBe("bun run test:v2");
+    expect(selected.output).toContain("first attempt fail");
+    expect(selected.output).toContain("second attempt fail");
+  });
+
+  it("falls back to the gate command and whole log without a non-zero completion", () => {
+    const passing = gateLog(
+      `${start("1", "1.1", "bun run check")}noise\n`,
+      `${start("1", "1.1", "bun run check")}${done("1", "1.1", "bun run check", 0)}`,
+    );
+    expect(selectFailedReadyStepOutput("bun run ready", passing)).toEqual({ step: "bun run ready", output: passing });
+    expect(selectFailedReadyStepOutput("custom gate", "plain failure\n")).toEqual({
+      step: "custom gate",
+      output: "plain failure\n",
+    });
+  });
+
+  it("falls back when the failing step has no start record", () => {
+    const log = `some output\n${done("2", "2.1", "bun run check", 1)}`;
+    expect(selectFailedReadyStepOutput("bun run ready", log)).toEqual({ step: "bun run ready", output: log });
+  });
+
+  it("ignores malformed start records", () => {
+    const log = `${READY_STEP_START_MARKER}{not-json}\n${start("1", "1.1", "bun run check")}red\n${done("1", "1.1", "bun run check", 1)}`;
+    const selected = selectFailedReadyStepOutput("bun run ready", log);
+    expect(selected.step).toBe("bun run check");
+    expect(selected.output).toContain("red");
+  });
+});
+
+describe("terminal failed ready step selectors", () => {
+  const log = [
+    readyStepCompletionRecord({ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }),
+    readyStepCompletionRecord({ stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 1 }),
+  ].join("");
+
+  it("select the same terminal record, filtered by command", () => {
+    expect(selectTerminalFailedReadyStep(log)?.command).toBe("bun run lint:md");
+    expect(selectTerminalFailedReadyTestStep(log)).toBeUndefined();
+    const testLast = `${log}${readyStepCompletionRecord({ stepId: "4", attemptId: "4.1", command: "bun run test:v2", status: 1 })}`;
+    expect(selectTerminalFailedReadyTestStep(testLast)?.stepId).toBe("4");
   });
 });

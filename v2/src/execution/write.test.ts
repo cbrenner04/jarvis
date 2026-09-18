@@ -509,7 +509,7 @@ describe("write behavior", () => {
   test.each([
     [
       "write.ready-repair",
-      { GATE_COMMAND: "bun test", GATE_EXIT_CODE: "1", GATE_OUTPUT: "failure" },
+      { GATE_COMMAND: "bun test", GATE_STEP: "bun run check", GATE_EXIT_CODE: "1", GATE_OUTPUT: "failure" },
       DEFAULT_WRITE_STEP_RULES,
     ],
     [
@@ -536,6 +536,9 @@ describe("write behavior", () => {
 
     expect(capturedPrompt.trimEnd().endsWith(expectedStepRules)).toBe(true);
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
+    if (promptId === "write.ready-repair") {
+      expect(capturedPrompt).toContain("Failing step: bun run check");
+    }
     if (promptId === "write.mutation-repair") {
       expect(capturedPrompt).toContain("importer discovery only when that union is empty");
       expect(capturedPrompt).toContain("direct-importing `*.test.ts`");

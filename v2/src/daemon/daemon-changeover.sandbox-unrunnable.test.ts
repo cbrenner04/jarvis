@@ -1,6 +1,6 @@
 // Real-socket coverage for the handoff changeover protocol at the stable public address.
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync, linkSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,6 +65,41 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, boundMs: num
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+/** Aborted after each test so an unbounded poll or await in a timed-out test body unwinds instead of leaking. */
+let testAbort = new AbortController();
+beforeEach(() => {
+  testAbort = new AbortController();
+});
+afterEach(() => {
+  testAbort.abort();
+});
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error("test aborted");
+}
+
+/** Polls until the predicate holds; the per-test suite timeout is the only deadline. */
+async function pollUntil(predicate: () => boolean | Promise<boolean>): Promise<true> {
+  const { signal } = testAbort;
+  for (;;) {
+    if (signal.aborted) throw abortReason(signal);
+    if (await predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/** A one-shot promise that rejects when the test aborts. */
+function abortableEvent(): { promise: Promise<void>; fire: () => void } {
+  const { signal } = testAbort;
+  let fire: () => void = () => undefined;
+  const promise = new Promise<void>((resolve, reject) => {
+    fire = resolve;
+    if (signal.aborted) reject(abortReason(signal));
+    else signal.addEventListener("abort", () => reject(abortReason(signal)), { once: true });
+  });
+  return { promise, fire };
 }
 
 async function answersHealth(socketPath: string): Promise<boolean> {
@@ -166,6 +201,24 @@ async function startWork(socketPath: string, projectName: string): Promise<strin
   });
   if (frame.kind !== "response") throw new Error(`start failed: ${JSON.stringify(frame)}`);
   return ((frame as ResponseFrame).result as { runId: string }).runId;
+}
+
+/** The rebound address can answer `health` a beat before admission reopens: retry `start` until it is admitted. */
+async function startWorkOnceAdmitted(socketPath: string, projectName: string): Promise<string> {
+  let runId: string | undefined;
+  await pollUntil(async () => {
+    const frame = await request(socketPath, "start", {
+      input: mockWriteLoopInput({ projectName, branchName: `${projectName}-branch` }),
+    });
+    if (frame.kind === "response") {
+      runId = ((frame as ResponseFrame).result as { runId: string }).runId;
+      return true;
+    }
+    if ((frame as { code?: string }).code === "daemon_superseded") return false;
+    throw new Error(`start failed: ${JSON.stringify(frame)}`);
+  });
+  if (runId === undefined) throw new Error("start was not admitted");
+  return runId;
 }
 
 /** A successor that binds `--socket` but never answers, so `startDaemon` times out and kills it. */
@@ -841,12 +894,12 @@ describe("daemon handoff changeover (real sockets)", () => {
       try {
         await startWork(incumbent.publicSocketPath, "active-through-killed-committed-successor");
         const handoffId = await beginChangeover(incumbent);
-        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        expect(await pollUntil(() => !existsSync(incumbent.publicSocketPath))).toBe(true);
 
         successorProc = spawn("bun", [successorScript.path, "--socket", incumbent.publicSocketPath], {
           stdio: "ignore",
         });
-        expect(await waitFor(() => existsSync(incumbent.publicSocketPath), 3_000)).toBe(true);
+        expect(await pollUntil(() => existsSync(incumbent.publicSocketPath))).toBe(true);
 
         const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
         expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
@@ -855,9 +908,9 @@ describe("daemon handoff changeover (real sockets)", () => {
         if (successorPid === undefined) throw new Error("successor did not spawn");
         process.kill(successorPid, "SIGKILL");
 
-        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 8_000)).toBe(true);
+        expect(await pollUntil(() => answersHealth(incumbent.publicSocketPath))).toBe(true);
         expect(incumbent.exitCodes).toEqual([]);
-        await startWork(incumbent.publicSocketPath, "admitted-after-killed-committed-successor");
+        await startWorkOnceAdmitted(incumbent.publicSocketPath, "admitted-after-killed-committed-successor");
       } finally {
         if (successorProc?.pid !== undefined) {
           try {
@@ -877,6 +930,7 @@ describe("daemon handoff changeover (real sockets)", () => {
     "a committed handoff watch retries a rebind bind failure and eventually rebinds",
     async () => {
       let publicBinds = 0;
+      const retryBound = abortableEvent();
       const incumbent = await startIncumbent("committed-watch-retry", {
         fallbackMs: 100,
         bind: async (path, handlers) => {
@@ -885,7 +939,9 @@ describe("daemon handoff changeover (real sockets)", () => {
             // The first committed-watch-triggered rebind fails; the next tick's attempt succeeds.
             if (publicBinds === 2) throw new Error("rebind failed");
           }
-          return startIpcServer(path, handlers);
+          const server = await startIpcServer(path, handlers);
+          if (path.endsWith("daemon.sock") && publicBinds >= 3) retryBound.fire();
+          return server;
         },
       });
       try {
@@ -894,7 +950,8 @@ describe("daemon handoff changeover (real sockets)", () => {
         const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
         expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
 
-        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+        await retryBound.promise;
+        expect(await pollUntil(() => answersHealth(incumbent.publicSocketPath))).toBe(true);
         expect(incumbent.exitCodes).toEqual([]);
         expect(publicBinds).toBeGreaterThanOrEqual(3);
         await startWork(incumbent.publicSocketPath, "admitted-after-committed-watch-retry");
@@ -925,7 +982,7 @@ describe("daemon handoff changeover (real sockets)", () => {
           // Positive evidence the watch ran and kept retrying (not merely "nothing rebound"): each
           // tick observes the address unanswered, attempts the rebind, and is refused because the
           // live successor is still occupying it.
-          expect(await waitFor(() => incumbent.publicBindCount() >= 3, 3_000)).toBe(true);
+          expect(await pollUntil(() => incumbent.publicBindCount() >= 3)).toBe(true);
           expect(existsSync(incumbent.publicSocketPath)).toBe(true);
           expect(capture.lines.some((line) => line.includes("handoff_successor_watch"))).toBe(false);
         } finally {

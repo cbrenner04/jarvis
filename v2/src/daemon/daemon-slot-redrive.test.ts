@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { acquireGateInvocationLease, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type LogEvent, openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type Run, type StateStore } from "../persistence/state-store.ts";
@@ -34,10 +35,10 @@ const leases: Array<{ release: () => void }> = [];
 
 beforeEach(() => {
   dbPath = join(tmpdir(), `jarvis-slot-redrive-${process.pid}-${Date.now()}-${Math.random()}.db`);
-  logsDir = mkdtempSync(join(tmpdir(), "jarvis-slot-redrive-logs-"));
+  logsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-slot-redrive-logs-"));
   logsPath = join(logsDir, "run-log.jsonl");
   store = openStateStore(dbPath, { currentIdentity: ME, isOwnerAlive: async () => true });
-  profileHome = mkdtempSync(join(tmpdir(), "jarvis-slot-redrive-profile-"));
+  profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-slot-redrive-profile-"));
   previousJarvisHome = process.env.JARVIS_HOME;
   const machinesDir = join(profileHome, "machines");
   mkdirSync(machinesDir, { recursive: true });

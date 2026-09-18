@@ -605,7 +605,7 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
 });
 
 test("slot re-drive routes a slot-refused implement~link-N row through resumeLinkedWorkflowStart and counts it", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-redrive-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-linked-redrive-"));
   writeTwoLinkIndexFixture(worktreePath);
   const runId = stateStore.createRun({
     project: "demo",

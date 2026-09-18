@@ -157,7 +157,7 @@ async function pushBranch(git: Git, cwd: string, branch: string): Promise<void> 
   } catch (error) {
     if (isTransientPublicationFailure(normalizePublicationFailure("push", error))) throw error;
     const actual = await resolveRemoteTip(git, cwd, branch).catch(() => undefined);
-    const stale = (error instanceof Error ? error.message : String(error)).includes("stale info");
+    const stale = errorMessage(error).includes("stale info");
     if (!stale && (actual === undefined || actual === leaseTip)) throw error;
     throw new LeaseRejectedError(branch, leaseTip, actual, error);
   }

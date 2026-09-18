@@ -200,32 +200,6 @@ async function startWork(socketPath: string, projectName: string): Promise<strin
   return ((frame as ResponseFrame).result as { runId: string }).runId;
 }
 
-/**
- * The rebound address can answer `health` before admission reopens: the committed watch's `tickWatch`
- * rebinds the public server (health answers once it listens) and only afterwards, on the continuation
- * of `await bindPublicServer()`, calls `setAdmitting`. Commit already cleared `scheduleFallback`, so
- * `scheduleWatch` is the only timer involved. Retry `start` until admitted; an abort reports the last refusal.
- */
-async function startWorkOnceAdmitted(socketPath: string, projectName: string): Promise<void> {
-  let lastRefusal: unknown;
-  try {
-    await pollUntil(async () => {
-      const frame = await request(socketPath, "start", {
-        input: mockWriteLoopInput({ projectName, branchName: `${projectName}-branch` }),
-      });
-      if (frame.kind === "response") return true;
-      if ((frame as { code?: string }).code === "daemon_superseded") {
-        lastRefusal = frame;
-        return false;
-      }
-      throw new Error(`start failed: ${JSON.stringify(frame)}`);
-    });
-  } catch (error) {
-    if (lastRefusal === undefined) throw error;
-    throw new Error(`admission never reopened: ${JSON.stringify(lastRefusal)}`, { cause: error });
-  }
-}
-
 /** A successor that binds `--socket` but never answers, so `startDaemon` times out and kills it. */
 function silentSuccessorScript(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-silent-successor-"));
@@ -843,7 +817,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         // ordinary drain-exit loop would already exit it once `isPending()` reads false (committed).
         await startWork(incumbent.publicSocketPath, "active-through-committed-watch");
         const handoffId = await beginChangeover(incumbent);
-        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        expect(await pollUntil(() => !existsSync(incumbent.publicSocketPath))).toBe(true);
         successor = await startIpcServer(incumbent.publicSocketPath, {
           health: () => ({ kind: "response", result: { ok: true } }),
         });
@@ -864,14 +838,13 @@ describe("daemon handoff changeover (real sockets)", () => {
           await successor.close();
           successor = undefined;
 
-          expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+          expect(await pollUntil(() => answersHealth(incumbent.publicSocketPath))).toBe(true);
           expect(incumbent.publicBindCount()).toBe(2);
           // The log line and the address answering land on independent I/O completions with no
           // ordering guarantee between them: poll rather than assume the log already landed.
           expect(
-            await waitFor(
-              () => capture.lines.includes(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback")),
-              500,
+            await pollUntil(() =>
+              capture.lines.includes(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback")),
             ),
           ).toBe(true);
         } finally {
@@ -890,10 +863,10 @@ describe("daemon handoff changeover (real sockets)", () => {
   socketTest(
     "a committed handoff reclaims the leftover socket and rebinds after a real successor process is killed",
     async () => {
-      // fallbackMs is generous (well past real `bun` subprocess spawn+bind time) because it also
-      // arms the pre-commit fallback timer: a tight cadence here raced the successor's real spawn,
-      // firing the fallback's own "nothing answers yet" rollback before `handoff_commit` ran.
-      const incumbent = await startIncumbent("killed-committed-successor", { fallbackMs: 3_000 });
+      // Production fallback default: `beginChangeover` arms the pre-commit fallback before the real
+      // `bun` successor spawns, and a short test cadence let that fallback roll back before commit
+      // under load. The committed watch shares the cadence, so the suite timeout covers one tick.
+      const incumbent = await startIncumbent("killed-committed-successor");
       const successorScript = silentSuccessorScript();
       let successorProc: ReturnType<typeof spawn> | undefined;
       try {
@@ -915,7 +888,7 @@ describe("daemon handoff changeover (real sockets)", () => {
 
         expect(await pollUntil(() => answersHealth(incumbent.publicSocketPath))).toBe(true);
         expect(incumbent.exitCodes).toEqual([]);
-        await startWorkOnceAdmitted(incumbent.publicSocketPath, "admitted-after-killed-committed-successor");
+        await startWork(incumbent.publicSocketPath, "admitted-after-killed-committed-successor");
       } finally {
         if (successorProc?.pid !== undefined) {
           try {
@@ -928,7 +901,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         await incumbent.close();
       }
     },
-    25_000,
+    45_000,
   );
 
   socketTest(

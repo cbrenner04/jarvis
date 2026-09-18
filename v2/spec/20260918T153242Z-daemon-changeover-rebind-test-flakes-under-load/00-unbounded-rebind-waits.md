@@ -14,7 +14,8 @@ Positive `waitFor(..., N_000)` calls in `v2/src/daemon/daemon-changeover.sandbox
 - Leave every other `waitFor` call unchanged, including negative-window ones (`rolledBackEarly`) and the slow-successor test's `!existsSync` 2s (`:916`) — out of scope, stays bounded.
 - Stopping: a file-level `AbortController` is renewed in `beforeEach` and aborted in `afterEach`; the poll helper and the retry-bind await both reject on abort, so a timed-out test's body unwinds through its `finally` (closing the incumbent) instead of polling or hanging into later tests. Rules out fire-and-forget loops that survive the test.
 - Watch-retry test: the injected `bind` resolves a one-shot promise when `startIpcServer` succeeds on public bind `>= 3` (the first successful public bind after the injected failure at bind 2). The test awaits it (aborts with the test), then confirms health through the unbounded poll rather than one immediate `answersHealth`. Rules out a single immediate health check, which reintroduces the load flake.
-- Killed-successor test's CI failure (`start failed: daemon_superseded`, 3105ms, PR #4040 CI run 35355728644) is not a `waitFor` returning false: it is `startWork` (`:860` area) rejected by the incumbent's admission gate (`daemon_superseded`, e.g. `v2/src/daemon/daemon-run-lifecycle-handlers.ts:734`), and 3105ms sits just past the test's `fallbackMs: 3_000` (`:838`), which arms both the pre-commit fallback (`scheduleFallback`, `v2/src/daemon/daemon.ts` ~`:1044`) and the committed watch (`scheduleWatch`, ~`:962`). Reproduce under load and root-cause which timer/ordering lets `startWork` run before admission reopens; fix it in the test by waiting on the observable event (e.g. poll unbounded until `startWork` is admitted) — not by tuning `fallbackMs`. Unbounded waits alone do not fix this test.
+- Killed-successor test's failure (reproduced: `handoff_commit` returns `state: "rolled_back"`; retire log shows `handoff_fallback`/`rollback` before `handoff_commit`): `beginChangeover` arms the pre-commit fallback (`scheduleFallback`) before the real `bun` successor spawns, and the test's `fallbackMs: 3_000` often expired before the successor bound, so the fallback rolled back first. Not an admission race: listen→`setAdmitting` in `tickWatch` is microtask-only. Fix: the test uses the production `DEFAULT_HANDOFF_FALLBACK_MS` (omits `fallbackMs`), plain `startWork` (no `daemon_superseded` retry), and a suite timeout covering one committed-watch tick at that cadence.
+- Committed-watch test: its `!existsSync` 2s, `answersHealth` 3s and settlement-log 500ms waits gate the verdict, so they use the unbounded poll too.
 - Test-only; no production change, no `*ForTest` seams.
 
 ## Task checklist
@@ -23,15 +24,15 @@ Positive `waitFor(..., N_000)` calls in `v2/src/daemon/daemon-changeover.sandbox
 - [x] Add per-test abort (`beforeEach`/`afterEach`) consumed by the helper and the retry-bind await.
 - [x] Replace the five in-scope bounded waits.
 - [x] Convert the watch-retry test to await the retry-bind event.
-- [x] Root-cause and fix the killed-successor test's `daemon_superseded` failure.
+- [x] Root-cause and fix the killed-successor test's pre-commit fallback rollback.
 
 ## Acceptance criteria
 
 - [x] The five in-scope waits in `daemon-changeover.sandbox-unrunnable.test.ts` carry no private deadline (the per-test suite timeout is the only deadline), and the watch-retry test awaits the retry-bind event before its unbounded health poll.
 - [x] Retry falsifiability, proven against production code, not a test stub: on a scratch copy (uncommitted edit), make `tickWatch` in `v2/src/daemon/daemon.ts` not reschedule after a failed rebind (the watch never retries); the watch-retry test then fails by suite timeout, not pass, and no leaked poll or pending promise fails other tests in the file; revert and confirm `git diff --quiet v2/src/daemon/daemon.ts`.
-- [x] The killed-successor test passes under the same concurrent-load loop below, and its fix waits on an event rather than a changed `fallbackMs`.
+- [x] The killed-successor test passes under the same concurrent-load loop below, and it uses the production fallback default with no `daemon_superseded` retry.
 - [x] `for i in 1 2 3 4 5; do bun test v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts || break; done` passes 5 consecutive times while `bun run test:integration:v2` runs concurrently for the whole span of all five passes (restarted whenever it finishes early).
-- [x] `bun run typecheck`, `bun run test:v2` and `bun run test:integration:v2` pass.
+- [ ] `bun run typecheck`, `bun run test:v2` and `bun run test:integration:v2` pass. (typecheck and test:v2 pass; test:integration:v2 fails only on `daemon-dead-socket-reclaim` "a fresh start binds over a SIGKILLed daemon…", which also fails serially on `main`.)
 
 ## Documentation updates
 

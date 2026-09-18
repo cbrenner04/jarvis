@@ -958,6 +958,12 @@ export interface StateStore {
    */
   admitRunForResume(runId: string): Promise<RunAdmissionOutcome>;
 
+  /**
+   * Durably add one to a `slot_contention` refusal's `slotRedriveCount` without touching status or
+   * finish metadata; returns the new count, or `undefined` when the row holds no valid slot-contention record.
+   */
+  incrementSlotRedriveCount(runId: string): number | undefined;
+
   /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
   commitGuardedKill(runId: string): void;
 
@@ -2849,6 +2855,21 @@ class StateStoreImpl implements StateStore {
       return { kind: "refused", reason: "claim_lost" };
     }
     return { kind: "applied" };
+  }
+
+  incrementSlotRedriveCount(runId: string): number | undefined {
+    return this.db.transaction((): number | undefined => {
+      const row = this.db.prepare("SELECT gate_refusal_recovery_state AS json FROM runs WHERE id = ?").get(runId) as {
+        json: string | null;
+      } | null;
+      const parsed = parseGateRefusalRecoveryState(row?.json ?? null);
+      if (parsed.kind !== "valid" || parsed.record.cause !== "slot_contention") return undefined;
+      const slotRedriveCount = parsed.record.slotRedriveCount + 1;
+      this.db
+        .prepare("UPDATE runs SET gate_refusal_recovery_state = ? WHERE id = ?")
+        .run(JSON.stringify({ ...parsed.record, slotRedriveCount }), runId);
+      return slotRedriveCount;
+    })();
   }
 
   commitGuardedKill(runId: string): void {

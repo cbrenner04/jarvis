@@ -767,6 +767,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     admitRunForResume: (runId) => inner.admitRunForResume(runId),
+    incrementSlotRedriveCount: (runId) => inner.incrementSlotRedriveCount(runId),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
     commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
     dismissRun: (runId) => inner.dismissRun(runId),
@@ -881,6 +882,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     admitRunForResume: (runId) => inner.admitRunForResume(runId),
+    incrementSlotRedriveCount: (runId) => inner.incrementSlotRedriveCount(runId),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
     commitTerminalRunSettlement: (args) => {
       const outcome = inner.commitTerminalRunSettlement(args);
@@ -7283,6 +7285,7 @@ export function isLoadSensitive(file: string): boolean {
             inner.setRunStatus(runId, status);
           },
           admitRunForResume: (runId) => inner.admitRunForResume(runId),
+          incrementSlotRedriveCount: (runId) => inner.incrementSlotRedriveCount(runId),
           commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
           commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
           dismissRun: (runId) => inner.dismissRun(runId),

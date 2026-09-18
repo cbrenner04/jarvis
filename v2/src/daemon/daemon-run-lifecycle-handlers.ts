@@ -644,6 +644,7 @@ export function createRunLifecycleHandlers(
         activeRuns.delete(ks);
         registry.release(key);
         promoteQueuedRun();
+        ctx.slotRedrive.enqueue(runId);
       }
     })();
   };
@@ -1339,6 +1340,13 @@ export function createRunLifecycleHandlers(
 
     return resumeReconstructedRun(run, runId, logRecords);
   };
+
+  ctx.slotRedrive.bindResume((runId) =>
+    resumeHandler(
+      { kind: "request", id: `slot-redrive-${runId}`, method: "resume", params: { runId } },
+      new AbortController().signal,
+    ),
+  );
 
   const waitForWorkflowEntryRun = async (
     run: LoadedRun,

@@ -517,6 +517,7 @@ type CapturedLinkedResume = {
 };
 
 function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps): {
+  ctx: ReturnType<typeof createRunControlHandlerContext>;
   handlers: ReturnType<typeof createRunLifecycleHandlers>;
   captured: CapturedLinkedResume[];
 } {
@@ -542,7 +543,7 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
       return { kind: "response", result: { runId: "fake-entry-run" } };
     },
   });
-  return { handlers, captured };
+  return { ctx, handlers, captured };
 }
 
 test("resume routes a failed gate_invocation_refused implement~link-N row to resumeLinkedWorkflowStart, not the bare write loop", async () => {
@@ -596,6 +597,42 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
     expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
     captured[0]?.rollbackRunAdmission?.();
     expect(stateStore.loadRun(runId)?.status).toBe("failed");
+  } finally {
+    profile.cleanup();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("slot re-drive routes a slot-refused implement~link-N row through resumeLinkedWorkflowStart and counts it", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-redrive-"));
+  writeTwoLinkIndexFixture(worktreePath);
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath,
+    branch: "linked-route/redrive",
+    specPath: "index.md",
+    stepId: "implement~link-0",
+    workflowSnapshot: linkedWorkflowRunSnapshot("linked-route-redrive"),
+  });
+  stateStore.commitCompletionBoundary({
+    attemptId: stateStore.recordAttemptStart(runId),
+    runStatus: "failed",
+    outcomeKind: "gate_invocation_refused",
+    terminalCause: "gate_invocation_refused",
+    gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:v2", slotRedriveCount: 0 },
+  });
+
+  const profile = setUpLinkedResumeMachineProfile();
+  try {
+    const { ctx, captured } = capturingLinkedWorkflowHandlers(profile.writeLoopBindingSourceDeps);
+    ctx.slotRedrive.enqueue(runId);
+    await flushBackgroundRuns(3);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.steps[0]).toMatchObject({ stepId: "implement", linkedIndexRouting: true });
+    expect(stateStore.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 1 });
+    ctx.slotRedrive.stop();
   } finally {
     profile.cleanup();
     rmSync(worktreePath, { recursive: true, force: true });

@@ -844,6 +844,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         controller.abort();
       }
       waitAbortControllers.clear();
+      ctx.slotRedrive.stop();
     },
     /** Whether daemon has any active runs (write loops or workflows). */
     hasActiveRuns,
@@ -1427,7 +1428,9 @@ export async function startDaemonRuntime(
     // entirely, matching the documented no-predecessor fast path exactly (see
     // `daemon-run-lifecycle-handlers.ts`'s `listHandler`). A configured-but-currently-empty
     // directory still wires `ownerRow` through, since it can populate later.
-    ...(startupDeps.predecessorSocketPath === undefined ? {} : { ownerRow: ownershipDirectory.ownerRow }),
+    ...(startupDeps.predecessorSocketPath === undefined
+      ? {}
+      : { ownerRow: ownershipDirectory.ownerRow, resolvePredecessorOwner: ownershipDirectory.resolveOwner }),
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
     ...(startupDeps.runTimeout === undefined ? {} : { runTimeout: startupDeps.runTimeout }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined

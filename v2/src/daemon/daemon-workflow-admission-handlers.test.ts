@@ -1,16 +1,23 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import * as nodeChildProcess from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import { createHoldableAsyncFn } from "../testing/holdable-async-subprocess-runner.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import {
   createBindingFactory,
   doneWithArtifactBindingFactory,
+  neverResolvingBindingFactory,
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
@@ -528,4 +535,198 @@ test("resumeLinkedWorkflowStart claims the resumed step's real external worktree
 
   const ownership = registry.get({ project: "demo", branch });
   expect(ownership?.worktreePath).toBe(getExternalWorktreePath(step.worktree));
+});
+
+test("workflow invocation settled marker: completed", async () => {
+  const branch = "settled-marker-completed";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1", branch, doneWithArtifactBindingFactory, { suppressShrink: true });
+  const { ctx, lifecycle } = workflowAdmission();
+
+  const response = await lifecycle.start(
+    requestFrame("s-completed", "start", { steps: [step] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+  await ctx.workflowPromisesByEntryRunId.get(runId);
+
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "completed" });
+});
+
+test("workflow invocation settled marker: failed when the workflow resolves non-complete", async () => {
+  const branch = "settled-marker-failed-result";
+  const blockedBinding = createBindingFactory(
+    async () => ({ kind: "ok", stdout: "## Blocker\n\nneeds a decision\n\nblocked", stderr: "" }) as const,
+  );
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1", branch, blockedBinding, { suppressShrink: true });
+  const { ctx, lifecycle } = workflowAdmission();
+
+  const response = await lifecycle.start(
+    requestFrame("s-failed-result", "start", { steps: [step] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+  await ctx.workflowPromisesByEntryRunId.get(runId);
+
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "failed" });
+});
+
+test("workflow invocation settled marker: failed when execute() throws after the entry run exists", async () => {
+  const branch = "settled-marker-failed-throw";
+  const throwingStore = throwOnNthRecordAttemptStart(stateStore, 1);
+  const ctx = createRunControlHandlerContext({
+    stateStore: throwingStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+    registry,
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, { handleWorkflowStart: workflowStart.handleWorkflowStart });
+
+  const response = await lifecycle.start(
+    requestFrame("s-failed-throw", "start", { steps: [workflowStep("step-1", branch)] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+  await ctx.workflowPromisesByEntryRunId.get(runId);
+
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "failed" });
+});
+
+test("workflow invocation settled marker: killed when the run was marked pendingKill before abort", async () => {
+  const branch = "settled-marker-killed";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1", branch, neverResolvingBindingFactory, { suppressShrink: true });
+  const { ctx, lifecycle } = workflowAdmission();
+
+  const response = await lifecycle.start(
+    requestFrame("s-killed", "start", { steps: [step] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+  const settled = ctx.workflowPromisesByEntryRunId.get(runId);
+  for (let i = 0; i < 1_000 && ctx.activeRuns.get(runId) === undefined; i++) {
+    await flushBackgroundRuns();
+  }
+  expect(ctx.activeRuns.get(runId)).toBeDefined();
+
+  const killResponse = await lifecycle.kill(requestFrame("k-killed", "kill", { runId }), new AbortController().signal);
+  expect(killResponse).toMatchObject({ kind: "response", result: { ok: true } });
+  await settled;
+
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "killed" });
+});
+
+/** Fakes every `gh` subcommand the completion-publisher tail issues; git commands pass through to a real repo. */
+function fakeGhResponse(args: readonly string[]): string {
+  if (args[0] === "pr" && args[1] === "list") return "[]";
+  if (args[0] === "pr" && args[1] === "create") return "https://example.test/pull/1";
+  if (args[0] === "pr" && args[1] === "view") {
+    const jsonIdx = args.indexOf("--json");
+    const jsonFields = jsonIdx >= 0 ? args[jsonIdx + 1] : undefined;
+    if (jsonFields === "number,url,baseRefName") {
+      return JSON.stringify({ number: 1, url: "https://example.test/pull/1", baseRefName: "main" });
+    }
+    return "";
+  }
+  return "";
+}
+
+/** Real git worktree with a real local bare "origin", so push/ls-remote work without touching GitHub. */
+function createRealPublishableWorktree(jarvisRoot: string, originPath: string) {
+  const base = createFakeWithExternalWorktree(jarvisRoot);
+  return async <T>(
+    args: { branchName: string; projectName: string; jarvisRoot?: string },
+    run: (worktree: { path: string; reused: boolean }) => Promise<T> | T,
+  ) =>
+    base(args, async (worktree) => {
+      execFileSync("git", ["init", "-b", "main", worktree.path], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "config", "user.email", "test@example.test"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "config", "user.name", "Test"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "commit", "-m", "seed"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "remote", "add", "origin", originPath], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "push", "origin", "main"], { stdio: "pipe" });
+      return run(worktree);
+    });
+}
+
+test("workflow invocation settled marker: null while the publication tail is held, completed once released", async () => {
+  const branch = "settled-marker-publication-hold";
+  const { jarvisRoot } = createJarvisHome();
+  const originPath = mkdtempSync(join(tmpdir(), "jarvis-admission-origin-"));
+  execFileSync("git", ["init", "--bare", originPath], { stdio: "pipe" });
+
+  const originalRunAsync = realAsyncSubprocessRunner.runAsync.bind(realAsyncSubprocessRunner);
+  const innerRunAsync = async (
+    cmd: string,
+    args: string[],
+    cwd: string,
+    options?: AsyncSubprocessOptions,
+  ): Promise<string> => (cmd === "gh" ? fakeGhResponse(args) : originalRunAsync(cmd, args, cwd, options));
+  const holdable = createHoldableAsyncFn(innerRunAsync);
+  const runAsyncSpy = spyOn(realAsyncSubprocessRunner, "runAsync").mockImplementation(holdable.fn);
+  const fakeGhSpawn = (...spawnArgs: unknown[]): nodeChildProcess.ChildProcess => {
+    const [command] = spawnArgs as [string, string[]?];
+    if (command !== "gh") {
+      throw new Error(`unexpected spawn: ${command}`);
+    }
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: EventEmitter & { write: () => void; end: () => void };
+      stderr: EventEmitter;
+    };
+    child.stdin = new EventEmitter() as EventEmitter & { write: () => void; end: () => void };
+    child.stdin.write = () => {};
+    child.stdin.end = () => {
+      setImmediate(() => child.emit("close", 0));
+    };
+    child.stderr = new EventEmitter();
+    return child as unknown as nodeChildProcess.ChildProcess;
+  };
+  const spawnSpy = spyOn(nodeChildProcess, "spawn").mockImplementation(
+    fakeGhSpawn as unknown as typeof nodeChildProcess.spawn,
+  );
+
+  try {
+    const { createWriteStep } = writeStepFixtures();
+    const step = createWriteStep("step-1", branch, doneWithArtifactBindingFactory, {
+      suppressShrink: true,
+      withExternalWorktree: createRealPublishableWorktree(jarvisRoot, originPath),
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: branch,
+        baseRef: "main",
+        jarvisRoot,
+      },
+    });
+    const { ctx, lifecycle } = workflowAdmission();
+
+    const response = await lifecycle.start(
+      requestFrame("s-hold", "start", { steps: [step] }),
+      new AbortController().signal,
+    );
+    expect(response.kind).toBe("response");
+    const runId = (response as { result: { runId: string } }).result.runId;
+    const settled = ctx.workflowPromisesByEntryRunId.get(runId);
+
+    await holdable.whenPending();
+    expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toBeNull();
+
+    holdable.release();
+    await settled;
+
+    expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "completed" });
+  } finally {
+    runAsyncSpy.mockRestore();
+    spawnSpy.mockRestore();
+    rmSync(originPath, { recursive: true, force: true });
+  }
 });

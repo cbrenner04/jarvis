@@ -22,10 +22,15 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
+import { FixCommandError } from "../../../shared/fix-command.ts";
 import * as sharedGit from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
@@ -4847,41 +4852,96 @@ describe("write loop", () => {
         }
       });
 
-      test("ready-gate repair autofix surfaces in-scope blocking diagnostic in failure output", async () => {
+      test("ready-gate repair autofix best-effort-passes an unfixable complexity finding into bounded repair", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
-        const branchName = "repair-autofix-in-scope-diagnostic";
+        roots.push(join(jarvisRoot, ".."));
+        const store = openStateStore(stateDbPath);
+        const branchName = "repair-autofix-unfixable-complexity";
         const worktreePath = initAutofixGitWorktree(jarvisRoot, branchName);
         const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
           encoding: "utf8",
           stdio: "pipe",
         }).trim();
         const changedRel = "v2/src/changed.ts";
-        const result = await runLoop({
-          jarvisRoot,
-          stateDbPath,
-          branchName,
-          baseRef,
-          bindings: [
+        writeComplexityDirtyFile(worktreePath, changedRel);
+        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+        // Worktree reuse appends `.reused` to `.gitignore`; pre-seed it in this commit so the
+        // marker lands inside the frozen run-diff allowset instead of tripping the repair fence.
+        appendFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", changedRel, "proof.txt", ".gitignore"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "agent work"], { stdio: "pipe" });
+        const runId = store.createRun({
+          project: "demo",
+          specRef: "HEAD",
+          worktreePath,
+          branch: branchName,
+          specPath: "spec.md",
+        });
+        const attemptId = store.recordAttemptStart(runId);
+        store.commitCompletionBoundary({
+          attemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        let invocations = 0;
+        const prompts: string[] = [];
+
+        try {
+          const publication = await publishWithReadyRepair(
             {
-              id: "sim.1",
-              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
-              invoke: async ({ cwd }) => {
-                writeComplexityDirtyFile(cwd, changedRel);
-                writeFileSync(join(cwd, "proof.txt"), "ok", "utf8");
-                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              worktree: {
+                projectRoot: "/fake",
+                projectName: "demo",
+                branchName,
+                baseRef,
+                jarvisRoot,
+              },
+              specPath: "spec.md",
+              stepRules: "repair",
+              expectedArtifactPath: "proof.txt",
+              bindings: [
+                {
+                  id: "sim.1",
+                  metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+                  invoke: async ({ prompt }) => {
+                    invocations += 1;
+                    prompts.push(prompt);
+                    return { kind: "ok", stdout: "done", stderr: "" } as const;
+                  },
+                },
+              ],
+              stateStore: store,
+              withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+              sessionsDir: join(jarvisRoot, "sessions"),
+              maxIterations: 1,
+              completionCommitter: createCompletionCommitter(),
+              completionPublisher: async () => ({}),
+              runAutofixTypecheck: async () => ({ exitCode: 0, output: "" }),
+              readyFinalizer: async () => {
+                throw new ReadyGateError("bun run ready", 1, "lint still red");
               },
             },
-          ],
-          completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
-          completionPublisher: async () => ({}),
-          runAutofixTypecheck: async () => ({ exitCode: 0, output: "" }),
-          readyFinalizer: async () => {
-            throw new ReadyGateError("bun run ready", 1, "lint still red");
-          },
-        });
+            store,
+            { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+            0,
+            {
+              worktreePath,
+              baseRef,
+              specPath: "spec.md",
+              branch: branchName,
+            },
+          );
 
-        expect(result.kind).toBe("completion_commit_failed");
-        expect(result.completionCommitError).toContain("noExcessiveCognitiveComplexity");
+          expect(publication.failure?.kind).toBe("ready_gate_failed");
+          expect(invocations).toBeGreaterThan(0);
+          // A write.ready-repair reprompt renders the gate command/output into the prompt;
+          // a completion_commit_failed short-circuit before repair never invokes the binding.
+          expect(prompts[0]).toContain("Command: bun run ready");
+          expect(prompts[0]).toContain("lint still red");
+        } finally {
+          store.close();
+        }
       });
 
       test("ready-gate repair autofix scopes biome argv to changed paths", async () => {
@@ -4973,6 +5033,69 @@ describe("write loop", () => {
         }
       });
 
+      describe("runBuiltInReadyGateAutofixBiome", () => {
+        function interceptBiomeCall(reject: (cmd: string, argv: string[]) => never): AsyncSubprocessRunner {
+          return {
+            runAsync: async (cmd, argv, cwd, runOpts) => {
+              if (cmd === "bun" && argv[0] === "biome") {
+                reject(cmd, argv);
+              }
+              return realAsyncSubprocessRunner.runAsync(cmd, argv, cwd, runOpts);
+            },
+          };
+        }
+
+        function setupCommittedWorktree(branchName: string): { worktreePath: string; baseRef: string } {
+          const { jarvisRoot } = createJarvisHome();
+          const worktreePath = initAutofixGitWorktree(jarvisRoot, branchName);
+          const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+            encoding: "utf8",
+            stdio: "pipe",
+          }).trim();
+          commitAutofixAgentWork(worktreePath, "v2/src/changed.ts");
+          return { worktreePath, baseRef };
+        }
+
+        test("returns normally when biome rejects with a defined numeric status", async () => {
+          const { worktreePath, baseRef } = setupCommittedWorktree("builtin-autofix-status-code");
+
+          await expect(
+            runBuiltInReadyGateAutofixBiome(
+              { cwd: worktreePath, baseRef, timeoutMs: 5000 },
+              interceptBiomeCall(() => {
+                throw new AsyncSubprocessError("Command failed", 1, "", "noExcessiveCognitiveComplexity", undefined);
+              }),
+            ),
+          ).resolves.toBeUndefined();
+        });
+
+        test("throws FixCommandError naming the timeout budget on ETIMEDOUT", async () => {
+          const { worktreePath, baseRef } = setupCommittedWorktree("builtin-autofix-etimedout");
+
+          await expect(
+            runBuiltInReadyGateAutofixBiome(
+              { cwd: worktreePath, baseRef, timeoutMs: 5000 },
+              interceptBiomeCall(() => {
+                throw new AsyncSubprocessError("Command timed out", undefined, "", "", "ETIMEDOUT");
+              }),
+            ),
+          ).rejects.toThrow(/exceeded 5000ms budget/);
+        });
+
+        test("throws FixCommandError when the rejection carries no status (spawn failure)", async () => {
+          const { worktreePath, baseRef } = setupCommittedWorktree("builtin-autofix-spawn-failure");
+
+          await expect(
+            runBuiltInReadyGateAutofixBiome(
+              { cwd: worktreePath, baseRef, timeoutMs: 5000 },
+              interceptBiomeCall(() => {
+                throw new AsyncSubprocessError("spawn bun ENOENT", undefined, "", "", undefined);
+              }),
+            ),
+          ).rejects.toThrow(FixCommandError);
+        });
+      });
+
       test("ready-gate repair autofix invokes configured fixCommand", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         let observedFixCommand: string | undefined;
@@ -5004,6 +5127,35 @@ describe("write loop", () => {
         expect(result.kind).toBe("complete");
         expect(observedFixCommand).toBe("npm run lint-fix");
         expect(gateCalls).toBe(2);
+      });
+
+      test("configured fixCommand exiting non-zero settles completion_commit_failed", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                writeFileSync(join(cwd, "proof.txt"), "ok", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          fixCommand: "npm run lint-fix",
+          ...completionHooks,
+          runFixCommand: async () => {
+            throw new FixCommandError("npm run lint-fix failed");
+          },
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, "lint still red");
+          },
+        });
+
+        expect(result.kind).toBe("completion_commit_failed");
+        expect(result.completionCommitError).toContain("npm run lint-fix failed");
       });
 
       test("autofix output failing typecheck is reverted before the fence commit", async () => {

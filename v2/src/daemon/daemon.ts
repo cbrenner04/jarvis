@@ -956,7 +956,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
   };
 
   const clearWatch = (active: HandoffTransaction): void => {
-    if (active.watchTimer !== undefined) clearTimeout(active.watchTimer);
+    if (active.watchTimer !== undefined) clearTimeout(active.watchTimer); // @mutate-equivalent mutation="operator-flip: !== → ===" reason="clearWatch is called only by close(), which sets closed = true first; tickWatch returns immediately while closed, so a timer left scheduled by the flipped guard fires into an early return without probing, rebinding, settling or logging. No assertion can distinguish the two; the clear is event-loop hygiene, not a behavioral guard."
   };
 
   const scheduleWatch = (active: HandoffTransaction, handoffId: string): void => {

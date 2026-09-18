@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
@@ -7,6 +9,8 @@ import {
   AmbiguousOpenPrError,
   type CompletionPublisherInput,
   createCompletionPublisher,
+  ForeignRemoteTipError,
+  LeaseRejectedError,
 } from "./completion-publisher.ts";
 import * as prBodyRefreshModule from "./pr-body-refresh.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
@@ -1378,5 +1382,361 @@ describe("createCompletionPublisher", () => {
     expect(result.prNumber).toBe(42);
     const viewCall = ghCalls.find((args) => args[0] === "pr" && args[1] === "view");
     expect(viewCall?.[2]).toBe(baseInput.branch);
+  });
+});
+
+describe("createCompletionPublisher lease-forced push", () => {
+  const branch = "feature-branch";
+  const noopDelay = async () => {};
+  const refreshSeams = {
+    fetchPrBody: async () => "",
+    writePrBody: async () => {},
+    fetchPrTitle: async () => "t",
+    writePrTitle: async () => {},
+    renderFooter: async () => "",
+  };
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+    if (args[0] === "pr" && args[1] === "view") return JSON.stringify({ number: 1, url: "u", baseRefName: "main" });
+    return "";
+  };
+  const roots: string[] = [];
+  const laneInput = (worktreePath: string, leaseFromSha?: string) => ({
+    worktreePath,
+    baseRef: "main",
+    specPath: "v2/spec/x/index.md",
+    branch,
+    creationTitle: "t",
+    ...(leaseFromSha !== undefined ? { leaseFromSha } : {}),
+  });
+
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  function runGit(cwd: string, args: readonly string[]): string {
+    const result = spawnSync("git", [...args], {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_TEMPLATE_DIR: "",
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.com",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.com",
+      },
+    });
+    if (result.status !== 0) throw Object.assign(new Error(result.stderr.trim()), { stderr: result.stderr });
+    return result.stdout.trim();
+  }
+
+  function commit(cwd: string, file: string): string {
+    writeFileSync(join(cwd, file), file);
+    runGit(cwd, ["add", file]);
+    runGit(cwd, ["commit", "-m", file]);
+    return runGit(cwd, ["rev-parse", "HEAD"]);
+  }
+
+  /** Lane clone with `branch` already pushed at `laneTip`; `other` is a second clone of the same bare remote. */
+  function fixture() {
+    const root = trackedMkdtempSync(join(tmpdir(), "publisher-lease-"));
+    roots.push(root);
+    const remote = join(root, "remote.git");
+    runGit(root, ["init", "--bare", "-b", "main", remote]);
+    const lane = join(root, "lane");
+    const other = join(root, "other");
+    runGit(root, ["clone", remote, lane]);
+    commit(lane, "base");
+    runGit(lane, ["push", "origin", "HEAD:main"]);
+    runGit(lane, ["checkout", "-b", branch]);
+    const laneTip = commit(lane, "lane-1");
+    runGit(lane, ["push", "origin", `HEAD:refs/heads/${branch}`]);
+    runGit(root, ["clone", remote, other]);
+    return { lane, other, laneTip, remote };
+  }
+
+  /** Rebases the lane onto an advanced main; returns the recorded pre-rebase lane tip. */
+  function advanceMainAndRebase(f: ReturnType<typeof fixture>): string {
+    const preRebaseSha = runGit(f.lane, ["rev-parse", "HEAD"]);
+    commit(f.other, "main-2");
+    runGit(f.other, ["push", "origin", "HEAD:main"]);
+    runGit(f.lane, ["fetch", "origin"]);
+    runGit(f.lane, ["rebase", "origin/main"]);
+    return preRebaseSha;
+  }
+
+  function publisherFor(lane: string, leaseFromSha?: string, onPush?: () => void) {
+    const pushes: string[][] = [];
+    const publisher = createCompletionPublisher({
+      git: async (cwd, args) => {
+        if (args[0] === "push") {
+          pushes.push([...args]);
+          onPush?.();
+        }
+        return runGit(cwd, args);
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+    const publish = () => publisher(laneInput(lane, leaseFromSha));
+    return { publish, pushes };
+  }
+
+  it("publishes a rebased lane whose branch was already pushed with a lease on the observed tip", async () => {
+    const f = fixture();
+    const preRebaseSha = advanceMainAndRebase(f);
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha);
+
+    await publish();
+
+    expect(pushes).toEqual([
+      ["push", `--force-with-lease=refs/heads/${branch}:${f.laneTip}`, "origin", `HEAD:refs/heads/${branch}`],
+    ]);
+    expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(runGit(f.lane, ["rev-parse", "HEAD"]));
+  });
+
+  it("leases when the remote tip is a strict ancestor of the recorded pre-rebase SHA after post-publish local commits", async () => {
+    const f = fixture();
+    commit(f.lane, "lane-2");
+    const preRebaseSha = advanceMainAndRebase(f);
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha);
+
+    await publish();
+
+    expect(pushes).toEqual([
+      ["push", `--force-with-lease=refs/heads/${branch}:${f.laneTip}`, "origin", `HEAD:refs/heads/${branch}`],
+    ]);
+    expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(runGit(f.lane, ["rev-parse", "HEAD"]));
+  });
+
+  it("pushes plainly when the remote tip is an ancestor of HEAD", async () => {
+    const f = fixture();
+    commit(f.lane, "lane-2");
+    const { publish, pushes } = publisherFor(f.lane);
+
+    await publish();
+
+    expect(pushes).toEqual([["push", "origin", `HEAD:refs/heads/${branch}`]]);
+    expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(runGit(f.lane, ["rev-parse", "HEAD"]));
+  });
+
+  it("refuses a foreign remote tip that is neither the recorded pre-rebase SHA nor its ancestor, without pushing", async () => {
+    const f = fixture();
+    runGit(f.other, ["checkout", branch]);
+    const foreign = commit(f.other, "foreign");
+    runGit(f.other, ["push", "origin", `HEAD:refs/heads/${branch}`]);
+    runGit(f.other, ["checkout", "main"]);
+    const preRebaseSha = advanceMainAndRebase(f);
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha);
+
+    const error = await publish().then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(ForeignRemoteTipError);
+    expect((error as Error).message).toContain(branch);
+    expect((error as Error).message).toContain(foreign);
+    expect(pushes).toEqual([]);
+    expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(foreign);
+  });
+
+  it("refuses a stale-ORIG_HEAD lane over a remote rewound to an older lane commit, without forcing", async () => {
+    const f = fixture();
+    const laneTwo = commit(f.lane, "lane-2");
+    runGit(f.lane, ["push", "origin", `HEAD:refs/heads/${branch}`]);
+    // Foreign rewind of the branch to the lane's own older commit.
+    runGit(f.other, ["fetch", "origin"]);
+    runGit(f.other, ["push", "--force", "origin", `${f.laneTip}:refs/heads/${branch}`]);
+    // An agent's reset leaves ORIG_HEAD at lane-2, whose ancestry covers the rewound tip; this run did not rebase.
+    runGit(f.lane, ["reset", "--hard", "origin/main"]);
+    commit(f.lane, "redo");
+    expect(runGit(f.lane, ["rev-parse", "ORIG_HEAD"])).toBe(laneTwo);
+    const { publish, pushes } = publisherFor(f.lane);
+
+    const error = await publish().then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(ForeignRemoteTipError);
+    expect((error as Error).message).toContain(branch);
+    expect((error as Error).message).toContain(f.laneTip);
+    expect(pushes).toEqual([]);
+    expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(f.laneTip);
+  });
+
+  it("refuses a non-ancestor remote tip when no pre-rebase SHA is recorded", async () => {
+    const pushes: string[][] = [];
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "push") pushes.push([...args]);
+        if (args[0] === "ls-remote") return `cafe1234\trefs/heads/${branch}`;
+        if (args[0] === "merge-base") throw new Error("fatal");
+        return "";
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+
+    await expect(publisher(laneInput("/w"))).rejects.toThrow(ForeignRemoteTipError);
+    expect(pushes).toEqual([]);
+  });
+
+  it("fails permanently naming expected and actual SHAs when the remote moves between observation and push", async () => {
+    const f = fixture();
+    const preRebaseSha = advanceMainAndRebase(f);
+    runGit(f.other, ["fetch", "origin"]);
+    runGit(f.other, ["checkout", branch]);
+    let raced = "";
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha, () => {
+      raced = commit(f.other, "raced");
+      runGit(f.other, ["push", "origin", `HEAD:refs/heads/${branch}`]);
+    });
+
+    const error = await publish().then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(LeaseRejectedError);
+    expect((error as Error).message).toContain(branch);
+    expect((error as Error).message).toContain(`expected remote ${f.laneTip}`);
+    expect((error as Error).message).toContain(`actual ${raced}`);
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]?.includes("--force")).toBe(false);
+    expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(raced);
+  });
+
+  it("reports the actual SHA as unknown when the post-rejection re-resolve fails", async () => {
+    let lsRemoteCalls = 0;
+    const pushes: string[][] = [];
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "ls-remote") {
+          lsRemoteCalls += 1;
+          if (lsRemoteCalls > 1) throw new Error("network down");
+          return `cafe1234\trefs/heads/${branch}`;
+        }
+        if (args[0] === "merge-base") {
+          if (args[3] === "HEAD") throw new Error("not ancestor");
+          return "";
+        }
+        if (args[0] === "push") {
+          pushes.push([...args]);
+          throw new Error("! [rejected] (stale info)\nerror: failed to push some refs");
+        }
+        return "";
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(LeaseRejectedError);
+    expect((error as Error).message).toContain("expected remote cafe1234");
+    expect((error as Error).message).toContain("actual unknown");
+    expect(pushes).toHaveLength(1);
+  });
+
+  it("surfaces the original error when a lease push fails for a reason other than a lost lease", async () => {
+    const pushes: string[][] = [];
+    const denied = new Error("remote: Permission denied\nfatal: unable to access origin");
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "ls-remote") return `cafe1234\trefs/heads/${branch}`;
+        if (args[0] === "merge-base") {
+          if (args[3] === "HEAD") throw new Error("not ancestor");
+          return "";
+        }
+        if (args[0] === "push") {
+          pushes.push([...args]);
+          throw denied;
+        }
+        return "";
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBe(denied);
+    expect(error).not.toBeInstanceOf(LeaseRejectedError);
+    expect(pushes).toHaveLength(1);
+  });
+
+  it("surfaces the original error when a non-stale push failure is followed by a failed re-resolve", async () => {
+    let lsRemoteCalls = 0;
+    const denied = new Error("remote: Permission denied\nfatal: unable to access origin");
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "ls-remote") {
+          lsRemoteCalls += 1;
+          if (lsRemoteCalls > 1) throw new Error("network down");
+          return `cafe1234\trefs/heads/${branch}`;
+        }
+        if (args[0] === "merge-base") {
+          if (args[3] === "HEAD") throw new Error("not ancestor");
+          return "";
+        }
+        if (args[0] === "push") throw denied;
+        return "";
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBe(denied);
+  });
+
+  it("fails as a lease rejection when a non-stale push failure coincides with a moved remote tip", async () => {
+    let lsRemoteCalls = 0;
+    const denied = new Error("remote: Permission denied\nfatal: unable to access origin");
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "ls-remote") {
+          lsRemoteCalls += 1;
+          return `${lsRemoteCalls > 1 ? "beef5678" : "cafe1234"}\trefs/heads/${branch}`;
+        }
+        if (args[0] === "merge-base") {
+          if (args[3] === "HEAD") throw new Error("not ancestor");
+          return "";
+        }
+        if (args[0] === "push") throw denied;
+        return "";
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(LeaseRejectedError);
+    expect((error as Error).message).toContain("expected remote cafe1234");
+    expect((error as Error).message).toContain("actual beef5678");
   });
 });

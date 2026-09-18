@@ -402,6 +402,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
+  /** Lane tip before this run's stale-reset continuation rebased it; the only authorization for a lease-forced push. */
+  leaseFromSha?: string;
   publishCompletion?: boolean;
   /**
    * Marks this row as the workflow's resolved completion row — the one a later workflow
@@ -1215,6 +1217,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               creationTitle,
               ...externalSpecGitScope(args),
               ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
+              ...leaseFromShaField(args),
             });
             if (publication.failure !== undefined) {
               if (args.signal?.aborted) {
@@ -2242,6 +2245,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ? { specTemplate: true }
               : {}),
             ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
+            ...leaseFromShaField(args),
           });
           if (publication.failure !== undefined) {
             if (args.signal?.aborted) {
@@ -4075,6 +4079,13 @@ export async function publishWithReadyRepair(
   return buildReadyRepairPublishResult(loopResult.outcome, loopResult.iterationsConsumed, readyGateOrigin);
 }
 
+/** Spreadable publisher lease authorization; empty when this run did not rebase the lane. */
+export function leaseFromShaField(source: {
+  leaseFromSha?: string | undefined;
+}): { leaseFromSha: string } | Record<string, never> {
+  return source.leaseFromSha !== undefined ? { leaseFromSha: source.leaseFromSha } : {};
+}
+
 async function runPublisher(
   seams: CompletionPublicationSeams,
   input: {
@@ -4086,6 +4097,7 @@ async function runPublisher(
     bodySummary?: string;
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
+    leaseFromSha?: string;
   } & ExternalSpecGitScope,
 ): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
   return await (seams.completionPublisher ?? createCompletionPublisher())({
@@ -4236,6 +4248,7 @@ export async function publishCompletionArtifacts(
     bodySummary?: string;
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
+    leaseFromSha?: string;
   } & ExternalSpecGitScope,
   verifierProcessGroups?: VerifierProcessGroupRecorder,
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {

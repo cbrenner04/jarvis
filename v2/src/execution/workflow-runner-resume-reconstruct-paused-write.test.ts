@@ -8,6 +8,47 @@ import { DEFAULT_AGENT_MODEL_CONFIG } from "./workflow-runner.test-support.ts";
 import { reconstructPausedWriteResumeInput } from "./workflow-runner-resume.ts";
 
 describe("reconstructPausedWriteResumeInput", () => {
+  test("a resumed run keeps the pre-rebase SHA recorded on its snapshot write step", async () => {
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "paused-linked-lease-"));
+    writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n", "utf8");
+    writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
+
+    await withStateStore(async (store) => {
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath,
+        branch: "paused-linked/lease",
+        specPath: "index.md",
+        stepId: "implement~link-0",
+        workflowSnapshot: {
+          invocationId: "paused-linked-lease",
+          steps: [
+            {
+              stepId: "implement",
+              role: "implement",
+              stepRules: "implement rules",
+              expectedArtifactPath: "index.md",
+              leaseFromSha: "abc123",
+              agents: ["codex"],
+              agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+            },
+          ],
+        },
+      });
+      store.setRunStatus(runId, "paused");
+
+      const run = store.loadRun(runId);
+      if (!run) throw new Error("expected paused linked run");
+      const reconstructed = reconstructPausedWriteResumeInput(run);
+      expect(reconstructed.ok).toBe(true);
+      if (!reconstructed.ok) return;
+      expect(reconstructed.input.leaseFromSha).toBe("abc123");
+    });
+
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
   test("threads specReadRoot and absolute expectedArtifactPath for a paused external implement~link-N row", async () => {
     const specReadRoot = trackedMkdtempSync(join(tmpdir(), "paused-linked-external-spec-"));
     const indexPath = join(specReadRoot, "index.md");

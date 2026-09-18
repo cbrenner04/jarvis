@@ -97,6 +97,8 @@ export type WorkflowSnapshotStep = {
   externalPlanSpec?: true;
   /** Authoritative external routing root for an admitted plan. */
   specReadRoot?: string;
+  /** This run's recorded pre-rebase lane tip; authorizes the publisher's lease push across resume. */
+  leaseFromSha?: string;
   /** Seed inputs the write step's landing consumes; resume replays consumption from here. Absent on legacy snapshots. */
   landingInputs?: PublicationInputs;
 };
@@ -712,6 +714,12 @@ export interface StateStore {
 
   /** Retain the title resolved at the publication boundary for retries. */
   setCreationTitle(runId: string, title: string): void;
+
+  /**
+   * In one transaction, set (string) or clear (null) `leaseFromSha` on the snapshot steps named in
+   * `leases` for every row of `invocationId`; nothing else in the snapshot changes.
+   */
+  setInvocationLeaseFromSha(invocationId: string, leases: ReadonlyMap<string, string | null>): void;
 
   /** Update the worktree-relative handoff path recorded on a run row after intent landing. */
   setRunSpecPath(runId: string, specPath: string): void;
@@ -1989,6 +1997,26 @@ class StateStoreImpl implements StateStore {
 
   setCreationTitle(runId: string, title: string): void {
     this.db.prepare("UPDATE runs SET creation_title = ? WHERE id = ?").run(title, runId);
+  }
+
+  setInvocationLeaseFromSha(invocationId: string, leases: ReadonlyMap<string, string | null>): void {
+    this.db.transaction(() => {
+      const update = this.db.prepare("UPDATE runs SET workflow_snapshot = ? WHERE id = ?");
+      for (const run of this.findRunsByInvocationId(invocationId)) {
+        const snapshot = run.workflowSnapshot;
+        if (!snapshot) continue;
+        let changed = false;
+        const steps = snapshot.steps.map((step) => {
+          if (!leases.has(step.stepId)) return step;
+          const next = leases.get(step.stepId) ?? undefined;
+          if (step.leaseFromSha === next) return step;
+          changed = true;
+          const { leaseFromSha: _prior, ...rest } = step;
+          return next !== undefined ? { ...rest, leaseFromSha: next } : rest;
+        });
+        if (changed) update.run(JSON.stringify({ ...snapshot, steps }), run.id);
+      }
+    })();
   }
 
   setRunSpecPath(runId: string, specPath: string): void {

@@ -1,8 +1,7 @@
 import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
 import type { PipelineStageArtifact } from "../persistence/pipeline-stage-settlement.ts";
-import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
+import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
-import { resolveWorkflowRunRollup } from "../persistence/workflow-run-status-rollup.ts";
 import {
   derivePipelineState,
   hasPipelineTerminalPublicationFailure,
@@ -28,12 +27,7 @@ type OperatorIncidentKind =
  * changes shape or a new incident kind is added; `reconcileNotificationKeyFormat` then marks
  * already-settled incidents delivered under the new format instead of re-sending them.
  */
-export const NOTIFICATION_KEY_FORMAT_VERSION = 3;
-
-export type OperatorIncidentDerivationOptions = {
-  /** Whether this daemon still drives the workflow invocation whose entry run is `entryRunId`. */
-  isWorkflowInvocationLive?: (entryRunId: string) => boolean;
-};
+export const NOTIFICATION_KEY_FORMAT_VERSION = 4;
 
 /** One operator-actionable incident at derived altitude. */
 export type OperatorIncident = {
@@ -268,7 +262,9 @@ function isPlainRun(run: Run): boolean {
   return run.workflowSnapshot?.invocationId === undefined;
 }
 
-type WorkflowInvocationRows = { invocationId: string; entryRun: Run; rows: Run[] };
+type InvocationSettledMarker = NonNullable<ReturnType<StateStore["readWorkflowInvocationSettledMarker"]>>;
+
+type WorkflowInvocationRows = { invocationId: string; entryRun: Run; rows: Run[]; marker: InvocationSettledMarker };
 
 function isInvocationRollupCandidate(
   run: Run,
@@ -296,38 +292,22 @@ function findInvocationEntryRun(rows: readonly Run[]): Run | undefined {
   );
 }
 
-function statusWriteMs(run: Run): number {
-  return run.statusChangedAt ?? run.finishedAt ?? run.createdAt;
+/** Each marker write is one settle; row writes never mint a transition. */
+function terminalTransition(marker: InvocationSettledMarker): string {
+  return `terminal:${marker.cause}:${marker.settledAt}`;
 }
 
-function transitionTimestamp(transition: string): number {
-  return Number(transition.slice(transition.lastIndexOf(":") + 1));
-}
-
-/**
- * True when the ledger already holds a terminal delivery for this invocation at or after the latest
- * status write among its candidate rows. The latest-settled row is inside the recency window whenever
- * any row is, so that write is the invocation-wide latest; only invocations whose entry row is itself
- * a candidate can be judged this way — the rest load their siblings.
- */
-function isInvocationDeliveredThrough(
-  ledger: DeliveredLedger,
-  candidateRows: readonly Run[],
-  latestWriteMs: number,
-): boolean {
+/** The candidate rows' entry row, when it is itself a candidate; otherwise the invocation's siblings must load. */
+function findCandidateEntryRun(candidateRows: readonly Run[]): Run | undefined {
   const entryStepId = candidateRows[0]?.workflowSnapshot?.steps[0]?.stepId;
-  const entryRun = candidateRows.find((run) => run.stepId === entryStepId);
-  if (entryRun === undefined) return false;
-  const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
-  return transitions.some(
-    (transition) => transition.startsWith("terminal:") && transitionTimestamp(transition) >= latestWriteMs,
-  );
+  return candidateRows.find((run) => run.stepId === entryStepId);
 }
 
 /**
- * Group every candidate terminal workflow row's invocation with all of its durable rows, skipping
- * invocations the ledger shows delivered through their latest visible settlement so the per-tick
- * sibling load stays proportional to undelivered work, not to history inside the recency window.
+ * Group every candidate terminal workflow row's invocation with all of its durable rows. Invocations
+ * without a settled marker, or whose marker settle the ledger already shows delivered, are skipped so
+ * the per-tick sibling load stays proportional to undelivered work, not to history inside the recency
+ * window.
  */
 function collectWorkflowInvocations(
   store: StateStore,
@@ -347,9 +327,19 @@ function collectWorkflowInvocations(
     }
   }
   const invocationIds = new Set<string>();
+  const markersByInvocation = new Map<string, InvocationSettledMarker>();
   for (const [invocationId, candidateRows] of candidateRowsByInvocation) {
-    const latestWriteMs = Math.max(...candidateRows.map(statusWriteMs));
-    if (!isInvocationDeliveredThrough(ledger, candidateRows, latestWriteMs)) invocationIds.add(invocationId);
+    const entryRun = findCandidateEntryRun(candidateRows);
+    if (entryRun === undefined) {
+      invocationIds.add(invocationId);
+      continue;
+    }
+    const marker = store.readWorkflowInvocationSettledMarker(entryRun.id);
+    if (marker === null) continue;
+    const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
+    if (transitions.includes(terminalTransition(marker))) continue;
+    markersByInvocation.set(invocationId, marker);
+    invocationIds.add(invocationId);
   }
   if (invocationIds.size === 0) return [];
 
@@ -363,77 +353,30 @@ function collectWorkflowInvocations(
   const invocations: WorkflowInvocationRows[] = [];
   for (const [invocationId, rows] of rowsByInvocation) {
     const entryRun = findInvocationEntryRun(rows);
-    if (entryRun !== undefined) invocations.push({ invocationId, entryRun, rows });
+    if (entryRun === undefined) continue;
+    const marker = markersByInvocation.get(invocationId) ?? store.readWorkflowInvocationSettledMarker(entryRun.id);
+    if (marker !== null) invocations.push({ invocationId, entryRun, rows, marker });
   }
   return invocations;
 }
 
-/** The invocation's settlement time: its latest status write across every row. */
-function invocationSettledAt(rows: readonly Run[]): number {
-  return Math.max(...rows.map(statusWriteMs));
+/** `blocked` and `run_timeout` rows already carry their own per-row kinds; a timed-out invocation settles `failed`. */
+function hasOwnIncidentRow(rows: readonly Run[]): boolean {
+  return rows.some((run) => run.status === "blocked" || run.terminalCause === "run_timeout");
 }
 
-type InvocationTerminal = { status: RunStatus; cause: string; transition: string; sinceMs: number };
-
-/** Publication-tail failures (`completion_commit_failed`, `ready_flip_failed`, …) settle the row `completed` yet need the operator. */
-function findCompletedRowWithFailureCause(rows: readonly Run[]): Run | undefined {
-  return rows.find(
-    (run) => run.status === "completed" && run.terminalCause != null && run.terminalCause !== "complete",
-  );
-}
-
-/**
- * One terminal per invocation, from the same rollup `run wait` and stage settlement use. Emits only
- * when a real row settled it: a `killed` inferred from a missing row is a dispatch gap or another
- * daemon's live invocation; `blocked` and `run_timeout` rows already carry their own per-row kinds.
- */
-function invocationTerminal(invocation: WorkflowInvocationRows, isLive: boolean): InvocationTerminal | null {
-  const { entryRun, rows } = invocation;
-  const failedPublication = isLive ? undefined : findCompletedRowWithFailureCause(rows);
-  if (failedPublication?.terminalCause != null) {
-    const settledAt = invocationSettledAt(rows);
-    return {
-      status: "failed",
-      cause: failedPublication.terminalCause,
-      transition: `terminal:failed:${settledAt}`,
-      sinceMs: settledAt,
-    };
-  }
-  const rollup = resolveWorkflowRunRollup({
-    entryRun,
-    workflowSnapshot: entryRun.workflowSnapshot ?? null,
-    siblingRuns: rows,
-    isLive,
-  });
-  if (!isTerminalRunStatus(rollup.status) || rollup.status === "blocked") return null;
-  if (rollup.status === "killed" && rollup.causeRun === undefined) return null;
-  if (rollup.status === "killed" && rollup.causeRun?.terminalCause === "run_timeout") return null;
-  const settledAt = invocationSettledAt(rows);
-  return {
-    status: rollup.status,
-    cause: rollup.status,
-    transition: `terminal:${rollup.status}:${settledAt}`,
-    sinceMs: settledAt,
-  };
-}
-
-function collectInvocationIncidents(
-  invocations: readonly WorkflowInvocationRows[],
-  isWorkflowInvocationLive: (entryRunId: string) => boolean,
-): OperatorIncident[] {
+function collectInvocationIncidents(invocations: readonly WorkflowInvocationRows[]): OperatorIncident[] {
   const incidents: OperatorIncident[] = [];
-  for (const invocation of invocations) {
-    const terminal = invocationTerminal(invocation, isWorkflowInvocationLive(invocation.entryRun.id));
-    if (terminal === null) continue;
-    const { entryRun } = invocation;
+  for (const { entryRun, rows, marker } of invocations) {
+    if (hasOwnIncidentRow(rows)) continue;
     incidents.push({
       incidentId: runIncidentId(entryRun.id),
       kind: "run-ad-hoc-terminal",
-      transition: terminal.transition,
+      transition: terminalTransition(marker),
       project: entryRun.project,
       runId: entryRun.id,
-      cause: terminal.cause,
-      sinceMs: terminal.sinceMs,
+      cause: marker.cause,
+      sinceMs: marker.settledAt,
     });
   }
   return incidents;
@@ -701,11 +644,7 @@ function collectRunIncidents(
 }
 
 /** Recompute every current operator-actionable incident from durable rows. */
-export function deriveOperatorIncidents(
-  store: StateStore,
-  nowMs: number = Date.now(),
-  options: OperatorIncidentDerivationOptions = {},
-): OperatorIncident[] {
+export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.now()): OperatorIncident[] {
   const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;
   const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
   const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
@@ -756,8 +695,7 @@ export function deriveOperatorIncidents(
     store,
     invocations.map((invocation) => runIncidentId(invocation.entryRun.id)),
   );
-  const isWorkflowInvocationLive = options.isWorkflowInvocationLive ?? (() => false);
-  for (const incident of collectInvocationIncidents(invocations, isWorkflowInvocationLive)) {
+  for (const incident of collectInvocationIncidents(invocations)) {
     pushUndeliveredIncident(incidents, invocationDelivered, incident);
   }
 

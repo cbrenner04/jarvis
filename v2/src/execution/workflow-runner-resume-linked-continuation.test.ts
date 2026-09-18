@@ -165,6 +165,7 @@ describe("resumed linked-implement workflow continuation", () => {
       });
       expect(rollup.status).toBe("completed");
 
+      store.writeWorkflowInvocationSettledMarker(runId, "completed", Date.now());
       const incidents = deriveOperatorIncidents(store);
       const entryIncident = incidents.find((incident) => incident.runId === runId);
       expect(entryIncident).toMatchObject({ kind: "run-ad-hoc-terminal", cause: "completed" });

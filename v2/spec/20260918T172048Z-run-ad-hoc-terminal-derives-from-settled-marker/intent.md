@@ -9,7 +9,7 @@ Seed: `v2/spec/seeds/workflow-terminal-incident-fires-once.md`.
 ## Behavior
 
 - `invocationTerminal` (`v2/src/daemon/operator-incidents.ts`) derives the incident only from the settled marker. It does not use the latest row-status time or in-memory liveness. With no marker, no daemon emits the incident.
-- The transition key is `terminal:${cause}`. If the cause changes, the operator is notified once more.
+- The transition key is `terminal:${cause}:${settledAt}` from the marker; each marker write or genuine rewrite notifies exactly once (amended in review 2026-09-18).
 - Terminal incidents already delivered before the upgrade are not delivered again.
 - Docs: `v2/docs/daemon-host.md` § Operator notifications; `v2/docs/operator-runbook.md` § Deciding a workflow is finished.
 

@@ -86,7 +86,7 @@ async function pollUntil(predicate: () => boolean | Promise<boolean>): Promise<t
   }
 }
 
-/** A one-shot promise that rejects when the test aborts. */
+/** A one-shot promise that rejects when the test aborts; an abort nobody awaits stays silent. */
 function abortableEvent(): { promise: Promise<void>; fire: () => void } {
   const { signal } = testAbort;
   let fire: () => void = () => undefined;
@@ -95,6 +95,7 @@ function abortableEvent(): { promise: Promise<void>; fire: () => void } {
     if (signal.aborted) reject(signal.reason);
     else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   });
+  promise.catch(() => undefined);
   return { promise, fire };
 }
 
@@ -199,16 +200,30 @@ async function startWork(socketPath: string, projectName: string): Promise<strin
   return ((frame as ResponseFrame).result as { runId: string }).runId;
 }
 
-/** The rebound address can answer `health` a beat before admission reopens: retry `start` until it is admitted. */
+/**
+ * The rebound address can answer `health` before admission reopens: the committed watch's `tickWatch`
+ * rebinds the public server (health answers once it listens) and only afterwards, on the continuation
+ * of `await bindPublicServer()`, calls `setAdmitting`. Commit already cleared `scheduleFallback`, so
+ * `scheduleWatch` is the only timer involved. Retry `start` until admitted; an abort reports the last refusal.
+ */
 async function startWorkOnceAdmitted(socketPath: string, projectName: string): Promise<void> {
-  await pollUntil(async () => {
-    const frame = await request(socketPath, "start", {
-      input: mockWriteLoopInput({ projectName, branchName: `${projectName}-branch` }),
+  let lastRefusal: unknown;
+  try {
+    await pollUntil(async () => {
+      const frame = await request(socketPath, "start", {
+        input: mockWriteLoopInput({ projectName, branchName: `${projectName}-branch` }),
+      });
+      if (frame.kind === "response") return true;
+      if ((frame as { code?: string }).code === "daemon_superseded") {
+        lastRefusal = frame;
+        return false;
+      }
+      throw new Error(`start failed: ${JSON.stringify(frame)}`);
     });
-    if (frame.kind === "response") return true;
-    if ((frame as { code?: string }).code === "daemon_superseded") return false;
-    throw new Error(`start failed: ${JSON.stringify(frame)}`);
-  });
+  } catch (error) {
+    if (lastRefusal === undefined) throw error;
+    throw new Error(`admission never reopened: ${JSON.stringify(lastRefusal)}`, { cause: error });
+  }
 }
 
 /** A successor that binds `--socket` but never answers, so `startDaemon` times out and kills it. */

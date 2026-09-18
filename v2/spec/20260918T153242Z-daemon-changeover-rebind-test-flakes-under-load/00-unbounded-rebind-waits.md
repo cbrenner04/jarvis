@@ -19,11 +19,11 @@ Positive `waitFor(..., N_000)` calls in `v2/src/daemon/daemon-changeover.sandbox
 
 ## Task checklist
 
-- [ ] Add unbounded poll helper.
-- [ ] Add per-test abort (`beforeEach`/`afterEach`) consumed by the helper and the retry-bind await.
-- [ ] Replace the five in-scope bounded waits.
-- [ ] Convert the watch-retry test to await the retry-bind event.
-- [ ] Root-cause and fix the killed-successor test's `daemon_superseded` failure.
+- [x] Add unbounded poll helper.
+- [x] Add per-test abort (`beforeEach`/`afterEach`) consumed by the helper and the retry-bind await.
+- [x] Replace the five in-scope bounded waits.
+- [x] Convert the watch-retry test to await the retry-bind event.
+- [x] Root-cause and fix the killed-successor test's `daemon_superseded` failure.
 
 ## Acceptance criteria
 

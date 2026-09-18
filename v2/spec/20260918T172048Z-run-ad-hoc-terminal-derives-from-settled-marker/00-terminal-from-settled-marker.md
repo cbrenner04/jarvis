@@ -7,7 +7,7 @@ Evidence: on `main` after #4063, plan run `e9b69036-a276-4857-93ca-f86aee05b841`
 ## Decisions
 
 - Incident exists iff the entry run's settled marker exists; cause and `sinceMs` come from the marker (`cause`, `settledAt`). Rules out keeping the rollup/`isLive` path as a fallback — a missing marker means no incident on any daemon.
-- Transition is `terminal:${marker.cause}`, no timestamp. Rules out `terminal:${cause}:${settledAt}`, which re-fires on every marker rewrite with the same cause.
+- Transition is `terminal:${marker.cause}:${marker.settledAt}`. `settledAt` changes only when the owning daemon writes or rewrites the marker (never when further rows settle), so the e9b69036 double-delivery cannot recur, while each genuine failed republication — including fail, resume, fail — notifies once as a new actionable event. Rules out a row-derived timestamp (the pre-fix double-notify) and a cause-only key (which would silence a repeat failure the operator must act on). Amended in review 2026-09-18.
 - A cause returning to an earlier value is deduplicated on purpose. Rules out a change-sequence key; unreachable today, since the only marker rewrite is to `failed` (`rewriteSettledMarkerAfterFailedRepublication`).
 - The incident's `cause` is the marker cause (`completed|failed|killed`), not a row's `terminalCause`. Rules out passing row causes such as `completion_commit_failed` to the sink.
 - The completed-with-failure-cause publication-tail path is dropped from `invocationTerminal`; republication failure reaches the operator via the marker rewrite to `failed`.

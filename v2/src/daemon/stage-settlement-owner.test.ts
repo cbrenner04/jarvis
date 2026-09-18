@@ -179,27 +179,29 @@ describe("hasLiveForeignOwnerSibling", () => {
   });
 });
 
+/** Entry run, hidden shrink sibling, and a `running` stage linked to it, all owned by `FOREIGN_OWNER`. */
+function seedForeignLiveStage(invocationId: string, pipelineName: string): { entryRunId: string; pipelineId: string } {
+  const snapshot = implementSnapshot(invocationId);
+  const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
+  const entryRunId = seedRun(foreignStore, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
+  seedRun(foreignStore, { stepId: "implement~shrink", workflowSnapshot: snapshot });
+  const pipelineId = foreignStore.createPipeline({ definition: singlePlanStagePipeline(pipelineName) });
+  foreignStore.updateStage({
+    pipelineId,
+    stageId: "plan",
+    patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 100 },
+  });
+  foreignStore.close();
+  return { entryRunId, pipelineId };
+}
+
 describe("settleOrphanedRunningStages foreign-owner liveness gate", () => {
   beforeEach(() => {
     removeOrchestrationStore(TEST_DB_PATH);
   });
 
   test("leaves a stage running while its hidden shrink sibling is live under a foreign owner", async () => {
-    const snapshot = implementSnapshot("sows-foreign-live");
-    const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
-    const entryRunId = seedRun(foreignStore, {
-      status: "completed",
-      stepId: "implement",
-      workflowSnapshot: snapshot,
-    });
-    seedRun(foreignStore, { stepId: "implement~shrink", workflowSnapshot: snapshot });
-    const pipelineId = foreignStore.createPipeline({ definition: singlePlanStagePipeline("foreign-live") });
-    foreignStore.updateStage({
-      pipelineId,
-      stageId: "plan",
-      patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 100 },
-    });
-    foreignStore.close();
+    const { pipelineId } = seedForeignLiveStage("sows-foreign-live", "foreign-live");
 
     const store = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_OWNER });
     try {
@@ -217,21 +219,7 @@ describe("settleOrphanedRunningStages foreign-owner liveness gate", () => {
   });
 
   test("settles the stage once the foreign owner identity is dead", async () => {
-    const snapshot = implementSnapshot("sows-foreign-dead");
-    const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
-    const entryRunId = seedRun(foreignStore, {
-      status: "completed",
-      stepId: "implement",
-      workflowSnapshot: snapshot,
-    });
-    seedRun(foreignStore, { stepId: "implement~shrink", workflowSnapshot: snapshot });
-    const pipelineId = foreignStore.createPipeline({ definition: singlePlanStagePipeline("foreign-dead") });
-    foreignStore.updateStage({
-      pipelineId,
-      stageId: "plan",
-      patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 100 },
-    });
-    foreignStore.close();
+    const { entryRunId, pipelineId } = seedForeignLiveStage("sows-foreign-dead", "foreign-dead");
 
     const store = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_OWNER });
     try {

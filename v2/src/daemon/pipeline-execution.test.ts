@@ -6330,6 +6330,42 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "plan", "beta")?.status).not.toBe("pending");
   });
 
+  test("a branch stage found already succeeded on the very first observed pass still reopens its stranded provisional skip", async () => {
+    // Simulates the crash window: the success write landed (and any reopen from that write's own
+    // pass was lost) before this process ever loaded the pipeline, so the first pass here observes
+    // an already-`succeeded` row with no settlement in flight and no `failed` row anywhere on the
+    // branch. `settleFanOutBranch` is never invoked for a row that arrives pre-succeeded, so only
+    // `advanceFanOutBranches`'s own snapshot-continue path can free the successor.
+    const { store: rawStore, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const store = withSyntheticPlanRunRecords(rawStore);
+    setupFanOutAlphaPlanStatus(store, "succeeded");
+    expect(stageRecord(stages(), "implement", "alpha")?.skipProvenance).toBe("provisional");
+    expect(stages().some((stage) => stage.branchKey === "alpha" && stage.status === "failed")).toBe(false);
+    // No operator verb can free the stranded successor: no failed row exists anywhere to reopen.
+    expect(store.reopenFailedPipeline({ pipelineId: PIPELINE_ID, branchKey: "alpha" }).kind).toBe("refused");
+
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const deps = fanOutPipelineDeps(store, dispatchLog);
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    // First pass: the reopen fires, but reopened rows dispatch only on the loop's next pass.
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+    const reopenedImplementAlpha = stageRecord(stages(), "implement", "alpha");
+    expect(reopenedImplementAlpha?.status).toBe("pending");
+    expect(reopenedImplementAlpha?.skipProvenance ?? null).toBeNull();
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
+    expect(dispatchLog.some((entry) => entry.stageId === "implement" && entry.branchKey === "alpha")).toBe(true);
+    expect(stages().some((stage) => stage.branchKey === "alpha" && stage.status === "failed")).toBe(false);
+  });
+
   test("exactly one terminal write settles a peer row whose entry run is live at dispatch time", async () => {
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
     setupFanOutAlphaLiveLinked(store);

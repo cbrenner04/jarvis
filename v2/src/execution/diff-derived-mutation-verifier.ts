@@ -153,20 +153,62 @@ export function killingTestBudgetMs(baselineMs: number): number {
   return Math.min(KILLING_TEST_BUDGET_CEILING_MS, Math.max(KILLING_TEST_BUDGET_FLOOR_MS, scaled));
 }
 
-/** What the unmutated killing set established before any candidate in it was tested. */
+/** What the unmutated killing/observer set established before any candidate in it was tested. */
 type KillingTestBaseline =
-  | { kind: "measured"; elapsedMs: number; budgetMs: number }
+  | { kind: "measured"; elapsedMs: number; budgetMs: number; passed: boolean }
   | { kind: "exceeded-ceiling" }
   | { kind: "deadline" };
+
+type BaselineMeasurer = (killingTests: readonly string[]) => Promise<KillingTestBaseline>;
+
+/**
+ * Measures an unmutated test set's wall time at most once per distinct set, capped at the ceiling
+ * budget, and derives the per-candidate bound from it via `killingTestBudgetMs`. Shared by the
+ * killing-test candidate path and render-observer verification: one timing policy, one constant set.
+ */
+function createBaselineMeasurer(
+  input: DiffDerivedMutationVerifierInput,
+  runScopedTests: RunScopedTests,
+  now: () => number,
+  deadline: number,
+): BaselineMeasurer {
+  const baselines = new Map<string, Promise<KillingTestBaseline>>();
+  return function baselineFor(killingTests: readonly string[]): Promise<KillingTestBaseline> {
+    const key = [...killingTests].sort().join("\u0000");
+    const cached = baselines.get(key);
+    if (cached !== undefined) return cached;
+    const measurement = (async (): Promise<KillingTestBaseline> => {
+      // Headroom in [floor, ceiling) still runs, bounded by the headroom, so the near-deadline window
+      // keeps failing closed; only sub-floor headroom or a headroom-bounded timeout settles "deadline".
+      const timeoutMs = Math.min(KILLING_TEST_BUDGET_CEILING_MS, deadline - now());
+      if (timeoutMs < KILLING_TEST_BUDGET_FLOOR_MS) return { kind: "deadline" };
+      const startedAt = now();
+      let passed: boolean;
+      try {
+        passed = await runScopedTests(input.worktreePath, killingTestPaths([...killingTests]), { timeoutMs });
+      } catch (error) {
+        if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
+          return timeoutMs < KILLING_TEST_BUDGET_CEILING_MS ? { kind: "deadline" } : { kind: "exceeded-ceiling" };
+        }
+        throw error;
+      }
+      const elapsedMs = Math.max(0, now() - startedAt);
+      return { kind: "measured", elapsedMs, budgetMs: killingTestBudgetMs(elapsedMs), passed };
+    })();
+    baselines.set(key, measurement);
+    return measurement;
+  };
+}
 
 function inconclusiveCandidateReason(
   baseline: Exclude<KillingTestBaseline, { kind: "measured" }>,
   killingTests: readonly string[],
+  setLabel = "killing set",
 ): string {
   const set = killingTests.join(", ");
   return baseline.kind === "exceeded-ceiling"
-    ? `inconclusive: unmutated killing set (${set}) exceeded the ${KILLING_TEST_BUDGET_CEILING_MS}ms ceiling, so a timeout cannot be attributed to the mutant`
-    : `inconclusive: unmutated killing set (${set}) could not be measured before the verification deadline`;
+    ? `inconclusive: unmutated ${setLabel} (${set}) exceeded the ${KILLING_TEST_BUDGET_CEILING_MS}ms ceiling, so a timeout cannot be attributed to the mutant`
+    : `inconclusive: unmutated ${setLabel} (${set}) could not be measured before the verification deadline`;
 }
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
 const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
@@ -1027,7 +1069,8 @@ async function verifyPromptRenderCoverage(
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
   observerTests: readonly string[],
-): Promise<PromptRenderCoverageOutcome> {
+  measureBaseline: BaselineMeasurer,
+): Promise<PromptRenderCoverageOutcome | "inconclusive"> {
   const filePath = `${input.worktreePath}/${promptPath}`;
   let original: string;
   try {
@@ -1037,16 +1080,27 @@ async function verifyPromptRenderCoverage(
   }
   const bounds = promptBodyBounds(original);
   if (bounds !== null && inDiff && !hasBodyAddLines(changedLines, bounds.bodyStartLine)) {
-    // Exempt path: observers run against unmutated post-change content, so their own result is the
-    // verdict. A false here means they ran and failed — not that they passed unconfirmed.
-    const passed = await runScopedTests(input.worktreePath, killingTestPaths([...observerTests]));
-    return { observed: passed, observersPassedUnmutated: passed };
+    // Exempt path: observers run against unmutated post-change content, so the baseline measurement
+    // (run at the ceiling budget, not the fixed floor) doubles as the clean-observer check — its own
+    // pass/fail is the verdict, and an unmeasurable baseline settles inconclusive instead of timing out.
+    const baseline = await measureBaseline(observerTests);
+    if (baseline.kind !== "measured") return "inconclusive";
+    return { observed: baseline.passed, observersPassedUnmutated: baseline.passed };
   }
   const mutated = mutateRenderedPrompt(original, changedLines);
   if (mutated === null) return { observed: false, observersPassedUnmutated: false };
   try {
     await writeFile(filePath, mutated);
-    const passedUnderMutation = await runScopedTests(input.worktreePath, killingTestPaths([...observerTests]));
+    const killingSetResult = await runMutatedKillingSet(input, runScopedTests, [...observerTests], measureBaseline, {
+      restore: async () => {
+        await writeFile(filePath, original);
+      },
+      reapply: async () => {
+        await writeFile(filePath, mutated);
+      },
+    });
+    if (killingSetResult === "inconclusive") return killingSetResult;
+    const passedUnderMutation = killingSetResult.passed;
     return { observed: !passedUnderMutation, observersPassedUnmutated: passedUnderMutation };
   } finally {
     await writeFile(filePath, original);
@@ -1303,6 +1357,20 @@ function importerDiscoveryCapExceeded(candidate: Candidate): SurvivingMutationRe
   };
 }
 
+async function inconclusiveObserverSkip(
+  promptPath: string,
+  observerTests: readonly string[],
+  measureBaseline: BaselineMeasurer,
+): Promise<SkippedCandidate> {
+  const baseline = await measureBaseline(observerTests);
+  if (baseline.kind === "measured") throw new Error("inconclusive settlement requires an unmeasured baseline");
+  return {
+    file: promptPath,
+    line: 1,
+    reason: inconclusiveCandidateReason(baseline, observerTests, "render-observer set"),
+  };
+}
+
 async function verifyChangedPrompts(
   changedPaths: string[],
   changedLinesByFile: Map<string, ChangedLine[]>,
@@ -1314,7 +1382,9 @@ async function verifyChangedPrompts(
   runScopedTests: RunScopedTests,
   now: () => number,
   deadline: number,
-): Promise<MutationFailureResult | null> {
+): Promise<{ failure: MutationFailureResult | null; skipped: SkippedCandidate[] }> {
+  const skipped: SkippedCandidate[] = [];
+  const measureBaseline = createBaselineMeasurer(input, runScopedTests, now, deadline);
   const currentRegistry = currentRegisteredPromptPaths(input.worktreePath);
   const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
   const changedPrompts = changedPaths.filter((path) => {
@@ -1323,18 +1393,20 @@ async function verifyChangedPrompts(
     return currentRegistry.paths.has(path);
   });
   for (const [index, promptPath] of changedPrompts.entries()) {
-    if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) return missingRenderCoverage(promptPath);
+    if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline)
+      return { failure: missingRenderCoverage(promptPath), skipped };
     let mapSource: string;
     try {
       mapSource = await readFile(`${input.worktreePath}/${RENDER_OBSERVER_MAP_RELATIVE_PATH}`);
     } catch {
-      return missingRenderCoverage(promptPath);
+      return { failure: missingRenderCoverage(promptPath), skipped };
     }
     const map = extractRenderObserverMapFromSource(mapSource);
     const observerTests = map?.[promptPath];
-    if (observerTests === undefined || observerTests.length === 0) return missingRenderCoverage(promptPath);
-    for (const observerPath of observerTests) {
-      if (!observerPathConfinedToWorktree(input.worktreePath, observerPath)) return missingRenderCoverage(promptPath);
+    if (observerTests === undefined || observerTests.length === 0)
+      return { failure: missingRenderCoverage(promptPath), skipped };
+    if (!observerTests.every((observerPath) => observerPathConfinedToWorktree(input.worktreePath, observerPath))) {
+      return { failure: missingRenderCoverage(promptPath), skipped };
     }
     try {
       const renderCoverage = await verifyPromptRenderCoverage(
@@ -1346,16 +1418,26 @@ async function verifyChangedPrompts(
         writeFile,
         runScopedTests,
         observerTests,
+        measureBaseline,
       );
-      if (!renderCoverage.observed) return renderCoverageFailure(promptPath, renderCoverage, observerTests);
+      // An inconclusive baseline (unmeasurable before the ceiling or the deadline) allows
+      // publication, recorded like an inconclusive killing-test candidate: a timeout cannot be
+      // attributed to the observer without a measured baseline.
+      if (renderCoverage === "inconclusive") {
+        skipped.push(await inconclusiveObserverSkip(promptPath, observerTests, measureBaseline));
+        continue;
+      }
+      if (!renderCoverage.observed) {
+        return { failure: renderCoverageFailure(promptPath, renderCoverage, observerTests), skipped };
+      }
     } catch (error) {
       if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
-        return nonTerminatingRenderObserverMutation(promptPath);
+        return { failure: nonTerminatingRenderObserverMutation(promptPath), skipped };
       }
       throw error;
     }
   }
-  return null;
+  return { failure: null, skipped };
 }
 
 function sourceWithChangedLines(source: string, changedLines: ChangedLine[]): string {
@@ -1612,30 +1694,7 @@ async function verifyCandidates(
   const skippedCandidates: SkippedCandidate[] = [];
   const fileCache = new Map<string, string>();
   const fileChains = new Map<string, Promise<void>>();
-  const baselines = new Map<string, Promise<KillingTestBaseline>>();
-
-  /** Measure the unmutated killing set at most once per distinct set, only after a floor timeout; the measurement counts against the deadline. */
-  function baselineFor(killingTests: readonly string[]): Promise<KillingTestBaseline> {
-    const key = [...killingTests].sort().join("\u0000");
-    const cached = baselines.get(key);
-    if (cached !== undefined) return cached;
-    const measurement = (async (): Promise<KillingTestBaseline> => {
-      if (now() + KILLING_TEST_BUDGET_CEILING_MS > deadline) return { kind: "deadline" };
-      const startedAt = now();
-      try {
-        await runScopedTests(input.worktreePath, killingTestPaths([...killingTests]), {
-          timeoutMs: KILLING_TEST_BUDGET_CEILING_MS,
-        });
-      } catch (error) {
-        if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") return { kind: "exceeded-ceiling" };
-        throw error;
-      }
-      const elapsedMs = Math.max(0, now() - startedAt);
-      return { kind: "measured", elapsedMs, budgetMs: killingTestBudgetMs(elapsedMs) };
-    })();
-    baselines.set(key, measurement);
-    return measurement;
-  }
+  const baselineFor = createBaselineMeasurer(input, runScopedTests, now, deadline);
 
   async function getFileContent(file: string): Promise<string | null> {
     const cached = fileCache.get(file);
@@ -1767,7 +1826,7 @@ export async function verifyDiffDerivedMutations(
 
   const now = seams?.now ?? Date.now;
   const deadline = now() + MAX_VERIFICATION_MS;
-  const promptResult = await verifyChangedPrompts(
+  const { failure: promptFailure, skipped: promptSkipped } = await verifyChangedPrompts(
     changedPaths,
     changedLinesByFile,
     diffPaths,
@@ -1779,7 +1838,7 @@ export async function verifyDiffDerivedMutations(
     now,
     deadline,
   );
-  if (promptResult) return promptResult;
+  if (promptFailure) return promptFailure;
 
   const candidates = await deriveCandidates(changedLinesByFile, input.worktreePath, readFile);
 
@@ -1790,7 +1849,7 @@ export async function verifyDiffDerivedMutations(
       inspectedPaths: changedPaths,
       candidateCount: 0,
       acceptedSites: [],
-      skippedCandidates: [],
+      skippedCandidates: promptSkipped,
     };
   }
 
@@ -1814,6 +1873,6 @@ export async function verifyDiffDerivedMutations(
     inspectedPaths: changedPaths,
     candidateCount: inspected,
     acceptedSites,
-    skippedCandidates,
+    skippedCandidates: [...promptSkipped, ...skippedCandidates],
   };
 }

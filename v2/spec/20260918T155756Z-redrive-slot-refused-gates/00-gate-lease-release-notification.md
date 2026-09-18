@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] A test proves a subscribed listener is called once after a lease release, observes `liveGateInvocationLeaseCount()` already decremented, is not called synchronously inside `release()`, and is not called again by a repeated `release()`; it fails against the pre-fix code (no subscription exists).
-- [ ] A test proves a throwing listener does not stop a second listener from being notified.
-- [ ] Existing one-slot lease ownership tests in `v2/src/execution/write-loop.test.ts` stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A test proves a subscribed listener is called once after a lease release, observes `liveGateInvocationLeaseCount()` already decremented, is not called synchronously inside `release()`, and is not called again by a repeated `release()`; it fails against the pre-fix code (no subscription exists).
+- [x] A test proves a throwing listener does not stop a second listener from being notified.
+- [x] Existing one-slot lease ownership tests in `v2/src/execution/write-loop.test.ts` stay green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

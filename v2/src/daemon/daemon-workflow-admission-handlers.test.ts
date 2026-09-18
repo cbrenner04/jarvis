@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import * as nodeChildProcess from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,13 +13,13 @@ import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { createHoldableAsyncFn } from "../testing/holdable-async-subprocess-runner.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
-import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import {
   createBindingFactory,
   doneWithArtifactBindingFactory,
   neverResolvingBindingFactory,
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
+import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { WorktreeOwnershipRegistry } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";

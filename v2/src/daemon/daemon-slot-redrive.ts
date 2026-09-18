@@ -49,8 +49,12 @@ export function slotRedriveWaiting(run: Run | null | undefined): run is Run {
   );
 }
 
-export function slotRedriveCountOf(run: Run): number {
+function slotRedriveCountOf(run: Run): number {
   return run.gateRefusalRecoveryState?.slotRedriveCount ?? 0;
+}
+
+function redrivable(run: Run | null | undefined): run is Run {
+  return slotRedriveWaiting(run) && slotRedriveCountOf(run) < MAX_SLOT_REDRIVES;
 }
 
 /** Oldest refusal first by durable `finishedAt`, ties broken by run id. */
@@ -103,7 +107,7 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
     }
     // The row and slot may have changed while the owner probe was awaited.
     const fresh = store.loadRun(runId);
-    if (!slotRedriveWaiting(fresh) || slotRedriveCountOf(fresh) >= MAX_SLOT_REDRIVES) {
+    if (!redrivable(fresh)) {
       waiting.delete(runId);
       return "dropped";
     }
@@ -133,7 +137,7 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
     const rows: Run[] = [];
     for (const runId of [...waiting]) {
       const row = store.loadRun(runId);
-      if (slotRedriveWaiting(row) && slotRedriveCountOf(row) < MAX_SLOT_REDRIVES) rows.push(row);
+      if (redrivable(row)) rows.push(row);
       else waiting.delete(runId);
     }
     return rows.sort(compareSlotRedriveOrder);
@@ -172,6 +176,12 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
     }
   };
 
+  /** Wake on lease release; the release a lane waits for may already have happened, so drain off the settling stack if a slot is free. */
+  const armDrain = (): void => {
+    unsubscribe ??= subscribeGateInvocationLeaseReleased(() => void drain());
+    if (gateSlotFree()) queueMicrotask(() => void drain());
+  };
+
   const enqueue = (runId: string): void => {
     let run: Run | null | undefined;
     try {
@@ -187,9 +197,7 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
     }
     waiting.add(runId);
     rehydrated.delete(runId);
-    unsubscribe ??= subscribeGateInvocationLeaseReleased(() => void drain());
-    // The release this lane waits for may already have happened; drain off the settling stack.
-    if (gateSlotFree()) queueMicrotask(() => void drain());
+    armDrain();
   };
 
   const rehydrate = (): void => {
@@ -199,14 +207,13 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
     } catch {
       return; // store already closed during daemon shutdown
     }
-    const pending = rows.filter((row) => slotRedriveWaiting(row) && slotRedriveCountOf(row) < MAX_SLOT_REDRIVES);
+    const pending = rows.filter(redrivable);
     if (pending.length === 0) return;
     for (const row of pending) {
       waiting.add(row.id);
       rehydrated.add(row.id);
     }
-    unsubscribe ??= subscribeGateInvocationLeaseReleased(() => void drain());
-    if (gateSlotFree()) queueMicrotask(() => void drain());
+    armDrain();
   };
 
   return {

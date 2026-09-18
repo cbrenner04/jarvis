@@ -743,7 +743,7 @@ index f424d7da..be281d02 100644
       "prompts/plan/draft.md",
       "prompts/intent/split.md",
       "prompts/write/execute.md",
-      "prompts/patch/shrink.md",
+      "prompts/implement/shrink.md",
       "prompts/implement/instructions.md",
     ];
     const uncoveredPath = promptPaths[5];

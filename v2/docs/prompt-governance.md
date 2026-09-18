@@ -25,7 +25,7 @@ The first rollout includes shared global guidance fragments plus prompt artifact
 
 - `implement.prompt.body` (`prompts/implement/instructions.md`) — the implement write-step body; carries `<PATCH_RULES>` as the placeholder key for `implement.rules`
 - `implement.rules` (`prompts/implement/rules.md`) — target-repo-neutral implement rules injected through `PATCH_RULES`; jarvis-specific test recovery rules live in this repo's `AGENTS.md`
-- `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse -> global.no-hard-wrap` only (not `implement.rules`)
+- `implement.prompt.shrink` (`prompts/implement/shrink.md`) — post-completion simplification gate; layered with `global.terse -> global.no-hard-wrap` only (not `implement.rules`)
 - `implement.prompt.review.critic` / `.adversary` / `.advocate` / `.adjudicator` (`prompts/implement/review-*.md`) — implement review critic and debate roles; `BRANCH_DIFF` is always the merge-base unified diff (stat, changed paths, then the diff itself)
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
 - `plan.prompt.review.critic` (`prompts/plan/review-critic.md`) — editorial critic for light plan-review workflow; read-only advisory role reviewing spec clarity and completeness
@@ -85,7 +85,7 @@ Shared rendering follows this contract:
 - Implement layering is `global.documentation -> global.naming -> global.terse -> global.no-hard-wrap -> implement.prompt.body` (`behavior: implement` has no behavior fragments; the implement review roles share the lane).
 - Plan draft/review layering is `global.documentation -> global.terse -> global.no-hard-wrap -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
 - `implement.rules` remains step-owned injected content, not an always-layered implement fragment.
-- `patch.prompt.shrink` is a post-completion step prompt (not layered into `implement.prompt.body`). It layers `global.terse -> global.no-hard-wrap` only — not `global.documentation`, `global.naming`, or `implement.rules`. Prevention surfaces (`global.terse`, `implement.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
+- `implement.prompt.shrink` is a post-completion step prompt (not layered into `implement.prompt.body`). It layers `global.terse -> global.no-hard-wrap` only — not `global.documentation`, `global.naming`, or `implement.rules`. Prevention surfaces (`global.terse`, `implement.rules`) run during implementation; `implement.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics

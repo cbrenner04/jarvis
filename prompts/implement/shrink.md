@@ -1,13 +1,13 @@
 ---
-id: patch.prompt.shrink
-behavior: patch
+id: implement.prompt.shrink
+behavior: implement
 kind: step
 fragmentPolicy: global
-revision: 4
+revision: 5
 remove: [global.documentation, global.naming]
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, BRANCH_DIFF:string!, RUN_SCOPED_DIFF:string!, STEP_RULES:string!]
 ---
-# Patch Mode — Post-completion Shrink
+# Implement Mode — Post-completion Shrink
 
 Simplify the implementation diff without changing behavior. The completed spec is read-only.
 

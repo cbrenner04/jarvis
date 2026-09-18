@@ -10,7 +10,7 @@ plan/review-advocate.md
 plan/review-critic.md
 plan/review-adjudicator.md
 plan/review-actuator.md
-patch/shrink.md
+implement/shrink.md
 implement/instructions.md
 implement/rules.md
 implement/review-adversary.md

@@ -94,8 +94,8 @@ describe("write prompt", () => {
 
   // Mutation checkpoint: inverting the `remove` exclusion in globalFragmentBodies
   // must turn this test red.
-  test("patch.prompt.shrink includes no-hard-wrap after global.terse, omits documentation/naming", () => {
-    const rendered = renderStepPrompt("patch.prompt.shrink", {
+  test("implement.prompt.shrink includes no-hard-wrap after global.terse, omits documentation/naming", () => {
+    const rendered = renderStepPrompt("implement.prompt.shrink", {
       SPEC_PATH: "spec/example/index.md",
       SPEC_TREE: "tree",
       ALLOWLIST: "allow",

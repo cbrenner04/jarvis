@@ -23,7 +23,7 @@
 ## Acceptance criteria
 
 - [ ] A runner test drives linked implement with an `already_complete` index and with an `empty_index` index and no existing row, asserting `result.kind === "complete"` and `store.loadRun(result.runId)` non-null; it fails against the pre-fix phantom id (`store.loadRun` returns `null`).
-- [ ] A runner test records every id passed to `onStepRunCreated` across no-row routing failures (`empty_index`, `already_complete`, `link_unreadable`, `malformed_link`, `link_out_of_tree`), asserting `store.loadRun(id)` is non-null for each; it fails against the pre-fix code.
+- [ ] A runner test records every id passed to `onStepRunCreated` across no-row routing failures (`empty_index`, `already_complete`, `link_unreadable`, `malformed_link`, `link_out_of_tree`), asserting `store.loadRun(id)` is non-null and its status is not `in-progress` for each; it fails against the pre-fix code.
 - [ ] `"keeps chained routing and index ticks in the implement worktree"` (normal linked dispatch, ids already persisted) stays green.
 - [ ] `"settles the real link row when routing fails after that link's write loop completed"` (`existingRunId` path, `malformed_link`) stays green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

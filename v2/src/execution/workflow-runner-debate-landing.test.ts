@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import {
@@ -43,7 +44,7 @@ describe("executeWorkflow review-debate landing", () => {
   }
 
   test("promotes, cleans up, and traces a debate-last intent workflow the same as light review", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-debate-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-debate-"));
     const stage = join(workspace, ".jarvis-intent-stage");
     mkdirSync(stage, { recursive: true });
     writeFileSync(join(stage, "example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");
@@ -69,7 +70,7 @@ describe("executeWorkflow review-debate landing", () => {
   });
 
   test("settles a debate-last intent workflow's landing failure the same as light review, with a trace", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-debate-fail-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-debate-fail-"));
     const stage = join(workspace, ".jarvis-intent-stage");
     mkdirSync(stage, { recursive: true });
     writeFileSync(join(stage, "example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import markdownlint from "markdownlint";
 import noHardWrapRule from "../scripts/markdownlint-no-hard-wrap-rule.ts";
 import { normalizePlanDraftSpecDir } from "./module-boundary-surfaces.ts";
+import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 
 function noHardWrapViolations(content: string): number[] {
   const result = markdownlint.sync({
@@ -19,7 +20,7 @@ const tempDirs: string[] = [];
 
 function scratchDir(name: string): string {
   mkdirSync(scratchRoot, { recursive: true });
-  const dir = mkdtempSync(join(scratchRoot, `module-boundary-${name}-`));
+  const dir = trackedMkdtempSync(join(scratchRoot, `module-boundary-${name}-`));
   tempDirs.push(dir);
   return dir;
 }

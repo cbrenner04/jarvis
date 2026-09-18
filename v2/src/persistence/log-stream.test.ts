@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtemp } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
 
 /** Short poll interval for tests, well below any per-test timeout. */
@@ -17,7 +18,7 @@ describe("log-stream", () => {
   let storagePath: string;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "log-stream-test-"));
+    tempDir = await trackedMkdtemp(join(tmpdir(), "log-stream-test-"));
     storagePath = join(tempDir, "log-stream.jsonl");
   });
 
@@ -495,6 +496,32 @@ describe("log-stream", () => {
       loopOutcomeKind: "ready_gate_out_of_scope",
       readyGateOutsidePaths: [outsidePath],
       readyGateOutOfScopeDetail: detail,
+    });
+  });
+
+  it("persists gate_invocation_refused loop_finished evidence with the slot re-drive count", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+    const gateCommand = "bun run test:v2";
+
+    sink.append("run-1", {
+      kind: "loop_finished",
+      loopOutcomeKind: "gate_invocation_refused",
+      iterationsConsumed: 1,
+      resumable: true,
+      gateCommand,
+      gateRefusalCause: "slot_contention",
+      slotRedriveCount: 2,
+    });
+    sink.close();
+
+    const record = reader.tail("run-1").at(-1);
+    expect(record?.event).toMatchObject({
+      kind: "loop_finished",
+      loopOutcomeKind: "gate_invocation_refused",
+      gateCommand,
+      gateRefusalCause: "slot_contention",
+      slotRedriveCount: 2,
     });
   });
 

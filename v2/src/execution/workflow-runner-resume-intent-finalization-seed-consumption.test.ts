@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { seedFailedIntentReviewResumeRun, writeLintCleanIntentStageFile } from "./workflow-runner.test-support.ts";
 import { DEFAULT_STAGED_MARKDOWN_LINT_RUNNER } from "./workflow-runner-resume.test-support.ts";
@@ -13,12 +14,12 @@ import {
 
 describe("intent finalization resume seed consumption", () => {
   function stagedWorkspaceWithSeed(prefix: string): { workspace: string; sourceRoot: string; seedPath: string } {
-    const workspace = mkdtempSync(join(tmpdir(), prefix));
+    const workspace = trackedMkdtempSync(join(tmpdir(), prefix));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
     // A git-disabled worktree consumes from the source root, as the intent builder records it.
-    const sourceRoot = mkdtempSync(join(tmpdir(), `${prefix}source-`));
+    const sourceRoot = trackedMkdtempSync(join(tmpdir(), `${prefix}source-`));
     const seedPath = join(sourceRoot, "example.md");
     writeFileSync(seedPath, "seed\n", "utf8");
     return { workspace, sourceRoot, seedPath };

@@ -9,7 +9,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -31,6 +30,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
@@ -959,9 +959,9 @@ describe("buildSubspecCompletionInventory", () => {
   }
 
   test("buildSubspecCompletionInventory classifies linked subspecs when projectRoot differs from worktreePath", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
       { file: "00-first.md", title: "First", criteria: "- [x] done" },
@@ -975,9 +975,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory reports repo-relative paths when projectRoot differs from worktreePath", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
       { file: "00-first.md", title: "First", criteria: "- [x] done" },
@@ -991,9 +991,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory surfaces inventoryError for unrelativizable subspec paths", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const outsidePath = join(tmpdir(), `jarvis-outside-${Date.now()}.md`);
     writeFileSync(outsidePath, "# Outside\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
@@ -1015,9 +1015,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory surfaces inventoryError when index build throws", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const specRoot = join(worktreePath, "spec/implement");
     mkdirSync(specRoot, { recursive: true });
@@ -1034,9 +1034,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory yields empty lists without inventoryError for zero linked subspecs", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const specRoot = join(worktreePath, "spec/implement");
     mkdirSync(specRoot, { recursive: true });
@@ -1632,7 +1632,7 @@ describe("write loop", () => {
       externalSubspec: string;
       criterion: string;
     } {
-      const specReadRoot = mkdtempSync(join(tmpdir(), "write-loop-external-spec-"));
+      const specReadRoot = trackedMkdtempSync(join(tmpdir(), "write-loop-external-spec-"));
       roots.push(specReadRoot);
       const criterion = "external criterion satisfied";
       const externalSubspec = join(specReadRoot, "00-work.md");
@@ -6195,7 +6195,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair candidate contract covers staged change kinds and excludes unstaged metadata", async () => {
-        const parent = mkdtempSync(join(tmpdir(), "repair-fence-candidates-"));
+        const parent = trackedMkdtempSync(join(tmpdir(), "repair-fence-candidates-"));
         roots.push(parent);
         const root = join(parent, "main");
         const submoduleRepo = join(parent, "submodule-repo");
@@ -6268,7 +6268,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair completion candidates omit unchanged tracked paths the stage pathspec excludes", async () => {
-        const root = mkdtempSync(join(tmpdir(), "repair-fence-excluded-tracked-"));
+        const root = trackedMkdtempSync(join(tmpdir(), "repair-fence-excluded-tracked-"));
         roots.push(root);
         execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
         execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -6289,7 +6289,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair completion candidates omit the harness-materialized node_modules symlink", async () => {
-        const root = mkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
+        const root = trackedMkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
         roots.push(root);
         execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
         execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -10147,7 +10147,7 @@ index 1234567..abcdefg 100644
     });
 
     test("uncommitted paths omit the materialized node_modules symlink and keep other untracked work", async () => {
-      const worktreePath = mkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
+      const worktreePath = trackedMkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
       roots.push(worktreePath);
       execFileSync("git", ["init"], { cwd: worktreePath, stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -10230,7 +10230,7 @@ index 1234567..abcdefg 100644
     });
 
     test("getUncommittedPaths is fail-soft for Git failure and malformed status framing", async () => {
-      const plain = mkdtempSync(join(tmpdir(), "uncommitted-fail-soft-plain-"));
+      const plain = trackedMkdtempSync(join(tmpdir(), "uncommitted-fail-soft-plain-"));
       roots.push(plain);
       expect(await getUncommittedPaths(plain)).toEqual([]);
 
@@ -11364,6 +11364,47 @@ index 1234567..abcdefg 100644
         expect(
           events.some((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused"),
         ).toBe(false);
+        expect(store.loadRun(result.runId)?.gateRefusalRecoveryState).toBeNull();
+      } finally {
+        otherLane?.release();
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("slot-contention gate refusal persists its cause and gate command onto the run row", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "slot-refused-recovery-state";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+      const otherLane = acquireGateInvocationLease();
+      expect(otherLane).toBeDefined();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "slot-refused-recovery-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.(gateCommand);
+          return settled;
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { logSink: sink }));
+
+        expect(result).toMatchObject({ kind: "gate_invocation_refused", gateRefusalCause: "slot_contention" });
+        expect(store.loadRun(result.runId)?.gateRefusalRecoveryState).toEqual({
+          cause: "slot_contention",
+          gateCommand,
+          slotRedriveCount: 0,
+        });
+        const finished = sink
+          .getEventsForRun(result.runId)
+          .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused");
+        expect(finished).toMatchObject({ gateCommand, gateRefusalCause: "slot_contention", slotRedriveCount: 0 });
       } finally {
         otherLane?.release();
         store.close();
@@ -11402,6 +11443,108 @@ index 1234567..abcdefg 100644
         expect(gitIn(worktreePath, ["status", "--porcelain"])).toContain("ceiling-headroom-proof.txt");
         const events = sink.getEventsForRun(result.runId);
         expect(events.some((event) => event.kind === "iteration_commit")).toBe(false);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("ceiling-headroom gate refusal persists its cause and gate command onto the run row", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "ceiling-headroom-recovery-state";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "ceiling-headroom-recovery-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.(gateCommand);
+          return settled;
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "gate_invocation_refused", gateRefusalCause: "ceiling_headroom" });
+        expect(store.loadRun(result.runId)?.gateRefusalRecoveryState).toEqual({
+          cause: "ceiling_headroom",
+          gateCommand,
+          slotRedriveCount: 0,
+        });
+        const finished = sink
+          .getEventsForRun(result.runId)
+          .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused");
+        expect(finished).toMatchObject({ gateCommand, gateRefusalCause: "ceiling_headroom", slotRedriveCount: 0 });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("gate refusal settlement preserves an existing slot re-drive count instead of resetting it", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "ceiling-headroom-redrive-preserved";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "ceiling-headroom-redrive-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.(gateCommand);
+          return settled;
+        },
+      }));
+
+      try {
+        const first = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+          }),
+        );
+        expect(first.kind).toBe("gate_invocation_refused");
+
+        // Simulates a slot re-drive count a future consumer has already bumped on this row.
+        store.commitTerminalRunSettlement({
+          runId: first.runId,
+          status: "failed",
+          terminalCause: "gate_invocation_refused",
+          gateRefusalRecoveryState: { cause: "ceiling_headroom", gateCommand, slotRedriveCount: 3 },
+        });
+
+        const second = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+          }),
+        );
+
+        expect(second.runId).toBe(first.runId);
+        expect(second.kind).toBe("gate_invocation_refused");
+        expect(store.loadRun(second.runId)?.gateRefusalRecoveryState).toEqual({
+          cause: "ceiling_headroom",
+          gateCommand,
+          slotRedriveCount: 3,
+        });
+        const finished = sink
+          .getEventsForRun(second.runId)
+          .filter((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused")
+          .at(-1);
+        expect(finished).toMatchObject({ slotRedriveCount: 3 });
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

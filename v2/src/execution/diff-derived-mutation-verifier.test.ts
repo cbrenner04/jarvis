@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
@@ -10,6 +10,7 @@ import {
   type AsyncSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   type DiffDerivedMutationVerifierInput,
   exclusiveHoldOverlappedConcurrentRun,
@@ -1067,7 +1068,7 @@ index f424d7da..be281d02 100644
   it("does not require render coverage for prompts retired from the worktree registry", async () => {
     // Mutation checkpoint: dropping `currentRegistry.paths.has(path)` when the worktree registry
     // is available must turn this RED (`missing-render-coverage` at `prompts/patch/review-critic.md:1`).
-    const dir = mkdtempSync(join(tmpdir(), "mutation-retired-prompt-fixture-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "mutation-retired-prompt-fixture-"));
     try {
       execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
       execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
@@ -1649,7 +1650,7 @@ index 1234567..abcdefg 100644
     // tests run the real default against a throwaway git+package.json fixture
     // to prove the resolved scope actually executes.
     function makeFixtureRepo(): string {
-      const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-fixture-"));
+      const dir = trackedMkdtempSync(join(tmpdir(), "mutation-verifier-fixture-"));
       // Explicit branch name: some machines' git hooks block commits to the
       // default-branch name `git init` would otherwise pick.
       execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
@@ -1724,7 +1725,7 @@ index 1234567..abcdefg 100644
     });
 
     it("isolates a confirmation re-run from a concurrent scoped test run via the real subprocess semaphore", async () => {
-      const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-isolation-"));
+      const dir = trackedMkdtempSync(join(tmpdir(), "mutation-verifier-isolation-"));
       try {
         execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
         execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
@@ -1776,7 +1777,7 @@ index 1234567..abcdefg 100644
     it(
       "bounds scanDaemonRunControlHandlerForbiddenSymbols while (true) exit-guard flip via real killing test",
       async () => {
-        const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-while-true-guard-"));
+        const dir = trackedMkdtempSync(join(tmpdir(), "mutation-verifier-while-true-guard-"));
         const guardPath = join(dir, DAEMON_RUN_CONTROL_HANDLER_GUARD_REL);
         const committedGuard = readFileSync(join(REPO_ROOT, DAEMON_RUN_CONTROL_HANDLER_GUARD_REL), "utf-8");
         if (!committedGuard.includes(DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT)) {
@@ -2330,7 +2331,7 @@ index 1234567..abcdefg 100644
   it("records concurrent applied mutants separately and clears only the restored owner's record", async () => {
     const scratchRoot = join(import.meta.dir, "../../../.scratch");
     mkdirSync(scratchRoot, { recursive: true });
-    const worktreePath = mkdtempSync(join(scratchRoot, "diff-derived-mutation-records-"));
+    const worktreePath = trackedMkdtempSync(join(scratchRoot, "diff-derived-mutation-records-"));
     const recordsDir = join(worktreePath, ".jarvis-diff-derived-mutations");
     const fixture = (file: string, name: string, guard: string) => {
       const content = `export function ${name}() {\n  if (!${guard}) return "${guard}";\n  return true;\n}\n`;
@@ -3839,7 +3840,7 @@ index 1234567..abcdefg 100644
   }
 
   function initWorktreeRepo(): string {
-    const dir = mkdtempSync(join(tmpdir(), "render-observer-worktree-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "render-observer-worktree-"));
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
     execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
@@ -4083,7 +4084,7 @@ ${keptBodyLine}
     mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
     writeFileSync(join(dir, branchPromptPath), branchPromptSource);
     writeFileSync(join(dir, "prompts", "registry.txt"), "write/branch-only-prompt.md\n");
-    const outside = mkdtempSync(join(tmpdir(), "render-observer-outside-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "render-observer-outside-"));
     const outsideTest = join(outside, "outside.test.ts");
     writeFileSync(outsideTest, "export {};\n");
     const linkDir = join(dir, "shared/prompts/links");

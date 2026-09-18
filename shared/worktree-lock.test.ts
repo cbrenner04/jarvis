@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 import { acquireLock, isProcessAlive, releaseLock, type WorktreeLock } from "./worktree-lock.ts";
 
 const dirs: string[] = [];
 function tmp(): string {
-  const dir = mkdtempSync(join(tmpdir(), "lock-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "lock-"));
   dirs.push(dir);
   return dir;
 }

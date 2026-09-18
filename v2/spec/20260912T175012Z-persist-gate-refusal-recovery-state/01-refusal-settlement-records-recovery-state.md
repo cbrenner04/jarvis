@@ -23,14 +23,14 @@ Settling a refused gate invocation writes the recovery state (cause, gate comman
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` gains a test proving a `slot_contention` refusal and a `ceiling_headroom` refusal each leave the run row carrying that cause and its gate command, and that an existing slot re-drive count on the row survives the settlement; it fails against the pre-fix code, which persists no cause.
-- [ ] `v2/src/persistence/log-stream.test.ts` gains a test proving a terminal `loop_finished` refusal entry round-trips the slot re-drive count alongside its cause and gate command; it fails against the pre-fix schema.
-- [ ] A test proves a refusal whose controlled-loss checkpoint fails settles `iteration_commit_failed` with no recovery state written.
-- [ ] `v2/docs/write-behavior.md` records that refusal settlement writes the recovery state and that the terminal log entry carries the count.
-- [ ] `v2/docs/v1-behaviors.md` amends its existing `gateRefusalCause` entry (the "Gate-invocation refusal settlement carries `gateRefusalCause`..." bullet) to record the additive durable recovery state and slot re-drive count, rather than adding a second entry.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/write-loop.test.ts` gains a test proving a `slot_contention` refusal and a `ceiling_headroom` refusal each leave the run row carrying that cause and its gate command, and that an existing slot re-drive count on the row survives the settlement; it fails against the pre-fix code, which persists no cause.
+- [x] `v2/src/persistence/log-stream.test.ts` gains a test proving a terminal `loop_finished` refusal entry round-trips the slot re-drive count alongside its cause and gate command; it fails against the pre-fix schema.
+- [x] A test proves a refusal whose controlled-loss checkpoint fails settles `iteration_commit_failed` with no recovery state written.
+- [x] `v2/docs/write-behavior.md` records that refusal settlement writes the recovery state and that the terminal log entry carries the count.
+- [x] `v2/docs/v1-behaviors.md` amends its existing `gateRefusalCause` entry (the "Gate-invocation refusal settlement carries `gateRefusalCause`..." bullet) to record the additive durable recovery state and slot re-drive count, rather than adding a second entry.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

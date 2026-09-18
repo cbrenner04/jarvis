@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import {
   createPromptRegistry,
   loadPromptRegistry,
@@ -14,7 +15,7 @@ function withFrontmatter(meta: string, body = "Body"): string {
 }
 
 function writePromptFixture(content: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-prompt-registry-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-prompt-registry-"));
   const file = join(dir, "prompt.md");
   writeFileSync(file, content, "utf8");
   return file;
@@ -240,7 +241,7 @@ describe("prompt registry manifest surface", () => {
 
 describe("fragment policy metadata", () => {
   function artifactFile(frontmatter: string): string {
-    const dir = mkdtempSync(join(tmpdir(), "prompt-policy-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "prompt-policy-"));
     const path = join(dir, "artifact.md");
     writeFileSync(path, `---\n${frontmatter}\n---\nbody\n`);
     return path;

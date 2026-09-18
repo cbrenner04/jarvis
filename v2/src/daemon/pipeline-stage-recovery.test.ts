@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
@@ -26,6 +26,7 @@ import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-
 
 ensureWorkflowRunnerResumeDepsWired();
 
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type {
   Pipeline,
@@ -400,7 +401,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
   });
 
   test("resolves a review-failed plan stage through pipeline recovery", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "pipeline-review-failed-recover-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "pipeline-review-failed-recover-"));
     execFileSync("git", ["init", "-q"], { cwd: worktreePath });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreePath });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: worktreePath });
@@ -411,7 +412,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
     writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [One](./00-first.md)\n", "utf8");
     writeFileSync(join(stage, "00-first.md"), "# One\n\n## Acceptance criteria\n\n- [ ] one\n", "utf8");
-    const readyRoot = mkdtempSync(join(tmpdir(), "pipeline-review-failed-ready-"));
+    const readyRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-review-failed-ready-"));
     const readyIntent = join(readyRoot, "ready-intent.md");
     writeFileSync(readyIntent, "---\nname: test\n---\n", "utf8");
     const branch = "plan/pipeline-review-failed";
@@ -881,7 +882,7 @@ describe("recoverPipelineBranchStage", () => {
   }
 
   function planWorktree(prefix: string): string {
-    const worktree = mkdtempSync(join(tmpdir(), prefix));
+    const worktree = trackedMkdtempSync(join(tmpdir(), prefix));
     execFileSync("git", ["init", "-q"], { cwd: worktree });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktree });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: worktree });

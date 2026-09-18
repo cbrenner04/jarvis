@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { landImplementSpecTreeFromReadRoot } from "./implement-spec-landing.ts";
 
 describe("landImplementSpecTreeFromReadRoot", () => {
@@ -13,8 +14,8 @@ describe("landImplementSpecTreeFromReadRoot", () => {
   }
 
   test("copies the spec tree from specReadRoot into the implement worktree", () => {
-    const planWorktree = track(mkdtempSync(join(tmpdir(), "plan-worktree-")));
-    const implementWorktree = track(mkdtempSync(join(tmpdir(), "implement-worktree-")));
+    const planWorktree = track(trackedMkdtempSync(join(tmpdir(), "plan-worktree-")));
+    const implementWorktree = track(trackedMkdtempSync(join(tmpdir(), "implement-worktree-")));
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
     writeFileSync(join(specDir, "index.md"), "- [x] [Work](./00-work.md)\n", "utf8");
@@ -33,7 +34,7 @@ describe("landImplementSpecTreeFromReadRoot", () => {
   });
 
   test("returns the existing worktree-relative spec path when read root matches the worktree", () => {
-    const worktree = track(mkdtempSync(join(tmpdir(), "implement-worktree-same-")));
+    const worktree = track(trackedMkdtempSync(join(tmpdir(), "implement-worktree-same-")));
     const specDir = join(worktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
     writeFileSync(join(specDir, "index.md"), "- [ ] [Work](./00-work.md)\n", "utf8");
@@ -48,8 +49,8 @@ describe("landImplementSpecTreeFromReadRoot", () => {
   });
 
   test("fails when the source spec tree is missing", () => {
-    const planWorktree = track(mkdtempSync(join(tmpdir(), "plan-worktree-missing-")));
-    const implementWorktree = track(mkdtempSync(join(tmpdir(), "implement-worktree-missing-")));
+    const planWorktree = track(trackedMkdtempSync(join(tmpdir(), "plan-worktree-missing-")));
+    const implementWorktree = track(trackedMkdtempSync(join(tmpdir(), "implement-worktree-missing-")));
 
     const result = landImplementSpecTreeFromReadRoot({
       worktreePath: implementWorktree,
@@ -63,8 +64,8 @@ describe("landImplementSpecTreeFromReadRoot", () => {
   });
 
   test("copies verdict-patch.md beside the landed index", () => {
-    const planWorktree = track(mkdtempSync(join(tmpdir(), "plan-worktree-verdict-")));
-    const implementWorktree = track(mkdtempSync(join(tmpdir(), "implement-worktree-verdict-")));
+    const planWorktree = track(trackedMkdtempSync(join(tmpdir(), "plan-worktree-verdict-")));
+    const implementWorktree = track(trackedMkdtempSync(join(tmpdir(), "implement-worktree-verdict-")));
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
     writeFileSync(join(specDir, "index.md"), "- [ ] [Work](./00-work.md)\n", "utf8");
@@ -83,8 +84,8 @@ describe("landImplementSpecTreeFromReadRoot", () => {
   });
 
   test("reentry preserves local criteria while materializing absent spec files", () => {
-    const source = track(mkdtempSync(join(tmpdir(), "chained-source-")));
-    const worktree = track(mkdtempSync(join(tmpdir(), "chained-worktree-")));
+    const source = track(trackedMkdtempSync(join(tmpdir(), "chained-source-")));
+    const worktree = track(trackedMkdtempSync(join(tmpdir(), "chained-worktree-")));
     mkdirSync(join(source, "spec"));
     mkdirSync(join(worktree, "spec"));
     writeFileSync(join(source, "spec/index.md"), "- [ ] [Work](./00-work.md)\n");

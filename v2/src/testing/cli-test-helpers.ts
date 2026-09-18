@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { main as runtimeMain } from "../cli.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
@@ -135,7 +136,7 @@ export function makeStaleResetIpcClient(frames: unknown[], options?: Parameters<
 }
 
 export function tempPaths() {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-test-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-test-"));
   return {
     socketPath: join(dir, "daemon.sock"),
     pidPath: join(dir, "daemon.pid"),
@@ -143,7 +144,7 @@ export function tempPaths() {
 }
 
 export function writeRawMachineConfig(text: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
   const configPath = join(dir, "config.json");
   writeFileSync(configPath, text);
   return configPath;
@@ -159,7 +160,7 @@ export function writeHomeMachineConfig(overrides: Record<string, unknown> = {}):
 }
 
 export function absentMachineConfigPath(): string {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
   return join(dir, ".jarvis", "config.json");
 }
 
@@ -221,7 +222,7 @@ export interface CliRepoFixture {
 
 /** On-disk repo fixture shared by write/config/run/workflow command tests; call `cleanup()` in `afterAll`. */
 export function makeCliRepoFixture(): CliRepoFixture {
-  const tempDir = mkdtempSync(join(tmpdir(), "jarvis-cli-test-"));
+  const tempDir = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-test-"));
   const repoRoot = join(tempDir, "repo");
   const repoSub = join(repoRoot, "sub");
   const repoV2Spec = join(repoRoot, "v2", "spec", "my-spec");

@@ -463,6 +463,23 @@ describe("state store baseline migration", () => {
     }
   });
 
+  test("legacy row with a gate_invocation_refused outcome loads an explicit legacy cause with no gate command or count", () => {
+    const ids = createPreSquashFixtureDb(legacyDbPath);
+    const raw = new Database(legacyDbPath);
+    raw.prepare("UPDATE runs SET terminal_cause = 'gate_invocation_refused' WHERE id = ?").run(ids.runId);
+    raw.close();
+
+    const legacyStore = openStateStore(legacyDbPath);
+    try {
+      const legacyRun = legacyStore.loadRun(ids.runId);
+      if (!legacyRun) throw new Error("fixture run should load");
+      expect(legacyRun.gateRefusalRecoveryState).toEqual({ cause: "legacy_unknown" });
+      expect(legacyRun.gateRefusalRecoveryStateCorrupt).not.toBe(true);
+    } finally {
+      legacyStore.close();
+    }
+  });
+
   test("stamped baseline databases repair a missing operator failure record column", () => {
     const ids = createPreSquashFixtureDb(legacyDbPath);
     const raw = new Database(legacyDbPath);

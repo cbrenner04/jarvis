@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { DEFAULT_PUBLICATION_TITLE, deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 
@@ -46,7 +47,7 @@ describe("deriveIntentRunBodySummary", () => {
 
 describe("listLandedIntentFiles", () => {
   test("prefers invocation-owned files over every markdown in the durable dir", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-intent-owned-files-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-intent-owned-files-"));
     execFileSync("git", ["init", "-q"], { cwd: root });
     const durableDir = join(root, "ready-intents");
     mkdirSync(durableDir, { recursive: true });
@@ -58,7 +59,7 @@ describe("listLandedIntentFiles", () => {
   });
 
   test("fails closed instead of listing the durable dir when ownership is missing", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-intent-owned-files-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-intent-owned-files-"));
     execFileSync("git", ["init", "-q"], { cwd: root });
     const durableDir = join(root, "ready-intents");
     mkdirSync(durableDir, { recursive: true });

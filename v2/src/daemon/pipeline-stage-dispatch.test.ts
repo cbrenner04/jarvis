@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import ts from "typescript";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
@@ -1393,7 +1394,7 @@ function createChainedHandoffRepo(machineConfigOverrides: Record<string, unknown
   planWorktree: string;
   planSpecRel: string;
 } {
-  const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-dispatch-stamp-repo-"));
+  const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-dispatch-stamp-repo-"));
   initGitRepo(repoRoot);
   writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
   execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
@@ -1546,7 +1547,7 @@ describe("pipeline stage dispatch step-config stamping", () => {
 
 describe("preparePipelineStageWorkflow stale-reset continuation", () => {
   test("continues a lane with two committed subspecs at the unchecked one, through the daemon pipeline dispatch path", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-"));
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-"));
     initGitRepo(repoRoot);
     writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
     execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
@@ -1571,7 +1572,7 @@ describe("preparePipelineStageWorkflow stale-reset continuation", () => {
     // managedWorktreePath(jarvisRoot, project, branch). Creating it anywhere else makes
     // resetStaleWorkspace return no-op before any continuation logic runs, and every
     // assertion below passes vacuously against unchanged code.
-    const jarvisRoot = mkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-jarvis-"));
+    const jarvisRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-dispatch-continue-jarvis-"));
     const worktreePath = managedWorktreePath(jarvisRoot, "demo", branch);
     mkdirSync(dirname(worktreePath), { recursive: true });
     execFileSync("git", ["branch", branch], { cwd: repoRoot });

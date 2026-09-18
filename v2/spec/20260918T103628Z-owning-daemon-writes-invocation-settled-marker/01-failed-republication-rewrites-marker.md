@@ -13,10 +13,10 @@ A completed invocation can be republished later through the finalization-only re
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` drives a completed workflow settlement (marker `completed`) followed by a failing republication through `resumeFinalizationOnly` — thrown-error path — and asserts the marker is rewritten to `failed`; it fails against the pre-fix code.
-- [ ] A test in the same file drives the same setup through the `failureAsResponse: true` path (`{ ok: false }` returned as a response, not thrown) and asserts the marker is still rewritten to `failed`; it fails against the pre-fix code.
-- [ ] In the same file, a test drives a completed workflow settlement, then aborts the republication tail via `run kill` (or a fired run timeout) mid-flight, and asserts the marker stays `completed` — ruling out an implementation that rewrites to `failed` on any tail rejection regardless of abort state. It passes on pre-fix code by design; it only guards the two tests above against an over-broad fix.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A new test in `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` drives a completed workflow settlement (marker `completed`) followed by a failing republication through `resumeFinalizationOnly` — thrown-error path — and asserts the marker is rewritten to `failed`; it fails against the pre-fix code.
+- [x] A test in the same file drives the same setup through the `failureAsResponse: true` path (`{ ok: false }` returned as a response, not thrown) and asserts the marker is still rewritten to `failed`; it fails against the pre-fix code.
+- [x] In the same file, a test drives a completed workflow settlement, then aborts the republication tail via `run kill` (or a fired run timeout) mid-flight, and asserts the marker stays `completed` — ruling out an implementation that rewrites to `failed` on any tail rejection regardless of abort state. It passes on pre-fix code by design; it only guards the two tests above against an over-broad fix.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

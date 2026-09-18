@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import {
@@ -187,7 +188,7 @@ describe("executeWorkflow load-time role validation", () => {
 
 describe("executeWorkflow telemetry", () => {
   test("appends work_boundary_recorded when workflow publication produces a commit", async () => {
-    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-boundary-telemetry-")), "telemetry.jsonl");
+    const telemetryPath = join(trackedMkdtempSync(join(tmpdir(), "workflow-boundary-telemetry-")), "telemetry.jsonl");
     const writeStep = createStep({
       stepId: "step-1",
       role: "implement",
@@ -244,7 +245,7 @@ describe("executeWorkflow telemetry", () => {
   });
 
   test("write and review-debate steps in the same call share operator_session_id/workflow and one shared sink", async () => {
-    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
+    const telemetryPath = join(trackedMkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
 
     const writeStep = createStep({
       stepId: "step-1",
@@ -309,7 +310,7 @@ describe("executeWorkflow telemetry", () => {
   });
 
   test("review-debate rows share one run_id and attempt_id across multiple cycles and roles", async () => {
-    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-cycles-")), "telemetry.jsonl");
+    const telemetryPath = join(trackedMkdtempSync(join(tmpdir(), "workflow-telemetry-cycles-")), "telemetry.jsonl");
 
     let adjudicatorCalls = 0;
     const createBinding = createDebateBindingFactory(async ({ adapterModel }) => {
@@ -347,7 +348,7 @@ describe("executeWorkflow telemetry", () => {
   });
 
   test("omitting telemetry from executeWorkflow emits no rows for either step behavior", async () => {
-    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
+    const telemetryPath = join(trackedMkdtempSync(join(tmpdir(), "workflow-telemetry-")), "telemetry.jsonl");
 
     const writeStep = createStep({
       stepId: "step-1",

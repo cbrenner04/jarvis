@@ -1,6 +1,11 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import {
+  type GateRefusalRecoveryCause,
+  type GateRefusalRecoveryState,
+  parseGateRefusalRecoveryState,
+} from "../../../shared/gate-refusal-recovery-state.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import {
   type OperatorFailureRecord,
@@ -137,6 +142,17 @@ export type ReadyGateRepairFenceProvenance = {
   outcomeKind: "frozen" | "completion_commit_failed";
 };
 
+/**
+ * Read-side projection of a run's gate-refusal recovery record. `gateCommand`/`slotRedriveCount`
+ * are absent for a `legacy_unknown` cause synthesized because the column predates this field or is
+ * unparseable, since neither is recoverable in that case.
+ */
+type GateRefusalRecoveryProjection = {
+  cause: GateRefusalRecoveryCause;
+  gateCommand?: string;
+  slotRedriveCount?: number;
+};
+
 /** Publication tail checkpoint retained when repair-budget exhaustion demotes a completed write row. */
 type RetainedFinalizationCheckpoint = {
   completionAttemptId: string;
@@ -188,6 +204,10 @@ export type Run = {
   operatorFailureRecord?: OperatorFailureRecord | null;
   /** True when a non-null `operator_failure_record` column could not be parsed into a valid record. */
   operatorFailureRecordCorrupt?: boolean;
+  /** Gate-refusal recovery record, projected only when `terminalCause` is `gate_invocation_refused`; `null` otherwise, including when the column holds stale bytes from a prior refusal. */
+  gateRefusalRecoveryState?: GateRefusalRecoveryProjection | null;
+  /** True when a non-null `gate_refusal_recovery_state` column could not be parsed into a valid record (only meaningful alongside a `gate_invocation_refused` projection). */
+  gateRefusalRecoveryStateCorrupt?: boolean;
   /** Daemon identity that owns this row (`this.currentIdentity` at write time); `null` on legacy rows. */
   ownerIdentity?: string | null;
 };
@@ -325,6 +345,7 @@ type TerminalRunSettlementEvidence = {
   prUrl?: string | null;
   terminalFailureDetail?: InvocationFailureDetail | null;
   operatorFailureRecord?: OperatorFailureRecord | null;
+  gateRefusalRecoveryState?: GateRefusalRecoveryState | null;
 };
 
 type CommitTerminalRunSettlementInput = TerminalRunSettlementEvidence & {
@@ -1181,6 +1202,7 @@ const SCHEMA = `
     terminal_cause TEXT,
     terminal_failure_detail TEXT,
     operator_failure_record TEXT,
+    gate_refusal_recovery_state TEXT,
     status_changed_at INTEGER
   );
   CREATE TABLE IF NOT EXISTS attempts (
@@ -1272,6 +1294,7 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   terminal_cause AS terminalCause,
   terminal_failure_detail AS terminalFailureDetailJson,
   operator_failure_record AS operatorFailureRecordJson,
+  gate_refusal_recovery_state AS gateRefusalRecoveryStateJson,
   status_changed_at AS statusChangedAt,
   owner_identity AS ownerIdentity`;
 
@@ -1367,6 +1390,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "runs", "terminal_cause", "TEXT");
   addColumnIfMissing(db, "runs", "terminal_failure_detail", "TEXT");
   addColumnIfMissing(db, "runs", "operator_failure_record", "TEXT");
+  addColumnIfMissing(db, "runs", "gate_refusal_recovery_state", "TEXT");
   addColumnIfMissing(db, "runs", "status_changed_at", "INTEGER");
   if (!tableExists(db, "pipelines")) {
     db.exec(`
@@ -1710,6 +1734,8 @@ type RunRow = Omit<
   | "terminalFailureDetailCorrupt"
   | "operatorFailureRecord"
   | "operatorFailureRecordCorrupt"
+  | "gateRefusalRecoveryState"
+  | "gateRefusalRecoveryStateCorrupt"
 > & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
@@ -1718,6 +1744,7 @@ type RunRow = Omit<
   downstreamInputsJson: string | null;
   terminalFailureDetailJson: string | null;
   operatorFailureRecordJson: string | null;
+  gateRefusalRecoveryStateJson: string | null;
 };
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
@@ -1771,6 +1798,25 @@ function parseRetainedFinalizationCheckpoint(json: string | null): RetainedFinal
   }
 }
 
+/**
+ * Outcome-gated: a `gate_invocation_refused` row exposes its decoded record, or an explicit
+ * `legacy_unknown` cause (with the corrupt flag when the column held unparseable bytes, but not
+ * when it was merely absent) if the column can't be decoded. Every other outcome projects no
+ * record, even if the column still holds bytes from a prior refusal on this row.
+ */
+function gateRefusalRecoveryProjectionFromRow(
+  terminalCause: WriteLoopOutcomeKind | null | undefined,
+  json: string | null,
+): { gateRefusalRecoveryState: GateRefusalRecoveryProjection | null; gateRefusalRecoveryStateCorrupt?: true } {
+  if (terminalCause !== "gate_invocation_refused") return { gateRefusalRecoveryState: null };
+  const parsed = parseGateRefusalRecoveryState(json);
+  if (parsed.kind === "valid") return { gateRefusalRecoveryState: parsed.record };
+  return {
+    gateRefusalRecoveryState: { cause: "legacy_unknown" },
+    ...(parsed.kind === "invalid" ? { gateRefusalRecoveryStateCorrupt: true } : {}),
+  };
+}
+
 function mapRunRow(row: RunRow): Run {
   const {
     workflowSnapshotJson,
@@ -1780,12 +1826,17 @@ function mapRunRow(row: RunRow): Run {
     downstreamInputsJson,
     terminalFailureDetailJson,
     operatorFailureRecordJson,
+    gateRefusalRecoveryStateJson,
     ...run
   } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
   const parsedTerminalFailureDetail = parseTerminalFailureDetail(terminalFailureDetailJson);
   const parsedOperatorFailureRecord = parseOperatorFailureRecord(operatorFailureRecordJson);
+  const gateRefusalRecoveryProjection = gateRefusalRecoveryProjectionFromRow(
+    run.terminalCause,
+    gateRefusalRecoveryStateJson,
+  );
   let downstreamInputs: readonly string[] | null | undefined;
   if (downstreamInputsJson !== null) {
     try {
@@ -1812,6 +1863,7 @@ function mapRunRow(row: RunRow): Run {
     ...(parsedTerminalFailureDetail === "invalid" ? { terminalFailureDetailCorrupt: true } : {}),
     operatorFailureRecord: parsedOperatorFailureRecord.kind === "valid" ? parsedOperatorFailureRecord.record : null,
     ...(parsedOperatorFailureRecord.kind === "invalid" ? { operatorFailureRecordCorrupt: true } : {}),
+    ...gateRefusalRecoveryProjection,
   };
 }
 
@@ -1875,6 +1927,7 @@ class StateStoreImpl implements StateStore {
     // Stores stamped `031-baseline-squash` before these columns existed skip `upgradeFromLegacyEra`;
     // the stamp is not proof every baseline column is present.
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
+    addColumnIfMissing(this.db, "runs", "gate_refusal_recovery_state", "TEXT");
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
@@ -2849,7 +2902,8 @@ class StateStoreImpl implements StateStore {
       args.prNumber === undefined &&
       args.prUrl === undefined &&
       args.terminalFailureDetail === undefined &&
-      args.operatorFailureRecord === undefined
+      args.operatorFailureRecord === undefined &&
+      args.gateRefusalRecoveryState === undefined
     ) {
       return undefined;
     }
@@ -2859,6 +2913,9 @@ class StateStoreImpl implements StateStore {
       ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
       ...(args.terminalFailureDetail !== undefined ? { terminalFailureDetail: args.terminalFailureDetail } : {}),
       ...(args.operatorFailureRecord !== undefined ? { operatorFailureRecord: args.operatorFailureRecord } : {}),
+      ...(args.gateRefusalRecoveryState !== undefined
+        ? { gateRefusalRecoveryState: args.gateRefusalRecoveryState }
+        : {}),
     };
   }
 
@@ -2895,6 +2952,14 @@ class StateStoreImpl implements StateStore {
           : args.operatorFailureRecord === null
             ? null
             : JSON.stringify(args.operatorFailureRecord),
+      ],
+      [
+        "gate_refusal_recovery_state",
+        args.gateRefusalRecoveryState === undefined
+          ? undefined
+          : args.gateRefusalRecoveryState === null
+            ? null
+            : JSON.stringify(args.gateRefusalRecoveryState),
       ],
     ] as const) {
       if (value !== undefined) {

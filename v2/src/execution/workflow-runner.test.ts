@@ -4,7 +4,6 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -14,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { jarvisHome } from "../paths.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { excludeExternalSpecGitPaths } from "./external-spec-git.ts";
@@ -32,7 +32,7 @@ function writeExternalPlanFixture(
   indexPath: string;
   firstSubspecPath: string;
 } {
-  const projectRoot = mkdtempSync(join(tmpdir(), "workflow-runner-external-project-"));
+  const projectRoot = trackedMkdtempSync(join(tmpdir(), "workflow-runner-external-project-"));
   const safeId = projectSafeId(projectKey);
   const specReadRoot = join(jarvisHome(), "specs", safeId, "plans", planName);
   mkdirSync(specReadRoot, { recursive: true });
@@ -257,7 +257,7 @@ describe("executeWorkflow external linked implement routing", () => {
     const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(projectKey, planName);
     roots.push(projectRoot, specReadRoot);
 
-    const homeJarvisRoot = join(mkdtempSync(join(tmpdir(), "workflow-runner-external-home-")), ".jarvis");
+    const homeJarvisRoot = join(trackedMkdtempSync(join(tmpdir(), "workflow-runner-external-home-")), ".jarvis");
     roots.push(homeJarvisRoot);
     const branchName = "external-linked-routing";
     const worktreePath = join(homeJarvisRoot, "worktrees", "demo", branchName);
@@ -354,7 +354,7 @@ describe("executeWorkflow external linked implement routing", () => {
     const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(projectKey, planName);
     roots.push(projectRoot, specReadRoot);
 
-    const homeJarvisRoot = join(mkdtempSync(join(tmpdir(), "workflow-runner-external-home-")), ".jarvis");
+    const homeJarvisRoot = join(trackedMkdtempSync(join(tmpdir(), "workflow-runner-external-home-")), ".jarvis");
     roots.push(homeJarvisRoot);
     const branchName = "external-linked-fallback";
     const worktreePath = join(homeJarvisRoot, "worktrees", "demo", branchName);

@@ -1,9 +1,10 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS, type StateStore } from "../persistence/state-store.ts";
@@ -23,7 +24,7 @@ let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
 const LOCK_TIMEOUT_MACHINE_PROFILE = "lock-timeout-profile";
 
 function installLockTimeoutMachineProfile(): void {
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-lock-timeout-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-lock-timeout-profile-"));
   const machinesDir = join(profileHome, "machines");
   mkdirSync(machinesDir, { recursive: true });
   const rung = (adapterModel: string, priceKey: string) => ({ rungs: [{ adapterModel, priceKey }] });
@@ -94,7 +95,7 @@ afterEach(() => {
 });
 
 test("list and wait report state_store_lock_timeout after busy_timeout past a committed write boundary", async () => {
-  worktreePath = mkdtempSync(join(tmpdir(), "jarvis-lock-timeout-wt-"));
+  worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-lock-timeout-wt-"));
   execSync("git init", { cwd: worktreePath, stdio: "ignore" });
   execSync('git config user.email "test@example.com"', { cwd: worktreePath, stdio: "ignore" });
   execSync('git config user.name "Test"', { cwd: worktreePath, stdio: "ignore" });

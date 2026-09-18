@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -283,7 +284,7 @@ test("resume admits a paused direct write run with durable queuedInput", async (
 test("resume admits a paused workflow write step with exact snapshot stepId", async () => {
   const resumedInputs: WriteLoopInput[] = [];
   const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-exact-step-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-exact-step-profile-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "exact-step-profile";
   const previousJarvisHome = process.env.JARVIS_HOME;
@@ -365,7 +366,7 @@ test("resume admits a paused workflow write step with exact snapshot stepId", as
 test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", async () => {
   const resumedInputs: WriteLoopInput[] = [];
   const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-hidden-shrink-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-hidden-shrink-profile-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "hidden-shrink-profile";
   const previousJarvisHome = process.env.JARVIS_HOME;
@@ -474,7 +475,7 @@ function setUpLinkedResumeMachineProfile(): {
   writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
   cleanup: () => void;
 } {
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-linked-resume-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-linked-resume-profile-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "linked-resume-profile";
   const previousJarvisHome = process.env.JARVIS_HOME;
@@ -546,7 +547,7 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
 }
 
 test("resume routes a failed gate_invocation_refused implement~link-N row to resumeLinkedWorkflowStart, not the bare write loop", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-failed-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-linked-resume-failed-"));
   writeTwoLinkIndexFixture(worktreePath);
   const runId = stateStore.createRun({
     project: "demo",
@@ -603,7 +604,7 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
 });
 
 test("resume routes a paused implement~link-N row to resumeLinkedWorkflowStart the same way as a failed one", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-paused-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-linked-resume-paused-"));
   writeTwoLinkIndexFixture(worktreePath);
   const runId = stateStore.createRun({
     project: "demo",
@@ -639,7 +640,7 @@ test("resume routes a paused implement~link-N row to resumeLinkedWorkflowStart t
 });
 
 test("resume refuses resume_unsupported for a linked row whose pinned index entry can no longer be resolved, without calling resumeLinkedWorkflowStart", async () => {
-  const worktreePath = mkdtempSync(join(tmpdir(), "lifecycle-linked-resume-malformed-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-linked-resume-malformed-"));
   // A single-entry index: the persisted `implement~link-1` row's pinned index position no longer exists.
   writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n", "utf8");
   writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
@@ -815,4 +816,107 @@ test("pause and kill release write-loop ownership", async () => {
   await flushBackgroundRuns();
 
   expect(ctx.registry.isClaimed({ project: "pause-kill", branch: "pause-kill" })).toBe(false);
+});
+
+function settledInvocationRun(invocationId: string, branch: string, withMarker = true): string {
+  const runId = stateStore.createRun({
+    project: "republish",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch,
+    specPath: "/tmp/spec.md",
+    status: "completed",
+    stepId: "step-1",
+    workflowSnapshot: workflowSnapshot(invocationId, [{ stepId: "step-1", role: "implement" }]),
+  });
+  if (withMarker) stateStore.writeWorkflowInvocationSettledMarker(runId, "completed", 1);
+  return runId;
+}
+
+test("a thrown republication tail rewrites the settled marker to failed", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = settledInvocationRun("inv-republish-throw", "republish-throw");
+  const outcome = await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "republish-throw" },
+    async () => {
+      throw new Error("publish boom");
+    },
+  );
+  expect(outcome).toMatchObject({ kind: "error", code: "internal_error" });
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("failed");
+});
+
+test("a republication tail returning a failure as a response rewrites the settled marker to failed", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = settledInvocationRun("inv-republish-response", "republish-response");
+  const outcome = await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "republish-response" },
+    async () => ({ ok: false, message: "publish refused" }),
+    true,
+  );
+  expect(outcome).toMatchObject({ kind: "response", result: { ok: false } });
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("failed");
+});
+
+test("a republication tail returning a failure as an error rewrites the settled marker to failed", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = settledInvocationRun("inv-republish-error", "republish-error");
+  const outcome = await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "republish-error" },
+    async () => ({ ok: false, message: "publish refused" }),
+  );
+  expect(outcome).toMatchObject({ kind: "error", code: "internal_error" });
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("failed");
+});
+
+test("a successful republication leaves the settled marker untouched", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = settledInvocationRun("inv-republish-ok", "republish-ok");
+  await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "republish-ok" },
+    async () => ({ ok: true }),
+  );
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toEqual({ cause: "completed", settledAt: 1 });
+});
+
+test("a failed republication of a markerless invocation writes no marker", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = settledInvocationRun("inv-republish-markerless", "republish-markerless", false);
+  await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "republish-markerless" },
+    async () => ({ ok: false, message: "publish refused" }),
+    true,
+  );
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toBeNull();
+});
+
+test("a republication tail aborted by run kill leaves the settled marker completed", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = settledInvocationRun("inv-republish-kill", "republish-kill");
+  let markStarted = () => {};
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const tail = handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "republish-kill" },
+    (deps) =>
+      new Promise((_resolve, reject) => {
+        deps.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        markStarted();
+      }),
+  );
+  await started;
+  const killed = handlers.kill(
+    { kind: "request", id: "k1", method: "kill", params: { runId } },
+    new AbortController().signal,
+  );
+  await tail;
+  await killed;
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toEqual({ cause: "completed", settledAt: 1 });
 });

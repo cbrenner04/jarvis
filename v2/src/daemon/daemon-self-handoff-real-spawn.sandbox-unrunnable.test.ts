@@ -3,9 +3,10 @@
 
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import type { IpcFrame } from "../ipc/types";
 import { orchestrationStorePath } from "../paths";
@@ -85,8 +86,8 @@ describe("daemon self-handoff (real processes)", () => {
     async () => {
       // JARVIS_HOME and the socket directory differ on purpose: the successor's pid/log/private
       // paths must derive from the running daemon's own socket directory, not module-level home paths.
-      const home = mkdtempSync(join(tmpdir(), "jsh-home-"));
-      const sockDir = mkdtempSync(join(tmpdir(), "jsh-sock-"));
+      const home = trackedMkdtempSync(join(tmpdir(), "jsh-home-"));
+      const sockDir = trackedMkdtempSync(join(tmpdir(), "jsh-sock-"));
       mkdirSync(join(home, "state"), { recursive: true });
       // A realistic run history makes the incumbent's full `list` projection take on the order of a
       // second. Successor drain polling must not starve the incumbent's handoff readiness loop.

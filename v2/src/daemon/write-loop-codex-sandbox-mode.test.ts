@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { resolveWriteLoopBindings } from "./daemon.ts";
@@ -62,7 +63,7 @@ function writeInput(context: NonNullable<WriteLoopInput["bindingResolution"]>): 
 }
 
 function writeConfig(codexSandboxMode: string): string {
-  const configPath = join(mkdtempSync(join(tmpdir(), "jarvis-sandbox-mode-")), "config.json");
+  const configPath = join(trackedMkdtempSync(join(tmpdir(), "jarvis-sandbox-mode-")), "config.json");
   writeFileSync(configPath, JSON.stringify({ machineProfile: "p", agents: ["codex"], codexSandboxMode }));
   return configPath;
 }
@@ -73,7 +74,7 @@ test("configured danger-full-access reaches the shared Codex binding on the fres
     machineConfigPath: writeConfig("danger-full-access"),
     forceSnapshotAgentModelConfig: true,
     bindingSpawn: fake.spawn,
-    codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-sandbox-sessions-")),
+    codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-sandbox-sessions-")),
   };
 
   const resolved = resolveWriteLoopBindings(writeInput(codexContext), bindingDeps);
@@ -100,7 +101,7 @@ test("configured Codex sandbox mode survives the daemon/JSON rehydration boundar
     machineConfigPath: writeConfig("danger-full-access"),
     forceSnapshotAgentModelConfig: true,
     bindingSpawn: fake.spawn,
-    codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-sandbox-sessions-")),
+    codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-sandbox-sessions-")),
   };
 
   // Round-trip the input through JSON as the daemon does across the IPC boundary, dropping any

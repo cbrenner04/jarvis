@@ -189,7 +189,10 @@ function recordingCoordinator(
 }
 
 /** Real lifecycle handlers whose executor plays the write loop: run 1..n settle a gate refusal via `onRun`. */
-function daemonHarness(onRun: (input: WriteLoopInput, runId: string, call: number) => void) {
+function daemonHarness(
+  onRun: (input: WriteLoopInput, runId: string, call: number) => void,
+  resolvePredecessorOwner?: (runId: string) => Promise<boolean>,
+) {
   const runs: string[] = [];
   const ctx = createRunControlHandlerContext({
     stateStore: store,
@@ -205,6 +208,7 @@ function daemonHarness(onRun: (input: WriteLoopInput, runId: string, call: numbe
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
     writeLoopBindingSourceDeps: bindingDeps,
+    ...(resolvePredecessorOwner !== undefined ? { resolvePredecessorOwner } : {}),
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
@@ -239,6 +243,26 @@ test("a slot-refused lane settled while the gate is held is re-driven through re
   expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive")).toEqual([
     { kind: "slot_redrive", slotRedriveCount: 1, bound: MAX_SLOT_REDRIVES },
   ]);
+});
+
+test("the daemon context wires the predecessor-owner probe into the coordinator, so a draining predecessor's lane is not re-driven", async () => {
+  const holder = holdGate();
+  const { runs, start } = daemonHarness(
+    (_input, runId, call) => {
+      if (call === 1) refuseGate(runId);
+    },
+    async () => true,
+  );
+
+  await start("context-predecessor-owns");
+  await tick();
+  const runId = runs[0] as string;
+  holder.release();
+  await tick();
+
+  expect(runs).toEqual([runId]);
+  expect(store.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 0 });
+  expect(eventKinds(runId)).toEqual(["slot_redrive_skipped_owner"]);
 });
 
 test("a lease released between the refusal settling and the enqueue still re-drives the lane", async () => {

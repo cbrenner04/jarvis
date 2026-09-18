@@ -35,10 +35,15 @@ function seededPipelines(count: number, nameBytes: number) {
   }));
 }
 
-/** A stub daemon at the stable address of a fresh jarvis home, serving `pipelines` for `pipeline_list`. */
-async function seededHome(pipelines: unknown[]): Promise<string> {
+function freshHome(): string {
   const home = mkdtempSync(join(tmpdir(), "jcf-"));
   homes.push(home);
+  return home;
+}
+
+/** A stub daemon at the stable address of a fresh jarvis home, serving `pipelines` for `pipeline_list`. */
+async function seededHome(pipelines: unknown[]): Promise<string> {
+  const home = freshHome();
   servers.push(
     await startIpcServer(join(home, "daemon.sock"), {
       pipeline_list: () => ({ kind: "response", result: { pipelines } }),
@@ -79,7 +84,7 @@ describe("cli entrypoint flushes piped output before exit", () => {
     "delivers a stderr payload above pipe capacity intact with exit 1",
     async () => {
       const name = "u".repeat(100_000);
-      const proc = spawnCli([name], mkdtempSyncTracked());
+      const proc = spawnCli([name], freshHome());
       const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 
       expect(code).toBe(1);
@@ -105,12 +110,6 @@ describe("cli entrypoint flushes piped output before exit", () => {
     HANG_MS,
   );
 });
-
-function mkdtempSyncTracked(): string {
-  const home = mkdtempSync(join(tmpdir(), "jcf-"));
-  homes.push(home);
-  return home;
-}
 
 describe("runEntrypoint", () => {
   function harness() {

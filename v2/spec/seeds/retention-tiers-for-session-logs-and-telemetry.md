@@ -4,7 +4,7 @@ name: retention-tiers-for-session-logs-and-telemetry
 
 # Session logs age through hot, cold, gone; telemetry rolls monthly and is kept
 
-Depends on [[observability-sinks-honor-jarvis-home-and-cap-blobs]]: size this against post-fix steady state, not the leaked numbers.
+Its dependency (`observability-sinks-honor-jarvis-home-and-cap-blobs`) landed (#3918, #3937). Land the small ready-intent `cleanup-reaps-orphan-session-logs` first: it extends the same reaper and knob this seed replaces.
 
 ## Problem
 

@@ -10,7 +10,7 @@ name: stage-success-reopens-skipped-successors
 
 ## Decisions
 
-- Settling a branch stage to `succeeded` reopens that branch's provisional `skipped` successors to `pending` in the same transaction that writes the success.
+- Settling a branch stage to `succeeded` reopens that branch's provisional `skipped` successors to `pending` when the success is observed in `settleFanOutBranch` (a separate transaction from the success write; see subspec 00).
 - Terminal (split-retired) skips are never reopened by this path.
 - Reopened successors are dispatchable by the normal execution loop with no operator verb.
 

@@ -20,6 +20,8 @@ This one is sharper than a path leak because **the harness already solves it cor
 
 **3. Jarvis's slice layout asserted as fact — `prompts/plan/draft.md:57`.** Names `bun run test:v2` / `test:integration:v2` for `v2/**`, and "all six" for `shared/**`, prefixed *"for this repo"* and suffixed *"following target-repo `AGENTS.md`"*. The hedges are real but the concrete script names are what an agent acts on, and no other repo has these surfaces.
 
+**Update 2026-09-18:** #4029 removed the `prompts/plan/draft.md` script names (leak 3 closed); leaks 1 and 2 remain, and `shared/prompts/intent-split.test.ts` currently *pins* leak 1 (`toContain("v2/docs/spec-guidance-agent-core.md")`), so the fix must invert that assertion.
+
 **Correctly parameterized, for contrast:** `prompts/patch/rules.md:27,29` says *"Use commands from target repo `AGENTS.md`"* and *"Resolve scope … exactly as target-repo `AGENTS.md` specifies"*, naming no scripts. That is the pattern the three above should follow. (`patch/rules.md:30-31` still hardcodes `bun run typecheck` / `bun test`, but the patch lane is lower stakes.)
 
 **Fix shape this suggests:** (1) is a wiring fix with an existing pattern to copy — give `intent-split` the `SPEC_GUIDANCE` placeholder its siblings already have, and delete the path instruction. (2) and (3) are prompt-text fixes toward the `patch/rules.md` phrasing. A corpus-wide guard against `v[12]/(docs|spec|src)/` literals in any fragment that renders off-jarvis would close the class and is cheap.
@@ -33,7 +35,7 @@ This one is sharper than a path leak because **the harness already solves it cor
 ## Acceptance criteria
 
 - [ ] A test proves the implement rules rendered for a project without jarvis's layout carry no `v2/docs/`-style jarvis paths; fails against the current corpus.
-- [ ] A corpus-wide test asserts no prompt fragment that renders off-jarvis contains a `v[12]/(docs|spec|src)/` literal; it fails today on `prompts/global/documentation.md`, `prompts/intent/split.md`, and `prompts/plan/draft.md`.
+- [ ] A corpus-wide test asserts no prompt fragment that renders off-jarvis contains a `v[12]/(docs|spec|src)/` literal; it fails today on `prompts/global/documentation.md` and `prompts/intent/split.md`.
 - [ ] `buildIntentSplitPrompt` renders spec guidance through a `SPEC_GUIDANCE` placeholder sourced from `readSpecGuidance()`, matching `plan-draft` / `review-plan` / `review-intent`, and `prompts/intent/split.md` no longer instructs the agent to read a path; a test proves the rendered split prompt carries the guidance text with no target-repo file present.
 - [ ] An implement fixture on a non-jarvis-layout repo does not produce jarvis-convention doc paths, pinned by a test or the guard above.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

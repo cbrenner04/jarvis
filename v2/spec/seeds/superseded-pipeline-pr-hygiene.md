@@ -4,7 +4,7 @@ name: superseded-pipeline-pr-hygiene
 
 # Superseded stage PRs close after terminal publication, and cleanup retires their branches
 
-Merges the former `configure-pipeline-supersede-policy`, `settle-superseded-pipeline-prs`, and `retire-superseded-pipeline-branches` seeds (2026-09-05 compaction) — one root cause, three slices in dependency order. All three were demoted 2026-08-29: terminal publication is reworked by [[pipeline-settlement-derives-from-run-rows]]; **re-scope this family against the post-restructure settlement seam before planning.**
+Merges the former `configure-pipeline-supersede-policy`, `settle-superseded-pipeline-prs`, and `retire-superseded-pipeline-branches` seeds (2026-09-05 compaction) — one root cause, three slices in dependency order. The settlement restructure it waited on landed (#3745, owner in `stage-settlement-owner.ts`), so this is plannable now. Also absorbs the stacked-intermediate-PR cleanup half of the retired `merge-pipeline-stage-pr-at-its-approval-gate` seed (2026-09-18).
 
 ## Problem
 

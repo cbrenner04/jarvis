@@ -27,8 +27,8 @@ Not specific to `gate_invocation_refused`. Pipeline `a9b661d5`, lane `decisions-
 - [ ] A test proves `pipeline resume` on an implement stage whose write row settled `gate_invocation_refused` resumes that row in place (no preflight re-run, no new worktree) even when base has advanced past the lane's merge base; it fails against the pre-fix re-dispatch.
 - [ ] A test proves the resumed row's completion settles the stage `succeeded` and dispatches its successor.
 - [ ] A test proves a non-resumable failed implement stage still re-dispatches as today.
+- [ ] A test proves a stage whose write row settled a non-gate resumable failure (for example `surviving_mutation_failed`) and was recovered by `jarvis run resume` settles from that recovered row rather than staying `failed`; it fails against the pre-fix code, which leaves the stage orphaned.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` — pipeline resume on a resumable implement stage.
-- [ ] A test proves a stage whose write row settled a non-gate resumable failure (for example `surviving_mutation_failed`) and was recovered by `jarvis run resume` settles from that recovered row rather than staying `failed`; it fails against the pre-fix code, which leaves the stage orphaned.
+- `v2/docs/operator-runbook.md` — pipeline resume on a resumable implement stage. Related: [[resume-surfaces-admission-gate-refusal]] covers the same `d28c8d6e` event from the refusal-visibility side.

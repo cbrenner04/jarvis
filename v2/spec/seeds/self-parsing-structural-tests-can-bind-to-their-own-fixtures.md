@@ -30,7 +30,7 @@ Repaired in-lane by accepting the optional prefix. The general hazard is unaddre
 
 ## Why this is systemic
 
-"Structural test parses its own source" is the pattern the whole `*-anchors` initiative rests on — three specs, roughly 28 subspecs, across cli, daemon, and execution-loop surfaces. Every inventory constant in that pattern is lint-unused by construction and therefore an autofix rename target, and every such file that tests its own parser contains a same-shaped fixture. The failure is silent by default because the existing guards only catch *absent* and *empty*, not *wrong*.
+Audit 2026-09-18: only one self-parsing locator exists on `main` (`workflow-runner-resume-inventory.test.ts`, now tolerating the `_` prefix but still first-match with the fixture at :529 and no count assertion), so the exposure is one file, not the whole `*-anchors` corpus. `shared/structural-test-locator.ts` (#3498) fails loud on an absent subject, not on a wrong one. The failure is silent by default because the existing guards only catch *absent* and *empty*, not *wrong*.
 
 Related but distinct: [[generalize-production-test-seam-guard]] covers production/test seam divergence; this is a locator binding to the wrong declaration inside one file.
 

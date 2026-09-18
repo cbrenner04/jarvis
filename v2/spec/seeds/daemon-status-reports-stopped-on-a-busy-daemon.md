@@ -10,7 +10,7 @@ name: daemon-status-reports-stopped-on-a-busy-daemon
 
 `stopped` is the most dangerous thing this command can say. It is the shape whose documented recoveries are `kill -9 <daemon-pid>` and starting a second daemon, and the daemon is shared across every registered project, so acting on a false `stopped` destroys live work for projects the operator is not even looking at. The function's own comment names this exact hazard for the *pid* input — "reporting `stopped` for a reachable daemon sends operators into destructive recovery for a machine that is working" — which #3473 fixed by deciding on the socket instead. The timeout path reintroduces the same lie through the socket.
 
-The careful classifier already exists in this repo. `classifyDaemonSocketForCleanup` (`v2/src/commands/daemon.ts:60-85`) separates `stale`, `absent`, and timeout-class outcomes and states the rule outright: *"Timeout-class `live` is inconclusive: only an answered `health` proves a daemon; every other outcome (including a late ECONNREFUSED) preserves the path and reports why."* `getDaemonStatus` does not use it.
+The careful classifier already exists in this repo: `classifyLegacyDaemonUnit` (`v2/src/commands/daemon.ts`) over `probeSocketLiveness` (`v2/src/ipc/server.ts`), which treats timeout as inconclusive `live` and has an extend-and-reprobe seam. `getDaemonStatus` uses neither. (Function names refreshed 2026-09-18; the seed originally cited `classifyDaemonSocketForCleanup`, since replaced.)
 
 ## Evidence (2026-09-13)
 
@@ -29,7 +29,7 @@ This is also the second observation of the same budget shape: the runbook alread
 ## Decisions
 
 - A timeout is not proof of death. `daemon status` distinguishes "answered `health`" from "did not answer in time", and only a positively-dead socket (`stale`, or `absent` with no listener) reports `stopped`; an inconclusive probe reports its own state naming the reason and the elapsed budget. Rules out inconclusive-is-authoritative on the command that gates destructive recovery.
-- Reuse the existing `classifyDaemonSocketForCleanup`-style classification rather than adding a second liveness vocabulary; rules out two disagreeing liveness classifiers in one codebase, which is the #3473 shape.
+- Reuse the existing `probeSocketLiveness` classification rather than adding a second liveness vocabulary; rules out two disagreeing liveness classifiers in one codebase, which is the #3473 shape.
 - A probe that times out is retried once at a longer budget before any non-live verdict, since the observed failure is a loaded event loop rather than a dead process. Rules out a single unlucky sample deciding.
 - Scope is the status read path. No change to what `daemon start`/`stop` do with their own probes, and no change to the `loaded`/`current` revision reporting. Rules out widening into the digest-reporting question.
 

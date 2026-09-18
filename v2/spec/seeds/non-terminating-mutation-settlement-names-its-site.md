@@ -12,15 +12,18 @@ The documented recovery for `non_terminating_mutation_failed` is "fix the killin
 
 Review row `1a8d83b5` (lane `route-draining-run-logs-to-owner`, #3887) settled `non_terminating_mutation_failed`; `run log` ended `{"kind":"loop_finished","loopOutcomeKind":"non_terminating_mutation_failed","iterationsConsumed":0,"resumable":true}` and `run list` showed only the reason. The site (`daemon-stable-run-routing.ts:99`, `operator-flip: === → !==`) had to be read out of SQLite by hand before recovery could start.
 
+## Status (2026-09-18)
+
+`run-operator-error.ts` already projects `nonTerminatingMutationLogFields`; only the publication-tail spread is missing, so this is a one-line fix plus test. Sequence after the open spec `surviving-mutation-settlement-records-killing-set` subspec 01, which edits the same sites.
+
 ## Decisions
 
 - Every terminal settlement carrying a non-terminating mutation failure spreads `nonTerminatingMutationLogFields` alongside `survivingMutationLogFields`, including the publication tail.
-- `run list`/`run wait` project the site the same way they do for `surviving_mutation_failed`.
 
 ## Acceptance criteria
 
 - [ ] A test proves a publication-time `non_terminating_mutation_failed` records the mutation text, source file, and line on the terminal `loop_finished`; it fails against the pre-fix `publicationLoopFinishedBase`.
-- [ ] A test proves `run list`/`run wait` surface that site on the row's operator error.
+- [ ] A test proves `run list`/`run wait` surface that site on the row's operator error (currently starved only by the missing spread).
 
 ## Documentation updates
 

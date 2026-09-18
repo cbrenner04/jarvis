@@ -9,7 +9,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -31,6 +30,8 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { deriveOperatorIncidents } from "../daemon/operator-incidents.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
@@ -718,6 +719,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     currentOwnerIdentity: () => inner.currentOwnerIdentity(),
     createRun: (args) => inner.createRun(args),
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
+    setInvocationLeaseFromSha: (invocationId, leases) => inner.setInvocationLeaseFromSha(invocationId, leases),
     setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),
     setRunDownstreamInputs: (runId, downstreamInputs) => inner.setRunDownstreamInputs(runId, downstreamInputs),
     clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
@@ -833,6 +835,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     currentOwnerIdentity: () => inner.currentOwnerIdentity(),
     createRun: (args) => inner.createRun(args),
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
+    setInvocationLeaseFromSha: (invocationId, leases) => inner.setInvocationLeaseFromSha(invocationId, leases),
     setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),
     setRunDownstreamInputs: (runId, downstreamInputs) => inner.setRunDownstreamInputs(runId, downstreamInputs),
     clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
@@ -962,9 +965,9 @@ describe("buildSubspecCompletionInventory", () => {
   }
 
   test("buildSubspecCompletionInventory classifies linked subspecs when projectRoot differs from worktreePath", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
       { file: "00-first.md", title: "First", criteria: "- [x] done" },
@@ -978,9 +981,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory reports repo-relative paths when projectRoot differs from worktreePath", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
       { file: "00-first.md", title: "First", criteria: "- [x] done" },
@@ -994,9 +997,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory surfaces inventoryError for unrelativizable subspec paths", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const outsidePath = join(tmpdir(), `jarvis-outside-${Date.now()}.md`);
     writeFileSync(outsidePath, "# Outside\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
@@ -1018,9 +1021,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory surfaces inventoryError when index build throws", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const specRoot = join(worktreePath, "spec/implement");
     mkdirSync(specRoot, { recursive: true });
@@ -1037,9 +1040,9 @@ describe("buildSubspecCompletionInventory", () => {
   });
 
   test("buildSubspecCompletionInventory yields empty lists without inventoryError for zero linked subspecs", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-project-root-"));
     roots.push(projectRoot);
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-worktree-"));
     roots.push(worktreePath);
     const specRoot = join(worktreePath, "spec/implement");
     mkdirSync(specRoot, { recursive: true });
@@ -1678,7 +1681,7 @@ describe("write loop", () => {
       externalSubspec: string;
       criterion: string;
     } {
-      const specReadRoot = mkdtempSync(join(tmpdir(), "write-loop-external-spec-"));
+      const specReadRoot = trackedMkdtempSync(join(tmpdir(), "write-loop-external-spec-"));
       roots.push(specReadRoot);
       const criterion = "external criterion satisfied";
       const externalSubspec = join(specReadRoot, "00-work.md");
@@ -5765,6 +5768,9 @@ export function isLoadSensitive(file: string): boolean {
         logSink?: LogSink;
         readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
         lintMdOnly?: boolean;
+        onGateFailure?: (cwd: string) => void;
+        runFixCommand?: WriteLoopInput["runFixCommand"];
+        runAutofixTypecheck?: WriteLoopInput["runAutofixTypecheck"];
       }) {
         const artifactPath = args.expectedArtifactPath ?? "proof.txt";
         const specPath = args.specPath ?? "spec.md";
@@ -5800,10 +5806,12 @@ export function isLoadSensitive(file: string): boolean {
             publishCalls += 1;
             return {};
           },
-          runFixCommand: async () => {},
-          readyFinalizer: async () => {
+          runFixCommand: args.runFixCommand ?? (async () => {}),
+          ...(args.runAutofixTypecheck !== undefined ? { runAutofixTypecheck: args.runAutofixTypecheck } : {}),
+          readyFinalizer: async ({ worktreePath: cwd }) => {
             gateCalls += 1;
             if (invocations === 1) {
+              if (gateCalls === 1) args.onGateFailure?.(cwd);
               const output = args.lintMdOnly
                 ? lintMdOnlyGateFailureOutput(gateFailurePath)
                 : gateFailureOutput(gateFailurePath);
@@ -5973,7 +5981,7 @@ export function isLoadSensitive(file: string): boolean {
         intentShaped?: boolean;
       }) {
         const { intentShaped, ...loopArgs } = args;
-        const { baseRef } = intentShaped
+        const { baseRef, worktreePath } = intentShaped
           ? initIntentRepairFenceWorktree(args.jarvisRoot, args.branchName)
           : initRepairFenceWorktree(args.jarvisRoot, args.branchName);
         const first = await runRepairFenceLoop({
@@ -5983,7 +5991,7 @@ export function isLoadSensitive(file: string): boolean {
           repairEdit: touchUntouchedRepairEdit,
         });
         expect(first.result.kind).toBe("completion_commit_failed");
-        return { baseRef, first };
+        return { baseRef, worktreePath, first };
       }
 
       test("rejects ready-gate repairs outside the run diff and spec tree", async () => {
@@ -6016,6 +6024,255 @@ export function isLoadSensitive(file: string): boolean {
         });
       });
 
+      test("refused out-of-diff repair edits are reverted so the worktree is clean", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-revert";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const status = () =>
+          execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8", stdio: "pipe" });
+        const before = status();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain("Ready-gate repair stages path outside run diff");
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.result.completionCommitError).toContain("v2/src/new-untracked.ts");
+        expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+        expect(status()).toBe(before);
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
+      });
+
+      test("mixed refusal commits the in-diff edit, reverts the out-of-diff path, and stays resumable", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-mixed-refusal";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const git = (...gitArgs: string[]) =>
+          execFileSync("git", ["-C", worktreePath, ...gitArgs], { encoding: "utf8", stdio: "pipe" });
+        const headBefore = git("rev-parse", "HEAD").trim();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "proof.txt"), "fixed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(true);
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+        expect(git("rev-parse", "HEAD").trim()).not.toBe(headBefore);
+        expect(git("show", "--name-only", "--format=", "HEAD").split("\n")).toContain("proof.txt");
+        expect(readFileSync(join(worktreePath, "proof.txt"), "utf8")).toBe("fixed\n");
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        expect(git("status", "--porcelain")).toBe("");
+        const reopened = openStateStore(stateDbPath);
+        try {
+          expect(reopened.loadRun(fenced.result.runId)?.status).toBe("completed");
+        } finally {
+          reopened.close();
+        }
+      });
+
+      test("mixed refusal does not commit in-diff edits that trip the markdown-only fence", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-mixed-markdown";
+        const { baseRef, worktreePath } = initIntentRepairFenceWorktree(jarvisRoot, branchName);
+        const git = (...gitArgs: string[]) =>
+          execFileSync("git", ["-C", worktreePath, ...gitArgs], { encoding: "utf8", stdio: "pipe" });
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          ...intentRepairLoopDefaults,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(true);
+        expect(fenced.result.completionCommitError).toContain("outside markdown workflow output roots");
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(git("show", "HEAD:v2/src/untouched.test.ts")).toBe("iteration\n");
+        expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
+      });
+
+      test("entirely out-of-diff refusal settles non-resumable with an incident naming the refused paths", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-non-resumable";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const sink = new TestLogSink();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink: sink,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(false);
+        const finished = sink.events.find(({ event }) => event.kind === "loop_finished")?.event;
+        expect(finished).toMatchObject({ loopOutcomeKind: "completion_commit_failed", resumable: false });
+
+        const reopened = openStateStore(stateDbPath);
+        try {
+          const run = reopened.loadRun(fenced.result.runId);
+          expect(run?.status).toBe("failed");
+          expect(run?.terminalCause).toBe("completion_commit_failed");
+          const operatorError = composeRunOperatorError(
+            { ...run!, attempts: run?.attempts ?? [] },
+            finished?.kind === "loop_finished"
+              ? { runId: fenced.result.runId, seq: 1, ts: "2026-01-01T00:00:00.000Z", event: finished }
+              : undefined,
+          );
+          expect(operatorError?.nextAction).toBe("stop");
+          const incident = deriveOperatorIncidents(reopened).find(
+            (candidate) => candidate.runId === fenced.result.runId,
+          );
+          expect(incident?.cause).toBe("failed");
+          expect(incident?.detail).toContain("v2/src/untouched.test.ts");
+          expect(incident?.detail).toContain("v2/src/new-untracked.ts");
+        } finally {
+          reopened.close();
+        }
+      });
+
+      describe("refusal revert preserves pre-repair dirt", () => {
+        async function runWithPreRepairDirt(branchName: string, dirt: (cwd: string) => void) {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+          const fenced = await runRepairFenceLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            onGateFailure: dirt,
+            runFixCommand: async ({ cwd }) => {
+              writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "autofix\n", "utf8");
+            },
+            repairEdit: () => {},
+          });
+          expect(fenced.result.kind).toBe("completion_commit_failed");
+          expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+          return { worktreePath, fenced };
+        }
+
+        test("an uncommitted out-of-diff operator edit survives while the refused edit is reverted", async () => {
+          const { worktreePath, fenced } = await runWithPreRepairDirt("repair-fence-operator-edit", (cwd) => {
+            writeFileSync(join(cwd, "README.md"), "operator hand-fix\n", "utf8");
+          });
+          expect(readFileSync(join(worktreePath, "README.md"), "utf8")).toBe("operator hand-fix\n");
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+          expect(fenced.result.resumable).toBe(false);
+        });
+
+        test("a pre-existing untracked file survives", async () => {
+          const { worktreePath } = await runWithPreRepairDirt("repair-fence-operator-untracked", (cwd) => {
+            writeFileSync(join(cwd, "operator-notes.txt"), "keep me\n", "utf8");
+          });
+          expect(readFileSync(join(worktreePath, "operator-notes.txt"), "utf8")).toBe("keep me\n");
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        });
+
+        test("a pre-existing dirty file edited further is restored to its pre-repair content, not HEAD", async () => {
+          const { worktreePath } = await runWithPreRepairDirt("repair-fence-operator-dirty-edited", (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "operator\n", "utf8");
+          });
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("operator\n");
+        });
+
+        const operatorBinary = Buffer.from([0xff, 0xfe, 0x00, 0x41]);
+
+        test("a pre-existing dirty binary survives byte-for-byte through autofix discard and a refused repair", async () => {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const branchName = "repair-fence-operator-binary";
+          const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+          const fenced = await runRepairFenceLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            onGateFailure: (cwd) => writeFileSync(join(cwd, "operator.bin"), operatorBinary),
+            runFixCommand: async ({ cwd }) => writeFileSync(join(cwd, "autofix-junk.ts"), "junk\n", "utf8"),
+            runAutofixTypecheck: async () => ({ exitCode: 1, output: "typecheck failed" }),
+            repairEdit: touchUntouchedRepairEdit,
+          });
+          expect(fenced.result.kind).toBe("completion_commit_failed");
+          expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+          expect(readFileSync(join(worktreePath, "operator.bin")).equals(operatorBinary)).toBe(true);
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        });
+
+        test("a refused repair edit to a binary file is detected and reverted", async () => {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const branchName = "repair-fence-binary-edit";
+          const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+          const fenced = await runRepairFenceLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            onGateFailure: (cwd) => writeFileSync(join(cwd, "operator.bin"), operatorBinary),
+            runFixCommand: async ({ cwd }) =>
+              writeFileSync(join(cwd, "operator.bin"), Buffer.from([0xff, 0xfd, 0x00, 0x41])),
+            repairEdit: () => {},
+          });
+          expect(fenced.result.kind).toBe("completion_commit_failed");
+          expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+          expect(readFileSync(join(worktreePath, "operator.bin")).equals(operatorBinary)).toBe(true);
+        });
+
+        test("an operator hand-fix made before resume survives the resumed attempt", async () => {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const branchName = "repair-fence-resume-hand-fix";
+          const { baseRef, worktreePath, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+          const reopened = openStateStore(stateDbPath);
+          reopened.setRunStatus(first.result.runId, "completed");
+          reopened.close();
+          writeFileSync(join(worktreePath, "README.md"), "operator hand-fix\n", "utf8");
+          writeFileSync(join(worktreePath, "operator.bin"), operatorBinary);
+
+          const retry = await runLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            bindings: [],
+            completionCommitter: createCompletionCommitter(),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          });
+          expect(retry.runId).toBe(first.result.runId);
+          expect(readFileSync(join(worktreePath, "README.md"), "utf8")).toBe("operator hand-fix\n");
+          expect(readFileSync(join(worktreePath, "operator.bin")).equals(operatorBinary)).toBe(true);
+        });
+      });
+
       test("repair refuses a staged path outside the attributable allowset", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-attributable-allowset";
@@ -6044,16 +6301,11 @@ export function isLoadSensitive(file: string): boolean {
           "Ready-gate repair stages path outside attributable allowset:",
         );
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.result.completionCommitError).toContain("refused paths reverted");
         expect(fenced.publishCalls).toBe(2);
         expect(fenced.gateCalls).toBe(2);
-
-        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
-          encoding: "utf8",
-          stdio: "pipe",
-        })
-          .split("\n")
-          .filter(Boolean);
-        expect(dirty).toContain("v2/src/untouched.test.ts");
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("iteration\n");
+        expect(execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
       });
 
       test("lint:md-only gate failure answered with a .ts edit is refused without a repair commit", async () => {
@@ -6077,14 +6329,10 @@ export function isLoadSensitive(file: string): boolean {
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
         expect(fenced.publishCalls).toBe(2);
         expect(fenced.gateCalls).toBe(2);
-
-        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
-          encoding: "utf8",
-          stdio: "pipe",
-        })
-          .split("\n")
-          .filter(Boolean);
-        expect(dirty).toContain("v2/src/untouched.test.ts");
+        expect(
+          execFileSync("git", ["-C", worktreePath, "show", "HEAD:v2/src/untouched.test.ts"], { encoding: "utf8" }),
+        ).toBe("iteration\n");
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("iteration\n");
       });
 
       function stageHarnessSidecarRepairEdit(cwd: string) {
@@ -6241,7 +6489,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair candidate contract covers staged change kinds and excludes unstaged metadata", async () => {
-        const parent = mkdtempSync(join(tmpdir(), "repair-fence-candidates-"));
+        const parent = trackedMkdtempSync(join(tmpdir(), "repair-fence-candidates-"));
         roots.push(parent);
         const root = join(parent, "main");
         const submoduleRepo = join(parent, "submodule-repo");
@@ -6314,7 +6562,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair completion candidates omit unchanged tracked paths the stage pathspec excludes", async () => {
-        const root = mkdtempSync(join(tmpdir(), "repair-fence-excluded-tracked-"));
+        const root = trackedMkdtempSync(join(tmpdir(), "repair-fence-excluded-tracked-"));
         roots.push(root);
         execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
         execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -6335,7 +6583,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair completion candidates omit the harness-materialized node_modules symlink", async () => {
-        const root = mkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
+        const root = trackedMkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
         roots.push(root);
         execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
         execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -6472,13 +6720,17 @@ export function isLoadSensitive(file: string): boolean {
         // intent run diff, so only the markdown layer rejects it and this layer goes unguarded.
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-retry-implement-run-diff";
-        const { baseRef, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+        const { baseRef, worktreePath, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
 
         const reopened = openStateStore(stateDbPath);
         const persisted = reopened.loadRun(first.result.runId);
         expect(persisted?.readyGateRepairFence?.offendingPath).toBe("v2/src/untouched.test.ts");
         expect(persisted?.readyGateRepairFence?.markdownOnly).not.toBe(true);
+        // Entirely refused edits settle non-resumable; recovery guards rows still retryable (e.g. a mixed refusal).
+        reopened.setRunStatus(first.result.runId, "completed");
         reopened.close();
+        // The refused edit was reverted; re-dirty the tree so recovery has something to fence.
+        touchUntouchedRepairEdit(worktreePath);
 
         let publishCalls = 0;
         const retry = await runLoop({
@@ -7233,6 +7485,7 @@ export function isLoadSensitive(file: string): boolean {
           currentOwnerIdentity: () => inner.currentOwnerIdentity(),
           createRun: (args) => inner.createRun(args),
           setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
+          setInvocationLeaseFromSha: (invocationId, leases) => inner.setInvocationLeaseFromSha(invocationId, leases),
           setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),
           setRunDownstreamInputs: (runId, downstreamInputs) => inner.setRunDownstreamInputs(runId, downstreamInputs),
           clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
@@ -10194,7 +10447,7 @@ index 1234567..abcdefg 100644
     });
 
     test("uncommitted paths omit the materialized node_modules symlink and keep other untracked work", async () => {
-      const worktreePath = mkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
+      const worktreePath = trackedMkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
       roots.push(worktreePath);
       execFileSync("git", ["init"], { cwd: worktreePath, stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -10277,7 +10530,7 @@ index 1234567..abcdefg 100644
     });
 
     test("getUncommittedPaths is fail-soft for Git failure and malformed status framing", async () => {
-      const plain = mkdtempSync(join(tmpdir(), "uncommitted-fail-soft-plain-"));
+      const plain = trackedMkdtempSync(join(tmpdir(), "uncommitted-fail-soft-plain-"));
       roots.push(plain);
       expect(await getUncommittedPaths(plain)).toEqual([]);
 

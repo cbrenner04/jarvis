@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -92,7 +93,7 @@ describe("runCleanupCliCommand argument parsing", () => {
   });
 
   test("--abandon <name> --dry-run previews a real workspace without prompting or mutating", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "jarvis-cleanup-cli-"));
+    const tempRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-cleanup-cli-"));
     try {
       const projectRoot = join(tempRoot, "project");
       const jarvisRoot = join(tempRoot, "jarvis-home");
@@ -190,7 +191,7 @@ async function cleanupArchiveTree(root: string): Promise<string[]> {
 }
 
 async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFixture> {
-  const root = mkdtempSync(join(tmpdir(), `jarvis-cleanup-scope-${label}-`));
+  const root = trackedMkdtempSync(join(tmpdir(), `jarvis-cleanup-scope-${label}-`));
   const jarvisRoot = join(root, "jarvis-home");
   const calls: ScopedCleanupFixture["calls"] = [];
 
@@ -431,7 +432,7 @@ describe("named cleanup project scope", () => {
   });
 
   test("named cleanup spares a shared ref held by another registered project", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-shared-ref-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cleanup-shared-ref-"));
     const selectedRoot = join(root, "selected");
     const otherRoot = join(root, "other");
     const jarvisRoot = join(root, "jarvis-home");
@@ -493,7 +494,7 @@ describe("named cleanup project scope", () => {
   });
 
   test("cleanup rejects an unknown project before daemon discovery or cleanup survey", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-unknown-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cleanup-unknown-"));
     const socket = join(root, "daemon-dead.sock");
     writeFileSync(socket, "");
     const calls = { registry: 0, sockets: 0, connect: 0, subprocess: 0, prompt: 0 };
@@ -693,7 +694,7 @@ describe("cleanup command through main", () => {
   }
 
   beforeEach(async () => {
-    cleanupTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-cleanup-"));
+    cleanupTmp = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-cleanup-"));
     cleanupProjectRoot = join(cleanupTmp, "project");
     cleanupJarvisRoot = join(cleanupTmp, "jarvis-home");
     mkdirSync(cleanupProjectRoot, { recursive: true });

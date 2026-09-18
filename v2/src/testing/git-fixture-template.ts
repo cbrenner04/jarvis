@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 
 export interface GitFixtureTemplate {
   /** Copies the template into `destDir` (created if missing) or a fresh temp dir; returns the copy's path. */
@@ -18,7 +19,7 @@ function configureIdentity(dir: string): void {
 }
 
 function initGitDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-git-fixture-template-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-git-fixture-template-"));
   execFileSync("git", ["init", "-q"], { cwd: dir });
   configureIdentity(dir);
   return dir;
@@ -31,7 +32,7 @@ function lazyGitFixtureTemplate(build: () => string): GitFixtureTemplate {
       if (!templatePath) {
         templatePath = build();
       }
-      const dest = destDir ?? mkdtempSync(join(tmpdir(), "jarvis-git-fixture-copy-"));
+      const dest = destDir ?? trackedMkdtempSync(join(tmpdir(), "jarvis-git-fixture-copy-"));
       mkdirSync(dest, { recursive: true });
       cpSync(templatePath, dest, { recursive: true });
       return dest;

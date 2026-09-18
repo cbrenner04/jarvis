@@ -257,7 +257,8 @@ function mapFromLoopFinished(
       };
     case "completion_commit_failed":
       return {
-        ...op(event.loopOutcomeKind, "resume", true),
+        // Non-resumable only when the settlement said so (entirely refused out-of-diff repair edits).
+        ...(event.resumable === false ? op(event.loopOutcomeKind, "stop") : op(event.loopOutcomeKind, "resume", true)),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
         ...("completionCommitError" in event && typeof event.completionCommitError === "string"
           ? { completionCommitError: event.completionCommitError }
@@ -377,7 +378,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   harness_failure: "inspect jarvis run log and ~/.jarvis/daemon.log, then re-dispatch or stop",
   state_store_lock_timeout: "run jarvis run resume after the store lock clears",
   not_implemented: "workflow paused write steps use jarvis run resume; ad-hoc paused runs are not supported yet",
-  completion_commit_failed: "fix git/gh publication, then jarvis run resume",
+  completion_commit_failed:
+    "fix git/gh publication, then jarvis run resume; when nextAction is stop, fix the refused out-of-diff paths named in completionCommitError by hand — do not resume",
   iteration_commit_failed: "fix git state, then jarvis run resume",
   ready_gate_failed: "fix the ready gate failure, then jarvis run resume",
   ready_gate_command_missing:
@@ -439,7 +441,8 @@ function composeRunOperatorErrorFromState(
         kind: "loop_finished",
         loopOutcomeKind: run.terminalCause,
         iterationsConsumed: 0,
-        resumable: loopFinishedEvent?.resumable ?? false,
+        resumable:
+          loopFinishedEvent?.resumable ?? (run.terminalCause === "completion_commit_failed" && run.status !== "failed"),
         ...(run.terminalFailureDetail?.message !== undefined ? { message: run.terminalFailureDetail.message } : {}),
       },
       lastAttempt,

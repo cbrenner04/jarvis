@@ -1,14 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,6 +7,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
@@ -160,7 +152,7 @@ function setupMockRepo(options: { nodeModules?: "dir" | "file" | "none" } = {}):
   runner: AsyncSubprocessRunner;
 } {
   const { nodeModules = "dir" } = options;
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-mock-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-mock-"));
   roots.push(root);
   const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");
@@ -228,7 +220,7 @@ describe("external worktree helper", () => {
   });
 
   test("materializes from --base when only a stale remote-tracking ref exists", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-stale-origin-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-stale-origin-"));
     roots.push(root);
     const repoRoot = join(root, "repo");
     const jarvisRoot = join(root, "jarvis-home");
@@ -282,7 +274,7 @@ describe("external worktree helper", () => {
   });
 
   test("materializes from origin when ls-remote lists the remote head", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-remote-head-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-remote-head-"));
     roots.push(root);
     const repoRoot2 = join(root, "repo");
     const jarvisRoot2 = join(root, "jarvis-home");
@@ -385,7 +377,7 @@ describe("external worktree helper", () => {
   });
 
   test("refuses to reuse a worktree from a different repository", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-mock-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-mock-"));
     roots.push(root);
     const repoRoot = join(root, "repo");
     const otherRepoRoot = join(root, "other-repo");
@@ -571,7 +563,7 @@ describe("external worktree helper", () => {
 
   describe("git-less read-context materialization", () => {
     async function initGitFixture(): Promise<{ repoRoot: string; committed: string }> {
-      const root = mkdtempSync(join(tmpdir(), "jarvis-v2-read-checkout-"));
+      const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-read-checkout-"));
       roots.push(root);
       const repoRoot = join(root, "repo");
       mkdirSync(repoRoot, { recursive: true });

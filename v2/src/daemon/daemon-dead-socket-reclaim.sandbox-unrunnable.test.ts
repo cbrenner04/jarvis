@@ -4,9 +4,10 @@
 
 import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import { startIpcServer } from "../ipc/server";
 import { canUseUnixSockets } from "../testing/unix-socket";
@@ -57,7 +58,7 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, boundMs: num
 socketTest(
   "a fresh start binds over a SIGKILLed daemon's leftover public and private sockets; a live listener still refuses",
   async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jdsr-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jdsr-"));
     const publicPath = join(dir, "daemon.sock");
     const privatePath = join(dir, "daemon-0123456789abcdef.sock");
     const script = writeStandInDaemon(dir);

@@ -2464,7 +2464,10 @@ async function rebaseWorktreeOntoBase(
 }
 
 /** `undefined` means no verdict — the caller falls through to the pre-continuation gates unchanged. */
-type CommittedLaneContinuationResult = { status: "continue" } | { status: "refused"; reason: string };
+/** `preRebaseSha` is set only when this call rebased the lane: the lane tip before the rewrite, which authorizes the publisher's lease push. */
+type CommittedLaneContinuationResult =
+  | { status: "continue"; preRebaseSha?: string }
+  | { status: "refused"; reason: string };
 
 /** Post-descent decision: no trackable spec continues unconditionally; a trackable spec continues once every checked-absent-from-base criterion is commit-backed, unless the override forces retirement. */
 async function evaluateContinuationTickBacking(args: {
@@ -2585,7 +2588,7 @@ async function evaluateCommittedLaneContinuation(args: {
   if (conflictPaths !== undefined) {
     return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, conflictPaths) };
   }
-  return { status: "continue" };
+  return { status: "continue", preRebaseSha: worktreeHead };
 }
 
 function staleResetDescendantGateReason(baseRef: string, baseHead: string, worktreeHead: string): string {
@@ -2749,7 +2752,7 @@ export async function resetStaleWorkspace(
   options: ResetStaleWorkspaceOptions = {},
 ): Promise<
   | { status: "reset" | "no-op"; destroyed?: DestroyedArtifacts }
-  | { status: "continue" }
+  | { status: "continue"; preRebaseSha?: string }
   | { status: "refused"; code: "worktree_claimed"; message: string }
   | { status: "refused"; reason: string; destroyed?: DestroyedArtifacts }
 > {
@@ -2788,6 +2791,7 @@ export async function resetStaleWorkspace(
   const baseRef = options.baseRef;
   const specPath = options.specPath;
   let continuationEligible = false;
+  let preRebaseSha: string | undefined;
 
   if (baseRef !== undefined) {
     const [worktreeHead, baseHead] = await Promise.all([
@@ -2862,6 +2866,7 @@ export async function resetStaleWorkspace(
           refusalParts.push(continuation.reason);
         } else if (continuation?.status === "continue") {
           continuationEligible = true;
+          preRebaseSha = continuation.preRebaseSha;
         } else {
           // No verdict (e.g. `--reset-despite-landed-criteria` on an otherwise-continuable, descendant
           // lane): fall through to the same pre-continuation gates as the dirty/nothing-ahead case.
@@ -2891,7 +2896,7 @@ export async function resetStaleWorkspace(
   // continuationEligible is only ever set inside the branch gated on `dirtyList.status === "clean"`
   // (see the `else` above), and dirtyList is never reassigned, so that condition is already implied.
   if (continuationEligible) {
-    return { status: "continue" };
+    return preRebaseSha !== undefined ? { status: "continue", preRebaseSha } : { status: "continue" };
   }
 
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);

@@ -1,17 +1,18 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import { ReadyGateError } from "../execution/ready-finalize.ts";
-import { TerminalPublicationError } from "../execution/terminal-publication.ts";
+import { TerminalPublicationError, type TerminalPublicationInput } from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { createBindingFactory, DEBATE_AGENT_MODEL_CONFIG } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
@@ -599,7 +600,7 @@ describe("runPipeline", () => {
     };
     const store = openStateStore(":memory:");
     const pipelineId = store.createPipeline({ definition, context: baseContext });
-    const logDir = mkdtempSync(join(tmpdir(), "pipeline-ready-gate-detail-"));
+    const logDir = trackedMkdtempSync(join(tmpdir(), "pipeline-ready-gate-detail-"));
     const logsPath = join(logDir, "logs.jsonl");
     const logSink = openLogSink(logsPath);
     const step = createWriteStep("implement", "ready-gate-detail", doneWithArtifactBindingFactory, {
@@ -1715,6 +1716,7 @@ describe("pipeline activation after restart", () => {
       {
         terminalAction: "ready",
         worktreePath: "/repo/worktree",
+        verifierProcessGroups: expect.any(Object),
         branch: "feature-branch",
         baseRef: "main",
         ...DEFERRED_FINAL_PR,
@@ -3909,6 +3911,7 @@ describe("resumePipeline", () => {
       {
         terminalAction: "ready",
         worktreePath: "/repo/worktree",
+        verifierProcessGroups: expect.any(Object),
         branch: "feature-branch",
         baseRef: "main",
         ...DEFERRED_FINAL_PR,
@@ -4806,6 +4809,7 @@ describe("pipeline terminal publication settlement", () => {
           worktreePath: "/repo/worktree",
           branch: "feature-branch",
           baseRef: "main",
+          verifierProcessGroups: expect.any(Object),
           ...TERMINAL_PR,
         },
       ]);
@@ -4813,6 +4817,43 @@ describe("pipeline terminal publication settlement", () => {
       if (!settled) throw new Error("expected pipeline");
       expect(settled.terminalPublicationSucceededAt).not.toBeNull();
       expect(derivePipelineState(settled)).toBe("succeeded");
+    }
+  });
+
+  test("binds the ready gate's process groups to the entry run and threads the project readyCommand", async () => {
+    for (const readyCommand of ["make ready", undefined]) {
+      const definition = terminalPipelineDefinition("ready");
+      const snapshotStep = readyCommand === undefined ? {} : { readyCommand };
+      const { store } = fakeStore(definition, {
+        "run-implement": {
+          ...terminalImplementRun(),
+          stepId: "implement-entry",
+          status: "completed",
+          workflowSnapshot: {
+            invocationId: "inv-implement",
+            steps: [{ stepId: "implement-entry", role: "implement", durable: true, ...snapshotStep }],
+          },
+        },
+      });
+      const recorded: string[] = [];
+      Object.assign(store, {
+        recordVerifierProcessGroup: (runId: string, pgid: number) => recorded.push(`${runId}:${pgid}`),
+        clearVerifierProcessGroup: () => {},
+      });
+      const captured: TerminalPublicationInput[] = [];
+      await runPipeline(
+        PIPELINE_ID,
+        terminalRunDeps(store, async (input) => {
+          captured.push(input);
+          return TERMINAL_PR;
+        }),
+      );
+
+      expect(store.loadPipeline(PIPELINE_ID)?.terminalPublicationFailure ?? null).toBeNull();
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.readyCommand).toBe(readyCommand);
+      captured[0]?.verifierProcessGroups?.record(4242);
+      expect(recorded).toEqual(["run-implement:4242"]);
     }
   });
 
@@ -6792,7 +6833,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   }
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "jarvis-pipeline-stale-reset-"));
+    tmp = trackedMkdtempSync(join(tmpdir(), "jarvis-pipeline-stale-reset-"));
     projectRoot = join(tmp, "project");
     jarvisRoot = join(tmp, "jarvis-home");
     mkdirSync(projectRoot, { recursive: true });
@@ -8683,7 +8724,7 @@ describe("pipeline chained plan and implement publication baseRef", () => {
   }
 
   test("chained pipeline plan and implement publication target repository default branch", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-publication-base-ref-"));
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-publication-base-ref-"));
     roots.push(repoRoot);
     initGitRepo(repoRoot);
     writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
@@ -8853,7 +8894,7 @@ describe("pipeline chained plan and implement publication baseRef", () => {
   });
 
   test("chained implement resolution lands spec progress on the default-branch worktree during workflow execution", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-chained-spec-landing-"));
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-chained-spec-landing-"));
     roots.push(repoRoot);
     initGitRepo(repoRoot);
     writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
@@ -9004,7 +9045,7 @@ describe("pipeline plan stage ready-intent consumption", () => {
     roots.push(join(jarvisRoot, ".."));
     process.env.JARVIS_HOME = jarvisRoot;
 
-    repoRoot = mkdtempSync(join(tmpdir(), "pipeline-plan-ready-intent-"));
+    repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-plan-ready-intent-"));
     roots.push(repoRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["init", "-q"], repoRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], repoRoot);

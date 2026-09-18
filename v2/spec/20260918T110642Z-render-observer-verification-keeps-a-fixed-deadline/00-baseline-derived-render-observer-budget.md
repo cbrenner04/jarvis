@@ -19,11 +19,11 @@
 
 ## Acceptance criteria
 
-- [ ] A `diff-derived-mutation-verifier.test.ts` regression stubs `runScopedTests` to return timeout iff `timeoutMs` < a simulated 35s observer duration, with the clock injected via `now()`, and asserts the changed registered prompt settles passed (not failed, not inconclusive); it fails against the pre-fix no-options call.
-- [ ] A regression asserts the mutated render-observer call's `timeoutMs` equals `killingTestBudgetMs(measured)`.
-- [ ] A regression proves an observer whose clean run exceeds `KILLING_TEST_BUDGET_CEILING_MS` settles inconclusive and allows publication; a second case proves the same when the baseline returns `{kind:"deadline"}`.
-- [ ] A regression proves an observer that passes within budget unmutated but times out under mutation still settles `render-observer-timeout` / `non_terminating_mutation_failed`, distinguishable from the inconclusive timing settlement.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A `diff-derived-mutation-verifier.test.ts` regression stubs `runScopedTests` to return timeout iff `timeoutMs` < a simulated 35s observer duration, with the clock injected via `now()`, and asserts the changed registered prompt settles passed (not failed, not inconclusive); it fails against the pre-fix no-options call.
+- [x] A regression asserts the mutated render-observer call's `timeoutMs` equals `killingTestBudgetMs(measured)`.
+- [x] A regression proves an observer whose clean run exceeds `KILLING_TEST_BUDGET_CEILING_MS` settles inconclusive and allows publication; a second case proves the same when the baseline returns `{kind:"deadline"}`.
+- [x] A regression proves an observer that passes within budget unmutated but times out under mutation still settles `render-observer-timeout` / `non_terminating_mutation_failed`, distinguishable from the inconclusive timing settlement.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

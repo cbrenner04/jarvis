@@ -2,9 +2,10 @@
 // digest and starts a successor with no client request once it stably diverges from the loaded one.
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import type { IpcFrame, ResponseFrame } from "../ipc/types";
 import type { LogReader, LogSink } from "../persistence/log-stream";
@@ -153,7 +154,7 @@ async function startIncumbent(
   buildDeps: (paths: { publicSocketPath: string; privateSocketPath: string }) => Record<string, unknown> = () => ({}),
   optIn = true,
 ): Promise<Harness> {
-  const root = mkdtempSync(join(tmpdir(), `jarvis-self-handoff-${name}-`));
+  const root = trackedMkdtempSync(join(tmpdir(), `jarvis-self-handoff-${name}-`));
   const publicSocketPath = join(root, "daemon.sock");
   const privateSocketPath = join(root, "daemon-incumbent.sock");
   const store = openStateStore(join(root, "state.sqlite"));

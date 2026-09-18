@@ -1,9 +1,10 @@
 // Real-socket coverage for the stable public daemon address and private successor endpoint.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { getInvokingExecutableDigest } from "../cli/dispatch-revision";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
@@ -69,7 +70,7 @@ describe("daemon (stable public address)", () => {
   socketTest(
     "answers on public and private sockets, records its public pid, and reports running publicly",
     async () => {
-      const tempHome = mkdtempSync(join(tmpdir(), "jarvis-stable-address-test-"));
+      const tempHome = trackedMkdtempSync(join(tmpdir(), "jarvis-stable-address-test-"));
       const originalJarvisHome = process.env.JARVIS_HOME;
 
       try {
@@ -115,7 +116,7 @@ describe("daemon (stable public address)", () => {
   socketTest(
     "an incoming generation admits new work at the stable address while the outgoing generation's already-admitted run keeps running under it",
     async () => {
-      const tempHome = mkdtempSync(join(tmpdir(), "jarvis-handoff-coexist-"));
+      const tempHome = trackedMkdtempSync(join(tmpdir(), "jarvis-handoff-coexist-"));
       const originalJarvisHome = process.env.JARVIS_HOME;
       const publicSocketPath = join(tempHome, "daemon.sock");
       const incumbentPrivate = join(tempHome, "daemon-incumbent-test.sock");

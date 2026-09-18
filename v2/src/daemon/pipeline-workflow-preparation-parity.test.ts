@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   type BaseWorkflowName,
   prepareWorkflowStart,
@@ -90,7 +91,7 @@ async function withIsolatedJarvisHome<T>(
   fn: (configWriter: (overrides: Record<string, unknown>) => string) => Promise<T>,
 ): Promise<T> {
   const previousJarvisHome = process.env.JARVIS_HOME;
-  const jarvisRoot = mkdtempSync(join(tmpdir(), "prep-parity-jarvis-home-"));
+  const jarvisRoot = trackedMkdtempSync(join(tmpdir(), "prep-parity-jarvis-home-"));
   process.env.JARVIS_HOME = jarvisRoot;
   const writeConfig = (overrides: Record<string, unknown>): string => {
     const configPath = join(jarvisRoot, "config.json");
@@ -111,7 +112,7 @@ function createChainedHandoffRepo(): {
   planWorktree: string;
   planSpecRel: string;
 } {
-  const repoRoot = mkdtempSync(join(tmpdir(), "prep-parity-chained-"));
+  const repoRoot = trackedMkdtempSync(join(tmpdir(), "prep-parity-chained-"));
   initGitRepo(repoRoot);
   writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
   execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
@@ -139,7 +140,7 @@ function createChainedHandoffRepo(): {
 describe("pipeline workflow preparation parity", () => {
   test("CLI and pipeline adapters produce byte-identical prepared steps for representative workflow postures", async () => {
     await withIsolatedJarvisHome(async (writeConfig) => {
-      const intentRoot = mkdtempSync(join(tmpdir(), "prep-parity-intent-"));
+      const intentRoot = trackedMkdtempSync(join(tmpdir(), "prep-parity-intent-"));
       const intentConfigPath = writeConfig({
         projects: { demo: { root: intentRoot, specs: "external" } },
       });
@@ -165,7 +166,7 @@ describe("pipeline workflow preparation parity", () => {
         "00000000-0000-4000-8000-000000000101",
       );
 
-      const planRoot = mkdtempSync(join(tmpdir(), "prep-parity-plan-"));
+      const planRoot = trackedMkdtempSync(join(tmpdir(), "prep-parity-plan-"));
       const readyIntentRel = "spec/ready-intents/feature.md";
       mkdirSync(join(planRoot, "spec", "ready-intents"), { recursive: true });
       writeFileSync(join(planRoot, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");

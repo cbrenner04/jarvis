@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { computeCost } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
+import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import { createResolvedAgentBinding, isIgnoredWorktreeActivityPath, parseShellToolFrameLine } from "./agents.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
@@ -1116,7 +1117,7 @@ describe("createResolvedAgentBinding", () => {
       },
       {
         spawn: fake.spawn,
-        codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+        codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
         randomUUID: () => "marker-id",
       },
     ).invoke({ prompt: "implement it", cwd: "/repo", signal: controller.signal });
@@ -1153,7 +1154,7 @@ describe("createResolvedAgentBinding", () => {
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
       {
         spawn: fake.spawn,
-        codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+        codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
         randomUUID: () => "marker-id",
       },
     ).invoke({
@@ -1186,7 +1187,7 @@ describe("createResolvedAgentBinding", () => {
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
       {
         spawn: fake.spawn,
-        codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+        codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
         randomUUID: () => "marker-id",
       },
     ).invoke({ prompt: "p", cwd: "/repo" });
@@ -1199,7 +1200,7 @@ describe("createResolvedAgentBinding", () => {
       { kind: "settle", code: 1, stderr: "stop" },
       { kind: "settle", code: 1, stderr: "stop" },
     ]);
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
 
     await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
@@ -1246,49 +1247,49 @@ describe("createResolvedAgentBinding", () => {
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: quota.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: quota.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "You've reached your usage limit" });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: hitLimit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: hitLimit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your usage limit" });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: reachedLimit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: reachedLimit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "you’ve reached your usage limit" });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: authQuota.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: authQuota.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "please log out and sign in", authFailure: true });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: trustedDir.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: trustedDir.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL, authFailure: true });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "bad", priceKey: "bad" },
-        { spawn: model.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: model.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "model_config", stderr: "unknown model: nope" });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: generic.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: generic.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom" });
   });
 
   test("codex trusted-directory refusal advances fallback", async () => {
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
     const fake = fakeSpawn([{ kind: "settle", code: 1, stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL }]);
     const result = await executeWithQuotaFallback({
       prompt: "p",
@@ -1319,7 +1320,7 @@ describe("createResolvedAgentBinding", () => {
 
     const result = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result).toEqual({
@@ -1335,7 +1336,7 @@ describe("createResolvedAgentBinding", () => {
 
     const result = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result).toMatchObject({ kind: "ok", stdout, stderr: "" });
@@ -1348,7 +1349,7 @@ describe("createResolvedAgentBinding", () => {
 
     const result = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result).toEqual({
@@ -1359,7 +1360,7 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("codex zero-exit credential-auth advances fallback order", async () => {
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
     const stderr = "Failed to refresh token. Please log out and sign in again";
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "banner", stderr }]);
     const result = await executeWithQuotaFallback({
@@ -1412,20 +1413,20 @@ describe("createResolvedAgentBinding", () => {
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: quotaZeroExit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: quotaZeroExit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "You've hit your usage limit" });
 
     const result2 = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: normalZeroExit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: normalZeroExit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result2).toMatchObject({ kind: "ok", stdout: "completed successfully", stderr: "" });
 
     const result3 = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: blockerZeroExit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: blockerZeroExit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result3).toMatchObject({
@@ -1441,7 +1442,7 @@ describe("createResolvedAgentBinding", () => {
 
     const result = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT" });
@@ -1452,7 +1453,7 @@ describe("createResolvedAgentBinding", () => {
 
     const result = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result).toEqual({
@@ -1467,7 +1468,7 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("codex binding with matched rollout settles priced session usage and computed list-price cost", async () => {
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
     const pricedUsage = {
       input_tokens: 24372,
       output_tokens: 282,
@@ -1517,7 +1518,7 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("codex binding with matched rollout whose token_count info is all null keeps unavailable no-usage", async () => {
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
     const fake = spawnWritingCodexRollout(
       sessionsDir,
       [codexUserMessageLine(), codexTokenCountLine({ input: 0, cached: 0, output: 0, info: null })],
@@ -1544,7 +1545,7 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("codex binding uses last non-null token_count event, not max total", async () => {
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
     const fake = spawnWritingCodexRollout(
       sessionsDir,
       [
@@ -1575,7 +1576,7 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("codex binding with priced usage and unknown priceKey keeps no-price", async () => {
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
     const fake = spawnWritingCodexRollout(
       sessionsDir,
       [codexUserMessageLine(), codexTokenCountLine({ input: 35380, cached: 11008, output: 282 })],
@@ -1597,7 +1598,7 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("codex binding with non-object total_token_usage keeps unavailable no-usage", async () => {
-    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const sessionsDir = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
     const fake = spawnWritingCodexRollout(
       sessionsDir,
       [
@@ -1640,7 +1641,7 @@ describe("createResolvedAgentBinding", () => {
             adapterModel: "gpt-5.4",
             priceKey: "priced-codex",
           },
-          { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+          { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
         ),
       ],
       telemetry: telemetryForRows(rows),
@@ -2296,7 +2297,7 @@ describe("createResolvedAgentBinding", () => {
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr });
     // Quota is not retried: exactly one spawn, no transient backoff.
@@ -2309,7 +2310,7 @@ describe("createResolvedAgentBinding", () => {
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-        { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+        { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr, authFailure: true });
     expect(fake.calls.length).toBe(1);
@@ -2322,7 +2323,7 @@ describe("createResolvedAgentBinding", () => {
     ]);
     const result = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
-      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
     expect(fake.calls.length).toBe(2);
     expect(result.kind).toBe("ok");

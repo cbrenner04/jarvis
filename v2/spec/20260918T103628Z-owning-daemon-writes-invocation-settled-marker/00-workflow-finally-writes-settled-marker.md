@@ -14,9 +14,9 @@ The durable per-invocation settled marker (`writeWorkflowInvocationSettledMarker
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/daemon/daemon-workflow-admission-handlers.test.ts` drives completed, failed (non-`complete` result and thrown error), timed-out, and killed workflow settlements and asserts `readWorkflowInvocationSettledMarker(entryRunId)` returns the matching cause (`failed` for the timeout case, `killed` for the killed case); it fails against the pre-fix code.
-- [ ] A test wraps the git/gh subprocess runner with `createHoldableAsyncFn` (`v2/src/testing/holdable-async-subprocess-runner.ts`, the same seam `daemon-ipc-responsiveness.sandbox-unrunnable.test.ts` uses) to hold the workflow's publication step open, asserts `readWorkflowInvocationSettledMarker(entryRunId)` is `null` while `whenPending()` is unresolved, then calls `release()` and asserts the marker appears with cause `completed`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A new test in `v2/src/daemon/daemon-workflow-admission-handlers.test.ts` drives completed, failed (non-`complete` result and thrown error), timed-out, and killed workflow settlements and asserts `readWorkflowInvocationSettledMarker(entryRunId)` returns the matching cause (`failed` for the timeout case, `killed` for the killed case); it fails against the pre-fix code.
+- [x] A test wraps the git/gh subprocess runner with `createHoldableAsyncFn` (`v2/src/testing/holdable-async-subprocess-runner.ts`, the same seam `daemon-ipc-responsiveness.sandbox-unrunnable.test.ts` uses) to hold the workflow's publication step open, asserts `readWorkflowInvocationSettledMarker(entryRunId)` is `null` while `whenPending()` is unresolved, then calls `release()` and asserts the marker appears with cause `completed`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

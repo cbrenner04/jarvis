@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
@@ -8,6 +8,7 @@ import {
   type AsyncSubprocessOptions,
   type AsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { lintStagedMarkdown, STAGED_MARKDOWN_LINT_TIMEOUT_MS } from "./staged-markdown-lint.ts";
 
 const FIXTURES_DIR = join(import.meta.dir, "fixtures", "staged-markdown-lint");
@@ -25,7 +26,7 @@ function skipWithoutHarnessMarkdownlint(reason: string): boolean {
 }
 
 function stageFixture(fixtureName: string, stagedName = "index.md"): { worktreePath: string; stagingRoot: string } {
-  const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-staged-md-lint-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-staged-md-lint-"));
   const stagingRoot = ".jarvis-plan-stage";
   const stagingDir = join(worktreePath, stagingRoot);
   mkdirSync(stagingDir, { recursive: true });
@@ -85,7 +86,7 @@ describe("staged-markdown-lint", () => {
 
   test("an injected runner is used even when the harness root has no markdownlint binary", async () => {
     const { worktreePath, stagingRoot } = stageFixture("lint-clean.md");
-    const emptyHarnessRoot = mkdtempSync(join(tmpdir(), "jarvis-empty-harness-"));
+    const emptyHarnessRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-empty-harness-"));
     const calls: string[][] = [];
     const runner: AsyncSubprocessRunner = {
       runAsync: async (_command, args) => {

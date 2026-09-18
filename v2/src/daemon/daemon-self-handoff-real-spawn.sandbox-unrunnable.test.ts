@@ -1,11 +1,12 @@
 // Real-process coverage for autonomous self-handoff: a spawned production entrypoint (sampler driven
 // by a test digest file) starts a real successor through the default `startDaemon` closure.
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import type { IpcFrame } from "../ipc/types";
 import { orchestrationStorePath } from "../paths";
@@ -79,18 +80,33 @@ function seedRunHistory(home: string, count: number): void {
   }
 }
 
+// Seeding commits one WAL transaction per run; fsync-bound on CI disks it took tens of seconds and
+// ate the test's own budget. It is fixture setup, so it runs under its own hook bound.
+const SEED_TIMEOUT_MS = 180_000;
+let home = "";
+
 describe("daemon self-handoff (real processes)", () => {
+  beforeAll(() => {
+    if (!canUseUnixSockets()) return;
+    home = trackedMkdtempSync(join(tmpdir(), "jsh-home-"));
+    mkdirSync(join(home, "state"), { recursive: true });
+    // A realistic run history makes the incumbent's full `list` projection take on the order of a
+    // second. Successor drain polling must not starve the incumbent's handoff readiness loop.
+    const startedAt = Date.now();
+    seedRunHistory(home, 15_000);
+    console.error(`self-handoff real-spawn: seeded run history in ${Date.now() - startedAt} ms`);
+  }, SEED_TIMEOUT_MS);
+
+  afterAll(() => {
+    if (home !== "") rmSync(home, { recursive: true, force: true });
+  });
+
   socketTest(
     "a changed observed digest hands the public socket to a real successor and the incumbent exits",
     async () => {
       // JARVIS_HOME and the socket directory differ on purpose: the successor's pid/log/private
       // paths must derive from the running daemon's own socket directory, not module-level home paths.
-      const home = mkdtempSync(join(tmpdir(), "jsh-home-"));
-      const sockDir = mkdtempSync(join(tmpdir(), "jsh-sock-"));
-      mkdirSync(join(home, "state"), { recursive: true });
-      // A realistic run history makes the incumbent's full `list` projection take on the order of a
-      // second. Successor drain polling must not starve the incumbent's handoff readiness loop.
-      seedRunHistory(home, 15_000);
+      const sockDir = trackedMkdtempSync(join(tmpdir(), "jsh-sock-"));
       const publicSocketPath = join(sockDir, "daemon.sock");
       const pidPath = join(sockDir, "daemon.pid");
       const digestFile = join(home, "digest");
@@ -152,7 +168,6 @@ describe("daemon self-handoff (real processes)", () => {
         for (const pid of [readPid(pidPath), incumbentPid]) {
           if (pid !== undefined && isAlive(pid)) process.kill(pid, "SIGKILL");
         }
-        rmSync(home, { recursive: true, force: true });
         rmSync(sockDir, { recursive: true, force: true });
       }
     },

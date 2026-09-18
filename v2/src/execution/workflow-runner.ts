@@ -121,6 +121,7 @@ import {
   executeWriteLoop,
   exhaustedRedTerminalLogFields,
   getUncommittedPaths,
+  leaseFromShaField,
   publishWithReadyRepair,
   readyFailureResumable,
   type WriteLoopInput,
@@ -1060,6 +1061,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
+    let leaseRestamped = false;
     if (args.steps.some(needsChainedSpecMaterialization)) await materializeChainedImplementSpecs(args.steps);
     const workflowSnapshot = args.workflowSnapshot ?? buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
     const reviewPassCommitDeps = buildReviewPassCommitDeps(args, workflowSnapshot);
@@ -1094,6 +1096,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       }
 
       const isCompletionCandidateStep = isCompletionRowOwningStep(step, completionStep, lastStep);
+      if (!leaseRestamped) {
+        if (args.workflowSnapshot === undefined) persistLeaseRestamp(store, workflowSnapshot);
+        leaseRestamped = true;
+      }
 
       const stepResult = await runWorkflowStep(
         step,
@@ -1526,6 +1532,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 branch: worktree.branchName,
                 creationTitle,
                 ...externalSpecGitScope(completionStep),
+                ...leaseFromShaField(completionStep),
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
                 ...(specTemplate ? { specTemplate } : {}),
                 ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
@@ -1555,7 +1562,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               const priorRecords = priorLogRecordsFromSink(args.logSink, lastResult.runId);
               const publicationResumable =
                 publication.failure.kind === "completion_commit_failed"
-                  ? true
+                  ? publication.failure.resumable !== false
                   : readyFailureResumable(
                       publication.failure.kind,
                       gateOutOfScopeFields.readyGateOutsidePaths,
@@ -1895,6 +1902,7 @@ function buildWorkflowSnapshot(
           ...(step.readyCommand !== undefined ? { readyCommand: step.readyCommand } : {}),
           ...(step.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
           ...(step.specReadRoot !== undefined ? { specReadRoot: step.specReadRoot } : {}),
+          ...(step.leaseFromSha !== undefined ? { leaseFromSha: step.leaseFromSha } : {}),
           ...snapshotLandingInputs(step.landing),
         }
       : {}),
@@ -1912,9 +1920,13 @@ function buildWorkflowSnapshot(
         if (requestedInvocationId !== undefined && candidate.invocationId !== requestedInvocationId) {
           throw new Error("intent: existing workflow is owned by another invocation; resume the recorded invocation");
         }
-        return candidate.creationTitle !== undefined || !existingRun?.creationTitle
-          ? candidate
-          : { ...candidate, creationTitle: existingRun.creationTitle };
+        const leased = withAuthoredLeaseFromSha(
+          candidate,
+          authoredSteps.map((step) => ("leaseFromSha" in step ? step.leaseFromSha : undefined)),
+        );
+        return leased.creationTitle !== undefined || !existingRun?.creationTitle
+          ? leased
+          : { ...leased, creationTitle: existingRun.creationTitle };
       }
     }
   }
@@ -1981,6 +1993,34 @@ function implementReviewPassesFromSteps(steps: readonly AnyWorkflowStep[]): numb
  * reuse the same stepId label. Only adopt the snapshot if its full authored step list
  * matches this invocation's.
  */
+/** A reused snapshot takes this dispatch's lease authorization verbatim: a prior run's recorded SHA never carries over. */
+function withAuthoredLeaseFromSha(
+  snapshot: WorkflowSnapshot,
+  authoredLeases: readonly (string | undefined)[],
+): WorkflowSnapshot {
+  return {
+    ...snapshot,
+    steps: snapshot.steps.map((step, index) => {
+      const { leaseFromSha: _prior, ...rest } = step;
+      const leaseFromSha = authoredLeases[index];
+      return leaseFromSha !== undefined ? { ...rest, leaseFromSha } : rest;
+    }),
+  };
+}
+
+/**
+ * Durably re-stamp this dispatch's lease authorization onto every row of its invocation, so resume
+ * reads it and a prior run's SHA never carries over. Called only once the dispatch is admitted
+ * (immediately before its first step runs), never while building the snapshot, so a refused
+ * dispatch cannot rewrite a lease another run of the invocation reads.
+ */
+function persistLeaseRestamp(store: StateStore, snapshot: WorkflowSnapshot): void {
+  store.setInvocationLeaseFromSha(
+    snapshot.invocationId,
+    new Map(snapshot.steps.map((step) => [step.stepId, step.leaseFromSha ?? null])),
+  );
+}
+
 function snapshotMatchesAuthoredSteps(
   snapshot: WorkflowSnapshot,
   authoredSteps: readonly {

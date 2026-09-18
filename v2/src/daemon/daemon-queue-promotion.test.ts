@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
@@ -105,7 +106,7 @@ function startHandlers(settleDelayMs: number): void {
 }
 
 beforeEach(() => {
-  profileHome = mkdtempSync(join(tmpdir(), `jarvis-queue-promotion-profile-${process.pid}-`));
+  profileHome = trackedMkdtempSync(join(tmpdir(), `jarvis-queue-promotion-profile-${process.pid}-`));
   machinesDir = join(profileHome, "machines");
   previousJarvisHome = process.env.JARVIS_HOME;
   process.env.JARVIS_HOME = profileHome;

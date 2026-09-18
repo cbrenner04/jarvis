@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { writeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { buildIntentWorkflowSteps, buildPlanWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
@@ -48,7 +49,7 @@ describe("publication rows", () => {
 });
 
 test("plan specs decision honors project specs: external like intent", async () => {
-  const root = mkdtempSync(join(tmpdir(), "plan-specs-external-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "plan-specs-external-"));
   const jarvisRoot = join(root, "jarvis");
   const configPath = writeMachineConfig({
     projects: { demo: { root, specs: "external" } },
@@ -74,7 +75,7 @@ test("plan specs decision honors project specs: external like intent", async () 
 });
 
 test("external plan draft materializes a read checkout at the stage dir with a real base", async () => {
-  const root = mkdtempSync(join(tmpdir(), "plan-specs-external-readctx-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "plan-specs-external-readctx-"));
   const jarvisRoot = join(root, "jarvis");
   const configPath = writeMachineConfig({ projects: { demo: { root, specs: "external" } } });
   const readyIntent = "spec/ready-intents/feature.md";
@@ -104,7 +105,7 @@ test("external plan draft materializes a read checkout at the stage dir with a r
 });
 
 test("plan build publishes in-repo when the project sets specs: repo", async () => {
-  const root = mkdtempSync(join(tmpdir(), "plan-specs-repo-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "plan-specs-repo-"));
   const configPath = writeMachineConfig({ projects: { demo: { root, specs: "repo" } } });
   const readyIntent = "spec/ready-intents/feature.md";
   mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
@@ -133,7 +134,7 @@ test.each([
   ["intent", "intent-specs-absent-"],
   ["plan", "plan-specs-absent-"],
 ] as const)("%s build defaults to the external specs home when the project has no specs key", async (kind, prefix) => {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = trackedMkdtempSync(join(tmpdir(), prefix));
   const jarvisRoot = join(root, "jarvis");
   const configPath = writeMachineConfig({ projects: { demo: { root } } });
   const readyIntent = "spec/ready-intents/feature.md";
@@ -158,7 +159,7 @@ test.each([
 });
 
 test("plan build rejects project plan.commit, naming specs", async () => {
-  const root = mkdtempSync(join(tmpdir(), "plan-legacy-plan-commit-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "plan-legacy-plan-commit-"));
   const configPath = writeMachineConfig({ projects: { demo: { root, plan: { commit: false } } } });
   const readyIntent = "spec/ready-intents/feature.md";
   mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
@@ -174,7 +175,7 @@ test("plan build rejects project plan.commit, naming specs", async () => {
 });
 
 test("plan build rejects machine modes.plan.commit, naming specs", async () => {
-  const root = mkdtempSync(join(tmpdir(), "plan-legacy-modes-commit-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "plan-legacy-modes-commit-"));
   const configPath = writeMachineConfig({
     projects: { demo: { root } },
     modes: { plan: { commit: false } },
@@ -193,7 +194,7 @@ test("plan build rejects machine modes.plan.commit, naming specs", async () => {
 });
 
 test("intent build rejects project plan.commit, naming specs", async () => {
-  const root = mkdtempSync(join(tmpdir(), "intent-legacy-plan-commit-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "intent-legacy-plan-commit-"));
   const configPath = writeMachineConfig({ projects: { demo: { root, plan: { commit: false } } } });
 
   const result = await buildIntentWorkflowSteps(

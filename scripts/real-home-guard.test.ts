@@ -3,9 +3,10 @@
 // targets the SPECS_WALK_MAX_DEPTH boundary guard specifically.
 
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   diffRealHomeSnapshots,
   type RealHomeSnapshot,
@@ -74,7 +75,7 @@ test("unchanged telemetry.jsonl between snapshots is not reported as a violation
 });
 
 test("specs/ walk recurses past the first level: entries below SPECS_WALK_MAX_DEPTH are still listed", () => {
-  const home = mkdtempSync(join(tmpdir(), "jarvis-real-home-guard-boundary-test-"));
+  const home = trackedMkdtempSync(join(tmpdir(), "jarvis-real-home-guard-boundary-test-"));
   try {
     // Inverting `depth >= maxDepth` to `depth < maxDepth` stops recursion at depth 0: only the
     // top-level "a" would be listed, not "a/b" or deeper.

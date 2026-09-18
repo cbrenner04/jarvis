@@ -242,11 +242,7 @@ test("pipeline-attributed paused run emits run-paused while its stage stays runn
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "run-paused", runId })]);
 });
 
-function expectResumableStopNotifiesTwice(
-  status: "paused" | "budget-soft-stopped" | "blocked" | "failed",
-  kind: string,
-  prefix: string = status,
-): void {
+function expectResumableStopNotifiesTwice(status: "paused" | "budget-soft-stopped" | "blocked", kind: string): void {
   setSystemTime(new Date(1_000_000));
   const runId = store.createRun({
     project: "demo",
@@ -254,17 +250,11 @@ function expectResumableStopNotifiesTwice(
     worktreePath: "/tmp/w",
     branch: status,
     specPath: "spec.md",
-    ...(status === "failed"
-      ? {
-          stepId: "plan",
-          workflowSnapshot: { invocationId: "inv-ad-hoc", steps: [{ stepId: "plan", role: "plan" as const }] },
-        }
-      : {}),
   });
   store.setRunStatus(runId, status);
   const [first] = deriveOperatorIncidents(store);
   if (first === undefined) throw new Error("expected first stop incident");
-  expect(first).toMatchObject({ kind, runId, transition: `${prefix}:1000000` });
+  expect(first).toMatchObject({ kind, runId, transition: `${status}:1000000` });
   store.tryRecordNotificationDelivery({ incidentId: first.incidentId, transition: first.transition, deliveredAt: 1 });
   expect(deriveOperatorIncidents(store)).toEqual([]);
 
@@ -276,7 +266,7 @@ function expectResumableStopNotifiesTwice(
 
   expect(store.loadRun(runId)?.attemptCount).toBe(0);
   expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ kind, runId, transition: `${prefix}:1001000` }),
+    expect.objectContaining({ kind, runId, transition: `${status}:1001000` }),
   ]);
 }
 
@@ -290,10 +280,6 @@ test("soft-stop, resume, soft-stop notifies twice", () => {
 
 test("block, resume, block notifies twice", () => {
   expectResumableStopNotifiesTwice("blocked", "run-blocked");
-});
-
-test("ad-hoc workflow fail, resume, fail notifies twice", () => {
-  expectResumableStopNotifiesTwice("failed", "run-ad-hoc-terminal", "terminal:failed");
 });
 
 test("queued and in-progress runs emit nothing", () => {
@@ -536,6 +522,7 @@ test("multi-row workflow invocation emits one terminal incident", () => {
   const entryRunId = seedInvocationRow("plan", "completed");
   setSystemTime(new Date(1_005_000));
   seedInvocationRow("review", "completed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_005_000);
   expect(deriveOperatorIncidents(store)).toEqual([
     expect.objectContaining({
       kind: "run-ad-hoc-terminal",
@@ -556,15 +543,7 @@ test("entry row terminal does not emit while successors are live", () => {
   expect(deriveOperatorIncidents(store)).toEqual([]);
 });
 
-test("entry row terminal does not emit while this daemon still drives the invocation", () => {
-  const entryRunId = seedInvocationRow("plan", "completed");
-  seedInvocationRow("review", "completed");
-  expect(deriveOperatorIncidents(store, Date.now(), { isWorkflowInvocationLive: (id) => id === entryRunId })).toEqual(
-    [],
-  );
-});
-
-test("a durable step with no row yet is a dispatch gap, not a killed invocation", () => {
+test("a durable step with no row yet and no marker derives nothing", () => {
   seedInvocationRow("plan", "completed");
   expect(deriveOperatorIncidents(store)).toEqual([]);
 });
@@ -574,8 +553,14 @@ test("a successor row killed by reconciliation settles the invocation once", () 
   const entryRunId = seedInvocationRow("plan", "completed");
   setSystemTime(new Date(1_002_000));
   seedInvocationRow("review", "killed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "killed", 1_002_000);
   expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ runId: entryRunId, cause: "killed", transition: "terminal:killed:1002000" }),
+    expect.objectContaining({
+      runId: entryRunId,
+      cause: "killed",
+      transition: "terminal:killed:1002000",
+      sinceMs: 1_002_000,
+    }),
   ]);
 });
 
@@ -594,7 +579,7 @@ test("ad-hoc run without an invocation still emits its terminal incident", () =>
   ]);
 });
 
-test("review settled, publication not yet dispatched, still live emits nothing", () => {
+test("a completed review row with a running publication row and no marker derives nothing", () => {
   const THREE_STEP = {
     invocationId: "inv-three-step",
     steps: [
@@ -603,7 +588,7 @@ test("review settled, publication not yet dispatched, still live emits nothing",
       { stepId: "publication", role: "publication" as const },
     ],
   };
-  const seed = (stepId: string): string => {
+  const seed = (stepId: string, status: "completed" | "in-progress"): string => {
     const runId = store.createRun({
       project: "demo",
       specRef: "HEAD",
@@ -613,18 +598,123 @@ test("review settled, publication not yet dispatched, still live emits nothing",
       stepId,
       workflowSnapshot: THREE_STEP,
     });
-    store.setRunStatus(runId, "completed");
+    if (status === "completed") store.setRunStatus(runId, status);
     return runId;
   };
-  const entryRunId = seed("plan");
-  seed("review");
-  const live = { isWorkflowInvocationLive: (id: string) => id === entryRunId };
-  expect(deriveOperatorIncidents(store, Date.now(), live)).toEqual([]);
+  const entryRunId = seed("plan", "completed");
+  seed("review", "completed");
+  seed("publication", "in-progress");
   expect(deriveOperatorIncidents(store)).toEqual([]);
 
-  seed("publication");
-  expect(deriveOperatorIncidents(store, Date.now(), live)).toEqual([]);
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", Date.now());
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId: entryRunId, cause: "completed" })]);
+});
+
+test("a second row settling after a sweep does not re-fire the delivered marker cause", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_000_000);
+  expect(deriveOperatorIncidents(store)).toHaveLength(1);
+  deliverAll();
+
+  setSystemTime(new Date(1_023_000));
+  seedInvocationRow("review", "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("rewriting a row's status_changed_at after delivery does not re-fire", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_000_000);
+  deliverAll();
+
+  setSystemTime(new Date(1_050_000));
+  store.setRunStatus(entryRunId, "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("a marker rewritten from completed to failed delivers a second incident with the failed cause", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_000_000);
+  deliverAll();
+
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 1_010_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      runId: entryRunId,
+      cause: "failed",
+      transition: "terminal:failed:1010000",
+      sinceMs: 1_010_000,
+    }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("a marker cause that returns to an earlier value notifies again", () => {
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_000_000);
+  deliverAll();
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 1_010_000);
+  deliverAll();
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_020_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "completed", transition: "terminal:completed:1020000" }),
+  ]);
+});
+
+test("ad-hoc workflow fail, resume, fail notifies twice", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 1_000_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "failed", transition: "terminal:failed:1000000" }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  setSystemTime(new Date(2_000_000));
+  store.setRunStatus(entryRunId, "in-progress");
+  store.setRunStatus(entryRunId, "failed");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", 2_000_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "failed", transition: "terminal:failed:2000000" }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("an invocation with a run_timeout row and a failed marker derives no ad-hoc terminal", () => {
+  const entryRunId = seedInvocationRow("plan", "completed");
+  const reviewRunId = seedInvocationRow("review", "in-progress");
+  store.commitTerminalRunSettlement({ runId: reviewRunId, status: "killed", terminalCause: "run_timeout" });
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "failed", Date.now());
+  expect(deriveOperatorIncidents(store).map((incident) => incident.kind)).toEqual(["run-timeout"]);
+});
+
+test.each([
+  "completed",
+  "failed",
+] as const)("an invocation with a blocked row and a %s marker derives no ad-hoc terminal", (cause) => {
+  const entryRunId = seedInvocationRow("plan", "completed");
+  const reviewRunId = seedInvocationRow("review", "in-progress");
+  store.setRunStatus(reviewRunId, "blocked");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, cause, Date.now());
+  expect(deriveOperatorIncidents(store).map((incident) => incident.kind)).toEqual(["run-blocked"]);
+});
+
+test("an invocation whose entry row is outside the recency window still derives from its marker", () => {
+  setSystemTime(new Date(1_000_000));
+  const entryRunId = seedInvocationRow("plan", "completed");
+  const outsideWindowMs = 1_000_000 + 30 * 24 * 60 * 60 * 1000;
+  setSystemTime(new Date(outsideWindowMs));
+  seedInvocationRow("review", "completed");
+  patchRunRow(entryRunId, { finishedAt: 1_000_000, createdAt: 1_000_000 });
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", outsideWindowMs);
+  expect(deriveOperatorIncidents(store, outsideWindowMs)).toEqual([
+    expect.objectContaining({ runId: entryRunId, transition: `terminal:completed:${outsideWindowMs}` }),
+  ]);
 });
 
 function seedImplementLanePipeline(): string {
@@ -837,21 +927,46 @@ test("a single-lane pipeline whose implement stage succeeded and is terminal emi
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
 });
 
-test("resumed linked row that settles completed with a publication failure notifies again", () => {
+test("a resumed linked row's settle without a marker write does not re-fire", () => {
   setSystemTime(new Date(1_000_000));
   const runId = seedInvocationRow("plan~link-0", "in-progress");
   store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "gate_invocation_refused" });
+  store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
   expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ runId, cause: "failed", transition: "terminal:failed:1000000" }),
+    expect.objectContaining({ runId, cause: "failed", transition: "terminal:failed:1000000", sinceMs: 1_000_000 }),
   ]);
   deliverAll();
 
   setSystemTime(new Date(2_000_000));
   store.setRunStatus(runId, "in-progress");
   store.commitTerminalRunSettlement({ runId, status: "completed", terminalCause: "completion_commit_failed" });
-  expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ runId, cause: "completion_commit_failed", transition: "terminal:failed:2000000" }),
-  ]);
-  deliverAll();
   expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("completion_commit_failed incident carries the terminal failure detail", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = seedInvocationRow("plan~detail-0", "in-progress");
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "completion_commit_failed",
+    terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
+  });
+  store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId, detail: "refused: v2/src/a.ts" })]);
+});
+
+test("incident for a non-commit terminal cause omits the failure detail", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = seedInvocationRow("plan~detail-1", "in-progress");
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "gate_invocation_refused",
+    terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
+  });
+  store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
+  const incidents = deriveOperatorIncidents(store);
+  expect(incidents).toEqual([expect.objectContaining({ runId })]);
+  expect(incidents[0]).not.toHaveProperty("detail");
 });

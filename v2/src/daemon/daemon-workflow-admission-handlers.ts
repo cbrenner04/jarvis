@@ -25,7 +25,13 @@ import {
 } from "../execution/workflow-runner-resume.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
-import { isTerminalRunStatus, type Run, type RunStatus, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import {
+  isTerminalRunStatus,
+  type Run,
+  type RunStatus,
+  type StateStore,
+  type WorkflowSnapshot,
+} from "../persistence/state-store.ts";
 import {
   type ActiveRun,
   checkWorktreeClaimed,
@@ -91,6 +97,30 @@ type ImplementRecoverMutationRepairParams = {
 
 function isSettledRunStatus(status: RunStatus): boolean {
   return isTerminalRunStatus(status) || status === "paused";
+}
+
+/** Settled-marker cause for one workflow invocation. Killed wins: an aborted workflow also rejects into `.catch`. */
+function resolveWorkflowInvocationSettledCause(
+  hasKilledRuns: boolean,
+  workflowSettledFailed: boolean,
+  timedOut: boolean,
+): "completed" | "failed" | "killed" {
+  if (hasKilledRuns) return "killed";
+  if (workflowSettledFailed || timedOut) return "failed";
+  return "completed";
+}
+
+/** Best-effort like stage settlement: the owning `finally` can outlive the store at shutdown. */
+function writeWorkflowInvocationSettledMarkerBestEffort(
+  store: StateStore,
+  entryRunId: string,
+  cause: "completed" | "failed" | "killed",
+): void {
+  try {
+    store.writeWorkflowInvocationSettledMarker(entryRunId, cause, Date.now());
+  } catch (markerError) {
+    console.error(`Workflow invocation settled marker write for ${entryRunId} failed:`, markerError);
+  }
 }
 
 /** Validate and resolve `implement.recover`'s optional mutation-repair params into resume deps. */
@@ -206,6 +236,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
       const workflowRunIds = new Set<string>();
       let entryRunId: string | undefined;
       let workflowInvocationId: string | undefined;
+      let workflowSettledFailed = false;
       let trackPromiseResolve: (() => void) | undefined;
       const trackPromise = new Promise<void>((res) => {
         trackPromiseResolve = () => res();
@@ -271,12 +302,14 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           // settles the owning step row itself; this logs the workflow-level verdict so the
           // operator can see which step ended the workflow and why.
           if (result.kind === "complete") return;
+          workflowSettledFailed = true;
           const detail = result.routingFailure ?? result.invocationFailureMessage ?? result.kind;
           console.error(
             `Workflow ended ${result.kind} (${workflowTelemetryLabel(steps)}) at step ${String(result.stepIndex)} ${result.stepId}: ${detail}`,
           );
         })
         .catch((err) => {
+          workflowSettledFailed = true;
           const message = err instanceof Error ? err.message : String(err);
           console.error(`Workflow execution failed (${workflowTelemetryLabel(steps)}): ${message}`);
           if (workflowRunIds.size === 0) {
@@ -331,6 +364,12 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
             } catch (settlementError) {
               console.error(`Stage settlement after terminal run ${entryRunId} failed:`, settlementError);
             }
+            const settledCause = resolveWorkflowInvocationSettledCause(
+              killedWorkflowRuns.length > 0,
+              workflowSettledFailed,
+              runTimeout.timedOut(),
+            );
+            writeWorkflowInvocationSettledMarkerBestEffort(store, entryRunId, settledCause);
           }
           trackPromiseResolve?.();
         });

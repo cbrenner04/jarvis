@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { buildImplementWorkflowSteps } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
@@ -133,7 +134,7 @@ function stageStatusVector(pipeline: LoadedPipeline): string[] {
 }
 
 function setupPipelineSandboxRepo(roots: string[]): { repoRoot: string; jarvisRoot: string } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-"));
   roots.push(root);
   const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");
@@ -164,7 +165,7 @@ function setupFastPipelineSandboxRepo(roots: string[]): {
   jarvisRoot: string;
   artifactTemplatesDir: string;
 } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-fast-worktree-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-fast-worktree-"));
   roots.push(root);
   const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");
@@ -205,7 +206,7 @@ function setupFastTwoBranchPipelineSandboxRepo(roots: string[]): {
   jarvisRoot: string;
   artifactTemplatesDir: string;
 } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-fast-fan-out-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-fast-fan-out-"));
   roots.push(root);
   const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");

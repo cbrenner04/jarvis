@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { SessionLog, SessionLogTag } from "../../../shared/invocation/session-log.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { parseStepOutcomeToken, parseStepOutcomeTokenDetail, runStep, type StepContract } from "./step-runner.ts";
 
@@ -784,7 +785,7 @@ describe("step runner token re-prompt", () => {
 
 describe("step runner blocker-text contract", () => {
   function tempSpecPath(): { dir: string; specPath: string } {
-    const dir = mkdtempSync(join(tmpdir(), "blocker-spec-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "blocker-spec-"));
     return { dir, specPath: join(dir, "spec.md") };
   }
 

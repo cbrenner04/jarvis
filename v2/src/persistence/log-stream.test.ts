@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtemp } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
 
 /** Short poll interval for tests, well below any per-test timeout. */
@@ -17,7 +18,7 @@ describe("log-stream", () => {
   let storagePath: string;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "log-stream-test-"));
+    tempDir = await trackedMkdtemp(join(tmpdir(), "log-stream-test-"));
     storagePath = join(tempDir, "log-stream.jsonl");
   });
 

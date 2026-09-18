@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
@@ -51,7 +52,7 @@ let invocationCwd: string;
 
 beforeAll(() => {
   mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-  fixtureRoot = mkdtempSync(join(process.cwd(), ".scratch", "pipeline-admission-"));
+  fixtureRoot = trackedMkdtempSync(join(process.cwd(), ".scratch", "pipeline-admission-"));
   invocationCwd = join(fixtureRoot, "invocation");
   mkdirSync(invocationCwd);
 });
@@ -290,7 +291,7 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects direct and symlink seed escapes before daemon contact", async () => {
-    const outside = mkdtempSync(join(process.cwd(), ".scratch", "pipeline-admission-outside-"));
+    const outside = trackedMkdtempSync(join(process.cwd(), ".scratch", "pipeline-admission-outside-"));
     const outsideSeed = join(outside, "outside.md");
     writeFileSync(outsideSeed, "outside", "utf8");
     symlinkSync(outsideSeed, join(invocationCwd, "escape.md"));

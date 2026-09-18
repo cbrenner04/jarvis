@@ -234,6 +234,17 @@ const x = helper(
   });
 
   describe("Scope filtering", () => {
+    test("allows calls into shared test-support modules", () => {
+      const source = `
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+
+export function fixture() {
+  return trackedMkdtempSync("x-");
+}
+`;
+      expect(violations(source)).toHaveLength(0);
+    });
+
     test("only guards files under v2/src/testing/", () => {
       const source = `
 import { forbidden } from "../helpers.ts";

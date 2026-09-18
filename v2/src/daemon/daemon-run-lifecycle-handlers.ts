@@ -186,6 +186,24 @@ function restoreRunAfterFailedResume(store: StateStore, prior: Run): void {
   });
 }
 
+/**
+ * A genuinely failed republication downgrades an existing settled marker to `failed`. Skips a
+ * markerless invocation (settled before markers, or crash-orphaned) so no cause is fabricated.
+ * Best-effort like the marker's writer.
+ */
+function rewriteSettledMarkerAfterFailedRepublication(store: StateStore, run: Run): void {
+  try {
+    const snapshot = run.workflowSnapshot;
+    if (snapshot === null || snapshot === undefined) return;
+    const entryStepId = snapshot.steps[0]?.stepId;
+    const entryRun = store.findRunsByInvocationId(snapshot.invocationId).find((row) => row.stepId === entryStepId);
+    if (entryRun === undefined || store.readWorkflowInvocationSettledMarker(entryRun.id) === null) return;
+    store.writeWorkflowInvocationSettledMarker(entryRun.id, "failed", Date.now());
+  } catch (markerError) {
+    console.error(`Workflow invocation settled marker rewrite for ${run.id} failed:`, markerError);
+  }
+}
+
 /** A finalization tail's `{ok:false}`: restore the pre-admission status unless a kill owns settlement. */
 function failedFinalizationTailResult(
   store: StateStore,
@@ -194,7 +212,10 @@ function failedFinalizationTailResult(
   aborted: boolean,
   failureAsResponse: boolean,
 ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
-  if (!aborted) restoreRunAfterFailedResume(store, run);
+  if (!aborted) {
+    restoreRunAfterFailedResume(store, run);
+    rewriteSettledMarkerAfterFailedRepublication(store, run);
+  }
   return failureAsResponse
     ? { kind: "response", result: outcome }
     : { kind: "error", code: "internal_error", message: outcome.message };
@@ -1180,6 +1201,7 @@ export function createRunLifecycleHandlers(
       const message = error instanceof Error ? error.message : String(error);
       // `run kill` aborted the tail: settlement happens in `finally`, after unwind.
       if (abortController.signal.aborted) return { kind: "error", code: "internal_error", message };
+      rewriteSettledMarkerAfterFailedRepublication(store, run);
       const attemptId = store.recordAttemptStart(run.id);
       store.commitCompletionBoundary({
         attemptId,

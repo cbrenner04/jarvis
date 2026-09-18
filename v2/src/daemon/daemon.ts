@@ -882,7 +882,7 @@ type HandoffTransaction = {
 type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
 
 type HandoffHandlersDeps = ChangeoverHandlerDeps & {
-  /** Reopens admission only after the public listener has rebound; skipped when superseded. */
+  /** Reopens admission just before the public listener rebinds (restored on failure); skipped when superseded. */
   setAdmitting: () => void;
   /** True once this generation has been superseded (via `supersede` or `changeover`), before or
    * during the pending handoff — rollback must not reopen admission for it. */
@@ -941,6 +941,17 @@ function handoffMismatch(): RpcHandlerResult {
   };
 }
 
+/**
+ * Refuses a private-endpoint admission while the public listener is unbound: a handoff rebind
+ * reopens admission just before binding, and that window must not admit through the private side.
+ */
+function gatePrivateAdmission(isPublicBound: () => boolean, handler: RpcHandler): RpcHandler {
+  return (frame, ...rest) =>
+    isPublicBound()
+      ? handler(frame, ...rest)
+      : { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+}
+
 /** Owns the reversible interval between accepted changeover and successor readiness. */
 function createHandoffHandlers(deps: HandoffHandlersDeps): {
   changeover: RpcHandler;
@@ -997,9 +1008,13 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
       scheduleWatch(active, handoffId);
       return;
     }
+    // Bun serves connections before `listen` resolves, so admission opens before the rebind;
+    // a failed rebind restores retiring.
+    deps.setAdmitting();
     try {
       await deps.bindPublicServer();
     } catch {
+      deps.setRetiring();
       if (transaction === active && isHandoffStillPending(transaction.id, transaction.state, handoffId, "committed")) {
         scheduleWatch(active, handoffId);
       }
@@ -1007,7 +1022,6 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }
     active.state = "rolled_back";
     console.error(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback"));
-    deps.setAdmitting();
   };
 
   const rollback = (active: HandoffTransaction): Promise<RpcHandlerResult> => {
@@ -1016,16 +1030,19 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.rollbackPromise !== undefined) return active.rollbackPromise;
     const rollbackPromise = (async (): Promise<RpcHandlerResult> => {
       await active.releasePromise;
+      // Opened before the rebind for the same reason as `tickWatch`; restored on failure.
+      const reopen = !deps.wasSuperseded();
+      if (reopen) deps.setAdmitting();
       try {
         await deps.bindPublicServer();
       } catch (error) {
+        if (reopen) deps.setRetiring();
         delete active.rollbackPromise;
         const message = error instanceof Error ? error.message : String(error);
         return { kind: "error", code: "handoff_rollback_failed", message };
       }
       active.state = "rolled_back";
       clearFallback(active);
-      if (!deps.wasSuperseded()) deps.setAdmitting();
       return handoffResponse("rolled_back");
     })();
     active.rollbackPromise = rollbackPromise;
@@ -1504,6 +1521,9 @@ export async function startDaemonRuntime(
   };
 
   let server: IpcServer;
+  // False while the public listener is released for a handoff; private-endpoint start/resume admit
+  // only once it is bound again, so admission reopened just before a rebind never admits privately.
+  let publicBound = true;
   let privateServer: IpcServer | undefined;
   const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
   let handlers: Record<string, RpcHandler>;
@@ -1511,7 +1531,10 @@ export async function startDaemonRuntime(
   const handoffHandlers = createHandoffHandlers({
     getPrivateSocketPath: () => startupDeps.privateSocketPath,
     setRetiring,
-    closePublicServer: () => server.close(),
+    closePublicServer: () => {
+      publicBound = false;
+      return server.close();
+    },
     setAdmitting: () => {
       runControlContext.retiring = false;
     },
@@ -1526,6 +1549,7 @@ export async function startDaemonRuntime(
         if (!(await removeUnansweredSocketPath(socketPath, daemonAnswersAt))) throw error;
         server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
       }
+      publicBound = true;
     },
     probePublicServer: () => daemonAnswersAt(socketPath),
     ...(startupDeps.handoffFallbackMs === undefined ? {} : { fallbackMs: startupDeps.handoffFallbackMs }),
@@ -1554,8 +1578,8 @@ export async function startDaemonRuntime(
     pause: runControlHandlers.pause,
     kill: runControlHandlers.kill,
     pipeline_list: runControlHandlers.pipeline_list,
-    resume: runControlHandlers.resume,
-    start: runControlHandlers.start,
+    resume: gatePrivateAdmission(() => publicBound, runControlHandlers.resume),
+    start: gatePrivateAdmission(() => publicBound, runControlHandlers.start),
     pipeline_approve: runControlHandlers.pipeline_approve,
     pipeline_reject: runControlHandlers.pipeline_reject,
     pipeline_resume: runControlHandlers.pipeline_resume,
@@ -1611,22 +1635,15 @@ export async function startDaemonRuntime(
   }
 
   const readSink = startupDeps.readNotificationSinkCommand ?? (() => readNotificationSinkCommand());
-  const isWorkflowInvocationLive = (entryRunId: string): boolean =>
-    workflowInvocationIsLive(
-      runControlContext.workflowPromisesByEntryRunId.has(entryRunId),
-      runControlContext.activeRuns.values(),
-    );
   const notificationSweepDeps = {
     store,
     readSinkCommand: readSink,
     wakeNotificationWaiters,
-    isWorkflowInvocationLive,
     ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
   const notificationSweepState = { sweepInProgress: false };
   reconcileNotificationKeyFormat({
     store,
-    isWorkflowInvocationLive,
     daemonStartedAtMs: Date.now() - Math.round(process.uptime() * 1000),
   });
   runNotificationSweep(notificationSweepDeps);

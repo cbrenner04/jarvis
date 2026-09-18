@@ -402,6 +402,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
+  /** Lane tip before this run's stale-reset continuation rebased it; the only authorization for a lease-forced push. */
+  leaseFromSha?: string;
   publishCompletion?: boolean;
   /**
    * Marks this row as the workflow's resolved completion row — the one a later workflow
@@ -1075,7 +1077,7 @@ export async function validateReadyGateRepairCompletion(
   markdownOutputRoots?: readonly string[],
   markdownOnlyRequired = false,
   fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
-): Promise<{ error: Error; offendingPath?: string } | undefined> {
+): Promise<{ error: Error; offendingPath?: string; refusedPaths?: string[] } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
     return { error: new Error("Ready-gate repair fence could not enumerate completion candidates") };
@@ -1099,6 +1101,7 @@ export async function validateReadyGateRepairCompletion(
     return {
       offendingPath,
       error: new Error(`${fenceFailureMessage}${violations.join(", ")}`),
+      refusedPaths: candidates.filter((path) => !allowedPaths.has(path)),
     };
   }
   if (markdownOnlyRequired && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
@@ -1114,6 +1117,60 @@ export async function validateReadyGateRepairCompletion(
     }
   }
   return undefined;
+}
+
+/** Paths whose worktree state differs from the pre-repair baseline; paths clean at snapshot count as changed. */
+function repairChangedPaths(worktreePath: string, baseline: AutofixBaseline, paths: readonly string[]): string[] {
+  return paths.filter((path) => {
+    const fullPath = join(worktreePath, path);
+    const prior = baseline.contents.get(path);
+    if (prior !== undefined) {
+      return !existsSync(fullPath) || !readFileSync(fullPath).equals(prior);
+    }
+    if (baseline.absent.has(path)) {
+      return existsSync(fullPath);
+    }
+    return true;
+  });
+}
+
+/** Restore paths to their pre-repair baseline: dirty content, absence, or else `HEAD` (deleted when `HEAD` lacks them). */
+async function revertRefusedRepairPaths(
+  worktreePath: string,
+  baseline: AutofixBaseline,
+  paths: readonly string[],
+): Promise<boolean> {
+  try {
+    for (const path of paths) {
+      if (validateRepoRelativePath(path) !== path) {
+        return false;
+      }
+      const fullPath = join(worktreePath, path);
+      const prior = baseline.contents.get(path);
+      if (prior !== undefined) {
+        mkdirSync(dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, prior);
+        continue;
+      }
+      if (baseline.absent.has(path)) {
+        rmSync(fullPath, { force: true });
+        continue;
+      }
+      const tracked = await runRepairFenceGit(worktreePath, ["cat-file", "-e", `HEAD:${path}`]).then(
+        () => true,
+        () => false,
+      );
+      if (tracked) {
+        await runRepairFenceGit(worktreePath, ["checkout", "HEAD", "--", path]);
+      } else {
+        await runRepairFenceGit(worktreePath, ["rm", "-q", "-f", "--cached", "--ignore-unmatch", "--", path]);
+        rmSync(join(worktreePath, path), { force: true });
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function persistReadyGateRepairFence(
@@ -1238,6 +1295,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               creationTitle,
               ...externalSpecGitScope(args),
               ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
+              ...leaseFromShaField(args),
             });
             if (publication.failure !== undefined) {
               if (args.signal?.aborted) {
@@ -2265,6 +2323,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ? { specTemplate: true }
               : {}),
             ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
+            ...leaseFromShaField(args),
           });
           if (publication.failure !== undefined) {
             if (args.signal?.aborted) {
@@ -3215,6 +3274,8 @@ type CompletionPublishFailure = {
     | "non_terminating_mutation_failed"
     | "runtime_smoke_failed";
   error?: Error;
+  /** `false` when resume cannot clear the failure (every repair edit refused and reverted). */
+  resumable?: false;
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome?: SmokePass;
@@ -3542,15 +3603,18 @@ function repairFenceFailureMessage(frozen: Set<string>, error: ReadyGateError): 
 async function enforceRepairIterationFence(
   _args: WriteLoopInput,
   store: StateStore,
-  runId: string,
+  result: WriteLoopResult,
   input: CompletionPublishInput,
   repairAllowset: Set<string>,
   iterationsConsumed: number,
+  baseline: AutofixBaseline,
   fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
+  commitOptions?: { readyGateAttribution?: "autofix" },
 ): Promise<ReadyRepairPublishResult | undefined> {
   if (!(await shouldEnforceReadyGateRepairFence(input.worktreePath))) {
     return undefined;
   }
+  const runId = result.runId;
   const persistedFence = store.loadRun(runId)?.readyGateRepairFence;
   const markdownOutputRoots = persistedFence?.markdownOutputRoots;
   const markdownOnlyRequired =
@@ -3581,9 +3645,73 @@ async function enforceRepairIterationFence(
     markdownOutputRoots,
     markdownOnlyRequired ? true : undefined,
   );
+  const { error, reverted, entirelyRefused } = await revertRepairRefusals(
+    input.worktreePath,
+    baseline,
+    fenceResult.error,
+    fenceResult.refusedPaths,
+  );
+  if (reverted && !entirelyRefused) {
+    // Mixed refusal: keep the in-diff edits only if they pass the remaining fences; the run stays resumable.
+    const remaining = await validateReadyGateRepairCompletion(
+      { worktreePath: input.worktreePath, baseRef: input.baseRef, specPath: input.specPath },
+      repairAllowset,
+      markdownOutputRoots,
+      markdownOnlyRequired,
+      fenceFailureMessage,
+    );
+    if (remaining !== undefined) {
+      persistReadyGateRepairFence(
+        store,
+        runId,
+        provenanceAllowset,
+        remaining.offendingPath ?? fenceResult.offendingPath,
+        markdownOutputRoots,
+        markdownOnlyRequired ? true : undefined,
+      );
+      return { failure: { kind: "completion_commit_failed", error: remaining.error }, iterationsConsumed };
+    }
+    const committed = await commitRepairAndRepublish(_args, store, input, result, iterationsConsumed, commitOptions);
+    if (committed.kind === "failure") return committed.result;
+    // Even after committing the in-diff edits, a mixed refusal settles `completion_commit_failed` (resumable): the
+    // repair did not fully land what it attempted, the gate has not re-run against the committed state, and the
+    // operator must see which paths were reverted before resuming.
+  }
   return {
-    failure: { kind: "completion_commit_failed", error: fenceResult.error },
+    failure: {
+      kind: "completion_commit_failed",
+      error,
+      ...(reverted && entirelyRefused ? { resumable: false as const } : {}),
+    },
     iterationsConsumed,
+  };
+}
+
+/** Revert refused paths this repair changed since `baseline`; "entirely refused" is judged only over those changes. */
+async function revertRepairRefusals(
+  worktreePath: string,
+  baseline: AutofixBaseline,
+  error: Error,
+  refusedPaths: readonly string[] | undefined,
+): Promise<{ error: Error; reverted: boolean; entirelyRefused: boolean }> {
+  if (refusedPaths === undefined) {
+    return { error, reverted: false, entirelyRefused: false };
+  }
+  // Pre-existing dirt (e.g. an operator hand-fix before resume) is never reverted and never counts as refused.
+  const revertPaths = repairChangedPaths(worktreePath, baseline, refusedPaths);
+  if (revertPaths.length === 0) {
+    return { error, reverted: false, entirelyRefused: false };
+  }
+  const changed = repairChangedPaths(
+    worktreePath,
+    baseline,
+    (await enumerateRepairCompletionCandidates(worktreePath)) ?? [],
+  );
+  const reverted = await revertRefusedRepairPaths(worktreePath, baseline, revertPaths);
+  return {
+    error: new Error(`${error.message}; ${reverted ? "refused paths reverted" : "revert of refused paths failed"}`),
+    reverted,
+    entirelyRefused: revertPaths.length === changed.length,
   };
 }
 
@@ -3675,6 +3803,7 @@ async function runReadyGateRepairLoop(
       gateExitCode: currentOutcome.error.exitCode,
     });
 
+    const repairBaseline = await snapshotAutofixBaseline(input.worktreePath);
     const repairOutcome = await runReadyRepairIteration(
       args,
       store,
@@ -3694,10 +3823,11 @@ async function runReadyGateRepairLoop(
     const fenceFailure = await enforceRepairIterationFence(
       args,
       store,
-      result.runId,
+      result,
       input,
       attributableAllowset,
       currentIterations,
+      repairBaseline,
       repairFenceFailureMessage(frozenRepairAllowset, currentOutcome.error),
     );
     if (fenceFailure !== undefined) return { kind: "early", result: fenceFailure };
@@ -3768,12 +3898,14 @@ type AutofixTypecheckResult = {
 };
 
 type AutofixBaseline = {
-  contents: Map<string, string>;
+  contents: Map<string, Buffer>;
+  /** Uncommitted paths absent on disk at snapshot (pre-existing deletions). */
+  absent: Set<string>;
   useGit: boolean;
 };
 
-function listWorktreeFiles(worktreePath: string): Map<string, string> {
-  const files = new Map<string, string>();
+function listWorktreeFiles(worktreePath: string): Map<string, Buffer> {
+  const files = new Map<string, Buffer>();
   function walk(relDir: string): void {
     const absDir = join(worktreePath, relDir);
     for (const entry of readdirSync(absDir)) {
@@ -3785,7 +3917,7 @@ function listWorktreeFiles(worktreePath: string): Map<string, string> {
       if (statSync(abs).isDirectory()) {
         walk(rel);
       } else {
-        files.set(rel, readFileSync(abs, "utf8"));
+        files.set(rel, readFileSync(abs));
       }
     }
   }
@@ -3798,12 +3930,15 @@ function listWorktreeFiles(worktreePath: string): Map<string, string> {
 
 async function snapshotAutofixBaseline(worktreePath: string): Promise<AutofixBaseline> {
   const useGit = await shouldEnforceReadyGateRepairFence(worktreePath);
-  const contents = new Map<string, string>();
+  const contents = new Map<string, Buffer>();
+  const absent = new Set<string>();
   if (useGit) {
     for (const path of await getUncommittedPaths(worktreePath)) {
       const fullPath = join(worktreePath, path);
       if (existsSync(fullPath)) {
-        contents.set(path, readFileSync(fullPath, "utf8"));
+        contents.set(path, readFileSync(fullPath));
+      } else {
+        absent.add(path);
       }
     }
   } else {
@@ -3811,7 +3946,7 @@ async function snapshotAutofixBaseline(worktreePath: string): Promise<AutofixBas
       contents.set(path, content);
     }
   }
-  return { contents, useGit };
+  return { contents, absent, useGit };
 }
 
 async function revertAutofixEdits(worktreePath: string, baseline: AutofixBaseline): Promise<void> {
@@ -3824,7 +3959,7 @@ async function revertAutofixEdits(worktreePath: string, baseline: AutofixBaselin
     const prior = baseline.contents.get(path);
     if (prior !== undefined) {
       mkdirSync(dirname(fullPath), { recursive: true });
-      writeFileSync(fullPath, prior, "utf8");
+      writeFileSync(fullPath, prior);
       continue;
     }
     if (baseline.useGit) {
@@ -4055,11 +4190,13 @@ export async function publishWithReadyRepair(
   const autofixFenceFailure = await enforceRepairIterationFence(
     args,
     store,
-    result.runId,
+    result,
     input,
     gateRepairAllowset,
     iterationsConsumed,
+    autofixBaseline,
     repairFenceFailureMessage(frozenRepairAllowset, outcome.error),
+    { readyGateAttribution: "autofix" },
   );
   if (autofixFenceFailure !== undefined) {
     return autofixFenceFailure;
@@ -4098,6 +4235,13 @@ export async function publishWithReadyRepair(
   return buildReadyRepairPublishResult(loopResult.outcome, loopResult.iterationsConsumed, readyGateOrigin);
 }
 
+/** Spreadable publisher lease authorization; empty when this run did not rebase the lane. */
+export function leaseFromShaField(source: {
+  leaseFromSha?: string | undefined;
+}): { leaseFromSha: string } | Record<string, never> {
+  return source.leaseFromSha !== undefined ? { leaseFromSha: source.leaseFromSha } : {};
+}
+
 async function runPublisher(
   seams: CompletionPublicationSeams,
   input: {
@@ -4109,6 +4253,7 @@ async function runPublisher(
     bodySummary?: string;
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
+    leaseFromSha?: string;
   } & ExternalSpecGitScope,
 ): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
   return await (seams.completionPublisher ?? createCompletionPublisher())({
@@ -4259,6 +4404,7 @@ export async function publishCompletionArtifacts(
     bodySummary?: string;
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
+    leaseFromSha?: string;
   } & ExternalSpecGitScope,
   verifierProcessGroups?: VerifierProcessGroupRecorder,
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
@@ -4321,9 +4467,10 @@ function completionCommitFailed(
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const retarget = publicationBaseRetarget(source);
   const completionCommitErrorMessage = error?.message ?? "completion commit failed";
+  const resumable = source instanceof Error || source?.resumable !== false;
   store.commitTerminalRunSettlement({
     runId: result.runId,
-    status: "completed",
+    status: resumable ? "completed" : "failed",
     terminalCause: "completion_commit_failed",
     terminalFailureDetail: terminalFailureDetailFromError(error, completionCommitErrorMessage),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
@@ -4333,7 +4480,7 @@ function completionCommitFailed(
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: result.iterationsConsumed,
-    resumable: true,
+    resumable,
     completionCommitError: completionCommitErrorMessage,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(retarget ?? {}),
@@ -4343,7 +4490,7 @@ function completionCommitFailed(
   return {
     ...result,
     kind: "completion_commit_failed",
-    resumable: true,
+    resumable,
     completionCommitError: error?.message ?? "completion commit failed",
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(retarget ?? {}),

@@ -7,8 +7,8 @@ The prompt corpus lives under `prompts/` and is indexed by `prompts/registry.txt
 A `fragment` artifact is prose prepended to step prompts; a `step` artifact is the prompt body itself. Inclusion is declared, never hand-rolled by callers:
 
 - `fragmentPolicy:` — required on every `step`, forbidden on fragments: `global` prepends the ranked global fragments, `behavior` prepends globals then the step's lane, `none` prepends nothing; `add`/`remove` apply after the policy in every case. Registry load fails on a missing or unknown value.
-- `behavior:` — the lane an artifact belongs to. Fragments with `behavior: global` (`global.documentation`, `global.naming`, `global.terse`, `global.no-hard-wrap`, ranked by `order:`) prepend to every step; fragments whose `behavior` matches the step's `behavior` prepend after the globals. Lanes today: `global`, `plan` (fragments `plan.decisions-ledger`, `plan.defer-to-consumer`), `write` (fragment `write.principles`), `intent`, `implement`, `patch`. `implement.rules` (`behavior: implement-rules`) and `shared.pr-description` (`behavior: shared-pr-description`) deliberately sit on lanes no step declares, so they attach only where named.
-- `add:` — extra fragment ids appended after the lane fragments (`plan.prompt.pr-description` and `patch.prompt.pr-description` add `shared.pr-description`).
+- `behavior:` — the lane an artifact belongs to. Fragments with `behavior: global` (`global.documentation`, `global.naming`, `global.terse`, `global.no-hard-wrap`, ranked by `order:`) prepend to every step; fragments whose `behavior` matches the step's `behavior` prepend after the globals. Lanes today: `global`, `plan` (fragments `plan.decisions-ledger`, `plan.defer-to-consumer`), `write` (fragment `write.principles`), `intent`, `implement`, `patch`. `implement.rules` (`behavior: implement-rules`) deliberately sits on a lane no step declares, so it attaches only where named.
+- `add:` — extra fragment ids appended after the lane fragments (no live step uses it today).
 - `remove:` — fragment ids excluded for this step (every intent and plan review role removes `global.naming`; `patch.prompt.shrink` removes `global.documentation` and `global.naming`).
 - `order:` — rank within a lane; unranked fragments sort last by id.
 
@@ -18,7 +18,7 @@ The lane label is load-bearing: `intent.prompt.split` carries `behavior: intent`
 
 One assembler serves every engine: `renderPromptForStep` in `shared/prompts/assemble.ts`. It assembles the step template per the artifact's declared `fragmentPolicy`, then `renderArtifactTemplate` (`shared/prompts/render.ts`) applies variants, optional sections, and placeholder substitution, and the result is trimmed. Every step-prompt call site — the shared builders (`plan-draft.ts`, `intent-split.ts`, `review-plan.ts`, `review-intent.ts`, `review-implement.ts`) and the v2 write loop (`write.ts`, `write-loop.ts`, `step-runner.ts`, `reviewed-staged-markdown-lint.ts`) — reaches it; `step-prompt-dispatch-guard.test.ts` fails when production code outside the assembler calls `assemblePromptForStep`, `renderStepPrompt`, or bare `renderArtifactTemplate`, and `cross-path-render.test.ts` proves every registered step assembles exactly as its policy declares. `executeWrite` resolves the step-owned placeholders (`REPO_GUIDANCE`, `ACTIVE_SUBSPEC_*`, `PATCH_RULES`, `STEP_RULES`, `SPEC_GUIDANCE`) before invocation; see [`write-behavior.md § Write-step prompt placeholders`](./write-behavior.md#write-step-prompt-placeholders).
 
-Declared policies: `plan.prompt.*` (draft, review roles, review-actuator, pr-description) are `behavior`; `write.execute` is `global` with `PRINCIPLES` carrying `write.principles` (never duplicated by assembly); `implement.prompt.body`, `patch.prompt.shrink`, every intent, implement, and patch review role, `intent.prompt.split`, `write.ready-repair`, and `write.mutation-repair` are `global`; the reprompts (`write.token-reprompt`, `write.blocker-reprompt`, `write.landing-contract-reprompt`, `write.staged-markdown-lint-reprompt`, `write.surviving-mutation-reprompt`, `write.coverage-advisory`) are `none`.
+Declared policies: `plan.prompt.*` (draft, review roles, review-actuator) are `behavior`; `write.execute` is `global` with `PRINCIPLES` carrying `write.principles` (never duplicated by assembly); `implement.prompt.body`, `patch.prompt.shrink`, every intent and implement review role, `intent.prompt.split`, `write.ready-repair`, and `write.mutation-repair` are `global`; the reprompts (`write.token-reprompt`, `write.blocker-reprompt`, `write.landing-contract-reprompt`, `write.staged-markdown-lint-reprompt`, `write.surviving-mutation-reprompt`, `write.coverage-advisory`) are `none`.
 
 ## Per-workflow step prompts
 
@@ -27,7 +27,7 @@ Declared policies: `plan.prompt.*` (draft, review roles, review-actuator, pr-des
 - `implement.prompt.body` (`prompts/implement/instructions.md`, `behavior: implement`) — the implement write step, pinned by the `implement` preset (`WORKFLOW_PRESET_PINNED_FIELDS` in `workflow-runner.ts`) and by `implement-workflow-steps.ts`. Placeholders: `SPEC_PATH`, `SIBLINGS_BLOCK`, `REPO_GUIDANCE`, `ACTIVE_SUBSPEC_PATH`, `ACTIVE_SUBSPEC_BODY`, `PATCH_RULES`, `TIMEOUT_CHECKPOINT_CONTEXT`, `STEP_RULES`; the repo-guidance, active-subspec, and timeout-checkpoint blocks are optional sections that vanish when their placeholder is empty. Implement-only branching in the write loop (criteria-ticked completion contract, blocker-text contract, in-loop mutation verification, coverage advisory, checkpoint subjects) keys on this id.
 - `implement.rules` (`prompts/implement/rules.md`, fragment) — the target-repo-neutral rules injected through the `PATCH_RULES` placeholder (the key survived the id migration from `patch.rules`). Rules that only apply to this repository (serial `bun test` re-run, injected machine-config fixtures, timer-callback guard extraction) live in `AGENTS.md`, which reaches the agent as `REPO_GUIDANCE`.
 - `patch.prompt.shrink` (`prompts/patch/shrink.md`, `behavior: patch`) — the post-completion shrink step; layers `global.terse` and `global.no-hard-wrap` only.
-- `patch.prompt.pr-description` — implement PR-body narrative step; see [`workflow-runner.md § Implement PR body template`](./workflow-runner.md#implement-pr-body-template).
+- Implement PR bodies are harness-rendered from the spec tree, the shrink narrative, and commit trailers, with no prompt step; see [`workflow-runner.md § Implement PR body template`](./workflow-runner.md#implement-pr-body-template).
 
 `write.execute` (`prompts/write/execute.md`, `behavior: write`) is **not** the implement prompt: it is the default only for a standalone `jarvis run start` write loop with no workflow, injecting `SPEC_PATH`, `PRINCIPLES` (`write.principles`), and `STEP_RULES`.
 
@@ -35,7 +35,6 @@ Declared policies: `plan.prompt.*` (draft, review roles, review-actuator, pr-des
 
 - `plan.prompt.draft` — pinned by the `plan` preset; placeholders `WORKDIR`, `NAME`, `INTENT`, `SPEC_GUIDANCE`, `TARGET_DIR`; variants `flat-layout` / `nested-target-dir` select the spec-path layout. Rules carry step mechanics only; authoring norms come from the injected [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md). See [`write-behavior.md § Plan write-step seeding`](./write-behavior.md#plan-write-step-seeding-and-completion-contract).
 - `plan.prompt.review-actuator` — verdict-application step (same variants as the draft) plus injected `SPEC_GUIDANCE`.
-- `plan.prompt.pr-description` — plan PR-body step, adds `shared.pr-description`.
 
 ### Intent
 
@@ -57,14 +56,13 @@ Declared policies: `plan.prompt.*` (draft, review roles, review-actuator, pr-des
 
 ## Review-role families
 
-Four families share one terse skeleton — a role header, bare data blocks (the staged document or spec tree, the diff, the prior role's output), and a short `Rules` list — and one domain policy (`shared/prompts/review-profile.ts`: verdict source, empty-verdict stop, read-only critic / writing actuator).
+Three families share one terse skeleton — a role header, bare data blocks (the staged document or spec tree, the diff, the prior role's output), and a short `Rules` list — and one domain policy (`shared/prompts/review-profile.ts`: verdict source, empty-verdict stop, read-only critic / writing actuator).
 
 | Family | Ids | Renderer | Status |
 | --- | --- | --- | --- |
 | plan | `plan.prompt.review.critic`, `.adversary`, `.advocate`, `.adjudicator`, `plan.prompt.review-actuator` | `shared/prompts/review-plan.ts` | converged to the intent-family style |
 | implement | `implement.prompt.review.critic`, `.adversary`, `.advocate`, `.adjudicator` (`behavior: implement`); actuator renders `implement.prompt.body` with a verdict preamble | `shared/prompts/review-implement.ts` | converged to the intent-family style; `BRANCH_DIFF` is the merge-base unified diff |
 | intent | `intent.prompt.review`, `intent.prompt.review-actuator`, `intent.prompt.review.adversary`, `.advocate`, `.adjudicator` | `shared/prompts/review-intent.ts` | the reference style |
-| patch | `patch.prompt.review.adversary`, `.advocate`, `.adjudicator` | none in v2 | **frozen** with the retired v1 engine; summary-only `BRANCH_DIFF` |
 
 Light review runs critic then actuator; debate review runs adversary → advocate → adjudicator, whose verdict drives the actuator (`REVIEW_PASS_NUMBER` / `REVIEW_PASS_CONTEXT` thread passes). Dispatch, verdict persistence, and landing are in [`workflow-runner.md § Review dispatch`](./workflow-runner.md#review-dispatch) and [`write-behavior.md § Review cycle`](./write-behavior.md#review-cycle); per-role placeholder tables are pinned by the registry and render tests, not repeated here.
 

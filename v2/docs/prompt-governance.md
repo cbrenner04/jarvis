@@ -22,18 +22,12 @@ The first rollout includes shared global guidance fragments plus prompt artifact
 - `plan.decisions-ledger` (`prompts/plan/decisions-ledger.md`) — shared
   plan-only structure fragment layered into plan draft/review prompts to
   require atomic decision/constraint/assumption ledger entries over narrative prose
-- `shared.pr-description` (`prompts/shared/pr-description.md`) — shared
-  PR-description fragment used by patch and plan PR-body generation steps to
-  request model-authored Description and Decisions list
 
 - `implement.prompt.body` (`prompts/implement/instructions.md`) — the implement write-step body; carries `<PATCH_RULES>` as the placeholder key for `implement.rules`
-- `patch.prompt.pr-description` (`prompts/patch/pr-description.md`)
 - `implement.rules` (`prompts/implement/rules.md`) — target-repo-neutral implement rules injected through `PATCH_RULES`; jarvis-specific test recovery rules live in this repo's `AGENTS.md`
 - `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse -> global.no-hard-wrap` only (not `implement.rules`)
-- `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator; retained for the frozen v1 tree with summary-only `BRANCH_DIFF` prose (`git diff --stat` plus changed paths, not a unified diff); no live engine renders them
-- `implement.prompt.review.critic` / `.adversary` / `.advocate` / `.adjudicator` (`prompts/implement/review-*.md`) — implement review critic and debate roles, split from the `patch.prompt.review.*` family; same placeholder contract as their patch counterparts, but `BRANCH_DIFF` is always the merge-base unified diff (stat, changed paths, then the diff itself), never summary-only
+- `implement.prompt.review.critic` / `.adversary` / `.advocate` / `.adjudicator` (`prompts/implement/review-*.md`) — implement review critic and debate roles; `BRANCH_DIFF` is always the merge-base unified diff (stat, changed paths, then the diff itself)
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
-- `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review.critic` (`prompts/plan/review-critic.md`) — editorial critic for light plan-review workflow; read-only advisory role reviewing spec clarity and completeness
 - `plan.prompt.review-actuator` (`prompts/plan/review-actuator.md`)
 - `intent.prompt.split` (`prompts/intent/split.md`) — intent-owned seed splitting prompt

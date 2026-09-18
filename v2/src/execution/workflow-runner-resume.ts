@@ -638,13 +638,11 @@ function isBlockedPlanWriteRecoveryCandidate(
   run: Run & { attempts: Attempt[] },
   writeStep: WorkflowSnapshotStep | undefined,
 ): boolean {
+  if (writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR) return false;
   const lastAttempt = run.attempts.at(-1);
   const outcomeKind = lastAttempt?.outcomeKind ?? null;
-  return (
-    run.status === "blocked" &&
-    (outcomeKind === "contract_miss" || outcomeKind === "blocked") &&
-    writeStep?.expectedArtifactPath === PLAN_STAGE_DIR
-  );
+  if (run.status === "blocked" && (outcomeKind === "contract_miss" || outcomeKind === "blocked")) return true;
+  return run.status === "failed" && outcomeKind === "landing_failed";
 }
 
 function isReviewFailedPlanWriteRecoveryCandidate(
@@ -851,6 +849,19 @@ function admitPlanRecoveryBlockerAndClaim(
   const provenance = resolvePlanBlockerProvenance(run.worktreePath, outcomeKind, request.logSink, run.id);
   if (provenance.kind === "operator") {
     return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
+  }
+  // landing_failed is the one blocked-write state an operator plausibly already resumed (which
+  // redrafts the same branch) before reaching for recover; check the claim only here, not for
+  // ordinary contract_miss/blocked rows, which never race a redraft this way.
+  if (
+    outcomeKind === "landing_failed" &&
+    hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, new Set([run.id]))
+  ) {
+    return {
+      ok: false,
+      code: "unrelated_plan_stage",
+      message: "a live run holds the worktree claim for this branch",
+    };
   }
   return undefined;
 }

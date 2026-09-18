@@ -1598,6 +1598,9 @@ export async function startDaemonRuntime(
       runControlHandlers.resume,
     );
     recoveryStatus = { ...recoveryStatus, pending: false, resumed: recovery?.resumed ?? 0 };
+    // Reconciliation only settles non-terminal rows, so slot-refused `failed` rows survive it and
+    // re-enter the coordinator's waiting set here.
+    runControlContext.slotRedrive.rehydrate();
     // Runs reconciled by this startup are excluded from the sweep's settlement by id: resuming one
     // does not register it anywhere the sweep can observe, and its durable row still reads the
     // terminal status reconciliation wrote, so settling from that row would fail its stage out from

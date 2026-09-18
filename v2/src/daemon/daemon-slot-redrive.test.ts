@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireGateInvocationLease, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -140,17 +140,23 @@ function bareInput(branch: string): WriteLoopInput {
 /** A durable, resumable bare implement row that already settled a gate refusal. */
 function seedRefusedRun(
   branch: string,
-  options: { cause?: "slot_contention" | "ceiling_headroom"; count?: number; via?: StateStore } = {},
+  options: {
+    cause?: "slot_contention" | "ceiling_headroom";
+    count?: number;
+    via?: StateStore;
+    worktreePath?: string;
+    snapshot?: ReturnType<typeof snapshotFor>;
+  } = {},
 ): string {
   const target = options.via ?? store;
   const runId = target.createRun({
     project: "redrive",
     specRef: "main",
-    worktreePath: `/tmp/redrive-${branch}`,
+    worktreePath: options.worktreePath ?? `/tmp/redrive-${branch}`,
     branch,
     specPath: "/tmp/redrive-spec.md",
     stepId: "implement",
-    workflowSnapshot: snapshotFor(`inv-${branch}`),
+    workflowSnapshot: options.snapshot ?? snapshotFor(`inv-${branch}`),
     queuedInput: bareInput(branch),
   });
   const attemptId = target.recordAttemptStart(runId);
@@ -599,4 +605,164 @@ test("compareSlotRedriveOrder sorts by finishedAt then run id", () => {
   expect(compareSlotRedriveOrder(run("a", 1), run("b", 1))).toBeLessThan(0);
   expect(compareSlotRedriveOrder(run("b", 1), run("a", 1))).toBeGreaterThan(0);
   expect(compareSlotRedriveOrder(run("a", 1), run("a", 1))).toBe(0);
+});
+
+/** A real git worktree with a commit and one uncommitted file, standing in for a retained lane workspace. */
+function retainedWorktree(name: string): { path: string; head: string; dirtyFile: string } {
+  const path = join(logsDir, name);
+  mkdirSync(path, { recursive: true });
+  const git = (...args: string[]) => {
+    const result = Bun.spawnSync(["git", ...args], { cwd: path });
+    if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+    return result.stdout.toString().trim();
+  };
+  git("init", "-q");
+  writeFileSync(join(path, "tracked.txt"), "tracked");
+  git("add", "tracked.txt");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+  const dirtyFile = join(path, "retained.txt");
+  writeFileSync(dirtyFile, "uncommitted work");
+  return { path, head: git("rev-parse", "HEAD"), dirtyFile };
+}
+
+/** Simulates a daemon restart: the durable store is reopened and a fresh coordinator starts with no memory. */
+function restartStore(): void {
+  store.close();
+  store = openStateStore(dbPath, { currentIdentity: ME, isOwnerAlive: async () => true });
+}
+
+test("after a restart a persisted slot-refused lane re-drives with the count carried forward and its retained worktree intact", async () => {
+  const worktree = retainedWorktree("wt-restart");
+  const runId = seedRefusedRun("restart-redrive", { count: 1, worktreePath: worktree.path });
+  restartStore();
+  const { ctx, runs } = daemonHarness(() => {});
+
+  ctx.slotRedrive.rehydrate();
+  await tick();
+
+  expect(runs).toEqual([runId]);
+  expect(store.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 2 });
+  expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive")).toEqual([
+    { kind: "slot_redrive", slotRedriveCount: 2, bound: MAX_SLOT_REDRIVES },
+  ]);
+  expect(Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: worktree.path }).stdout.toString().trim()).toBe(
+    worktree.head,
+  );
+  expect(readFileSync(worktree.dirtyFile, "utf8")).toBe("uncommitted work");
+  ctx.slotRedrive.stop();
+});
+
+test("after a restart with two persisted lanes only the oldest re-drives, the other waits for a release", async () => {
+  const olderTree = retainedWorktree("wt-older");
+  const newerTree = retainedWorktree("wt-newer");
+  const older = seedRefusedRun("restart-older", { worktreePath: olderTree.path });
+  await Bun.sleep(5);
+  const newer = seedRefusedRun("restart-newer", { worktreePath: newerTree.path });
+  restartStore();
+  const { ctx, runs } = daemonHarness(() => {});
+
+  ctx.slotRedrive.rehydrate();
+  await tick();
+  expect(runs).toEqual([older]);
+  expect(store.loadRun(newer)?.gateRefusalRecoveryState?.slotRedriveCount).toBe(0);
+
+  holdGate().release();
+  await tick();
+  expect(runs).toEqual([older, newer]);
+  ctx.slotRedrive.stop();
+});
+
+test("after a restart a lane held by a reachable draining predecessor is neither re-driven nor counted", async () => {
+  const worktree = retainedWorktree("wt-predecessor");
+  const runId = seedRefusedRun("restart-predecessor", { worktreePath: worktree.path });
+  restartStore();
+  const { ctx, runs } = daemonHarness(
+    () => {},
+    async () => true,
+  );
+
+  ctx.slotRedrive.rehydrate();
+  await tick();
+
+  expect(runs).toHaveLength(0);
+  expect(store.loadRun(runId)).toMatchObject({
+    status: "failed",
+    gateRefusalRecoveryState: { slotRedriveCount: 0 },
+  });
+  expect(eventKinds(runId)).toEqual(["slot_redrive_skipped_owner"]);
+  ctx.slotRedrive.stop();
+});
+
+test("after a restart a persisted lane at the bound is not re-driven", async () => {
+  const worktree = retainedWorktree("wt-bound");
+  const runId = seedRefusedRun("restart-bound", { count: MAX_SLOT_REDRIVES, worktreePath: worktree.path });
+  restartStore();
+  const { ctx, runs } = daemonHarness(() => {});
+
+  ctx.slotRedrive.rehydrate();
+  holdGate().release();
+  await tick();
+
+  expect(runs).toHaveLength(0);
+  expect(store.loadRun(runId)).toMatchObject({
+    status: "failed",
+    gateRefusalRecoveryState: { slotRedriveCount: MAX_SLOT_REDRIVES },
+  });
+  ctx.slotRedrive.stop();
+});
+
+test("after a restart a lane whose worktree is missing is dropped with slot_redrive_refused and stays failed", async () => {
+  const runId = seedRefusedRun("restart-missing-worktree", {
+    count: 1,
+    worktreePath: join(logsDir, "wt-does-not-exist"),
+  });
+  restartStore();
+  const { ctx, runs } = daemonHarness(() => {});
+
+  ctx.slotRedrive.rehydrate();
+  await tick();
+
+  expect(runs).toHaveLength(0);
+  expect(store.loadRun(runId)).toMatchObject({
+    status: "failed",
+    terminalCause: "gate_invocation_refused",
+    gateRefusalRecoveryState: { slotRedriveCount: 1 },
+  });
+  expect(eventsOf(runId)).toEqual([{ kind: "slot_redrive_refused", code: "worktree_missing", slotRedriveCount: 1 }]);
+  ctx.slotRedrive.stop();
+});
+
+test("after a restart a lane whose checkpoint cannot be reconstructed is dropped uncounted with slot_redrive_refused", async () => {
+  const worktree = retainedWorktree("wt-bad-checkpoint");
+  const snapshot = snapshotFor("inv-restart-bad-checkpoint");
+  const runId = seedRefusedRun("restart-bad-checkpoint", {
+    worktreePath: worktree.path,
+    snapshot: { ...snapshot, steps: [{ stepId: "implement", role: "implement" }] } as unknown as typeof snapshot,
+  });
+  restartStore();
+  const { ctx, runs } = daemonHarness(() => {});
+
+  ctx.slotRedrive.rehydrate();
+  await tick();
+
+  expect(runs).toHaveLength(0);
+  expect(store.loadRun(runId)?.gateRefusalRecoveryState?.slotRedriveCount).toBe(0);
+  expect(eventsOf(runId)).toEqual([
+    { kind: "slot_redrive_refused", code: "checkpoint_unreconstructable", slotRedriveCount: 0 },
+  ]);
+  ctx.slotRedrive.stop();
+});
+
+test("rehydration skips ceiling_headroom rows", async () => {
+  const worktree = retainedWorktree("wt-skipped");
+  const headroom = seedRefusedRun("restart-headroom", { cause: "ceiling_headroom", worktreePath: worktree.path });
+  restartStore();
+  const { ctx, runs } = daemonHarness(() => {});
+
+  ctx.slotRedrive.rehydrate();
+  await tick();
+
+  expect(runs).toHaveLength(0);
+  expect(eventKinds(headroom)).toEqual([]);
+  ctx.slotRedrive.stop();
 });

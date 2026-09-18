@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   findSnapshotStepForRunStepId,
   isHiddenShrinkStepId,
@@ -1341,11 +1342,25 @@ export function createRunLifecycleHandlers(
     return resumeReconstructedRun(run, runId, logRecords);
   };
 
-  ctx.slotRedrive.bindResume((runId) =>
-    resumeHandler(
-      { kind: "request", id: `slot-redrive-${runId}`, method: "resume", params: { runId } },
-      new AbortController().signal,
-    ),
+  /** Why a retained slot-refused lane cannot resume (missing worktree, unreconstructable checkpoint); undefined when intact. */
+  const retainedWorkProblem = (runId: string): string | undefined => {
+    const run = store.loadRun(runId);
+    if (!run) return "unknown_run";
+    if (!existsSync(run.worktreePath)) return "worktree_missing";
+    try {
+      return reconstructWriteResume(run, logReader?.tail(runId)).ok ? undefined : "checkpoint_unreconstructable";
+    } catch {
+      return "checkpoint_unreconstructable";
+    }
+  };
+
+  ctx.slotRedrive.bindResume(
+    (runId) =>
+      resumeHandler(
+        { kind: "request", id: `slot-redrive-${runId}`, method: "resume", params: { runId } },
+        new AbortController().signal,
+      ),
+    retainedWorkProblem,
   );
 
   const waitForWorkflowEntryRun = async (

@@ -15,8 +15,16 @@ type SlotRedriveResumeResult = { kind: "response"; result: unknown } | { kind: "
 export type SlotRedriveCoordinator = {
   /** Queue a settled run when it is a re-drivable slot-contention refusal; otherwise a no-op. */
   enqueue(runId: string): void;
-  /** Late-bind the resume path (the `run.resume` handler) the coordinator dispatches through. */
-  bindResume(resume: (runId: string) => Promise<SlotRedriveResumeResult> | SlotRedriveResumeResult): void;
+  /** Rebuild the waiting set from durable slot-refused rows after a daemon restart, then drain. */
+  rehydrate(): void;
+  /**
+   * Late-bind the resume path (the `run.resume` handler) the coordinator dispatches through, plus an
+   * optional check of a rehydrated lane's retained work: a returned reason drops the entry uncounted.
+   */
+  bindResume(
+    resume: (runId: string) => Promise<SlotRedriveResumeResult> | SlotRedriveResumeResult,
+    retainedWorkProblem?: (runId: string) => string | undefined,
+  ): void;
   /** Drop the release subscription and every waiting entry. */
   stop(): void;
 };
@@ -59,6 +67,8 @@ function gateSlotFree(): boolean {
 export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): SlotRedriveCoordinator {
   const { store } = deps;
   const waiting = new Set<string>();
+  const rehydrated = new Set<string>();
+  let retainedWorkProblem: ((runId: string) => string | undefined) | undefined;
   let resume: ((runId: string) => Promise<SlotRedriveResumeResult> | SlotRedriveResumeResult) | undefined;
   let unsubscribe: (() => void) | undefined;
   let draining = false;
@@ -97,10 +107,17 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
       waiting.delete(runId);
       return "dropped";
     }
+    const problem = rehydrated.has(runId) ? retainedWorkProblem?.(runId) : undefined;
+    if (problem !== undefined) {
+      waiting.delete(runId);
+      log(runId, { kind: "slot_redrive_refused", code: problem, slotRedriveCount: slotRedriveCountOf(fresh) });
+      return "dropped";
+    }
     if (!gateSlotFree()) return "slot_taken";
     const redrive = resume;
     const slotRedriveCount = redrive === undefined ? undefined : store.incrementSlotRedriveCount(runId);
     waiting.delete(runId);
+    rehydrated.delete(runId);
     if (slotRedriveCount === undefined || redrive === undefined) return "dropped";
     log(runId, { kind: "slot_redrive", slotRedriveCount, bound: MAX_SLOT_REDRIVES });
     const result = await redrive(runId);
@@ -169,18 +186,39 @@ export function createSlotRedriveCoordinator(deps: SlotRedriveCoordinatorDeps): 
       return;
     }
     waiting.add(runId);
+    rehydrated.delete(runId);
     unsubscribe ??= subscribeGateInvocationLeaseReleased(() => void drain());
     // The release this lane waits for may already have happened; drain off the settling stack.
     if (gateSlotFree()) queueMicrotask(() => void drain());
   };
 
+  const rehydrate = (): void => {
+    let rows: Run[];
+    try {
+      rows = store.listRuns();
+    } catch {
+      return; // store already closed during daemon shutdown
+    }
+    const pending = rows.filter((row) => slotRedriveWaiting(row) && slotRedriveCountOf(row) < MAX_SLOT_REDRIVES);
+    if (pending.length === 0) return;
+    for (const row of pending) {
+      waiting.add(row.id);
+      rehydrated.add(row.id);
+    }
+    unsubscribe ??= subscribeGateInvocationLeaseReleased(() => void drain());
+    if (gateSlotFree()) queueMicrotask(() => void drain());
+  };
+
   return {
     enqueue,
-    bindResume: (fn) => {
+    rehydrate,
+    bindResume: (fn, retained) => {
       resume = fn;
+      retainedWorkProblem = retained;
     },
     stop: () => {
       waiting.clear();
+      rehydrated.clear();
       unsubscribe?.();
       unsubscribe = undefined;
     },

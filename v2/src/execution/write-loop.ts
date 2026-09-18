@@ -1054,7 +1054,7 @@ export async function validateReadyGateRepairCompletion(
   markdownOutputRoots?: readonly string[],
   markdownOnlyRequired = false,
   fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
-): Promise<{ error: Error; offendingPath?: string } | undefined> {
+): Promise<{ error: Error; offendingPath?: string; revertPaths?: string[] } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
     return { error: new Error("Ready-gate repair fence could not enumerate completion candidates") };
@@ -1078,6 +1078,9 @@ export async function validateReadyGateRepairCompletion(
     return {
       offendingPath,
       error: new Error(`${fenceFailureMessage}${violations.join(", ")}`),
+      ...(fenceFailureMessage === REPAIR_FENCE_FAILURE_MESSAGE
+        ? { revertPaths: candidates.filter((path) => !allowedPaths.has(path)) }
+        : {}),
     };
   }
   if (markdownOnlyRequired && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
@@ -1093,6 +1096,30 @@ export async function validateReadyGateRepairCompletion(
     }
   }
   return undefined;
+}
+
+/** Restore tracked paths to `HEAD` and delete paths `HEAD` lacks; false when any step fails. */
+async function revertRefusedRepairPaths(worktreePath: string, paths: readonly string[]): Promise<boolean> {
+  try {
+    for (const path of paths) {
+      if (validateRepoRelativePath(path) !== path) {
+        return false;
+      }
+      const tracked = await runRepairFenceGit(worktreePath, ["cat-file", "-e", `HEAD:${path}`]).then(
+        () => true,
+        () => false,
+      );
+      if (tracked) {
+        await runRepairFenceGit(worktreePath, ["checkout", "HEAD", "--", path]);
+      } else {
+        await runRepairFenceGit(worktreePath, ["rm", "-q", "-f", "--cached", "--ignore-unmatch", "--", path]);
+        rmSync(join(worktreePath, path), { force: true });
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function persistReadyGateRepairFence(
@@ -3562,8 +3589,13 @@ async function enforceRepairIterationFence(
     markdownOutputRoots,
     markdownOnlyRequired ? true : undefined,
   );
+  let error = fenceResult.error;
+  if (fenceResult.revertPaths !== undefined) {
+    const reverted = await revertRefusedRepairPaths(input.worktreePath, fenceResult.revertPaths);
+    error = new Error(`${error.message}; ${reverted ? "refused paths reverted" : "revert of refused paths failed"}`);
+  }
   return {
-    failure: { kind: "completion_commit_failed", error: fenceResult.error },
+    failure: { kind: "completion_commit_failed", error },
     iterationsConsumed,
   };
 }

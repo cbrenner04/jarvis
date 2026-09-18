@@ -5929,7 +5929,7 @@ export function isLoadSensitive(file: string): boolean {
         intentShaped?: boolean;
       }) {
         const { intentShaped, ...loopArgs } = args;
-        const { baseRef } = intentShaped
+        const { baseRef, worktreePath } = intentShaped
           ? initIntentRepairFenceWorktree(args.jarvisRoot, args.branchName)
           : initRepairFenceWorktree(args.jarvisRoot, args.branchName);
         const first = await runRepairFenceLoop({
@@ -5939,7 +5939,7 @@ export function isLoadSensitive(file: string): boolean {
           repairEdit: touchUntouchedRepairEdit,
         });
         expect(first.result.kind).toBe("completion_commit_failed");
-        return { baseRef, first };
+        return { baseRef, worktreePath, first };
       }
 
       test("rejects ready-gate repairs outside the run diff and spec tree", async () => {
@@ -5970,6 +5970,35 @@ export function isLoadSensitive(file: string): boolean {
           loopOutcomeKind: "completion_commit_failed",
           completionCommitError: fenced.result.completionCommitError,
         });
+      });
+
+      test("refused out-of-diff repair edits are reverted so the worktree is clean", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-revert";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const status = () =>
+          execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8", stdio: "pipe" });
+        const before = status();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain("Ready-gate repair stages path outside run diff");
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.result.completionCommitError).toContain("v2/src/new-untracked.ts");
+        expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+        expect(status()).toBe(before);
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
       });
 
       test("repair refuses a staged path outside the attributable allowset", async () => {
@@ -6428,13 +6457,15 @@ export function isLoadSensitive(file: string): boolean {
         // intent run diff, so only the markdown layer rejects it and this layer goes unguarded.
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-retry-implement-run-diff";
-        const { baseRef, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+        const { baseRef, worktreePath, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
 
         const reopened = openStateStore(stateDbPath);
         const persisted = reopened.loadRun(first.result.runId);
         expect(persisted?.readyGateRepairFence?.offendingPath).toBe("v2/src/untouched.test.ts");
         expect(persisted?.readyGateRepairFence?.markdownOnly).not.toBe(true);
         reopened.close();
+        // The refused edit was reverted; re-dirty the tree so recovery has something to fence.
+        touchUntouchedRepairEdit(worktreePath);
 
         let publishCalls = 0;
         const retry = await runLoop({
@@ -10249,7 +10280,7 @@ index 1234567..abcdefg 100644
       }
     });
 
-    test("ready-gate snapshot and restoration retain lossless uncommitted paths", async () => {
+    test("ready-gate snapshot and restoration retain lossless uncommitted paths until the fence reverts them", async () => {
       const nestedPath = "outer/nested only.txt";
       const nestedContent = "pre-autofix nested dirt\n";
       const { jarvisRoot, stateDbPath } = createJarvisHome();
@@ -10292,10 +10323,10 @@ index 1234567..abcdefg 100644
 
       expect(result.kind).toBe("completion_commit_failed");
       expect(existsSync(join(worktreePath, "broken.ts"))).toBe(false);
-      expect(readFileSync(join(worktreePath, nestedPath), "utf8")).toBe(nestedContent);
-      const listed = await getUncommittedPaths(worktreePath);
-      expect(listed).toContain(nestedPath);
-      expect(listed.filter((candidate) => candidate === nestedPath)).toHaveLength(1);
+      expect(result.completionCommitError).toContain(nestedPath);
+      expect(result.completionCommitError).toContain("refused paths reverted");
+      expect(existsSync(join(worktreePath, nestedPath))).toBe(false);
+      expect(await getUncommittedPaths(worktreePath)).not.toContain(nestedPath);
     });
 
     test("commits once per changed progress iteration with Jarvis-Agent and Spec lines", async () => {

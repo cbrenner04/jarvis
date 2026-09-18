@@ -1,6 +1,7 @@
 // Real-socket coverage for the handoff changeover protocol at the stable public address.
 
 import { describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import { existsSync, linkSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,13 +14,20 @@ import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput } from "../test
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
-import { fallbackVerdict, isHandoffStillPending, shouldShutdownNow, startDaemonRuntime } from "./daemon";
+import {
+  fallbackVerdict,
+  formatHandoffSettlementLogLine,
+  isHandoffStillPending,
+  shouldShutdownNow,
+  startDaemonRuntime,
+} from "./daemon";
 import {
   DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS,
   DEFAULT_DAEMON_READINESS_TIMEOUT_MS,
   HANDOFF_RESOLUTION_TIMEOUT_MS,
 } from "./daemon-changeover";
 import { DaemonHandoffFailedError, DaemonReadinessTimeoutError, startDaemon } from "./daemon-lifecycle";
+import { captureConsoleError } from "./daemon-retire-trigger-logging.test-support";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 const testDaemons = createTestDaemonLifecycle();
@@ -188,6 +196,14 @@ describe("daemon handoff changeover (real sockets)", () => {
     expect(isHandoffStillPending("h1", "rolled_back", "h1")).toBe(false);
     expect(isHandoffStillPending("h2", "pending", "h1")).toBe(false);
     expect(isHandoffStillPending(undefined, undefined, "h1")).toBe(false);
+  });
+
+  test("isHandoffStillPending with expectedState 'committed' is true only for the exact still-committed transaction", () => {
+    expect(isHandoffStillPending("h1", "committed", "h1", "committed")).toBe(true);
+    expect(isHandoffStillPending("h1", "pending", "h1", "committed")).toBe(false);
+    expect(isHandoffStillPending("h1", "rolled_back", "h1", "committed")).toBe(false);
+    expect(isHandoffStillPending("h2", "committed", "h1", "committed")).toBe(false);
+    expect(isHandoffStillPending(undefined, undefined, "h1", "committed")).toBe(false);
   });
 
   test("fallbackVerdict commits only when the public address answers live", () => {
@@ -754,6 +770,205 @@ describe("daemon handoff changeover (real sockets)", () => {
         expect((refused as { code?: string }).code).toBe("daemon_superseded");
       } finally {
         await incumbent.close();
+      }
+    },
+    15_000,
+  );
+
+  socketTest(
+    "a committed handoff rebinds and reopens admission once its successor stops answering, even after a real supersede",
+    async () => {
+      const incumbent = await startIncumbent("committed-watch", { fallbackMs: 150 });
+      let successor: IpcServer | undefined;
+      try {
+        // An active run keeps the outgoing generation alive through the commit: with none, the
+        // ordinary drain-exit loop would already exit it once `isPending()` reads false (committed).
+        await startWork(incumbent.publicSocketPath, "active-through-committed-watch");
+        const handoffId = await beginChangeover(incumbent);
+        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        successor = await startIpcServer(incumbent.publicSocketPath, {
+          health: () => ({ kind: "response", result: { ok: true } }),
+        });
+
+        // Captured from before commit: the watch's first tick can land in this window under load,
+        // and a capture started only after commit would race it and miss the log line it emits.
+        const capture = captureConsoleError();
+        try {
+          const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+          expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
+
+          // Ordinary self-handoff shape: the successor's own startup calls `supersede` on the outgoing
+          // generation's private socket, matching `supersedePeerDaemon`'s production wiring — the
+          // rebind below must reopen admission unconditionally despite `wasSuperseded()` reading true.
+          const superseded = await request(incumbent.privateSocketPath, "supersede");
+          expect(superseded.kind).toBe("response");
+
+          await successor.close();
+          successor = undefined;
+
+          expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+          expect(incumbent.publicBindCount()).toBe(2);
+          // The log line and the address answering land on independent I/O completions with no
+          // ordering guarantee between them: poll rather than assume the log already landed.
+          expect(
+            await waitFor(
+              () => capture.lines.includes(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback")),
+              500,
+            ),
+          ).toBe(true);
+        } finally {
+          capture.restore();
+        }
+
+        await startWork(incumbent.publicSocketPath, "admitted-after-committed-watch-rebind");
+      } finally {
+        await successor?.close();
+        await incumbent.close();
+      }
+    },
+    15_000,
+  );
+
+  socketTest(
+    "a committed handoff reclaims the leftover socket and rebinds after a real successor process is killed",
+    async () => {
+      // fallbackMs is generous (well past real `bun` subprocess spawn+bind time) because it also
+      // arms the pre-commit fallback timer: a tight cadence here raced the successor's real spawn,
+      // firing the fallback's own "nothing answers yet" rollback before `handoff_commit` ran.
+      const incumbent = await startIncumbent("killed-committed-successor", { fallbackMs: 3_000 });
+      const successorScript = silentSuccessorScript();
+      let successorProc: ReturnType<typeof spawn> | undefined;
+      try {
+        await startWork(incumbent.publicSocketPath, "active-through-killed-committed-successor");
+        const handoffId = await beginChangeover(incumbent);
+        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+
+        successorProc = spawn("bun", [successorScript.path, "--socket", incumbent.publicSocketPath], {
+          stdio: "ignore",
+        });
+        expect(await waitFor(() => existsSync(incumbent.publicSocketPath), 3_000)).toBe(true);
+
+        const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+        expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
+
+        const successorPid = successorProc.pid;
+        if (successorPid === undefined) throw new Error("successor did not spawn");
+        process.kill(successorPid, "SIGKILL");
+
+        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 8_000)).toBe(true);
+        expect(incumbent.exitCodes).toEqual([]);
+        await startWork(incumbent.publicSocketPath, "admitted-after-killed-committed-successor");
+      } finally {
+        if (successorProc?.pid !== undefined) {
+          try {
+            process.kill(successorProc.pid, "SIGKILL");
+          } catch {
+            // already gone
+          }
+        }
+        successorScript.cleanup();
+        await incumbent.close();
+      }
+    },
+    25_000,
+  );
+
+  socketTest(
+    "a committed handoff watch retries a rebind bind failure and eventually rebinds",
+    async () => {
+      let publicBinds = 0;
+      const incumbent = await startIncumbent("committed-watch-retry", {
+        fallbackMs: 100,
+        bind: async (path, handlers) => {
+          if (path.endsWith("daemon.sock")) {
+            publicBinds += 1;
+            // The first committed-watch-triggered rebind fails; the next tick's attempt succeeds.
+            if (publicBinds === 2) throw new Error("rebind failed");
+          }
+          return startIpcServer(path, handlers);
+        },
+      });
+      try {
+        await startWork(incumbent.publicSocketPath, "active-through-committed-watch-retry");
+        const handoffId = await beginChangeover(incumbent);
+        const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+        expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
+
+        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+        expect(incumbent.exitCodes).toEqual([]);
+        expect(publicBinds).toBeGreaterThanOrEqual(3);
+        await startWork(incumbent.publicSocketPath, "admitted-after-committed-watch-retry");
+      } finally {
+        await incumbent.close();
+      }
+    },
+    15_000,
+  );
+
+  socketTest(
+    "a committed handoff never displaces a successor that still holds an open listener but answers too slowly",
+    async () => {
+      const incumbent = await startIncumbent("slow-committed-successor", { fallbackMs: 150 });
+      let successor: IpcServer | undefined;
+      try {
+        await startWork(incumbent.publicSocketPath, "active-through-slow-committed-successor");
+        const handoffId = await beginChangeover(incumbent);
+        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        // Accepts the connection (the raw probe classifies it live) but never resolves `health`.
+        successor = await startIpcServer(incumbent.publicSocketPath, { health: () => new Promise(() => {}) });
+
+        const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+        expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
+
+        const capture = captureConsoleError();
+        try {
+          // Positive evidence the watch ran and kept retrying (not merely "nothing rebound"): each
+          // tick observes the address unanswered, attempts the rebind, and is refused because the
+          // live successor is still occupying it.
+          expect(await waitFor(() => incumbent.publicBindCount() >= 3, 3_000)).toBe(true);
+          expect(existsSync(incumbent.publicSocketPath)).toBe(true);
+          expect(capture.lines.some((line) => line.includes("handoff_successor_watch"))).toBe(false);
+        } finally {
+          capture.restore();
+        }
+
+        // The transaction never moved off "committed": a repeat `handoff_commit` for the same id
+        // reads back "committed", not "rolled_back".
+        const stillCommitted = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+        expect((stillCommitted as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
+      } finally {
+        await successor?.close();
+        await incumbent.close();
+      }
+    },
+    15_000,
+  );
+
+  socketTest(
+    "closing the outgoing generation stops the committed handoff watch",
+    async () => {
+      // A generous cadence, well past every await between commit and the manual `close()` below,
+      // so the watch's first tick cannot race ahead of `close()` clearing its timer.
+      const incumbent = await startIncumbent("closed-committed-watch", { fallbackMs: 800 });
+      const capture = captureConsoleError();
+      let closed = false;
+      try {
+        await startWork(incumbent.publicSocketPath, "active-through-closed-committed-watch");
+        const handoffId = await beginChangeover(incumbent);
+        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+        expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
+        expect(incumbent.publicBindCount()).toBe(1);
+
+        closed = true;
+        await incumbent.close();
+        // Past the watch's cadence: a still-armed timer would have ticked and attempted a rebind.
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        expect(incumbent.publicBindCount()).toBe(1);
+        expect(capture.lines.some((line) => line.includes("handoff_successor_watch"))).toBe(false);
+      } finally {
+        capture.restore();
+        if (!closed) await incumbent.close();
       }
     },
     15_000,

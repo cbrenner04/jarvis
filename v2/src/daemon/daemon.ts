@@ -329,8 +329,11 @@ export function nextFirstRetireTrigger(
   return current ?? incoming;
 }
 
-/** A handoff settlement: RPC-driven commit/rollback, or the fallback timer's liveness-probe verdict. */
-type HandoffSettlementTrigger = "handoff_commit" | "handoff_rollback" | "handoff_fallback";
+/**
+ * A handoff settlement: RPC-driven commit/rollback, the fallback timer's liveness-probe verdict,
+ * or the committed-successor watch's rebind after the committed successor stops answering.
+ */
+type HandoffSettlementTrigger = "handoff_commit" | "handoff_rollback" | "handoff_fallback" | "handoff_successor_watch";
 
 /**
  * Structured stderr marker for a handoff settlement, written before commit/rollback runs.
@@ -871,6 +874,8 @@ type HandoffTransaction = {
   rollbackPromise?: Promise<RpcHandlerResult>;
   /** Set by `scheduleFallback` once the transaction exists; a failed fallback rollback reschedules it. */
   fallbackTimer?: ReturnType<typeof setTimeout>;
+  /** Set by `scheduleWatch` once committed; a failed rebind attempt reschedules it. */
+  watchTimer?: ReturnType<typeof setTimeout>;
 };
 
 type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
@@ -892,17 +897,20 @@ type HandoffHandlersDeps = ChangeoverHandlerDeps & {
 };
 
 /**
- * True when `handoffId` still names the transaction identified by `activeId`/`activeState` — a
- * fallback timer firing after that transaction settled, or after a new transaction replaced it,
- * must not act. Extracted so both call sites in `resolveFallback` (before and after the async
- * probe) share one guard and are directly testable without a real timer.
+ * True when `handoffId` still names the transaction identified by `activeId`/`activeState`, and
+ * that transaction is still in `expectedState` (defaults to `"pending"`, the fallback timer's own
+ * check) — a timer firing after that transaction settled, or after a new transaction replaced it,
+ * must not act. The committed-successor watch reuses this with `expectedState: "committed"`.
+ * Extracted so every call site (the fallback timer, before and after its async probe; the watch,
+ * likewise) shares one guard and is directly testable without a real timer.
  */
 export function isHandoffStillPending(
   activeId: string | undefined,
   activeState: HandoffState | undefined,
   handoffId: string,
+  expectedState: HandoffState = "pending",
 ): boolean {
-  return activeId === handoffId && activeState === "pending";
+  return activeId === handoffId && activeState === expectedState;
 }
 
 /**
@@ -947,6 +955,60 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.fallbackTimer !== undefined) clearTimeout(active.fallbackTimer);
   };
 
+  const clearWatch = (active: HandoffTransaction): void => {
+    if (active.watchTimer !== undefined) clearTimeout(active.watchTimer);
+  };
+
+  const scheduleWatch = (active: HandoffTransaction, handoffId: string): void => {
+    if (closed) return;
+    active.watchTimer = setTimeout(() => {
+      void tickWatch(handoffId);
+    }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS);
+  };
+
+  /**
+   * Runs on the committed watch's cadence once a handoff commits: probes the public address and,
+   * when nothing answers, rebinds and reopens admission unconditionally — the same reclaim
+   * `rollback` performs, but never gated by `wasSuperseded()` (the ordinary successor-side
+   * `supersede` call already set it true for exactly the shape this recovers). A rebind that fails
+   * (e.g. a still-listening successor that only answers slowly) reschedules rather than giving up,
+   * and never logs or marks the transaction settled — only a successful rebind does either.
+   */
+  const tickWatch = async (handoffId: string): Promise<void> => {
+    const active = transaction;
+    if (closed || active === undefined || !isHandoffStillPending(active.id, active.state, handoffId, "committed")) {
+      return;
+    }
+    let publicDaemonLive = false;
+    try {
+      publicDaemonLive = await deps.probePublicServer();
+    } catch {
+      publicDaemonLive = false;
+    }
+    if (
+      closed ||
+      transaction !== active ||
+      !isHandoffStillPending(transaction.id, transaction.state, handoffId, "committed")
+    ) {
+      return;
+    }
+    if (fallbackVerdict(publicDaemonLive) === "commit") {
+      scheduleWatch(active, handoffId);
+      return;
+    }
+    try {
+      await deps.bindPublicServer();
+    } catch {
+      if (transaction === active && isHandoffStillPending(transaction.id, transaction.state, handoffId, "committed")) {
+        scheduleWatch(active, handoffId);
+      }
+      return;
+    }
+    active.state = "rolled_back";
+    console.error(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback"));
+    deps.setAdmitting();
+  };
+
   const rollback = (active: HandoffTransaction): Promise<RpcHandlerResult> => {
     if (active.state === "committed") return Promise.resolve(handoffResponse("committed"));
     if (active.state === "rolled_back") return Promise.resolve(handoffResponse("rolled_back"));
@@ -975,6 +1037,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.state === "committed") return handoffResponse("committed");
     active.state = "committed";
     clearFallback(active);
+    scheduleWatch(active, active.id);
     return handoffResponse("committed");
   };
 
@@ -1059,7 +1122,10 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     isPending: () => transaction?.state === "pending",
     close: () => {
       closed = true;
-      if (transaction !== undefined) clearFallback(transaction);
+      if (transaction !== undefined) {
+        clearFallback(transaction);
+        clearWatch(transaction);
+      }
     },
   };
 }

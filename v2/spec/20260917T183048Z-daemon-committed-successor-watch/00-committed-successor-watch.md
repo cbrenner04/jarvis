@@ -27,17 +27,17 @@ This subspec makes the committed state observed rather than terminal: the outgoi
 
 ## Acceptance criteria
 
-- [ ] A daemon test commits a handoff via the ordinary self-handoff shape (the successor calls `supersede` on the predecessor, matching `supersedePeerDaemon`'s production wiring, so `wasSuperseded()` reads true), then makes the public address stop answering, and asserts the outgoing generation rebinds, answers again, and reopens admission (`start`/`resume` accepted) within the bounded cadence; it fails against the pre-fix code.
-- [ ] A test kills a real successor process (not just a stubbed non-answering probe) after commit and asserts the outgoing generation reclaims the leftover socket and rebinds; it fails against the pre-fix code.
-- [ ] A test injects a `startupDeps.startIpcServer` failure on the rebind attempt and asserts the watch retries on the next tick and eventually rebinds; it fails against the pre-fix code.
-- [ ] A test asserts the rebind writes a handoff-settlement daemon-log line naming a trigger distinct from `handoff_commit`, `handoff_rollback`, and `handoff_fallback`; it fails against the pre-fix code.
-- [ ] A test asserts a successor that still holds an open listener but answers the watch's `health` RPC too slowly is never displaced, asserting positively that the watch ran: the tick observed the address unanswered, attempted the rebind, had its bind refused with the address in use, and `removeUnansweredSocketPath` classified the still-listening successor `live` (per `v2/src/ipc/server.test.ts`'s "refuses to unlink a live peer socket" guarantee) — leaving the socket in place and rescheduling the watch without marking the transaction `rolled_back` or logging a rebind trigger. The assertion is on the observed tick, not on the absence of an effect, so it cannot pass against pre-fix code that never ticks.
-- [ ] A test asserts `close()` stops the watch: no further probe, rebind, or log line occurs on the next tick after `close()` runs.
-- [ ] The committed-handoff watch tick's rebind decision is a pure exported predicate in `v2/src/daemon/daemon.ts`, tested in both directions without a real-timer wait. Reuse or extend the existing `fallbackVerdict` / `isHandoffStillPending` exports rather than adding a near-duplicate of either.
-- [ ] `v2/src/daemon/daemon-retire-trigger-logging.test.ts` stays green (existing settlement and drain-exit logging unchanged).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A daemon test commits a handoff via the ordinary self-handoff shape (the successor calls `supersede` on the predecessor, matching `supersedePeerDaemon`'s production wiring, so `wasSuperseded()` reads true), then makes the public address stop answering, and asserts the outgoing generation rebinds, answers again, and reopens admission (`start`/`resume` accepted) within the bounded cadence; it fails against the pre-fix code.
+- [x] A test kills a real successor process (not just a stubbed non-answering probe) after commit and asserts the outgoing generation reclaims the leftover socket and rebinds; it fails against the pre-fix code.
+- [x] A test injects a `startupDeps.startIpcServer` failure on the rebind attempt and asserts the watch retries on the next tick and eventually rebinds; it fails against the pre-fix code.
+- [x] A test asserts the rebind writes a handoff-settlement daemon-log line naming a trigger distinct from `handoff_commit`, `handoff_rollback`, and `handoff_fallback`; it fails against the pre-fix code.
+- [x] A test asserts a successor that still holds an open listener but answers the watch's `health` RPC too slowly is never displaced, asserting positively that the watch ran: the tick observed the address unanswered, attempted the rebind, had its bind refused with the address in use, and `removeUnansweredSocketPath` classified the still-listening successor `live` (per `v2/src/ipc/server.test.ts`'s "refuses to unlink a live peer socket" guarantee) — leaving the socket in place and rescheduling the watch without marking the transaction `rolled_back` or logging a rebind trigger. The assertion is on the observed tick, not on the absence of an effect, so it cannot pass against pre-fix code that never ticks.
+- [x] A test asserts `close()` stops the watch: no further probe, rebind, or log line occurs on the next tick after `close()` runs.
+- [x] The committed-handoff watch tick's rebind decision is a pure exported predicate in `v2/src/daemon/daemon.ts`, tested in both directions without a real-timer wait. Reuse or extend the existing `fallbackVerdict` / `isHandoffStillPending` exports rather than adding a near-duplicate of either.
+- [x] `v2/src/daemon/daemon-retire-trigger-logging.test.ts` stays green (existing settlement and drain-exit logging unchanged).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

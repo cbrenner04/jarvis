@@ -25,6 +25,38 @@ import { WorktreeOwnershipRegistry } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
+import type { RunTimeoutTimers } from "./run-time-budget.ts";
+
+type FakeTimer = { callback: () => void; ms: number; dueAt: number; interval: boolean; cleared: boolean };
+
+/** Minimal fake monotonic clock + timers so a whole-run timeout fires deterministically. */
+function fakeTimers(): RunTimeoutTimers & { clock: { now: number }; runDue: () => void } {
+  const clock = { now: 1_000 };
+  const timers: FakeTimer[] = [];
+  const add = (callback: () => void, ms: number, interval: boolean) => {
+    const timer = { callback, ms, dueAt: clock.now + ms, interval, cleared: false };
+    timers.push(timer);
+    return timer;
+  };
+  const clear = (handle: unknown) => {
+    if (handle !== undefined) (handle as FakeTimer).cleared = true;
+  };
+  return {
+    clock,
+    now: () => clock.now,
+    setTimeout: (callback, ms) => add(callback, ms, false),
+    setInterval: (callback, ms) => add(callback, ms, true),
+    clearTimeout: clear,
+    clearInterval: clear,
+    runDue: () => {
+      for (const timer of [...timers]) {
+        if (timer.interval || timer.cleared || timer.dueAt > clock.now) continue;
+        timer.cleared = true;
+        timer.callback();
+      }
+    },
+  };
+}
 
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
@@ -622,6 +654,42 @@ test("workflow invocation settled marker: killed when the run was marked pending
   await settled;
 
   expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "killed" });
+});
+
+test("workflow invocation settled marker: failed when a run timeout fires (not killed)", async () => {
+  const branch = "settled-marker-timeout";
+  const timers = fakeTimers();
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1", branch, neverResolvingBindingFactory, { suppressShrink: true });
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+    registry,
+    runTimeout: { budgetMs: () => 1_000, timers },
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, { handleWorkflowStart: workflowStart.handleWorkflowStart });
+
+  const response = await lifecycle.start(
+    requestFrame("s-timeout", "start", { steps: [step] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+  const settled = ctx.workflowPromisesByEntryRunId.get(runId);
+  for (let i = 0; i < 1_000 && ctx.activeRuns.get(runId) === undefined; i++) {
+    await flushBackgroundRuns();
+  }
+  expect(ctx.activeRuns.get(runId)).toBeDefined();
+
+  timers.clock.now += 1_000;
+  timers.runDue();
+  await settled;
+
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "failed" });
 });
 
 /** Fakes every `gh` subcommand the completion-publisher tail issues; git commands pass through to a real repo. */

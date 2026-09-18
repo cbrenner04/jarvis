@@ -28,10 +28,10 @@ Positive `waitFor(..., N_000)` calls in `v2/src/daemon/daemon-changeover.sandbox
 ## Acceptance criteria
 
 - [x] The five in-scope waits in `daemon-changeover.sandbox-unrunnable.test.ts` carry no private deadline (the per-test suite timeout is the only deadline), and the watch-retry test awaits the retry-bind event before its unbounded health poll.
-- [ ] Retry falsifiability, proven against production code, not a test stub: on a scratch copy (uncommitted edit), make `tickWatch` in `v2/src/daemon/daemon.ts` not reschedule after a failed rebind (the watch never retries); the watch-retry test then fails by suite timeout, not pass, and no leaked poll or pending promise fails other tests in the file; revert and confirm `git diff --quiet v2/src/daemon/daemon.ts`.
-- [ ] The killed-successor test passes under the same concurrent-load loop below, and its fix waits on an event rather than a changed `fallbackMs`.
-- [ ] `for i in 1 2 3 4 5; do bun test v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts || break; done` passes 5 consecutive times while `bun run test:integration:v2` runs concurrently for the whole span of all five passes (restarted whenever it finishes early).
-- [ ] `bun run typecheck`, `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] Retry falsifiability, proven against production code, not a test stub: on a scratch copy (uncommitted edit), make `tickWatch` in `v2/src/daemon/daemon.ts` not reschedule after a failed rebind (the watch never retries); the watch-retry test then fails by suite timeout, not pass, and no leaked poll or pending promise fails other tests in the file; revert and confirm `git diff --quiet v2/src/daemon/daemon.ts`.
+- [x] The killed-successor test passes under the same concurrent-load loop below, and its fix waits on an event rather than a changed `fallbackMs`.
+- [x] `for i in 1 2 3 4 5; do bun test v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts || break; done` passes 5 consecutive times while `bun run test:integration:v2` runs concurrently for the whole span of all five passes (restarted whenever it finishes early).
+- [x] `bun run typecheck`, `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

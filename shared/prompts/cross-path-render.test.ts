@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { assembledStepArtifact, assemblePrompt, assembleStepTemplate, renderPromptForStep } from "./assemble.ts";
+import {
+  assembledStepArtifact,
+  assemblePrompt,
+  assembleStepTemplate,
+  renderPromptForStep,
+  STANDING_RULES_HEADING,
+} from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
 import type { PromptRegistry } from "./types.ts";
@@ -23,7 +29,8 @@ function legacyGlobalsOnlyAssembly(reg: PromptRegistry, stepPromptId: string): s
       return a.metadata.id.localeCompare(b.metadata.id);
     })
     .map((a) => a.body.trim());
-  return [...globals, step.body.trim()].join("\n\n");
+  const framed = globals.length > 0 ? [STANDING_RULES_HEADING, ...globals] : [];
+  return [...framed, step.body.trim()].join("\n\n");
 }
 
 /** The retired shared path: globals + behavior lane + add − remove, regardless of policy. */

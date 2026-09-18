@@ -266,7 +266,7 @@ Critic role is read-only on the staged intent; actuator role may write only with
   directory (same transactional semantics as standalone intent landing).
 - The verdict file is deleted after successful landing.
 
-**Post-actuator staged Markdown lint:** After the actuator finishes and before promotion, the review completion seam runs `lintStagedMarkdown` on staged intent Markdown. Violations reprompt the actuator via `write.staged-markdown-lint-reprompt` under a separate bounded counter; exhaustion settles `landing_failed` with `.jarvis-intent-stage/` bytes preserved. Populated-stage resume finalization re-lints only — no critic/actuator re-invocation. See [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
+**Post-actuator staged Markdown lint:** After the actuator finishes and before promotion, the review completion seam runs `lintStagedMarkdown` on staged intent Markdown. The lint runs markdownlint with `--fix`, so fixable rules (blank-line runs, code-span spacing) are repaired in place and only surviving violations reprompt. Violations reprompt the actuator via `write.staged-markdown-lint-reprompt` under a separate bounded counter; exhaustion settles `landing_failed` with `.jarvis-intent-stage/` bytes preserved. Populated-stage resume finalization re-lints only — no critic/actuator re-invocation. See [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
 On landing failure (collision, validation error, or I/O failure), the review returns failure with `resumable: true`. The verdict file remains. Resume retries landing without re-running critic or actuator, preserving the reviewed output.
 

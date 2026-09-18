@@ -163,7 +163,9 @@ export async function lintStagedMarkdown(
   }
 
   const runner = injectedRunner ?? realAsyncSubprocessRunner;
-  const lintArgs = [binaryPath, "--no-globs", "--config", configPath, ...stagedFiles];
+  // `--fix` repairs what markdownlint can (blank-line runs, code-span spacing) before reporting; only what
+  // survives the autofix reaches the reprompt.
+  const lintArgs = [binaryPath, "--fix", "--no-globs", "--config", configPath, ...stagedFiles];
 
   const tracked = trackProcessGroup(deps?.processGroups);
   try {

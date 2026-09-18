@@ -2,6 +2,9 @@ import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
 import type { PromptArtifact, PromptRegistry } from "./types.ts";
 
+/** Heading assembled ahead of every non-empty fragment set. */
+export const STANDING_RULES_HEADING = "# Standing rules";
+
 export function assemblePrompt(args: {
   registry: PromptRegistry;
   globalFragmentIds: string[];
@@ -13,9 +16,14 @@ export function assemblePrompt(args: {
   const remove = new Set(args.removeFragmentIds ?? []);
   const added = args.addFragmentIds ?? [];
   const orderedIds = [...args.globalFragmentIds, ...args.behaviorFragmentIds, ...added].filter((id) => !remove.has(id));
-  const fragmentBodies = orderedIds.map((id) => args.registry.getById(id).body.trim());
+  const fragmentBodies = orderedIds
+    .map((id) => args.registry.getById(id).body.trim())
+    .filter((body) => body.length > 0);
   const stepBody = args.registry.getById(args.stepPromptId).body.trim();
-  return [...fragmentBodies, stepBody].filter((part) => part.length > 0).join("\n\n");
+  // Fragments arrive as bare paragraphs ahead of a step body that carries its own `## Rules`; the
+  // heading marks them as the standing tier rather than preamble.
+  const framed = fragmentBodies.length > 0 ? [STANDING_RULES_HEADING, ...fragmentBodies] : [];
+  return [...framed, stepBody].filter((part) => part.length > 0).join("\n\n");
 }
 
 function rankedFragmentIds(registry: PromptRegistry, behavior: string): string[] {

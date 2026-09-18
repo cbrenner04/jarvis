@@ -34,8 +34,8 @@ describe("buildIntentSplitPrompt", () => {
     const prompt = buildIntentSplitPrompt({ ...BASE_OPTS, stepRules: DEFAULT_WRITE_STEP_RULES });
 
     expect(prompt).toContain("Before editing code, read the relevant durable docs/specs");
-    expect(prompt).toContain("Be terse in communication artifacts");
-    const terseIndex = prompt.indexOf("Be terse in communication artifacts");
+    expect(prompt).toContain("Be terse everywhere");
+    const terseIndex = prompt.indexOf("Be terse everywhere");
     const noHardWrapIndex = prompt.indexOf("Do not hard-wrap authored markdown");
     expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
     expect(prompt).toContain("one prerequisite behavior per physical line as `- ...`");
@@ -46,8 +46,8 @@ describe("buildIntentSplitPrompt", () => {
     expect(stepRules).not.toContain("@mutate");
     expect(stepRules).not.toContain("Guard-inversion criteria require");
     expect(prompt).not.toContain("@mutate");
-    expect(loadPromptRegistry().getById("global.no-hard-wrap").metadata.revision).toBe("2");
-    expect(prompt).not.toContain("No planning labels in code.");
+    expect(loadPromptRegistry().getById("global.no-hard-wrap").metadata.revision).toBe("3");
+    expect(prompt).not.toContain("Never put planning labels");
     expect(INTENT_SPLIT_PROMPT_ID).toBe("intent.prompt.split");
   });
 

@@ -2,9 +2,7 @@
 id: global.terse
 behavior: global
 kind: fragment
-revision: 2
+revision: 3
 order: 2
 ---
-Be terse in communication artifacts (specs, PRs, commits, intents).
-Verbosity costs money and review effort. Minimize it.
-This does not authorize under-documenting code or omitting required docs.
+Be terse everywhere: code, comments, specs, PRs, commits, intents. Cut anything that does not change what a reader or implementer does: restated context, rationale for obvious choices, summaries, hedging, narration of what the code already says.

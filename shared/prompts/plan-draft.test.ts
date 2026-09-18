@@ -49,12 +49,12 @@ describe("buildPlanDraftPrompt", () => {
       specGuidance: SPEC_GUIDANCE,
     });
 
-    expect(prompt).toContain("Gate acceptance criteria name the scoped test script, never the bare aggregate");
-    expect(prompt).toContain("bun run test:v2");
-    expect(prompt).toContain("exhausts the implement budget and times out with the work already correct");
+    expect(prompt).toContain(
+      "Acceptance criteria that name the test gate name the scoped script(s) the target repo's `AGENTS.md` prescribes",
+    );
   });
 
-  test("renders the one-artifact bullet rule without the retired surface taxonomy", () => {
+  test("rules carry step mechanics only: index links, no artifact-count or surface rules", () => {
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",
       intent: "do thing",
@@ -62,13 +62,10 @@ describe("buildPlanDraftPrompt", () => {
     });
     const rules = prompt.split("## Rules\n\n")[1]?.split("\n\n## Instructions")[0];
 
-    expect(rules).toContain(
-      "**One artifact per bullet.** A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path claimed as built or changed.",
-    );
-    expect(rules).toContain("stays green");
-    expect(rules).toContain('marker: "identical" or "the same"');
+    expect(rules).toContain("`index.md` links every numbered subspec file exactly once; delete any file you replaced.");
+    expect(rules).not.toContain("One artifact per bullet");
     expect(rules).not.toContain("module-boundary surface");
-    expect(rules).not.toContain("blocks the whole draft");
+    expect(rules).not.toContain("bun run test:v2");
   });
 
   test("appends file output and step completion sections when supplied", () => {

@@ -2,9 +2,7 @@
 id: global.naming
 behavior: global
 kind: fragment
-revision: 1
+revision: 2
 order: 1
 ---
-No planning labels in code.
-Phase/milestone/slice names are sequencing artifacts; never put them in identifiers, filenames, types, or public API.
-If a spec says "Phase 1 <thing>", the code should name the <thing>.
+Never put planning labels (phase, milestone, or slice names) in identifiers, filenames, types, or public API; name the thing itself.

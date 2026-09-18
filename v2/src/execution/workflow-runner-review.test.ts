@@ -650,7 +650,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-block");
-    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd025ViolationSubspec);
     writeLintCleanPlanStage(stage);
 
     const step = createDebateStep({
@@ -697,7 +697,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-reprompt");
-    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd025ViolationSubspec);
     const cleanSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec);
     writeLintCleanPlanStage(stage);
     let actuatorInvocations = 0;
@@ -743,10 +743,10 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
         .find((event) => event.kind === "staged_markdown_lint_reprompt");
       expect(reprompt).toMatchObject({
         kind: "staged_markdown_lint_reprompt",
-        ruleId: "MD038",
+        ruleId: "MD025",
         offendingFile: ".jarvis-plan-stage/00-one.md",
       });
-      expect(repromptPrompt).toContain("MD038");
+      expect(repromptPrompt).toContain("MD025");
       expect(repromptPrompt).toContain(".jarvis-plan-stage/00-one.md");
       expect(repromptPrompt).toContain(".jarvis-plan-stage");
     });
@@ -765,7 +765,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust");
-    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd025ViolationSubspec);
     writeLintCleanPlanStage(stage);
 
     const step = createDebateStep({
@@ -820,7 +820,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust-recover");
-    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd025ViolationSubspec);
     const cleanSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec);
     writeLintCleanPlanStage(stage);
     let adjudicatorCalls = 0;
@@ -873,7 +873,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint");
-    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd025ViolationSubspec);
     mkdirSync(durable, { recursive: true });
     writeLintCleanPlanStage(stage, "01-test.md");
     writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
@@ -926,7 +926,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint-reprompt");
-    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd025ViolationSubspec);
     const cleanSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec);
     mkdirSync(durable, { recursive: true });
     writeLintCleanPlanStage(stage, "01-test.md");
@@ -983,10 +983,10 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
         .find((event) => event.kind === "staged_markdown_lint_reprompt");
       expect(reprompt).toMatchObject({
         kind: "staged_markdown_lint_reprompt",
-        ruleId: "MD038",
+        ruleId: "MD025",
         offendingFile: ".jarvis-plan-stage/01-test.md",
       });
-      expect(repromptPrompt).toContain("MD038");
+      expect(repromptPrompt).toContain("MD025");
       expect(repromptPrompt).toContain(".jarvis-plan-stage/01-test.md");
       expect(repromptPrompt).toContain(".jarvis-plan-stage");
     });

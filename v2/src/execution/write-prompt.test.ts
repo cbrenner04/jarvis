@@ -45,7 +45,7 @@ describe("write prompt", () => {
     });
 
     for (const rendered of [writeRendered, planRendered]) {
-      const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+      const terseIndex = rendered.indexOf("Be terse everywhere");
       const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
       expect(terseIndex).toBeGreaterThanOrEqual(0);
       expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
@@ -85,7 +85,7 @@ describe("write prompt", () => {
       STEP_RULES: "Follow the contract.",
     });
 
-    const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+    const terseIndex = rendered.indexOf("Be terse everywhere");
     const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
     expect(rendered).toContain("## Repo Guidance");
     expect(terseIndex).toBeGreaterThanOrEqual(0);
@@ -104,12 +104,12 @@ describe("write prompt", () => {
       STEP_RULES: "Follow the contract.",
     });
 
-    const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+    const terseIndex = rendered.indexOf("Be terse everywhere");
     const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
     expect(terseIndex).toBeGreaterThanOrEqual(0);
     expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
     expect(rendered).not.toContain("Before editing code, read the relevant durable docs/specs");
-    expect(rendered).not.toContain("No planning labels in code.");
+    expect(rendered).not.toContain("Never put planning labels");
   });
 
   test("write.execute isolates the shared human-only step rules", () => {

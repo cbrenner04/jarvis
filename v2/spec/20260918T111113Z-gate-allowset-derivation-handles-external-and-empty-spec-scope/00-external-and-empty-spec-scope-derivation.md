@@ -22,12 +22,12 @@
 
 ## Acceptance criteria
 
-- [ ] A `ready-finalize.test.ts` test proves `deriveGateAllowedPaths` returns a non-empty allowset (diff/untracked paths) for an absolute `specPath` directory that exists outside the worktree and contains Markdown; it fails against the pre-fix `..`-rejection returning `undefined`.
-- [ ] A `ready-finalize.test.ts` test proves derivation returns an allowset (not `undefined`) when the resolved in-worktree scope root exists with no Markdown files; it fails against the pre-fix `files.length === 0` → `null`.
-- [ ] A `ready-finalize.test.ts` test asserts `resolveSpecScopeRoot` reports `insideWorktree: false` for the external directory above, and the `deriveGateAllowedPaths` allowset for that case contains no absolute or `..`-prefixed paths while still containing the run's diff/untracked paths; it fails against the pre-fix code, where the out-of-worktree branch is unreachable.
-- [ ] A `ready-finalize.test.ts` test proves `deriveGateAllowedPaths` returns `undefined` when the resolved scope root does not exist, both for an in-worktree `specPath` and for an absolute out-of-worktree `specPath`; guards the missing-root branches against being loosened to fail-open.
-- [ ] Existing `deriveGateAllowedPaths` cases in `v2/src/execution/ready-finalize.test.ts` and `v2/src/execution/write-loop.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A `ready-finalize.test.ts` test proves `deriveGateAllowedPaths` returns a non-empty allowset (diff/untracked paths) for an absolute `specPath` directory that exists outside the worktree and contains Markdown; it fails against the pre-fix `..`-rejection returning `undefined`.
+- [x] A `ready-finalize.test.ts` test proves derivation returns an allowset (not `undefined`) when the resolved in-worktree scope root exists with no Markdown files; it fails against the pre-fix `files.length === 0` → `null`.
+- [x] A `ready-finalize.test.ts` test asserts `resolveSpecScopeRoot` reports `insideWorktree: false` for the external directory above, and the `deriveGateAllowedPaths` allowset for that case contains no absolute or `..`-prefixed paths while still containing the run's diff/untracked paths; it fails against the pre-fix code, where the out-of-worktree branch is unreachable.
+- [x] A `ready-finalize.test.ts` test proves `deriveGateAllowedPaths` returns `undefined` when the resolved scope root does not exist, both for an in-worktree `specPath` and for an absolute out-of-worktree `specPath`; guards the missing-root branches against being loosened to fail-open.
+- [x] Existing `deriveGateAllowedPaths` cases in `v2/src/execution/ready-finalize.test.ts` and `v2/src/execution/write-loop.test.ts` stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

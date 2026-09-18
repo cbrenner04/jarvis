@@ -106,6 +106,59 @@ export function runSyncWithTimeout(
 }
 
 /**
+ * Live group-mode process groups owned by this process. A detached group is outside the owner's
+ * own process group, so when the owner dies (SIGTERM/SIGINT/SIGHUP or exit) mid-run, the group
+ * survives reparented to launchd/init and keeps spinning. While any group is live, owner-death
+ * hooks SIGKILL every tracked group. SIGKILL of the owner itself remains uncatchable.
+ */
+const liveProcessGroups = new Set<number>();
+const OWNER_DEATH_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+
+/** SIGKILLs every tracked live process group; exported for tests. */
+export function killLiveProcessGroups(): void {
+  for (const pgid of liveProcessGroups) {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // already gone (ESRCH) or not permitted (EPERM)
+    }
+  }
+  liveProcessGroups.clear();
+}
+
+/** Tracked live group ids; exported for tests. */
+export function liveProcessGroupIds(): number[] {
+  return [...liveProcessGroups];
+}
+
+function onOwnerSignal(signal: NodeJS.Signals): void {
+  killLiveProcessGroups();
+  uninstallOwnerDeathHooks();
+  // Sole listener: restore default disposition (terminate) instead of swallowing the signal.
+  if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+}
+
+function installOwnerDeathHooks(): void {
+  process.on("exit", killLiveProcessGroups);
+  for (const signal of OWNER_DEATH_SIGNALS) process.on(signal, onOwnerSignal);
+}
+
+function uninstallOwnerDeathHooks(): void {
+  process.off("exit", killLiveProcessGroups);
+  for (const signal of OWNER_DEATH_SIGNALS) process.off(signal, onOwnerSignal);
+}
+
+function trackLiveGroup(pgid: number): void {
+  if (liveProcessGroups.size === 0) installOwnerDeathHooks();
+  liveProcessGroups.add(pgid);
+}
+
+function untrackLiveGroup(pgid: number): void {
+  if (!liveProcessGroups.delete(pgid)) return;
+  if (liveProcessGroups.size === 0) uninstallOwnerDeathHooks();
+}
+
+/**
  * Group-mode `runAsync`: spawns detached (its own process group) so abort/timeout can signal
  * the whole group via `-pgid`, reaching grandchildren that `execFile`'s direct-child `kill()`
  * cannot. Kept separate from the default path below rather than folded into one `execFile`
@@ -138,7 +191,10 @@ function runGroupMode(
       ...(options.env !== undefined ? { env: options.env } : {}),
     });
 
-    if (child.pid !== undefined) options.processGroup?.onGroupId?.(child.pid);
+    if (child.pid !== undefined) {
+      trackLiveGroup(child.pid);
+      options.processGroup?.onGroupId?.(child.pid);
+    }
 
     child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
@@ -221,6 +277,7 @@ function runGroupMode(
     }
 
     const settle = () => {
+      if (child.pid !== undefined) untrackLiveGroup(child.pid);
       cleanupAbort();
       if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
     };

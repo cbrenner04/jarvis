@@ -14,6 +14,7 @@ import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   DEFAULT_SUBPROCESS_TIMEOUT_MS,
+  liveProcessGroupIds,
   NETWORK_SUBPROCESS_TIMEOUT_MS,
   networkSubprocessOptions,
   nonInteractiveNetworkEnv,
@@ -712,5 +713,58 @@ describe("runAsync default timeout", () => {
     expect(options.timeoutMs).toBe(NETWORK_SUBPROCESS_TIMEOUT_MS);
     expect(options.env).toMatchObject({ KEEP: "1", GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" });
     expect(nonInteractiveNetworkEnv({})).toEqual({ GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" });
+  });
+});
+
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+describe("group-mode owner death", () => {
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    test(`${signal} to the owner kills its live process groups`, async () => {
+      const modulePath = new URL("./subprocess.ts", import.meta.url).pathname;
+      const script = `const { realAsyncSubprocessRunner } = await import(${JSON.stringify(modulePath)});
+realAsyncSubprocessRunner.runAsync("sleep", ["60"], process.cwd(), {
+  timeoutMs: 60_000,
+  processGroup: { onGroupId: (pgid) => console.log("PGID " + pgid) },
+}).catch(() => {});`;
+      const owner = Bun.spawn(["bun", "-e", script], { stdout: "pipe", stderr: "ignore" });
+      const reader = owner.stdout.getReader();
+      let text = "";
+      while (!/PGID \d+\n/.test(text)) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += new TextDecoder().decode(value);
+      }
+      const pgid = Number(/PGID (\d+)/.exec(text)?.[1]);
+      expect(pgid).toBeGreaterThan(0);
+      try {
+        expect(groupAlive(pgid)).toBe(true);
+        owner.kill(signal);
+        await owner.exited;
+        expect(owner.signalCode).toBe(signal);
+        expect(owner.exitCode).not.toBe(0);
+        const deadline = Date.now() + 2_000;
+        while (groupAlive(pgid) && Date.now() < deadline) await Bun.sleep(20);
+        expect(groupAlive(pgid)).toBe(false);
+      } finally {
+        try {
+          process.kill(-pgid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    });
+  }
+
+  test("settled groups are untracked", async () => {
+    await realAsyncSubprocessRunner.runAsync("true", [], process.cwd(), { processGroup: {} });
+    expect(liveProcessGroupIds()).toEqual([]);
   });
 });

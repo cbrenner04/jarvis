@@ -823,7 +823,10 @@ describe("daemon handoff changeover (real sockets)", () => {
   socketTest(
     "a committed handoff reclaims the leftover socket and rebinds after a real successor process is killed",
     async () => {
-      const incumbent = await startIncumbent("killed-committed-successor", { fallbackMs: 200 });
+      // fallbackMs is generous (well past real `bun` subprocess spawn+bind time) because it also
+      // arms the pre-commit fallback timer: a tight cadence here raced the successor's real spawn,
+      // firing the fallback's own "nothing answers yet" rollback before `handoff_commit` ran.
+      const incumbent = await startIncumbent("killed-committed-successor", { fallbackMs: 3_000 });
       const successorScript = silentSuccessorScript();
       let successorProc: ReturnType<typeof spawn> | undefined;
       try {
@@ -843,7 +846,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         if (successorPid === undefined) throw new Error("successor did not spawn");
         process.kill(successorPid, "SIGKILL");
 
-        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 5_000)).toBe(true);
+        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 8_000)).toBe(true);
         expect(incumbent.exitCodes).toEqual([]);
         await startWork(incumbent.publicSocketPath, "admitted-after-killed-committed-successor");
       } finally {
@@ -858,7 +861,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         await incumbent.close();
       }
     },
-    20_000,
+    25_000,
   );
 
   socketTest(

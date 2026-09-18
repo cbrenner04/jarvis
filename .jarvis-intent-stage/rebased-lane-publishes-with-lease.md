@@ -12,7 +12,7 @@ Unsplit rationale: the fix is one publication-push behavior in the completion pu
 
 ## Problem
 
-# 4014 rebases a non-descendant lane on incomplete re-dispatch, rewriting its SHAs. `completion-publisher.ts:136` pushes `HEAD:refs/heads/<branch>` without a lease, so an already-pushed lane (open-PR case) is rejected non-fast-forward; `publication-retry.ts:45` classifies that permanent. The run spends a full implement then dies at publication with commits only local. No test covers push-after-rebase
+`#4014` rebases a non-descendant lane on incomplete re-dispatch, rewriting its SHAs. `completion-publisher.ts:136` pushes `HEAD:refs/heads/<branch>` without a lease, so an already-pushed lane (open-PR case) is rejected non-fast-forward; `publication-retry.ts:45` classifies that permanent. The run spends a full implement then dies at publication with commits only local. No test covers push-after-rebase
 
 ## Decisions
 

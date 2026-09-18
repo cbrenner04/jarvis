@@ -1401,6 +1401,13 @@ describe("createCompletionPublisher lease-forced push", () => {
     return "";
   };
   const roots: string[] = [];
+  const laneInput = (worktreePath: string) => ({
+    worktreePath,
+    baseRef: "main",
+    specPath: "v2/spec/x/index.md",
+    branch,
+    creationTitle: "t",
+  });
 
   afterEach(() => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -1470,8 +1477,7 @@ describe("createCompletionPublisher lease-forced push", () => {
       delay: noopDelay,
       ...refreshSeams,
     });
-    const publish = () =>
-      publisher({ worktreePath: lane, baseRef: "main", specPath: "v2/spec/x/index.md", branch, creationTitle: "t" });
+    const publish = () => publisher(laneInput(lane));
     return { publish, pushes };
   }
 
@@ -1548,9 +1554,7 @@ describe("createCompletionPublisher lease-forced push", () => {
       ...refreshSeams,
     });
 
-    await expect(
-      publisher({ worktreePath: "/w", baseRef: "main", specPath: "v2/spec/x/index.md", branch, creationTitle: "t" }),
-    ).rejects.toThrow(ForeignRemoteTipError);
+    await expect(publisher(laneInput("/w"))).rejects.toThrow(ForeignRemoteTipError);
     expect(pushes).toEqual([]);
   });
 
@@ -1605,13 +1609,7 @@ describe("createCompletionPublisher lease-forced push", () => {
       ...refreshSeams,
     });
 
-    const error = await publisher({
-      worktreePath: "/w",
-      baseRef: "main",
-      specPath: "v2/spec/x/index.md",
-      branch,
-      creationTitle: "t",
-    }).then(
+    const error = await publisher(laneInput("/w")).then(
       () => undefined,
       (caught: unknown) => caught,
     );

@@ -2,7 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { READY_STEP_COMPLETION_MARKER, readyStepCompletionRecord } from "../../../scripts/ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../scripts/run-v2-tests.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -27,6 +27,7 @@ import {
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   readyGateSubprocessTimeoutMs,
+  resolveSpecScopeRoot,
   SurvivingMutationError,
   selectTerminalFailingPaths,
   validateRepoRelativePath,
@@ -240,6 +241,69 @@ const allowedSeams: ReadyGateScopeSeams = {
 export const baseRefProbeFailsSeam: ReadyGateScopeSeams = {
   reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
 };
+
+function initRepoWithChange(): { root: string; baseRef: string } {
+  const root = trackedMkdtempSync(join(tmpdir(), "gate-scope-"));
+  writeFileSync(join(root, "proof.txt"), "ok\n");
+  execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
+  execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "config", "user.name", "Test User"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "commit", "-m", "seed"], { stdio: "pipe" });
+  const baseRef = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8", stdio: "pipe" }).trim();
+  writeFileSync(join(root, "changed.ts"), "export {}\n");
+  execFileSync("git", ["-C", root, "add", "changed.ts"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "commit", "-m", "iteration"], { stdio: "pipe" });
+  return { root, baseRef };
+}
+
+describe("gate allowset spec scope roots", () => {
+  const withUntracked: ReadyGateScopeSeams = { gitUntracked: async () => "untracked.txt\0" };
+
+  it("derives an allowset without spec paths for an existing external spec dir", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    const external = trackedMkdtempSync(join(tmpdir(), "gate-external-spec-"));
+    writeFileSync(join(external, "index.md"), "# index\n");
+    writeFileSync(join(external, "01-task.md"), "# task\n");
+
+    expect(resolveSpecScopeRoot(root, external)?.insideWorktree).toBe(false);
+    expect(resolveSpecScopeRoot(root, join(external, "01-task.md"))?.insideWorktree).toBe(false);
+    expect(resolveSpecScopeRoot(root, "v2/spec/demo/index.md")?.insideWorktree).toBe(true);
+    const allowed = await deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath: external }, withUntracked);
+    expect(allowed).toBeDefined();
+    expect(allowed?.has("changed.ts")).toBe(true);
+    expect(allowed?.has("untracked.txt")).toBe(true);
+    for (const path of allowed ?? []) {
+      expect(isAbsolute(path)).toBe(false);
+      expect(path.startsWith("..")).toBe(false);
+    }
+  });
+
+  it("derives an allowset for an existing in-worktree spec dir with no Markdown", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    mkdirSync(join(root, "v2", "spec", "empty"), { recursive: true });
+
+    const allowed = await deriveGateAllowedPaths(
+      { worktreePath: root, baseRef, specPath: "v2/spec/empty" },
+      withUntracked,
+    );
+    expect(allowed?.has("changed.ts")).toBe(true);
+    expect([...(allowed ?? [])].some((path) => path.startsWith("v2/spec/"))).toBe(false);
+  });
+
+  it("stays undefined when the resolved scope root does not exist", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    const externalParent = trackedMkdtempSync(join(tmpdir(), "gate-external-missing-"));
+    const specPaths = [
+      "v2/spec/missing/index.md",
+      join(externalParent, "missing"),
+      join(externalParent, "missing", "index.md"),
+    ];
+    for (const specPath of specPaths) {
+      expect(await deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath }, withUntracked)).toBeUndefined();
+    }
+  });
+});
 
 describe("ready gate untouched-path classification", () => {
   it("includes sibling spec-tree markdown when specPath routes a direct subspec file", async () => {

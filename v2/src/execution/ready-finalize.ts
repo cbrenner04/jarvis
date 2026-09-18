@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
 import {
   DEADLINE_KILL_MARKER,
@@ -788,35 +788,45 @@ export function parseGitNameStatusZ(output: string): string[] | undefined {
   return paths;
 }
 
-function resolveSpecScopeRoot(worktreePath: string, specPath: string): string | null {
+/** Resolve the spec scope root and whether it lies inside the worktree (lexical, no `realpath`). */
+export function resolveSpecScopeRoot(
+  worktreePath: string,
+  specPath: string,
+): { root: string; insideWorktree: boolean } | null {
   const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+  let root: string | null = null;
   try {
     if (statSync(resolvedSpecPath).isDirectory()) {
-      return resolvedSpecPath;
+      root = resolvedSpecPath;
     }
   } catch {
     // fall through to file-based resolution
   }
-  if (basename(resolvedSpecPath).endsWith(".md")) {
-    return dirname(resolvedSpecPath);
+  if (root === null && basename(resolvedSpecPath).endsWith(".md")) {
+    root = dirname(resolvedSpecPath);
   }
-  return null;
+  if (root === null) {
+    return null;
+  }
+  const rel = relative(worktreePath, root);
+  const insideWorktree = rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  return { root, insideWorktree };
 }
 
 function enumerateSpecTreePaths(worktreePath: string, specPath: string): string[] | null {
-  const scopeRoot = resolveSpecScopeRoot(worktreePath, specPath);
-  if (scopeRoot === null) {
+  const scope = resolveSpecScopeRoot(worktreePath, specPath);
+  if (scope === null) {
     const normalized = normalizePublicationSpecPath(worktreePath, specPath);
     const validated = validateRepoRelativePath(normalized);
     return validated === undefined ? null : [validated];
   }
-  if (!existsSync(scopeRoot)) {
+  if (!existsSync(scope.root)) {
     return null;
   }
-  const files = listMarkdownFilesRecursive(scopeRoot);
-  if (files.length === 0) {
-    return null;
+  if (!scope.insideWorktree) {
+    return [];
   }
+  const files = listMarkdownFilesRecursive(scope.root);
   const paths: string[] = [];
   for (const file of files) {
     const rel = relative(worktreePath, file).replace(/\\/g, "/");

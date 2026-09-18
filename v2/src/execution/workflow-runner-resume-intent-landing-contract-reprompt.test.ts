@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogEvent } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
@@ -87,7 +88,7 @@ function seedReviewRow(
 
 describe("intent finalization resume landing-contract reprompt", () => {
   test("prose Prerequisites refusal reprompts the agent via write.landing-contract-reprompt instead of settling landing_failed on first failure", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-landing-reprompt-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-landing-reprompt-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "bad-intent.md"), PROSE_PREREQUISITES_INTENT, "utf8");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -136,7 +137,7 @@ describe("intent finalization resume landing-contract reprompt", () => {
   });
 
   test("forwards the injected lint runner to the landing gate instead of falling back to the default spawn", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-landing-runner-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-landing-runner-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "bad-intent.md"), PROSE_PREREQUISITES_INTENT, "utf8");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -187,7 +188,7 @@ describe("intent finalization resume landing-contract reprompt", () => {
   });
 
   test("a non-repromptable landing error (rogue path) still settles landing_failed without a reprompt", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-landing-rogue-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-landing-rogue-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "good-intent.md"), FIXED_PREREQUISITES_INTENT, "utf8");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -225,7 +226,7 @@ describe("intent finalization resume landing-contract reprompt", () => {
   });
 
   test("an unfixed repromptable refusal settles landing_failed only after the write step's maxIterations reprompts are spent", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-landing-exhaust-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-landing-exhaust-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "bad-intent.md"), PROSE_PREREQUISITES_INTENT, "utf8");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
@@ -311,7 +312,7 @@ describe("review step initial deferred intent landing reprompt", () => {
   }
 
   test("prose Prerequisites reprompts the actuator with write.landing-contract-reprompt, then lands the fixed file", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-initial-landing-reprompt-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-initial-landing-reprompt-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "bad-intent.md"), PROSE_PREREQUISITES_INTENT, "utf8");
 
@@ -358,7 +359,7 @@ describe("review step initial deferred intent landing reprompt", () => {
   });
 
   test("an unfixed repromptable refusal settles the landing failure once the reprompt budget is spent", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-initial-landing-exhaust-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-initial-landing-exhaust-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "bad-intent.md"), PROSE_PREREQUISITES_INTENT, "utf8");
 
@@ -399,7 +400,7 @@ describe("review step initial deferred intent landing reprompt", () => {
   });
 
   test("a rogue path skips the reprompt and settles through the real landing failure", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-initial-landing-rogue-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-initial-landing-rogue-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeFileSync(join(workspace, ".jarvis-intent-stage", "good-intent.md"), FIXED_PREREQUISITES_INTENT, "utf8");
     writeFileSync(join(workspace, "stray.txt"), "unrelated change\n", "utf8");

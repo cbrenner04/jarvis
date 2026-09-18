@@ -2,9 +2,10 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, linkSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import type { IpcFrame, ResponseFrame } from "../ipc/types";
@@ -132,7 +133,7 @@ async function startIncumbent(
     bind?: (socketPath: string, handlers?: Record<string, RpcHandler>) => Promise<IpcServer>;
   } = {},
 ): Promise<RuntimeHarness> {
-  const root = mkdtempSync(join(tmpdir(), `jarvis-handoff-${name}-`));
+  const root = trackedMkdtempSync(join(tmpdir(), `jarvis-handoff-${name}-`));
   const publicSocketPath = join(root, "daemon.sock");
   const privateSocketPath = join(root, "daemon-incumbent.sock");
   const store = openStateStore(join(root, "state.sqlite"));
@@ -202,7 +203,7 @@ async function startWork(socketPath: string, projectName: string): Promise<strin
 
 /** A successor that binds `--socket` but never answers, so `startDaemon` times out and kills it. */
 function silentSuccessorScript(): { path: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-silent-successor-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-silent-successor-"));
   const path = join(dir, "silent-successor.ts");
   writeFileSync(
     path,

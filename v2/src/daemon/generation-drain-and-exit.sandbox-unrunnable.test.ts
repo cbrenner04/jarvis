@@ -1,9 +1,10 @@
 // Real-socket coverage for outgoing-generation drain observation and self-exit.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
@@ -109,7 +110,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
   socketTest(
     "upgrading while project A's run is in flight leaves project B's in-flight run uninterrupted and steerable to its normal outcome",
     async () => {
-      const tempHome = mkdtempSync(join(tmpdir(), "jarvis-drain-multi-project-"));
+      const tempHome = trackedMkdtempSync(join(tmpdir(), "jarvis-drain-multi-project-"));
       const originalJarvisHome = process.env.JARVIS_HOME;
       const publicSocketPath = join(tempHome, "daemon.sock");
       const incumbentPrivate = join(tempHome, "daemon-incumbent-test.sock");
@@ -206,7 +207,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
   socketTest(
     "an outgoing generation exits once its last admitted run settles, leaving no public socket file or PID ownership behind",
     async () => {
-      const tempHome = mkdtempSync(join(tmpdir(), "jarvis-drain-exit-"));
+      const tempHome = trackedMkdtempSync(join(tmpdir(), "jarvis-drain-exit-"));
       const originalJarvisHome = process.env.JARVIS_HOME;
       const publicSocketPath = join(tempHome, "daemon.sock");
       const outgoingPrivate = join(tempHome, "daemon-outgoing-test.sock");

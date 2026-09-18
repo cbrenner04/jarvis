@@ -10,12 +10,13 @@
 // unaffected; tests asserting "binary not found" use a bare name we do not stub
 // (e.g. "fake"), so they still get ENOENT.
 
-import { mock, setDefaultTimeout } from "bun:test";
+import { afterAll, mock, setDefaultTimeout } from "bun:test";
 import * as childProcess from "node:child_process";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { diffRealHomeSnapshots, shouldGuardRealHome, snapshotRealHome } from "../scripts/real-home-guard.ts";
+import { removeTrackedTempDirs, trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 
 // Enforce the per-test timeout. bun 1.3.x ignores `[test] timeout` in
 // bunfig.toml (only `--timeout` is honored), so without this the suite falls
@@ -32,7 +33,11 @@ function setEnv(key: string, value: string): void {
   Bun.env[key] = value;
 }
 
-const binDir = mkdtempSync(join(tmpdir(), "jarvis-test-fake-agents-"));
+// bun test never emits process "exit", so the tracked-dir exit hook cannot fire here: a preload
+// `afterAll` runs once after the process's last test file and removes every tracked test temp dir.
+afterAll(removeTrackedTempDirs);
+
+const binDir = trackedMkdtempSync(join(tmpdir(), "jarvis-test-fake-agents-"));
 
 // Guard against a test bypassing JARVIS_HOME isolation (e.g. via a bare homedir() join) and
 // writing the operator's real ~/.jarvis anyway. Snapshot the real home before isolating
@@ -61,7 +66,7 @@ process.on("exit", () => {
 
 // Isolate the jarvis home: without this the suite writes fixture rows into the operator's real
 // ~/.jarvis. Must precede any import that reads it.
-process.env.JARVIS_HOME = mkdtempSync(join(tmpdir(), "jarvis-test-home-"));
+process.env.JARVIS_HOME = trackedMkdtempSync(join(tmpdir(), "jarvis-test-home-"));
 for (const name of ["claude", "codex", "cursor", "opencode"]) {
   const bin = join(binDir, name);
   writeFileSync(bin, "#!/usr/bin/env bash\nexit 0\n");

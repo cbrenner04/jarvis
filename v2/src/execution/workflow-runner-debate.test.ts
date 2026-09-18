@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { type LogEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
@@ -271,7 +272,7 @@ describe("executeWorkflow review-debate dispatch", () => {
   }
 
   test("settles post-review finalization failure without invocation_failure when all roles succeeded", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-debate-landing-detail-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-debate-landing-detail-"));
     const stage = join(workspace, ".jarvis-intent-stage");
     mkdirSync(stage, { recursive: true });
     writeFileSync(join(stage, "example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");
@@ -295,7 +296,7 @@ describe("executeWorkflow review-debate dispatch", () => {
   });
 
   test("settles workflow-tail finalization failure without invocation_failure when all roles succeeded", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-tail-failure-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-tail-failure-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const stagingDir = join(workspace, ".jarvis-intent-stage");
     const durableDir = join(workspace, "ready-intents");
@@ -364,7 +365,7 @@ describe("executeWorkflow review-debate dispatch", () => {
 
 describe("executeWorkflow linked implement routing", () => {
   test("throws a typed error when the routing index cannot be read", async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-unreadable-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "linked-routing-unreadable-"));
     roots.push(projectRoot);
     const step = createStep({
       stepId: "implement",
@@ -388,7 +389,7 @@ describe("executeWorkflow linked implement routing", () => {
   });
 
   test("reads index from project root when worktree is absent and advances checkbox in worktree only", async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-project-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "linked-routing-project-"));
     roots.push(projectRoot);
     const specDir = join(projectRoot, "spec");
     mkdirSync(specDir, { recursive: true });
@@ -448,7 +449,7 @@ describe("executeWorkflow linked implement routing", () => {
   });
 
   test("a linked implement terminal link settles completed when shrink runs after it", async () => {
-    const specDir = mkdtempSync(join(tmpdir(), "linked-terminal-shrink-"));
+    const specDir = trackedMkdtempSync(join(tmpdir(), "linked-terminal-shrink-"));
     roots.push(specDir);
     writeFileSync(join(specDir, "index.md"), "- [ ] [Sub](./sub.md)\n", "utf8");
     writeFileSync(join(specDir, "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
@@ -502,7 +503,7 @@ describe("executeWorkflow linked implement routing", () => {
     // The write loop settles a workflow write step's row before the publication tail runs, so a
     // linked-implement finalizer converting the outcome afterwards used to leave a durable
     // `completed` row with no commit tail, no PR and no diagnostic anywhere.
-    const planWorktree = mkdtempSync(join(tmpdir(), "unticked-link-plan-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "unticked-link-plan-"));
     roots.push(planWorktree);
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
@@ -586,7 +587,7 @@ describe("executeWorkflow linked implement routing", () => {
   test("settles the step row and logs when a linked implement pass ends blocked on a mutated index", async () => {
     // The write step itself must not touch the index's routing checkboxes — only
     // `completeLinkedSubspec` may advance them, after validating the completed link.
-    const planWorktree = mkdtempSync(join(tmpdir(), "mutated-index-plan-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "mutated-index-plan-"));
     roots.push(planWorktree);
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
@@ -677,7 +678,7 @@ describe("executeWorkflow linked implement routing", () => {
     // The malignant half of the routing-failure path: the link ran, its row is `completed`, and
     // only then does pinned-link resolution fail. Minting a fresh run id here would orphan the
     // outcome and leave that row `completed` with no publication — the same lie, one branch over.
-    const planWorktree = mkdtempSync(join(tmpdir(), "post-complete-routing-plan-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "post-complete-routing-plan-"));
     roots.push(planWorktree);
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
@@ -767,7 +768,7 @@ describe("executeWorkflow linked implement routing", () => {
   test("returns a routing failure whose run id was never persisted without throwing", async () => {
     // `linkedImplementRoutingFailureOutcome` mints a crypto.randomUUID() that no row exists for.
     // Settling it must be skipped, not attempted, or the step loop throws instead of returning.
-    const planWorktree = mkdtempSync(join(tmpdir(), "phantom-run-plan-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "phantom-run-plan-"));
     roots.push(planWorktree);
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
@@ -823,7 +824,7 @@ describe("executeWorkflow linked implement routing", () => {
   });
 
   test("lands chained spec tree from specReadRoot into the implement worktree before the agent writes and reads back its criteria", async () => {
-    const planWorktree = mkdtempSync(join(tmpdir(), "chained-spec-landing-plan-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "chained-spec-landing-plan-"));
     roots.push(planWorktree);
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
@@ -895,7 +896,7 @@ describe("executeWorkflow linked implement routing", () => {
   });
 
   test("keeps chained routing and index ticks in the implement worktree", async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-spec-read-root-"));
+    const projectRoot = trackedMkdtempSync(join(tmpdir(), "linked-routing-spec-read-root-"));
     roots.push(projectRoot);
     const specDir = join(projectRoot, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
@@ -961,7 +962,7 @@ describe("executeWorkflow linked implement routing", () => {
   });
 
   test("missing chained spec refuses before a run row or agent invocation", async () => {
-    const source = mkdtempSync(join(tmpdir(), "chained-spec-missing-"));
+    const source = trackedMkdtempSync(join(tmpdir(), "chained-spec-missing-"));
     roots.push(source);
     const home = createJarvisHome();
     roots.push(home.jarvisRoot);
@@ -1002,7 +1003,7 @@ describe("executeWorkflow linked implement routing", () => {
   });
 
   test("terminal shrink labels an external spec tree from specReadRoot without granting it write access", async () => {
-    const specReadRoot = mkdtempSync(join(tmpdir(), "external-shrink-spec-"));
+    const specReadRoot = trackedMkdtempSync(join(tmpdir(), "external-shrink-spec-"));
     roots.push(specReadRoot);
     const indexPath = join(specReadRoot, "index.md");
     const subspecPath = join(specReadRoot, "00-work.md");

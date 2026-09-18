@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
@@ -9,6 +9,7 @@ import {
   planReviewProfile,
 } from "../../../shared/prompts/review-profile.ts";
 import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import type {
@@ -211,7 +212,7 @@ function createDebateStep(stepId: string, branch: string): ReviewDebateWorkflowS
     maxCycles: 1,
     agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
     agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
-    verdictPath: join(mkdtempSync(join(tmpdir(), "daemon-workflow-start-")), "verdict.md"),
+    verdictPath: join(trackedMkdtempSync(join(tmpdir(), "daemon-workflow-start-")), "verdict.md"),
   };
 }
 
@@ -483,7 +484,7 @@ test("JSON-round-tripped review profiles rehydrate renderers for every domain an
 
   for (const profile of profiles) {
     const prompts: string[] = [];
-    const cwd = mkdtempSync(join(tmpdir(), `daemon-review-${profile.domain}-`));
+    const cwd = trackedMkdtempSync(join(tmpdir(), `daemon-review-${profile.domain}-`));
     const bindingFactory = createReviewBindingFactory(prompts);
     const light: ReviewWorkflowStep = {
       behavior: "review",
@@ -978,7 +979,7 @@ test("a workflow that dies in durable review-debate marks its debate row failed 
 });
 
 test("second write-loop admission on a live handler resolves rungs from the edited machine profile", async () => {
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-workflow-profile-edit-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-profile-edit-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "workflow-admission-profile";
   const previousHome = process.env.JARVIS_HOME;

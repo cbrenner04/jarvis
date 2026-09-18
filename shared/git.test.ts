@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,6 +11,7 @@ import {
   isWorktreeDirty,
 } from "./git.ts";
 import type { AsyncSubprocessRunner, SubprocessRunner } from "./subprocess.ts";
+import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 
 /** Fake runner: resolves canned results by exact `cmd args` match, records argv+cwd. */
 function fakeRunner(
@@ -114,7 +115,7 @@ describe("getGitStatusInventory", () => {
   test("inventory expands nested untracked files", async () => {
     const scratchRoot = join(process.cwd(), ".scratch");
     mkdirSync(scratchRoot, { recursive: true });
-    const repo = mkdtempSync(join(scratchRoot, "git-inventory-"));
+    const repo = trackedMkdtempSync(join(scratchRoot, "git-inventory-"));
     fixtureRoots.push(repo);
     execSync("git init", { cwd: repo });
     mkdirSync(join(repo, "nested", "deeper"), { recursive: true });
@@ -179,7 +180,7 @@ describe("branchExistsOnOrigin", () => {
   });
 
   test("false when only a stale origin tracking ref remains", () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-git-stale-origin-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-git-stale-origin-"));
     fixtureRoots.push(root);
     const bare = join(root, "origin.git");
     const repo = join(root, "repo");

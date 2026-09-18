@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LoadError } from "./agent-model-config.ts";
 import {
   DEFAULT_SETTLE_DELAY_MS,
@@ -25,7 +26,7 @@ const VALID_MODELS = {
 const tempDirs: string[] = [];
 
 function machinesDirWithProfile(name: string, content: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-machines-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-machines-"));
   tempDirs.push(dir);
   writeFileSync(join(dir, `${name}.json`), content, "utf-8");
   return dir;

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { readBranchCommits, renderAttribution } from "./pr-attribution.ts";
 
 let dir: string;
@@ -38,7 +39,7 @@ function shortSha(ref: string): string {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "v2-render-attribution-"));
+  dir = trackedMkdtempSync(join(tmpdir(), "v2-render-attribution-"));
   gitInit();
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFile, execFileSync, execSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
 
@@ -17,7 +18,7 @@ const UNFORMATTED_TS = "const x=1;\n";
 const FORMATTED_TS = "const x = 1;\n";
 
 function setupWorktree(specPath?: string): { worktreePath: string; gitDir: string } {
-  const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-"));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-"));
   roots.push(worktreePath);
   const gitDir = join(worktreePath, ".git");
   mkdirSync(gitDir);
@@ -40,7 +41,7 @@ function initRealGitWorktreeAt(
   worktreePath: string;
   seedHead: string;
 } {
-  const worktreePath = mkdtempSync(join(tmpdir(), prefix));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), prefix));
   roots.push(worktreePath);
   execSync("git init -q", { cwd: worktreePath, stdio: "pipe" });
   execSync("git config user.email 'test@example.com'", { cwd: worktreePath, stdio: "pipe" });
@@ -299,7 +300,7 @@ describe("createCompletionCommitter", () => {
   });
 
   test("returns empty result when the worktree is not git-backed", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-"));
     roots.push(worktreePath);
     expect(existsSync(join(worktreePath, ".git"))).toBe(false);
 
@@ -406,7 +407,7 @@ describe("createCompletionCommitter", () => {
 
   test("strict restaging excludes external spec paths instead of changed code paths", async () => {
     const { worktreePath, gitDir } = setupWorktree();
-    const specReadRoot = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-external-spec-"));
+    const specReadRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-completion-external-spec-"));
     roots.push(specReadRoot);
     writeFileSync(join(specReadRoot, "index.md"), "# External spec\n");
     symlinkSync(join(specReadRoot, "index.md"), join(worktreePath, "external-index.md"));

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
@@ -21,7 +22,7 @@ import {
 } from "./machine-config-loader.ts";
 
 function writeRawConfig(text: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-config-test-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-config-test-"));
   const configPath = join(dir, "config.json");
   writeFileSync(configPath, text);
   return configPath;

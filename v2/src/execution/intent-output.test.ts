@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createCommittedGitFixtureTemplate } from "../testing/git-fixture-template.ts";
 import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { findIntentLandingRoguePaths, intentHandoffSpecPath, landIntentWorkflowOutput } from "./intent-output.ts";
@@ -264,7 +265,7 @@ describe("landIntentWorkflowOutput", () => {
   });
 
   test("lands output without git state", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
     stage(root);
     const result = await landIntentWorkflowOutput({
       worktreePath: root,
@@ -278,7 +279,7 @@ describe("landIntentWorkflowOutput", () => {
   });
 
   test("rejects rogue edits without git state", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-intent-output-no-git-"));
     stage(root);
     writeFileSync(join(root, "rogue"), "no\n", "utf8");
     await expect(

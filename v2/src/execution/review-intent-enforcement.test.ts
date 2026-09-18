@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { ReviewCycleInput } from "./review-cycle.ts";
 import {
   checkVerdictOwnershipBefore,
@@ -16,7 +17,7 @@ import {
 } from "./review-intent-enforcement.ts";
 
 function dir(): string {
-  return mkdtempSync(join(tmpdir(), "review-intent-enforcement-"));
+  return trackedMkdtempSync(join(tmpdir(), "review-intent-enforcement-"));
 }
 
 function mockGitStatusRunner(inventoryOutput: string): AsyncSubprocessRunner {

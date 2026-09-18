@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
@@ -50,7 +51,7 @@ describe("executeWorkflow review dispatch", () => {
       branch: "review-fallback",
       cwd: "/fake",
       prompt: "inspect",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
       maxCycles: 1,
       agents: { critic: ["claude", "codex"], actuator: ["claude", "codex"] },
       agentModelConfig: {
@@ -97,7 +98,7 @@ describe("executeWorkflow review dispatch", () => {
       branch: "review-failed",
       cwd: "/fake",
       prompt: "inspect",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
       maxCycles: 3,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
@@ -130,7 +131,7 @@ describe("executeWorkflow review dispatch", () => {
       branch,
       cwd: "/fake",
       prompt: "inspect",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
@@ -173,7 +174,7 @@ describe("executeWorkflow review dispatch", () => {
       branch: "review-no-log",
       cwd: "/fake",
       prompt: "inspect",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
@@ -201,7 +202,7 @@ describe("executeWorkflow review dispatch", () => {
       branch: "mixed-review",
       cwd: "/fake",
       prompt: "inspect",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
@@ -461,7 +462,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("write-last intent completion with N=1 clears stale downstreamInputs on the step-0 entry run", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "intent-clear-stale-downstream-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-clear-stale-downstream-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const branchName = "intent-clear-stale-downstream";
     const staleInputs = ["ready-intents/one.md", "ready-intents/two.md"];
@@ -597,7 +598,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("records intent finalization trace on success and when promotion stops short", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-trace-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-trace-"));
     stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const successStep = reviewedIntentStep(workspace, {
@@ -632,7 +633,7 @@ describe("executeWorkflow review dispatch", () => {
 
     // Short-circuit: durableDir already carries a conflicting file, so landing throws before
     // promotion and the trace records why.
-    const failWorkspace = mkdtempSync(join(tmpdir(), "reviewed-intent-trace-fail-"));
+    const failWorkspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-trace-fail-"));
     stageReviewedIntent(failWorkspace);
     const failDurableDir = join(failWorkspace, "ready-intents");
     mkdirSync(failDurableDir, { recursive: true });
@@ -674,7 +675,7 @@ describe("executeWorkflow review dispatch", () => {
     // `done` / `completed` when that happens — committing that boundary before landing leaves a
     // stray completed attempt in the run's history even though the run settles
     // `invocation_failure` with the stage still populated.
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-boundary-order-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-boundary-order-"));
     stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     mkdirSync(durableDir, { recursive: true });

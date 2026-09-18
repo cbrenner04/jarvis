@@ -918,6 +918,8 @@ describe("daemon handoff changeover (real sockets)", () => {
       let publicBinds = 0;
       let startDuringBind: string | undefined;
       let privateStartDuringBind: string | undefined;
+      // Fired only after both in-window starts are answered; the hook holds the bind open until then.
+      const windowObserved = abortableEvent();
       const incumbent = await startIncumbent(`admit-during-rebind-${settle === "rollback" ? "rb" : "cw"}`, {
         fallbackMs: settle === "rollback" ? 60_000 : 100,
         bind: async (path, handlers) => {
@@ -930,6 +932,7 @@ describe("daemon handoff changeover (real sockets)", () => {
               });
               startDuringBind = frame.kind === "response" ? "admitted" : JSON.stringify(frame);
               privateStartDuringBind = await privateStartOutcome(incumbent.privateSocketPath, "private-during-rebind");
+              windowObserved.fire();
             }
           }
           return server;
@@ -940,9 +943,11 @@ describe("daemon handoff changeover (real sockets)", () => {
         const handoffId = await beginChangeover(incumbent);
         const method = settle === "rollback" ? "handoff_rollback" : "handoff_commit";
         await request(incumbent.privateSocketPath, method, { handoffId });
-        expect(await pollUntil(() => startDuringBind !== undefined)).toBe(true);
-        expect(startDuringBind).toBe("admitted");
-        expect(privateStartDuringBind).toBe("daemon_superseded");
+        await windowObserved.promise;
+        expect({ startDuringBind, privateStartDuringBind }).toEqual({
+          startDuringBind: "admitted",
+          privateStartDuringBind: "daemon_superseded",
+        });
         expect(await privateStartOutcome(incumbent.privateSocketPath, "private-after-rebind")).toBe("admitted");
       } finally {
         await incumbent.close();

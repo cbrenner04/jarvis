@@ -76,15 +76,11 @@ afterEach(() => {
   testAbort.abort();
 });
 
-function abortReason(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error("test aborted");
-}
-
 /** Polls until the predicate holds; the per-test suite timeout is the only deadline. */
 async function pollUntil(predicate: () => boolean | Promise<boolean>): Promise<true> {
   const { signal } = testAbort;
   for (;;) {
-    if (signal.aborted) throw abortReason(signal);
+    if (signal.aborted) throw signal.reason;
     if (await predicate()) return true;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -96,8 +92,8 @@ function abortableEvent(): { promise: Promise<void>; fire: () => void } {
   let fire: () => void = () => undefined;
   const promise = new Promise<void>((resolve, reject) => {
     fire = resolve;
-    if (signal.aborted) reject(abortReason(signal));
-    else signal.addEventListener("abort", () => reject(abortReason(signal)), { once: true });
+    if (signal.aborted) reject(signal.reason);
+    else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   });
   return { promise, fire };
 }
@@ -204,21 +200,15 @@ async function startWork(socketPath: string, projectName: string): Promise<strin
 }
 
 /** The rebound address can answer `health` a beat before admission reopens: retry `start` until it is admitted. */
-async function startWorkOnceAdmitted(socketPath: string, projectName: string): Promise<string> {
-  let runId: string | undefined;
+async function startWorkOnceAdmitted(socketPath: string, projectName: string): Promise<void> {
   await pollUntil(async () => {
     const frame = await request(socketPath, "start", {
       input: mockWriteLoopInput({ projectName, branchName: `${projectName}-branch` }),
     });
-    if (frame.kind === "response") {
-      runId = ((frame as ResponseFrame).result as { runId: string }).runId;
-      return true;
-    }
+    if (frame.kind === "response") return true;
     if ((frame as { code?: string }).code === "daemon_superseded") return false;
     throw new Error(`start failed: ${JSON.stringify(frame)}`);
   });
-  if (runId === undefined) throw new Error("start was not admitted");
-  return runId;
 }
 
 /** A successor that binds `--socket` but never answers, so `startDaemon` times out and kills it. */

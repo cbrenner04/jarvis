@@ -6,7 +6,7 @@
 
 ## Decisions
 
-- Reuse the killing-test path's `baselineFor` / `killingTestBudgetMs` / `runMutatedKillingSet` mechanism for observer runs; no second timing policy or constant.
+- Reuse the killing-test path's `baselineFor` / `killingTestBudgetMs` / `runMutatedKillingSet` mechanism for observer runs; no second timing policy or constant. The `baselineFor` measurement is the clean-observer check (no second clean run); only the mutated call takes the baseline-derived `timeoutMs`.
 - A clean observer run past `KILLING_TEST_BUDGET_CEILING_MS` (or unmeasurable before the deadline) settles the prompt inconclusive and allows publication, matching `inconclusiveCandidateReason`; not `missing-render-coverage`, not `render-observer-timeout`.
 - `render-observer-timeout` is reported only when the mutated run times out under a budget derived from a measured baseline; a timing-only outcome must not settle `non_terminating_mutation_failed` / `nextAction: "resume"`.
 - Out of scope: observer map, `MAX_PROMPT_RENDER_VERIFICATIONS`, killing-test resolution.

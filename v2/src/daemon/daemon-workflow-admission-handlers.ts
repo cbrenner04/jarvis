@@ -100,7 +100,7 @@ function isSettledRunStatus(status: RunStatus): boolean {
 }
 
 /** Settled-marker cause for one workflow invocation. Killed wins: an aborted workflow also rejects into `.catch`. */
-export function resolveWorkflowInvocationSettledCause(
+function resolveWorkflowInvocationSettledCause(
   hasKilledRuns: boolean,
   workflowSettledFailed: boolean,
   timedOut: boolean,

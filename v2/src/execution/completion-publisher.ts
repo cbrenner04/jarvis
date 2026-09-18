@@ -10,6 +10,8 @@ import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
+  isTransientPublicationFailure,
+  normalizePublicationFailure,
   runPublicationWithRetry,
 } from "./publication-retry.ts";
 import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
@@ -102,6 +104,63 @@ function defaultCommand(
     .then((stdout) => stdout.trim());
 }
 
+/** Raised when the remote branch tip is neither an ancestor of HEAD nor this lane's own pre-rebase publish. */
+export class ForeignRemoteTipError extends Error {
+  constructor(branch: string, sha: string) {
+    super(`Remote branch ${branch} is at ${sha}, which this lane did not publish; refusing to push over it.`);
+    this.name = "ForeignRemoteTipError";
+  }
+}
+
+/** Raised when a lease-guarded push lost a race: the remote moved between observation and push. */
+export class LeaseRejectedError extends Error {
+  constructor(branch: string, expected: string, actual: string | undefined, cause: unknown) {
+    super(`Lease push of ${branch} rejected: expected remote ${expected}, actual ${actual ?? "unknown"}.`, { cause });
+    this.name = "LeaseRejectedError";
+  }
+}
+
+async function resolveRemoteTip(git: Git, cwd: string, branch: string): Promise<string | undefined> {
+  const out = await git(cwd, ["ls-remote", "origin", `refs/heads/${branch}`]);
+  return out.split(/\s+/)[0] || undefined;
+}
+
+async function isAncestor(git: Git, cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+  try {
+    await git(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Remote tip to lease against when a rebase rewrote this lane's own prior publish; undefined when a plain push suffices. */
+async function resolveLeaseTip(git: Git, cwd: string, branch: string): Promise<string | undefined> {
+  const tip = await resolveRemoteTip(git, cwd, branch);
+  if (tip === undefined || (await isAncestor(git, cwd, tip, "HEAD"))) return undefined;
+  const origHead = await git(cwd, ["rev-parse", "--verify", "ORIG_HEAD"]).catch(() => "");
+  if (origHead === "" || !(tip === origHead || (await isAncestor(git, cwd, tip, origHead)))) {
+    throw new ForeignRemoteTipError(branch, tip);
+  }
+  return tip;
+}
+
+async function pushBranch(git: Git, cwd: string, branch: string): Promise<void> {
+  const ref = `HEAD:refs/heads/${branch}`;
+  const leaseTip = await resolveLeaseTip(git, cwd, branch);
+  if (leaseTip === undefined) {
+    await git(cwd, ["push", "origin", ref]);
+    return;
+  }
+  try {
+    await git(cwd, ["push", `--force-with-lease=refs/heads/${branch}:${leaseTip}`, "origin", ref]);
+  } catch (error) {
+    if (isTransientPublicationFailure(normalizePublicationFailure("push", error))) throw error;
+    const actual = await resolveRemoteTip(git, cwd, branch).catch(() => undefined);
+    throw new LeaseRejectedError(branch, leaseTip, actual, error);
+  }
+}
+
 /** Publishes completion commit: push to origin and ensure open draft PR. Retryable on transient failures. */
 export function createCompletionPublisher(seams?: Partial<PublisherSeams>): CompletionPublisher {
   const delay = seams?.delay ?? defaultPublicationDelay;
@@ -133,7 +192,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       const pushSha = await runPublicationWithRetry(
         "push",
         async () => {
-          await git(input.worktreePath, ["push", "origin", `HEAD:refs/heads/${input.branch}`]);
+          await pushBranch(git, input.worktreePath, input.branch);
           return await git(input.worktreePath, ["rev-parse", "HEAD"]);
         },
         { delay, retryNotice },

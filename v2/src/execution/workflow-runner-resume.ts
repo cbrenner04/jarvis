@@ -808,16 +808,6 @@ async function commitRecoveredPlanLanding(
   }
 }
 
-/**
- * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
- * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
- * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
- * `.jarvis-plan-stage/`, admits it independently of `resumable`, validates the on-disk staged
- * tree, strips only a proven harness-authored blocker, then lands it directly via
- * {@link landReviewedPublicationOutput} — no review/actuator role runs between validation and
- * landing, so nothing can mutate the operator's correction — and, once landing completes,
- * commits the durable output via {@link commitRecoveredPlanLanding}.
- */
 /** Refuses `unrelated_plan_stage` when a live run still holds the worktree claim for this branch. */
 function refuseIfLiveWorktreeClaim(
   store: StateStore,
@@ -899,6 +889,16 @@ async function lintPlanRecoveryStage(
   }
 }
 
+/**
+ * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
+ * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
+ * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
+ * `.jarvis-plan-stage/`, admits it independently of `resumable`, validates the on-disk staged
+ * tree, strips only a proven harness-authored blocker, then lands it directly via
+ * {@link landReviewedPublicationOutput} — no review/actuator role runs between validation and
+ * landing, so nothing can mutate the operator's correction — and, once landing completes,
+ * commits the durable output via {@link commitRecoveredPlanLanding}.
+ */
 export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
   const store = request.stateStore;
   const run = store.loadRun(request.runId);

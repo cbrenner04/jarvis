@@ -4,6 +4,13 @@
 
 `recoverPlanStage` (`v2/src/execution/workflow-runner-resume.ts`) admits only `blocked` plan write rows (`isBlockedPlanWriteRecoveryCandidate`) and completed drafts with a failed review sibling. A `landing_failed` plan write row — settled by the write loop's exhausted staged-lint reprompt with the stage preserved, always with `runStatus: "failed"` (`write-loop.ts:1544-1853`) — is refused `unrelated_plan_stage`, so a hand-corrected staged tree cannot be re-landed.
 
+## Prerequisites
+
+- The decisions-ledger prompt guidance requires a Markdown bullet list — satisfied, landed in #4013.
+- The plan-draft normalizer bulletizes bare `## Decisions` lines before staged lint — satisfied, landed in #4017.
+
+Both fix the *trigger*; this lane is the recovery path for a row that already settled `landing_failed`.
+
 ## Decisions
 
 - Admit a plan write row whose last attempt outcome is `landing_failed` only when `.jarvis-plan-stage/` exists and contains at least one file; rules out admitting on outcome alone, which could land an empty spec.
@@ -13,12 +20,15 @@
 - A `landing_failed` row is not review-failed, so it takes the same blocker-provenance path as a `blocked` row (`resolvePlanBlockerProvenance`); the harness only writes a blocker for `contract_miss`, so any `## Blocker` found on a `landing_failed` row is operator-authored and refuses `operator_blocker` until removed — rules out skipping blocker provenance, which would silently land past an operator-left blocker.
 - `invocation_failure` with `failureKind: "landing"` is excluded: the plan write step's staged-lint failure path only ever settles `landing_failed`, never that invocation-failure/landing combination (which occurs only on the review-behavior row's separate publication-landing recovery path) — rules out widening admission to an outcome this row never produces.
 
+- A `landing_failed` row admitted through the widened predicate is checked for a live worktree claim before it lands, the same as the review-failed path. `admitPlanRecoveryBlockerAndClaim` runs `hasLivePlanRecoveryWorktreeClaim` only on the review-failed branch today; the blocked-write branch this row now travels does not. `landing_failed` is the one state where an operator plausibly reached for `pipeline resume` — which redrafts the same branch — before reaching for `recover`, so the two can race on one worktree. Rules out landing a hand-corrected tree underneath a live redraft.
+
 ## Acceptance criteria
 
 - [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts `recoverPlanStage` admits a `landing_failed` plan write row with a corrected staged tree and lands it; it fails against the pre-fix `unrelated_plan_stage` refusal.
 - [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row with no `.jarvis-plan-stage/` directory is refused `unrelated_plan_stage`.
 - [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row with an empty `.jarvis-plan-stage/` directory (exists, no files) is also refused `unrelated_plan_stage`.
 - [ ] A test in `v2/src/execution/workflow-runner-resume-recover-plan-stage.test.ts` asserts a `landing_failed` plan write row whose staged tree still fails staged lint is admitted but not landed.
+- [ ] A test asserts a `landing_failed` plan write row whose worktree is held by a live claim is refused rather than landed; it fails against the pre-fix blocked-write branch, which runs no claim check.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

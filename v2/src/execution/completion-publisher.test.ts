@@ -1619,4 +1619,36 @@ describe("createCompletionPublisher lease-forced push", () => {
     expect((error as Error).message).toContain("actual unknown");
     expect(pushes).toHaveLength(1);
   });
+
+  it("surfaces the original error when a lease push fails for a reason other than a lost lease", async () => {
+    const pushes: string[][] = [];
+    const denied = new Error("remote: Permission denied\nfatal: unable to access origin");
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "ls-remote") return `cafe1234\trefs/heads/${branch}`;
+        if (args[0] === "merge-base") {
+          if (args[3] === "HEAD") throw new Error("not ancestor");
+          return "";
+        }
+        if (args.includes("ORIG_HEAD")) return "cafe1234";
+        if (args[0] === "push") {
+          pushes.push([...args]);
+          throw denied;
+        }
+        return "";
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+
+    const error = await publisher(laneInput("/w")).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBe(denied);
+    expect(error).not.toBeInstanceOf(LeaseRejectedError);
+    expect(pushes).toHaveLength(1);
+  });
 });

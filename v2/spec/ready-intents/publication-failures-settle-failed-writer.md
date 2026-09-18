@@ -13,6 +13,6 @@ name: publication-failures-settle-failed-writer
 
 ## Documentation updates
 
-- `v2/docs/write-behavior.md` (reconcile `:85` with `:585/598`), `v2/docs/daemon-host.md:297` — one contract: publication failures settle `failed`.
+- `v2/docs/write-behavior.md` (reconcile `:85` with `:585/598`), `v2/docs/daemon-host.md:297`, `v2/docs/v1-behaviors.md` (`:598` flip-failure-stays-`completed`, `:271` `completion_commit_failed` resumable default) — one contract: publication failures settle `failed`.
 
 ## Prerequisites

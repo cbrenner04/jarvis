@@ -818,6 +818,16 @@ async function commitRecoveredPlanLanding(
  * landing, so nothing can mutate the operator's correction — and, once landing completes,
  * commits the durable output via {@link commitRecoveredPlanLanding}.
  */
+/** Refuses `unrelated_plan_stage` when a live run still holds the worktree claim for this branch. */
+function refuseIfLiveWorktreeClaim(
+  store: StateStore,
+  run: Run & { attempts: Attempt[] },
+  excludedRunIds: Set<string>,
+): PlanStageRecoveryOutcome | undefined {
+  if (!hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) return undefined;
+  return { ok: false, code: "unrelated_plan_stage", message: "a live run holds the worktree claim for this branch" };
+}
+
 /** Admission-time blocker/claim checks for the two plan-recovery paths; returns a refusal outcome or `undefined` to proceed. */
 function admitPlanRecoveryBlockerAndClaim(
   run: Run & { attempts: Attempt[] },
@@ -834,15 +844,7 @@ function admitPlanRecoveryBlockerAndClaim(
     if (hasStagedPlanOperatorBlocker(run.worktreePath)) {
       return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
     }
-    const excludedRunIds = new Set([run.id, evidenceReview.id]);
-    if (hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) {
-      return {
-        ok: false,
-        code: "unrelated_plan_stage",
-        message: "a live run holds the worktree claim for this branch",
-      };
-    }
-    return undefined;
+    return refuseIfLiveWorktreeClaim(store, run, new Set([run.id, evidenceReview.id]));
   }
   const lastAttempt = run.attempts.at(-1);
   const outcomeKind = lastAttempt?.outcomeKind ?? null;
@@ -853,16 +855,7 @@ function admitPlanRecoveryBlockerAndClaim(
   // landing_failed is the one blocked-write state an operator plausibly already resumed (which
   // redrafts the same branch) before reaching for recover; check the claim only here, not for
   // ordinary contract_miss/blocked rows, which never race a redraft this way.
-  if (
-    outcomeKind === "landing_failed" &&
-    hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, new Set([run.id]))
-  ) {
-    return {
-      ok: false,
-      code: "unrelated_plan_stage",
-      message: "a live run holds the worktree claim for this branch",
-    };
-  }
+  if (outcomeKind === "landing_failed") return refuseIfLiveWorktreeClaim(store, run, new Set([run.id]));
   return undefined;
 }
 

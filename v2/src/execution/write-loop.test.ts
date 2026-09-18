@@ -5724,6 +5724,7 @@ export function isLoadSensitive(file: string): boolean {
         lintMdOnly?: boolean;
         onGateFailure?: (cwd: string) => void;
         runFixCommand?: WriteLoopInput["runFixCommand"];
+        runAutofixTypecheck?: WriteLoopInput["runAutofixTypecheck"];
       }) {
         const artifactPath = args.expectedArtifactPath ?? "proof.txt";
         const specPath = args.specPath ?? "spec.md";
@@ -5760,6 +5761,7 @@ export function isLoadSensitive(file: string): boolean {
             return {};
           },
           runFixCommand: args.runFixCommand ?? (async () => {}),
+          ...(args.runAutofixTypecheck !== undefined ? { runAutofixTypecheck: args.runAutofixTypecheck } : {}),
           readyFinalizer: async ({ worktreePath: cwd }) => {
             gateCalls += 1;
             if (invocations === 1) {
@@ -6156,6 +6158,72 @@ export function isLoadSensitive(file: string): boolean {
             writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "operator\n", "utf8");
           });
           expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("operator\n");
+        });
+
+        const operatorBinary = Buffer.from([0xff, 0xfe, 0x00, 0x41]);
+
+        test("a pre-existing dirty binary survives byte-for-byte through autofix discard and a refused repair", async () => {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const branchName = "repair-fence-operator-binary";
+          const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+          const fenced = await runRepairFenceLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            onGateFailure: (cwd) => writeFileSync(join(cwd, "operator.bin"), operatorBinary),
+            runFixCommand: async ({ cwd }) => writeFileSync(join(cwd, "autofix-junk.ts"), "junk\n", "utf8"),
+            runAutofixTypecheck: async () => ({ exitCode: 1, output: "typecheck failed" }),
+            repairEdit: touchUntouchedRepairEdit,
+          });
+          expect(fenced.result.kind).toBe("completion_commit_failed");
+          expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+          expect(readFileSync(join(worktreePath, "operator.bin")).equals(operatorBinary)).toBe(true);
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        });
+
+        test("a refused repair edit to a binary file is detected and reverted", async () => {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const branchName = "repair-fence-binary-edit";
+          const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+          const fenced = await runRepairFenceLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            onGateFailure: (cwd) => writeFileSync(join(cwd, "operator.bin"), operatorBinary),
+            runFixCommand: async ({ cwd }) =>
+              writeFileSync(join(cwd, "operator.bin"), Buffer.from([0xff, 0xfd, 0x00, 0x41])),
+            repairEdit: () => {},
+          });
+          expect(fenced.result.kind).toBe("completion_commit_failed");
+          expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+          expect(readFileSync(join(worktreePath, "operator.bin")).equals(operatorBinary)).toBe(true);
+        });
+
+        test("an operator hand-fix made before resume survives the resumed attempt", async () => {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const branchName = "repair-fence-resume-hand-fix";
+          const { baseRef, worktreePath, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+          const reopened = openStateStore(stateDbPath);
+          reopened.setRunStatus(first.result.runId, "completed");
+          reopened.close();
+          writeFileSync(join(worktreePath, "README.md"), "operator hand-fix\n", "utf8");
+          writeFileSync(join(worktreePath, "operator.bin"), operatorBinary);
+
+          const retry = await runLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            bindings: [],
+            completionCommitter: createCompletionCommitter(),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          });
+          expect(retry.runId).toBe(first.result.runId);
+          expect(readFileSync(join(worktreePath, "README.md"), "utf8")).toBe("operator hand-fix\n");
+          expect(readFileSync(join(worktreePath, "operator.bin")).equals(operatorBinary)).toBe(true);
         });
       });
 

@@ -1102,7 +1102,7 @@ function repairChangedPaths(worktreePath: string, baseline: AutofixBaseline, pat
     const fullPath = join(worktreePath, path);
     const prior = baseline.contents.get(path);
     if (prior !== undefined) {
-      return !existsSync(fullPath) || readFileSync(fullPath, "utf8") !== prior;
+      return !existsSync(fullPath) || !readFileSync(fullPath).equals(prior);
     }
     if (baseline.absent.has(path)) {
       return existsSync(fullPath);
@@ -1126,7 +1126,7 @@ async function revertRefusedRepairPaths(
       const prior = baseline.contents.get(path);
       if (prior !== undefined) {
         mkdirSync(dirname(fullPath), { recursive: true });
-        writeFileSync(fullPath, prior, "utf8");
+        writeFileSync(fullPath, prior);
         continue;
       }
       if (baseline.absent.has(path)) {
@@ -3875,14 +3875,14 @@ type AutofixTypecheckResult = {
 };
 
 type AutofixBaseline = {
-  contents: Map<string, string>;
+  contents: Map<string, Buffer>;
   /** Uncommitted paths absent on disk at snapshot (pre-existing deletions). */
   absent: Set<string>;
   useGit: boolean;
 };
 
-function listWorktreeFiles(worktreePath: string): Map<string, string> {
-  const files = new Map<string, string>();
+function listWorktreeFiles(worktreePath: string): Map<string, Buffer> {
+  const files = new Map<string, Buffer>();
   function walk(relDir: string): void {
     const absDir = join(worktreePath, relDir);
     for (const entry of readdirSync(absDir)) {
@@ -3894,7 +3894,7 @@ function listWorktreeFiles(worktreePath: string): Map<string, string> {
       if (statSync(abs).isDirectory()) {
         walk(rel);
       } else {
-        files.set(rel, readFileSync(abs, "utf8"));
+        files.set(rel, readFileSync(abs));
       }
     }
   }
@@ -3907,13 +3907,13 @@ function listWorktreeFiles(worktreePath: string): Map<string, string> {
 
 async function snapshotAutofixBaseline(worktreePath: string): Promise<AutofixBaseline> {
   const useGit = await shouldEnforceReadyGateRepairFence(worktreePath);
-  const contents = new Map<string, string>();
+  const contents = new Map<string, Buffer>();
   const absent = new Set<string>();
   if (useGit) {
     for (const path of await getUncommittedPaths(worktreePath)) {
       const fullPath = join(worktreePath, path);
       if (existsSync(fullPath)) {
-        contents.set(path, readFileSync(fullPath, "utf8"));
+        contents.set(path, readFileSync(fullPath));
       } else {
         absent.add(path);
       }
@@ -3936,7 +3936,7 @@ async function revertAutofixEdits(worktreePath: string, baseline: AutofixBaselin
     const prior = baseline.contents.get(path);
     if (prior !== undefined) {
       mkdirSync(dirname(fullPath), { recursive: true });
-      writeFileSync(fullPath, prior, "utf8");
+      writeFileSync(fullPath, prior);
       continue;
     }
     if (baseline.useGit) {

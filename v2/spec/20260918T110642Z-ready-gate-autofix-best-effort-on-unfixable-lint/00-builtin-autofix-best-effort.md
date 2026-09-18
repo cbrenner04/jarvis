@@ -4,13 +4,13 @@
 
 ## Decisions
 
-- Discriminate on `AsyncSubprocessError`: defined numeric `status` → best-effort pass (return normally, no throw); `code === "ETIMEDOUT"` or `status === undefined` → throw `FixCommandError` as today. The invocation is `bun biome check --write --unsafe ...`, so a missing `biome`, a bad config, or a biome crash all exit `bun` with a defined numeric status and become a best-effort pass — reaching the ready gate and bounded repair rather than shipping silently. Only a missing `bun` executable is a spawn-level failure (`status: undefined`). Rules out treating a missing `bun` as best-effort (would silently skip autofix with no repair signal).
+- Discriminate on `AsyncSubprocessError`: defined numeric `status` → best-effort pass (return normally, no throw); `code === "ETIMEDOUT"` or `status === undefined` (spawn failure, or a signal kill, which `shared/subprocess.ts` reports with `code` = signal name and no `status`) → throw `FixCommandError` as today. The invocation is `bun biome check --write --unsafe ...`, so a missing `biome`, a bad config, or a biome crash all exit `bun` with a defined numeric status and become a best-effort pass — reaching the ready gate and bounded repair rather than shipping silently. Only a missing `bun` executable is a spawn-level failure (`status: undefined`). Rules out treating a missing `bun` as best-effort (would silently skip autofix with no repair signal).
 - Scope is the built-in biome path only; configured/injected `fixCommand` non-zero exit still fails. Rules out routing both through the new policy.
-- Mirrors `runCompletionFormat` (`v2/src/execution/completion-commit.ts`); no shared helper extraction — not required by this change.
+- Follows `runCompletionFormat`'s best-effort-on-exit-status policy (`v2/src/execution/completion-commit.ts`), but stricter: that helper throws only on `ETIMEDOUT`; this one also throws on `status === undefined`. No shared helper extraction.
 
 ## Acceptance criteria
 
-- [ ] Test in `write-loop.test.ts`: built-in autofix returns normally when the runner rejects with `AsyncSubprocessError` carrying a defined numeric `status`; fails against the pre-fix code.
+- [ ] Test in `write-loop.test.ts`, driving the real `runBuiltInReadyGateAutofixBiome` (not the injected autofix seam) with a rejecting `AsyncSubprocessRunner`: built-in autofix returns normally when the runner rejects with `AsyncSubprocessError` carrying a defined numeric `status`; fails against the pre-fix code.
 - [ ] Test: `ETIMEDOUT` rejection throws `FixCommandError` naming the `timeoutMs` budget.
 - [ ] Test: rejection with `status: undefined` (missing `bun`) throws `FixCommandError`.
 - [ ] Write-loop test: `publishWithReadyRepair`, given changed paths with an unfixable `noExcessiveCognitiveComplexity` finding, returns no `completion_commit_failed` failure and dispatches a `write.ready-repair` reprompt iteration instead; fails against the pre-fix code.

@@ -5,3 +5,5 @@ This tree is the retired first Jarvis engine (`jarvis1`), kept for reference onl
 - Treat it as read-only history. Do not edit it, route work to it, cite it as a live source, or author specs under `v1/spec/`.
 - It imports `shared/` modules as they were at the freeze; shared has moved on, so the tree does not build against current `main`. To run it, check out tag `v1-final`.
 - The live docs that used to live here moved to `v2/docs/`: `operator-practices.md` (from `operator-runbook.md`), `spec-guidance.md`, `quota-signals.md`, `prompt-governance.md`. `v2/docs/v1-behaviors.md` records the parity decisions made while v2 replaced it.
+
+`v1/prompts/` holds prompt artifacts retired from the live registry (`prompts/registry.txt`) because only v1 rendered them. They are not loaded by anything.

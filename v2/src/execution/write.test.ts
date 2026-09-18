@@ -463,7 +463,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("Run the scoped test script(s) for the surfaces you touched");
   });
 
-  test("patch.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {
+  test("implement.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {
     const { jarvisRoot } = createJarvisHome();
     let capturedPrompt = "";
 
@@ -478,7 +478,7 @@ describe("write behavior", () => {
       specPath: "spec.md",
       stepRules: DEFAULT_WRITE_STEP_RULES,
       expectedArtifactPath: "proof.txt",
-      promptId: "patch.prompt.shrink",
+      promptId: "implement.prompt.shrink",
       promptPlaceholders: {
         SPEC_TREE: "# Spec\n",
         ALLOWLIST: "- proof.txt",

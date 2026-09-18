@@ -90,6 +90,11 @@ describe("prompt registry load validation", () => {
     expect(ids).not.toContain("plan.prompt.review");
     expect(ids).not.toContain("patch.prompt.review");
     expect(ids).not.toContain("patch.prompt.review.critic");
+    for (const role of ["adversary", "advocate", "adjudicator"])
+      expect(ids).not.toContain(`patch.prompt.review.${role}`);
+    expect(ids).not.toContain("patch.prompt.pr-description");
+    expect(ids).not.toContain("plan.prompt.pr-description");
+    expect(ids).not.toContain("shared.pr-description");
   });
 
   test("parses placeholder declarations from frontmatter", () => {

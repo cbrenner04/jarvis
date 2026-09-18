@@ -14,7 +14,7 @@ describe("implement-owned prompt artifacts", () => {
     expect(ids).toContain("implement.rules");
     expect(ids).not.toContain("patch.prompt.body");
     expect(ids).not.toContain("patch.rules");
-    expect(ids).toContain("patch.prompt.shrink");
+    expect(ids).toContain("implement.prompt.shrink");
   });
 
   test("assembled implement step prompt uses implement vocabulary, not Patch Mode", () => {

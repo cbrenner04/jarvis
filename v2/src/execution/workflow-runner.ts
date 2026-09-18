@@ -386,7 +386,7 @@ export class LinkedIndexReadError extends Error {
 
 const REVIEW_DEBATE_ROLES: readonly ReviewDebateRole[] = ["adversary", "advocate", "adjudicator", "actuator"];
 const SHRINK_ROLE = "shrink";
-const SHRINK_PROMPT_ID = "patch.prompt.shrink";
+const SHRINK_PROMPT_ID = "implement.prompt.shrink";
 
 /** Per-step write-loop input plus workflow identity; bindings are derived at execution. */
 export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {

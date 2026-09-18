@@ -940,6 +940,17 @@ function handoffMismatch(): RpcHandlerResult {
   };
 }
 
+/**
+ * Refuses a private-endpoint admission while the public listener is unbound: a handoff rebind
+ * reopens admission just before binding, and that window must not admit through the private side.
+ */
+function gatePrivateAdmission(isPublicBound: () => boolean, handler: RpcHandler): RpcHandler {
+  return (frame, ...rest) =>
+    isPublicBound()
+      ? handler(frame, ...rest)
+      : { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+}
+
 /** Owns the reversible interval between accepted changeover and successor readiness. */
 function createHandoffHandlers(deps: HandoffHandlersDeps): {
   changeover: RpcHandler;
@@ -1507,6 +1518,9 @@ export async function startDaemonRuntime(
   };
 
   let server: IpcServer;
+  // False while the public listener is released for a handoff; private-endpoint start/resume admit
+  // only once it is bound again, so admission reopened just before a rebind never admits privately.
+  let publicBound = true;
   let privateServer: IpcServer | undefined;
   const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
   let handlers: Record<string, RpcHandler>;
@@ -1514,7 +1528,10 @@ export async function startDaemonRuntime(
   const handoffHandlers = createHandoffHandlers({
     getPrivateSocketPath: () => startupDeps.privateSocketPath,
     setRetiring,
-    closePublicServer: () => server.close(),
+    closePublicServer: () => {
+      publicBound = false;
+      return server.close();
+    },
     setAdmitting: () => {
       runControlContext.retiring = false;
     },
@@ -1529,6 +1546,7 @@ export async function startDaemonRuntime(
         if (!(await removeUnansweredSocketPath(socketPath, daemonAnswersAt))) throw error;
         server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
       }
+      publicBound = true;
     },
     probePublicServer: () => daemonAnswersAt(socketPath),
     ...(startupDeps.handoffFallbackMs === undefined ? {} : { fallbackMs: startupDeps.handoffFallbackMs }),
@@ -1557,8 +1575,8 @@ export async function startDaemonRuntime(
     pause: runControlHandlers.pause,
     kill: runControlHandlers.kill,
     pipeline_list: runControlHandlers.pipeline_list,
-    resume: runControlHandlers.resume,
-    start: runControlHandlers.start,
+    resume: gatePrivateAdmission(() => publicBound, runControlHandlers.resume),
+    start: gatePrivateAdmission(() => publicBound, runControlHandlers.start),
     pipeline_approve: runControlHandlers.pipeline_approve,
     pipeline_reject: runControlHandlers.pipeline_reject,
     pipeline_resume: runControlHandlers.pipeline_resume,

@@ -5722,6 +5722,8 @@ export function isLoadSensitive(file: string): boolean {
         logSink?: LogSink;
         readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
         lintMdOnly?: boolean;
+        onGateFailure?: (cwd: string) => void;
+        runFixCommand?: WriteLoopInput["runFixCommand"];
       }) {
         const artifactPath = args.expectedArtifactPath ?? "proof.txt";
         const specPath = args.specPath ?? "spec.md";
@@ -5757,10 +5759,11 @@ export function isLoadSensitive(file: string): boolean {
             publishCalls += 1;
             return {};
           },
-          runFixCommand: async () => {},
-          readyFinalizer: async () => {
+          runFixCommand: args.runFixCommand ?? (async () => {}),
+          readyFinalizer: async ({ worktreePath: cwd }) => {
             gateCalls += 1;
             if (invocations === 1) {
+              if (gateCalls === 1) args.onGateFailure?.(cwd);
               const output = args.lintMdOnly
                 ? lintMdOnlyGateFailureOutput(gateFailurePath)
                 : gateFailureOutput(gateFailurePath);
@@ -6111,6 +6114,51 @@ export function isLoadSensitive(file: string): boolean {
         }
       });
 
+      describe("refusal revert preserves pre-repair dirt", () => {
+        async function runWithPreRepairDirt(branchName: string, dirt: (cwd: string) => void) {
+          const { jarvisRoot, stateDbPath } = createJarvisHome();
+          const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+          const fenced = await runRepairFenceLoop({
+            jarvisRoot,
+            stateDbPath,
+            branchName,
+            baseRef,
+            onGateFailure: dirt,
+            runFixCommand: async ({ cwd }) => {
+              writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "autofix\n", "utf8");
+            },
+            repairEdit: () => {},
+          });
+          expect(fenced.result.kind).toBe("completion_commit_failed");
+          expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+          return { worktreePath, fenced };
+        }
+
+        test("an uncommitted out-of-diff operator edit survives while the refused edit is reverted", async () => {
+          const { worktreePath, fenced } = await runWithPreRepairDirt("repair-fence-operator-edit", (cwd) => {
+            writeFileSync(join(cwd, "README.md"), "operator hand-fix\n", "utf8");
+          });
+          expect(readFileSync(join(worktreePath, "README.md"), "utf8")).toBe("operator hand-fix\n");
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+          expect(fenced.result.resumable).toBe(false);
+        });
+
+        test("a pre-existing untracked file survives", async () => {
+          const { worktreePath } = await runWithPreRepairDirt("repair-fence-operator-untracked", (cwd) => {
+            writeFileSync(join(cwd, "operator-notes.txt"), "keep me\n", "utf8");
+          });
+          expect(readFileSync(join(worktreePath, "operator-notes.txt"), "utf8")).toBe("keep me\n");
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        });
+
+        test("a pre-existing dirty file edited further is restored to its pre-repair content, not HEAD", async () => {
+          const { worktreePath } = await runWithPreRepairDirt("repair-fence-operator-dirty-edited", (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "operator\n", "utf8");
+          });
+          expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("operator\n");
+        });
+      });
+
       test("repair refuses a staged path outside the attributable allowset", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-attributable-allowset";
@@ -6139,16 +6187,11 @@ export function isLoadSensitive(file: string): boolean {
           "Ready-gate repair stages path outside attributable allowset:",
         );
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.result.completionCommitError).toContain("refused paths reverted");
         expect(fenced.publishCalls).toBe(2);
         expect(fenced.gateCalls).toBe(2);
-
-        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
-          encoding: "utf8",
-          stdio: "pipe",
-        })
-          .split("\n")
-          .filter(Boolean);
-        expect(dirty).toContain("v2/src/untouched.test.ts");
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("iteration\n");
+        expect(execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
       });
 
       test("lint:md-only gate failure answered with a .ts edit is refused without a repair commit", async () => {
@@ -6172,14 +6215,10 @@ export function isLoadSensitive(file: string): boolean {
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
         expect(fenced.publishCalls).toBe(2);
         expect(fenced.gateCalls).toBe(2);
-
-        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
-          encoding: "utf8",
-          stdio: "pipe",
-        })
-          .split("\n")
-          .filter(Boolean);
-        expect(dirty).toContain("v2/src/untouched.test.ts");
+        expect(
+          execFileSync("git", ["-C", worktreePath, "show", "HEAD:v2/src/untouched.test.ts"], { encoding: "utf8" }),
+        ).toBe("iteration\n");
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("iteration\n");
       });
 
       function stageHarnessSidecarRepairEdit(cwd: string) {
@@ -10392,7 +10431,7 @@ index 1234567..abcdefg 100644
       }
     });
 
-    test("ready-gate snapshot and restoration retain lossless uncommitted paths until the fence reverts them", async () => {
+    test("ready-gate snapshot and restoration retain lossless uncommitted paths", async () => {
       const nestedPath = "outer/nested only.txt";
       const nestedContent = "pre-autofix nested dirt\n";
       const { jarvisRoot, stateDbPath } = createJarvisHome();
@@ -10435,10 +10474,10 @@ index 1234567..abcdefg 100644
 
       expect(result.kind).toBe("completion_commit_failed");
       expect(existsSync(join(worktreePath, "broken.ts"))).toBe(false);
-      expect(result.completionCommitError).toContain(nestedPath);
-      expect(result.completionCommitError).toContain("refused paths reverted");
-      expect(existsSync(join(worktreePath, nestedPath))).toBe(false);
-      expect(await getUncommittedPaths(worktreePath)).not.toContain(nestedPath);
+      expect(readFileSync(join(worktreePath, nestedPath), "utf8")).toBe(nestedContent);
+      const listed = await getUncommittedPaths(worktreePath);
+      expect(listed).toContain(nestedPath);
+      expect(listed.filter((candidate) => candidate === nestedPath)).toHaveLength(1);
     });
 
     test("commits once per changed progress iteration with Jarvis-Agent and Spec lines", async () => {

@@ -952,6 +952,7 @@ test("completion_commit_failed incident carries the terminal failure detail", ()
     terminalCause: "completion_commit_failed",
     terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
   });
+  store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId, detail: "refused: v2/src/a.ts" })]);
 });
 
@@ -964,6 +965,7 @@ test("incident for a non-commit terminal cause omits the failure detail", () => 
     terminalCause: "gate_invocation_refused",
     terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
   });
+  store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
   const incidents = deriveOperatorIncidents(store);
   expect(incidents).toEqual([expect.objectContaining({ runId })]);
   expect(incidents[0]).not.toHaveProperty("detail");

@@ -1054,7 +1054,7 @@ export async function validateReadyGateRepairCompletion(
   markdownOutputRoots?: readonly string[],
   markdownOnlyRequired = false,
   fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
-): Promise<{ error: Error; offendingPath?: string; revertPaths?: string[]; entirelyRefused?: true } | undefined> {
+): Promise<{ error: Error; offendingPath?: string; refusedPaths?: string[] } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
     return { error: new Error("Ready-gate repair fence could not enumerate completion candidates") };
@@ -1078,7 +1078,7 @@ export async function validateReadyGateRepairCompletion(
     return {
       offendingPath,
       error: new Error(`${fenceFailureMessage}${violations.join(", ")}`),
-      ...(fenceFailureMessage === REPAIR_FENCE_FAILURE_MESSAGE ? refusedRepairPaths(candidates, allowedPaths) : {}),
+      refusedPaths: candidates.filter((path) => !allowedPaths.has(path)),
     };
   }
   if (markdownOnlyRequired && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
@@ -1096,20 +1096,42 @@ export async function validateReadyGateRepairCompletion(
   return undefined;
 }
 
-function refusedRepairPaths(
-  candidates: readonly string[],
-  allowedPaths: ReadonlySet<string>,
-): { revertPaths: string[]; entirelyRefused?: true } {
-  const revertPaths = candidates.filter((path) => !allowedPaths.has(path));
-  return revertPaths.length === candidates.length ? { revertPaths, entirelyRefused: true } : { revertPaths };
+/** Paths whose worktree state differs from the pre-repair baseline; paths clean at snapshot count as changed. */
+function repairChangedPaths(worktreePath: string, baseline: AutofixBaseline, paths: readonly string[]): string[] {
+  return paths.filter((path) => {
+    const fullPath = join(worktreePath, path);
+    const prior = baseline.contents.get(path);
+    if (prior !== undefined) {
+      return !existsSync(fullPath) || readFileSync(fullPath, "utf8") !== prior;
+    }
+    if (baseline.absent.has(path)) {
+      return existsSync(fullPath);
+    }
+    return true;
+  });
 }
 
-/** Restore tracked paths to `HEAD` and delete paths `HEAD` lacks; false when any step fails. */
-async function revertRefusedRepairPaths(worktreePath: string, paths: readonly string[]): Promise<boolean> {
+/** Restore paths to their pre-repair baseline: dirty content, absence, or else `HEAD` (deleted when `HEAD` lacks them). */
+async function revertRefusedRepairPaths(
+  worktreePath: string,
+  baseline: AutofixBaseline,
+  paths: readonly string[],
+): Promise<boolean> {
   try {
     for (const path of paths) {
       if (validateRepoRelativePath(path) !== path) {
         return false;
+      }
+      const fullPath = join(worktreePath, path);
+      const prior = baseline.contents.get(path);
+      if (prior !== undefined) {
+        mkdirSync(dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, prior, "utf8");
+        continue;
+      }
+      if (baseline.absent.has(path)) {
+        rmSync(fullPath, { force: true });
+        continue;
       }
       const tracked = await runRepairFenceGit(worktreePath, ["cat-file", "-e", `HEAD:${path}`]).then(
         () => true,
@@ -3562,6 +3584,7 @@ async function enforceRepairIterationFence(
   input: CompletionPublishInput,
   repairAllowset: Set<string>,
   iterationsConsumed: number,
+  baseline: AutofixBaseline,
   fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
   commitOptions?: { readyGateAttribution?: "autofix" },
 ): Promise<ReadyRepairPublishResult | undefined> {
@@ -3599,13 +3622,13 @@ async function enforceRepairIterationFence(
     markdownOutputRoots,
     markdownOnlyRequired ? true : undefined,
   );
-  let error = fenceResult.error;
-  let reverted = false;
-  if (fenceResult.revertPaths !== undefined) {
-    reverted = await revertRefusedRepairPaths(input.worktreePath, fenceResult.revertPaths);
-    error = new Error(`${error.message}; ${reverted ? "refused paths reverted" : "revert of refused paths failed"}`);
-  }
-  if (reverted && fenceResult.entirelyRefused !== true) {
+  const { error, reverted, entirelyRefused } = await revertRepairRefusals(
+    input.worktreePath,
+    baseline,
+    fenceResult.error,
+    fenceResult.refusedPaths,
+  );
+  if (reverted && !entirelyRefused) {
     // Mixed refusal: keep the in-diff edits only if they pass the remaining fences; the run stays resumable.
     const remaining = await validateReadyGateRepairCompletion(
       { worktreePath: input.worktreePath, baseRef: input.baseRef, specPath: input.specPath },
@@ -3627,14 +3650,45 @@ async function enforceRepairIterationFence(
     }
     const committed = await commitRepairAndRepublish(_args, store, input, result, iterationsConsumed, commitOptions);
     if (committed.kind === "failure") return committed.result;
+    // Even after committing the in-diff edits, a mixed refusal settles `completion_commit_failed` (resumable): the
+    // repair did not fully land what it attempted, the gate has not re-run against the committed state, and the
+    // operator must see which paths were reverted before resuming.
   }
   return {
     failure: {
       kind: "completion_commit_failed",
       error,
-      ...(reverted && fenceResult.entirelyRefused === true ? { resumable: false as const } : {}),
+      ...(reverted && entirelyRefused ? { resumable: false as const } : {}),
     },
     iterationsConsumed,
+  };
+}
+
+/** Revert refused paths this repair changed since `baseline`; "entirely refused" is judged only over those changes. */
+async function revertRepairRefusals(
+  worktreePath: string,
+  baseline: AutofixBaseline,
+  error: Error,
+  refusedPaths: readonly string[] | undefined,
+): Promise<{ error: Error; reverted: boolean; entirelyRefused: boolean }> {
+  if (refusedPaths === undefined) {
+    return { error, reverted: false, entirelyRefused: false };
+  }
+  // Pre-existing dirt (e.g. an operator hand-fix before resume) is never reverted and never counts as refused.
+  const revertPaths = repairChangedPaths(worktreePath, baseline, refusedPaths);
+  if (revertPaths.length === 0) {
+    return { error, reverted: false, entirelyRefused: false };
+  }
+  const changed = repairChangedPaths(
+    worktreePath,
+    baseline,
+    (await enumerateRepairCompletionCandidates(worktreePath)) ?? [],
+  );
+  const reverted = await revertRefusedRepairPaths(worktreePath, baseline, revertPaths);
+  return {
+    error: new Error(`${error.message}; ${reverted ? "refused paths reverted" : "revert of refused paths failed"}`),
+    reverted,
+    entirelyRefused: revertPaths.length === changed.length,
   };
 }
 
@@ -3726,6 +3780,7 @@ async function runReadyGateRepairLoop(
       gateExitCode: currentOutcome.error.exitCode,
     });
 
+    const repairBaseline = await snapshotAutofixBaseline(input.worktreePath);
     const repairOutcome = await runReadyRepairIteration(
       args,
       store,
@@ -3749,6 +3804,7 @@ async function runReadyGateRepairLoop(
       input,
       attributableAllowset,
       currentIterations,
+      repairBaseline,
       repairFenceFailureMessage(frozenRepairAllowset, currentOutcome.error),
     );
     if (fenceFailure !== undefined) return { kind: "early", result: fenceFailure };
@@ -3820,6 +3876,8 @@ type AutofixTypecheckResult = {
 
 type AutofixBaseline = {
   contents: Map<string, string>;
+  /** Uncommitted paths absent on disk at snapshot (pre-existing deletions). */
+  absent: Set<string>;
   useGit: boolean;
 };
 
@@ -3850,11 +3908,14 @@ function listWorktreeFiles(worktreePath: string): Map<string, string> {
 async function snapshotAutofixBaseline(worktreePath: string): Promise<AutofixBaseline> {
   const useGit = await shouldEnforceReadyGateRepairFence(worktreePath);
   const contents = new Map<string, string>();
+  const absent = new Set<string>();
   if (useGit) {
     for (const path of await getUncommittedPaths(worktreePath)) {
       const fullPath = join(worktreePath, path);
       if (existsSync(fullPath)) {
         contents.set(path, readFileSync(fullPath, "utf8"));
+      } else {
+        absent.add(path);
       }
     }
   } else {
@@ -3862,7 +3923,7 @@ async function snapshotAutofixBaseline(worktreePath: string): Promise<AutofixBas
       contents.set(path, content);
     }
   }
-  return { contents, useGit };
+  return { contents, absent, useGit };
 }
 
 async function revertAutofixEdits(worktreePath: string, baseline: AutofixBaseline): Promise<void> {
@@ -4110,6 +4171,7 @@ export async function publishWithReadyRepair(
     input,
     gateRepairAllowset,
     iterationsConsumed,
+    autofixBaseline,
     repairFenceFailureMessage(frozenRepairAllowset, outcome.error),
     { readyGateAttribution: "autofix" },
   );

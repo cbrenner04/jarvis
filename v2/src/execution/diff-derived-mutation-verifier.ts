@@ -1036,9 +1036,10 @@ async function buildChangedFiles(
  * are all `observed: false` too, and reporting `passed-unconfirmed` for those would hand the
  * operator a test path to re-run that either never ran or failed.
  */
-type PromptRenderCoverageOutcome =
-  | { kind: "observed"; observed: boolean; observersPassedUnmutated: boolean }
-  | { kind: "inconclusive" };
+type PromptRenderCoverageOutcome = {
+  observed: boolean;
+  observersPassedUnmutated: boolean;
+};
 
 /**
  * Fail-closed render result for one prompt, carrying the observer paths as evidence only when they
@@ -1047,7 +1048,7 @@ type PromptRenderCoverageOutcome =
  */
 function renderCoverageFailure(
   promptPath: string,
-  coverage: { observed: boolean; observersPassedUnmutated: boolean },
+  coverage: PromptRenderCoverageOutcome,
   observerTests: readonly string[],
 ): SurvivingMutationResult {
   return coverage.observersPassedUnmutated
@@ -1065,13 +1066,13 @@ async function verifyPromptRenderCoverage(
   runScopedTests: RunScopedTests,
   observerTests: readonly string[],
   measureBaseline: BaselineMeasurer,
-): Promise<PromptRenderCoverageOutcome> {
+): Promise<PromptRenderCoverageOutcome | "inconclusive"> {
   const filePath = `${input.worktreePath}/${promptPath}`;
   let original: string;
   try {
     original = await readFile(filePath);
   } catch {
-    return { kind: "observed", observed: false, observersPassedUnmutated: false };
+    return { observed: false, observersPassedUnmutated: false };
   }
   const bounds = promptBodyBounds(original);
   if (bounds !== null && inDiff && !hasBodyAddLines(changedLines, bounds.bodyStartLine)) {
@@ -1079,11 +1080,11 @@ async function verifyPromptRenderCoverage(
     // (run at the ceiling budget, not the fixed floor) doubles as the clean-observer check — its own
     // pass/fail is the verdict, and an unmeasurable baseline settles inconclusive instead of timing out.
     const baseline = await measureBaseline(observerTests);
-    if (baseline.kind !== "measured") return { kind: "inconclusive" };
-    return { kind: "observed", observed: baseline.passed, observersPassedUnmutated: baseline.passed };
+    if (baseline.kind !== "measured") return "inconclusive";
+    return { observed: baseline.passed, observersPassedUnmutated: baseline.passed };
   }
   const mutated = mutateRenderedPrompt(original, changedLines);
-  if (mutated === null) return { kind: "observed", observed: false, observersPassedUnmutated: false };
+  if (mutated === null) return { observed: false, observersPassedUnmutated: false };
   try {
     await writeFile(filePath, mutated);
     const killingSetResult = await runMutatedKillingSet(input, runScopedTests, [...observerTests], measureBaseline, {
@@ -1094,9 +1095,9 @@ async function verifyPromptRenderCoverage(
         await writeFile(filePath, mutated);
       },
     });
-    if (killingSetResult === "inconclusive") return { kind: "inconclusive" };
+    if (killingSetResult === "inconclusive") return killingSetResult;
     const passedUnderMutation = killingSetResult.passed;
-    return { kind: "observed", observed: !passedUnderMutation, observersPassedUnmutated: passedUnderMutation };
+    return { observed: !passedUnderMutation, observersPassedUnmutated: passedUnderMutation };
   } finally {
     await writeFile(filePath, original);
   }
@@ -1400,7 +1401,7 @@ async function verifyChangedPrompts(
       );
       // An inconclusive baseline (unmeasurable before the ceiling or the deadline) allows
       // publication: a timeout cannot be attributed to the observer without a measured baseline.
-      if (renderCoverage.kind === "inconclusive") continue;
+      if (renderCoverage === "inconclusive") continue;
       if (!renderCoverage.observed) return renderCoverageFailure(promptPath, renderCoverage, observerTests);
     } catch (error) {
       if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {

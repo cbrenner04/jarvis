@@ -1,6 +1,11 @@
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import type { LinkedStageSettlement, LinkedStageTarget } from "../persistence/pipeline-stage-settlement.ts";
-import { isTerminalRunStatus, type StateStore } from "../persistence/state-store.ts";
+import {
+  isOwnerAlive,
+  isTerminalRunStatus,
+  type OwnerLivenessProbe,
+  type StateStore,
+} from "../persistence/state-store.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
 
 /**
@@ -70,20 +75,66 @@ export function settleStagesForEntryRun(
 }
 
 /**
+ * True when `entryRunId`'s invocation has a non-terminal sibling row (by `workflowSnapshot.invocationId`)
+ * owned by a live identity other than the store's own — the completion-publication `~shrink` row still
+ * in flight under another daemon, for example. A row with no owner, or owned by this daemon, never
+ * blocks: local liveness already decides those. No workflow snapshot means no siblings to check, so the
+ * gate is a no-op. `aliveByIdentity` memoizes probe results across the caller's whole pass.
+ */
+export async function hasLiveForeignOwnerSibling(
+  store: StateStore,
+  entryRunId: string,
+  probe: OwnerLivenessProbe,
+  aliveByIdentity: Map<string, boolean>,
+): Promise<boolean> {
+  const entryRun = store.loadRun(entryRunId);
+  const invocationId = entryRun?.workflowSnapshot?.invocationId;
+  if (invocationId === undefined) return false;
+  const currentIdentity = store.currentOwnerIdentity();
+  for (const sibling of store.findRunsByInvocationId(invocationId)) {
+    if (isTerminalRunStatus(sibling.status)) continue;
+    const owner = sibling.ownerIdentity;
+    if (owner == null || owner === currentIdentity) continue;
+    let alive = aliveByIdentity.get(owner);
+    if (alive === undefined) {
+      alive = await probe(owner);
+      aliveByIdentity.set(owner, alive);
+    }
+    if (alive) return true;
+  }
+  return false;
+}
+
+/**
  * Settle every `running` stage whose linked entry run is not live — the daemon-start sweep, and
  * the precondition `pipeline_resume` runs before deriving state. Returns the settled entry run ids.
+ * Re-reads each stage's row immediately before applying the foreign-owner gate and settling, rather
+ * than trusting the `listPipelines()` snapshot taken at the top: an earlier stage settled in this
+ * same pass can change a later stage's state across the `await`.
  */
-export function settleOrphanedRunningStages(deps: StageSettlementDeps, pipelineId?: string): string[] {
+export async function settleOrphanedRunningStages(
+  deps: StageSettlementDeps,
+  pipelineId?: string,
+  isForeignOwnerAliveProbe: OwnerLivenessProbe = isOwnerAlive,
+): Promise<string[]> {
   const pipelines =
     pipelineId === undefined
       ? deps.store.listPipelines()
       : [deps.store.loadPipeline(pipelineId)].filter((pipeline) => pipeline !== null);
   const settled = new Set<string>();
+  const aliveByIdentity = new Map<string, boolean>();
   for (const pipeline of pipelines) {
     for (const stage of pipeline.stages) {
       if (stage.status !== "running" || stage.workflowInvocationId === null) continue;
       const entryRunId = stage.workflowInvocationId;
       if (settled.has(entryRunId)) continue;
+      const currentStage = deps.store
+        .loadPipeline(pipeline.id)
+        ?.stages.find((row) => row.stageId === stage.stageId && row.branchKey === stage.branchKey);
+      if (currentStage?.status !== "running" || currentStage.workflowInvocationId !== entryRunId) continue;
+      if (await hasLiveForeignOwnerSibling(deps.store, entryRunId, isForeignOwnerAliveProbe, aliveByIdentity)) {
+        continue;
+      }
       const outcome = settleStagesForEntryRun(deps, entryRunId);
       if (outcome.kind === "settled") settled.add(entryRunId);
     }

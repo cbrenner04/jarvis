@@ -2,12 +2,14 @@ import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+  isOwnerAlive,
   isTerminalRunStatus,
+  type OwnerLivenessProbe,
   type PipelineStageRecord,
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
-import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
+import { hasLiveForeignOwnerSibling, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 /**
  * Daemon-built closure around `handleWorkflowStart`/`startWorkflowRun`, the only seam a
@@ -96,8 +98,9 @@ export async function adoptAndSettlePipelineStage(args: {
   wait: PipelineWorkflowWait;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
   isEntryRunLive?: (entryRunId: string) => boolean;
+  isOwnerAliveProbe?: OwnerLivenessProbe;
 }): Promise<void> {
-  const { store, stageTarget, entryRunId, wait, loadLogRecords, isEntryRunLive } = args;
+  const { store, stageTarget, entryRunId, wait, loadLogRecords, isEntryRunLive, isOwnerAliveProbe } = args;
   const pipeline = store.loadPipeline(stageTarget.pipelineId);
   const record = pipeline?.stages.find(
     (stage) =>
@@ -110,6 +113,14 @@ export async function adoptAndSettlePipelineStage(args: {
     writeRunningStageLinkage(store, stageTarget, entryRunId);
   }
   await wait(entryRunId);
+  // This adopts a pre-existing entry run this call did not dispatch — the same restart/re-entry
+  // shape the daemon-start sweep guards, so a foreign daemon's still-in-flight completion
+  // publication must gate settlement here too, not only in the sweep.
+  if (
+    await hasLiveForeignOwnerSibling(store, entryRunId, isOwnerAliveProbe ?? isOwnerAlive, new Map<string, boolean>())
+  ) {
+    return;
+  }
   settleAfterWait(store, stageTarget, entryRunId, loadLogRecords, isEntryRunLive);
 }
 

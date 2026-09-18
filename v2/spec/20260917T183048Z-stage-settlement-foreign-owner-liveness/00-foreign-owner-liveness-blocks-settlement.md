@@ -30,16 +30,16 @@ Fix: before settling, treat the invocation as live when any of its sibling rows 
 
 ## Acceptance criteria
 
-- [ ] A test builds an invocation whose authored step's row is `completed` and whose hidden `~shrink` sibling row is `in-progress` under a live foreign `owner_identity`, runs the startup sweep, and asserts the linked stage stays `running`; it fails against the pre-fix code (which settles it `succeeded`/`failed`).
-- [ ] A test asserts `findRunsByInvocationId` returns rows carrying `ownerIdentity` for an owner-stamped run; it fails against the current `RUN_COLUMNS`, which does not select the column.
-- [ ] A test drives `adoptAndSettlePipelineStage` over an adopted entry run whose hidden `~shrink` sibling is `in-progress` under a live foreign owner, and asserts the stage stays `running`; it fails against the pre-fix code, which settles it.
-- [ ] A test asserts the `pipeline_resume` precondition sweep call site (`v2/src/daemon/pipeline-execution.ts:629`) is gated the same way as the daemon-start call site; it fails while only one of the two threads the probe.
-- [ ] A test asserts the same invocation with a dead foreign owner identity still settles its stage.
-- [ ] A test asserts a non-terminal sibling row owned by this daemon's own identity does not block settlement (local liveness decides, unchanged).
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` and `v2/src/daemon/pipeline-stage-dispatch.test.ts` stay green (settlement of locally-owned and unowned invocations unchanged).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A test builds an invocation whose authored step's row is `completed` and whose hidden `~shrink` sibling row is `in-progress` under a live foreign `owner_identity`, runs the startup sweep, and asserts the linked stage stays `running`; it fails against the pre-fix code (which settles it `succeeded`/`failed`).
+- [x] A test asserts `findRunsByInvocationId` returns rows carrying `ownerIdentity` for an owner-stamped run; it fails against the current `RUN_COLUMNS`, which does not select the column.
+- [x] A test drives `adoptAndSettlePipelineStage` over an adopted entry run whose hidden `~shrink` sibling is `in-progress` under a live foreign owner, and asserts the stage stays `running`; it fails against the pre-fix code, which settles it.
+- [x] A test asserts the `pipeline_resume` precondition sweep call site (`v2/src/daemon/pipeline-execution.ts:629`) is gated the same way as the daemon-start call site; it fails while only one of the two threads the probe.
+- [x] A test asserts the same invocation with a dead foreign owner identity still settles its stage.
+- [x] A test asserts a non-terminal sibling row owned by this daemon's own identity does not block settlement (local liveness decides, unchanged).
+- [x] `v2/src/daemon/pipeline-execution.test.ts` and `v2/src/daemon/pipeline-stage-dispatch.test.ts` stay green (settlement of locally-owned and unowned invocations unchanged).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -71,7 +71,9 @@ describe("ReviewPromptProfile", () => {
     expect(extractSpecGuidance(intentPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
     expect(planPrompt).toContain("# Plan Mode — Review: Critic");
     expect(extractSpecGuidance(planPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
-    expect(planPrompt.match(/Do not split acceptance-criterion checkboxes across physical lines\./g)).toHaveLength(2);
+    // Once from the injected spec guidance; the global fragment states the same rule in its own words.
+    expect(planPrompt.match(/Do not split acceptance-criterion checkboxes across physical lines\./g)).toHaveLength(1);
+    expect(planPrompt).toContain("never split a checkbox item across lines");
     expect(planPrompt).not.toContain("@mutate");
   });
 });

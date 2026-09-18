@@ -45,7 +45,7 @@ describe("write prompt", () => {
     });
 
     for (const rendered of [writeRendered, planRendered]) {
-      const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+      const terseIndex = rendered.indexOf("Be terse everywhere");
       const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
       expect(terseIndex).toBeGreaterThanOrEqual(0);
       expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
@@ -55,9 +55,10 @@ describe("write prompt", () => {
   test("implement.rules directs scoped test runs and warns off the full aggregate", () => {
     const body = loadPromptRegistry().getById("implement.rules").body;
 
-    expect(body).toContain("Run the scoped test script(s) for the surfaces you touched");
-    expect(body).toContain("never the full aggregate suite unless the target repo's scope rule resolves to it");
-    expect(body).toContain("exhausts the iteration budget");
+    expect(body).toContain("Run the tests target-repo guidance prescribes for the surfaces you touched");
+    expect(body).toContain("never the full suite unless that guidance resolves to it");
+    // Scoping policy lives in the target repo's guidance, not restated here.
+    expect(body).not.toContain("exactly as target-repo `AGENTS.md` specifies");
     // The pre-fix rule made the aggregate the default and only allowed skipping it.
     expect(body).not.toContain("skip `bun run test` only when");
   });
@@ -85,7 +86,7 @@ describe("write prompt", () => {
       STEP_RULES: "Follow the contract.",
     });
 
-    const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+    const terseIndex = rendered.indexOf("Be terse everywhere");
     const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
     expect(rendered).toContain("## Repo Guidance");
     expect(terseIndex).toBeGreaterThanOrEqual(0);
@@ -104,12 +105,12 @@ describe("write prompt", () => {
       STEP_RULES: "Follow the contract.",
     });
 
-    const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+    const terseIndex = rendered.indexOf("Be terse everywhere");
     const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
     expect(terseIndex).toBeGreaterThanOrEqual(0);
     expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
     expect(rendered).not.toContain("Before editing code, read the relevant durable docs/specs");
-    expect(rendered).not.toContain("No planning labels in code.");
+    expect(rendered).not.toContain("Never put planning labels");
   });
 
   test("write.execute isolates the shared human-only step rules", () => {

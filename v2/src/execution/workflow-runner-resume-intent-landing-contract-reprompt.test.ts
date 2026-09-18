@@ -156,14 +156,14 @@ describe("intent finalization resume landing-contract reprompt", () => {
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
 
-      // The initial reviewed-staged-markdown lint check (staged-markdown-lint.ts) invokes
-      // markdownlint without `--fix`; only the landing gate's autofix (repairIntentStageContent,
-      // reached through the guard under test) passes `--fix`. Counting only `--fix` invocations
-      // isolates forwarding for that guard from the unrelated, always-forwarded initial check.
+      // The initial reviewed-staged-markdown lint check (staged-markdown-lint.ts) passes `--no-globs`;
+      // only the landing gate's autofix (repairIntentStageContent, reached through the guard under
+      // test) runs without it. Counting only those invocations isolates forwarding for that guard
+      // from the unrelated, always-forwarded initial check.
       let autofixRunnerCalls = 0;
       const spyRunner: AsyncSubprocessRunner = {
         runAsync: async (cmd, args, cwd, options) => {
-          if (args.includes("--fix")) autofixRunnerCalls += 1;
+          if (args.includes("--fix") && !args.includes("--no-globs")) autofixRunnerCalls += 1;
           return DEFAULT_STAGED_MARKDOWN_LINT_RUNNER.runAsync(cmd, args, cwd, options);
         },
       };

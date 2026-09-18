@@ -7,7 +7,6 @@ import {
   validateIntentStageContent,
 } from "../../../shared/intent-stage.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { referencedArtifactPaths } from "../../../shared/module-boundary-surfaces.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_DECLARATION_PIN,
@@ -40,8 +39,12 @@ function readIntentSplitFixture(fixtureId: string): string {
   }
 }
 
+const BACKTICKED_FILE_PATH_PATTERN = /`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]+)`/gu;
+
 function seedLinePaths(line: string): readonly string[] {
-  const artifactPaths = referencedArtifactPaths(line);
+  const artifactPaths = [...line.matchAll(BACKTICKED_FILE_PATH_PATTERN)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
   if (artifactPaths.length > 0) return artifactPaths;
   const directoryPaths: string[] = [];
   for (const match of line.matchAll(/`([^`\s]*\/[^`\s]*\/)`/gu)) {

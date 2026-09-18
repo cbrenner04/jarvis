@@ -23,7 +23,8 @@ function planWorktree(prefix: string): string {
 }
 
 describe("recoverPlanStage (real markdownlint binary)", () => {
-  test("refuses a lint-violating recovered plan stage", async () => {
+  // MD025 (a second top-level heading) is not autofixable, so it survives the `--fix` pass.
+  test("refuses a recovered plan stage with a violation the autofix cannot repair", async () => {
     const worktreePath = planWorktree("recover-plan-stage-real-lint-");
     const stage = join(worktreePath, ".jarvis-plan-stage");
     const durable = join(worktreePath, "spec", "2026-real-lint");
@@ -34,7 +35,7 @@ describe("recoverPlanStage (real markdownlint binary)", () => {
     writeLintCleanPlanStage(stage, "00-first.md");
     writeFileSync(
       join(stage, "00-first.md"),
-      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec),
+      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd025ViolationSubspec),
       "utf8",
     );
 
@@ -74,7 +75,7 @@ describe("recoverPlanStage (real markdownlint binary)", () => {
       expect(outcome).toMatchObject({
         ok: false,
         code: "plan_stage_invalid",
-        message: expect.stringContaining("MD038"),
+        message: expect.stringContaining("MD025"),
       });
       expect(existsSync(durable)).toBe(false);
     });

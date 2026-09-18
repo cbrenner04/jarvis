@@ -54,7 +54,7 @@ describe("assemblePrompt", () => {
         behaviorFragmentIds: ["b.one"],
         stepPromptId: "step",
       }),
-    ).toBe("GLOBAL ONE\n\nBEHAVIOR ONE\n\nSTEP BODY");
+    ).toBe("# Standing rules\n\nGLOBAL ONE\n\nBEHAVIOR ONE\n\nSTEP BODY");
   });
 
   test("explicit remove is honored", () => {
@@ -73,7 +73,14 @@ describe("assemblePrompt", () => {
         removeFragmentIds: ["b.one"],
         stepPromptId: "step",
       }),
-    ).toBe("GLOBAL ONE\n\nBEHAVIOR TWO\n\nSTEP BODY");
+    ).toBe("# Standing rules\n\nGLOBAL ONE\n\nBEHAVIOR TWO\n\nSTEP BODY");
+  });
+
+  test("no fragments means no standing-rules heading", () => {
+    const registry = makeRegistry([fakeArtifact("step", "STEP BODY")]);
+    expect(assemblePrompt({ registry, globalFragmentIds: [], behaviorFragmentIds: [], stepPromptId: "step" })).toBe(
+      "STEP BODY",
+    );
   });
 
   test("unknown prompt ids fail at render-time lookup", () => {

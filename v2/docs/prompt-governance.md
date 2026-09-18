@@ -6,16 +6,13 @@ This document defines prompt identity and validation for Jarvis-managed prompts.
 
 The first rollout includes shared global guidance fragments plus prompt artifacts that shape agent behavior in patch mode and plan draft/review:
 
-- `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered
-  into agent-facing prompts
+- `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered into agent-facing prompts; applies to code and comments as much as specs and PRs, and names the padding to cut
 - `global.documentation` (`prompts/global/documentation.md`) — shared
   documentation-first fragment layered into agent-facing prompts; owns
   documentation-read/update ordering and routes placement to
   `v2/docs/documentation-standard.md`
-- `global.naming` (`prompts/global/naming.md`) — shared naming fragment layered
-  into patch-mode prompts; forbids planning labels in code identifiers,
-  filenames, types, and public API
-- `global.no-hard-wrap` (`prompts/global/no-hard-wrap.md`) — shared fragment layered into agent-facing prompts after `global.terse`; forbids hard-wrapping authored markdown (specs, ready-intents, seeds, docs, PR bodies) and splitting acceptance-criterion checkboxes across physical lines
+- `global.naming` (`prompts/global/naming.md`) — one-sentence fragment forbidding planning labels in identifiers, filenames, types, and public API; removed from intent and plan steps
+- `global.no-hard-wrap` (`prompts/global/no-hard-wrap.md`) — one-sentence fragment layered after `global.terse`: one physical line per paragraph and list item, never a split checkbox
 - `plan.defer-to-consumer` (`prompts/plan/defer-to-consumer.md`) — shared
   plan-only deferral fragment layered into plan draft/review prompts to
   avoid inventing precision before a first caller exists
@@ -91,8 +88,7 @@ Shared rendering follows this contract:
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics
   change, unless the active subspec explicitly says no docs are required for a
   purely internal change.
-- `global.terse` is scoped to communication artifacts (specs, PRs, commits,
-  intents) and does not authorize under-documenting code.
+- `global.terse` applies everywhere, code included; required docs are owned by `global.documentation`, so terseness never reads as license to skip them.
 
 Template substitution is non-recursive:
 

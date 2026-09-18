@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
@@ -34,28 +34,37 @@ function stageFixture(fixtureName: string, stagedName = "index.md"): { worktreeP
 }
 
 describe("staged-markdown-lint", () => {
-  test("reports the first violation with rule id and repo-relative path", async () => {
-    if (skipWithoutHarnessMarkdownlint("reports the first violation with rule id and repo-relative path")) return;
+  test("autofixes fixable violations in place and reports clean", async () => {
+    if (skipWithoutHarnessMarkdownlint("autofixes fixable violations in place and reports clean")) return;
 
-    for (const [fixtureName, expectedRuleId] of [
-      ["md012-violation.md", "MD012"],
-      ["md038-violation.md", "MD038"],
-    ] as const) {
+    for (const fixtureName of ["md012-violation.md", "md038-violation.md"] as const) {
       const { worktreePath, stagingRoot } = stageFixture(fixtureName);
       try {
-        const result = await lintStagedMarkdown(stagingRoot, {
-          harnessRootOverride: HARNESS_ROOT,
-          worktreePath,
-        });
-        expect(result).toEqual({
-          kind: "violation",
-          ruleId: expectedRuleId,
-          filePath: `${stagingRoot}/index.md`,
-          message: expect.any(String),
-        });
+        const before = readFileSync(join(worktreePath, stagingRoot, "index.md"), "utf8");
+        const result = await lintStagedMarkdown(stagingRoot, { harnessRootOverride: HARNESS_ROOT, worktreePath });
+        expect(result).toEqual({ kind: "clean" });
+        // Mutation checkpoint: dropping `--fix` from the lint args must turn this RED.
+        expect(readFileSync(join(worktreePath, stagingRoot, "index.md"), "utf8")).not.toBe(before);
       } finally {
         rmSync(worktreePath, { recursive: true, force: true });
       }
+    }
+  });
+
+  test("reports a violation the autofix cannot repair with rule id and repo-relative path", async () => {
+    if (skipWithoutHarnessMarkdownlint("reports a violation the autofix cannot repair")) return;
+
+    const { worktreePath, stagingRoot } = stageFixture("md025-violation.md");
+    try {
+      const result = await lintStagedMarkdown(stagingRoot, { harnessRootOverride: HARNESS_ROOT, worktreePath });
+      expect(result).toEqual({
+        kind: "violation",
+        ruleId: "MD025",
+        filePath: `${stagingRoot}/index.md`,
+        message: expect.any(String),
+      });
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
     }
   });
 

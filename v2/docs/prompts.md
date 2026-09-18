@@ -4,7 +4,7 @@ The prompt corpus lives under `prompts/` and is indexed by `prompts/registry.txt
 
 ## Fragment frontmatter contract
 
-A `fragment` artifact is prose prepended to step prompts; a `step` artifact is the prompt body itself. Inclusion is declared, never hand-rolled by callers:
+A `fragment` artifact is prose prepended to step prompts; a `step` artifact is the prompt body itself. When a step assembles at least one fragment, the assembler prepends a `# Standing rules` heading (`STANDING_RULES_HEADING` in `shared/prompts/assemble.ts`) so the fragments read as the standing tier rather than as preamble to the step's own `## Rules`. Inclusion is declared, never hand-rolled by callers:
 
 - `fragmentPolicy:` — required on every `step`, forbidden on fragments: `global` prepends the ranked global fragments, `behavior` prepends globals then the step's lane, `none` prepends nothing; `add`/`remove` apply after the policy in every case. Registry load fails on a missing or unknown value.
 - `behavior:` — the lane an artifact belongs to. Fragments with `behavior: global` (`global.documentation`, `global.naming`, `global.terse`, `global.no-hard-wrap`, ranked by `order:`) prepend to every step; fragments whose `behavior` matches the step's `behavior` prepend after the globals. Lanes today: `global`, `plan` (fragments `plan.decisions-ledger`, `plan.defer-to-consumer`), `write` (fragment `write.principles`), `intent`, `implement`. `implement.rules` (`behavior: implement-rules`) deliberately sits on a lane no step declares, so it attaches only where named.
@@ -33,7 +33,7 @@ Declared policies: `plan.prompt.*` (draft, review roles, review-actuator) are `b
 
 ### Plan
 
-- `plan.prompt.draft` — pinned by the `plan` preset; placeholders `WORKDIR`, `NAME`, `INTENT`, `SPEC_GUIDANCE`, `TARGET_DIR`; variants `flat-layout` / `nested-target-dir` select the spec-path layout. Rules carry step mechanics only; authoring norms come from the injected [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md). See [`write-behavior.md § Plan write-step seeding`](./write-behavior.md#plan-write-step-seeding-and-completion-contract).
+- `plan.prompt.draft` — pinned by the `plan` preset; placeholders `WORKDIR`, `NAME`, `INTENT`, `SPEC_GUIDANCE`, `TARGET_DIR`; variants `flat-layout` / `nested-target-dir` select the spec-path layout. Rules carry step mechanics only (file boundaries, blocker gate, index links, scoped gate scripts per target-repo `AGENTS.md`); authoring norms come from the injected [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md). Subspec sizing and bullet contents are judged by the plan review roles, not by a draft contract. See [`write-behavior.md § Plan write-step seeding`](./write-behavior.md#plan-write-step-seeding-and-completion-contract).
 - `plan.prompt.review-actuator` — verdict-application step (same variants as the draft) plus injected `SPEC_GUIDANCE`.
 
 ### Intent

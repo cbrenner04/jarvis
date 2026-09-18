@@ -455,6 +455,7 @@ export const REVIEW_MD_LINT_FIXTURE_IDS = {
   planMd012ViolationSubspec: "plan-md012-violation-subspec.md",
   planMd038CleanSubspec: "plan-md038-clean-subspec.md",
   planMd038ViolationSubspec: "plan-md038-violation-subspec.md",
+  planMd025ViolationSubspec: "plan-md025-violation-subspec.md",
   intentMd038Clean: "intent-md038-clean.md",
   intentMd038Violation: "intent-md038-violation.md",
   intentLandingAndMd038Violation: "intent-landing-and-md038-violation.md",

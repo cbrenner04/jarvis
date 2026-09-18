@@ -396,6 +396,29 @@ function fakeStore(
       }
       return { kind: "applied" as const, stageRecordId: shape.failedStageRecordId };
     },
+    reopenProvisionalSkippedStages: (args: { pipelineId: string; branchKey?: string }) => {
+      if (args.pipelineId !== PIPELINE_ID) {
+        return { kind: "refused" as const, pipelineId: args.pipelineId, reason: "pipeline_not_found" as const };
+      }
+      const branchKey = args.branchKey ?? "default";
+      const stageRecordIds: string[] = [];
+      for (const record of stages) {
+        if (record.branchKey !== branchKey) continue;
+        if (record.status !== "skipped" || record.skipProvenance !== "provisional") continue;
+        Object.assign(record, {
+          status: "pending",
+          skipProvenance: null,
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: null,
+          artifact: null,
+          failureDetail: null,
+          decidedAt: null,
+        });
+        stageRecordIds.push(record.id);
+      }
+      return { kind: "applied" as const, pipelineId: args.pipelineId, stageRecordIds };
+    },
     commitTerminalPublicationFailure: (args: {
       pipelineId: string;
       terminalAction: PipelineTerminalAction;
@@ -6017,6 +6040,157 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("pending");
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  const RELINK_FAN_OUT_DOWNSTREAM = [
+    "ready-intents/alpha.md",
+    "ready-intents/beta.md",
+    "ready-intents/gamma.md",
+  ] as const;
+  const RELINK_BRANCH_KEYS = RELINK_FAN_OUT_DOWNSTREAM.map(branchKeyFromDownstreamInput);
+
+  /** Three-branch fan-out resolveStage: "plan" resolves for every current branch key, others per-branch. */
+  function relinkResolveStage(): (
+    definition: PipelineDefinition,
+    stageIndex: number,
+    context: PipelineContext,
+    stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+    deps?: PipelineStageResolveDeps,
+  ) => Promise<PipelineStageResolutionResult> {
+    return async (definition, stageIndex, _context, _stageArtifacts, deps) => {
+      const stage = definition.stages[stageIndex];
+      if (stage?.kind === "workflow" && stage.workflow === "plan") {
+        return {
+          ok: true,
+          results: RELINK_BRANCH_KEYS.map((branchKey) => ({
+            steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey, stageId: stage.stageId })],
+          })),
+        };
+      }
+      const branchKey = deps?.branchKey ?? "default";
+      return {
+        ok: true,
+        steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey, stageId: stage?.stageId ?? "unknown" })],
+      };
+    };
+  }
+
+  function snapshotStage(
+    stageRecords: PipelineStageRecord[],
+    stageId: string,
+    branchKey = "default",
+  ): PipelineStageRecord {
+    const record = stageRecord(stageRecords, stageId, branchKey);
+    if (!record) throw new Error(`missing stage ${stageId}/${branchKey}`);
+    return structuredClone(record);
+  }
+
+  const relinkDispatch: PipelineWorkflowDispatch = async (steps) => {
+    const step = steps[0] as unknown as { branchKey?: string; stageId?: string };
+    const branchKey = step.branchKey ?? "default";
+    const stageId = step.stageId ?? "unknown";
+    return { ok: true, entryRunId: `run-${branchKey}-${stageId}`, invocationId: `inv-${branchKey}-${stageId}` };
+  };
+
+  test("a branch stage settling succeeded reopens the branch's provisional skip so its stranded successor dispatches", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...RELINK_FAN_OUT_DOWNSTREAM] },
+      "run-alpha-plan-relink": { specPath: "spec/alpha/plan.md" },
+      "run-beta-plan": { specPath: "spec/beta/plan.md" },
+      "run-beta-implement": { specPath: "spec/beta/implement.md" },
+      "run-gamma-plan": { specPath: "spec/gamma/plan.md" },
+      "run-gamma-implement": { specPath: "spec/gamma/implement.md" },
+      "run-alpha-implement": { specPath: "spec/alpha/implement.md" },
+    });
+
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: "run-intent",
+      specPath: "ready-intents",
+      downstreamInputs: [...RELINK_FAN_OUT_DOWNSTREAM],
+    };
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+    });
+    for (const branchKey of RELINK_BRANCH_KEYS) {
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+    }
+    for (const stageId of ["gate", "plan", "implement"] as const) {
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey: "default",
+        patch: { status: "skipped", skipProvenance: "terminal" },
+      });
+    }
+    // Alpha and beta clear their gate; gamma's stays unapproved so it can drive a fresh fan-out
+    // resolution claim on the second pass without dispatching itself on the first.
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "alpha", patch: { status: "approved" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
+    // Hand-seed settleFanOutBranch's non-succeeded fallthrough precondition: a running branch
+    // stage with no live linked entry run. The skip itself is never hand-seeded.
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: "alpha",
+      patch: { status: "running", workflowInvocationId: null },
+    });
+
+    const deps = {
+      store,
+      dispatch: relinkDispatch,
+      wait: settlingWait(store, async () => "completed" as const),
+      resolveStage: relinkResolveStage(),
+    };
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("running");
+    expect(stageRecord(stages(), "plan", "alpha")?.workflowInvocationId).toBeNull();
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("skipped");
+    expect(stageRecord(stages(), "implement", "alpha")?.skipProvenance).toBe("provisional");
+    expect(stages().some((stage) => stage.branchKey === "alpha" && stage.status === "failed")).toBe(false);
+    // No operator verb can free the stranded successor: no failed row exists anywhere to reopen.
+    expect(store.reopenFailedPipeline({ pipelineId: PIPELINE_ID, branchKey: "alpha" }).kind).toBe("refused");
+    expect(store.reopenFailedPipeline({ pipelineId: PIPELINE_ID }).kind).toBe("refused");
+
+    const intentBeforeReopen = snapshotStage(stages(), "intent");
+    const alphaGateBeforeReopen = snapshotStage(stages(), "gate", "alpha");
+
+    // Between passes: alpha's plan gets a live link (as if resumed), and gamma's gate clears so
+    // gamma's own suffix walk drives a fresh fan-out resolution claim. Scoping the next
+    // `runPipeline` call to branchKey "gamma" keeps alpha's and beta's own suffix walks from
+    // running this pass, so only the claim's own settlement observation touches alpha's row.
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: "alpha",
+      patch: { workflowInvocationId: "run-alpha-plan-relink" },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "gamma", patch: { status: "approved" } });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext }, "gamma");
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+    const reopenedImplementAlpha = stageRecord(stages(), "implement", "alpha");
+    expect(reopenedImplementAlpha?.status).toBe("pending");
+    expect(reopenedImplementAlpha?.skipProvenance ?? null).toBeNull();
+    expect(reopenedImplementAlpha?.workflowInvocationId).toBeNull();
+
+    // Rows at or before the settled position are untouched by the reopen.
+    expect(stageRecord(stages(), "intent")).toEqual(intentBeforeReopen);
+    expect(stageRecord(stages(), "gate", "alpha")).toEqual(alphaGateBeforeReopen);
+
+    // A further pass dispatches the reopened successor.
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
   });
 
   test("fan-out with terminalAction fails closed instead of reporting succeeded", async () => {

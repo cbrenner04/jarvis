@@ -2296,13 +2296,17 @@ async function runFanOutBranchAction(
 /**
  * Record one settled fan-out branch and report whether it failed. A branch still `running` against a
  * live entry run is left alone — its own settlement owns the terminal write — so later stages are not
- * skipped out from under it.
+ * skipped out from under it. The `succeeded` arm mutates: it reopens any provisional skips left on this
+ * branch's suffix, so a successor skipped by an earlier non-`succeeded` settlement of this same stage
+ * isn't stranded. Reopened rows dispatch only on the execution loop's next pass.
  */
 function settleFanOutBranch(args: AdvanceWorkflowStageArgs, targetBranchKey: string): boolean {
   const { pipelineId, stage, index, stageArtifacts, store } = args;
   const settledRecord = findStageRecord(store.loadPipeline(pipelineId)?.stages ?? [], stage.stageId, targetBranchKey);
   if (settledRecord?.status === "succeeded") {
     carryForwardArtifact(stageArtifacts, stage.stageId, targetBranchKey, settledRecord.artifact);
+    // `pipeline_not_found` is unreachable: settledRecord was just loaded from this same pipeline.
+    store.reopenProvisionalSkippedStages({ pipelineId, branchKey: targetBranchKey });
     return false;
   }
   if (settledRecord?.status === "running" && settlementLinkedEntryRunId(store, settledRecord) !== undefined) {

@@ -1717,7 +1717,11 @@ describe("recoverPlanStage", () => {
         runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
       });
 
-      expect(outcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
+      expect(outcome).toMatchObject({
+        ok: false,
+        code: "unrelated_plan_stage",
+        message: "a live run holds the worktree claim for this branch",
+      });
       expect(existsSync(durable)).toBe(false);
     });
   });

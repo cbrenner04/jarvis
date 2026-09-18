@@ -27,6 +27,8 @@ export type CompletionPublisherInput = ExternalSpecGitScope & {
   bodySummary?: string;
   specTemplate?: boolean;
   narrative?: string;
+  /** Lane tip before this run rebased it; absent means this run did not rebase, so any non-ancestor remote tip is foreign. */
+  leaseFromSha?: string;
   /** Run abort signal: aborts in-flight push/PR calls (network-bounded regardless). */
   signal?: AbortSignal;
 };
@@ -134,20 +136,28 @@ async function isAncestor(git: Git, cwd: string, ancestor: string, descendant: s
   }
 }
 
-/** Remote tip to lease against when a rebase rewrote this lane's own prior publish; undefined when a plain push suffices. */
-async function resolveLeaseTip(git: Git, cwd: string, branch: string): Promise<string | undefined> {
+/**
+ * Remote tip to lease against when this run's rebase rewrote the lane's own prior publish; undefined
+ * when a plain push suffices. Authorized only by the recorded pre-rebase SHA, never ORIG_HEAD, which
+ * any reset/merge or an earlier run's rebase may leave stale.
+ */
+async function resolveLeaseTip(
+  git: Git,
+  cwd: string,
+  branch: string,
+  leaseFromSha: string | undefined,
+): Promise<string | undefined> {
   const tip = await resolveRemoteTip(git, cwd, branch);
   if (tip === undefined || (await isAncestor(git, cwd, tip, "HEAD"))) return undefined;
-  const origHead = await git(cwd, ["rev-parse", "--verify", "ORIG_HEAD"]).catch(() => "");
-  if (origHead === "" || !(tip === origHead || (await isAncestor(git, cwd, tip, origHead)))) {
+  if (leaseFromSha === undefined || !(tip === leaseFromSha || (await isAncestor(git, cwd, tip, leaseFromSha)))) {
     throw new ForeignRemoteTipError(branch, tip);
   }
   return tip;
 }
 
-async function pushBranch(git: Git, cwd: string, branch: string): Promise<void> {
+async function pushBranch(git: Git, cwd: string, branch: string, leaseFromSha: string | undefined): Promise<void> {
   const ref = `HEAD:refs/heads/${branch}`;
-  const leaseTip = await resolveLeaseTip(git, cwd, branch);
+  const leaseTip = await resolveLeaseTip(git, cwd, branch, leaseFromSha);
   if (leaseTip === undefined) {
     await git(cwd, ["push", "origin", ref]);
     return;
@@ -194,7 +204,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       const pushSha = await runPublicationWithRetry(
         "push",
         async () => {
-          await pushBranch(git, input.worktreePath, input.branch);
+          await pushBranch(git, input.worktreePath, input.branch, input.leaseFromSha);
           return await git(input.worktreePath, ["rev-parse", "HEAD"]);
         },
         { delay, retryNotice },

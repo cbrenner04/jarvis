@@ -121,6 +121,7 @@ import {
   executeWriteLoop,
   exhaustedRedTerminalLogFields,
   getUncommittedPaths,
+  leaseFromShaField,
   publishWithReadyRepair,
   readyFailureResumable,
   type WriteLoopInput,
@@ -1526,6 +1527,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 branch: worktree.branchName,
                 creationTitle,
                 ...externalSpecGitScope(completionStep),
+                ...leaseFromShaField(completionStep),
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
                 ...(specTemplate ? { specTemplate } : {}),
                 ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
@@ -1895,6 +1897,7 @@ function buildWorkflowSnapshot(
           ...(step.readyCommand !== undefined ? { readyCommand: step.readyCommand } : {}),
           ...(step.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
           ...(step.specReadRoot !== undefined ? { specReadRoot: step.specReadRoot } : {}),
+          ...(step.leaseFromSha !== undefined ? { leaseFromSha: step.leaseFromSha } : {}),
           ...snapshotLandingInputs(step.landing),
         }
       : {}),
@@ -1912,9 +1915,14 @@ function buildWorkflowSnapshot(
         if (requestedInvocationId !== undefined && candidate.invocationId !== requestedInvocationId) {
           throw new Error("intent: existing workflow is owned by another invocation; resume the recorded invocation");
         }
-        return candidate.creationTitle !== undefined || !existingRun?.creationTitle
-          ? candidate
-          : { ...candidate, creationTitle: existingRun.creationTitle };
+        const leased = withAuthoredLeaseFromSha(
+          candidate,
+          authoredSteps.map((step) => ("leaseFromSha" in step ? step.leaseFromSha : undefined)),
+        );
+        persistLeaseRestamp(store, candidate, leased);
+        return leased.creationTitle !== undefined || !existingRun?.creationTitle
+          ? leased
+          : { ...leased, creationTitle: existingRun.creationTitle };
       }
     }
   }
@@ -1981,6 +1989,30 @@ function implementReviewPassesFromSteps(steps: readonly AnyWorkflowStep[]): numb
  * reuse the same stepId label. Only adopt the snapshot if its full authored step list
  * matches this invocation's.
  */
+/** A reused snapshot takes this dispatch's lease authorization verbatim: a prior run's recorded SHA never carries over. */
+function withAuthoredLeaseFromSha(
+  snapshot: WorkflowSnapshot,
+  authoredLeases: readonly (string | undefined)[],
+): WorkflowSnapshot {
+  return {
+    ...snapshot,
+    steps: snapshot.steps.map((step, index) => {
+      const { leaseFromSha: _prior, ...rest } = step;
+      const leaseFromSha = authoredLeases[index];
+      return leaseFromSha !== undefined ? { ...rest, leaseFromSha } : rest;
+    }),
+  };
+}
+
+/** Durably re-stamp every row of a reused invocation whose recorded lease authorization changed, so resume reads this dispatch's value. */
+function persistLeaseRestamp(store: StateStore, prior: WorkflowSnapshot, leased: WorkflowSnapshot): void {
+  const changed = prior.steps.some((step, index) => step.leaseFromSha !== leased.steps[index]?.leaseFromSha);
+  if (!changed) return;
+  for (const run of store.findRunsByInvocationId(prior.invocationId)) {
+    store.setRunWorkflowSnapshot(run.id, { ...(run.workflowSnapshot ?? prior), steps: leased.steps });
+  }
+}
+
 function snapshotMatchesAuthoredSteps(
   snapshot: WorkflowSnapshot,
   authoredSteps: readonly {

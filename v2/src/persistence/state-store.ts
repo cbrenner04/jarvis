@@ -97,6 +97,8 @@ export type WorkflowSnapshotStep = {
   externalPlanSpec?: true;
   /** Authoritative external routing root for an admitted plan. */
   specReadRoot?: string;
+  /** This run's recorded pre-rebase lane tip; authorizes the publisher's lease push across resume. */
+  leaseFromSha?: string;
   /** Seed inputs the write step's landing consumes; resume replays consumption from here. Absent on legacy snapshots. */
   landingInputs?: PublicationInputs;
 };
@@ -712,6 +714,9 @@ export interface StateStore {
 
   /** Retain the title resolved at the publication boundary for retries. */
   setCreationTitle(runId: string, title: string): void;
+
+  /** Replace a run's workflow snapshot (a reused snapshot re-stamped with this dispatch's lease authorization). */
+  setRunWorkflowSnapshot(runId: string, snapshot: WorkflowSnapshot): void;
 
   /** Update the worktree-relative handoff path recorded on a run row after intent landing. */
   setRunSpecPath(runId: string, specPath: string): void;
@@ -1989,6 +1994,10 @@ class StateStoreImpl implements StateStore {
 
   setCreationTitle(runId: string, title: string): void {
     this.db.prepare("UPDATE runs SET creation_title = ? WHERE id = ?").run(title, runId);
+  }
+
+  setRunWorkflowSnapshot(runId: string, snapshot: WorkflowSnapshot): void {
+    this.db.prepare("UPDATE runs SET workflow_snapshot = ? WHERE id = ?").run(JSON.stringify(snapshot), runId);
   }
 
   setRunSpecPath(runId: string, specPath: string): void {

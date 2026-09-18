@@ -93,6 +93,7 @@ import {
   getUncommittedPaths,
   hasRetainedFinalizationCheckpoint,
   isExhaustedRedTerminalEvidence,
+  leaseFromShaField,
   MAX_MUTATION_REPAIR_ATTEMPTS,
   type PersistedRepairFenceEnforcer,
   publishWithReadyRepair,
@@ -330,6 +331,8 @@ type IntentFinalizationResumeContext = {
   landing: Extract<PublicationLanding, { kind: "intent-stage" }>;
   completionAgent: string | undefined;
   creationTitleHint: string | undefined;
+  /** Recorded pre-rebase lane tip from the write step's snapshot; authorizes the publisher's lease push. */
+  leaseFromSha?: string;
   behavior: "review" | "review-debate";
   reviewPass: number | undefined;
 };
@@ -1075,6 +1078,7 @@ export function resolveIntentFinalizationResumeContext(
       },
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
+      ...leaseFromShaField(writeStep ?? {}),
       behavior,
       reviewPass,
     },
@@ -1435,6 +1439,7 @@ async function runIntentResumeCommitAndPublish(
       branch: context.branch,
       creationTitle,
       ...(bodySummary !== undefined ? { bodySummary } : {}),
+      ...leaseFromShaField(context),
     },
   );
   // A `run kill` mid-tail owns settlement: never let the aborted publication commit a boundary.
@@ -1636,6 +1641,8 @@ type ReviewMutationResumeContext = ExternalSpecGitScope & {
   writeRole?: string;
   completionAgent: string | undefined;
   creationTitleHint: string | undefined;
+  /** Recorded pre-rebase lane tip from the write step's snapshot; authorizes the publisher's lease push. */
+  leaseFromSha?: string;
 };
 
 type ReviewMutationResumeResolution =
@@ -1761,6 +1768,7 @@ export function reconstructPausedWriteResumeInput(
       ...(snapshotStep.fixCommand !== undefined ? { fixCommand: snapshotStep.fixCommand } : {}),
       ...(snapshotStep.readyCommand !== undefined ? { readyCommand: snapshotStep.readyCommand } : {}),
       ...externalScope,
+      ...leaseFromShaField(snapshotStep),
       ...(snapshotStep.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
     },
   };
@@ -1929,6 +1937,7 @@ export function resolveReviewMutationLineageContext(run: Run, store: StateStore)
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
       ...persistedExternalSpecGitScope(writeRun, writeStep),
+      ...leaseFromShaField(writeStep ?? {}),
     },
   };
 }
@@ -2004,6 +2013,7 @@ function resolveOrdinaryWriteResumeContext(
       completionAgent,
       creationTitleHint: snapshot?.creationTitle,
       ...persistedExternalSpecGitScope(run, step),
+      ...leaseFromShaField(step ?? {}),
     },
   };
 }
@@ -2427,6 +2437,7 @@ async function runMutationRepairAttempt(
     ...(body.specTemplate ? { specTemplate: true } : {}),
     ...externalSpecGitScope(context),
     ...reviewMutationRequiredIntegrationScope(context),
+    ...leaseFromShaField(context),
   });
   throwIfAborted(deps.signal);
   if (
@@ -2656,6 +2667,7 @@ async function runReviewMutationCommitAndPublish(
       ...(specTemplate ? { specTemplate } : {}),
       ...externalSpecGitScope(context),
       ...reviewMutationRequiredIntegrationScope(context),
+      ...leaseFromShaField(context),
     },
   );
   throwIfAborted(deps.signal);

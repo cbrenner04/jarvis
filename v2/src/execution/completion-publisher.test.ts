@@ -1401,12 +1401,13 @@ describe("createCompletionPublisher lease-forced push", () => {
     return "";
   };
   const roots: string[] = [];
-  const laneInput = (worktreePath: string) => ({
+  const laneInput = (worktreePath: string, leaseFromSha?: string) => ({
     worktreePath,
     baseRef: "main",
     specPath: "v2/spec/x/index.md",
     branch,
     creationTitle: "t",
+    ...(leaseFromSha !== undefined ? { leaseFromSha } : {}),
   });
 
   afterEach(() => {
@@ -1456,14 +1457,17 @@ describe("createCompletionPublisher lease-forced push", () => {
     return { lane, other, laneTip, remote };
   }
 
-  function advanceMainAndRebase(f: ReturnType<typeof fixture>): void {
+  /** Rebases the lane onto an advanced main; returns the recorded pre-rebase lane tip. */
+  function advanceMainAndRebase(f: ReturnType<typeof fixture>): string {
+    const preRebaseSha = runGit(f.lane, ["rev-parse", "HEAD"]);
     commit(f.other, "main-2");
     runGit(f.other, ["push", "origin", "HEAD:main"]);
     runGit(f.lane, ["fetch", "origin"]);
     runGit(f.lane, ["rebase", "origin/main"]);
+    return preRebaseSha;
   }
 
-  function publisherFor(lane: string, onPush?: () => void) {
+  function publisherFor(lane: string, leaseFromSha?: string, onPush?: () => void) {
     const pushes: string[][] = [];
     const publisher = createCompletionPublisher({
       git: async (cwd, args) => {
@@ -1477,14 +1481,14 @@ describe("createCompletionPublisher lease-forced push", () => {
       delay: noopDelay,
       ...refreshSeams,
     });
-    const publish = () => publisher(laneInput(lane));
+    const publish = () => publisher(laneInput(lane, leaseFromSha));
     return { publish, pushes };
   }
 
   it("publishes a rebased lane whose branch was already pushed with a lease on the observed tip", async () => {
     const f = fixture();
-    advanceMainAndRebase(f);
-    const { publish, pushes } = publisherFor(f.lane);
+    const preRebaseSha = advanceMainAndRebase(f);
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha);
 
     await publish();
 
@@ -1494,11 +1498,11 @@ describe("createCompletionPublisher lease-forced push", () => {
     expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(runGit(f.lane, ["rev-parse", "HEAD"]));
   });
 
-  it("leases when the remote tip is a strict ancestor of ORIG_HEAD after post-publish local commits", async () => {
+  it("leases when the remote tip is a strict ancestor of the recorded pre-rebase SHA after post-publish local commits", async () => {
     const f = fixture();
     commit(f.lane, "lane-2");
-    advanceMainAndRebase(f);
-    const { publish, pushes } = publisherFor(f.lane);
+    const preRebaseSha = advanceMainAndRebase(f);
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha);
 
     await publish();
 
@@ -1519,14 +1523,14 @@ describe("createCompletionPublisher lease-forced push", () => {
     expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(runGit(f.lane, ["rev-parse", "HEAD"]));
   });
 
-  it("refuses a foreign remote tip that is neither ORIG_HEAD nor its ancestor, without pushing", async () => {
+  it("refuses a foreign remote tip that is neither the recorded pre-rebase SHA nor its ancestor, without pushing", async () => {
     const f = fixture();
     runGit(f.other, ["checkout", branch]);
     const foreign = commit(f.other, "foreign");
     runGit(f.other, ["push", "origin", `HEAD:refs/heads/${branch}`]);
     runGit(f.other, ["checkout", "main"]);
-    advanceMainAndRebase(f);
-    const { publish, pushes } = publisherFor(f.lane);
+    const preRebaseSha = advanceMainAndRebase(f);
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha);
 
     const error = await publish().then(
       () => undefined,
@@ -1540,13 +1544,38 @@ describe("createCompletionPublisher lease-forced push", () => {
     expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(foreign);
   });
 
-  it("refuses a non-ancestor remote tip when ORIG_HEAD is absent", async () => {
+  it("refuses a stale-ORIG_HEAD lane over a remote rewound to an older lane commit, without forcing", async () => {
+    const f = fixture();
+    const laneTwo = commit(f.lane, "lane-2");
+    runGit(f.lane, ["push", "origin", `HEAD:refs/heads/${branch}`]);
+    // Foreign rewind of the branch to the lane's own older commit.
+    runGit(f.other, ["fetch", "origin"]);
+    runGit(f.other, ["push", "--force", "origin", `${f.laneTip}:refs/heads/${branch}`]);
+    // An agent's reset leaves ORIG_HEAD at lane-2, whose ancestry covers the rewound tip; this run did not rebase.
+    runGit(f.lane, ["reset", "--hard", "origin/main"]);
+    commit(f.lane, "redo");
+    expect(runGit(f.lane, ["rev-parse", "ORIG_HEAD"])).toBe(laneTwo);
+    const { publish, pushes } = publisherFor(f.lane);
+
+    const error = await publish().then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(ForeignRemoteTipError);
+    expect((error as Error).message).toContain(branch);
+    expect((error as Error).message).toContain(f.laneTip);
+    expect(pushes).toEqual([]);
+    expect(runGit(f.remote, ["rev-parse", `refs/heads/${branch}`])).toBe(f.laneTip);
+  });
+
+  it("refuses a non-ancestor remote tip when no pre-rebase SHA is recorded", async () => {
     const pushes: string[][] = [];
     const publisher = createCompletionPublisher({
       git: async (_cwd, args) => {
         if (args[0] === "push") pushes.push([...args]);
         if (args[0] === "ls-remote") return `cafe1234\trefs/heads/${branch}`;
-        if (args[0] === "merge-base" || args.includes("ORIG_HEAD")) throw new Error("fatal");
+        if (args[0] === "merge-base") throw new Error("fatal");
         return "";
       },
       gh,
@@ -1560,11 +1589,11 @@ describe("createCompletionPublisher lease-forced push", () => {
 
   it("fails permanently naming expected and actual SHAs when the remote moves between observation and push", async () => {
     const f = fixture();
-    advanceMainAndRebase(f);
+    const preRebaseSha = advanceMainAndRebase(f);
     runGit(f.other, ["fetch", "origin"]);
     runGit(f.other, ["checkout", branch]);
     let raced = "";
-    const { publish, pushes } = publisherFor(f.lane, () => {
+    const { publish, pushes } = publisherFor(f.lane, preRebaseSha, () => {
       raced = commit(f.other, "raced");
       runGit(f.other, ["push", "origin", `HEAD:refs/heads/${branch}`]);
     });
@@ -1597,7 +1626,6 @@ describe("createCompletionPublisher lease-forced push", () => {
           if (args[3] === "HEAD") throw new Error("not ancestor");
           return "";
         }
-        if (args.includes("ORIG_HEAD")) return "cafe1234";
         if (args[0] === "push") {
           pushes.push([...args]);
           throw new Error("! [rejected] (stale info)\nerror: failed to push some refs");
@@ -1609,7 +1637,7 @@ describe("createCompletionPublisher lease-forced push", () => {
       ...refreshSeams,
     });
 
-    const error = await publisher(laneInput("/w")).then(
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
       () => undefined,
       (caught: unknown) => caught,
     );
@@ -1630,7 +1658,6 @@ describe("createCompletionPublisher lease-forced push", () => {
           if (args[3] === "HEAD") throw new Error("not ancestor");
           return "";
         }
-        if (args.includes("ORIG_HEAD")) return "cafe1234";
         if (args[0] === "push") {
           pushes.push([...args]);
           throw denied;
@@ -1642,7 +1669,7 @@ describe("createCompletionPublisher lease-forced push", () => {
       ...refreshSeams,
     });
 
-    const error = await publisher(laneInput("/w")).then(
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
       () => undefined,
       (caught: unknown) => caught,
     );
@@ -1666,7 +1693,6 @@ describe("createCompletionPublisher lease-forced push", () => {
           if (args[3] === "HEAD") throw new Error("not ancestor");
           return "";
         }
-        if (args.includes("ORIG_HEAD")) return "cafe1234";
         if (args[0] === "push") throw denied;
         return "";
       },
@@ -1675,7 +1701,7 @@ describe("createCompletionPublisher lease-forced push", () => {
       ...refreshSeams,
     });
 
-    const error = await publisher(laneInput("/w")).then(
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
       () => undefined,
       (caught: unknown) => caught,
     );
@@ -1696,7 +1722,6 @@ describe("createCompletionPublisher lease-forced push", () => {
           if (args[3] === "HEAD") throw new Error("not ancestor");
           return "";
         }
-        if (args.includes("ORIG_HEAD")) return "cafe1234";
         if (args[0] === "push") throw denied;
         return "";
       },
@@ -1705,7 +1730,7 @@ describe("createCompletionPublisher lease-forced push", () => {
       ...refreshSeams,
     });
 
-    const error = await publisher(laneInput("/w")).then(
+    const error = await publisher(laneInput("/w", "cafe1234")).then(
       () => undefined,
       (caught: unknown) => caught,
     );

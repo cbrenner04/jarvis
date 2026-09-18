@@ -1237,7 +1237,7 @@ async function shouldRunRequiredIntegration(
   return scope !== "full" && !scope.includes(input.requiredIntegrationScope);
 }
 
-function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
+export function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
   return async (
     worktreePath: string,
     baseRef: string,

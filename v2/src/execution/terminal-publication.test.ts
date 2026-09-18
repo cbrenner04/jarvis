@@ -394,3 +394,42 @@ describe("executeTerminalPublication", () => {
     expect(deleteCalls).toHaveLength(0);
   });
 });
+
+describe("executeTerminalPublication production ready gate", () => {
+  for (const readyCommand of ["make ready", undefined]) {
+    it(`runs the real ready gate with cwd, signal, process groups, and readyCommand=${readyCommand ?? "default"}`, async () => {
+      const gateCalls: { cmd: string; cwd: string; signal: AbortSignal | undefined }[] = [];
+      const recorded: number[] = [];
+      const flipCalls: Array<number | undefined> = [];
+      const controller = new AbortController();
+      const execute = createExecuteTerminalPublication({
+        asyncSubprocessRunner: {
+          runAsync: async (cmd, args, cwd, options) => {
+            if (cmd === "git") return "";
+            gateCalls.push({ cmd: `${cmd} ${args.join(" ")}`, cwd, signal: options?.signal });
+            options?.processGroup?.onGroupId?.(777);
+            return "";
+          },
+        },
+        gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+        ghReadyFlip: async (prNumber) => {
+          flipCalls.push(prNumber);
+        },
+      });
+
+      await execute({
+        ...baseInput,
+        terminalAction: "ready",
+        signal: controller.signal,
+        verifierProcessGroups: { record: (pgid) => recorded.push(pgid), clear: () => {} },
+        ...(readyCommand !== undefined ? { readyCommand } : {}),
+      });
+
+      expect(gateCalls).toEqual([
+        { cmd: readyCommand ?? "bun run ready", cwd: baseInput.worktreePath, signal: controller.signal },
+      ]);
+      expect(recorded).toEqual([777]);
+      expect(flipCalls).toEqual([42]);
+    });
+  }
+});

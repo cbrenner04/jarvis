@@ -16,6 +16,7 @@ import {
   type TerminalPublicationInput,
   type TerminalPublicationResult,
 } from "../execution/terminal-publication.ts";
+import { storeVerifierProcessGroupRecorder } from "../execution/verifier-process-groups.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
@@ -30,6 +31,7 @@ import {
   type PipelineContext,
   type PipelineReopenRefusalReason,
   type PipelineStageRecord,
+  type Run,
   type StateStore,
 } from "../persistence/state-store.ts";
 import {
@@ -914,10 +916,18 @@ function resolveTerminalPublicationInput(
       worktreePath: entryRun.worktreePath,
       branch: entryRun.branch,
       baseRef: entryRun.specRef,
+      verifierProcessGroups: storeVerifierProcessGroupRecorder(store, entryRun.id),
+      ...terminalReadyCommand(entryRun),
       ...(artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
       ...(artifact.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),
     },
   };
+}
+
+/** Project `readyCommand` stamped on the entry run's workflow snapshot (same source implement's ready gate reads). */
+function terminalReadyCommand(entryRun: Run): { readyCommand?: string } {
+  const readyCommand = entryRun.workflowSnapshot?.steps.find((step) => step.readyCommand !== undefined)?.readyCommand;
+  return readyCommand !== undefined ? { readyCommand } : {};
 }
 
 function commitTerminalPublicationFailureSafely(

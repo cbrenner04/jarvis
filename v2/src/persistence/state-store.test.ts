@@ -908,6 +908,16 @@ describe("StateStore", () => {
     expect(runs.map((r) => r.id)).toEqual([run1Id, run2Id, run3Id]);
   });
 
+  test("findRunsByInvocationId returns rows carrying ownerIdentity", () => {
+    const snapshot = { invocationId: "inv-owner-identity", steps: [{ stepId: "step-1", role: "implement" }] };
+    const runId = seedRun(store, { stepId: "step-1", workflowSnapshot: snapshot });
+
+    const runs = store.findRunsByInvocationId("inv-owner-identity");
+
+    expect(runs.map((r) => r.id)).toEqual([runId]);
+    expect(runs[0]?.ownerIdentity).toBe(store.currentOwnerIdentity());
+  });
+
   test("loadRunsByIds uses batched store access independent of id count", () => {
     const BATCH_LOAD_PREPARE_BOUND = 2;
     const existingIds: string[] = [];

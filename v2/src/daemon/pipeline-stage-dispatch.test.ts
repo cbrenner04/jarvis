@@ -344,6 +344,7 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
   const stageKey = (pipelineId: string, stageId: string, branchKey?: string) =>
     `${pipelineId}:${stageId}:${branchKey ?? "default"}`;
   const store = {
+    currentOwnerIdentity: () => currentIdentity,
     updateStage: (args: {
       pipelineId: string;
       stageId: string;
@@ -1067,6 +1068,77 @@ describe("dispatchPipelineStage", () => {
       reason: "harness_failure",
       retryable: false,
       nextAction: "stop",
+    });
+  });
+
+  test("adopt settlement leaves the stage running while a hidden shrink sibling is live under a foreign owner", async () => {
+    const entryRunId = "entry-adopt-foreign-live";
+    const shrinkRunId = "entry-adopt-foreign-live-shrink";
+    const foreignOwner = "55555:5000000";
+    const snapshot = entryOnlySnapshot("inv-adopt-foreign-live");
+    const { store, patches, registerStageRow } = fakeStore({
+      [entryRunId]: {
+        stepId: "s1-entry",
+        specPath: "spec/adopt-foreign-live.md",
+        status: "completed",
+        workflowSnapshot: snapshot,
+      },
+      [shrinkRunId]: {
+        stepId: "s1-entry~shrink",
+        status: "in-progress",
+        workflowSnapshot: snapshot,
+        ownerIdentity: foreignOwner,
+      },
+    });
+    registerStageRow({ ...stageRecord({ status: "running", workflowInvocationId: entryRunId }), pipelineId: "p1" });
+    const wait = mirrorWorkflowEntryRunWait(store);
+
+    await adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      entryRunId,
+      wait,
+      isOwnerAliveProbe: async () => true,
+    });
+
+    expectStageNotTerminalized(patches);
+  });
+
+  test("adopt settlement settles once the foreign owner identity on a hidden shrink sibling is dead", async () => {
+    const entryRunId = "entry-adopt-foreign-dead";
+    const shrinkRunId = "entry-adopt-foreign-dead-shrink";
+    const foreignOwner = "55555:5000000";
+    const snapshot = entryOnlySnapshot("inv-adopt-foreign-dead");
+    const { store, patches, registerStageRow } = fakeStore({
+      [entryRunId]: {
+        stepId: "s1-entry",
+        specPath: "spec/adopt-foreign-dead.md",
+        status: "completed",
+        workflowSnapshot: snapshot,
+      },
+      [shrinkRunId]: {
+        stepId: "s1-entry~shrink",
+        status: "in-progress",
+        workflowSnapshot: snapshot,
+        ownerIdentity: foreignOwner,
+      },
+    });
+    registerStageRow({ ...stageRecord({ status: "running", workflowInvocationId: entryRunId }), pipelineId: "p1" });
+    const wait = mirrorWorkflowEntryRunWait(store);
+
+    await adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      entryRunId,
+      wait,
+      isOwnerAliveProbe: async () => false,
+    });
+
+    const successPatch = patches.find((p) => p.patch.status === "succeeded");
+    expect(successPatch?.patch.artifact).toEqual({
+      entryRunId,
+      invocationId: "inv-adopt-foreign-dead",
+      specPath: "spec/adopt-foreign-dead.md",
     });
   });
 

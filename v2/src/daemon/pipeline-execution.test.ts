@@ -221,6 +221,7 @@ function fakeStore(
   };
 
   const store = {
+    currentOwnerIdentity: () => currentIdentity,
     loadPipeline: (id: string) =>
       id === PIPELINE_ID
         ? ({
@@ -1969,6 +1970,96 @@ describe("pipeline activation after restart", () => {
     });
 
     expect(continued).toBe(0);
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+  });
+
+  test("restart sweep leaves an unsettled stage whose completion publication is still live under a foreign owner", async () => {
+    const entryRunId = "run-restart-sweep-foreign-live";
+    const shrinkRunId = "run-restart-sweep-foreign-live-shrink";
+    const foreignOwner = "66666:6000000";
+    const snapshot = entryOnlySnapshot("inv-restart-sweep-foreign-live");
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+      [shrinkRunId]: {
+        stepId: "s1-entry~shrink",
+        status: "in-progress",
+        workflowSnapshot: snapshot,
+        ownerIdentity: foreignOwner,
+      },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 12345 },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+
+    // The daemon-start call site: a live foreign owner on the hidden shrink sibling blocks
+    // settlement the same way a still-live local invocation does.
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub() },
+      async (identity) => identity === foreignOwner,
+    );
+
+    expect(continued).toBe(0);
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+  });
+
+  test("resume leaves an unsettled stage whose completion publication is still live under a foreign owner, the same as the daemon-start sweep", async () => {
+    const entryRunId = "run-resume-foreign-live";
+    const shrinkRunId = "run-resume-foreign-live-shrink";
+    // resumePipeline's precondition call site has no probe override in scope and keeps the sweep's
+    // default (`isOwnerAlive`); this process's own pid with no epoch suffix always reads alive under
+    // that default, standing in for a live foreign daemon without needing to spawn one.
+    const foreignOwner = `${process.pid}`;
+    const snapshot = entryOnlySnapshot("inv-resume-foreign-live");
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+      [shrinkRunId]: {
+        stepId: "s1-entry~shrink",
+        status: "in-progress",
+        workflowSnapshot: snapshot,
+        ownerIdentity: foreignOwner,
+      },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 12345 },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait: restartSweepWait(runs),
+      resolveStage: resolveStageStub(),
+    });
+
+    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
   });

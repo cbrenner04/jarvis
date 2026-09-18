@@ -188,6 +188,8 @@ export type Run = {
   operatorFailureRecord?: OperatorFailureRecord | null;
   /** True when a non-null `operator_failure_record` column could not be parsed into a valid record. */
   operatorFailureRecordCorrupt?: boolean;
+  /** Daemon identity that owns this row (`this.currentIdentity` at write time); `null` on legacy rows. */
+  ownerIdentity?: string | null;
 };
 
 type PipelineStatus = "active" | "interrupted";
@@ -1270,7 +1272,8 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   terminal_cause AS terminalCause,
   terminal_failure_detail AS terminalFailureDetailJson,
   operator_failure_record AS operatorFailureRecordJson,
-  status_changed_at AS statusChangedAt`;
+  status_changed_at AS statusChangedAt,
+  owner_identity AS ownerIdentity`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,

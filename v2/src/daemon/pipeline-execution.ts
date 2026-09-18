@@ -626,7 +626,7 @@ export async function resumePipeline(
   const settledEntryRuns =
     derivePipelineState(pipeline) === "interrupted"
       ? []
-      : settleOrphanedRunningStages(
+      : await settleOrphanedRunningStages(
           { store, isEntryRunLive: deps.isEntryRunLive ?? (() => false), loadLogRecords: deps.loadLogRecords },
           pipelineId,
         );
@@ -1044,7 +1044,11 @@ export async function recoverContinuablePipelines(
     reconciledEntryRunIds.has(entryRunId) || (pipelineDeps.isEntryRunLive?.(entryRunId) ?? false);
   skipSuffixOfSettledFailures(
     store,
-    settleOrphanedRunningStages({ store, isEntryRunLive, loadLogRecords: pipelineDeps.loadLogRecords }),
+    await settleOrphanedRunningStages(
+      { store, isEntryRunLive, loadLogRecords: pipelineDeps.loadLogRecords },
+      undefined,
+      isOwnerAliveProbe,
+    ),
   );
   let continued = 0;
   for (const pipeline of store.listPipelines()) {

@@ -1,6 +1,6 @@
 // Real-socket coverage for the handoff changeover protocol at the stable public address.
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync, linkSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,6 +65,38 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, boundMs: num
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+/** Aborted after each test so an unbounded poll or await in a timed-out test body unwinds instead of leaking. */
+let testAbort = new AbortController();
+beforeEach(() => {
+  testAbort = new AbortController();
+});
+afterEach(() => {
+  testAbort.abort();
+});
+
+/** Polls until the predicate holds; the per-test suite timeout is the only deadline. */
+async function pollUntil(predicate: () => boolean | Promise<boolean>): Promise<true> {
+  const { signal } = testAbort;
+  for (;;) {
+    if (signal.aborted) throw signal.reason;
+    if (await predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/** A one-shot promise that rejects when the test aborts; an abort nobody awaits stays silent. */
+function abortableEvent(): { promise: Promise<void>; fire: () => void } {
+  const { signal } = testAbort;
+  let fire: () => void = () => undefined;
+  const promise = new Promise<void>((resolve, reject) => {
+    fire = resolve;
+    if (signal.aborted) reject(signal.reason);
+    else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+  promise.catch(() => undefined);
+  return { promise, fire };
 }
 
 async function answersHealth(socketPath: string): Promise<boolean> {
@@ -785,7 +817,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         // ordinary drain-exit loop would already exit it once `isPending()` reads false (committed).
         await startWork(incumbent.publicSocketPath, "active-through-committed-watch");
         const handoffId = await beginChangeover(incumbent);
-        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        expect(await pollUntil(() => !existsSync(incumbent.publicSocketPath))).toBe(true);
         successor = await startIpcServer(incumbent.publicSocketPath, {
           health: () => ({ kind: "response", result: { ok: true } }),
         });
@@ -806,14 +838,13 @@ describe("daemon handoff changeover (real sockets)", () => {
           await successor.close();
           successor = undefined;
 
-          expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+          expect(await pollUntil(() => answersHealth(incumbent.publicSocketPath))).toBe(true);
           expect(incumbent.publicBindCount()).toBe(2);
           // The log line and the address answering land on independent I/O completions with no
           // ordering guarantee between them: poll rather than assume the log already landed.
           expect(
-            await waitFor(
-              () => capture.lines.includes(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback")),
-              500,
+            await pollUntil(() =>
+              capture.lines.includes(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback")),
             ),
           ).toBe(true);
         } finally {
@@ -832,21 +863,21 @@ describe("daemon handoff changeover (real sockets)", () => {
   socketTest(
     "a committed handoff reclaims the leftover socket and rebinds after a real successor process is killed",
     async () => {
-      // fallbackMs is generous (well past real `bun` subprocess spawn+bind time) because it also
-      // arms the pre-commit fallback timer: a tight cadence here raced the successor's real spawn,
-      // firing the fallback's own "nothing answers yet" rollback before `handoff_commit` ran.
-      const incumbent = await startIncumbent("killed-committed-successor", { fallbackMs: 3_000 });
+      // Production fallback default: `beginChangeover` arms the pre-commit fallback before the real
+      // `bun` successor spawns, and a short test cadence let that fallback roll back before commit
+      // under load. The committed watch shares the cadence, so the suite timeout covers one tick.
+      const incumbent = await startIncumbent("killed-committed-successor");
       const successorScript = silentSuccessorScript();
       let successorProc: ReturnType<typeof spawn> | undefined;
       try {
         await startWork(incumbent.publicSocketPath, "active-through-killed-committed-successor");
         const handoffId = await beginChangeover(incumbent);
-        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        expect(await pollUntil(() => !existsSync(incumbent.publicSocketPath))).toBe(true);
 
         successorProc = spawn("bun", [successorScript.path, "--socket", incumbent.publicSocketPath], {
           stdio: "ignore",
         });
-        expect(await waitFor(() => existsSync(incumbent.publicSocketPath), 3_000)).toBe(true);
+        expect(await pollUntil(() => existsSync(incumbent.publicSocketPath))).toBe(true);
 
         const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
         expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
@@ -855,7 +886,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         if (successorPid === undefined) throw new Error("successor did not spawn");
         process.kill(successorPid, "SIGKILL");
 
-        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 8_000)).toBe(true);
+        expect(await pollUntil(() => answersHealth(incumbent.publicSocketPath))).toBe(true);
         expect(incumbent.exitCodes).toEqual([]);
         await startWork(incumbent.publicSocketPath, "admitted-after-killed-committed-successor");
       } finally {
@@ -870,13 +901,14 @@ describe("daemon handoff changeover (real sockets)", () => {
         await incumbent.close();
       }
     },
-    25_000,
+    45_000,
   );
 
   socketTest(
     "a committed handoff watch retries a rebind bind failure and eventually rebinds",
     async () => {
       let publicBinds = 0;
+      const retryBound = abortableEvent();
       const incumbent = await startIncumbent("committed-watch-retry", {
         fallbackMs: 100,
         bind: async (path, handlers) => {
@@ -885,7 +917,9 @@ describe("daemon handoff changeover (real sockets)", () => {
             // The first committed-watch-triggered rebind fails; the next tick's attempt succeeds.
             if (publicBinds === 2) throw new Error("rebind failed");
           }
-          return startIpcServer(path, handlers);
+          const server = await startIpcServer(path, handlers);
+          if (path.endsWith("daemon.sock") && publicBinds >= 3) retryBound.fire();
+          return server;
         },
       });
       try {
@@ -894,7 +928,8 @@ describe("daemon handoff changeover (real sockets)", () => {
         const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
         expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
 
-        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+        await retryBound.promise;
+        expect(await pollUntil(() => answersHealth(incumbent.publicSocketPath))).toBe(true);
         expect(incumbent.exitCodes).toEqual([]);
         expect(publicBinds).toBeGreaterThanOrEqual(3);
         await startWork(incumbent.publicSocketPath, "admitted-after-committed-watch-retry");
@@ -925,7 +960,7 @@ describe("daemon handoff changeover (real sockets)", () => {
           // Positive evidence the watch ran and kept retrying (not merely "nothing rebound"): each
           // tick observes the address unanswered, attempts the rebind, and is refused because the
           // live successor is still occupying it.
-          expect(await waitFor(() => incumbent.publicBindCount() >= 3, 3_000)).toBe(true);
+          expect(await pollUntil(() => incumbent.publicBindCount() >= 3)).toBe(true);
           expect(existsSync(incumbent.publicSocketPath)).toBe(true);
           expect(capture.lines.some((line) => line.includes("handoff_successor_watch"))).toBe(false);
         } finally {

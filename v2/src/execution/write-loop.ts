@@ -2668,6 +2668,7 @@ async function finishGateInvocationRefused(
       "gate_invocation_refused",
       terminalFailureDetailFromError(undefined, "gate invocation refused"),
     ),
+    gateRefusalRecoveryState: { cause: gateRefusalCause, gateCommand, slotRedriveCount: 0 },
   });
   args.logSink?.append(runId, {
     kind: "boundary_committed",

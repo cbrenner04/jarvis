@@ -6082,6 +6082,92 @@ describe("operator failure records", () => {
   });
 });
 
+describe("gate refusal recovery state", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  test("gate refusal recovery state round-trips per cause with gate command and slot re-drive count through terminal settlement, loadRun, and reopen", () => {
+    const causes = [
+      { cause: "slot_contention" as const, gateCommand: "bun run test:v2" },
+      { cause: "ceiling_headroom" as const, gateCommand: "bun run ready" },
+    ];
+    for (const { cause, gateCommand } of causes) {
+      const runId = seedRun(store);
+      store.commitTerminalRunSettlement({
+        runId,
+        status: "failed",
+        terminalCause: "gate_invocation_refused",
+        gateRefusalRecoveryState: { cause, gateCommand, slotRedriveCount: 2 },
+      });
+      store.close();
+      store = openStateStore(TEST_DB_PATH);
+
+      const loaded = loadRunOrThrow(store, runId);
+      expect(loaded.gateRefusalRecoveryState).toEqual({ cause, gateCommand, slotRedriveCount: 2 });
+      expect(loaded.gateRefusalRecoveryStateCorrupt).not.toBe(true);
+    }
+  });
+
+  test("commitCompletionBoundary persists a gate refusal recovery record with its attempt outcome", () => {
+    const runId = seedRun(store);
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "gate_invocation_refused",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:v2", slotRedriveCount: 0 },
+    });
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.status).toBe("failed");
+    expect(loaded.gateRefusalRecoveryState).toEqual({
+      cause: "slot_contention",
+      gateCommand: "bun run test:v2",
+      slotRedriveCount: 0,
+    });
+  });
+
+  test("a row whose current terminal outcome is not gate_invocation_refused projects no gate refusal recovery record even with a valid record in the column", () => {
+    const runId = seedRun(store);
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:v2", slotRedriveCount: 1 },
+    });
+    expect(loadRunOrThrow(store, runId).gateRefusalRecoveryState).not.toBeNull();
+
+    // Resumed run settling later with a non-refusal outcome; the column still holds the stale refusal record.
+    store.commitTerminalRunSettlement({ runId, status: "completed", terminalCause: "complete" });
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.terminalCause).toBe("complete");
+    expect(loaded.gateRefusalRecoveryState).toBeNull();
+    expect(store.listRuns().find((run) => run.id === runId)?.gateRefusalRecoveryState).toBeNull();
+  });
+
+  test("loadRun surfaces gateRefusalRecoveryStateCorrupt for an unparseable column on a gate_invocation_refused row without throwing", () => {
+    const runId = seedRun(store);
+    store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "gate_invocation_refused" });
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET gate_refusal_recovery_state = ? WHERE id = ?").run("{not-json", runId);
+    raw.close();
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.gateRefusalRecoveryState).toEqual({ cause: "legacy_unknown" });
+    expect(loaded.gateRefusalRecoveryStateCorrupt).toBe(true);
+  });
+});
+
 describe("approval awaiting_since", () => {
   let store: StateStore;
 

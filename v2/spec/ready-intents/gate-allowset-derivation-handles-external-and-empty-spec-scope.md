@@ -20,7 +20,7 @@ name: gate-allowset-derivation-handles-external-and-empty-spec-scope
 - [ ] A `ready-finalize` test proves `deriveGateAllowedPaths` returns a non-empty allowset for an absolute `specPath` directory outside the worktree; it fails against the pre-fix `..`-rejection returning `undefined`.
 - [ ] A `ready-finalize` test proves derivation yields an allowset (not a failure) when the resolved scope root exists with no Markdown files; it fails against the pre-fix `files.length === 0` → `null`.
 - [ ] A test proves the out-of-worktree path is taken when the external directory **exists**; it fails while `resolveSpecScopeRoot` returning a real directory bypasses the fallback.
-- [ ] A test asserts each distinct derivation failure returns its own named reason.
+- [ ] A test asserts each of the eight derivation-failure branches named in the Problem section returns its own distinct named reason, not a shared `undefined`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

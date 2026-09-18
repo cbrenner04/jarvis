@@ -147,7 +147,7 @@ function flushStream(stream: NodeJS.WritableStream): Promise<void> {
   });
 }
 
-export interface EntrypointStreams {
+interface EntrypointStreams {
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
   exit: (code: number) => void;

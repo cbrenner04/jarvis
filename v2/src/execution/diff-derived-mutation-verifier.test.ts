@@ -646,12 +646,21 @@ index f424d7da..be281d02 100644
     // Distinguishable from the previous test: no measured baseline means a timeout cannot be
     // attributed to the mutant, so this settles inconclusive (pass) rather than render-observer-timeout.
     expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.skippedCandidates).toHaveLength(1);
+      expect(result.skippedCandidates[0]?.reason).toStartWith("inconclusive:");
+      expect(result.skippedCandidates[0]?.reason).toContain(observerPath);
+      expect(result.skippedCandidates[0]?.reason).toContain(`${KILLING_TEST_BUDGET_CEILING_MS}ms ceiling`);
+    }
   });
 
   it("settles inconclusive and allows publication when the observer baseline cannot be measured before the deadline", async () => {
     const observerPath = "v2/src/execution/review-critic-render.test.ts";
     const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
-    let calls = 0;
+    // The first call establishes the deadline; every later call falls in the window where
+    // `now() + ceiling > deadline` but `now() < deadline`, so the prompt-loop guard passes and the
+    // baseline measurer skips no matter how many times `now()` is called.
+    let started = false;
     const result = await verifyDiffDerivedMutations(
       { worktreePath: "/test/path", runBase: "main" },
       {
@@ -663,18 +672,23 @@ index f424d7da..be281d02 100644
         runScopedTests: async () => {
           throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
         },
-        // 1st call: establishes the deadline. 2nd call: the `now() >= deadline` guard in the prompt
-        // loop. 3rd call onward: inside the baseline measurer, past `deadline - ceiling`.
         now: () => {
-          calls += 1;
-          if (calls === 1) return 0;
-          if (calls === 2) return 1_000;
-          return 250_000;
+          if (!started) {
+            started = true;
+            return 0;
+          }
+          return MAX_VERIFICATION_MS - 1;
         },
       },
     );
 
     expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.skippedCandidates).toHaveLength(1);
+      expect(result.skippedCandidates[0]?.reason).toStartWith("inconclusive:");
+      expect(result.skippedCandidates[0]?.reason).toContain(observerPath);
+      expect(result.skippedCandidates[0]?.reason).toContain("verification deadline");
+    }
   });
 
   it("settles a slow-but-passing exempt observer as passed, not render-observer-timeout, once the budget is baseline-derived", async () => {

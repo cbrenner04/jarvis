@@ -200,11 +200,12 @@ function createBaselineMeasurer(
 function inconclusiveCandidateReason(
   baseline: Exclude<KillingTestBaseline, { kind: "measured" }>,
   killingTests: readonly string[],
+  setLabel = "killing set",
 ): string {
   const set = killingTests.join(", ");
   return baseline.kind === "exceeded-ceiling"
-    ? `inconclusive: unmutated killing set (${set}) exceeded the ${KILLING_TEST_BUDGET_CEILING_MS}ms ceiling, so a timeout cannot be attributed to the mutant`
-    : `inconclusive: unmutated killing set (${set}) could not be measured before the verification deadline`;
+    ? `inconclusive: unmutated ${setLabel} (${set}) exceeded the ${KILLING_TEST_BUDGET_CEILING_MS}ms ceiling, so a timeout cannot be attributed to the mutant`
+    : `inconclusive: unmutated ${setLabel} (${set}) could not be measured before the verification deadline`;
 }
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
 const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
@@ -1353,6 +1354,20 @@ function importerDiscoveryCapExceeded(candidate: Candidate): SurvivingMutationRe
   };
 }
 
+async function inconclusiveObserverSkip(
+  promptPath: string,
+  observerTests: readonly string[],
+  measureBaseline: BaselineMeasurer,
+): Promise<SkippedCandidate> {
+  const baseline = await measureBaseline(observerTests);
+  if (baseline.kind === "measured") throw new Error("inconclusive settlement requires an unmeasured baseline");
+  return {
+    file: promptPath,
+    line: 1,
+    reason: inconclusiveCandidateReason(baseline, observerTests, "render-observer set"),
+  };
+}
+
 async function verifyChangedPrompts(
   changedPaths: string[],
   changedLinesByFile: Map<string, ChangedLine[]>,
@@ -1364,7 +1379,8 @@ async function verifyChangedPrompts(
   runScopedTests: RunScopedTests,
   now: () => number,
   deadline: number,
-): Promise<MutationFailureResult | null> {
+): Promise<{ failure: MutationFailureResult | null; skipped: SkippedCandidate[] }> {
+  const skipped: SkippedCandidate[] = [];
   const measureBaseline = createBaselineMeasurer(input, runScopedTests, now, deadline);
   const currentRegistry = currentRegisteredPromptPaths(input.worktreePath);
   const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
@@ -1374,18 +1390,20 @@ async function verifyChangedPrompts(
     return currentRegistry.paths.has(path);
   });
   for (const [index, promptPath] of changedPrompts.entries()) {
-    if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) return missingRenderCoverage(promptPath);
+    if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline)
+      return { failure: missingRenderCoverage(promptPath), skipped };
     let mapSource: string;
     try {
       mapSource = await readFile(`${input.worktreePath}/${RENDER_OBSERVER_MAP_RELATIVE_PATH}`);
     } catch {
-      return missingRenderCoverage(promptPath);
+      return { failure: missingRenderCoverage(promptPath), skipped };
     }
     const map = extractRenderObserverMapFromSource(mapSource);
     const observerTests = map?.[promptPath];
-    if (observerTests === undefined || observerTests.length === 0) return missingRenderCoverage(promptPath);
-    for (const observerPath of observerTests) {
-      if (!observerPathConfinedToWorktree(input.worktreePath, observerPath)) return missingRenderCoverage(promptPath);
+    if (observerTests === undefined || observerTests.length === 0)
+      return { failure: missingRenderCoverage(promptPath), skipped };
+    if (!observerTests.every((observerPath) => observerPathConfinedToWorktree(input.worktreePath, observerPath))) {
+      return { failure: missingRenderCoverage(promptPath), skipped };
     }
     try {
       const renderCoverage = await verifyPromptRenderCoverage(
@@ -1400,17 +1418,23 @@ async function verifyChangedPrompts(
         measureBaseline,
       );
       // An inconclusive baseline (unmeasurable before the ceiling or the deadline) allows
-      // publication: a timeout cannot be attributed to the observer without a measured baseline.
-      if (renderCoverage === "inconclusive") continue;
-      if (!renderCoverage.observed) return renderCoverageFailure(promptPath, renderCoverage, observerTests);
+      // publication, recorded like an inconclusive killing-test candidate: a timeout cannot be
+      // attributed to the observer without a measured baseline.
+      if (renderCoverage === "inconclusive") {
+        skipped.push(await inconclusiveObserverSkip(promptPath, observerTests, measureBaseline));
+        continue;
+      }
+      if (!renderCoverage.observed) {
+        return { failure: renderCoverageFailure(promptPath, renderCoverage, observerTests), skipped };
+      }
     } catch (error) {
       if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
-        return nonTerminatingRenderObserverMutation(promptPath);
+        return { failure: nonTerminatingRenderObserverMutation(promptPath), skipped };
       }
       throw error;
     }
   }
-  return null;
+  return { failure: null, skipped };
 }
 
 function sourceWithChangedLines(source: string, changedLines: ChangedLine[]): string {
@@ -1799,7 +1823,7 @@ export async function verifyDiffDerivedMutations(
 
   const now = seams?.now ?? Date.now;
   const deadline = now() + MAX_VERIFICATION_MS;
-  const promptResult = await verifyChangedPrompts(
+  const { failure: promptFailure, skipped: promptSkipped } = await verifyChangedPrompts(
     changedPaths,
     changedLinesByFile,
     diffPaths,
@@ -1811,7 +1835,7 @@ export async function verifyDiffDerivedMutations(
     now,
     deadline,
   );
-  if (promptResult) return promptResult;
+  if (promptFailure) return promptFailure;
 
   const candidates = await deriveCandidates(changedLinesByFile, input.worktreePath, readFile);
 
@@ -1822,7 +1846,7 @@ export async function verifyDiffDerivedMutations(
       inspectedPaths: changedPaths,
       candidateCount: 0,
       acceptedSites: [],
-      skippedCandidates: [],
+      skippedCandidates: promptSkipped,
     };
   }
 
@@ -1846,6 +1870,6 @@ export async function verifyDiffDerivedMutations(
     inspectedPaths: changedPaths,
     candidateCount: inspected,
     acceptedSites,
-    skippedCandidates,
+    skippedCandidates: [...promptSkipped, ...skippedCandidates],
   };
 }

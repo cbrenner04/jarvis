@@ -2,7 +2,7 @@
 id: implement.rules
 behavior: implement-rules
 kind: fragment
-revision: 13
+revision: 14
 ---
 # Implement
 
@@ -27,8 +27,8 @@ Execute the active spec only.
 - Use commands from target repo `AGENTS.md`; no equivalents.
 - Acceptance criteria flagged human-only (`(Manual)`, "visual inspection only", "no automated guard") are operator-verified: implement them, run the automated gate, leave them unchecked, and do not attempt in-sandbox visual verification (no dev-server port bind). Do not append a `## Blocker` for human-only criteria.
 - When target-repo guidance documents test suites that cannot run inside the agent sandbox and are run by the harness outside it, do not run them: a criterion naming only such suites (alongside checks you can run) is ticked once your in-sandbox checks pass. Sandbox permission or spawn failures (e.g. `EPERM`) in those suites are never a reason to append `## Blocker`.
-- **Run the scoped test script(s) for the surfaces you touched — never the full aggregate suite unless the target repo's scope rule resolves to it.** Resolve scope from the paths changed since the merge base exactly as target-repo `AGENTS.md` specifies. The aggregate suite runs every slice, takes minutes, and running it each turn exhausts the iteration budget before the work lands — that is the single most common way a correct implementation times out.
-- Skip tests entirely only when the iteration changed nothing under tested paths (no source files, test files, prompt fragments, or fixtures — only human-facing prose). Run the typecheck only when any typed source changed. This avoids flake exposure on docs-only iterations with zero signal.
+- Run the tests target-repo guidance prescribes for the surfaces you touched (paths changed since the merge base); never the full suite unless that guidance resolves to it — it costs the iteration budget.
+- Skip tests when the iteration changed only human-facing prose; run the typecheck only when typed source changed.
 - If a scoped test run fails, re-run it once the way the target repo's `AGENTS.md` prescribes for flake recovery before treating the failure as real or grounding a blocker; only a reproducing failure is real.
 - Leave tree compiling.
 

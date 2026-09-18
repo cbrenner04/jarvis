@@ -65,7 +65,7 @@ describe("implement-owned prompt artifacts", () => {
     expect(body).not.toContain("machine/user-config");
     expect(body).not.toContain("setInterval");
     expect(body).not.toContain("Patch Mode");
-    expect(body).toContain("Run the scoped test script(s) for the surfaces you touched");
+    expect(body).toContain("Run the tests target-repo guidance prescribes for the surfaces you touched");
   });
 
   test("the migrated jarvis-specific rules live in this repo's injected guidance", async () => {

@@ -135,7 +135,7 @@ Default write steps (`executeDefaultWrite`) resolve placeholders from the regist
 | `SPEC_PATH` | Active `expectedArtifactPath`, worktree-resolved unless it is an admitted absolute external path |
 | `STEP_RULES` | Step `stepRules` (`implement.prompt.body`, `implement.prompt.shrink`, `write.execute`, `write.ready-repair`, `write.mutation-repair`, `write.surviving-mutation-reprompt`) |
 | `PRINCIPLES` | `write.principles` registry body |
-| `REPO_GUIDANCE` | `AGENTS.md` and `CLAUDE.md` at the worktree root (same as v1 `readRepoGuidance`) |
+| `REPO_GUIDANCE` | `AGENTS.md` and `CLAUDE.md` at the worktree root, deduplicated by real path so a symlinked pair is injected once |
 | `ACTIVE_SUBSPEC_PATH` | `expectedArtifactPath`, worktree-resolved unless it is an admitted absolute external path, with trailing newline when non-empty |
 | `ACTIVE_SUBSPEC_BODY` | File contents at the resolved `expectedArtifactPath` (empty when missing) |
 | `PATCH_RULES` | `implement.rules` registry body (placeholder key kept across the id migration) |

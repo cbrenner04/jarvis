@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -56,13 +57,17 @@ function neutralizeDataDelimiters(value: string): string {
 
 function readRepoGuidance(worktreePath: string): string {
   const parts: string[] = [];
+  const seen = new Set<string>();
   for (const name of ["AGENTS.md", "CLAUDE.md"]) {
     const path = join(worktreePath, name);
-    if (existsSync(path)) {
-      parts.push(readFileSync(path, "utf8"));
-    }
+    if (!existsSync(path)) continue;
+    // Repos commonly symlink one onto the other; inject the shared file once, not twice.
+    const real = realpathSync(path);
+    if (seen.has(real)) continue;
+    seen.add(real);
+    parts.push(readFileSync(path, "utf8"));
   }
-  return parts.join(parts.length > 1 ? "\n\n" : "");
+  return parts.join("\n\n");
 }
 
 function readActiveSubspecBody(artifactPath: string): string {

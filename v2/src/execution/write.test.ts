@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -431,6 +432,7 @@ describe("write behavior", () => {
         const worktreePath = join(jarvisRoot, "worktrees", args.projectName, args.branchName);
         mkdirSync(join(worktreePath, "v2/spec/demo"), { recursive: true });
         writeFileSync(join(worktreePath, "AGENTS.md"), repoGuidance, "utf8");
+        symlinkSync("AGENTS.md", join(worktreePath, "CLAUDE.md"));
         writeFileSync(join(worktreePath, specPath), "# Index\n", "utf8");
         writeFileSync(join(worktreePath, subspecPath), subspecBody, "utf8");
         const value = await run({ path: worktreePath, reused: false });
@@ -445,6 +447,8 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(resolvedSubspecPath);
     expect(capturedPrompt).toContain(subspecBody);
     expect(capturedPrompt).toContain(repoGuidance);
+    // Mutation checkpoint: dropping the realpath dedupe in readRepoGuidance must turn this RED.
+    expect(capturedPrompt.split(repoGuidance)).toHaveLength(2);
     expect(capturedPrompt.trimEnd().endsWith(IMPLEMENT_WRITE_STEP_RULES)).toBe(true);
     expect(capturedPrompt).toContain("co-located `<file>.test.ts`");
     expect(capturedPrompt).toContain("importer discovery only when that union is empty");
@@ -460,7 +464,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).not.toContain("Place `// @mutate`");
     // The timer-callback rule is jarvis-specific and now lives in this repo's AGENTS.md, not the neutral rules fragment.
     expect(capturedPrompt).not.toContain("When a guard sits inside a `setTimeout` or `setInterval` callback");
-    expect(capturedPrompt).toContain("Run the scoped test script(s) for the surfaces you touched");
+    expect(capturedPrompt).toContain("Run the tests target-repo guidance prescribes for the surfaces you touched");
   });
 
   test("implement.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {

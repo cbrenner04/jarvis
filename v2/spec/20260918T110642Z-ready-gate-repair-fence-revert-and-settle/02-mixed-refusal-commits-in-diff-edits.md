@@ -11,7 +11,7 @@ A repair pass editing both in-diff and out-of-diff paths is refused wholesale, d
 
 ## Acceptance criteria
 
-- [ ] A new test drives a repair pass editing one in-diff and one out-of-diff path; the in-diff edit is committed, the out-of-diff path is clean in `git status`, and the run settles `resumable: true` naming the reverted path; it fails against the pre-fix refuse-all behavior.
+- [ ] A new test drives a repair pass editing one in-diff and one out-of-diff path; the in-diff edit is committed, the out-of-diff path is clean in `git status`, and the run settles `resumable: true` naming the reverted path; it fails against the pre-fix refuse-all behavior (real git worktree; fence not stubbed).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

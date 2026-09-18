@@ -16,9 +16,9 @@ When completion staging refuses ready-gate repair edits outside the run diff and
 - [ ] In-diff repair edits still stage and commit normally, pinned by an existing or new test.
 - [ ] An entirely out-of-diff refusal settles non-resumable with an incident naming the refused paths, pinned by a test.
 - [ ] A mixed in-diff/out-of-diff refusal commits the in-diff edits, reverts the out-of-diff paths, and leaves the run resumable, pinned by a test.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` — completion-failure recovery entry: refused out-of-diff repair edits are reverted, run settles non-resumable.
+- `v2/docs/operator-runbook.md` — completion-failure recovery entry: refused out-of-diff repair edits are reverted; an entirely out-of-diff refusal settles non-resumable; a mixed refusal commits in-diff edits and stays resumable.
 - `v2/docs/v1-behaviors.md` — record.

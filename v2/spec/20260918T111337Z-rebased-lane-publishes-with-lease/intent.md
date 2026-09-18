@@ -12,11 +12,11 @@ Unsplit rationale: the fix is one publication-push behavior in the completion pu
 
 ## Problem
 
-`#4014` rebases a non-descendant lane on incomplete re-dispatch, rewriting its SHAs. `completion-publisher.ts:136` pushes `HEAD:refs/heads/<branch>` without a lease, so an already-pushed lane (open-PR case) is rejected non-fast-forward; `publication-retry.ts:45` classifies that permanent. The run spends a full implement then dies at publication with commits only local. No test covers push-after-rebase
+`#4014` rebases a non-descendant lane on incomplete re-dispatch, rewriting its SHAs. `completion-publisher.ts:136` pushes `HEAD:refs/heads/<branch>` without a lease, so an already-pushed lane (open-PR case) is rejected non-fast-forward; `publication-retry.ts:45` classifies that permanent. The run spends a full implement then dies at publication with commits only local. No test covers push-after-rebase.
 
 ## Decisions
 
-- Immediately before pushing, the publisher resolves the remote's current tip of `refs/heads/<branch>` (`git ls-remote origin`). If a tip exists and is not an ancestor of local `HEAD`, it pushes with `--force-with-lease=refs/heads/<branch>:<observed tip>`; this determines the rebased case locally, from git state, rather than requiring an admission-time flag to be threaded through the run — rules out both a blanket force push and a lane that can never publish after a rebase.
+- Immediately before pushing, the publisher resolves the remote's current tip of `refs/heads/<branch>` (`git ls-remote origin`). If a tip exists and is not an ancestor of local `HEAD`, it force-pushes with `--force-with-lease=refs/heads/<branch>:<observed tip>` only when this run rebased and owns that tip: the observed tip equals local `ORIG_HEAD` (the pre-rebase tip `rebaseWorktreeOntoBase` leaves) or is its ancestor. Any other non-ancestor tip is a push this run did not make and settles a permanent publication failure, never a force push — rules out both a blanket force push and a lane that can never publish after a rebase.
 - A lease rejection stays a permanent publication failure naming the branch and expected-versus-actual remote SHA; never escalates to `--force`.
 - A lane with no remote tip, or whose remote tip is an ancestor of local `HEAD` (the ordinary, non-rebased case), keeps the current non-force push unchanged.
 

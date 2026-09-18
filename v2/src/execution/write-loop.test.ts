@@ -6002,6 +6002,42 @@ export function isLoadSensitive(file: string): boolean {
         expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
       });
 
+      test("mixed refusal commits the in-diff edit, reverts the out-of-diff path, and stays resumable", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-mixed-refusal";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const git = (...gitArgs: string[]) =>
+          execFileSync("git", ["-C", worktreePath, ...gitArgs], { encoding: "utf8", stdio: "pipe" });
+        const headBefore = git("rev-parse", "HEAD").trim();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "proof.txt"), "fixed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(true);
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.result.completionCommitError).toContain("refused paths reverted");
+        expect(git("rev-parse", "HEAD").trim()).not.toBe(headBefore);
+        expect(git("show", "--name-only", "--format=", "HEAD").split("\n")).toContain("proof.txt");
+        expect(readFileSync(join(worktreePath, "proof.txt"), "utf8")).toBe("fixed\n");
+        expect(readFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "utf8")).toBe("export {}\n");
+        expect(git("status", "--porcelain")).toBe("");
+        const reopened = openStateStore(stateDbPath);
+        try {
+          expect(reopened.loadRun(fenced.result.runId)?.status).toBe("completed");
+        } finally {
+          reopened.close();
+        }
+      });
+
       test("entirely out-of-diff refusal settles non-resumable with an incident naming the refused paths", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-non-resumable";

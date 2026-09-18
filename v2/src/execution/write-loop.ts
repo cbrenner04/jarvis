@@ -3558,15 +3558,17 @@ function repairFenceFailureMessage(frozen: Set<string>, error: ReadyGateError): 
 async function enforceRepairIterationFence(
   _args: WriteLoopInput,
   store: StateStore,
-  runId: string,
+  result: WriteLoopResult,
   input: CompletionPublishInput,
   repairAllowset: Set<string>,
   iterationsConsumed: number,
   fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
+  commitOptions?: { readyGateAttribution?: "autofix" },
 ): Promise<ReadyRepairPublishResult | undefined> {
   if (!(await shouldEnforceReadyGateRepairFence(input.worktreePath))) {
     return undefined;
   }
+  const runId = result.runId;
   const persistedFence = store.loadRun(runId)?.readyGateRepairFence;
   const markdownOutputRoots = persistedFence?.markdownOutputRoots;
   const markdownOnlyRequired =
@@ -3602,6 +3604,11 @@ async function enforceRepairIterationFence(
   if (fenceResult.revertPaths !== undefined) {
     reverted = await revertRefusedRepairPaths(input.worktreePath, fenceResult.revertPaths);
     error = new Error(`${error.message}; ${reverted ? "refused paths reverted" : "revert of refused paths failed"}`);
+  }
+  if (reverted && fenceResult.entirelyRefused !== true) {
+    // Mixed refusal: keep the in-diff edits; the run stays resumable.
+    const committed = await commitRepairAndRepublish(_args, store, input, result, iterationsConsumed, commitOptions);
+    if (committed.kind === "failure") return committed.result;
   }
   return {
     failure: {
@@ -3720,7 +3727,7 @@ async function runReadyGateRepairLoop(
     const fenceFailure = await enforceRepairIterationFence(
       args,
       store,
-      result.runId,
+      result,
       input,
       attributableAllowset,
       currentIterations,
@@ -4081,11 +4088,12 @@ export async function publishWithReadyRepair(
   const autofixFenceFailure = await enforceRepairIterationFence(
     args,
     store,
-    result.runId,
+    result,
     input,
     gateRepairAllowset,
     iterationsConsumed,
     repairFenceFailureMessage(frozenRepairAllowset, outcome.error),
+    { readyGateAttribution: "autofix" },
   );
   if (autofixFenceFailure !== undefined) {
     return autofixFenceFailure;

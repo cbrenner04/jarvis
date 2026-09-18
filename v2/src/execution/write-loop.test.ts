@@ -5039,15 +5039,19 @@ describe("write loop", () => {
           };
         }
 
-        test("returns normally when biome rejects with a defined numeric status", async () => {
+        function setupCommittedWorktree(branchName: string): { worktreePath: string; baseRef: string } {
           const { jarvisRoot } = createJarvisHome();
-          const branchName = "builtin-autofix-status-code";
           const worktreePath = initAutofixGitWorktree(jarvisRoot, branchName);
           const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
             encoding: "utf8",
             stdio: "pipe",
           }).trim();
           commitAutofixAgentWork(worktreePath, "v2/src/changed.ts");
+          return { worktreePath, baseRef };
+        }
+
+        test("returns normally when biome rejects with a defined numeric status", async () => {
+          const { worktreePath, baseRef } = setupCommittedWorktree("builtin-autofix-status-code");
 
           await expect(
             runBuiltInReadyGateAutofixBiome(
@@ -5060,14 +5064,7 @@ describe("write loop", () => {
         });
 
         test("throws FixCommandError naming the timeout budget on ETIMEDOUT", async () => {
-          const { jarvisRoot } = createJarvisHome();
-          const branchName = "builtin-autofix-etimedout";
-          const worktreePath = initAutofixGitWorktree(jarvisRoot, branchName);
-          const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
-            encoding: "utf8",
-            stdio: "pipe",
-          }).trim();
-          commitAutofixAgentWork(worktreePath, "v2/src/changed.ts");
+          const { worktreePath, baseRef } = setupCommittedWorktree("builtin-autofix-etimedout");
 
           await expect(
             runBuiltInReadyGateAutofixBiome(
@@ -5080,14 +5077,7 @@ describe("write loop", () => {
         });
 
         test("throws FixCommandError when the rejection carries no status (spawn failure)", async () => {
-          const { jarvisRoot } = createJarvisHome();
-          const branchName = "builtin-autofix-spawn-failure";
-          const worktreePath = initAutofixGitWorktree(jarvisRoot, branchName);
-          const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
-            encoding: "utf8",
-            stdio: "pipe",
-          }).trim();
-          commitAutofixAgentWork(worktreePath, "v2/src/changed.ts");
+          const { worktreePath, baseRef } = setupCommittedWorktree("builtin-autofix-spawn-failure");
 
           await expect(
             runBuiltInReadyGateAutofixBiome(

@@ -1652,6 +1652,37 @@ describe("createCompletionPublisher lease-forced push", () => {
     expect(pushes).toHaveLength(1);
   });
 
+  it("surfaces the original error when a non-stale push failure is followed by a failed re-resolve", async () => {
+    let lsRemoteCalls = 0;
+    const denied = new Error("remote: Permission denied\nfatal: unable to access origin");
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "ls-remote") {
+          lsRemoteCalls += 1;
+          if (lsRemoteCalls > 1) throw new Error("network down");
+          return `cafe1234\trefs/heads/${branch}`;
+        }
+        if (args[0] === "merge-base") {
+          if (args[3] === "HEAD") throw new Error("not ancestor");
+          return "";
+        }
+        if (args.includes("ORIG_HEAD")) return "cafe1234";
+        if (args[0] === "push") throw denied;
+        return "";
+      },
+      gh,
+      delay: noopDelay,
+      ...refreshSeams,
+    });
+
+    const error = await publisher(laneInput("/w")).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBe(denied);
+  });
+
   it("fails as a lease rejection when a non-stale push failure coincides with a moved remote tip", async () => {
     let lsRemoteCalls = 0;
     const denied = new Error("remote: Permission denied\nfatal: unable to access origin");

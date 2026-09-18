@@ -947,6 +947,21 @@ If a lane (plan / implement / review) needs hand-intervention **twice in a row o
 
 Operators add bullets here; delete when fixed. Durable lessons that are behavior, not bugs, live in the sections above.
 
+- **`quota_exhausted` is usually a rolling *window*, not an account limit — read `resetsAt` before concluding anything (2026-09-17).** Three claude lanes settled `quota_exhausted` / `retry_later` within a minute of each other, and the operator read that as the session's agent budget being gone, wound the session down, and reported dispatch finished. The telemetry `exit_reason` carried claude's own `rate_limit_event`, and it said otherwise: `rateLimitType: "five_hour"` with `utilization: 1` **rejected**, alongside `seven_day: { utilization: 0.38 }` — 62% of the weekly budget still free — and a `resetsAt` epoch roughly four minutes out. The harness was right in both directions: it classified the rejection correctly *and* mapped it to `nextAction: "retry_later"`, which is precisely the instruction to wait and re-dispatch. Read the window and the reset, not the reason string:
+
+  ```sh
+  python3 -c "
+  import json
+  rid='<run-id>'
+  for l in open('$HOME/.jarvis/telemetry.jsonl'):
+      d=json.loads(l)
+      if d.get('run_id')==rid and d.get('exit_kind')=='quota':
+          print(d.get('exit_reason',''))
+  " | grep -o '"rate_limit_info":{[^}]*}[^}]*}'
+  ```
+
+  `five_hour` rejected with `seven_day` headroom means pause until `resetsAt` and re-dispatch the same lanes unchanged; both re-dispatched implements and a fresh plan lane admitted normally afterwards. Only a rejected `seven_day` window is the session-ending shape. A `quota` rung consumed mid-invocation is also not fatal on its own — see [Choosing an actuator](#choosing-an-actuator) for the false-`quota` shape on cursor.
+
   Cleanup: delete this bullet when that seed ships.
 - **`bun run test:v2` false-reds inside the agent sandbox (2026-09-09).** Four tests in `v2/src/ipc/server.test.ts` fail `EPERM` binding unix sockets under `$TMPDIR` when the suite runs from a sandboxed agent session; the same file is 16/16 with the sandbox disabled. Any hand-finish gate run from an agent session will show this, and it is never the diff under review. Re-run the named file outside the sandbox before treating it as a failure.
 - **Read `## Prerequisites` before approving fan-out gates (2026-09-09).** Approving simultaneously is still right for genuinely independent lanes, and it dispatched sibling plan stages in parallel with no consumption race. But intent splits frequently produce a strict serial chain, where every non-head lane settles `agent_blocked` naming its unlanded sibling — correct and cheap, but one wasted dispatch each. Reading the ready-intents first cost nothing and saved two dispatches out of three on two pipelines in one session.

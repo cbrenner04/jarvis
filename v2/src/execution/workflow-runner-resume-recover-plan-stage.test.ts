@@ -81,7 +81,7 @@ describe("recoverPlanStage", () => {
       specPath: string;
       stepId: string;
       invocationId: string;
-      outcomeKind: "contract_miss" | "blocked";
+      outcomeKind: "contract_miss" | "blocked" | "landing_failed";
       expectedArtifactPath?: string;
     },
   ): string {
@@ -105,42 +105,8 @@ describe("recoverPlanStage", () => {
       },
     });
     const attemptId = store.recordAttemptStart(runId);
-    store.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: args.outcomeKind });
-    return runId;
-  }
-
-  function seedLandingFailedPlanWriteRun(
-    store: ReturnType<typeof openStateStore>,
-    args: {
-      project: string;
-      branch: string;
-      worktreePath: string;
-      specPath: string;
-      stepId: string;
-      invocationId: string;
-    },
-  ): string {
-    const runId = store.createRun({
-      project: args.project,
-      specRef: "HEAD",
-      worktreePath: args.worktreePath,
-      branch: args.branch,
-      specPath: args.specPath,
-      stepId: args.stepId,
-      workflowSnapshot: {
-        invocationId: args.invocationId,
-        steps: [
-          {
-            stepId: args.stepId,
-            role: "plan",
-            expectedArtifactPath: ".jarvis-plan-stage",
-            agents: ["claude"],
-          },
-        ],
-      },
-    });
-    const attemptId = store.recordAttemptStart(runId);
-    store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "landing_failed" });
+    const runStatus = args.outcomeKind === "landing_failed" ? "failed" : "blocked";
+    store.commitCompletionBoundary({ attemptId, runStatus, outcomeKind: args.outcomeKind });
     return runId;
   }
 
@@ -1510,13 +1476,14 @@ describe("recoverPlanStage", () => {
     writeLintCleanPlanStage(stage, "00-first.md");
 
     await withStateStore(async (store) => {
-      const runId = seedLandingFailedPlanWriteRun(store, {
+      const runId = seedBlockedPlanDraftRun(store, {
         project: "demo",
         branch,
         worktreePath,
         specPath,
         stepId,
         invocationId: "recover-plan-stage-landing-failed-inv",
+        outcomeKind: "landing_failed",
       });
 
       const reviewStep = planReviewStep({
@@ -1556,13 +1523,14 @@ describe("recoverPlanStage", () => {
     const specPath = "spec/2026-landing-failed-missing";
 
     await withStateStore(async (store) => {
-      const runId = seedLandingFailedPlanWriteRun(store, {
+      const runId = seedBlockedPlanDraftRun(store, {
         project: "demo",
         branch,
         worktreePath,
         specPath,
         stepId,
         invocationId: "recover-plan-stage-landing-failed-missing-inv",
+        outcomeKind: "landing_failed",
       });
 
       const reviewStep = planReviewStep({
@@ -1602,13 +1570,14 @@ describe("recoverPlanStage", () => {
     mkdirSync(stage, { recursive: true });
 
     await withStateStore(async (store) => {
-      const runId = seedLandingFailedPlanWriteRun(store, {
+      const runId = seedBlockedPlanDraftRun(store, {
         project: "demo",
         branch,
         worktreePath,
         specPath,
         stepId,
         invocationId: "recover-plan-stage-landing-failed-empty-inv",
+        outcomeKind: "landing_failed",
       });
 
       const reviewStep = planReviewStep({
@@ -1653,13 +1622,14 @@ describe("recoverPlanStage", () => {
     );
 
     await withStateStore(async (store) => {
-      const runId = seedLandingFailedPlanWriteRun(store, {
+      const runId = seedBlockedPlanDraftRun(store, {
         project: "demo",
         branch,
         worktreePath,
         specPath,
         stepId,
         invocationId: "recover-plan-stage-landing-failed-lint-inv",
+        outcomeKind: "landing_failed",
       });
 
       const reviewStep = planReviewStep({
@@ -1700,13 +1670,14 @@ describe("recoverPlanStage", () => {
     writeLintCleanPlanStage(stage, "00-first.md");
 
     await withStateStore(async (store) => {
-      const runId = seedLandingFailedPlanWriteRun(store, {
+      const runId = seedBlockedPlanDraftRun(store, {
         project: "demo",
         branch,
         worktreePath,
         specPath,
         stepId,
         invocationId: "recover-plan-stage-landing-failed-claim-inv",
+        outcomeKind: "landing_failed",
       });
 
       // A concurrent `pipeline resume` redraft on the same project/branch holds a live claim on

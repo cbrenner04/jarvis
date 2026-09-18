@@ -790,23 +790,32 @@ describe("daemon handoff changeover (real sockets)", () => {
           health: () => ({ kind: "response", result: { ok: true } }),
         });
 
-        const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
-        expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
-
-        // Ordinary self-handoff shape: the successor's own startup calls `supersede` on the outgoing
-        // generation's private socket, matching `supersedePeerDaemon`'s production wiring — the
-        // rebind below must reopen admission unconditionally despite `wasSuperseded()` reading true.
-        const superseded = await request(incumbent.privateSocketPath, "supersede");
-        expect(superseded.kind).toBe("response");
-
+        // Captured from before commit: the watch's first tick can land in this window under load,
+        // and a capture started only after commit would race it and miss the log line it emits.
         const capture = captureConsoleError();
         try {
+          const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+          expect((committed as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
+
+          // Ordinary self-handoff shape: the successor's own startup calls `supersede` on the outgoing
+          // generation's private socket, matching `supersedePeerDaemon`'s production wiring — the
+          // rebind below must reopen admission unconditionally despite `wasSuperseded()` reading true.
+          const superseded = await request(incumbent.privateSocketPath, "supersede");
+          expect(superseded.kind).toBe("response");
+
           await successor.close();
           successor = undefined;
 
           expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
           expect(incumbent.publicBindCount()).toBe(2);
-          expect(capture.lines).toContain(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback"));
+          // The log line and the address answering land on independent I/O completions with no
+          // ordering guarantee between them: poll rather than assume the log already landed.
+          expect(
+            await waitFor(
+              () => capture.lines.includes(formatHandoffSettlementLogLine("handoff_successor_watch", "rollback")),
+              500,
+            ),
+          ).toBe(true);
         } finally {
           capture.restore();
         }

@@ -579,7 +579,54 @@ index f424d7da..be281d02 100644
     if (result.kind === "pass") expect(result.candidateCount).toBe(0);
   });
 
-  it("settles render-observer timeout as non-terminating-mutation", async () => {
+  /** A fake clock the scoped-test fake advances by the "runtime" of each call, mirroring the killing-test suite's baseline fixture. */
+  function renderObserverFakeClock() {
+    let nowMs = 1_000_000;
+    return {
+      now: () => nowMs,
+      advance: (ms: number) => {
+        nowMs += ms;
+      },
+    };
+  }
+
+  it("derives the mutated render-observer call's budget from a fast measured baseline, then settles render-observer-timeout distinctly from an inconclusive settlement", async () => {
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
+    const clock = renderObserverFakeClock();
+    const bounds: number[] = [];
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, mapSource),
+        writeFile: async () => {},
+        runScopedTests: async (_cwd, _scope, options) => {
+          const timeoutMs = options?.timeoutMs ?? 0;
+          bounds.push(timeoutMs);
+          if (timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
+            clock.advance(20_000); // unmutated observer baseline: fast, well inside the ceiling
+            return true;
+          }
+          clock.advance(timeoutMs + 1);
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        now: clock.now,
+      },
+    );
+
+    // floor attempt (timed out), baseline at the ceiling (measured fast), retry at the derived budget.
+    expect(bounds).toEqual([KILLING_TEST_BUDGET_FLOOR_MS, KILLING_TEST_BUDGET_CEILING_MS, killingTestBudgetMs(20_000)]);
+    expect(result).toMatchObject({
+      kind: "non-terminating-mutation",
+      mutation: "render-observer-timeout",
+      sourceSite: { file: "prompts/implement/review-critic.md", line: 1 },
+    });
+  });
+
+  it("settles inconclusive and allows publication when the clean observer run itself exceeds the ceiling", async () => {
     const observerPath = "v2/src/execution/review-critic-render.test.ts";
     const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
     const result = await verifyDiffDerivedMutations(
@@ -596,11 +643,77 @@ index f424d7da..be281d02 100644
       },
     );
 
-    expect(result).toMatchObject({
-      kind: "non-terminating-mutation",
-      mutation: "render-observer-timeout",
-      sourceSite: { file: "prompts/implement/review-critic.md", line: 1 },
-    });
+    // Distinguishable from the previous test: no measured baseline means a timeout cannot be
+    // attributed to the mutant, so this settles inconclusive (pass) rather than render-observer-timeout.
+    expect(result.kind).toBe("pass");
+  });
+
+  it("settles inconclusive and allows publication when the observer baseline cannot be measured before the deadline", async () => {
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
+    let calls = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, mapSource),
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        // 1st call: establishes the deadline. 2nd call: the `now() >= deadline` guard in the prompt
+        // loop. 3rd call onward: inside the baseline measurer, past `deadline - ceiling`.
+        now: () => {
+          calls += 1;
+          if (calls === 1) return 0;
+          if (calls === 2) return 1_000;
+          return 250_000;
+        },
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+  });
+
+  it("settles a slow-but-passing exempt observer as passed, not render-observer-timeout, once the budget is baseline-derived", async () => {
+    const frontmatterDiff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/implement/review-critic.md
++++ b/prompts/implement/review-critic.md
+@@ -4,1 +4,1 @@
+-revision: 1
++revision: 2
+`;
+    const bumpedSource = criticSource.replace("revision: 1", "revision: 2");
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
+    const clock = renderObserverFakeClock();
+    const SIMULATED_OBSERVER_DURATION_MS = 35_000;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => frontmatterDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(bumpedSource, mapSource),
+        runScopedTests: async (_cwd, _scope, options) => {
+          const timeoutMs = options?.timeoutMs ?? 0;
+          if (timeoutMs < SIMULATED_OBSERVER_DURATION_MS) {
+            clock.advance(timeoutMs + 1);
+            throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+          }
+          clock.advance(SIMULATED_OBSERVER_DURATION_MS);
+          return true;
+        },
+        now: clock.now,
+      },
+    );
+
+    // Pre-fix, the exempt path called `runScopedTests` with no options (the fixed `MAX_KILLING_TEST_MS`
+    // floor), which is under the simulated 35s duration and would settle non-terminating-mutation.
+    expect(result.kind).toBe("pass");
   });
 
   it("does not treat raw template inspection as rendered prompt coverage", async () => {

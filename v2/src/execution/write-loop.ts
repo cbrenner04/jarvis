@@ -1054,7 +1054,7 @@ export async function validateReadyGateRepairCompletion(
   markdownOutputRoots?: readonly string[],
   markdownOnlyRequired = false,
   fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
-): Promise<{ error: Error; offendingPath?: string; revertPaths?: string[] } | undefined> {
+): Promise<{ error: Error; offendingPath?: string; revertPaths?: string[]; entirelyRefused?: true } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
     return { error: new Error("Ready-gate repair fence could not enumerate completion candidates") };
@@ -1078,9 +1078,7 @@ export async function validateReadyGateRepairCompletion(
     return {
       offendingPath,
       error: new Error(`${fenceFailureMessage}${violations.join(", ")}`),
-      ...(fenceFailureMessage === REPAIR_FENCE_FAILURE_MESSAGE
-        ? { revertPaths: candidates.filter((path) => !allowedPaths.has(path)) }
-        : {}),
+      ...(fenceFailureMessage === REPAIR_FENCE_FAILURE_MESSAGE ? refusedRepairPaths(candidates, allowedPaths) : {}),
     };
   }
   if (markdownOnlyRequired && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
@@ -1096,6 +1094,14 @@ export async function validateReadyGateRepairCompletion(
     }
   }
   return undefined;
+}
+
+function refusedRepairPaths(
+  candidates: readonly string[],
+  allowedPaths: ReadonlySet<string>,
+): { revertPaths: string[]; entirelyRefused?: true } {
+  const revertPaths = candidates.filter((path) => !allowedPaths.has(path));
+  return revertPaths.length === candidates.length ? { revertPaths, entirelyRefused: true } : { revertPaths };
 }
 
 /** Restore tracked paths to `HEAD` and delete paths `HEAD` lacks; false when any step fails. */
@@ -3223,6 +3229,8 @@ type CompletionPublishFailure = {
     | "non_terminating_mutation_failed"
     | "runtime_smoke_failed";
   error?: Error;
+  /** `false` when resume cannot clear the failure (every repair edit refused and reverted). */
+  resumable?: false;
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome?: SmokePass;
@@ -3590,12 +3598,17 @@ async function enforceRepairIterationFence(
     markdownOnlyRequired ? true : undefined,
   );
   let error = fenceResult.error;
+  let reverted = false;
   if (fenceResult.revertPaths !== undefined) {
-    const reverted = await revertRefusedRepairPaths(input.worktreePath, fenceResult.revertPaths);
+    reverted = await revertRefusedRepairPaths(input.worktreePath, fenceResult.revertPaths);
     error = new Error(`${error.message}; ${reverted ? "refused paths reverted" : "revert of refused paths failed"}`);
   }
   return {
-    failure: { kind: "completion_commit_failed", error },
+    failure: {
+      kind: "completion_commit_failed",
+      error,
+      ...(reverted && fenceResult.entirelyRefused === true ? { resumable: false as const } : {}),
+    },
     iterationsConsumed,
   };
 }
@@ -4343,9 +4356,10 @@ function completionCommitFailed(
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const retarget = publicationBaseRetarget(source);
   const completionCommitErrorMessage = error?.message ?? "completion commit failed";
+  const resumable = !(source !== undefined && !(source instanceof Error) && source.resumable === false);
   store.commitTerminalRunSettlement({
     runId: result.runId,
-    status: "completed",
+    status: resumable ? "completed" : "failed",
     terminalCause: "completion_commit_failed",
     terminalFailureDetail: terminalFailureDetailFromError(error, completionCommitErrorMessage),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
@@ -4355,7 +4369,7 @@ function completionCommitFailed(
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: result.iterationsConsumed,
-    resumable: true,
+    resumable,
     completionCommitError: completionCommitErrorMessage,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(retarget ?? {}),
@@ -4365,7 +4379,7 @@ function completionCommitFailed(
   return {
     ...result,
     kind: "completion_commit_failed",
-    resumable: true,
+    resumable,
     completionCommitError: error?.message ?? "completion commit failed",
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(retarget ?? {}),

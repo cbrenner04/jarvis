@@ -12,9 +12,9 @@ An out-of-diff fence refusal settles retryable `completion_commit_failed` (`resu
 
 ## Acceptance criteria
 
-- [ ] A new `v2/src/execution/write-loop.test.ts` test drives a real repair pass through `validateReadyGateRepairCompletion` (no injected fence stub) whose edits are all outside the run diff and spec tree. It asserts the run settles `resumable: false`, that `nextAction` is not `resume`, and that an operator incident (`v2/src/daemon/operator-incidents.ts`) names the refused paths. It fails against the pre-fix retryable settlement.
-- [ ] A new test in `v2/src/daemon/daemon-resume.test.ts` pins that resume admission rejects a `completion_commit_failed` row with `resumable: false`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A new `v2/src/execution/write-loop.test.ts` test drives a real repair pass through `validateReadyGateRepairCompletion` (no injected fence stub) whose edits are all outside the run diff and spec tree. It asserts the run settles `resumable: false`, that `nextAction` is not `resume`, and that an operator incident (`v2/src/daemon/operator-incidents.ts`) names the refused paths. It fails against the pre-fix retryable settlement.
+- [x] A new test in `v2/src/daemon/daemon-resume.test.ts` pins that resume admission rejects a `completion_commit_failed` row with `resumable: false`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

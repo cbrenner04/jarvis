@@ -942,3 +942,29 @@ test("a resumed linked row's settle without a marker write does not re-fire", ()
   store.commitTerminalRunSettlement({ runId, status: "completed", terminalCause: "completion_commit_failed" });
   expect(deriveOperatorIncidents(store)).toEqual([]);
 });
+
+test("completion_commit_failed incident carries the terminal failure detail", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = seedInvocationRow("plan~detail-0", "in-progress");
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "completion_commit_failed",
+    terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
+  });
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId, detail: "refused: v2/src/a.ts" })]);
+});
+
+test("incident for a non-commit terminal cause omits the failure detail", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = seedInvocationRow("plan~detail-1", "in-progress");
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "gate_invocation_refused",
+    terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
+  });
+  const incidents = deriveOperatorIncidents(store);
+  expect(incidents).toEqual([expect.objectContaining({ runId })]);
+  expect(incidents[0]).not.toHaveProperty("detail");
+});

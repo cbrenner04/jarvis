@@ -1562,7 +1562,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               const priorRecords = priorLogRecordsFromSink(args.logSink, lastResult.runId);
               const publicationResumable =
                 publication.failure.kind === "completion_commit_failed"
-                  ? true
+                  ? publication.failure.resumable !== false
                   : readyFailureResumable(
                       publication.failure.kind,
                       gateOutOfScopeFields.readyGateOutsidePaths,

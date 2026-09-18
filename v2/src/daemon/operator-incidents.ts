@@ -40,6 +40,8 @@ export type OperatorIncident = {
   branchKey?: string;
   runId?: string;
   cause?: string;
+  /** Terminal failure detail for `completion_commit_failed` rows (names refused repair paths). */
+  detail?: string;
   prNumber?: number;
   prUrl?: string;
   sinceMs: number | null;
@@ -365,6 +367,21 @@ function hasOwnIncidentRow(rows: readonly Run[]): boolean {
   return rows.some((run) => run.status === "blocked" || run.terminalCause === "run_timeout");
 }
 
+/** Failure detail worth surfacing on the incident: only `completion_commit_failed` carries path-bearing text. */
+function commitFailureDetail(run: Run): { detail: string } | Record<string, never> {
+  const message = run.terminalFailureDetail?.message;
+  return run.terminalCause === "completion_commit_failed" && message !== undefined ? { detail: message } : {};
+}
+
+/** The invocation's `completion_commit_failed` detail, when any row carries one. */
+function invocationCommitFailureDetail(rows: readonly Run[]): { detail: string } | Record<string, never> {
+  for (const run of rows) {
+    const detail = commitFailureDetail(run);
+    if ("detail" in detail) return detail;
+  }
+  return {};
+}
+
 function collectInvocationIncidents(invocations: readonly WorkflowInvocationRows[]): OperatorIncident[] {
   const incidents: OperatorIncident[] = [];
   for (const { entryRun, rows, marker } of invocations) {
@@ -376,6 +393,7 @@ function collectInvocationIncidents(invocations: readonly WorkflowInvocationRows
       project: entryRun.project,
       runId: entryRun.id,
       cause: marker.cause,
+      ...invocationCommitFailureDetail(rows),
       sinceMs: marker.settledAt,
     });
   }
@@ -603,6 +621,7 @@ function pushRunIncident(
     project: run.project,
     runId: run.id,
     cause: run.status,
+    ...commitFailureDetail(run),
     sinceMs: run.finishedAt ?? run.createdAt,
   });
 }

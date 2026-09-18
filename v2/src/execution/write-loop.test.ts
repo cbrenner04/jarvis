@@ -31,6 +31,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { deriveOperatorIncidents } from "../daemon/operator-incidents.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
@@ -6001,6 +6002,52 @@ export function isLoadSensitive(file: string): boolean {
         expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
       });
 
+      test("entirely out-of-diff refusal settles non-resumable with an incident naming the refused paths", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-non-resumable";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const sink = new TestLogSink();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink: sink,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(false);
+        const finished = sink.events.find(({ event }) => event.kind === "loop_finished")?.event;
+        expect(finished).toMatchObject({ loopOutcomeKind: "completion_commit_failed", resumable: false });
+
+        const reopened = openStateStore(stateDbPath);
+        try {
+          const run = reopened.loadRun(fenced.result.runId);
+          expect(run?.status).toBe("failed");
+          expect(run?.terminalCause).toBe("completion_commit_failed");
+          const operatorError = composeRunOperatorError(
+            { ...run!, attempts: run?.attempts ?? [] },
+            finished?.kind === "loop_finished"
+              ? { runId: fenced.result.runId, seq: 1, ts: "2026-01-01T00:00:00.000Z", event: finished }
+              : undefined,
+          );
+          expect(operatorError?.nextAction).toBe("stop");
+          const incident = deriveOperatorIncidents(reopened).find(
+            (candidate) => candidate.runId === fenced.result.runId,
+          );
+          expect(incident?.cause).toBe("failed");
+          expect(incident?.detail).toContain("v2/src/untouched.test.ts");
+          expect(incident?.detail).toContain("v2/src/new-untracked.ts");
+        } finally {
+          reopened.close();
+        }
+      });
+
       test("repair refuses a staged path outside the attributable allowset", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-attributable-allowset";
@@ -6463,6 +6510,8 @@ export function isLoadSensitive(file: string): boolean {
         const persisted = reopened.loadRun(first.result.runId);
         expect(persisted?.readyGateRepairFence?.offendingPath).toBe("v2/src/untouched.test.ts");
         expect(persisted?.readyGateRepairFence?.markdownOnly).not.toBe(true);
+        // Entirely refused edits settle non-resumable; recovery guards rows still retryable (e.g. a mixed refusal).
+        reopened.setRunStatus(first.result.runId, "completed");
         reopened.close();
         // The refused edit was reverted; re-dirty the tree so recovery has something to fence.
         touchUntouchedRepairEdit(worktreePath);

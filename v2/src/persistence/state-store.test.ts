@@ -6137,6 +6137,17 @@ describe("gate refusal recovery state", () => {
     });
   });
 
+  test("commitCompletionBoundary with no settlement evidence at all skips the settlement write path", () => {
+    const runId = seedRun(store);
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({ attemptId, runStatus: "completed", outcomeKind: "done" });
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.status).toBe("completed");
+    expect(loaded.gateRefusalRecoveryState).toBeNull();
+    expect(loaded.finishedAt).toBeNull();
+  });
+
   test("a row whose current terminal outcome is not gate_invocation_refused projects no gate refusal recovery record even with a valid record in the column", () => {
     const runId = seedRun(store);
     store.commitTerminalRunSettlement({

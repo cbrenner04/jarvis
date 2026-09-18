@@ -1061,6 +1061,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
+    let leaseRestamped = false;
     if (args.steps.some(needsChainedSpecMaterialization)) await materializeChainedImplementSpecs(args.steps);
     const workflowSnapshot = args.workflowSnapshot ?? buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
     const reviewPassCommitDeps = buildReviewPassCommitDeps(args, workflowSnapshot);
@@ -1095,6 +1096,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       }
 
       const isCompletionCandidateStep = isCompletionRowOwningStep(step, completionStep, lastStep);
+      if (!leaseRestamped) {
+        if (args.workflowSnapshot === undefined) persistLeaseRestamp(store, workflowSnapshot);
+        leaseRestamped = true;
+      }
 
       const stepResult = await runWorkflowStep(
         step,
@@ -1919,7 +1924,6 @@ function buildWorkflowSnapshot(
           candidate,
           authoredSteps.map((step) => ("leaseFromSha" in step ? step.leaseFromSha : undefined)),
         );
-        persistLeaseRestamp(store, candidate, leased);
         return leased.creationTitle !== undefined || !existingRun?.creationTitle
           ? leased
           : { ...leased, creationTitle: existingRun.creationTitle };
@@ -2004,13 +2008,17 @@ function withAuthoredLeaseFromSha(
   };
 }
 
-/** Durably re-stamp every row of a reused invocation whose recorded lease authorization changed, so resume reads this dispatch's value. */
-function persistLeaseRestamp(store: StateStore, prior: WorkflowSnapshot, leased: WorkflowSnapshot): void {
-  const changed = prior.steps.some((step, index) => step.leaseFromSha !== leased.steps[index]?.leaseFromSha);
-  if (!changed) return;
-  for (const run of store.findRunsByInvocationId(prior.invocationId)) {
-    store.setRunWorkflowSnapshot(run.id, { ...(run.workflowSnapshot ?? prior), steps: leased.steps });
-  }
+/**
+ * Durably re-stamp this dispatch's lease authorization onto every row of its invocation, so resume
+ * reads it and a prior run's SHA never carries over. Called only once the dispatch is admitted
+ * (immediately before its first step runs), never while building the snapshot, so a refused
+ * dispatch cannot rewrite a lease another run of the invocation reads.
+ */
+function persistLeaseRestamp(store: StateStore, snapshot: WorkflowSnapshot): void {
+  store.setInvocationLeaseFromSha(
+    snapshot.invocationId,
+    new Map(snapshot.steps.map((step) => [step.stepId, step.leaseFromSha ?? null])),
+  );
 }
 
 function snapshotMatchesAuthoredSteps(

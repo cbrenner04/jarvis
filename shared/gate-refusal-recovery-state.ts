@@ -15,7 +15,7 @@ export type GateRefusalRecoveryState = {
   slotRedriveCount: number;
 };
 
-export type GateRefusalRecoveryStateParseResult =
+type GateRefusalRecoveryStateParseResult =
   | { kind: "absent" }
   | { kind: "invalid" }
   | { kind: "valid"; record: GateRefusalRecoveryState };
@@ -30,28 +30,25 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
-/** Structural validation of an already-decoded value; `undefined` for anything that is not a complete record. */
-export function gateRefusalRecoveryStateFromUnknown(value: unknown): GateRefusalRecoveryState | undefined {
-  if (!isRecord(value)) return undefined;
-  if (typeof value.cause !== "string" || !GATE_REFUSAL_RECOVERY_CAUSES.has(value.cause)) return undefined;
-  if (typeof value.gateCommand !== "string") return undefined;
-  if (!isNonNegativeInteger(value.slotRedriveCount)) return undefined;
-  return {
-    cause: value.cause as GateRefusalRecoveryCause,
-    gateCommand: value.gateCommand,
-    slotRedriveCount: value.slotRedriveCount,
-  };
-}
-
 /** Non-throwing decode of a stored JSON column: `absent` for `null`, `invalid` for malformed syntax or shape. */
 export function parseGateRefusalRecoveryState(json: string | null): GateRefusalRecoveryStateParseResult {
   if (json === null) return { kind: "absent" };
-  let decoded: unknown;
+  let value: unknown;
   try {
-    decoded = JSON.parse(json);
+    value = JSON.parse(json);
   } catch {
     return { kind: "invalid" };
   }
-  const record = gateRefusalRecoveryStateFromUnknown(decoded);
-  return record === undefined ? { kind: "invalid" } : { kind: "valid", record };
+  if (!isRecord(value)) return { kind: "invalid" };
+  if (typeof value.cause !== "string" || !GATE_REFUSAL_RECOVERY_CAUSES.has(value.cause)) return { kind: "invalid" };
+  if (typeof value.gateCommand !== "string") return { kind: "invalid" };
+  if (!isNonNegativeInteger(value.slotRedriveCount)) return { kind: "invalid" };
+  return {
+    kind: "valid",
+    record: {
+      cause: value.cause as GateRefusalRecoveryCause,
+      gateCommand: value.gateCommand,
+      slotRedriveCount: value.slotRedriveCount,
+    },
+  };
 }

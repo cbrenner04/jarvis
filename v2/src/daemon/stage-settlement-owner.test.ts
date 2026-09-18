@@ -16,6 +16,10 @@ function singlePlanStagePipeline(name: string): PipelineDefinition {
   return { name, stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }] };
 }
 
+function implementSnapshot(invocationId: string): WorkflowSnapshot {
+  return { invocationId, steps: [{ stepId: "implement", role: "implement", durable: true }] };
+}
+
 function seedRun(store: StateStore, overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return store.createRun({
     project: "test-project",
@@ -63,11 +67,7 @@ describe("hasLiveForeignOwnerSibling", () => {
   });
 
   test("a terminal sibling row never blocks, even under a live foreign owner", async () => {
-    const invocationId = "hlfos-terminal-sibling";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("hlfos-terminal-sibling");
     const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
     const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
     seedRun(foreignStore, { status: "completed", stepId: "implement~shrink", workflowSnapshot: snapshot });
@@ -88,11 +88,7 @@ describe("hasLiveForeignOwnerSibling", () => {
   });
 
   test("a non-terminal sibling row with no owner never blocks", async () => {
-    const invocationId = "hlfos-null-owner";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("hlfos-null-owner");
     const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
     const shrinkRunId = seedRun(store, { stepId: "implement~shrink", workflowSnapshot: snapshot });
     clearRunOwner(TEST_DB_PATH, shrinkRunId);
@@ -112,11 +108,7 @@ describe("hasLiveForeignOwnerSibling", () => {
   });
 
   test("a non-terminal sibling row owned by this store's own identity never blocks", async () => {
-    const invocationId = "hlfos-self-owner";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("hlfos-self-owner");
     const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
     seedRun(store, { stepId: "implement~shrink", workflowSnapshot: snapshot });
 
@@ -135,11 +127,7 @@ describe("hasLiveForeignOwnerSibling", () => {
   });
 
   test("a non-terminal sibling row owned by a dead foreign identity does not block", async () => {
-    const invocationId = "hlfos-dead-foreign";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("hlfos-dead-foreign");
     const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
     const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
     seedRun(foreignStore, { stepId: "implement~shrink", workflowSnapshot: snapshot });
@@ -150,11 +138,7 @@ describe("hasLiveForeignOwnerSibling", () => {
   });
 
   test("a non-terminal sibling row owned by a live foreign identity blocks", async () => {
-    const invocationId = "hlfos-live-foreign";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("hlfos-live-foreign");
     const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
     const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
     seedRun(foreignStore, { stepId: "implement~shrink", workflowSnapshot: snapshot });
@@ -201,11 +185,7 @@ describe("settleOrphanedRunningStages foreign-owner liveness gate", () => {
   });
 
   test("leaves a stage running while its hidden shrink sibling is live under a foreign owner", async () => {
-    const invocationId = "sows-foreign-live";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("sows-foreign-live");
     const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
     const entryRunId = seedRun(foreignStore, {
       status: "completed",
@@ -237,11 +217,7 @@ describe("settleOrphanedRunningStages foreign-owner liveness gate", () => {
   });
 
   test("settles the stage once the foreign owner identity is dead", async () => {
-    const invocationId = "sows-foreign-dead";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("sows-foreign-dead");
     const foreignStore = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
     const entryRunId = seedRun(foreignStore, {
       status: "completed",
@@ -273,11 +249,7 @@ describe("settleOrphanedRunningStages foreign-owner liveness gate", () => {
   });
 
   test("a non-terminal sibling row owned by this daemon's own identity does not block settlement", async () => {
-    const invocationId = "sows-self-owner";
-    const snapshot: WorkflowSnapshot = {
-      invocationId,
-      steps: [{ stepId: "implement", role: "implement", durable: true }],
-    };
+    const snapshot = implementSnapshot("sows-self-owner");
     const store = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_OWNER });
     try {
       const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
@@ -305,14 +277,8 @@ describe("settleOrphanedRunningStages foreign-owner liveness gate", () => {
     const foreignStoreA = openStateStore(TEST_DB_PATH, { currentIdentity: FOREIGN_OWNER });
     const foreignStoreB = openStateStore(TEST_DB_PATH, { currentIdentity: OTHER_FOREIGN_OWNER });
     try {
-      const snapshotA: WorkflowSnapshot = {
-        invocationId: "sows-reread-a",
-        steps: [{ stepId: "implement", role: "implement", durable: true }],
-      };
-      const snapshotB: WorkflowSnapshot = {
-        invocationId: "sows-reread-b",
-        steps: [{ stepId: "implement", role: "implement", durable: true }],
-      };
+      const snapshotA = implementSnapshot("sows-reread-a");
+      const snapshotB = implementSnapshot("sows-reread-b");
       const entryRunA = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshotA });
       seedRun(foreignStoreA, { stepId: "implement~shrink", workflowSnapshot: snapshotA });
       const entryRunB = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshotB });

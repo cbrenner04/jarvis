@@ -134,6 +134,41 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   return 1;
 }
 
+/** Resolves once `stream`'s queued writes are flushed, or the stream errors/closes (reader gone).
+ * Ends the stream: on Bun an empty write's callback and `drain` fire before queued pipe data is
+ * delivered, while `end`'s callback waits for it. */
+function flushStream(stream: NodeJS.WritableStream): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => resolve();
+    // Listeners stay attached: a late EPIPE after `done` must not surface as an unhandled error.
+    stream.on("error", done);
+    stream.on("close", done);
+    stream.end(done);
+  });
+}
+
+export interface EntrypointStreams {
+  stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
+  exit: (code: number) => void;
+}
+
+/** Runs `run`, flushes stdout/stderr, then exits with its code (1 if it throws, after printing the error). */
+export async function runEntrypoint(
+  run: () => Promise<number>,
+  streams: EntrypointStreams = { stdout: process.stdout, stderr: process.stderr, exit: (code) => process.exit(code) },
+): Promise<void> {
+  let code: number;
+  try {
+    code = await run();
+  } catch (error) {
+    streams.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+    code = 1;
+  }
+  await Promise.all([flushStream(streams.stdout), flushStream(streams.stderr)]);
+  streams.exit(code);
+}
+
 if (import.meta.main) {
   // Harness git calls (push/fetch/ls-remote) against an HTTPS remote without
   // cached credentials would otherwise prompt on /dev/tty and hang the session.
@@ -141,5 +176,5 @@ if (import.meta.main) {
   if (!process.env.GIT_TERMINAL_PROMPT) {
     process.env.GIT_TERMINAL_PROMPT = "0";
   }
-  process.exit(await main(process.argv.slice(2)));
+  await runEntrypoint(() => main(process.argv.slice(2)));
 }

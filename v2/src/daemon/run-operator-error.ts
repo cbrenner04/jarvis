@@ -441,7 +441,8 @@ function composeRunOperatorErrorFromState(
         kind: "loop_finished",
         loopOutcomeKind: run.terminalCause,
         iterationsConsumed: 0,
-        resumable: loopFinishedEvent?.resumable ?? run.terminalCause === "completion_commit_failed",
+        resumable:
+          loopFinishedEvent?.resumable ?? (run.terminalCause === "completion_commit_failed" && run.status !== "failed"),
         ...(run.terminalFailureDetail?.message !== undefined ? { message: run.terminalFailureDetail.message } : {}),
       },
       lastAttempt,

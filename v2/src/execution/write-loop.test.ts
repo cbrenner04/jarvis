@@ -6038,6 +6038,33 @@ export function isLoadSensitive(file: string): boolean {
         }
       });
 
+      test("mixed refusal does not commit in-diff edits that trip the markdown-only fence", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-mixed-markdown";
+        const { baseRef, worktreePath } = initIntentRepairFenceWorktree(jarvisRoot, branchName);
+        const git = (...gitArgs: string[]) =>
+          execFileSync("git", ["-C", worktreePath, ...gitArgs], { encoding: "utf8", stdio: "pipe" });
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          ...intentRepairLoopDefaults,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(true);
+        expect(fenced.result.completionCommitError).toContain("outside markdown workflow output roots");
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(git("show", "HEAD:v2/src/untouched.test.ts")).toBe("iteration\n");
+        expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
+      });
+
       test("entirely out-of-diff refusal settles non-resumable with an incident naming the refused paths", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-non-resumable";

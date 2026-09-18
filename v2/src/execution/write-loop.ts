@@ -3606,7 +3606,25 @@ async function enforceRepairIterationFence(
     error = new Error(`${error.message}; ${reverted ? "refused paths reverted" : "revert of refused paths failed"}`);
   }
   if (reverted && fenceResult.entirelyRefused !== true) {
-    // Mixed refusal: keep the in-diff edits; the run stays resumable.
+    // Mixed refusal: keep the in-diff edits only if they pass the remaining fences; the run stays resumable.
+    const remaining = await validateReadyGateRepairCompletion(
+      { worktreePath: input.worktreePath, baseRef: input.baseRef, specPath: input.specPath },
+      repairAllowset,
+      markdownOutputRoots,
+      markdownOnlyRequired,
+      fenceFailureMessage,
+    );
+    if (remaining !== undefined) {
+      persistReadyGateRepairFence(
+        store,
+        runId,
+        provenanceAllowset,
+        remaining.offendingPath ?? fenceResult.offendingPath,
+        markdownOutputRoots,
+        markdownOnlyRequired ? true : undefined,
+      );
+      return { failure: { kind: "completion_commit_failed", error: remaining.error }, iterationsConsumed };
+    }
     const committed = await commitRepairAndRepublish(_args, store, input, result, iterationsConsumed, commitOptions);
     if (committed.kind === "failure") return committed.result;
   }

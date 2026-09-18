@@ -6075,16 +6075,6 @@ describe("pipeline branch fan-out execution", () => {
     };
   }
 
-  function snapshotStage(
-    stageRecords: PipelineStageRecord[],
-    stageId: string,
-    branchKey = "default",
-  ): PipelineStageRecord {
-    const record = stageRecord(stageRecords, stageId, branchKey);
-    if (!record) throw new Error(`missing stage ${stageId}/${branchKey}`);
-    return structuredClone(record);
-  }
-
   const relinkDispatch: PipelineWorkflowDispatch = async (steps) => {
     const step = steps[0] as unknown as { branchKey?: string; stageId?: string };
     const branchKey = step.branchKey ?? "default";
@@ -6158,8 +6148,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(store.reopenFailedPipeline({ pipelineId: PIPELINE_ID, branchKey: "alpha" }).kind).toBe("refused");
     expect(store.reopenFailedPipeline({ pipelineId: PIPELINE_ID }).kind).toBe("refused");
 
-    const intentBeforeReopen = snapshotStage(stages(), "intent");
-    const alphaGateBeforeReopen = snapshotStage(stages(), "gate", "alpha");
+    const beforeReopen = structuredClone(stages());
 
     // Between passes: alpha's plan gets a live link (as if resumed), and gamma's gate clears so
     // gamma's own suffix walk drives a fresh fan-out resolution claim. Scoping the next
@@ -6183,8 +6172,8 @@ describe("pipeline branch fan-out execution", () => {
     expect(reopenedImplementAlpha?.workflowInvocationId).toBeNull();
 
     // Rows at or before the settled position are untouched by the reopen.
-    expect(stageRecord(stages(), "intent")).toEqual(intentBeforeReopen);
-    expect(stageRecord(stages(), "gate", "alpha")).toEqual(alphaGateBeforeReopen);
+    expect(stageRecord(stages(), "intent")).toEqual(stageRecord(beforeReopen, "intent"));
+    expect(stageRecord(stages(), "gate", "alpha")).toEqual(stageRecord(beforeReopen, "gate", "alpha"));
 
     // A further pass dispatches the reopened successor.
     await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });

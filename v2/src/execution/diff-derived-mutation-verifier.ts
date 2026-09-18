@@ -178,15 +178,18 @@ function createBaselineMeasurer(
     const cached = baselines.get(key);
     if (cached !== undefined) return cached;
     const measurement = (async (): Promise<KillingTestBaseline> => {
-      if (now() + KILLING_TEST_BUDGET_CEILING_MS > deadline) return { kind: "deadline" };
+      // Headroom in [floor, ceiling) still runs, bounded by the headroom, so the near-deadline window
+      // keeps failing closed; only sub-floor headroom or a headroom-bounded timeout settles "deadline".
+      const timeoutMs = Math.min(KILLING_TEST_BUDGET_CEILING_MS, deadline - now());
+      if (timeoutMs < KILLING_TEST_BUDGET_FLOOR_MS) return { kind: "deadline" };
       const startedAt = now();
       let passed: boolean;
       try {
-        passed = await runScopedTests(input.worktreePath, killingTestPaths([...killingTests]), {
-          timeoutMs: KILLING_TEST_BUDGET_CEILING_MS,
-        });
+        passed = await runScopedTests(input.worktreePath, killingTestPaths([...killingTests]), { timeoutMs });
       } catch (error) {
-        if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") return { kind: "exceeded-ceiling" };
+        if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
+          return timeoutMs < KILLING_TEST_BUDGET_CEILING_MS ? { kind: "deadline" } : { kind: "exceeded-ceiling" };
+        }
         throw error;
       }
       const elapsedMs = Math.max(0, now() - startedAt);

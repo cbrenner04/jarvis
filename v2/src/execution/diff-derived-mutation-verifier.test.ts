@@ -730,6 +730,51 @@ index f424d7da..be281d02 100644
     expect(result.kind).toBe("pass");
   });
 
+  it("still runs a failing exempt observer bounded by headroom between the floor and ceiling, failing closed instead of settling inconclusive", async () => {
+    const frontmatterDiff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/implement/review-critic.md
++++ b/prompts/implement/review-critic.md
+@@ -4,1 +4,1 @@
+-revision: 1
++revision: 2
+`;
+    const bumpedSource = criticSource.replace("revision: 1", "revision: 2");
+    const mapSource = renderObserverMapSource({
+      "prompts/implement/review-critic.md": ["v2/src/execution/review-critic-render.test.ts"],
+    });
+    const HEADROOM_MS = 60_000; // >= floor, < ceiling
+    let started = false;
+    const bounds: number[] = [];
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => frontmatterDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(bumpedSource, mapSource),
+        runScopedTests: async (_cwd, _scope, options) => {
+          bounds.push(options?.timeoutMs ?? 0);
+          return false;
+        },
+        now: () => {
+          if (!started) {
+            started = true;
+            return 0;
+          }
+          return MAX_VERIFICATION_MS - HEADROOM_MS;
+        },
+      },
+    );
+
+    expect(bounds).toEqual([HEADROOM_MS]);
+    expect(result).toMatchObject({
+      kind: "surviving-mutation",
+      mutation: "missing-render-coverage",
+      sourceSite: { file: "prompts/implement/review-critic.md", line: 1 },
+    });
+  });
+
   it("does not treat raw template inspection as rendered prompt coverage", async () => {
     let prompt = criticSource;
     const result = await verifyDiffDerivedMutations(

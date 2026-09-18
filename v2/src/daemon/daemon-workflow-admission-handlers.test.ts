@@ -2,11 +2,12 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as nodeChildProcess from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -138,7 +139,7 @@ function createRecoveryFixture(args: {
   outcomeKind: "surviving_mutation_failed" | "runtime_smoke_failed";
   claimed?: boolean;
 }) {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-admission-recovery-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-admission-recovery-"));
   const worktreePath = root;
   const branch = "recover";
   const dbPath = join(root, "state.sqlite");
@@ -729,7 +730,7 @@ function createRealPublishableWorktree(jarvisRoot: string, originPath: string) {
 test("workflow invocation settled marker: null while the publication tail is held, completed once released", async () => {
   const branch = "settled-marker-publication-hold";
   const { jarvisRoot } = createJarvisHome();
-  const originPath = mkdtempSync(join(tmpdir(), "jarvis-admission-origin-"));
+  const originPath = trackedMkdtempSync(join(tmpdir(), "jarvis-admission-origin-"));
   execFileSync("git", ["init", "--bare", originPath], { stdio: "pipe" });
 
   const originalRunAsync = realAsyncSubprocessRunner.runAsync.bind(realAsyncSubprocessRunner);

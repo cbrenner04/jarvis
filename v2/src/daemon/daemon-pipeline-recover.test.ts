@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
@@ -14,6 +13,7 @@ import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-
 
 ensureWorkflowRunnerResumeDepsWired();
 
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
@@ -181,7 +181,7 @@ function planReviewStep(args: {
 }
 
 function createPlanWorktree(prefix: string): string {
-  const worktreePath = mkdtempSync(join(tmpdir(), prefix));
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), prefix));
   execFileSync("git", ["init", "-q"], { cwd: worktreePath });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreePath });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: worktreePath });

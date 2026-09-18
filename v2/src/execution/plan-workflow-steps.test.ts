@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -9,6 +9,7 @@ import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { jarvisHome } from "../paths.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
@@ -51,7 +52,7 @@ const builderDeps: PlanWorkflowDeps = {
 };
 
 const { roots } = trackedTempRoots();
-const repoSpecsConfigPath = join(mkdtempSync(join(tmpdir(), "plan-specs-repo-config-")), "config.json");
+const repoSpecsConfigPath = join(trackedMkdtempSync(join(tmpdir(), "plan-specs-repo-config-")), "config.json");
 writeFileSync(repoSpecsConfigPath, JSON.stringify({ projects: { demo: { root: "/repo", specs: "repo" } } }), "utf8");
 const specGuidance = readSpecGuidance();
 
@@ -205,7 +206,7 @@ describe("plan ready-intent output routing", () => {
     ["v1/spec", "v2/spec"],
     ["v2/spec", "v1/spec"],
   ] as const)("routes %s ready-intents ahead of configured %s", async (targetDir, configuredTargetDir) => {
-    const root = mkdtempSync(join(tmpdir(), "plan-routing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-routing-"));
     const config = join(root, "config.json");
     const readyIntent = join(targetDir, "ready-intents", "feature.md");
     mkdirSync(join(root, targetDir, "ready-intents"), { recursive: true });
@@ -232,7 +233,7 @@ describe("plan ready-intent output routing", () => {
   });
 
   test("keeps explicit targetDir ahead of canonical ready-intent routing", async () => {
-    const root = mkdtempSync(join(tmpdir(), "plan-routing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-routing-"));
     const config = join(root, "config.json");
     const readyIntent = "v2/spec/ready-intents/feature.md";
     mkdirSync(join(root, "v2/spec/ready-intents"), { recursive: true });
@@ -252,7 +253,7 @@ describe("plan ready-intent output routing", () => {
   });
 
   test("keeps specs-external ready-intent plans in external storage", async () => {
-    const root = mkdtempSync(join(tmpdir(), "plan-routing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-routing-"));
     const config = join(root, "config.json");
     const readyIntent = "v1/spec/ready-intents/feature.md";
     mkdirSync(join(root, "v1/spec/ready-intents"), { recursive: true });
@@ -360,7 +361,7 @@ describe("plan base ref", () => {
   });
 
   test("threads an explicit --base into the specs:external read-context worktree", async () => {
-    const root = mkdtempSync(join(tmpdir(), "plan-base-ext-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-base-ext-"));
     const config = join(root, "config.json");
     const readyIntent = "spec/ready-intents/feature.md";
     mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
@@ -546,7 +547,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
   });
 
   test("points the debate step at the draft's actual localPath when project specs is external", async () => {
-    const root = mkdtempSync(join(tmpdir(), "plan-builder-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-builder-"));
     const config = join(root, "config.json");
     writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "external" } } }));
     const result = await buildReviewedPlanWorkflowSteps(
@@ -655,7 +656,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
   });
 
   test("points the review step at the draft's actual localPath when project specs is external", async () => {
-    const root = mkdtempSync(join(tmpdir(), "plan-builder-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-builder-"));
     const config = join(root, "config.json");
     writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "external" } } }));
     const result = await buildReviewedPlanLightWorkflowSteps(
@@ -679,7 +680,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
 
 describe("external plan draft read-context checkout", () => {
   async function initGitProject(): Promise<{ repoRoot: string; committed: string }> {
-    const root = mkdtempSync(join(tmpdir(), "plan-readctx-repo-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-readctx-repo-"));
     roots.push(root);
     const repoRoot = join(root, "repo");
     mkdirSync(join(repoRoot, "spec/ready-intents"), { recursive: true });
@@ -753,7 +754,7 @@ describe("external plan draft read-context checkout", () => {
 });
 
 function stageExternalReadyIntent(options: { external?: true }) {
-  const root = mkdtempSync(join(tmpdir(), "plan-external-ready-intent-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "plan-external-ready-intent-"));
   const jarvisRoot = join(root, "jarvis");
   const config = join(root, "config.json");
   const projectKey = options.external === true ? "Org/Repo" : "demo";

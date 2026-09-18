@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type ProjectPipelineConfig,
@@ -50,7 +51,7 @@ function lookupFixed(definition: PipelineDefinition) {
 }
 
 function writeConfig(value: unknown): string {
-  const dir = mkdtempSync(join(tmpdir(), "jarvis-project-pipeline-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-project-pipeline-"));
   const path = join(dir, "config.json");
   writeFileSync(path, JSON.stringify(value));
   return path;

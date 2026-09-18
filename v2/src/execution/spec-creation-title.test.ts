@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 
 mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
 
 describe("resolvePublicationTitle", () => {
   test("uses the first non-empty index H1", () => {
-    const root = mkdtempSync(join(process.cwd(), ".scratch", "spec-title-"));
+    const root = trackedMkdtempSync(join(process.cwd(), ".scratch", "spec-title-"));
     try {
       mkdirSync(join(root, "tree"));
       writeFileSync(join(root, "tree", "index.md"), "#\n\n# Actual title\n", "utf8");
@@ -18,7 +19,7 @@ describe("resolvePublicationTitle", () => {
   });
 
   test("falls back to the index directory or non-index basename", () => {
-    const root = mkdtempSync(join(process.cwd(), ".scratch", "spec-title-"));
+    const root = trackedMkdtempSync(join(process.cwd(), ".scratch", "spec-title-"));
     try {
       mkdirSync(join(root, "tree"));
       writeFileSync(join(root, "tree", "index.md"), "## no H1\n", "utf8");
@@ -31,7 +32,7 @@ describe("resolvePublicationTitle", () => {
   });
 
   test("rejects an unreadable index with its spec path", () => {
-    const root = mkdtempSync(join(process.cwd(), ".scratch", "spec-title-"));
+    const root = trackedMkdtempSync(join(process.cwd(), ".scratch", "spec-title-"));
     try {
       expect(() => resolvePublicationTitle(root, "missing/index.md")).toThrow("Title resolution");
       expect(() => resolvePublicationTitle(root, "missing/index.md")).toThrow("missing/index.md");

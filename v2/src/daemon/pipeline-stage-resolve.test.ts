@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findProjectMatch } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { landPublication } from "../execution/publication-landing.ts";
@@ -60,7 +61,7 @@ const intentOnlyDefinition: PipelineDefinition = {
 };
 
 function createSeedPathRepo(): { repoRoot: string; configPath: string; intentWorktree: string } {
-  const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-seed-path-repo-"));
+  const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-seed-path-repo-"));
   initGitRepo(repoRoot);
   writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
   mkdirSync(join(repoRoot, "v2", "spec", "seeds"), { recursive: true });
@@ -138,7 +139,7 @@ function gitDisabledPipelineContext(projectKey = "demo"): {
   projectKey: string;
   context: PipelineContext;
 } {
-  const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-git-disabled-admission-"));
+  const admissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-git-disabled-admission-"));
   const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root: admissionRoot, specs: "external" } } });
   return {
     admissionRoot,
@@ -151,7 +152,7 @@ function isolatedChainedMatcher(
   prefix: string,
   projectKey: string,
 ): { admissionRoot: string; match: ReturnType<typeof createChainedStageProjectMatch> } {
-  const admissionRoot = mkdtempSync(join(tmpdir(), prefix));
+  const admissionRoot = trackedMkdtempSync(join(tmpdir(), prefix));
   return {
     admissionRoot,
     match: createChainedStageProjectMatch({
@@ -175,7 +176,7 @@ const planImplementDefinition: PipelineDefinition = {
 };
 
 function planFeatureWorktree(prefix: string, withIndex = false): string {
-  const worktree = mkdtempSync(join(tmpdir(), prefix));
+  const worktree = trackedMkdtempSync(join(tmpdir(), prefix));
   mkdirSync(join(worktree, "spec", "feature"), { recursive: true });
   if (withIndex) writeFileSync(join(worktree, planIndexRel), "# Feature\n", "utf8");
   return worktree;
@@ -191,7 +192,7 @@ function createChainedHandoffRepo(): {
   readyIntentRel: string;
   planSpecRel: string;
 } {
-  const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-chained-repo-"));
+  const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-chained-repo-"));
   initGitRepo(repoRoot);
   writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
   execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
@@ -267,7 +268,7 @@ function absentPriorWorktreePlanFixture(repo: ReturnType<typeof createChainedHan
 }
 
 async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate", seed = "ship feature") {
-  const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-"));
+  const cwd = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-intent-"));
   const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
   const definition: PipelineDefinition = {
     name: "p",
@@ -376,7 +377,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("second workflow stage builds with the first stage's recorded artifact as readyIntent, matching the recorded value", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
     const recordedArtifact = "spec/ready-intents/foo.md";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, recordedArtifact), "---\nname: foo\n---\n", "utf8");
@@ -407,7 +408,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("approval stages are skipped when walking back to find the preceding workflow artifact", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
     const recordedArtifact = "spec/ready-intents/foo.md";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, recordedArtifact), "---\nname: foo\n---\n", "utf8");
@@ -457,7 +458,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("plan+none maps to plan preset", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, "x.md"), "---\nname: x\n---\n", "utf8");
     let called = false;
@@ -488,7 +489,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("plan+light maps to plan-reviewed-light preset", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, "x.md"), "---\nname: x\n---\n", "utf8");
     let called = false;
@@ -519,7 +520,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("implement stage threads light review posture", async () => {
-    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
     mkdirSync(join(planWorktree, "spec"), { recursive: true });
     writeFileSync(join(planWorktree, "spec/index.md"), "# Feature\n", "utf8");
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
@@ -588,7 +589,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("implement stage threads debate review posture", async () => {
-    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
     mkdirSync(join(planWorktree, "spec"), { recursive: true });
     writeFileSync(join(planWorktree, "spec/index.md"), "# Feature\n", "utf8");
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
@@ -767,7 +768,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("plan review none resolves through real preset builders without a review step", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-plan-"));
+    const cwd = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-plan-"));
     mkdirSync(join(cwd, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(cwd, "spec/ready-intents/feature.md"), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
     const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
@@ -798,7 +799,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("leave-draft pipeline implement completion skips ready finalization", async () => {
-    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
+    const planWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
     mkdirSync(join(planWorktree, "spec"), { recursive: true });
     writeFileSync(join(planWorktree, "spec/index.md"), "# Feature\n", "utf8");
     const publishWriteStep = {
@@ -871,8 +872,8 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("plan stage resolves chained readyIntent from the intent entry-run worktree, not admission cwd", async () => {
-    const operatorCwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-operator-"));
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-wt-"));
+    const operatorCwd = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-operator-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-intent-wt-"));
     const readyIntentRel = "spec/ready-intents/feature.md";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
@@ -909,7 +910,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("implement stage resolves chained specPath from the plan entry-run worktree with default branch as baseRef", async () => {
-    const operatorCwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-operator-"));
+    const operatorCwd = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-operator-"));
     const planWorktree = planFeatureWorktree("pipeline-resolve-plan-wt-", true);
     expect(existsSync(join(operatorCwd, planIndexRel))).toBe(false);
 
@@ -1046,7 +1047,7 @@ describe("resolveStageWorkflowSteps", () => {
   test("resolves external ready-intent downstream input for chained plan stage", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
       const readyIntentRel = "ready-intents/feature.md";
-      const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-admission-"));
+      const admissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-admission-"));
       const configPath = writeHomeMachineConfig({
         projects: { demo: { root: admissionRoot, specs: "external" } },
       });
@@ -1080,7 +1081,7 @@ describe("resolveStageWorkflowSteps", () => {
   test("resolves external ready-intent downstream input when the project has no specs key", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
       const readyIntentRel = "ready-intents/feature.md";
-      const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-machine-"));
+      const admissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-machine-"));
       const configPath = writeHomeMachineConfig({
         projects: { demo: { root: admissionRoot } },
       });
@@ -1116,7 +1117,7 @@ describe("resolveStageWorkflowSteps", () => {
       // its plan artifacts into the repo must never resolve a ready-intent out of the external
       // specs home, even when a file happens to sit at its own owner-scoped path.
       const readyIntentRel = "ready-intents/feature.md";
-      const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-git-"));
+      const admissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-git-"));
       const configPath = writeHomeMachineConfig({
         projects: { demo: { root: admissionRoot, specs: "repo" } },
       });
@@ -1151,8 +1152,8 @@ describe("resolveStageWorkflowSteps", () => {
   test("rejects cross-project external ready-intent downstream input", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
       const readyIntentRel = "ready-intents/feature.md";
-      const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-owner-"));
-      const otherAdmissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-other-"));
+      const admissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-owner-"));
+      const otherAdmissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-other-"));
       const configPath = writeHomeMachineConfig({
         projects: {
           demo: { root: admissionRoot, specs: "external" },
@@ -1206,7 +1207,7 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("chained implement uses fetched upstream without changing the operator checkout", async () => {
     const { repoRoot, configPath, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
-    const remoteHome = mkdtempSync(join(tmpdir(), "pipeline-upstream-"));
+    const remoteHome = trackedMkdtempSync(join(tmpdir(), "pipeline-upstream-"));
     const remote = join(remoteHome, "origin.git");
     const publisher = join(remoteHome, "publisher");
     const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -1366,7 +1367,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fan-out-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-fan-out-"));
     const readyA = FAN_OUT_READY_A;
     const readyB = FAN_OUT_READY_B;
     const directorySpecPath = "spec/ready-intents";
@@ -1401,7 +1402,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("branch-scoped plan resolution verifies only the requested fan-out lane when a sibling input is unresolvable", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-scoped-lane-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-scoped-lane-"));
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, FAN_OUT_READY_B), "---\nname: beta\n---\n", "utf8");
 
@@ -1429,7 +1430,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("branch-scoped plan resolution binds downstream input by branchKey equality", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-branch-key-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-branch-key-"));
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, FAN_OUT_READY_B), "---\nname: beta\n---\n", "utf8");
     writeFileSync(join(intentWorktree, FAN_OUT_READY_A), "---\nname: alpha\n---\n", "utf8");
@@ -1456,7 +1457,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("branch-scoped plan resolution refuses unmatched branchKey naming lane and available downstream inputs", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-unmatched-lane-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-unmatched-lane-"));
 
     const result = await resolveStageWorkflowSteps(
       chainedIntentPlanDefinition,
@@ -1473,7 +1474,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("branch-scoped plan resolution refuses duplicate derived branch keys", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-duplicate-lane-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-duplicate-lane-"));
     const duplicateA = "other/ready-intents/alpha.md";
 
     const result = await resolveStageWorkflowSteps(
@@ -1492,7 +1493,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("unscoped fan-out plan resolution treats consumed sibling ready-intent as satisfied", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-resolve-consumed-lane-"));
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-consumed-lane-"));
     initGitRepo(repoRoot);
     const consumedReadyIntent = FAN_OUT_READY_A;
     const pendingReadyIntent = FAN_OUT_READY_B;
@@ -1533,7 +1534,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("plan resolution refusal names the failing lane and omits intent re-drive when prior intent succeeded", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-refusal-lane-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-refusal-lane-"));
 
     const result = await resolveStageWorkflowSteps(
       chainedIntentPlanDefinition,
@@ -1552,7 +1553,7 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("single-file prior artifact without downstreamInputs still resolves one plan preset binding", async () => {
     const readyIntentRel = "spec/ready-intents/feature.md";
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-single-file-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-single-file-"));
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, readyIntentRel), "---\nname: feature\n---\n", "utf8");
 
@@ -1580,8 +1581,8 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order", async () => {
-    const alphaPlanWorktree = mkdtempSync(join(tmpdir(), "pipeline-fan-out-alpha-plan-"));
-    const betaPlanWorktree = mkdtempSync(join(tmpdir(), "pipeline-fan-out-beta-plan-"));
+    const alphaPlanWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-fan-out-alpha-plan-"));
+    const betaPlanWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-fan-out-beta-plan-"));
     const alphaPlanIndex = "spec/alpha/index.md";
     const betaPlanIndex = "spec/beta/index.md";
     mkdirSync(join(alphaPlanWorktree, "spec", "alpha"), { recursive: true });
@@ -1656,7 +1657,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("downstreamInputs length 1 resolves one binding to that path", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-length-one-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-length-one-"));
     const readyRel = "spec/ready-intents/only.md";
     const directorySpecPath = "spec/ready-intents";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
@@ -1688,7 +1689,7 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("missing downstreamInputs path fails without falling back to directory specPath", async () => {
-    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-missing-downstream-"));
+    const intentWorktree = trackedMkdtempSync(join(tmpdir(), "pipeline-resolve-missing-downstream-"));
     const readyA = FAN_OUT_READY_A;
     const readyB = "spec/ready-intents/missing.md";
     const directorySpecPath = "spec/ready-intents";
@@ -1927,8 +1928,8 @@ describe("createChainedStageProjectMatch", () => {
   });
 
   test("does not override findProjectMatch for paths outside managed roots", () => {
-    const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-match-fallback-admission-"));
-    const otherProjectRoot = mkdtempSync(join(tmpdir(), "pipeline-match-fallback-other-"));
+    const admissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-match-fallback-admission-"));
+    const otherProjectRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-match-fallback-other-"));
     const registry = { alpha: { root: admissionRoot }, beta: { root: otherProjectRoot } };
     const queryPath = join(otherProjectRoot, "src", "main.ts");
     mkdirSync(join(otherProjectRoot, "src"), { recursive: true });

@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
@@ -994,7 +995,7 @@ test("recoverReconciledRuns settles failed a reconciled killed row owned by a de
 });
 
 test("recoverReconciledRuns auto-resume re-resolves write bindings from the edited machine profile", async () => {
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-reconcile-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-reconcile-profile-"));
   const machinesDir = join(profileHome, "machines");
   const machineProfile = "reconcile-binding-profile";
   const previousHome = process.env.JARVIS_HOME;

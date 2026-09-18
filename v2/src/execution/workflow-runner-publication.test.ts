@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -344,7 +345,7 @@ describe("executeWorkflow completion publication", () => {
       branch,
       cwd,
       prompt: "review",
-      verdictPath: join(mkdtempSync(join(tmpdir(), `workflow-${branch}-`)), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), `workflow-${branch}-`)), "verdict.md"),
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: {
@@ -1426,7 +1427,7 @@ describe("executeWorkflow completion publication", () => {
       }
     });
 
-    const plainWorkspace = mkdtempSync(join(tmpdir(), "workflow-uncommitted-fail-soft-"));
+    const plainWorkspace = trackedMkdtempSync(join(tmpdir(), "workflow-uncommitted-fail-soft-"));
     roots.push(plainWorkspace);
     const plainBase = createStep({
       stepId: "implement",
@@ -1452,7 +1453,7 @@ describe("executeWorkflow completion publication", () => {
   test("does not record done completion boundary when intent stage remains uncommitted", async () => {
     // Plain (non-git) workspace: `git status --porcelain` fails here, so `getUncommittedPaths`
     // alone can't see a leftover staged file — only `remainingStagedIntentPaths` does.
-    const workspace = mkdtempSync(join(tmpdir(), "intent-leftover-stage-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-leftover-stage-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const stagingDir = join(workspace, ".jarvis-intent-stage");
     const durableDir = join(workspace, "ready-intents");
@@ -1525,7 +1526,7 @@ describe("executeWorkflow completion publication", () => {
     // promotion (`landPublication`) then fails on a durable-dir collision, the row's log and its
     // durable status must agree — `composeRunOperatorError` must not fall through to an empty or
     // generically-classified row for the split.
-    const workspace = mkdtempSync(join(tmpdir(), "intent-tail-log-disagreement-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "intent-tail-log-disagreement-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
     const durableDir = join(workspace, "ready-intents");
     mkdirSync(durableDir, { recursive: true });
@@ -1580,7 +1581,7 @@ describe("executeWorkflow completion publication", () => {
   });
 
   test("settles plan-tree landing evidence with matching non-retryable semantics", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "plan-landing-evidence-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "plan-landing-evidence-"));
     const stage = join(workspace, ".jarvis-plan-stage");
     const durablePath = join(workspace, "spec/plan-landing-evidence");
     mkdirSync(stage);

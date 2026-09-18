@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,
@@ -15,7 +16,7 @@ import { openSessionLog, type SessionLog, type SessionLogTag } from "./session-l
 let scratchDir: string;
 
 beforeEach(() => {
-  scratchDir = mkdtempSync(join(tmpdir(), "jarvis-execute-session-log-"));
+  scratchDir = trackedMkdtempSync(join(tmpdir(), "jarvis-execute-session-log-"));
 });
 
 afterEach(() => {

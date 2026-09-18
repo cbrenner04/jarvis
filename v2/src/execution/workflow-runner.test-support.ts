@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -11,6 +11,7 @@ import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
@@ -61,7 +62,7 @@ export const DEFAULT_AGENT_MODEL_CONFIG = {
 };
 
 export function workflowRunnerResumeProfileDeps(): WriteLoopBindingSourceDeps {
-  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-workflow-runner-profile-"));
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-runner-profile-"));
   const machinesDir = join(profileHome, "machines");
   const profileName = "workflow-runner-profile";
   mkdirSync(machinesDir, { recursive: true });
@@ -146,7 +147,7 @@ export const errorBindingFactory = createBindingFactory(
 );
 
 export function initGitWorkspace(prefix: string) {
-  const workspace = mkdtempSync(join(tmpdir(), prefix));
+  const workspace = trackedMkdtempSync(join(tmpdir(), prefix));
   execFileSync("git", ["init", "-q"], { cwd: workspace });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: workspace });
@@ -172,7 +173,7 @@ export function externalWorktreeBinding(
 const intentWorktreeTemplate = createCommittedGitFixtureTemplate({ files: { "base.txt": "base\n" } });
 
 export function createIntentWorktreeHarness(branchName: string) {
-  const workspace = mkdtempSync(join(tmpdir(), `intent-workflow-${branchName}-`));
+  const workspace = trackedMkdtempSync(join(tmpdir(), `intent-workflow-${branchName}-`));
   intentWorktreeTemplate.copy(workspace);
   return {
     workspace,
@@ -184,7 +185,7 @@ export function createIntentWorktreeHarness(branchName: string) {
 // the first `withExternalWorktree` call, mirroring a non-index implement step whose worktree
 // doesn't pre-exist when the workflow starts.
 export function createLazyIntentWorktreeHarness(branchName: string) {
-  const workspace = mkdtempSync(join(tmpdir(), `lazy-workflow-${branchName}-`));
+  const workspace = trackedMkdtempSync(join(tmpdir(), `lazy-workflow-${branchName}-`));
   rmSync(workspace, { recursive: true, force: true });
   let materialized = false;
   const withExternalWorktree = async <T>(
@@ -427,7 +428,7 @@ export function createReviewDebateActuatorFailureBindingFactory(
 }
 
 export function debateVerdictPath(): string {
-  return join(mkdtempSync(join(tmpdir(), "workflow-review-debate-")), "verdict.md");
+  return join(trackedMkdtempSync(join(tmpdir(), "workflow-review-debate-")), "verdict.md");
 }
 
 export function createDebateStep(

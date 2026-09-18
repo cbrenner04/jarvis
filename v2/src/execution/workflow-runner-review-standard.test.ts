@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import {
   config,
@@ -18,7 +19,7 @@ describe("executeWorkflow review dispatch", () => {
   test("resolves role orders independently and reports a fresh non-durable run", async () => {
     const calls: string[] = [];
     const progress: string[] = [];
-    const telemetryPath = join(mkdtempSync(join(tmpdir(), "workflow-review-telemetry-")), "telemetry.jsonl");
+    const telemetryPath = join(trackedMkdtempSync(join(tmpdir(), "workflow-review-telemetry-")), "telemetry.jsonl");
     const step: ReviewWorkflowStep = {
       behavior: "review",
       stepId: "review-1",
@@ -26,7 +27,7 @@ describe("executeWorkflow review dispatch", () => {
       branch: "review-only",
       cwd: "/fake",
       prompt: "inspect",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-")), "verdict.md"),
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
@@ -87,7 +88,7 @@ describe("executeWorkflow review dispatch", () => {
         branch: "review-only",
         cwd: "/fake",
         prompt: "inspect",
-        verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-profile-review-idle-")), "verdict.md"),
+        verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-profile-review-idle-")), "verdict.md"),
         maxCycles: 1,
         idleOutputMs,
         agents: { critic: ["claude"], actuator: ["codex"] },
@@ -121,7 +122,7 @@ describe("executeWorkflow review dispatch", () => {
     const captured = new Map<number, string[]>();
 
     for (const idleOutputMs of [12_345, 0]) {
-      const workspace = mkdtempSync(join(tmpdir(), "workflow-standard-review-idle-"));
+      const workspace = trackedMkdtempSync(join(tmpdir(), "workflow-standard-review-idle-"));
       stageReviewedIntent(workspace);
       const roles: string[] = [];
       const step = reviewedIntentStep(workspace, {
@@ -163,7 +164,7 @@ describe("executeWorkflow review dispatch", () => {
         branch: "review-only",
         cwd: "/fake",
         prompt: "inspect",
-        verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-idle-fallback-")), "verdict.md"),
+        verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-idle-fallback-")), "verdict.md"),
         maxCycles: 1,
         ...(idleOutputMs === undefined ? {} : { idleOutputMs }),
         agents: { critic: ["claude"], actuator: ["codex"] },
@@ -187,7 +188,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("persists reviewed-intent review as a durable snapshot step", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-snapshot-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-snapshot-"));
     stageReviewedIntent(workspace);
     const step = reviewedIntentStep(workspace, { branch: "intent/snapshot", maxCycles: 0 });
 
@@ -201,8 +202,8 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("runs reviewed-intent review and landing only in the split workspace", async () => {
-    const operatorCheckout = mkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
+    const operatorCheckout = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
     stageReviewedIntent(workspace);
     const durableDir = join(workspace, "ready-intents");
     const verdictPath = join(workspace, ".jarvis-intent-review-verdict.md");
@@ -271,7 +272,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("fails reviewed intent without critic verdict evidence before landing", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-evidence-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-evidence-"));
     stageReviewedIntent(workspace);
     const step = reviewedIntentStep(workspace, { branch: "intent/evidence", maxCycles: 0 });
 
@@ -287,7 +288,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("fails a missing reviewed-intent workspace before invoking the critic", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-missing-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-missing-"));
     let calls = 0;
     const step = reviewedIntentStep(workspace, {
       branch: "intent/missing",
@@ -311,7 +312,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("reports exhausted reviewed-intent critic bindings", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-exhausted-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-exhausted-"));
     stageReviewedIntent(workspace);
     const step = reviewedIntentStep(workspace, {
       branch: "intent/exhausted",
@@ -338,7 +339,7 @@ describe("executeWorkflow review dispatch", () => {
       branch: "review-guard",
       cwd: "/fake",
       prompt: "inspect",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-guard-")), "verdict.md"),
+      verdictPath: join(trackedMkdtempSync(join(tmpdir(), "workflow-review-guard-")), "verdict.md"),
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["codex"] },
       agentModelConfig: config,
@@ -364,7 +365,7 @@ describe("executeWorkflow review dispatch", () => {
           });
         }),
     );
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-timeout-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-timeout-"));
     stageReviewedIntent(workspace);
 
     await withStateStore(async (store) => {
@@ -397,7 +398,7 @@ describe("executeWorkflow review dispatch", () => {
 
   test("keeps a non-timeout critic failure non-resumable on both the non-durable and reviewed-intent paths", async () => {
     const failingCritic = criticBinding(async () => ({ kind: "error", exitCode: 1, stderr: "boom" }) as const);
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-error-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-error-"));
     stageReviewedIntent(workspace);
 
     await withStateStore(async (store) => {
@@ -417,7 +418,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("accepts an empty critic verdict without invoking the actuator", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-empty-verdict-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-empty-verdict-"));
     stageReviewedIntent(workspace);
     const calls: string[] = [];
     const step = reviewedIntentStep(workspace, {
@@ -439,7 +440,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("emits iteration_started and loop_finished around a durable reviewed-intent review", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-log-"));
     stageReviewedIntent(workspace);
     const _durableDir = join(workspace, "ready-intents");
     const step: ReviewWorkflowStep = {
@@ -495,8 +496,8 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("restores a reviewed-intent boundary violation in the split workspace", async () => {
-    const operatorCheckout = mkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
+    const operatorCheckout = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-operator-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-workspace-"));
     stageReviewedIntent(workspace);
     writeFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "keep\n", "utf8");
 
@@ -544,7 +545,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("emits iteration_started and loop_finished on a durable reviewed-intent invocation_failure", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-log-fail-"));
+    const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-log-fail-"));
     stageReviewedIntent(workspace);
     const step: ReviewWorkflowStep = {
       behavior: "review",

@@ -2,9 +2,10 @@
 // generation (see 03-legacy-keyed-daemon-migration.md).
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
@@ -75,7 +76,7 @@ describe("legacy keyed-daemon migration (real sockets)", () => {
   socketTest(
     "a live daemon reachable only on a legacy digest-keyed socket is cut off from admission and drained, and its admitted run reaches its normal outcome, when the first stable-address generation starts",
     async () => {
-      const tempHome = mkdtempSync(join(tmpdir(), "jarvis-legacy-migration-"));
+      const tempHome = trackedMkdtempSync(join(tmpdir(), "jarvis-legacy-migration-"));
       const originalJarvisHome = process.env.JARVIS_HOME;
       const publicSocketPath = join(tempHome, "daemon.sock");
       // Matches the pre-stable keyed-socket shape (`daemon-<16hex>.sock`) `enumerateOtherDaemonSockets`
@@ -154,7 +155,7 @@ describe("legacy keyed-daemon migration (real sockets)", () => {
   socketTest(
     "an unreachable keyed socket path is skipped: the incoming generation still starts and serves the public address",
     async () => {
-      const tempHome = mkdtempSync(join(tmpdir(), "jarvis-legacy-dead-socket-"));
+      const tempHome = trackedMkdtempSync(join(tmpdir(), "jarvis-legacy-dead-socket-"));
       const originalJarvisHome = process.env.JARVIS_HOME;
       const publicSocketPath = join(tempHome, "daemon.sock");
       const successorPrivate = join(tempHome, "daemon-successor-test.sock");

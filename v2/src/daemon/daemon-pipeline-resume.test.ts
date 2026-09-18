@@ -1,10 +1,11 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
@@ -111,7 +112,7 @@ function initGitRepo(root: string): void {
 }
 
 function initChainedRepoBase(): string {
-  const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-resume-chained-repo-"));
+  const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-resume-chained-repo-"));
   initGitRepo(repoRoot);
   writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
   execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
@@ -897,7 +898,7 @@ test.each([
 
 test("pipeline_resume dispatches chained plan and implement stages after prior worktree removal when input lives on durable branch", async () => {
   const priorJarvisHome = process.env.JARVIS_HOME;
-  const jarvisRoot = mkdtempSync(join(tmpdir(), "pipeline-resume-jarvis-home-"));
+  const jarvisRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-resume-jarvis-home-"));
   process.env.JARVIS_HOME = jarvisRoot;
   const fakeExecutor = createFakeWriteLoopExecutor();
   const planRepoRoot = initChainedRepoBase();

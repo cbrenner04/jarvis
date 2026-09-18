@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 
 const repoRoot = join(import.meta.dir, "..");
 
@@ -21,7 +22,7 @@ function tempBiomeConfig(): string {
 
 describe("biome useIndexOf autofix", () => {
   test("does not rewrite findIndex to indexOf when needle is possibly undefined", () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-biome-useindexof-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-biome-useindexof-"));
     try {
       writeFileSync(join(dir, "biome.json"), tempBiomeConfig());
       const fixturePath = join(dir, "example.ts");

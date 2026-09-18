@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   defaultWritePrBody,
   defaultWritePrTitle,
@@ -400,7 +401,7 @@ describe("refreshPrBody", () => {
 describe("refreshPrBody title refresh", () => {
   test("edits the PR title when the resolved title differs from current, and skips when equal", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    const dir = trackedMkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
     try {
       mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
       writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n\nBody.\n");
@@ -447,7 +448,7 @@ describe("refreshPrBody title refresh", () => {
 
   test("an explicit creationTitle overrides the index.md heading", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    const dir = trackedMkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
     try {
       mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
       writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# Heading Title\n");
@@ -477,7 +478,7 @@ describe("refreshPrBody title refresh", () => {
 
   test("a failed title fetch logs a warning without failing the refresh, and still writes the body", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    const dir = trackedMkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
     try {
       mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
       writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n");
@@ -508,7 +509,7 @@ describe("refreshPrBody title refresh", () => {
 
   test("a failed title write logs a warning without failing the refresh, and still writes the body", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
+    const dir = trackedMkdtempSync(join(process.cwd(), ".scratch", "pr-title-"));
     try {
       mkdirSync(join(dir, "v2", "spec", "test"), { recursive: true });
       writeFileSync(join(dir, "v2", "spec", "test", "index.md"), "# New Title\n");
@@ -541,7 +542,7 @@ describe("refreshPrBody title refresh", () => {
 describe("defaultWritePrTitle", () => {
   test("invokes gh pr edit <branch> --title <new>", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-title-write-"));
+    const dir = trackedMkdtempSync(join(process.cwd(), ".scratch", "pr-title-write-"));
     const fakeGh = join(dir, "gh");
     const capturedArgsPath = join(dir, "args.txt");
     writeFileSync(fakeGh, `#!/bin/sh\necho "$@" > "${capturedArgsPath}"\n`);
@@ -559,7 +560,7 @@ describe("defaultWritePrTitle", () => {
 describe("defaultWritePrBody", () => {
   test("kills a hung gh pr edit at the bound and rejects with a retryable timeout message", async () => {
     mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
-    const dir = mkdtempSync(join(process.cwd(), ".scratch", "pr-body-"));
+    const dir = trackedMkdtempSync(join(process.cwd(), ".scratch", "pr-body-"));
     const fakeGh = join(dir, "gh");
     writeFileSync(fakeGh, "#!/bin/sh\nexec sleep 30\n");
     chmodSync(fakeGh, 0o755);
@@ -575,7 +576,7 @@ describe("defaultWritePrBody", () => {
 
 describe("refreshPrBody with real git fixture", () => {
   test("lists a qualifying commit's subject and label exactly once, with no ## Commits heading", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "v2-pr-body-refresh-fixture-"));
+    const dir = trackedMkdtempSync(join(tmpdir(), "v2-pr-body-refresh-fixture-"));
     try {
       execSync("git init -q", { cwd: dir, stdio: "pipe" });
       execSync("git config user.email 'test@example.com'", { cwd: dir, stdio: "pipe" });

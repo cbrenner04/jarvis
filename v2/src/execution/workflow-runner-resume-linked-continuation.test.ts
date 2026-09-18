@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { deriveOperatorIncidents } from "../daemon/operator-incidents.ts";
 import { resolveWorkflowRunRollup } from "../persistence/workflow-run-status-rollup.ts";
@@ -57,7 +58,7 @@ const reviewDebateBinding: NonNullable<ReviewDebateWorkflowStep["createBinding"]
 
 describe("resumed linked-implement workflow continuation", () => {
   test("run resume on a failed gate_invocation_refused implement~link-0 row continues through the remaining link, implement~shrink, and implement-review, publishing exactly once", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-resume-continuation-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-resume-continuation-"));
     writeTwoLinkIndexFixture(worktreePath);
 
     await withStateStore(async (store) => {
@@ -173,7 +174,7 @@ describe("resumed linked-implement workflow continuation", () => {
   });
 
   test("run resume on a failed gate_invocation_refused implement~link-1 row (the last link) runs implement~shrink and implement-review and publishes exactly once; the link row itself never publishes", async () => {
-    const worktreePath = mkdtempSync(join(tmpdir(), "linked-resume-last-link-"));
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "linked-resume-last-link-"));
     writeFileSync(join(worktreePath, "index.md"), "- [x] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
     writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [x] One\n", "utf8");
     writeFileSync(join(worktreePath, "two.md"), "# Two\n\n## Acceptance criteria\n\n- [ ] Two\n", "utf8");

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,9 +11,10 @@ import {
   validateIntentStageStructure,
 } from "./intent-stage.ts";
 import type { AsyncSubprocessRunner } from "./subprocess.ts";
+import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 
 function stage(): string {
-  return mkdtempSync(join(tmpdir(), "jarvis-intent-stage-"));
+  return trackedMkdtempSync(join(tmpdir(), "jarvis-intent-stage-"));
 }
 
 function writeIntent(dir: string, name: string, content: string): string {

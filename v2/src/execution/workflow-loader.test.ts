@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   loadWorkflowSteps,
   type ReviewDebateWorkflowSourceStep,
@@ -10,7 +11,7 @@ import {
 } from "./workflow-loader.ts";
 
 function writeJson(name: string, value: unknown): string {
-  const dir = mkdtempSync(join(tmpdir(), "workflow-loader-test-"));
+  const dir = trackedMkdtempSync(join(tmpdir(), "workflow-loader-test-"));
   const filePath = join(dir, name);
   writeFileSync(filePath, JSON.stringify(value));
   return filePath;
@@ -19,7 +20,7 @@ function writeJson(name: string, value: unknown): string {
 let machinesDir: string | undefined;
 
 function writeProfile(name: string, value: unknown): void {
-  machinesDir ??= mkdtempSync(join(tmpdir(), "workflow-loader-machines-"));
+  machinesDir ??= trackedMkdtempSync(join(tmpdir(), "workflow-loader-machines-"));
   writeFileSync(join(machinesDir, `${name}.json`), JSON.stringify(value));
 }
 

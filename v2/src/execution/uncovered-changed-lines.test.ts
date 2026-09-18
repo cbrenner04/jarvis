@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AsyncSubprocessOptions, AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { coverageTestScope } from "./test-scope.ts";
 import {
   COVERAGE_ADVISORY_TIMEOUT_MS,
@@ -264,7 +265,7 @@ index 1234567..abcdefg 100644
   describe("bounded coverage run", () => {
     const scratchRoots: string[] = [];
     const scratchWorktree = (): string => {
-      const root = mkdtempSync(join(tmpdir(), "uncovered-lines-"));
+      const root = trackedMkdtempSync(join(tmpdir(), "uncovered-lines-"));
       scratchRoots.push(root);
       return root;
     };

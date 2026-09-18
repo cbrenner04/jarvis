@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 import type { ReviewWorkflowStep } from "./workflow-runner.ts";
@@ -98,7 +99,7 @@ describe("buildIntentWorkflowSteps", () => {
     ).toBe(false);
   });
   test("builds file and inline seeds with stable PR titles", async () => {
-    const root = mkdtempSync(join(tmpdir(), "intent-builder-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-builder-"));
     const seed = join(root, "Seed Name.md");
     writeFileSync(seed, "seed", "utf8");
     const common = { cwd: root, targetDir: "specs" };
@@ -152,7 +153,7 @@ describe("buildIntentWorkflowSteps", () => {
   });
 
   test("uses external ready-intents storage when project specs is external", async () => {
-    const root = mkdtempSync(join(tmpdir(), "intent-builder-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-builder-"));
     const config = join(root, "config.json");
     writeFileSync(
       config,
@@ -175,7 +176,7 @@ describe("buildIntentWorkflowSteps", () => {
   });
 
   test("routes committed intent output from canonical seeds before configured targets", async () => {
-    const root = mkdtempSync(join(tmpdir(), "intent-routing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-routing-"));
     const config = join(root, "config.json");
     for (const { targetDir, configuredTargetDir } of [
       { targetDir: "v1/spec", configuredTargetDir: "v2/spec" },
@@ -209,7 +210,7 @@ describe("buildIntentWorkflowSteps", () => {
   });
 
   test("preserves explicit, inline, and non-canonical target routing", async () => {
-    const root = mkdtempSync(join(tmpdir(), "intent-routing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-routing-"));
     const config = join(root, "config.json");
     mkdirSync(join(root, "notes"), { recursive: true });
     writeFileSync(join(root, "notes", "feature.md"), "feature", "utf8");
@@ -247,7 +248,7 @@ describe("buildIntentWorkflowSteps", () => {
   });
 
   test("keeps canonical seed output external when project specs is external", async () => {
-    const root = mkdtempSync(join(tmpdir(), "intent-routing-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-routing-"));
     const config = join(root, "config.json");
     mkdirSync(join(root, "v1/spec/seeds"), { recursive: true });
     writeFileSync(join(root, "v1/spec/seeds/feature.md"), "feature", "utf8");
@@ -344,7 +345,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
   });
 
   test("delegates to split-only builder when reviewPasses is 0", async () => {
-    const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
     writeFileSync(join(root, "test.md"), "test", "utf8");
 
     const result = await buildReviewedIntentWorkflowSteps(
@@ -367,7 +368,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
   });
 
   test("loads mixed reviewed intent sources once with forwarded machine options", async () => {
-    const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
     writeFileSync(join(root, "test.md"), "test", "utf8");
     const configPath = join(root, "config.json");
     writeFileSync(configPath, JSON.stringify({ projects: { demo: { root, specs: "repo" } } }), "utf8");
@@ -431,7 +432,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
   });
 
   test("uses the split step local workspace for every reviewed intent path when project specs is external", async () => {
-    const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
     const config = join(root, "config.json");
     writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "external" } } }));
 
@@ -459,7 +460,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
   });
 
   test("returns unchanged loader failures before daemon contact", async () => {
-    const root = mkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
     writeFileSync(join(root, "test.md"), "test", "utf8");
     let calls = 0;
 
@@ -484,7 +485,7 @@ describe("buildReviewedIntentWorkflowSteps", () => {
 });
 
 function stageExternalSeed(options: { external?: true }) {
-  const root = mkdtempSync(join(tmpdir(), "intent-external-seed-"));
+  const root = trackedMkdtempSync(join(tmpdir(), "intent-external-seed-"));
   const jarvisRoot = join(root, "jarvis");
   const config = join(root, "config.json");
   const projectKey = options.external === true ? "Org/Repo" : "demo";

@@ -1,9 +1,10 @@
 // Exercises the real markdownlint-cli2 binary via recoverPlanStage's staged-lint path.
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import {
   REVIEW_MD_LINT_FIXTURE_IDS,
@@ -14,7 +15,7 @@ import type { PlanStageRecoveryLanding } from "./workflow-runner-resume.ts";
 import { recoverPlanStage } from "./workflow-runner-resume.ts";
 
 function planWorktree(prefix: string): string {
-  const worktree = mkdtempSync(join(tmpdir(), prefix));
+  const worktree = trackedMkdtempSync(join(tmpdir(), prefix));
   execFileSync("git", ["init", "-q"], { cwd: worktree });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktree });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: worktree });

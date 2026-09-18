@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { writeMachineConfig } from "../testing/cli-test-helpers.ts";
 import {
@@ -37,14 +37,14 @@ describe("chained workflow deps", () => {
     [{ specs: "repo" }, { ok: true, specsHome: "repo" }],
     [{ specs: "external" }, { ok: true, specsHome: "external" }],
   ] as const)("chainedStageSpecsHome resolves project config %p through the specs resolver", (extra, expected) => {
-    const root = mkdtempSync(join(tmpdir(), "chained-specs-home-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "chained-specs-home-"));
     const configPath = writeMachineConfig({ projects: { demo: { root, ...extra } } });
     const context: PipelineContext = { cwd: root, configPath, projectRegistry: { demo: { root, ...extra } } };
     expect(chainedStageSpecsHome(context, { key: "demo", root })).toEqual(expected);
   });
 
   test("chainedStageSpecsHome rejects machine modes.plan.commit, naming specs", () => {
-    const root = mkdtempSync(join(tmpdir(), "chained-specs-home-legacy-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "chained-specs-home-legacy-"));
     const configPath = writeMachineConfig({ modes: { plan: { commit: false } }, projects: { demo: { root } } });
     const context: PipelineContext = { cwd: root, configPath, projectRegistry: { demo: { root } } };
     const result = chainedStageSpecsHome(context, { key: "demo", root });

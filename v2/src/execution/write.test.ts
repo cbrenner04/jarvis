@@ -5,7 +5,6 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   symlinkSync,
@@ -15,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { landPublication } from "./publication-landing.ts";
 import { checkStagedPlanDraft, executeWrite } from "./write.ts";
@@ -1880,7 +1880,7 @@ describe("write behavior: implement-path blocker-text contract", () => {
 
 describe("external plan-draft prerequisite gate reads the materialized read checkout", () => {
   function initTargetRepo(prerequisiteBehavior: string | undefined): string {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-prereq-gate-repo-"));
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-prereq-gate-repo-"));
     roots.push(root);
     execFileSync("git", ["init", "-q"], { cwd: root });
     execFileSync("git", ["config", "user.email", "t@t"], { cwd: root });

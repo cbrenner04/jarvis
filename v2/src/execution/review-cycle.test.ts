@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { bindReviewPromptProfile, implementReviewProfile } from "../../../shared/prompts/review-profile.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { executeReviewCycle, type ReviewCycleInput } from "./review-cycle.ts";
 
 function binding(id: string, stdout: string, calls: string[], kind: "ok" | "quota" = "ok"): InvocationBinding {
@@ -30,7 +31,7 @@ function input(path: string, calls: string[], verdict = "fix it", maxCycles = 1)
 }
 
 function dir(): string {
-  return mkdtempSync(join(tmpdir(), "review-cycle-"));
+  return trackedMkdtempSync(join(tmpdir(), "review-cycle-"));
 }
 
 describe("executeReviewCycle", () => {

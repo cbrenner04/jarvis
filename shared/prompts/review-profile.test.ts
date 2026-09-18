@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import { renderIntentReviewDebateRolePrompt } from "./review-intent.ts";
 import { renderPlanReviewCriticPrompt } from "./review-plan.ts";
 import {
@@ -41,7 +42,7 @@ describe("ReviewPromptProfile", () => {
   });
 
   test("renders governed intent debate roles with staged content and boundaries", () => {
-    const stagingDir = mkdtempSync(join(tmpdir(), "intent-review-prompt-"));
+    const stagingDir = trackedMkdtempSync(join(tmpdir(), "intent-review-prompt-"));
     writeFileSync(join(stagingDir, "intent.md"), "# Add API\n\n- [ ] observable outcome", "utf8");
     const context = { stagingDir, verdictPath: join(stagingDir, "verdict.md"), totalPasses: 2 };
     const adversary = renderIntentReviewDebateRolePrompt("adversary", context);
@@ -55,9 +56,9 @@ describe("ReviewPromptProfile", () => {
   });
 
   test("assembles bundled human-only guidance and global fragments in v2 intent and plan review prompts", () => {
-    const intentStage = mkdtempSync(join(tmpdir(), "intent-review-guidance-"));
+    const intentStage = trackedMkdtempSync(join(tmpdir(), "intent-review-guidance-"));
     writeFileSync(join(intentStage, "intent.md"), "# Intent\n\nmarker-free input\n", "utf8");
-    const planSpec = mkdtempSync(join(tmpdir(), "plan-review-guidance-"));
+    const planSpec = trackedMkdtempSync(join(tmpdir(), "plan-review-guidance-"));
     writeFileSync(join(planSpec, "intent.md"), "# Intent\n\nmarker-free input\n", "utf8");
     writeFileSync(join(planSpec, "index.md"), "# Plan\n\n- [ ] marker-free criterion\n", "utf8");
 

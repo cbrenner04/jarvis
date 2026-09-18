@@ -748,6 +748,8 @@ realAsyncSubprocessRunner.runAsync("sleep", ["60"], process.cwd(), {
         expect(groupAlive(pgid)).toBe(true);
         owner.kill(signal);
         await owner.exited;
+        expect(owner.signalCode).toBe(signal);
+        expect(owner.exitCode).not.toBe(0);
         const deadline = Date.now() + 2_000;
         while (groupAlive(pgid) && Date.now() < deadline) await Bun.sleep(20);
         expect(groupAlive(pgid)).toBe(false);

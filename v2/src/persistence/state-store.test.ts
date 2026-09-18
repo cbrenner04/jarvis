@@ -3729,23 +3729,12 @@ describe("admitRunForResume", () => {
     return openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive: isOwnerAliveProbe });
   }
 
-  function readOwnerIdentity(runId: string): string | null {
-    const raw = new Database(TEST_DB_PATH);
-    try {
-      const row = raw.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
-        ownerIdentity: string | null;
-      };
-      return row.ownerIdentity;
-    } finally {
-      raw.close();
-    }
-  }
-
   async function expectAdmitted(resumeStore: StateStore, runId: string): Promise<void> {
     const outcome = await resumeStore.admitRunForResume(runId);
     expect(outcome).toEqual({ kind: "applied" });
-    expect(resumeStore.loadRun(runId)?.status).toBe("in-progress");
-    expect(readOwnerIdentity(runId)).toBe(CURRENT_IDENTITY);
+    const run = resumeStore.loadRun(runId);
+    expect(run?.status).toBe("in-progress");
+    expect(run?.ownerIdentity).toBe(CURRENT_IDENTITY);
   }
 
   test("stamps the calling identity and sets in-progress when the prior owner is null", async () => {
@@ -3789,8 +3778,9 @@ describe("admitRunForResume", () => {
     const outcome = await resumeStore.admitRunForResume(runId);
 
     expect(outcome).toEqual({ kind: "refused", reason: "owner_alive" });
-    expect(resumeStore.loadRun(runId)?.status).toBe("failed");
-    expect(readOwnerIdentity(runId)).toBe(PRIOR_IDENTITY);
+    const run = resumeStore.loadRun(runId);
+    expect(run?.status).toBe("failed");
+    expect(run?.ownerIdentity).toBe(PRIOR_IDENTITY);
     resumeStore.close();
   });
 });

@@ -54,7 +54,9 @@ Left as an operator decision, same as the 2026-09-16 mutation-verification measu
 
 ## Cost
 
-**92 invocations, $79.94**, all claude (85 `ok`, 4 `error`, 3 `quota`). The four `error` rows are normalized rejections from invocations I aborted (one `ceiling_headroom` kill, one shrink abort, lane 3's two slot refusals) — all $0.00, so the queueing mistakes cost dispatches, not money. Roles: implement 21, shrink 17, actuator 12, adversary/advocate/adjudicator 11 each, plan 8, critic 1.
+**Operator $128.82** (opus-5; 1h 24m 45s API across 9h 48m 36s wall; 143.8k in / 359.0k out with 206.2m cache read, 99% of input served from cache) **plus agent $79.94** = **$208.76** for the session. Those operator figures cover *both* reports — this and #4019 are one continuous session — so they are recorded once, on this row.
+
+Agent side: **92 invocations, $79.94**, all claude (85 `ok`, 4 `error`, 3 `quota`). The four `error` rows are normalized rejections from invocations I aborted (one `ceiling_headroom` kill, one shrink abort, lane 3's two slot refusals) — all $0.00, so the queueing mistakes cost dispatches, not money. Roles: implement 21, shrink 17, actuator 12, adversary/advocate/adjudicator 11 each, plan 8, critic 1.
 
 ## Open at close
 

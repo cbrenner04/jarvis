@@ -13,15 +13,15 @@
 
 ## Task checklist
 
-- [ ] Thread the baseline measurer into `verifyPromptRenderCoverage`; pass baseline-derived `timeoutMs` on clean and mutated observer calls.
+- [ ] Thread the baseline measurer into `verifyPromptRenderCoverage`; use the `baselineFor` measurement as the clean-observer check (no second clean run); pass baseline-derived `timeoutMs` only on the mutated observer call.
 - [ ] Add the inconclusive observer settlement.
 - [ ] Tests and docs below.
 
 ## Acceptance criteria
 
-- [ ] A `diff-derived-mutation-verifier.test.ts` regression drives a changed registered prompt whose mapped observer runs longer than `MAX_KILLING_TEST_MS` unmutated (stubbed `runScopedTests`) and proves verification does not settle `render-observer-timeout`; it fails against the pre-fix no-options call.
-- [ ] A regression asserts the `timeoutMs` passed to `runScopedTests` on both the render-observer clean and mutated calls equals the baseline-derived budget.
-- [ ] A regression proves an observer whose clean run exceeds `KILLING_TEST_BUDGET_CEILING_MS` settles inconclusive and allows publication.
+- [ ] A `diff-derived-mutation-verifier.test.ts` regression stubs `runScopedTests` to return timeout iff `timeoutMs` < a simulated 35s observer duration, with the clock injected via `now()`, and asserts the changed registered prompt settles passed (not failed, not inconclusive); it fails against the pre-fix no-options call.
+- [ ] A regression asserts the mutated render-observer call's `timeoutMs` equals `killingTestBudgetMs(measured)`.
+- [ ] A regression proves an observer whose clean run exceeds `KILLING_TEST_BUDGET_CEILING_MS` settles inconclusive and allows publication; a second case proves the same when the baseline returns `{kind:"deadline"}`.
 - [ ] A regression proves an observer that passes within budget unmutated but times out under mutation still settles `render-observer-timeout` / `non_terminating_mutation_failed`, distinguishable from the inconclusive timing settlement.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
@@ -29,4 +29,3 @@
 
 - `v2/docs/write-behavior.md` — Diff-derived mutation verification: render-observer budget is baseline-derived; slow clean observer settles inconclusive.
 - `v2/docs/operator-runbook.md` — Gate trust: `render-observer-timeout` means a mutant hung under a measured budget; pre-fix settlements on slow observers cannot be cleared by resume.
-- `v2/docs/v1-behaviors.md` — record the changed settlement if it catalogs mutation-gate outcomes.

@@ -13,6 +13,7 @@ import {
   type ReadyGate,
   ReadyGateError,
 } from "./ready-finalize.ts";
+import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
 /** Raw `gh` command runner used for pre-flip open-draft resolution (`gh pr list` / `gh pr view`). */
 type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
@@ -24,8 +25,12 @@ export type TerminalPublicationInput = {
   baseRef: string;
   prNumber?: number;
   prUrl?: string;
-  /** Aborts in-flight `gh` calls (network-bounded regardless). */
+  /** Aborts in-flight `gh` calls and the ready gate (network-bounded regardless). */
   signal?: AbortSignal;
+  /** Records ready-gate process groups on the owning run so daemon startup/kill reaps them. */
+  verifierProcessGroups?: VerifierProcessGroupRecorder;
+  /** Project `readyCommand` override; absent runs the default `bun run ready`. */
+  readyCommand?: string;
 };
 
 export type TerminalPublicationResult = {
@@ -134,7 +139,11 @@ async function runReadyGateOrFail(
   deps: PublicationDeps,
 ): Promise<void> {
   try {
-    await deps.runReadyGate(input.worktreePath, input.baseRef);
+    await deps.runReadyGate(input.worktreePath, input.baseRef, {
+      signal: input.signal,
+      processGroups: input.verifierProcessGroups,
+      readyCommand: input.readyCommand,
+    });
   } catch (error) {
     // Mutation checkpoint: dropping this branch ready-flips over a red gate and must turn
     // `does not ready-flip or merge after a red ready gate` RED.

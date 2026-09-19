@@ -765,15 +765,13 @@ describe("executeWorkflow linked implement routing", () => {
     });
   });
 
-  test("returns a routing failure whose run id was never persisted without throwing", async () => {
-    // `linkedImplementRoutingFailureOutcome` mints a crypto.randomUUID() that no row exists for.
-    // Settling it must be skipped, not attempted, or the step loop throws instead of returning.
+  test("persists a settled blocked row for a routing failure reached before any link dispatched", async () => {
     const planWorktree = trackedMkdtempSync(join(tmpdir(), "phantom-run-plan-"));
     roots.push(planWorktree);
     const specDir = join(planWorktree, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
     const indexPath = join(specDir, "index.md");
-    // A link pointing outside the project routes `link_out_of_tree` before any run row is created.
+    // A link pointing outside the project routes `link_out_of_tree` before any link dispatches.
     writeFileSync(indexPath, "- [ ] [Sub](../../../outside.md)\n", "utf8");
 
     const home = createJarvisHome();
@@ -812,8 +810,10 @@ describe("executeWorkflow linked implement routing", () => {
       const result = await executeWorkflow({ steps: [implementStep], stateStore: store, logSink });
       expect(result.kind).toBe("blocked");
       expect(result.routingFailure).toContain("implement.link_out_of_tree");
-      // Nothing was persisted under this id, so settlement finds no row and must not throw.
-      expect(store.loadRun(result.runId)).toBeNull();
+      const persisted = store.loadRun(result.runId);
+      expect(persisted).not.toBeNull();
+      expect(persisted?.status).toBe("blocked");
+      expect(persisted?.terminalCause).toBe("blocked");
       logSink.close();
       expect(
         openLogReader(logsPath)
@@ -1161,8 +1161,85 @@ describe("executeWorkflow implement patch review", () => {
 
       expect(result.kind).toBe("complete");
       expect(reviewCalls).toEqual([]);
+      expect(store.loadRun(result.runId)).not.toBeNull();
     });
   });
+
+  const noRowRoutingCases: ReadonlyArray<{
+    errorKind: string;
+    index: string;
+    expectedKind: "complete" | "blocked";
+    expectedStatus: "completed" | "blocked";
+  }> = [
+    { errorKind: "empty_index", index: "# Index\n", expectedKind: "complete", expectedStatus: "completed" },
+    {
+      errorKind: "already_complete",
+      index: "- [x] [Sub](./sub.md)\n",
+      expectedKind: "complete",
+      expectedStatus: "completed",
+    },
+    {
+      errorKind: "link_unreadable",
+      index: "- [ ] [Missing](./missing.md)\n",
+      expectedKind: "blocked",
+      expectedStatus: "blocked",
+    },
+    { errorKind: "malformed_link", index: "- [ ] [Sub]( )\n", expectedKind: "blocked", expectedStatus: "blocked" },
+    {
+      errorKind: "link_out_of_tree",
+      index: "- [ ] [Out](../../../../../../outside.md)\n",
+      expectedKind: "blocked",
+      expectedStatus: "blocked",
+    },
+  ];
+
+  for (const routingCase of noRowRoutingCases) {
+    test(`persists a non-in-progress row for every id reported on a no-row ${routingCase.errorKind} routing outcome`, async () => {
+      const branchName = `no-row-${routingCase.errorKind}`.replaceAll("_", "-");
+      const implementStep = {
+        ...createStep({
+          stepId: "implement",
+          role: "implement",
+          branchName,
+          specPath: "index.md",
+          expectedArtifactPath: "index.md",
+        }),
+        linkedIndexRouting: true,
+      };
+      const worktreePath = join(
+        implementStep.worktree.jarvisRoot ?? "",
+        "worktrees",
+        implementStep.worktree.projectName,
+        branchName,
+      );
+      mkdirSync(worktreePath, { recursive: true });
+      writeFileSync(join(worktreePath, "index.md"), routingCase.index, "utf8");
+      writeFileSync(join(worktreePath, "sub.md"), "# Sub\n", "utf8");
+
+      await withStateStore(async (store) => {
+        const reportedIds: string[] = [];
+        const result = await executeWorkflow({
+          steps: [implementStep],
+          stateStore: store,
+          onStepRunCreated: (_stepIndex, runId) => reportedIds.push(runId),
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+
+        expect(result.kind).toBe(routingCase.expectedKind);
+        expect(reportedIds).toEqual([result.runId]);
+        for (const id of reportedIds) {
+          const persisted = store.loadRun(id);
+          expect(persisted).not.toBeNull();
+          expect(persisted?.status).not.toBe("in-progress");
+        }
+        if (routingCase.expectedKind === "blocked") {
+          expect(store.loadRun(result.runId)?.status).toBe(routingCase.expectedStatus);
+        }
+      });
+    });
+  }
 
   test("routes to the second linked subspec by criteria when the first is criteria-complete with an unchecked index box, pinning that selection across the write loop", async () => {
     const reviewCalls: string[] = [];

@@ -49,7 +49,7 @@ Spec, plan, intent and seed PRs: #4031–#4036, #4038–#4045, #4047, #4049–#4
 
 ## Cost
 
-**Operator: OPERATOR_COST_TBD** (opus-5 `/cost`, supplied by operator).
+**Operator $186.50** (opus-5; 1h 48m 5s API across 1d 4h 32m wall; 144.6k in / 609.9k out with 264.3m cache read, 5.3m cache write, 99% of input from cache; haiku-4-5 $0.0032; +496 / −58 lines) **plus agent $54.25** = **$240.75** for the session.
 
 Agent (`~/.jarvis/telemetry.jsonl`, `ts` ≥ 2026-09-18T14:00Z): **120 invocations, $54.25**, 21.7 h agent time; 67 sonnet-5, 53 opus-5; 109 `ok`, 10 `error`, 1 `stall`; 11 null-cost rows. Roles: implement 38, actuator 17, adversary/advocate/adjudicator 15 each, shrink 10, plan 8, critic 2. Implements for #4046/#4048/#4056 ran before the window; #4068–#4071 were operator-direct.
 

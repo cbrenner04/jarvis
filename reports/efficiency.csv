@@ -99,4 +99,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260916T200000Z-recovery-honesty-chain-lands,18,18,0,,,,261.78,261.78,,14.54
 20260917T220136Z-every-implement-pr-carried-a-defect-the-gates-passed,12,5,7,,,,,,,
 20260918T041510Z-the-queue-cleared-and-the-operator-was-the-bottleneck,18,8,10,502800,502800,206200000,208.76,208.76,62850,26.09
-20260919T150344Z-seventeen-landed-and-the-tmpdir-was-the-flake,21,17,4,,,,OPERATOR_COST_TBD,OPERATOR_COST_TBD,,OPERATOR_COST_TBD
+20260919T150344Z-seventeen-landed-and-the-tmpdir-was-the-flake,21,17,4,754500,754500,264300000,240.75,240.75,44382,14.16

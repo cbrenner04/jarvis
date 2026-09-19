@@ -2,56 +2,46 @@
 
 Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item against `main` @ `368dfd9ca`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
 
-## Open specs (14)
+## Open specs (9)
 
 | Spec | Plan PR | Subspecs | Status | Unblocks |
 | --- | --- | --- | --- | --- |
-| `20260910T230153Z-surviving-mutation-settlement-records-killing-set` | #3751 | 1/2 | 00 landed #3787 (index box ticked 2026-09-18); 01 open, its `run list` column arithmetic corrected to 17→19 | `mutation-repair-commits-pushed-before-settlement` |
+| `20260910T230153Z-surviving-mutation-settlement-records-killing-set` | #3751 | 1/2 | 00 landed #3787; 01 open, its `run list` column arithmetic corrected to 17→19 | `mutation-repair-commits-pushed-before-settlement` |
 | `20260911T142827Z-cleanup-archives-hand-landed-specs` | #3784 | 0/1 | Valid; `cleanup.ts` still skips `no durable implementation branch`; `completedSpecEligibility` exists to reuse | — |
-| `20260911T154954Z-tui-consumes-retained-pipeline-list` | #3791 | 0/2 | Pinning spec, valid; stale refs corrected (`tui-entry.test.ts`, single stable connection post-#3897) | — |
+| `20260911T154954Z-tui-consumes-retained-pipeline-list` | #3791 | 0/2 | Pinning spec, valid | — |
 | `20260912T162038Z-bulk-terminal-run-dismissal-cli` | #3805 | 0/1 | Valid; store + RPC landed #3792, CLI still `argv.length !== 1` | — |
-| `20260912T175012Z-persist-gate-refusal-recovery-state` | #3822 | 0/2 | Chain B; implement in progress: slot-refused, resumed, then `quota_exhausted` (five_hour, resets 10:30 local) | `redrive-slot-refused-gates` |
-| `20260912T175013Z-serve-canonical-failures-from-daemon` | #3823 | 0/5 | Valid; nothing landed. Prereq 2 only partly true (producers: ready gate, publication; not intent/plan/implement) — subspecs 01/03 fall back to the composer | `render-operator-failures-consistently` |
-| `20260918T103628Z-owning-daemon-writes-invocation-settled-marker` | #4034 | 0/2 | Implement d6316036 parked on gate `slot_contention` | `run-ad-hoc-terminal-derives-from-settled-marker` |
-| `20260918T114137Z-branch-resume-admits-skipped-successor-lane` | #4047 | 0/1 | Chain A; implement not yet dispatched | `branch-resume-refusal-names-blocking-row` |
-| `20260918T110642Z-render-observer-verification-keeps-a-fixed-deadline` | #4039 | 0/1 | Pipeline 020135f4 implement parked on `slot_contention` | — |
-| `20260918T110642Z-ready-gate-repair-fence-revert-and-settle` | #4041 | 0/3 | Planned | `ready-gate-repair-prompt-targets-failing-step` |
-| `20260918T111113Z-gate-allowset-derivation-handles-external-and-empty-spec-scope` | #4042 | 0/1 | Planned; named-reason subspec removed (belongs to sibling) | `fence-derivation-failure-settles-honestly` |
-| `20260918T111337Z-rebased-lane-publishes-with-lease` | #4043 | 0/1 | Planned | — |
-| `20260918T111002Z-linked-implement-routing-settles-a-real-outcome` | #4044 | 0/1 | Planned | `detach-admission-refuses-without-a-run-row` |
+| `20260912T175013Z-serve-canonical-failures-from-daemon` | #3823 | 0/5 | Valid; nothing landed. Prereq 2 only partly true (producers: ready gate, publication) | `render-operator-failures-consistently` |
+| `20260918T111002Z-linked-implement-routing-settles-a-real-outcome` | #4044 | 0/1 | Implement killed at 2026-09-19 closeout with committed work; resume run 80e3af5b or re-dispatch | `detach-admission-refuses-without-a-run-row` |
+| `20260918T214241Z-ready-gate-repair-prompt-targets-failing-step` | #4075 | 0/1 | Implement killed at closeout with committed work; resume run ec31333e | — |
 | `20260918T111025Z-publication-failures-settle-failed-writer` | #4045 | 0/2 | Planned | `publication-failure-rows-migrate-failed` |
+| `20260918T114137Z-branch-resume-admits-skipped-successor-lane` | #4047 | 0/1 | Chain A; planned | `branch-resume-refusal-names-blocking-row` |
 
-Landing note: killing-set 01, persist-gate-refusal and serve-canonical-failures all widen `RunOperatorError` / `TerminalRunSettlementEvidence` / `run.ts` columns and the same docs; land serially.
+Landing note: killing-set 01 and serve-canonical-failures both widen `RunOperatorError` / `TerminalRunSettlementEvidence` / `run.ts` columns and the same docs; land serially.
 
-## Ready-intents (14 queued)
+## Ready-intents (11 queued)
 
-Six more files in `ready-intents/` are already planned as specs above (or landed, for autofix) and await reaping by their implement PRs.
+Two more files in `ready-intents/` are already planned as specs above (`linked-implement-routing-settles-a-real-outcome`, `publication-failures-settle-failed-writer`) and await reaping by their implement PRs.
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
-| `run-ad-hoc-terminal-derives-from-settled-marker` | `invocationTerminal` still keys on row times + liveness | spec owning-daemon-writes-invocation-settled-marker |
-| `cleanup-reaps-orphan-session-logs` | **dispatchable** — both prereqs landed (#3918, #3937); reaper still `readdirSync` + skip-unparsable | — |
-| `explicit-reset-flag-names-continue-path` | **dispatchable** — #4014 landed; refusal text names only hand-finish / `--abandon` | — |
-| `branch-resume-refusal-names-blocking-row` | refusal carries `status` only, CLI prints bare reason | spec branch-resume-admits-skipped-successor-lane |
-| `ready-gate-repair-prompt-targets-failing-step` | held; approval gate waits | spec ready-gate-repair-fence-revert-and-settle |
-| `fence-derivation-failure-settles-honestly` | held; carries the named-reason subspec cut from #4042 | spec gate-allowset-derivation-handles-external-and-empty-spec-scope |
+| `fence-derivation-failure-settles-honestly` | **dispatchable** — re-plan; owns the named derivation-failure reasons (#4077) | — |
+| `report-gate-refusal-causes` | **dispatchable** — chain B link 3, unblocked by #4074 | — |
+| `cleanup-reaps-orphan-session-logs` | **dispatchable** — reaper still `readdirSync` + skip-unparsable | — |
+| `explicit-reset-flag-names-continue-path` | **dispatchable** — refusal text names only hand-finish / `--abandon` | — |
+| `branch-resume-refusal-names-blocking-row` | refusal carries `status` only | spec branch-resume-admits-skipped-successor-lane |
 | `detach-admission-refuses-without-a-run-row` | held | spec linked-implement-routing-settles-a-real-outcome |
 | `publication-failure-rows-migrate-failed` | held | spec publication-failures-settle-failed-writer |
 | `failed-publication-consumers-drop-completed-special-case` | held | previous row |
-| `redrive-slot-refused-gates` | no `redrive` symbol in daemon | spec persist-gate-refusal-recovery-state |
-| `report-gate-refusal-causes` | one undifferentiated `gate_invocation_refused` op | previous row |
 | `render-operator-failures-consistently` | no shared formatter; TUI dumps raw `failureDetail` | spec serve-canonical-failures-from-daemon |
 | `mutation-repair-commits-pushed-before-settlement` | `settleMutationRepairExhausted` commits, never pushes | spec killing-set / 01 |
 | `repair-exhausted-error-names-site-and-killing-set` | `mutation_repair_exhausted` op spreads no site fields | previous row |
 
-## Seeds (31)
+## Seeds (29)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
-| `daemon-changeover-rebind-test-flakes-under-load` | P0 | #4049 | **new**; stranded a lane via false `ready_gate_out_of_scope`, recurred; pipeline c09393f9 failed at intent on quota, to re-dispatch |
-| `rebased-lane-cannot-publish-on-non-force-push` | P0 | — | consumed by intent PR #4040 (pending merge); spec `rebased-lane-publishes-with-lease` #4043 already planned |
 | `wal-lock-holder-child-exits-silently` | P0 | — | open; `subprocess-marker.ts` `end` rejection carries no stderr/exit |
 | `coscheduled-test-pair-strands-runs-terminally` | P0 | — | trimmed to scheduling half; probe half landed #3990/#3995 |
 | `pipeline-resume-resumes-a-resumable-implement-row` | P1 | — | open; widened #4016 (any resumable kind recovered by `run resume` orphans its stage); stray AC moved into section |
@@ -84,7 +74,17 @@ P is the brief's priority. Issue is the intake issue where one exists.
 
 ## Open intake issues without a seed
 
-Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract; mechanism 1 fixed #3670, 3 earlier), #3417 (resolution half closed #3534/#3543; remainder is spec `gate-allowset-derivation-handles-external-and-empty-spec-scope`). #3949, #3974, #3372 closed 2026-09-18.
+Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract), #3417 (remainder landed #4076; close with fence-derivation). #3423 partially fixed by #4076; remainder is the named reasons in `fence-derivation-failure-settles-honestly`. #3040: fence landed #4073, prompt-targeting pending (spec `ready-gate-repair-prompt-targets-failing-step`). #4004 closed by #4076. #3949, #3974, #3372 closed 2026-09-18.
+
+## Reaped 2026-09-19
+
+| Item | Reason |
+| --- | --- |
+| seed `daemon-changeover-rebind-test-flakes-under-load` (#4049) | landed #4060 (+#4070, #4071); spec hand-archived in the 2026-09-19 closeout PR |
+| seed `cli-json-output-truncated-at-pipe-buffer` (#4054) | landed #4058 |
+| seed `rebased-lane-cannot-publish-on-non-force-push` | consumed by intent #4040; landed #4061 |
+| seed `tests-leak-tmpdirs-and-slow-every-spawn` (PR #4064, closed) | fixed directly #4068 |
+| ready-intents `gate-allowset-derivation-handles-external-and-empty-spec-scope`, `ready-gate-repair-fence-revert-and-settle`, `daemon-changeover-rebind-test-flakes-under-load` | landed but not reaped by their implement PRs; removed in the 2026-09-19 closeout PR |
 
 ## Reaped 2026-09-18
 
@@ -100,9 +100,20 @@ Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract; mechanism 1 fixed 
 | seeds `ready-gate-repair-out-of-diff-edits`, `render-observer-verification-keeps-a-fixed-deadline`, `implement-admission-persists-its-run-row`, `publication-failures-settle-failed`, `gate-allowset-derivation-fails-on-external-spec-home` | consumed into ready-intents by #4031, #4032, #4033, #4035, #4036, #4038 |
 | ready-intent `single-spec-home-predicate` | landed #3916/#3917 (`specsHome`, `resolveSpecsHome`); residual is a two-line wrapper, not worth a lane |
 
-## Landed 2026-09-16 → 2026-09-18 (for tracing; details in `reports/`)
+## Landed 2026-09-16 → 2026-09-19 (for tracing; details in `reports/`)
 
-- #4046 spec `20260912T174755Z-stage-success-reopens-skipped-successors` (chain A head; dir awaits cleanup archival).
-- #4048 seed `ready-gate-autofix-strands-on-unfixable-lint` via spec `20260918T110642Z-ready-gate-autofix-best-effort-on-unfixable-lint` (plan PR #4037 closed as subsumed; hand-finished after a false `ready_gate_out_of_scope`; dir awaits cleanup archival).
+- #4046 spec `stage-success-reopens-skipped-successors` (chain A head).
+- #4048 spec `ready-gate-autofix-best-effort-on-unfixable-lint` (plan #4037 subsumed; hand-finished).
+- #4056 spec `persist-gate-refusal-recovery-state` (chain B head); #4074 spec `redrive-slot-refused-gates` (chain B link 2, `slot_redrive` verified in production).
+- #4058 spec `cli-flushes-stdout-before-exit` (plan #4057 subsumed).
+- #4060 spec `daemon-changeover-rebind-test-flakes-under-load` (hand-finished); #4070 rebind admission race; #4071 bind-window determinism.
+- #4061 spec `rebased-lane-publishes-with-lease`.
+- #4063 spec `owning-daemon-writes-invocation-settled-marker`; #4072 spec `run-ad-hoc-terminal-derives-from-settled-marker`.
+- #4065 spec `render-observer-verification-keeps-a-fixed-deadline`.
+- #4067 terminal publication runs the real ready gate.
+- #4068 tests remove every temp dir they create; #4069 verifier process groups reaped on owner signal.
+- #4073 spec `ready-gate-repair-fence-revert-and-settle`.
+- #4076 spec `gate-allowset-derivation-handles-external-and-empty-spec-scope`.
+- Archival of the 9 spec dirs above: #4078.
 
 `implement-pr-body-is-reviewer-facing` #3941/#3947/#3951; `test-suite-wall-clock` #3953/#3956/#3957/#3972; `pipeline-lane-ready-pr-notifies` #3970; telemetry caps #3937; `resume-failed-link-row-through-workflow` #3977/#3982; `run-admission-stamps-its-owner` #3981/#3987; `intent-landing-accepts-no-prerequisites` #3979/#3988; `artifact-count-exempts-references-and-rules-out-clauses` #3984; base-ref probe #3990/#3995; `daemon-retire-trigger-logging` #3994; `workflow-invocation-settled-marker-store` #4011; `mutation-verifier-skips-test-support-files` #4012; `decisions-ledger-prompt-requires-bullet-list` #4013; `redispatch-continues-committed-lane` #4014; `plan-draft-normalizer-bulletizes-decisions` #4017; `daemon-committed-successor-watch` #4022; `stage-settlement-foreign-owner-liveness` #4023; `recover-admits-landing-failed-plan-write-row` #4025; v1 prompt-artifact retirement #4028; standing-rules fragments + staged lint autofix #4029.

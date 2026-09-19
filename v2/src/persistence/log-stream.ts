@@ -280,6 +280,32 @@ export type IntentFinalizationEvent = {
   stopReason?: string;
 };
 
+/** The daemon re-drove a `slot_contention` gate refusal after a lease release; `slotRedriveCount` includes this re-drive. */
+type SlotRedriveEvent = {
+  kind: "slot_redrive";
+  slotRedriveCount: number;
+  bound: number;
+};
+
+/** A `slot_contention` refusal reached the re-drive bound; the lane stays failed and operator-resumable. */
+type SlotRedriveExhaustedEvent = {
+  kind: "slot_redrive_exhausted";
+  slotRedriveCount: number;
+  bound: number;
+};
+
+/** Resume admission refused an automatic re-drive; the count was consumed and the row stays operator-resumable. */
+type SlotRedriveRefusedEvent = {
+  kind: "slot_redrive_refused";
+  code: string;
+  slotRedriveCount: number;
+};
+
+/** A waiting lane's row is held by another live owner; the coordinator dropped it without counting. */
+type SlotRedriveSkippedOwnerEvent = {
+  kind: "slot_redrive_skipped_owner";
+};
+
 type LinkedImplementFinalizationEvent = {
   kind: "linked_implement_finalization";
   producer: "pass_finalization" | "routing";
@@ -316,7 +342,11 @@ type LogEventWithoutLoopFinished =
   | CoverageAdvisoryEvent
   | CoverageAdvisorySkippedEvent
   | IntentFinalizationEvent
-  | LinkedImplementFinalizationEvent;
+  | LinkedImplementFinalizationEvent
+  | SlotRedriveEvent
+  | SlotRedriveExhaustedEvent
+  | SlotRedriveRefusedEvent
+  | SlotRedriveSkippedOwnerEvent;
 
 export type LogEvent = LogEventWithoutLoopFinished | LogLoopFinishedEvent;
 

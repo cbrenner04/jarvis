@@ -844,6 +844,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         controller.abort();
       }
       waitAbortControllers.clear();
+      ctx.slotRedrive.stop();
     },
     /** Whether daemon has any active runs (write loops or workflows). */
     hasActiveRuns,
@@ -1444,7 +1445,9 @@ export async function startDaemonRuntime(
     // entirely, matching the documented no-predecessor fast path exactly (see
     // `daemon-run-lifecycle-handlers.ts`'s `listHandler`). A configured-but-currently-empty
     // directory still wires `ownerRow` through, since it can populate later.
-    ...(startupDeps.predecessorSocketPath === undefined ? {} : { ownerRow: ownershipDirectory.ownerRow }),
+    ...(startupDeps.predecessorSocketPath === undefined
+      ? {}
+      : { ownerRow: ownershipDirectory.ownerRow, resolvePredecessorOwner: ownershipDirectory.resolveOwner }),
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
     ...(startupDeps.runTimeout === undefined ? {} : { runTimeout: startupDeps.runTimeout }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined
@@ -1619,6 +1622,9 @@ export async function startDaemonRuntime(
       runControlHandlers.resume,
     );
     recoveryStatus = { ...recoveryStatus, pending: false, resumed: recovery?.resumed ?? 0 };
+    // Reconciliation only settles non-terminal rows, so slot-refused `failed` rows survive it and
+    // re-enter the coordinator's waiting set here.
+    runControlContext.slotRedrive.rehydrate();
     // Runs reconciled by this startup are excluded from the sweep's settlement by id: resuming one
     // does not register it anywhere the sweep can observe, and its durable row still reads the
     // terminal status reconciliation wrote, so settling from that row would fail its stage out from

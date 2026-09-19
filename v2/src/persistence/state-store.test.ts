@@ -6137,6 +6137,44 @@ describe("gate refusal recovery state", () => {
     });
   });
 
+  test("incrementSlotRedriveCount adds one to a slot-contention record without touching status or finish metadata", () => {
+    const runId = seedRun(store);
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:v2", slotRedriveCount: 1 },
+    });
+    const before = loadRunOrThrow(store, runId);
+
+    expect(store.incrementSlotRedriveCount(runId)).toBe(2);
+    expect(store.incrementSlotRedriveCount(runId)).toBe(3);
+
+    const after = loadRunOrThrow(store, runId);
+    expect(after.gateRefusalRecoveryState).toEqual({
+      cause: "slot_contention",
+      gateCommand: "bun run test:v2",
+      slotRedriveCount: 3,
+    });
+    expect(after.status).toBe("failed");
+    expect(after.finishedAt).toBe(before.finishedAt as number);
+  });
+
+  test("incrementSlotRedriveCount leaves headroom, absent, and unknown records alone", () => {
+    const headroomRunId = seedRun(store);
+    store.commitTerminalRunSettlement({
+      runId: headroomRunId,
+      status: "failed",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: { cause: "ceiling_headroom", gateCommand: "bun run ready", slotRedriveCount: 0 },
+    });
+
+    expect(store.incrementSlotRedriveCount(headroomRunId)).toBeUndefined();
+    expect(loadRunOrThrow(store, headroomRunId).gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 0 });
+    expect(store.incrementSlotRedriveCount(seedRun(store))).toBeUndefined();
+    expect(store.incrementSlotRedriveCount("no-such-run")).toBeUndefined();
+  });
+
   test("commitCompletionBoundary with no settlement evidence at all skips the settlement write path", () => {
     const runId = seedRun(store);
     const attemptId = store.recordAttemptStart(runId);

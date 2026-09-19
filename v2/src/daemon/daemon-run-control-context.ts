@@ -18,6 +18,7 @@ import type {
 } from "./daemon.ts";
 import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./daemon.ts";
 import type { NotificationWaitRegistry } from "./daemon-notification-wait.ts";
+import { createSlotRedriveCoordinator, type SlotRedriveCoordinator } from "./daemon-slot-redrive.ts";
 import type { DaemonListRunRow } from "./daemon-wire.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
@@ -68,6 +69,8 @@ export type RunControlHandlerContextDeps = {
    * peer, and never appended when no local candidate matches.
    */
   ownerRow?: (runId: string) => DaemonListRunRow | undefined;
+  /** Whether a reachable draining predecessor still owns a run id; the slot re-drive coordinator never re-drives such a row. */
+  resolvePredecessorOwner?: (runId: string) => Promise<boolean>;
 };
 
 export type KillSettlementDeps = {
@@ -101,6 +104,7 @@ export type RunControlHandlerContext = {
   runTimeout: RunTimeoutDeps | undefined;
   externalLiveRunIds: (() => ReadonlySet<string>) | undefined;
   ownerRow: ((runId: string) => DaemonListRunRow | undefined) | undefined;
+  slotRedrive: SlotRedriveCoordinator;
 };
 
 export function createRunControlHandlerContext(deps: RunControlHandlerContextDeps): RunControlHandlerContext {
@@ -148,7 +152,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
       : () => loadSettleDelayMs(resolveMachineProfile());
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
-  return {
+  const context: RunControlHandlerContext = {
     killSettlement: deps.killSettlement,
     runTimeout: deps.runTimeout,
     externalLiveRunIds: deps.externalLiveRunIds,
@@ -173,7 +177,14 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
     settleDelayMs,
     settleState,
     ...(writeLoopBindingSourceDeps !== undefined ? { writeLoopBindingSourceDeps } : {}),
+    slotRedrive: createSlotRedriveCoordinator({
+      store,
+      logsPath,
+      isRetiring: () => context.retiring,
+      ...(deps.resolvePredecessorOwner !== undefined ? { predecessorOwns: deps.resolvePredecessorOwner } : {}),
+    }),
   };
+  return context;
 }
 
 /** Single owner for the `activeRuns` map key; handler modules must not re-derive it. */

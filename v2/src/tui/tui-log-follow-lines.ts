@@ -73,6 +73,15 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       add("branch", event.branch);
       addQuoted("stopReason", event.stopReason);
       break;
+    case "slot_redrive":
+    case "slot_redrive_exhausted":
+      add("slotRedriveCount", event.slotRedriveCount);
+      add("bound", event.bound);
+      break;
+    case "slot_redrive_refused":
+      add("code", event.code);
+      add("slotRedriveCount", event.slotRedriveCount);
+      break;
     case "linked_implement_finalization":
       add("producer", event.producer);
       add("reason", event.reason);

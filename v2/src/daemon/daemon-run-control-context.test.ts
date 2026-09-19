@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { acquireGateInvocationLease } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 
 test("reportReviewProgress accumulates multiple steps per invocation", () => {
@@ -85,4 +87,54 @@ test("createRunControlHandlerContext exposes activeRuns without activeRunForHand
   } finally {
     stateStore.close();
   }
+});
+
+/** Seeds a slot-refused lane, holds then releases the gate, and returns the run ids the coordinator re-drove. */
+async function redrivenRunIds(resolvePredecessorOwner?: (runId: string) => Promise<boolean>): Promise<string[]> {
+  const stateStorePath = join(tmpdir(), `jarvis-context-redrive-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  const stateStore: StateStore = openStateStore(stateStorePath);
+  const holder = acquireGateInvocationLease();
+  try {
+    if (holder === undefined) throw new Error("gate lease unexpectedly unavailable");
+    const runId = stateStore.createRun({
+      project: "ctx",
+      specRef: "main",
+      worktreePath: "/tmp/ctx-redrive",
+      branch: "ctx-redrive",
+      specPath: "/tmp/ctx-redrive-spec.md",
+      queuedInput: mockWriteLoopInput({ branchName: "ctx-redrive", projectName: "ctx" }),
+    });
+    stateStore.commitCompletionBoundary({
+      attemptId: stateStore.recordAttemptStart(runId),
+      runStatus: "failed",
+      outcomeKind: "gate_invocation_refused",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:v2", slotRedriveCount: 0 },
+    });
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      writeLoopExecutor: async () => undefined,
+      failureReporter: () => undefined,
+      ...(resolvePredecessorOwner !== undefined ? { resolvePredecessorOwner } : {}),
+    });
+    const redriven: string[] = [];
+    ctx.slotRedrive.bindResume((id) => {
+      redriven.push(id);
+      return { kind: "response", result: { ok: true } };
+    });
+    ctx.slotRedrive.enqueue(runId);
+    holder.release();
+    await flushBackgroundRuns(3);
+    ctx.slotRedrive.stop();
+    return redriven;
+  } finally {
+    holder?.release();
+    stateStore.close();
+  }
+}
+
+test("the context wires resolvePredecessorOwner into the slot re-drive coordinator", async () => {
+  expect(await redrivenRunIds(async () => true)).toEqual([]);
+  expect(await redrivenRunIds(async () => false)).toHaveLength(1);
+  expect(await redrivenRunIds()).toHaveLength(1);
 });

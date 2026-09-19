@@ -22,12 +22,12 @@ The in-memory waiting set from 01 is lost when the daemon restarts, stranding sl
 
 ## Acceptance criteria
 
-- [ ] A daemon restart test persists a slot-refused lane with a nonzero `slotRedriveCount` and uncommitted retained work, restarts the daemon, and proves the lane re-drives with the count incremented from the persisted value (not reset) and the worktree HEAD and retained uncommitted work intact; it fails against the pre-fix code.
-- [ ] A restart test with two persisted slot-refused lanes proves only the oldest re-drives at startup and the other waits for a release.
-- [ ] A changeover test with a slot-refused lane owned by a still-reachable draining predecessor proves the successor does not re-drive it or increment its count.
-- [ ] A restart test proves a persisted lane at the bound is not re-driven.
-- [ ] A restart test proves a lane whose worktree is missing is dropped with a logged `slot_redrive_refused` and stays `failed`/`gate_invocation_refused`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A daemon restart test persists a slot-refused lane with a nonzero `slotRedriveCount` and uncommitted retained work, restarts the daemon, and proves the lane re-drives with the count incremented from the persisted value (not reset) and the worktree HEAD and retained uncommitted work intact; it fails against the pre-fix code.
+- [x] A restart test with two persisted slot-refused lanes proves only the oldest re-drives at startup and the other waits for a release.
+- [x] A changeover test with a slot-refused lane owned by a still-reachable draining predecessor proves the successor does not re-drive it or increment its count.
+- [x] A restart test proves a persisted lane at the bound is not re-driven.
+- [x] A restart test proves a lane whose worktree is missing is dropped with a logged `slot_redrive_refused` and stays `failed`/`gate_invocation_refused`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

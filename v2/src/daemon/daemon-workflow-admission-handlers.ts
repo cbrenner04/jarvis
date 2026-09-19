@@ -179,6 +179,11 @@ function mapImplementRecoverOutcome(
   };
 }
 
+/** A workflow's step rows settled: queue any slot-contention refusal among them for re-drive. */
+function enqueueSlotRedrives(ctx: RunControlHandlerContext, runIds: Iterable<string>): void {
+  for (const runId of runIds) ctx.slotRedrive.enqueue(runId);
+}
+
 export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): WorkflowStartAdmission {
   const registry = ctx.registry;
   const activeRuns = ctx.activeRuns;
@@ -336,6 +341,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
             releaseRegistry: settleWorkflowStart,
             stateStore: store,
           });
+          enqueueSlotRedrives(ctx, workflowRunIds);
           if (workflowInvocationId !== undefined) {
             clearLiveReviewProgress(workflowInvocationId);
           }

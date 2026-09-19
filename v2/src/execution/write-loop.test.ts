@@ -92,6 +92,7 @@ import {
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
+  subscribeGateInvocationLeaseReleased,
   validateReadyGateRepairCompletion,
   type WallSegmentSchedule,
   type WriteLoopInput,
@@ -768,6 +769,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     admitRunForResume: (runId) => inner.admitRunForResume(runId),
+    incrementSlotRedriveCount: (runId) => inner.incrementSlotRedriveCount(runId),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
     commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
     dismissRun: (runId) => inner.dismissRun(runId),
@@ -883,6 +885,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     admitRunForResume: (runId) => inner.admitRunForResume(runId),
+    incrementSlotRedriveCount: (runId) => inner.incrementSlotRedriveCount(runId),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
     commitTerminalRunSettlement: (args) => {
       const outcome = inner.commitTerminalRunSettlement(args);
@@ -1306,6 +1309,49 @@ describe.serial("gate invocation budget and settlement", () => {
     expect(acquireGateInvocationLease()).toBeUndefined();
     second?.release();
     expect(liveGateInvocationLeaseCount()).toBe(0);
+  });
+
+  test("a release notifies subscribers once, asynchronously, after the lease is deleted", async () => {
+    const observed: number[] = [];
+    const unsubscribe = subscribeGateInvocationLeaseReleased(() => {
+      observed.push(liveGateInvocationLeaseCount());
+    });
+    try {
+      const lease = acquireGateInvocationLease();
+      expect(lease).toBeDefined();
+      lease?.release();
+      expect(observed).toEqual([]);
+      await Promise.resolve();
+      expect(observed).toEqual([0]);
+      lease?.release();
+      await Promise.resolve();
+      expect(observed).toEqual([0]);
+    } finally {
+      unsubscribe();
+    }
+    const after = acquireGateInvocationLease();
+    after?.release();
+    await Promise.resolve();
+    expect(observed).toEqual([0]);
+  });
+
+  test("a throwing listener does not stop other listeners from being notified", async () => {
+    let notified = 0;
+    const unsubscribeThrowing = subscribeGateInvocationLeaseReleased(() => {
+      throw new Error("listener failure");
+    });
+    const unsubscribeCounting = subscribeGateInvocationLeaseReleased(() => {
+      notified += 1;
+    });
+    try {
+      acquireGateInvocationLease()?.release();
+      await Promise.resolve();
+      expect(notified).toBe(1);
+      expect(liveGateInvocationLeaseCount()).toBe(0);
+    } finally {
+      unsubscribeThrowing();
+      unsubscribeCounting();
+    }
   });
 
   test("gateInvocationAdmits bounds admission by the limit it is given", () => {
@@ -7492,6 +7538,7 @@ export function isLoadSensitive(file: string): boolean {
             inner.setRunStatus(runId, status);
           },
           admitRunForResume: (runId) => inner.admitRunForResume(runId),
+          incrementSlotRedriveCount: (runId) => inner.incrementSlotRedriveCount(runId),
           commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
           commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
           dismissRun: (runId) => inner.dismissRun(runId),

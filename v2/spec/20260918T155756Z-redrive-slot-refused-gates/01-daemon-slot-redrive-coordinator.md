@@ -31,18 +31,18 @@ A `slot_contention` gate refusal settles the lane `failed`/`gate_invocation_refu
 
 ## Acceptance criteria
 
-- [ ] A daemon write-path regression holds the gate lease, drives a second lane to `slot_contention` refusal, releases the holder, and proves the retained lane reaches its gate without an operator command; it fails against the pre-fix settle-and-stop behavior.
-- [ ] A test releases the holder between the refusal settling and the enqueue and proves the lane is still re-driven; it fails against a release-only trigger.
-- [ ] A test takes the freed slot with another lane before dispatch and proves the entry keeps waiting with its count unchanged, then re-drives on the next release.
-- [ ] A test pauses, kills, dismisses, or manually resumes a waiting lane and proves the coordinator drops it and never resumes it a second time.
-- [ ] A test covers a linked row and a bare run each re-driving through the resume path, and an admission rejection that is logged as `slot_redrive_refused`, counted, and leaves the row resumable.
-- [ ] A test stamps a waiting lane's `owner_identity` to a different live process (and, separately, to a reachable draining predecessor generation), releases the lease, and proves the coordinator neither calls the resume path nor increments `slotRedriveCount`, logging `slot_redrive_skipped_owner`; it fails against a coordinator that dispatches without the owner check.
-- [ ] A test proves each successful re-drive increments the persisted `slotRedriveCount` by exactly one and that a lane at the exported bound is not dispatched.
-- [ ] A test proves two waiting lanes with one release re-drive only the oldest by `finishedAt`.
-- [ ] A test proves a `ceiling_headroom` refusal is never auto-re-driven after a lease release and keeps its `failed`/`gate_invocation_refused` resumable settlement.
-- [ ] A test exhausts the bound and proves the lane settles with a `slot_redrive_exhausted` event carrying the bound and final count, every attempted re-drive has a `slot_redrive` event, and the count persists across a gate pass.
-- [ ] Existing one-slot lease ownership tests in `v2/src/execution/write-loop.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A daemon write-path regression holds the gate lease, drives a second lane to `slot_contention` refusal, releases the holder, and proves the retained lane reaches its gate without an operator command; it fails against the pre-fix settle-and-stop behavior.
+- [x] A test releases the holder between the refusal settling and the enqueue and proves the lane is still re-driven; it fails against a release-only trigger.
+- [x] A test takes the freed slot with another lane before dispatch and proves the entry keeps waiting with its count unchanged, then re-drives on the next release.
+- [x] A test pauses, kills, dismisses, or manually resumes a waiting lane and proves the coordinator drops it and never resumes it a second time.
+- [x] A test covers a linked row and a bare run each re-driving through the resume path, and an admission rejection that is logged as `slot_redrive_refused`, counted, and leaves the row resumable.
+- [x] A test stamps a waiting lane's `owner_identity` to a different live process (and, separately, to a reachable draining predecessor generation), releases the lease, and proves the coordinator neither calls the resume path nor increments `slotRedriveCount`, logging `slot_redrive_skipped_owner`; it fails against a coordinator that dispatches without the owner check.
+- [x] A test proves each successful re-drive increments the persisted `slotRedriveCount` by exactly one and that a lane at the exported bound is not dispatched.
+- [x] A test proves two waiting lanes with one release re-drive only the oldest by `finishedAt`.
+- [x] A test proves a `ceiling_headroom` refusal is never auto-re-driven after a lease release and keeps its `failed`/`gate_invocation_refused` resumable settlement.
+- [x] A test exhausts the bound and proves the lane settles with a `slot_redrive_exhausted` event carrying the bound and final count, every attempted re-drive has a `slot_redrive` event, and the count persists across a gate pass.
+- [x] Existing one-slot lease ownership tests in `v2/src/execution/write-loop.test.ts` stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

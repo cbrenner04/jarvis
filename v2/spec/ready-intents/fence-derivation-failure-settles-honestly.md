@@ -10,12 +10,14 @@ The write-loop call site (`v2/src/execution/write-loop.ts`, `initializeFrozenRep
 
 ## Decisions
 
+- This lane makes `deriveGateAllowedPaths` (`v2/src/execution/ready-finalize.ts`) return a distinct named reason for every failure instead of bare `undefined`: `git diff` base...HEAD threw or returned null; `git ls-files` untracked inventory threw or returned null; spec scope unresolvable (spec path invalid, or scope root missing); spec-tree path failed validation; diff output unparseable; untracked output unparseable; a collected path failed repo-relative validation. Rules out any failure collapsing to bare `undefined`.
 - The caller writes the named derivation-failure reason as a durable run-log record before settling; rules out the reason existing only on the `run list` row.
 - A fence-derivation failure on a lane whose work is complete, pushed, and published does not settle `failed`; with no repair in flight it proceeds to flip-to-ready; rules out `completion_commit_failed` on an already-published lane.
 - `nextAction` reflects what resume would retry; a derivation failure resume cannot fix projects `stop` with the reason; rules out an unbased `resume` (shared mechanism with [[terminal-state-honesty-invariant]]).
 
 ## Acceptance criteria
 
+- [ ] A ready-finalize test drives each derivation failure above and asserts its distinct named reason; none returns bare `undefined`.
 - [ ] A write-loop test proves an `implement-review` completion with an empty review scope reaches flip-to-ready instead of settling `completion_commit_failed`, and `jarvis run resume` on such a row is not a fixed point.
 - [ ] A write-loop test asserts the named derivation-failure reason is written to the run log before settlement; it fails against the pre-fix unlogged bare `Error`.
 - [ ] A write-loop test proves a lane with branch pushed, PR open, and all criteria ticked does not settle `completion_commit_failed` on a fence-derivation failure and does not advertise `nextAction: "resume"`.
@@ -29,5 +31,4 @@ The write-loop call site (`v2/src/execution/write-loop.ts`, `initializeFrozenRep
 
 ## Prerequisites
 
-- Ready-gate allowset derivation returns a distinct named reason for every failure instead of bare `undefined`.
-- Allowset derivation succeeds for external spec homes and yields an empty allowset for an existing empty spec scope.
+- Allowset derivation succeeds for external spec homes and yields an empty allowset for an existing empty spec scope (landed, #4076).

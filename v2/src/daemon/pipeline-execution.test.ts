@@ -3287,20 +3287,14 @@ describe("resumePipeline", () => {
     const provisionalSkip = new Set(options.provisionalSkipBranches ?? []);
     for (const branchKey of FAN_OUT_RESUME_BRANCH_KEYS) {
       if (branchKey === FAN_OUT_RESUME_BRANCH_TARGET) continue;
-      if (provisionalSkip.has(branchKey)) {
+      if (provisionalSkip.has(branchKey) || extraFailedPlan.has(branchKey)) {
         store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "approved" } });
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey, patch: { status: "succeeded" } });
         store.updateStage({
           pipelineId: PIPELINE_ID,
-          stageId: "implement",
+          stageId: "plan",
           branchKey,
-          patch: { status: "skipped", skipProvenance: "provisional" },
+          patch: { status: provisionalSkip.has(branchKey) ? "succeeded" : "failed" },
         });
-        continue;
-      }
-      if (extraFailedPlan.has(branchKey)) {
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "approved" } });
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey, patch: { status: "failed" } });
         store.updateStage({
           pipelineId: PIPELINE_ID,
           stageId: "implement",

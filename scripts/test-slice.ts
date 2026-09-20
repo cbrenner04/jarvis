@@ -3,6 +3,27 @@ import { join } from "node:path";
 
 export const SANDBOX_SUFFIX = ".sandbox-unrunnable.test.ts";
 
+export type TestIsolationClass = "poll-until-done" | "subprocess-spawning";
+
+const TEST_ISOLATION_DECLARATION = /^\s*export const TEST_ISOLATION_CLASS\s*=\s*"([^"\r\n]+)";?\s*$/gm;
+
+export function readTestIsolationClass(file: string, source: string): TestIsolationClass | undefined {
+  const declarations = [...source.matchAll(TEST_ISOLATION_DECLARATION)].map((match) => match[1]);
+  if (declarations.length === 0) {
+    return undefined;
+  }
+  for (const declaration of declarations) {
+    if (declaration !== "poll-until-done" && declaration !== "subprocess-spawning") {
+      throw new Error(`unrecognized TEST_ISOLATION_CLASS in ${file}: ${declaration ?? ""}`);
+    }
+  }
+  const classes = new Set(declarations);
+  if (classes.size > 1) {
+    throw new Error(`multiple TEST_ISOLATION_CLASS declarations in ${file}`);
+  }
+  return declarations[0] as TestIsolationClass;
+}
+
 export function isSandboxUnrunnable(file: string): boolean {
   return file.endsWith(SANDBOX_SUFFIX);
 }
@@ -35,6 +56,25 @@ export const LOAD_SENSITIVE_FILES: readonly string[] = [
  */
 export function isLoadSensitive(file: string): boolean {
   return isSandboxUnrunnable(file) || LOAD_SENSITIVE_FILES.includes(file);
+}
+
+export function planTestBatches(
+  files: string[],
+  classOf: (file: string) => TestIsolationClass | undefined,
+): string[][] {
+  const firstBatch: string[] = [];
+  const subprocessBatch: string[] = [];
+  const isolatedBatches: string[][] = [];
+  for (const file of files) {
+    if (isLoadSensitive(file)) {
+      isolatedBatches.push([file]);
+    } else if (classOf(file) === "subprocess-spawning") {
+      subprocessBatch.push(file);
+    } else {
+      firstBatch.push(file);
+    }
+  }
+  return [firstBatch, subprocessBatch, ...isolatedBatches].filter((batch) => batch.length > 0);
 }
 
 export function walkTestFiles(root: string): string[] {

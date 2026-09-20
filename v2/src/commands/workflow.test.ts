@@ -50,6 +50,8 @@ import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG, STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
 import { STALE_RESET_WORKFLOWS } from "./stale-reset-workspace.ts";
 
+export const TEST_ISOLATION_CLASS = "poll-until-done";
+
 let fx: CliRepoFixture;
 
 beforeAll(() => {

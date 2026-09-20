@@ -483,6 +483,65 @@ describe("runV2TestFiles", () => {
 
     expect(results.map((r) => r.file).sort()).toEqual(["failing.test.ts", "slow-ok.test.ts"]);
   });
+
+  test("declared poll and subprocess suites are never in flight together", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const poll = "v2/src/commands/workflow.test.ts";
+    const subprocess = "v2/src/execution/diff-derived-mutation-verifier.test.ts";
+    const inFlight = new Set<string>();
+    let overlapped = false;
+    let releaseGate = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      inFlight.add(file);
+      overlapped ||= inFlight.has(poll) && inFlight.has(subprocess);
+      await gate;
+      inFlight.delete(file);
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const run = runV2TestFiles("agent", [poll, subprocess], spawn, "v2", 2);
+    releaseGate();
+    await run;
+
+    expect(overlapped).toBeFalse();
+  });
+
+  test("stop-admitting state carries across declared and load-sensitive batches", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const poll = "v2/src/commands/workflow.test.ts";
+    const subprocess = "v2/src/execution/diff-derived-mutation-verifier.test.ts";
+    const isolated = "later.sandbox-unrunnable.test.ts";
+    const nonAgentCalls: string[] = [];
+    const nonAgentSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      nonAgentCalls.push(file);
+      return { status: file === poll ? 1 : 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    await runV2TestFiles("integration", [poll, subprocess], nonAgentSpawn, "v2", 2);
+
+    expect(nonAgentCalls).toEqual([poll]);
+
+    const agentCalls: string[] = [];
+    const agentSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      agentCalls.push(file);
+      if (file === poll) {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return { status: file === subprocess ? 1 : 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    await runV2TestFiles("agent", [poll, subprocess, isolated], agentSpawn, "v2", 2);
+
+    expect(agentCalls).toEqual([poll, subprocess]);
+  });
 });
 
 describe("load-sensitive isolation", () => {

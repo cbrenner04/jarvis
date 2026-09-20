@@ -37,6 +37,8 @@ import {
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
 
+export const TEST_ISOLATION_CLASS = "subprocess-spawning";
+
 function renderObserverMapSource(entries: Record<string, readonly string[]>): string {
   const lines = Object.entries(entries).flatMap(([prompt, tests]) => {
     const quotedTests = tests.map((testPath) => `"${testPath}"`).join(", ");

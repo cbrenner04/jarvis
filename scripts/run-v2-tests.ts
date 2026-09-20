@@ -1,6 +1,14 @@
 import { spawn as nodeSpawn, type SpawnSyncReturns } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
-import { isLoadSensitive, sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
+import {
+  planTestBatches,
+  readTestIsolationClass,
+  sliceTestFiles,
+  type TestIsolationClass,
+  type TestSliceMode,
+  walkTestFiles,
+} from "./test-slice.ts";
 
 /** Supported budget for the slowest healthy test file under the aggregate suite. */
 export const SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000;
@@ -113,6 +121,13 @@ export interface FileResult {
   status: number | null;
 }
 
+function classOfTestFile(file: string): TestIsolationClass | undefined {
+  if (!existsSync(file)) {
+    return undefined;
+  }
+  return readTestIsolationClass(file, readFileSync(file, "utf8"));
+}
+
 /** Concurrency limit derived from available parallelism, reserving headroom (half, floor 1). */
 export function defaultConcurrency(parallelism: number): number {
   return Math.max(1, Math.floor(parallelism / 2));
@@ -158,10 +173,8 @@ export function resolveConcurrency(
  * Each file's captured stdout/stderr is flushed as one contiguous block, headed by its
  * file name, as soon as that file settles (including output captured before a kill).
  *
- * Load-sensitive files (`isLoadSensitive`) are excluded from the pool and instead run one at a
- * time after the pool has fully drained, with no co-runners in either direction. The same mode
- * semantics (agent keeps admitting past a timeout, every other mode stops on either a timeout
- * or a plain failure) apply to the isolated phase.
+ * The declared-class schedule is drained in order. Each batch uses the same bounded pool;
+ * load-sensitive files occupy single-file batches.
  */
 export async function runV2TestFiles(
   mode: string,
@@ -172,66 +185,44 @@ export async function runV2TestFiles(
   attemptId = process.env[READY_ATTEMPT_ENV] ?? "standalone",
 ): Promise<FileResult[]> {
   const results: FileResult[] = [];
-  const poolable = files.filter((file) => !isLoadSensitive(file));
-  const isolated = files.filter((file) => isLoadSensitive(file));
-  let nextIndex = 0;
+  const batches = planTestBatches(files, classOfTestFile);
   let stopAdmitting = false;
-
-  async function worker(): Promise<void> {
-    for (;;) {
-      if (stopAdmitting || nextIndex >= poolable.length) {
-        return;
-      }
-      const file = poolable[nextIndex];
-      nextIndex += 1;
-      if (file === undefined) {
-        return;
-      }
-      const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
-      process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
-      if (result.timedOut || result.status !== 0 || result.signal !== null) {
-        process.stderr.write(failingTestFileRecord(file, attemptId));
-      }
-      if (result.timedOut) {
-        process.stderr.write(spawnTimeoutMessage(mode, file, label));
-        results.push({ file, timedOut: true, status: result.status });
-        if (mode !== "agent") {
-          stopAdmitting = true;
-        }
-        continue;
-      }
-      results.push({ file, timedOut: false, status: result.status });
-      if (result.status !== 0) {
-        stopAdmitting = true;
-      }
-    }
-  }
-
   const safeConcurrency = Number.isFinite(concurrency) ? concurrency : 1;
-  const workerCount = Math.max(1, Math.min(safeConcurrency, poolable.length));
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-
-  for (const file of isolated) {
+  for (const batch of batches) {
     if (stopAdmitting) {
       break;
     }
-    const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
-    process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
-    if (result.timedOut || result.status !== 0 || result.signal !== null) {
-      process.stderr.write(failingTestFileRecord(file, attemptId));
-    }
-    if (result.timedOut) {
-      process.stderr.write(spawnTimeoutMessage(mode, file, label));
-      results.push({ file, timedOut: true, status: result.status });
-      if (mode !== "agent") {
-        stopAdmitting = true;
+    let nextIndex = 0;
+    async function worker(): Promise<void> {
+      for (;;) {
+        if (stopAdmitting || nextIndex >= batch.length) {
+          return;
+        }
+        const file = batch[nextIndex];
+        nextIndex += 1;
+        if (file === undefined) {
+          return;
+        }
+        const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
+        process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
+        if (result.timedOut || result.status !== 0 || result.signal !== null) {
+          process.stderr.write(failingTestFileRecord(file, attemptId));
+        }
+        results.push({ file, timedOut: result.timedOut, status: result.status });
+        if (result.timedOut) {
+          process.stderr.write(spawnTimeoutMessage(mode, file, label));
+          if (mode !== "agent") {
+            stopAdmitting = true;
+          }
+          continue;
+        }
+        if (result.status !== 0) {
+          stopAdmitting = true;
+        }
       }
-    } else {
-      results.push({ file, timedOut: false, status: result.status });
-      if (result.status !== 0) {
-        stopAdmitting = true;
-      }
     }
+    const workerCount = Math.max(1, Math.min(safeConcurrency, batch.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
   }
 
   return results;

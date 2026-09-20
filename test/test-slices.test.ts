@@ -1,11 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
 import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { aggregateTestFiles } from "../scripts/run-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
-import { isLoadSensitive, isSandboxUnrunnable, partitionTestFiles } from "../scripts/test-slice.ts";
+import {
+  isLoadSensitive,
+  isSandboxUnrunnable,
+  partitionTestFiles,
+  planTestBatches,
+  readTestIsolationClass,
+} from "../scripts/test-slice.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -124,6 +130,52 @@ describe("Test slice boundaries", () => {
     const poolable = "v2/example/other.test.ts";
     expect(isSandboxUnrunnable(poolable)).toBeFalse();
     expect(isLoadSensitive(poolable)).toBeFalse();
+  });
+
+  it("classifies the workflow poll-until-done declaration from its real source", () => {
+    const file = "v2/src/commands/workflow.test.ts";
+    const source = readFileSync(file, "utf8");
+
+    expect(source).toContain("waitForCompletion");
+    expect(readTestIsolationClass(file, source)).toBe("poll-until-done");
+    expect(isLoadSensitive(file)).toBeFalse();
+    expect(isLoadSensitive("v2/src/execution/diff-derived-mutation-verifier.test.ts")).toBeFalse();
+  });
+
+  it("plans declared classes and load-sensitive files in fixed batch order", () => {
+    const sources = new Map([
+      ["poll-a.test.ts", 'export const TEST_ISOLATION_CLASS = "poll-until-done";'],
+      ["poll-b.test.ts", 'export const TEST_ISOLATION_CLASS = "poll-until-done";'],
+      ["spawn.test.ts", 'export const TEST_ISOLATION_CLASS = "subprocess-spawning";'],
+      ["isolated.sandbox-unrunnable.test.ts", 'export const TEST_ISOLATION_CLASS = "subprocess-spawning";'],
+      ["plain.test.ts", ""],
+    ]);
+    const files = [
+      "spawn.test.ts",
+      "poll-a.test.ts",
+      "isolated.sandbox-unrunnable.test.ts",
+      "plain.test.ts",
+      "poll-b.test.ts",
+    ];
+    const classOf = (file: string) => readTestIsolationClass(file, sources.get(file) ?? "");
+
+    expect(planTestBatches(files, classOf)).toEqual([
+      ["poll-a.test.ts", "plain.test.ts", "poll-b.test.ts"],
+      ["spawn.test.ts"],
+      ["isolated.sandbox-unrunnable.test.ts"],
+    ]);
+  });
+
+  it("rejects conflicting and unrecognized isolation declarations", () => {
+    const both = [
+      'export const TEST_ISOLATION_CLASS = "poll-until-done";',
+      'export const TEST_ISOLATION_CLASS = "subprocess-spawning";',
+    ].join("\n");
+
+    expect(() => readTestIsolationClass("both.test.ts", both)).toThrow("multiple TEST_ISOLATION_CLASS declarations");
+    expect(() =>
+      readTestIsolationClass("unknown.test.ts", 'export const TEST_ISOLATION_CLASS = "network-heavy";'),
+    ).toThrow("unrecognized TEST_ISOLATION_CLASS");
   });
 
   it("shared integration slice includes preload real-process test", () => {

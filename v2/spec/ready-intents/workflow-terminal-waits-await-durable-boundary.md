@@ -10,12 +10,12 @@ The two `v2/src/commands/workflow.test.ts` failures in the co-scheduling inciden
 
 ## Decisions
 
-- Both waits poll the durable terminal boundary (the persisted entry-run status) to completion rather than sleeping toward a 5 s deadline; a timeout remains only as a failure backstop, not as the success condition; rules out treating scheduling as the only lever for a test that can be deterministic.
-- Scope is these two tests and any shared wait helper they use; rules out a sweep of every bounded wait in the v2 suite.
+- Both waits poll the durable terminal boundary (the persisted entry-run status) to completion rather than sleeping toward a 5 s deadline; the failure backstop is a raised per-test timeout on these two tests (5000 ms is bun's default, so polling alone changes nothing without it) and is never the success condition; rules out treating scheduling as the only lever for a test that can be deterministic.
+- Scope is these two tests and `assertAttachedEntryTerminalWait` (the attached test's existing helper); the detach test's wait is fixed in place; rules out a sweep of every bounded wait in the v2 suite.
 
 ## Acceptance criteria
 
-- [ ] Both named `workflow.test.ts` tests assert on the persisted terminal entry-run state and pass with the process starved of scheduling time; a test exercising the wait helper under delayed terminal transition fails against the pre-fix 5 s form.
+- [ ] Both named `workflow.test.ts` tests assert on the persisted terminal entry-run state; a test where the entry run reaches terminal only after more than 5 s fails against the pre-fix 5 s form and passes after.
 - [ ] `v2/src/commands/workflow.test.ts` stays green in isolation (behavior otherwise unchanged).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
@@ -25,5 +25,5 @@ The two `v2/src/commands/workflow.test.ts` failures in the co-scheduling inciden
 
 ## Prerequisites
 
-- The test runner isolates wall-clock-bounded suites from subprocess-spawning suites as a declared class in `scripts/test-slice.ts`.
-- `v2/docs/test-writing.md` documents the declared isolation class.
+- Ordering: land after `declared-isolation-class-for-wall-clock-bounded-suites`, whose declared isolation class and `v2/docs/test-writing.md` section this intent's doc update refers to.
+- `assertAttachedEntryTerminalWait` exists in `v2/src/commands/workflow.test.ts`.

@@ -10,15 +10,14 @@ name: declared-isolation-class-for-wall-clock-bounded-suites
 
 ## Decisions
 
-- The isolation signal is a declared class, not a per-incident file list: suites whose assertions are wall-clock-bounded and suites that spawn `bun test` subprocesses are never admitted to the same concurrent batch by `scripts/run-v2-tests.ts`; rules out enumerating files one incident at a time as the failing set rotates.
-- The classification lives in `scripts/test-slice.ts` next to `isLoadSensitive` and is unit-testable as a pure roster predicate over the real file roster; rules out burying the rule in the runner's pool loop where only an end-to-end run can observe it.
-- Isolation is bounded co-scheduling, not full serialization of the slice; rules out collapsing the pool to concurrency 1 and paying aggregate wall-clock for every file.
+- The isolation signal is a declared class, not a per-incident file list: a file is declared into the class by an in-file marker (an exported constant naming its class: wall-clock-bounded or subprocess-spawning) read by `scripts/test-slice.ts`; rules out a hand-maintained roster like `LOAD_SENSITIVE_FILES` as the mechanism, since the failing set rotates.
+- The rule: a wall-clock-bounded file and a subprocess-spawning file never run at the same time; files within one class may still co-run with each other and with unclassified files. Enforced by `scripts/test-slice.ts` producing the run schedule (as a pure function over the real file roster) that `scripts/run-v2-tests.ts` executes; rules out burying the rule in the runner's pool loop where only an end-to-end run can observe it.
+- Isolation is bounded, not full serialization of the slice; rules out collapsing the pool to concurrency 1 and paying aggregate wall-clock for every file.
 
 ## Acceptance criteria
 
-- [ ] A `test/test-slices.test.ts` test proves `v2/src/commands/workflow.test.ts` and `v2/src/execution/diff-derived-mutation-verifier.test.ts` are never scheduled in the same concurrent batch; it fails against the current roster.
-- [ ] A test proves the classification is derived from the declared class rather than a literal per-file list: a suite matching the class is isolated without appearing in `LOAD_SENSITIVE_FILES`; it fails against the pre-fix predicate.
-- [ ] Running the union of both files' resolved slice is green ten consecutive times on an idle machine; it fails against the current pairing.
+- [ ] A `test/test-slices.test.ts` test proves the schedule over the real roster never runs `v2/src/commands/workflow.test.ts` and `v2/src/execution/diff-derived-mutation-verifier.test.ts` at the same time; it fails against the current scheduling, which co-runs them.
+- [ ] A test proves a synthetic file carrying the wall-clock-bounded marker and one carrying the subprocess-spawning marker are never co-scheduled without either appearing in `LOAD_SENSITIVE_FILES`; it fails against the pre-fix scheduling.
 - [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2`, and `bun run test:shared` pass.
 
 ## Documentation updates

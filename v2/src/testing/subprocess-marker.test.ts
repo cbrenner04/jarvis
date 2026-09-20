@@ -37,7 +37,7 @@ describe("waitForStdoutMarker", () => {
   });
 
   test("reports a real child's exit code and stderr", async () => {
-    const child = spawn(process.execPath, ["-e", 'process.stderr.write("startup failed\\n"); process.exit(23)'], {
+    const child = spawn(process.execPath, ["-e", 'process.stderr.write("startup failed\\n"); process.exitCode = 23'], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     const waited = waitForStdoutMarker(child, MARKER);

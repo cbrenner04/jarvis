@@ -121,6 +121,9 @@ export interface FileResult {
 }
 
 function classOfTestFile(file: string) {
+  if (!file.replace(/\\/g, "/").replace(/^\.\//, "").startsWith("v2/")) {
+    return undefined;
+  }
   if (!existsSync(file)) {
     return undefined;
   }

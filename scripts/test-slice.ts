@@ -7,9 +7,88 @@ export type TestIsolationClass = "poll-until-done" | "subprocess-spawning";
 
 const TEST_ISOLATION_DECLARATION = /^\s*export const TEST_ISOLATION_CLASS\s*=\s*"([^"\r\n]+)";?\s*$/gm;
 
+function topLevelCode(source: string): string {
+  let result = "";
+  let braceDepth = 0;
+  let state: "code" | "line-comment" | "block-comment" | "single-quote" | "double-quote" | "template" = "code";
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    const preserveNewline = character === "\n" || character === "\r";
+
+    if (state === "line-comment") {
+      result += preserveNewline ? character : " ";
+      if (preserveNewline) {
+        state = "code";
+      }
+      continue;
+    }
+    if (state === "block-comment") {
+      result += preserveNewline ? character : " ";
+      if (character === "*" && next === "/") {
+        result += " ";
+        index += 1;
+        state = "code";
+      }
+      continue;
+    }
+    if (state === "single-quote" || state === "double-quote") {
+      result += character;
+      const quote = state === "single-quote" ? "'" : '"';
+      if (character === "\\") {
+        result += next;
+        index += 1;
+      } else if (character === quote) {
+        state = "code";
+      }
+      continue;
+    }
+    if (state === "template") {
+      result += preserveNewline ? character : " ";
+      if (character === "\\") {
+        result += next === "\n" || next === "\r" ? next : " ";
+        index += 1;
+      } else if (character === "`") {
+        state = "code";
+      }
+      continue;
+    }
+
+    if (character === "/" && next === "/") {
+      result += "  ";
+      index += 1;
+      state = "line-comment";
+    } else if (character === "/" && next === "*") {
+      result += "  ";
+      index += 1;
+      state = "block-comment";
+    } else if (character === "'") {
+      result += character;
+      state = "single-quote";
+    } else if (character === '"') {
+      result += character;
+      state = "double-quote";
+    } else if (character === "`") {
+      result += " ";
+      state = "template";
+    } else if (character === "{") {
+      braceDepth += 1;
+      result += " ";
+    } else if (character === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      result += " ";
+    } else {
+      result += braceDepth === 0 ? character : preserveNewline ? character : " ";
+    }
+  }
+
+  return result;
+}
+
 export function readTestIsolationClass(file: string, source: string): TestIsolationClass | undefined {
   let isolationClass: TestIsolationClass | undefined;
-  for (const match of source.matchAll(TEST_ISOLATION_DECLARATION)) {
+  for (const match of topLevelCode(source).matchAll(TEST_ISOLATION_DECLARATION)) {
     const declaration = match[1];
     if (declaration !== "poll-until-done" && declaration !== "subprocess-spawning") {
       throw new Error(`unrecognized TEST_ISOLATION_CLASS in ${file}: ${declaration ?? ""}`);
@@ -64,9 +143,10 @@ export function planTestBatches(
   const subprocessBatch: string[] = [];
   const isolatedBatches: string[][] = [];
   for (const file of files) {
+    const isolationClass = classOf(file);
     if (isLoadSensitive(file)) {
       isolatedBatches.push([file]);
-    } else if (classOf(file) === "subprocess-spawning") {
+    } else if (isolationClass === "subprocess-spawning") {
       subprocessBatch.push(file);
     } else {
       firstBatch.push(file);

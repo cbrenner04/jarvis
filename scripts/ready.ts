@@ -20,6 +20,7 @@ export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running step
 export const INSTALL_DIGEST_FILENAME = "jarvis-ready-install-digest";
 export const DEADLINE_KILL_MARKER = "ready: deadline exceeded after";
 export const READY_STEP_COMPLETION_MARKER = "JARVIS_READY_STEP_COMPLETED ";
+export const READY_STEP_START_MARKER = "JARVIS_READY_STEP_STARTED ";
 
 // Per-step budgets: sized to what each step does, armed fresh per step (not shrunk by prior
 // steps' consumption). See v2/docs/test-writing.md for the aggregate test-step measurement.
@@ -47,6 +48,13 @@ export interface ReadyStepCompletion {
 
 export function readyStepCompletionRecord(completion: ReadyStepCompletion): string {
   return `${READY_STEP_COMPLETION_MARKER}${JSON.stringify(completion)}\n`;
+}
+
+export type ReadyStepStart = Omit<ReadyStepCompletion, "status">;
+
+/** Leading newline so the record starts its own line after the child's unterminated output. */
+export function readyStepStartRecord(start: ReadyStepStart): string {
+  return `\n${READY_STEP_START_MARKER}${JSON.stringify(start)}\n`;
 }
 
 export function readyAttemptEnvironment(
@@ -440,6 +448,9 @@ export async function runReady(opts?: {
     const runAttempt = async (armedMs: number, bound: ArmedBound): Promise<number> => {
       const attemptId = `${stepId}.${attemptNumber}`;
       attemptNumber += 1;
+      const startRecord = readyStepStartRecord({ stepId, attemptId, command });
+      process.stdout.write(startRecord);
+      process.stderr.write(startRecord);
       const code = await runCommandFn(name, args, armedMs, bound, attemptId);
       process.stderr.write(readyStepCompletionRecord({ stepId, attemptId, command, status: code }));
       return code;

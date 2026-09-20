@@ -49,7 +49,7 @@ Declared policies: `plan.prompt.*` (draft, review roles, review-actuator) are `b
 | `write.blocker-reprompt` | `blocked` misses the blocker-text contract | none | same |
 | `write.landing-contract-reprompt` | intent-split staged output fails landing shape | `VIOLATION`, `OFFENDING_FILE`, `STAGING_DIR` | [§ Intent split landing contracts](./write-behavior.md#intent-split-landing-contracts) |
 | `write.staged-markdown-lint-reprompt` | staged plan/intent Markdown fails markdownlint | `RULE_ID`, `VIOLATION`, `OFFENDING_FILE`, `STAGING_DIR` | [`workflow-runner.md § Review dispatch`](./workflow-runner.md#review-dispatch) |
-| `write.ready-repair` | ready gate fails at publication | `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_EXIT_CODE`, `GATE_OUTPUT` | [`workflow-runner.md § Ready gate repair`](./workflow-runner.md#ready-gate-repair) |
+| `write.ready-repair` | ready gate fails at publication | `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_STEP`, `GATE_EXIT_CODE`, `GATE_OUTPUT` | [`workflow-runner.md § Ready gate repair`](./workflow-runner.md#ready-gate-repair) |
 | `write.surviving-mutation-reprompt` | in-loop diff-derived verification finds an uncovered guard | `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, `DUAL_CONSTRAINT_DETAIL` | [§ Diff-derived mutation verification](./write-behavior.md#diff-derived-mutation-verification) |
 | `write.mutation-repair` | publication-time confirm-only verification finds a repair-introduced survivor | same as above | same |
 | `write.coverage-advisory` | implement completes with uncovered changed lines (deliver-only) | `COVERAGE_REPORT` | [§ Coverage advisory](./write-behavior.md#coverage-advisory) |

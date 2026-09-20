@@ -26,15 +26,15 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `scripts/ready.test.ts` runs the gate loop with a fake step runner and asserts a `JARVIS_READY_STEP_STARTED` record with the step's `stepId`, `attemptId` and `command` precedes each attempt (including a retry) on both stdout and stderr; it fails against the pre-fix `scripts/ready.ts`.
-- [ ] A test in `v2/src/execution/ready-finalize.test.ts` builds the log as `${stdout}${stderr}` (step output and start records on stdout; start/heartbeat/completion records on stderr), with a passing step carrying warning text followed by a failing `bun run check` step, and asserts the selector returns the failing command and only that step's output; it fails against the pre-fix whole-log behavior.
-- [ ] A selector test with a retried failing test step asserts both attempts' output is returned.
-- [ ] A selector test with a log that has completion records but none non-zero (and one with no records) asserts the whole-log tail fallback and gate command as `GATE_STEP`.
-- [ ] A selector/write-loop test asserts `READY_GATE_OUTPUT_MAX_CHARS` truncates the failing step's own output (tail kept), not the whole log; it fails against the pre-fix whole-log slice.
-- [ ] A write-loop repair test, using the `${stdout}${stderr}` log layout, asserts the rendered `write.ready-repair` prompt contains the failing step's command and output and excludes the passing step's output; it fails against the pre-fix whole-log prompt.
-- [ ] `RENDER_OBSERVER_TESTS` maps `prompts/write/ready-repair.md` to `v2/src/execution/write.test.ts`, whose `write.ready-repair` case renders the real registered template with a `GATE_STEP` value and asserts the rendered prompt contains it; it fails against the pre-fix template.
-- [ ] The existing write-loop ready-repair tests that use a log without step records (custom-command gate) stay green (fallback preserves behavior), as do the existing `selectTerminalFailedReadyStep` and `selectTerminalFailedReadyTestStep` tests in `v2/src/execution/ready-finalize.test.ts`.
-- [ ] `bun run typecheck`, `bun run test:v2` and `bun run test:integration:v2` pass, plus full `bun run test` (root tooling `scripts/ready.ts` and `shared/**` touched).
+- [x] A test in `scripts/ready.test.ts` runs the gate loop with a fake step runner and asserts a `JARVIS_READY_STEP_STARTED` record with the step's `stepId`, `attemptId` and `command` precedes each attempt (including a retry) on both stdout and stderr; it fails against the pre-fix `scripts/ready.ts`.
+- [x] A test in `v2/src/execution/ready-finalize.test.ts` builds the log as `${stdout}${stderr}` (step output and start records on stdout; start/heartbeat/completion records on stderr), with a passing step carrying warning text followed by a failing `bun run check` step, and asserts the selector returns the failing command and only that step's output; it fails against the pre-fix whole-log behavior.
+- [x] A selector test with a retried failing test step asserts both attempts' output is returned.
+- [x] A selector test with a log that has completion records but none non-zero (and one with no records) asserts the whole-log tail fallback and gate command as `GATE_STEP`.
+- [x] A selector/write-loop test asserts `READY_GATE_OUTPUT_MAX_CHARS` truncates the failing step's own output (tail kept), not the whole log; it fails against the pre-fix whole-log slice.
+- [x] A write-loop repair test, using the `${stdout}${stderr}` log layout, asserts the rendered `write.ready-repair` prompt contains the failing step's command and output and excludes the passing step's output; it fails against the pre-fix whole-log prompt.
+- [x] `RENDER_OBSERVER_TESTS` maps `prompts/write/ready-repair.md` to `v2/src/execution/write.test.ts`, whose `write.ready-repair` case renders the real registered template with a `GATE_STEP` value and asserts the rendered prompt contains it; it fails against the pre-fix template.
+- [x] The existing write-loop ready-repair tests that use a log without step records (custom-command gate) stay green (fallback preserves behavior), as do the existing `selectTerminalFailedReadyStep` and `selectTerminalFailedReadyTestStep` tests in `v2/src/execution/ready-finalize.test.ts`.
+- [x] `bun run typecheck`, `bun run test:v2` and `bun run test:integration:v2` pass, plus full `bun run test` (root tooling `scripts/ready.ts` and `shared/**` touched).
 
 ## Documentation updates
 

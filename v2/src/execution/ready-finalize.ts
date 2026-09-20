@@ -6,7 +6,9 @@ import {
   DEADLINE_KILL_MARKER,
   DEFAULT_TIMEOUT_MS as READY_RUN_CEILING_MS,
   READY_STEP_COMPLETION_MARKER,
+  READY_STEP_START_MARKER,
   type ReadyStepCompletion,
+  type ReadyStepStart,
   TIMEOUT_EXIT_CODE,
 } from "../../../scripts/ready.ts";
 import {
@@ -364,8 +366,7 @@ function validateAndDeduplicatePaths(rawPaths: readonly string[]): string[] | un
 
 /** Terminal failed ready step from gate output; undefined when attribution is incomplete. */
 export function selectTerminalFailedReadyStep(output: string): ReadyStepCompletion | undefined {
-  const completions = parseMarkerRecords(output, READY_STEP_COMPLETION_MARKER, isReadyStepCompletion);
-  const terminalFailed = [...completions].reverse().find((record) => record.status !== 0);
+  const terminalFailed = selectTerminalFailedReadyCompletion(output);
   if (terminalFailed === undefined || !isReadyAttributionCommand(terminalFailed.command)) {
     return undefined;
   }
@@ -402,12 +403,52 @@ export function selectTerminalAttributablePaths(output: string): string[] | unde
 
 /** Terminal failed ready test step from gate output; undefined when attribution is incomplete. */
 export function selectTerminalFailedReadyTestStep(output: string): ReadyStepCompletion | undefined {
-  const completions = parseMarkerRecords(output, READY_STEP_COMPLETION_MARKER, isReadyStepCompletion);
-  const terminalFailed = [...completions].reverse().find((record) => record.status !== 0);
+  const terminalFailed = selectTerminalFailedReadyCompletion(output);
   if (terminalFailed === undefined || !isReadyTestCommand(terminalFailed.command)) {
     return undefined;
   }
   return terminalFailed;
+}
+
+/** Terminal non-zero ready step completion of any command. */
+function selectTerminalFailedReadyCompletion(output: string): ReadyStepCompletion | undefined {
+  const completions = parseMarkerRecords(output, READY_STEP_COMPLETION_MARKER, isReadyStepCompletion);
+  return [...completions].reverse().find((record) => record.status !== 0);
+}
+
+function isReadyStepStart(value: unknown): value is ReadyStepStart {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as ReadyStepStart;
+  return (
+    typeof record.stepId === "string" && typeof record.attemptId === "string" && typeof record.command === "string"
+  );
+}
+
+/**
+ * Repair-prompt view of a failed gate: the terminal failed step's command and its own output
+ * (every attempt, both streams), or the gate command and whole log when the step is unattributable.
+ */
+export function selectFailedReadyStepOutput(gateCommand: string, log: string): { step: string; output: string } {
+  const failed = selectTerminalFailedReadyCompletion(log);
+  const starts: { stepId: string; recordStart: number; bodyStart: number }[] = [];
+  for (const match of log.matchAll(new RegExp(`^${READY_STEP_START_MARKER}(.*)$`, "gm"))) {
+    try {
+      const parsed: unknown = JSON.parse(match[1] ?? "");
+      if (isReadyStepStart(parsed)) {
+        starts.push({ stepId: parsed.stepId, recordStart: match.index, bodyStart: match.index + match[0].length });
+      }
+    } catch {
+      // malformed records are ignored at parse time
+    }
+  }
+  const segments = starts.flatMap((start, index) =>
+    start.stepId === failed?.stepId ? [log.slice(start.bodyStart, starts[index + 1]?.recordStart ?? log.length)] : [],
+  );
+  return failed === undefined || segments.length === 0
+    ? { step: gateCommand, output: log }
+    : { step: failed.command, output: segments.join("") };
 }
 
 const BASE_REF_PROBE_OUTPUT_TAIL_CHARS = 4096;

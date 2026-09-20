@@ -98,6 +98,7 @@ import {
   resolveAttributableRepairAllowset,
   resolveGateRepairAllowset,
   SurvivingMutationError,
+  selectFailedReadyStepOutput,
   survivingMutationLogFields,
   validateRepoRelativePath,
 } from "./ready-finalize.ts";
@@ -3352,14 +3353,16 @@ async function runReadyRepairIteration(
   });
   sessionLog.append("harness", `run=${result.runId} spec=${args.specPath} iteration=${iterationNumber}`);
 
+  const failedStep = selectFailedReadyStepOutput(gateError.command, gateError.output);
   const repairArgs: WriteLoopInput = {
     ...args,
     promptId: "write.ready-repair",
     joinProcessOnIdleStall: true,
     promptPlaceholders: {
       GATE_COMMAND: gateError.command,
+      GATE_STEP: failedStep.step,
       GATE_EXIT_CODE: String(gateError.exitCode ?? "unknown"),
-      GATE_OUTPUT: gateError.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
+      GATE_OUTPUT: failedStep.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
     },
   };
   const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");

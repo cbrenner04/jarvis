@@ -20,7 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { PassThrough } from "node:stream";
-import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
+import { readyStepCompletionRecord, readyStepStartRecord, TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
 import { FixCommandError } from "../../../shared/fix-command.ts";
 import * as sharedGit from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
@@ -4991,6 +4991,151 @@ describe("write loop", () => {
         } finally {
           store.close();
         }
+      });
+
+      const repairPromptForGateLog = async (branchName: string, gateLog: string): Promise<string | undefined> => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        roots.push(join(jarvisRoot, ".."));
+        const store = openStateStore(stateDbPath);
+        const worktreePath = initAutofixGitWorktree(jarvisRoot, branchName);
+        const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        const changedRel = "v2/src/changed.ts";
+        writeComplexityDirtyFile(worktreePath, changedRel);
+        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+        // Worktree reuse appends `.reused` to `.gitignore`; pre-seed it in this commit so the
+        // marker lands inside the frozen run-diff allowset instead of tripping the repair fence.
+        appendFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", changedRel, "proof.txt", ".gitignore"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "agent work"], { stdio: "pipe" });
+        const runId = store.createRun({
+          project: "demo",
+          specRef: "HEAD",
+          worktreePath,
+          branch: branchName,
+          specPath: "spec.md",
+        });
+        const attemptId = store.recordAttemptStart(runId);
+        store.commitCompletionBoundary({
+          attemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const prompts: string[] = [];
+
+        try {
+          const publication = await publishWithReadyRepair(
+            {
+              worktree: {
+                projectRoot: "/fake",
+                projectName: "demo",
+                branchName,
+                baseRef,
+                jarvisRoot,
+              },
+              specPath: "spec.md",
+              stepRules: "repair",
+              expectedArtifactPath: "proof.txt",
+              bindings: [
+                {
+                  id: "sim.1",
+                  metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+                  invoke: async ({ prompt }) => {
+                    prompts.push(prompt);
+                    return { kind: "ok", stdout: "done", stderr: "" } as const;
+                  },
+                },
+              ],
+              stateStore: store,
+              withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+              sessionsDir: join(jarvisRoot, "sessions"),
+              maxIterations: 1,
+              completionCommitter: createCompletionCommitter(),
+              completionPublisher: async () => ({}),
+              runAutofixTypecheck: async () => ({ exitCode: 0, output: "" }),
+              readyFinalizer: async () => {
+                throw new ReadyGateError("bun run ready", 1, gateLog);
+              },
+            },
+            store,
+            { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+            0,
+            {
+              worktreePath,
+              baseRef,
+              specPath: "spec.md",
+              branch: branchName,
+            },
+          );
+
+          expect(publication.failure?.kind).toBe("ready_gate_failed");
+          // A completion_commit_failed short-circuit before repair never invokes the binding.
+          return prompts[0];
+        } finally {
+          store.close();
+        }
+      };
+
+      test("ready-gate repair prompt carries only the failing step command and output", async () => {
+        const stdout = [
+          readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun install" }),
+          "PASSING-STEP-WARNING\n",
+          readyStepStartRecord({ stepId: "2", attemptId: "2.1", command: "bun run check" }),
+          "FAILING-STEP-DIAGNOSTIC\n",
+        ].join("");
+        const stderr = [
+          readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun install" }),
+          readyStepCompletionRecord({ stepId: "1", attemptId: "1.1", command: "bun install", status: 0 }),
+          readyStepStartRecord({ stepId: "2", attemptId: "2.1", command: "bun run check" }),
+          readyStepCompletionRecord({ stepId: "2", attemptId: "2.1", command: "bun run check", status: 1 }),
+        ].join("");
+
+        const prompt = await repairPromptForGateLog("repair-prompt-failing-step", `${stdout}${stderr}`);
+
+        expect(prompt).toContain("Command: bun run ready");
+        expect(prompt).toContain("Failing step: bun run check");
+        expect(prompt).toContain("FAILING-STEP-DIAGNOSTIC");
+        expect(prompt).not.toContain("PASSING-STEP-WARNING");
+      });
+
+      test("ready-gate repair prompt caps the failing step output, not the whole log", async () => {
+        // A short failing step preceded by oversized passing output: a whole-log tail would reach
+        // back into the passing step's padding, while a step-scoped cap leaves the short failing
+        // body whole. Only the step-scoped cap keeps PASSING-PAD-TAIL out of the prompt.
+        const stdout = [
+          readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun run check" }),
+          `${"x".repeat(20000)}PASSING-PAD-TAIL\n`,
+          readyStepStartRecord({ stepId: "2", attemptId: "2.1", command: "bun run test:v2" }),
+          "FAILING-BODY\n",
+        ].join("");
+        const stderr = [
+          readyStepCompletionRecord({ stepId: "1", attemptId: "1.1", command: "bun run check", status: 0 }),
+          readyStepCompletionRecord({ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }),
+        ].join("");
+
+        const prompt = await repairPromptForGateLog("repair-prompt-output-cap", `${stdout}${stderr}`);
+
+        expect(prompt).toContain("FAILING-BODY");
+        expect(prompt).not.toContain("PASSING-PAD-TAIL");
+      });
+
+      test("ready-gate repair prompt truncates an oversized failing step to its tail", async () => {
+        const stdout = [
+          readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun run check" }),
+          `HEAD-MARK${"x".repeat(20000)}TAIL-MARK\n`,
+        ].join("");
+        const stderr = [
+          readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun run check" }),
+          readyStepCompletionRecord({ stepId: "1", attemptId: "1.1", command: "bun run check", status: 1 }),
+        ].join("");
+
+        const prompt = await repairPromptForGateLog("repair-prompt-output-cap-oversized", `${stdout}${stderr}`);
+
+        expect(prompt).toContain("TAIL-MARK");
+        expect(prompt).not.toContain("HEAD-MARK");
       });
 
       test("ready-gate repair autofix scopes biome argv to changed paths", async () => {

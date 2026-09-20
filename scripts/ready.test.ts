@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { READY_STEP_COMPLETION_MARKER, type ReadyStepCompletion, readyAttemptEnvironment, runReady } from "./ready.ts";
+import {
+  READY_STEP_COMPLETION_MARKER,
+  READY_STEP_START_MARKER,
+  type ReadyStepCompletion,
+  readyAttemptEnvironment,
+  runReady,
+} from "./ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
 
 const inheritedTier = process.env.JARVIS_READY_TIER;
@@ -47,6 +53,45 @@ describe("ready step completion evidence", () => {
       INHERITED: "yes",
       [READY_ATTEMPT_ENV]: "2.1",
     });
+  });
+
+  test("a step-start record precedes each attempt on stdout and stderr, including a retry", async () => {
+    const events: string[] = [];
+    spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      events.push(`err:${String(chunk)}`);
+      return true;
+    });
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      events.push(`out:${String(chunk)}`);
+      return true;
+    });
+    let testAttempts = 0;
+
+    try {
+      await startFastReady(async (_name, args, _armedMs, _bound, attemptId) => {
+        events.push(`run:${attemptId}`);
+        if (args[1] === "test:v2") {
+          testAttempts += 1;
+          return testAttempts === 1 ? 1 : 0;
+        }
+        return 0;
+      });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const startRecord = (stepId: string, attemptId: string, command: string) =>
+      `\n${READY_STEP_START_MARKER}${JSON.stringify({ stepId, attemptId, command })}\n`;
+    for (const [attemptId, stepId, command] of [
+      ["1.1", "1", "bun run typecheck"],
+      ["2.1", "2", "bun run test:v2"],
+      ["2.2", "2", "bun run test:v2"],
+    ] as const) {
+      const record = startRecord(stepId, attemptId, command);
+      const runIndex = events.indexOf(`run:${attemptId}`);
+      expect(runIndex).toBeGreaterThan(1);
+      expect(events.slice(runIndex - 2, runIndex).sort()).toEqual([`err:${record}`, `out:${record}`]);
+    }
   });
 
   test("a failed test retry has a distinct final attempt correlated to its own file records", async () => {

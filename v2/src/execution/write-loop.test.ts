@@ -100,6 +100,13 @@ import {
   type WriteLoopResult,
 } from "./write-loop.ts";
 
+async function deriveAllowedOrUndefined(
+  ...args: Parameters<typeof deriveGateAllowedPaths>
+): Promise<Set<string> | undefined> {
+  const derived = await deriveGateAllowedPaths(...args);
+  return "allowed" in derived ? derived.allowed : undefined;
+}
+
 const { roots } = trackedTempRoots();
 
 function fastCeilingSchedule(delayMs = 50): WallSegmentSchedule {
@@ -5138,6 +5145,112 @@ describe("write loop", () => {
         expect(prompt).not.toContain("HEAD-MARK");
       });
 
+      async function publishWithUnderivableFence(
+        branchName: string,
+        site: "repair_fence_initialization" | "autofix_path_enumeration",
+      ): Promise<{
+        publication: Awaited<ReturnType<typeof publishWithReadyRepair>>;
+        logSink: TestLogSink;
+        runId: string;
+      }> {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        roots.push(join(jarvisRoot, ".."));
+        const store = openStateStore(stateDbPath);
+        const worktreePath = initAutofixGitWorktree(jarvisRoot, branchName);
+        const goodBaseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        commitAutofixAgentWork(worktreePath, "v2/src/changed.ts");
+        const baseRef = site === "repair_fence_initialization" ? "refs/heads/no-such-base" : goodBaseRef;
+        const runId = store.createRun({
+          project: "demo",
+          specRef: "HEAD",
+          worktreePath,
+          branch: branchName,
+          specPath: "spec.md",
+        });
+        const attemptId = store.recordAttemptStart(runId);
+        store.commitCompletionBoundary({
+          attemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const logSink = new TestLogSink();
+        try {
+          const publication = await publishWithReadyRepair(
+            {
+              worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef, jarvisRoot },
+              specPath: "spec.md",
+              stepRules: "repair",
+              expectedArtifactPath: "proof.txt",
+              bindings: [],
+              stateStore: store,
+              logSink,
+              withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+              sessionsDir: join(jarvisRoot, "sessions"),
+              maxIterations: 0,
+              completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+              completionPublisher: async () => ({}),
+              readyGateScopeSeams: {
+                gitDiffNameStatus: async () => "\0",
+                gitUntracked: async () => "\0",
+                listSpecTreePaths: async () => [],
+              },
+              runBuiltInReadyGateAutofixBiome: async (opts) =>
+                runBuiltInReadyGateAutofixBiome({
+                  ...opts,
+                  readyGateScopeSeams: { gitDiffNameStatus: async () => null },
+                }),
+              runAutofixTypecheck: async () => ({ exitCode: 0, output: "" }),
+              readyFinalizer: async () => {
+                throw new ReadyGateError("bun run ready", 1, "formatting required");
+              },
+            },
+            store,
+            { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+            0,
+            { worktreePath, baseRef, specPath: "spec.md", branch: branchName },
+          );
+          return { publication, logSink, runId };
+        } finally {
+          store.close();
+        }
+      }
+
+      test("repair-fence derivation failure logs its named reason before settling", async () => {
+        const { publication, logSink, runId } = await publishWithUnderivableFence(
+          "repair-fence-derivation-failure",
+          "repair_fence_initialization",
+        );
+
+        const logged = logSink.getEventsForRun(runId).filter((e) => e.kind === "ready_gate_fence_derivation_failed");
+        expect(logged).toEqual([
+          {
+            kind: "ready_gate_fence_derivation_failed",
+            reason: "diff_unavailable",
+            site: "repair_fence_initialization",
+          },
+        ]);
+        expect(publication.failure?.kind).toBe("completion_commit_failed");
+        expect(publication.failure?.error?.message).toContain("diff_unavailable");
+      });
+
+      test("autofix path-enumeration derivation failure logs its named reason before settling", async () => {
+        const { publication, logSink, runId } = await publishWithUnderivableFence(
+          "autofix-derivation-failure",
+          "autofix_path_enumeration",
+        );
+
+        const logged = logSink.getEventsForRun(runId).filter((e) => e.kind === "ready_gate_fence_derivation_failed");
+        expect(logged).toEqual([
+          { kind: "ready_gate_fence_derivation_failed", reason: "diff_unavailable", site: "autofix_path_enumeration" },
+        ]);
+        expect(publication.failure?.kind).toBe("completion_commit_failed");
+        expect(publication.failure?.error?.message).toContain("diff_unavailable");
+      });
+
       test("ready-gate repair autofix scopes biome argv to changed paths", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         roots.push(join(jarvisRoot, ".."));
@@ -5708,7 +5821,7 @@ describe("write loop", () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "gate-outside-diff-in-scope";
         const { worktreePath, baseRef } = initOutsideDiffRepairWorktree(jarvisRoot, branchName);
-        const frozenAllowset = await deriveGateAllowedPaths(
+        const frozenAllowset = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6425,7 +6538,7 @@ export function isLoadSensitive(file: string): boolean {
           touchUntouchedInIteration: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6494,7 +6607,7 @@ export function isLoadSensitive(file: string): boolean {
           harnessSidecars: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6533,7 +6646,7 @@ export function isLoadSensitive(file: string): boolean {
           loadSensitiveSlice: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6597,7 +6710,7 @@ export function isLoadSensitive(file: string): boolean {
           loadSensitiveSlice: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6769,7 +6882,7 @@ export function isLoadSensitive(file: string): boolean {
         expect(persisted?.readyGateRepairFence?.offendingPath).toBeUndefined();
         reopened.close();
 
-        const withoutRunDiff = await deriveGateAllowedPaths(
+        const withoutRunDiff = await deriveAllowedOrUndefined(
           { worktreePath: join(jarvisRoot, "worktrees", "demo", branchName), baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0", gitDiffNameStatus: async () => "\0" },
         );
@@ -6798,7 +6911,7 @@ export function isLoadSensitive(file: string): boolean {
         execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
         execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
 
-        const withoutSpecTree = await deriveGateAllowedPaths(
+        const withoutSpecTree = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec/index.md" },
           { gitUntracked: async () => "\0", listSpecTreePaths: async () => [] },
         );

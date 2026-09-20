@@ -82,6 +82,7 @@ import {
   classifyReadyGateError,
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  type GateAllowedPathsFailureReason,
   isReadyTestCommand,
   NonTerminatingMutationError,
   nonTerminatingMutationLogFields,
@@ -3536,6 +3537,15 @@ function isActiveReadyGateFailure(outcome: CompletionPublishOutcome): outcome is
   );
 }
 
+function appendFenceDerivationFailedLog(
+  args: WriteLoopInput,
+  runId: string,
+  reason: GateAllowedPathsFailureReason,
+  site: "repair_fence_initialization" | "autofix_path_enumeration",
+): void {
+  args.logSink?.append(runId, { kind: "ready_gate_fence_derivation_failed", reason, site });
+}
+
 async function initializeFrozenRepairAllowset(
   store: StateStore,
   runId: string,
@@ -3554,12 +3564,13 @@ async function initializeFrozenRepairAllowset(
     },
     REPAIR_FENCE_ALLOWSET_SEAMS,
   );
-  if (derived === undefined) {
+  if (!("allowed" in derived)) {
+    appendFenceDerivationFailedLog(loopArgs, runId, derived.reason, "repair_fence_initialization");
     return {
       failure: {
         failure: {
           kind: "completion_commit_failed",
-          error: new Error("Ready-gate repair fence could not derive allowed paths"),
+          error: new Error(`Ready-gate repair fence could not derive allowed paths: ${derived.reason}`),
         },
         iterationsConsumed,
       },
@@ -3575,7 +3586,7 @@ async function initializeFrozenRepairAllowset(
   if (markdownOnly && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
     return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
   }
-  persistReadyGateRepairFence(store, runId, derived, undefined, markdownOutputRoots, markdownOnly);
+  persistReadyGateRepairFence(store, runId, derived.allowed, undefined, markdownOutputRoots, markdownOnly);
   const persistedFence = readyGateRepairFencePersisted(store, runId);
   if (persistedFence === undefined) {
     return { failure: readyGateRepairProvenanceFailure(iterationsConsumed) };
@@ -3586,7 +3597,7 @@ async function initializeFrozenRepairAllowset(
   ) {
     return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
   }
-  return { allowset: derived };
+  return { allowset: derived.allowed };
 }
 
 function repairFenceFailureMessage(frozen: Set<string>, error: ReadyGateError): string {
@@ -4022,6 +4033,13 @@ async function runAutofixTypecheckVerification(
 
 const READY_GATE_AUTOFIX_MAX_DIAGNOSTICS = 256;
 
+class AutofixFenceDerivationError extends FixCommandError {
+  constructor(readonly reason: GateAllowedPathsFailureReason) {
+    super(`ready-gate autofix could not enumerate changed paths: ${reason}`);
+    this.name = "AutofixFenceDerivationError";
+  }
+}
+
 type RunBuiltInReadyGateAutofixBiomeOpts = ExternalSpecGitScope & {
   cwd: string;
   baseRef: string;
@@ -4032,16 +4050,16 @@ type RunBuiltInReadyGateAutofixBiomeOpts = ExternalSpecGitScope & {
 async function enumerateAutofixChangedPaths(
   opts: RunBuiltInReadyGateAutofixBiomeOpts,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
-): Promise<string[] | undefined> {
+): Promise<string[]> {
   const allowed = await deriveGateAllowedPaths(
     { worktreePath: opts.cwd, baseRef: opts.baseRef, specPath: "" },
     { ...opts.readyGateScopeSeams, listSpecTreePaths: async () => [] },
     runner,
   );
-  if (allowed === undefined) {
-    return undefined;
+  if (!("allowed" in allowed)) {
+    throw new AutofixFenceDerivationError(allowed.reason);
   }
-  const scoped = excludeExternalSpecGitPaths(opts.cwd, [...allowed], opts);
+  const scoped = excludeExternalSpecGitPaths(opts.cwd, [...allowed.allowed], opts);
   return biomeEligiblePaths(opts.cwd, scoped);
 }
 
@@ -4053,9 +4071,6 @@ export async function runBuiltInReadyGateAutofixBiome(
     return;
   }
   const eligible = await enumerateAutofixChangedPaths(opts, runner);
-  if (eligible === undefined) {
-    throw new FixCommandError("ready-gate autofix could not enumerate changed paths");
-  }
   if (eligible.length === 0) {
     return;
   }
@@ -4149,6 +4164,9 @@ export async function publishWithReadyRepair(
   try {
     await dispatchReadyGateAutofix(args, input);
   } catch (error) {
+    if (error instanceof AutofixFenceDerivationError) {
+      appendFenceDerivationFailedLog(args, result.runId, error.reason, "autofix_path_enumeration");
+    }
     return {
       failure: {
         kind: "completion_commit_failed",

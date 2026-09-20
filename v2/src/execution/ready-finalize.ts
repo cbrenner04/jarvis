@@ -854,18 +854,33 @@ export function resolveSpecScopeRoot(
   return { root, insideWorktree };
 }
 
-function enumerateSpecTreePaths(worktreePath: string, specPath: string): string[] | null {
+/** Named reason the fail-closed allowed path set could not be derived. */
+export type GateAllowedPathsFailureReason =
+  | "diff_unavailable"
+  | "untracked_inventory_unavailable"
+  | "spec_scope_unresolvable"
+  | "spec_tree_path_invalid"
+  | "diff_output_unparseable"
+  | "untracked_output_unparseable"
+  | "collected_path_invalid";
+
+export type GateAllowedPathsResult = { allowed: Set<string> } | { reason: GateAllowedPathsFailureReason };
+
+function enumerateSpecTreePaths(
+  worktreePath: string,
+  specPath: string,
+): { paths: string[] } | { reason: "spec_scope_unresolvable" | "spec_tree_path_invalid" } {
   const scope = resolveSpecScopeRoot(worktreePath, specPath);
   if (scope === null) {
     const normalized = normalizePublicationSpecPath(worktreePath, specPath);
     const validated = validateRepoRelativePath(normalized);
-    return validated === undefined ? null : [validated];
+    return validated === undefined ? { reason: "spec_scope_unresolvable" } : { paths: [validated] };
   }
   if (!existsSync(scope.root)) {
-    return null;
+    return { reason: "spec_scope_unresolvable" };
   }
   if (!scope.insideWorktree) {
-    return [];
+    return { paths: [] };
   }
   const files = listMarkdownFilesRecursive(scope.root);
   const paths: string[] = [];
@@ -873,11 +888,11 @@ function enumerateSpecTreePaths(worktreePath: string, specPath: string): string[
     const rel = relative(worktreePath, file).replace(/\\/g, "/");
     const validated = validateRepoRelativePath(rel);
     if (validated === undefined) {
-      return null;
+      return { reason: "spec_tree_path_invalid" };
     }
     paths.push(validated);
   }
-  return paths;
+  return { paths };
 }
 
 /** Derive the fail-closed allowed path set from base diff, untracked inventory, and spec tree. */
@@ -885,7 +900,7 @@ export async function deriveGateAllowedPaths(
   scope: ReadyGateScopeInput,
   seams?: ReadyGateScopeSeams,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
-): Promise<Set<string> | undefined> {
+): Promise<GateAllowedPathsResult> {
   let diffOutput: string | null;
   try {
     diffOutput =
@@ -898,10 +913,10 @@ export async function deriveGateAllowedPaths(
             { maxBuffer: READY_GATE_MAX_BUFFER },
           );
   } catch {
-    return undefined;
+    return { reason: "diff_unavailable" };
   }
   if (diffOutput === null) {
-    return undefined;
+    return { reason: "diff_unavailable" };
   }
 
   let untrackedOutput: string | null;
@@ -911,38 +926,45 @@ export async function deriveGateAllowedPaths(
         ? await seams.gitUntracked(scope.worktreePath)
         : await runner.runAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], scope.worktreePath);
   } catch {
-    return undefined;
+    return { reason: "untracked_inventory_unavailable" };
   }
   if (untrackedOutput === null) {
-    return undefined;
+    return { reason: "untracked_inventory_unavailable" };
   }
 
-  const specPaths =
-    seams?.listSpecTreePaths !== undefined
-      ? await seams.listSpecTreePaths(scope.worktreePath, scope.specPath)
-      : enumerateSpecTreePaths(scope.worktreePath, scope.specPath);
-  if (specPaths === null) {
-    return undefined;
+  let specPaths: string[];
+  if (seams?.listSpecTreePaths !== undefined) {
+    const listed = await seams.listSpecTreePaths(scope.worktreePath, scope.specPath);
+    if (listed === null) {
+      return { reason: "spec_scope_unresolvable" };
+    }
+    specPaths = listed;
+  } else {
+    const enumerated = enumerateSpecTreePaths(scope.worktreePath, scope.specPath);
+    if ("reason" in enumerated) {
+      return { reason: enumerated.reason };
+    }
+    specPaths = enumerated.paths;
   }
 
   const diffPaths = parseGitNameStatusZ(diffOutput);
   if (diffPaths === undefined) {
-    return undefined;
+    return { reason: "diff_output_unparseable" };
   }
   const untrackedPaths = parseNulDelimitedPaths(untrackedOutput);
   if (untrackedPaths === undefined) {
-    return undefined;
+    return { reason: "untracked_output_unparseable" };
   }
 
   const allowed = new Set<string>();
   for (const rawPath of [...diffPaths, ...untrackedPaths, ...specPaths]) {
     const normalized = validateRepoRelativePath(rawPath);
     if (normalized === undefined) {
-      return undefined;
+      return { reason: "collected_path_invalid" };
     }
     allowed.add(normalized);
   }
-  return allowed;
+  return { allowed };
 }
 
 /** Classify a ready gate failure from terminal test evidence and the run's allowed path set. */
@@ -953,7 +975,8 @@ export async function classifyReadyGateError(
   runner?: AsyncSubprocessRunner,
 ): Promise<ReadyGateError> {
   const failingPaths = selectTerminalFailingPaths(error.output);
-  const allowedPaths = await deriveGateAllowedPaths(scope, seams, runner);
+  const derived = await deriveGateAllowedPaths(scope, seams, runner);
+  const allowedPaths = "allowed" in derived ? derived.allowed : undefined;
   const classification = await classifyReadyGateFailure(error, failingPaths, allowedPaths, scope, seams, runner);
   if (
     classification.kind === error.gateFailureKind &&

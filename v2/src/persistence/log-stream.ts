@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { sleep } from "../../../shared/sleep.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import type { BaseRefProbeObservation } from "../execution/ready-finalize.ts";
+import type { BaseRefProbeObservation, GateAllowedPathsFailureReason } from "../execution/ready-finalize.ts";
 import type { GateInvocationRefusalCause, WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
@@ -38,6 +38,13 @@ type ReadyGateAutofixDiscardedEvent = {
   kind: "ready_gate_autofix_discarded";
   typecheckExitCode: number;
   typecheckOutput: string;
+};
+
+/** The fail-closed allowed path set could not be derived; `site` names the caller that needed it. */
+type ReadyGateFenceDerivationFailedEvent = {
+  kind: "ready_gate_fence_derivation_failed";
+  reason: GateAllowedPathsFailureReason;
+  site: "repair_fence_initialization" | "autofix_path_enumeration";
 };
 
 export type LoopFinishedEvent = {
@@ -320,6 +327,7 @@ type LogEventWithoutLoopFinished =
   | ReadyGateBaseRefProbeEvent
   | ReadyGateTimeoutEvent
   | ReadyGateAutofixDiscardedEvent
+  | ReadyGateFenceDerivationFailedEvent
   | RuntimeSmokeOutcomeEvent
   | IterationCommitEvent
   | RunExecutionFailedEvent

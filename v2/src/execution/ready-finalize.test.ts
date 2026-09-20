@@ -21,6 +21,7 @@ import {
   deriveGateAllowedPaths,
   findMissingReadyGateCommandEvidence,
   formatReadyGateOutOfScopeDetail,
+  type GateAllowedPathsFailureReason,
   hasFailingTestEvidence,
   NonTerminatingMutationError,
   nonTerminatingMutationLogFields,
@@ -265,6 +266,68 @@ function initRepoWithChange(): { root: string; baseRef: string } {
   return { root, baseRef };
 }
 
+async function deriveAllowedOrUndefined(
+  ...args: Parameters<typeof deriveGateAllowedPaths>
+): Promise<Set<string> | undefined> {
+  const derived = await deriveGateAllowedPaths(...args);
+  return "allowed" in derived ? derived.allowed : undefined;
+}
+
+describe("gate allowset derivation failure reasons", () => {
+  const scope = { worktreePath: "/unused", baseRef: "base", specPath: "v2/spec/demo/index.md" };
+  const ok: ReadyGateScopeSeams = {
+    gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+    gitUntracked: async () => "",
+    listSpecTreePaths: async () => [],
+  };
+
+  it("names each seam-reachable failure", async () => {
+    const cases: Array<[GateAllowedPathsFailureReason, ReadyGateScopeSeams]> = [
+      ["diff_unavailable", { ...ok, gitDiffNameStatus: async () => null }],
+      [
+        "diff_unavailable",
+        {
+          ...ok,
+          gitDiffNameStatus: async () => {
+            throw new Error("boom");
+          },
+        },
+      ],
+      ["untracked_inventory_unavailable", { ...ok, gitUntracked: async () => null }],
+      [
+        "untracked_inventory_unavailable",
+        {
+          ...ok,
+          gitUntracked: async () => {
+            throw new Error("boom");
+          },
+        },
+      ],
+      ["spec_scope_unresolvable", { ...ok, listSpecTreePaths: async () => null }],
+      ["diff_output_unparseable", { ...ok, gitDiffNameStatus: async () => "M\0no-trailing-nul" }],
+      ["untracked_output_unparseable", { ...ok, gitUntracked: async () => "no-trailing-nul" }],
+      ["collected_path_invalid", { ...ok, gitDiffNameStatus: async () => `M\0../escape.ts\0` }],
+    ];
+    for (const [reason, seams] of cases) {
+      expect(await deriveGateAllowedPaths(scope, seams)).toEqual({ reason });
+    }
+    expect(await deriveGateAllowedPaths(scope, ok)).toEqual({ allowed: new Set(["v2/src/changed.ts"]) });
+  });
+
+  it("names filesystem-only spec scope failures separately", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    const seams: ReadyGateScopeSeams = { gitUntracked: async () => "" };
+    const derive = (specPath: string) => deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath }, seams);
+
+    expect(await derive("../not-a-spec")).toEqual({ reason: "spec_scope_unresolvable" });
+    expect(await derive("v2/spec/missing/index.md")).toEqual({ reason: "spec_scope_unresolvable" });
+
+    mkdirSync(join(root, " spec"), { recursive: true });
+    writeFileSync(join(root, " spec", "index.md"), "# index\n");
+    expect(await derive(join(root, " spec"))).toEqual({ reason: "spec_tree_path_invalid" });
+  });
+});
+
 describe("gate allowset spec scope roots", () => {
   const withUntracked: ReadyGateScopeSeams = { gitUntracked: async () => "untracked.txt\0" };
 
@@ -277,7 +340,7 @@ describe("gate allowset spec scope roots", () => {
     expect(resolveSpecScopeRoot(root, external)?.insideWorktree).toBe(false);
     expect(resolveSpecScopeRoot(root, join(external, "01-task.md"))?.insideWorktree).toBe(false);
     expect(resolveSpecScopeRoot(root, "v2/spec/demo/index.md")?.insideWorktree).toBe(true);
-    const allowed = await deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath: external }, withUntracked);
+    const allowed = await deriveAllowedOrUndefined({ worktreePath: root, baseRef, specPath: external }, withUntracked);
     expect(allowed).toBeDefined();
     expect(allowed?.has("changed.ts")).toBe(true);
     expect(allowed?.has("untracked.txt")).toBe(true);
@@ -291,7 +354,7 @@ describe("gate allowset spec scope roots", () => {
     const { root, baseRef } = initRepoWithChange();
     mkdirSync(join(root, "v2", "spec", "empty"), { recursive: true });
 
-    const allowed = await deriveGateAllowedPaths(
+    const allowed = await deriveAllowedOrUndefined(
       { worktreePath: root, baseRef, specPath: "v2/spec/empty" },
       withUntracked,
     );
@@ -308,7 +371,9 @@ describe("gate allowset spec scope roots", () => {
       join(externalParent, "missing", "index.md"),
     ];
     for (const specPath of specPaths) {
-      expect(await deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath }, withUntracked)).toBeUndefined();
+      expect(await deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath }, withUntracked)).toEqual({
+        reason: "spec_scope_unresolvable",
+      });
     }
   });
 });
@@ -340,7 +405,7 @@ describe("ready gate untouched-path classification", () => {
       baseRef,
       specPath: "v2/spec/demo/01-task.md",
     };
-    const allowed = await deriveGateAllowedPaths(directSubspecScope, {
+    const allowed = await deriveAllowedOrUndefined(directSubspecScope, {
       gitUntracked: async () => "",
     });
     expect(allowed?.has("v2/spec/demo/01-task.md")).toBe(true);
@@ -635,7 +700,7 @@ describe("ready gate untouched-path classification", () => {
       ...allowedSeams,
       gitDiffNameStatus: async () => `R100\0v2/src/old.ts\0v2/src/new.ts\0`,
     };
-    const renameAllowed = await deriveGateAllowedPaths(scope, renameSeams);
+    const renameAllowed = await deriveAllowedOrUndefined(scope, renameSeams);
     expect(renameAllowed?.has("v2/src/old.ts")).toBe(true);
     expect(renameAllowed?.has("v2/src/new.ts")).toBe(true);
 
@@ -643,33 +708,33 @@ describe("ready gate untouched-path classification", () => {
       ...allowedSeams,
       gitDiffNameStatus: async () => `D\0v2/src/removed.ts\0`,
     };
-    const deleteAllowed = await deriveGateAllowedPaths(scope, deleteSeams);
+    const deleteAllowed = await deriveAllowedOrUndefined(scope, deleteSeams);
     expect(deleteAllowed?.has("v2/src/removed.ts")).toBe(true);
 
     const untrackedSeams = {
       ...allowedSeams,
       gitUntracked: async () => `v2/src/new-file.ts\0`,
     };
-    const untrackedAllowed = await deriveGateAllowedPaths(scope, untrackedSeams);
+    const untrackedAllowed = await deriveAllowedOrUndefined(scope, untrackedSeams);
     expect(untrackedAllowed?.has("v2/src/new-file.ts")).toBe(true);
 
     const unavailableDiff = await deriveGateAllowedPaths(scope, {
       ...allowedSeams,
       gitDiffNameStatus: async () => null,
     });
-    expect(unavailableDiff).toBeUndefined();
+    expect(unavailableDiff).toEqual({ reason: "diff_unavailable" });
 
     const unavailableInventory = await deriveGateAllowedPaths(scope, {
       ...allowedSeams,
       gitUntracked: async () => null,
     });
-    expect(unavailableInventory).toBeUndefined();
+    expect(unavailableInventory).toEqual({ reason: "untracked_inventory_unavailable" });
 
     const malformedDiff = await deriveGateAllowedPaths(scope, {
       ...allowedSeams,
       gitDiffNameStatus: async () => "M\0missing-trailing-nul",
     });
-    expect(malformedDiff).toBeUndefined();
+    expect(malformedDiff).toEqual({ reason: "diff_output_unparseable" });
   });
 
   it("does not misclassify deadline-killed or requiredIntegrationScope failures", async () => {

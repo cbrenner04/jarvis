@@ -100,6 +100,12 @@ import {
   type WriteLoopResult,
 } from "./write-loop.ts";
 
+async function deriveAllowedOrUndefined(
+  ...args: Parameters<typeof deriveGateAllowedPaths>
+): Promise<Set<string> | undefined> {
+  const derived = await deriveGateAllowedPaths(...args);
+  return "allowed" in derived ? derived.allowed : undefined;
+}
 const { roots } = trackedTempRoots();
 
 function fastCeilingSchedule(delayMs = 50): WallSegmentSchedule {
@@ -5708,7 +5714,7 @@ describe("write loop", () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "gate-outside-diff-in-scope";
         const { worktreePath, baseRef } = initOutsideDiffRepairWorktree(jarvisRoot, branchName);
-        const frozenAllowset = await deriveGateAllowedPaths(
+        const frozenAllowset = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6425,7 +6431,7 @@ export function isLoadSensitive(file: string): boolean {
           touchUntouchedInIteration: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6494,7 +6500,7 @@ export function isLoadSensitive(file: string): boolean {
           harnessSidecars: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6533,7 +6539,7 @@ export function isLoadSensitive(file: string): boolean {
           loadSensitiveSlice: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6597,7 +6603,7 @@ export function isLoadSensitive(file: string): boolean {
           loadSensitiveSlice: true,
         });
 
-        const allowed = await deriveGateAllowedPaths(
+        const allowed = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0" },
         );
@@ -6769,7 +6775,7 @@ export function isLoadSensitive(file: string): boolean {
         expect(persisted?.readyGateRepairFence?.offendingPath).toBeUndefined();
         reopened.close();
 
-        const withoutRunDiff = await deriveGateAllowedPaths(
+        const withoutRunDiff = await deriveAllowedOrUndefined(
           { worktreePath: join(jarvisRoot, "worktrees", "demo", branchName), baseRef, specPath: "spec.md" },
           { gitUntracked: async () => "\0", gitDiffNameStatus: async () => "\0" },
         );
@@ -6798,7 +6804,7 @@ export function isLoadSensitive(file: string): boolean {
         execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
         execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
 
-        const withoutSpecTree = await deriveGateAllowedPaths(
+        const withoutSpecTree = await deriveAllowedOrUndefined(
           { worktreePath, baseRef, specPath: "spec/index.md" },
           { gitUntracked: async () => "\0", listSpecTreePaths: async () => [] },
         );

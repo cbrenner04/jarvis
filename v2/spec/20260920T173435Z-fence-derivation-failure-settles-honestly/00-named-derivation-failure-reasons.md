@@ -15,9 +15,9 @@
 
 ## Acceptance criteria
 
-- [ ] A `ready-finalize.test.ts` test drives each of the seven failures and asserts its distinct named reason; no failure yields bare `undefined`. It fails against the pre-fix `Set<string> | undefined` return.
-- [ ] The `toBeUndefined()` assertions at `ready-finalize.test.ts:303` and `:648,654,660` are updated to the discriminated result with the same outcomes (failure stays failure); the other derivation tests at `ready-finalize.test.ts:263-345` and `:620-665` and the `write-loop.test.ts` callers stay green (behavior at each call site unchanged by this subspec).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A `ready-finalize.test.ts` test drives each of the seven failures and asserts its distinct named reason; no failure yields bare `undefined`. It fails against the pre-fix `Set<string> | undefined` return.
+- [x] The `toBeUndefined()` assertions at `ready-finalize.test.ts:303` and `:648,654,660` are updated to the discriminated result with the same outcomes (failure stays failure); the other derivation tests at `ready-finalize.test.ts:263-345` and `:620-665` and the `write-loop.test.ts` callers stay green (behavior at each call site unchanged by this subspec).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

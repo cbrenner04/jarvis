@@ -3554,7 +3554,7 @@ async function initializeFrozenRepairAllowset(
     },
     REPAIR_FENCE_ALLOWSET_SEAMS,
   );
-  if (derived === undefined) {
+  if (!("allowed" in derived)) {
     return {
       failure: {
         failure: {
@@ -3575,7 +3575,7 @@ async function initializeFrozenRepairAllowset(
   if (markdownOnly && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
     return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
   }
-  persistReadyGateRepairFence(store, runId, derived, undefined, markdownOutputRoots, markdownOnly);
+  persistReadyGateRepairFence(store, runId, derived.allowed, undefined, markdownOutputRoots, markdownOnly);
   const persistedFence = readyGateRepairFencePersisted(store, runId);
   if (persistedFence === undefined) {
     return { failure: readyGateRepairProvenanceFailure(iterationsConsumed) };
@@ -3586,7 +3586,7 @@ async function initializeFrozenRepairAllowset(
   ) {
     return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
   }
-  return { allowset: derived };
+  return { allowset: derived.allowed };
 }
 
 function repairFenceFailureMessage(frozen: Set<string>, error: ReadyGateError): string {
@@ -4038,10 +4038,10 @@ async function enumerateAutofixChangedPaths(
     { ...opts.readyGateScopeSeams, listSpecTreePaths: async () => [] },
     runner,
   );
-  if (allowed === undefined) {
+  if (!("allowed" in allowed)) {
     return undefined;
   }
-  const scoped = excludeExternalSpecGitPaths(opts.cwd, [...allowed], opts);
+  const scoped = excludeExternalSpecGitPaths(opts.cwd, [...allowed.allowed], opts);
   return biomeEligiblePaths(opts.cwd, scoped);
 }
 

@@ -15,6 +15,7 @@ import {
   writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { formatSlotRedriveCell } from "./run.ts";
 
 let fx: CliRepoFixture;
 
@@ -1381,7 +1382,10 @@ describe("run control", () => {
     expect(row().slice(17)).toEqual(["slot_contention", "1/3", "dismissed"]);
   });
 
-  test("run wait preserves gateRefusalCause, slotRedriveCount, and slotRedriveBound", async () => {
+  // Pass-through pin only: `waitForRunCompletion` copies `result.error` verbatim and `parseWaitCompletion`
+  // does no field-level validation, so this asserts the CLI adds no filtering. End-to-end proof that the
+  // daemon populates these fields lives in daemon-wait-run-completion.test.ts.
+  test("run wait passes gateRefusalCause, slotRedriveCount, and slotRedriveBound through unfiltered", async () => {
     const cap = captureIo();
     const code = await runWait(cap, "run-refused", [
       waitResponse({
@@ -1406,6 +1410,18 @@ describe("run control", () => {
     expect(parsed.error?.gateRefusalCause).toBe("slot_contention");
     expect(parsed.error?.slotRedriveCount).toBe(2);
     expect(parsed.error?.slotRedriveBound).toBe(3);
+  });
+
+  test("formatSlotRedriveCell renders - rather than a partial cell when the bound is absent", () => {
+    const slot = { reason: "gate_invocation_refused", retryable: true, nextAction: "resume" } as const;
+    expect(
+      formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveCount: 2, slotRedriveBound: 3 }),
+    ).toBe("2/3");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveCount: 2 })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveBound: 3 })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention" })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "ceiling_headroom" })).toBe("-");
+    expect(formatSlotRedriveCell(undefined)).toBe("-");
   });
 
   test("run list --all requests dismissed runs", async () => {

@@ -9,11 +9,13 @@
 - Append the cause and slot-retry columns after the existing `message` column and before the conditional dismissal marker; rules out inserting mid-row, which would shift every established column index.
 - Render the slot column as `<count>/<bound>` and `-` when the cause is not `slot_contention`; rules out two separate columns for one fact.
 - Cause cell renders `gateRefusalCause` verbatim, `-` for non-refusal rows; `legacy_unknown` renders `legacy_unknown` in the cause cell and `-` in the slot cell.
+- The slot cell renders `<count>/<bound>` only when both numbers are present, and `-` otherwise; rules out a partial `0/?` cell, which would feed a non-numeric token to parsers reading the column as numbers.
 
 ## Acceptance criteria
 
 - [x] `v2/src/commands/run.test.ts` proves `run list` renders the gate-refusal cause and, for a slot-contention refusal, its `<count>/<bound>` cell, with `-` in that cell for `ceiling_headroom` and `legacy_unknown` refusals and `-` in both cells for a non-refusal row; the test fails against the pre-fix row format.
-- [x] A test proves `run wait` output preserves the structured `gateRefusalCause`, `slotRedriveCount`, and `slotRedriveBound` fields for a refused row.
+- [x] End-to-end proof that a refused row's `gateRefusalCause`, `slotRedriveCount`, and `slotRedriveBound` reach `wait` output lives in `v2/src/daemon/daemon-wait-run-completion.test.ts` ("list and wait project gate refusal cause, remedy message, and slot count/bound"); the `run wait` case in `v2/src/commands/run.test.ts` pins only that the CLI passes the daemon's `error` object through unfiltered, since `waitForRunCompletion` copies it verbatim and `parseWaitCompletion` does no field-level validation.
+- [x] `formatSlotRedriveCell` renders `-` rather than a partial `<count>/?` cell when the slot bound or count is absent, matching how the row's other optional cells render; a test covers both missing-field directions.
 - [x] Existing `v2/src/commands/run.test.ts` list/wait cases stay green (dismissal marker stays last).
 - [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

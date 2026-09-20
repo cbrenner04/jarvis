@@ -1,9 +1,14 @@
+import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
 import { formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
+import { openStateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { MAX_SLOT_REDRIVES } from "./daemon-slot-redrive.ts";
 import type {
   RunOperatorError,
@@ -304,13 +309,44 @@ test("composeRunOperatorError projects slot remedy without a log event via termi
   expect(error?.gateRefusalCause).toBe("slot_contention");
 });
 
-test("composeRunOperatorError projects unparseable gate refusal state as legacy_unknown without slot fields", () => {
-  const run = refusedRun({ cause: "legacy_unknown" });
-  const error = composeRunOperatorError({ ...run, gateRefusalRecoveryStateCorrupt: true } as typeof run, refusedLog());
-  expect(error?.gateRefusalCause).toBe("legacy_unknown");
-  expect(error).not.toHaveProperty("slotRedriveCount");
-  expect(error).not.toHaveProperty("slotRedriveBound");
-  expect(error?.nextAction).toBe("resume");
+test("composeRunOperatorError projects an unparseable stored gate refusal column as legacy_unknown without slot fields", () => {
+  const dbPath = join(tmpdir(), `jarvis-run-operator-error-${process.pid}-${Date.now()}.sqlite`);
+  removeOrchestrationStore(dbPath);
+  const store = openStateStore(dbPath);
+  try {
+    const runId = store.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/worktree",
+      branch: "test-branch",
+      specPath: "spec.md",
+    });
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:v2", slotRedriveCount: 2 },
+    });
+    // Corrupt the stored column behind the store's back: the decode, not the caller, must collapse it.
+    const raw = new Database(dbPath);
+    raw.prepare("UPDATE runs SET gate_refusal_recovery_state = ? WHERE id = ?").run("{not-json", runId);
+    raw.close();
+
+    const loaded = store.loadRun(runId);
+    if (loaded === null || loaded === undefined) throw new Error("run should exist");
+    expect(loaded.gateRefusalRecoveryStateCorrupt).toBe(true);
+
+    const error = composeRunOperatorError({ ...loaded, attempts: [] }, refusedLog());
+    expect(error?.reason).toBe("gate_invocation_refused");
+    expect(error?.gateRefusalCause).toBe("legacy_unknown");
+    expect(error).not.toHaveProperty("slotRedriveCount");
+    expect(error).not.toHaveProperty("slotRedriveBound");
+    expect(error?.nextAction).toBe("resume");
+    expect(error?.message).toBe("Gate invocation refused: bun run test:v2");
+  } finally {
+    store.close();
+    removeOrchestrationStore(dbPath);
+  }
 });
 
 test("composeRunOperatorError maps enriched resumable iteration_timeout to resume", () => {

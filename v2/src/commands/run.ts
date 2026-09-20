@@ -27,6 +27,17 @@ import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
 
+/**
+ * `<count>/<bound>` only when the refusal is slot contention AND both numbers are present; the
+ * absent cell renders `-` like every other optional column. Emitting a partial cell (`0/?`) would
+ * feed a non-numeric token to downstream parsers reading this column as numbers.
+ */
+export function formatSlotRedriveCell(error: DaemonListRunRow["error"]): string {
+  if (error?.gateRefusalCause !== "slot_contention") return "-";
+  if (error.slotRedriveCount === undefined || error.slotRedriveBound === undefined) return "-";
+  return `${error.slotRedriveCount}/${error.slotRedriveBound}`;
+}
+
 function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string {
   const e = run.error;
   const columns = [
@@ -47,6 +58,8 @@ function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string
     run.prUrl ?? "-",
     e?.completionCommitError === undefined ? "-" : JSON.stringify(e.completionCommitError),
     e?.message === undefined ? "-" : JSON.stringify(e.message),
+    e?.gateRefusalCause ?? "-",
+    formatSlotRedriveCell(e),
     ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
   ];
   return `${columns.join("\t")}\n`;

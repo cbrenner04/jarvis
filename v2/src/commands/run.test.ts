@@ -15,6 +15,7 @@ import {
   writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { formatSlotRedriveCell } from "./run.ts";
 
 let fx: CliRepoFixture;
 
@@ -1330,6 +1331,99 @@ describe("run control", () => {
     expect(row()[16]).toBe(JSON.stringify(message));
   });
 
+  test("run list renders gate-refusal cause and slot retry cells after message, before the dismissal marker", async () => {
+    const refused = (runId: string, extra: Record<string, unknown>) => ({
+      runId,
+      project: "demo",
+      branch: "main",
+      status: "failed" as const,
+      isLive: false,
+      error: { reason: "gate_invocation_refused", retryable: true, nextAction: "resume", ...extra },
+    });
+    const { code, rows } = await runSoloList([
+      refused("slot", { gateRefusalCause: "slot_contention", slotRedriveCount: 2, slotRedriveBound: 3 }),
+      refused("ceiling", { gateRefusalCause: "ceiling_headroom" }),
+      refused("legacy", { gateRefusalCause: "legacy_unknown" }),
+      { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
+    ]);
+
+    expect(code).toBe(0);
+    const [ceiling, legacy, plain, slot] = rows();
+    expect(slot?.slice(17)).toEqual(["slot_contention", "2/3"]);
+    expect(ceiling?.slice(17)).toEqual(["ceiling_headroom", "-"]);
+    expect(legacy?.slice(17)).toEqual(["legacy_unknown", "-"]);
+    expect(plain?.slice(17)).toEqual(["-", "-"]);
+  });
+
+  test("run list --all keeps the dismissal marker after the refusal cause cells", async () => {
+    const { code, row } = await runSoloList(
+      [
+        {
+          runId: "dismissed-refused",
+          project: "demo",
+          branch: "main",
+          status: "failed",
+          isLive: false,
+          dismissedAt: 1,
+          error: {
+            reason: "gate_invocation_refused",
+            retryable: true,
+            nextAction: "resume",
+            gateRefusalCause: "slot_contention",
+            slotRedriveCount: 1,
+            slotRedriveBound: 3,
+          },
+        },
+      ],
+      ["--all"],
+    );
+
+    expect(code).toBe(0);
+    expect(row().slice(17)).toEqual(["slot_contention", "1/3", "dismissed"]);
+  });
+
+  // Pass-through pin only: `waitForRunCompletion` copies `result.error` verbatim and `parseWaitCompletion`
+  // does no field-level validation, so this asserts the CLI adds no filtering. End-to-end proof that the
+  // daemon populates these fields lives in daemon-wait-run-completion.test.ts.
+  test("run wait passes gateRefusalCause, slotRedriveCount, and slotRedriveBound through unfiltered", async () => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-refused", [
+      waitResponse({
+        runStatus: "failed",
+        loopOutcomeKind: "gate_invocation_refused",
+        resumable: true,
+        error: {
+          reason: "gate_invocation_refused",
+          retryable: true,
+          nextAction: "resume",
+          gateRefusalCause: "slot_contention",
+          slotRedriveCount: 2,
+          slotRedriveBound: 3,
+        },
+      }),
+    ]);
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(cap.read().stdout.trimEnd()) as {
+      error?: { gateRefusalCause?: string; slotRedriveCount?: number; slotRedriveBound?: number };
+    };
+    expect(parsed.error?.gateRefusalCause).toBe("slot_contention");
+    expect(parsed.error?.slotRedriveCount).toBe(2);
+    expect(parsed.error?.slotRedriveBound).toBe(3);
+  });
+
+  test("formatSlotRedriveCell renders - rather than a partial cell when the bound is absent", () => {
+    const slot = { reason: "gate_invocation_refused", retryable: true, nextAction: "resume" } as const;
+    expect(
+      formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveCount: 2, slotRedriveBound: 3 }),
+    ).toBe("2/3");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveCount: 2 })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveBound: 3 })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention" })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "ceiling_headroom" })).toBe("-");
+    expect(formatSlotRedriveCell(undefined)).toBe("-");
+  });
+
   test("run list --all requests dismissed runs", async () => {
     const { code, sent } = await runSoloList([soloDaemonListRow("solo-run")], ["--all"]);
 
@@ -1357,15 +1451,15 @@ describe("run control", () => {
 
     expect(code).toBe(0);
     const [dismissed, notDismissed] = rows();
-    expect(dismissed?.[17]).toBe("dismissed");
-    expect(notDismissed?.[17]).toBe("-");
+    expect(dismissed?.[19]).toBe("dismissed");
+    expect(notDismissed?.[19]).toBe("-");
   });
 
   test("run list without --all renders no dismissal column", async () => {
     const { code, row } = await runSoloList([{ ...soloDaemonListRow("dismissed-run"), dismissedAt: 123 }]);
 
     expect(code).toBe(0);
-    expect(row()).toHaveLength(17);
+    expect(row()).toHaveLength(19);
   });
 
   test("run list --all --since <duration> --project <name> composes the opt-in with dimension filters", async () => {

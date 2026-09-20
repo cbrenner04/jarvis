@@ -33,4 +33,6 @@ A composed `gate_invocation_refused` operator error carries the durable `gateRef
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — the `gate_invocation_refused` operator-error projection: cause, slot count, bound, and cause-specific `message` remedy.
+- `v2/docs/daemon-host.md` § Operator error on list and wait — add `gateRefusalCause`, `slotRedriveCount`, and `slotRedriveBound` to the documented `error` object shape; it is the canonical wire contract both the `list` and `wait` RPC tables cross-link.
+- `v2/docs/daemon-host.md` (Operator error on list and wait) — add `gateRefusalCause`, `slotRedriveCount`, and `slotRedriveBound` to the documented `error` object shape; it is the canonical wire contract both the `list` and `wait` RPC tables cross-link.
 - `v2/docs/v1-behaviors.md` — record the differentiated v2 operator-visible refusal cause and bounded retry evidence.

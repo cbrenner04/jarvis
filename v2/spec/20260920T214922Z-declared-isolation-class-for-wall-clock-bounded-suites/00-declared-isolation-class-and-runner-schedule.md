@@ -17,7 +17,7 @@
 - The declaration contract is v2-lane only: `scripts/run-shared-tests.ts` runs agent mode as one `bun test --parallel` over `shared/`, `test/`, `scripts/` with no pool and no `isLoadSensitive`. Deferred to first consumer: shared-lane honoring of the class — pin when a shared suite needs it.
 - `runV2TestFiles` iterates the schedule's batches in order under the existing bounded pool at the resolved concurrency, each batch fully draining before the next; it no longer derives a `poolable`/`isolated` split. Rules out overlapping batch tails and collapsing to concurrency 1.
 - `stopAdmitting` carries across batches: `agent` mode keeps admitting past a timeout and stops on a plain failure, every other mode stops on either; a stop prevents later batches from starting.
-- Deliberate behavior change: a first failure in an earlier batch now prevents later batches from starting (files that previously pooled into one phase may no longer be admitted). Route to `v1-behaviors.md`.
+- Deliberate behavior change: a first failure in an earlier batch now prevents later batches from starting (files that previously pooled into one phase may no longer be admitted). Route to `v1-behaviors.md`. Accepted: the batches exist to keep suites from corrupting each other’s timing, so results measured after an earlier failure were produced under the very scheduling state this fix removes. The cost is that one early failure shrinks what a single `test:v2` run reports — read a failed aggregate as “first failure”, not “only failure”.
 - Per-file timeout, contiguous captured-output flush, and the `JARVIS_READY_FAILING_TEST_FILE` record are unchanged.
 - A serialized batch costs roughly its own duration in aggregate wall clock; no wall-clock bound is asserted.
 
@@ -36,7 +36,6 @@
 - [ ] `bun run test:v2` passes.
 - [ ] `bun run test:integration:v2` passes.
 - [ ] `bun run test:shared` passes.
-- [ ] The local `bun run test:v2` aggregate fails pre-fix and passes post-fix on an idle machine. (Manual)
 
 ## Documentation updates
 

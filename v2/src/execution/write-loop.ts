@@ -4603,15 +4603,7 @@ function readyFailed(
     ...survivingMutationLogFields(error),
     ...nonTerminatingMutationLogFields(error),
   };
-  const terminalStatus =
-    kind === "surviving_mutation_failed" ||
-    kind === "non_terminating_mutation_failed" ||
-    kind === "ready_gate_failed" ||
-    kind === "ready_gate_command_missing" ||
-    kind === "ready_gate_out_of_scope" ||
-    kind === "ready_flip_failed"
-      ? "failed"
-      : "completed";
+  const terminalStatus = kind === "runtime_smoke_failed" ? "completed" : "failed";
   const terminalFailureDetail =
     kind === "surviving_mutation_failed" || kind === "non_terminating_mutation_failed"
       ? terminalFailureDetailFromError(error)

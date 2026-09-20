@@ -4372,10 +4372,14 @@ describe("resumePipeline branch scope", () => {
   const SKIPPED_SUCCESSOR_BRANCH = "skipped-successor-target";
   const SKIPPED_SUCCESSOR_SIBLING = "skipped-successor-sibling";
 
-  function setupSkippedSuccessorBranchFixture(store: StateStore, skipProvenance: "provisional" | "terminal"): void {
+  function setupSkippedSuccessorBranchFixture(
+    store: StateStore,
+    skipProvenance: "provisional" | "terminal",
+    pipelineId: string = PIPELINE_ID,
+  ): void {
     const branchKeys = [SKIPPED_SUCCESSOR_BRANCH, SKIPPED_SUCCESSOR_SIBLING];
     store.updateStage({
-      pipelineId: PIPELINE_ID,
+      pipelineId,
       stageId: "intent",
       patch: {
         status: "succeeded",
@@ -4388,22 +4392,22 @@ describe("resumePipeline branch scope", () => {
       },
     });
     for (const branchKey of branchKeys) {
-      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey });
-      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
-      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+      store.createPipelineStageBranch({ pipelineId, stageId: "gate", branchKey });
+      store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
     }
     for (const stageId of ["gate", "plan", "implement"] as const) {
       store.updateStage({
-        pipelineId: PIPELINE_ID,
+        pipelineId,
         stageId,
         branchKey: "default",
         patch: { status: "skipped", skipProvenance: "terminal" },
       });
     }
     for (const branchKey of branchKeys) {
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "approved" } });
+      store.updateStage({ pipelineId, stageId: "gate", branchKey, patch: { status: "approved" } });
       store.updateStage({
-        pipelineId: PIPELINE_ID,
+        pipelineId,
         stageId: "plan",
         branchKey,
         patch: {
@@ -4412,7 +4416,7 @@ describe("resumePipeline branch scope", () => {
         },
       });
       store.updateStage({
-        pipelineId: PIPELINE_ID,
+        pipelineId,
         stageId: "implement",
         branchKey,
         patch: { status: "skipped", skipProvenance },
@@ -4421,30 +4425,29 @@ describe("resumePipeline branch scope", () => {
   }
 
   test("branch-scoped resume admits a succeeded plan with a provisional skipped successor and reopens only that lane", async () => {
-    const { store, stages } = fakeStore(
-      FAN_OUT_PIPELINE_DEFINITION,
-      {
-        "run-skipped-implement": {
-          specPath: "spec/skipped/implement.md",
-          stepId: "s1-entry",
-          workflowSnapshot: entryOnlySnapshot("inv-skipped-implement"),
-        },
-      },
-      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
-    );
-    setupSkippedSuccessorBranchFixture(store, "provisional");
-    const before = stages().map((stage) => ({ ...stage }));
+    const store = openStateStore(":memory:");
+    const pipelineId = store.createPipeline({ definition: FAN_OUT_PIPELINE_DEFINITION, context: persistedContext });
+    setupSkippedSuccessorBranchFixture(store, "provisional", pipelineId);
+    const loadStages = () => store.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage })) ?? [];
+    const before = loadStages();
     expect(stageRecord(before, "implement", SKIPPED_SUCCESSOR_BRANCH)?.skipProvenance).toBe("provisional");
 
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     const dispatch: PipelineWorkflowDispatch = async (steps) => {
       const step = steps[0] as unknown as { stageId: string; branchKey?: string };
       dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
-      return { ok: true, entryRunId: "run-skipped-implement", invocationId: "inv-skipped-implement" };
+      const entryRunId = store.createRun({
+        project: "pipeline-project",
+        specRef: "main",
+        worktreePath: "/tmp/worktree",
+        branch: "branch-skipped-implement",
+        specPath: "spec/skipped/implement.md",
+      });
+      return { ok: true, entryRunId, invocationId: "inv-skipped-implement" };
     };
     const wait: PipelineWorkflowWait = async (entryRunId) => {
-      if (entryRunId === "run-skipped-implement") return "completed";
-      throw new Error(`unexpected wait for ${entryRunId}`);
+      store.setRunStatus(entryRunId, "completed");
+      return "completed";
     };
     const resolveStage = async (
       _definition: PipelineDefinition,
@@ -4464,14 +4467,14 @@ describe("resumePipeline branch scope", () => {
     });
 
     const outcome = await resumePipeline(
-      PIPELINE_ID,
+      pipelineId,
       { store, dispatch, wait, resolveStage },
       { branchKey: SKIPPED_SUCCESSOR_BRANCH },
     );
 
-    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(outcome).toEqual({ kind: "resumed", pipelineId });
     expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: SKIPPED_SUCCESSOR_BRANCH }]);
-    const after = stages();
+    const after = loadStages();
     for (const snapshot of before) {
       if (snapshot.stageId === "implement" && snapshot.branchKey === SKIPPED_SUCCESSOR_BRANCH) continue;
       expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
@@ -4480,6 +4483,7 @@ describe("resumePipeline branch scope", () => {
     expect(implementAfter?.status).toBe("succeeded");
     expect(implementAfter?.skipProvenance ?? null).toBeNull();
     expect(stageRecord(after, "implement", SKIPPED_SUCCESSOR_SIBLING)?.skipProvenance).toBe("provisional");
+    store.close();
   });
 
   test("branch-scoped resume refuses a terminal skipped successor as branch_not_resumable", async () => {

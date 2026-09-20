@@ -8,6 +8,7 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
@@ -6374,6 +6375,60 @@ describe("cleanup: session log retention", () => {
     expect(result.stdout).toContain("dry-run: no changes made");
     expect(existsSync(firstPath)).toBe(true);
     expect(existsSync(secondPath)).toBe(true);
+  });
+
+  function ageLog(path: string, ageDays: number): void {
+    const when = new Date(now.getTime() - ageDays * dayMs);
+    utimesSync(path, when, when);
+  }
+
+  test("orphan logs age by mtime; live rows and young orphans are kept", async () => {
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const owner = runRow(runId(50), "completed", now.getTime() - 15 * dayMs);
+    const live = runRow(runId(51), "in-progress", null);
+    const ownerPath = writeSessionLog(sessionsDir, owner.id);
+    const livePath = writeSessionLog(sessionsDir, live.id);
+    const oldOrphan = writeSessionLog(sessionsDir, runId(52));
+    const youngOrphan = writeSessionLog(sessionsDir, runId(53));
+    const oldUnparseable = join(sessionsDir, "stray.log");
+    writeFileSync(oldUnparseable, "stray");
+    for (const path of [livePath, oldOrphan, oldUnparseable]) ageLog(path, 90);
+    ageLog(youngOrphan, 13);
+
+    const result = await runSessionCleanup(sessionsDir, [owner, live], { dryRun: true });
+    expect(result.stdout).toContain("Found 3 expired session log(s) (2 by mtime, no run row):");
+
+    const applied = await runSessionCleanup(sessionsDir, [owner, live]);
+
+    expect(applied.stdout).toContain("Reaped 3 expired session log(s) (2 by mtime, no run row):");
+    expect(existsSync(ownerPath)).toBe(false);
+    expect(existsSync(oldOrphan)).toBe(false);
+    expect(existsSync(oldUnparseable)).toBe(false);
+    expect(existsSync(livePath)).toBe(true);
+    expect(existsSync(youngOrphan)).toBe(true);
+  });
+
+  test("zero run rows suppress the orphan mtime fallback", async () => {
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const path = writeSessionLog(sessionsDir, runId(60));
+    ageLog(path, 90);
+
+    const result = await runSessionCleanup(sessionsDir, []);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("expired session log(s)");
+    expect(existsSync(path)).toBe(true);
+  });
+
+  test("summary has no orphan suffix without orphans", async () => {
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const run = runRow(runId(70), "completed", now.getTime() - 20 * dayMs);
+    writeSessionLog(sessionsDir, run.id, "abc");
+
+    const result = await runSessionCleanup(sessionsDir, [run], { dryRun: true });
+
+    expect(result.stdout).toContain("Found 1 expired session log(s): 3 reclaimable bytes;");
+    expect(result.stdout).not.toContain("by mtime");
   });
 });
 

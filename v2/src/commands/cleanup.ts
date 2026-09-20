@@ -1,4 +1,14 @@
-import { type Dirent, existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import {
+  type Dir,
+  type Dirent,
+  existsSync,
+  opendirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   getBaseBranch,
@@ -1445,7 +1455,9 @@ async function retireEligibleWorktrees(
 
 type ReaperResult = Awaited<ReturnType<typeof reapLegacyDaemonArtifacts>>;
 
-type SessionLogReapPlan = { expired: { path: string; bytes: number }[]; oldestKeptDate: string } | null;
+type ExpiredSessionLog = { path: string; bytes: number; orphan: boolean };
+
+type SessionLogReapPlan = { expired: ExpiredSessionLog[]; oldestKeptDate: string } | null;
 
 const SESSION_LOG_NAME_PATTERN =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.log$/i;
@@ -1479,47 +1491,60 @@ function discoverExpiredSessionLogs(
   if (!existsSync(sessionsDir)) return plan;
 
   const runsById = new Map(store.listRuns().map((run) => [run.id, run]));
-  let entries: Dirent[];
+  let dir: Dir;
   try {
-    entries = readdirSync(sessionsDir, { withFileTypes: true });
+    dir = opendirSync(sessionsDir);
   } catch {
     return plan;
   }
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".log")) continue;
-    const match = SESSION_LOG_NAME_PATTERN.exec(entry.name);
-    if (match === null) continue;
-    const run = runsById.get(match[1] ?? "");
-    if (
-      run === undefined ||
-      !isTerminalRunStatus(run.status) ||
-      typeof run.finishedAt !== "number" ||
-      !Number.isFinite(run.finishedAt) ||
-      run.finishedAt >= cutoffMs
-    ) {
-      continue;
+  try {
+    for (let entry = dir.readSync(); entry !== null; entry = dir.readSync()) {
+      if (!entry.isFile() || !entry.name.endsWith(".log")) continue;
+      const path = join(sessionsDir, entry.name);
+      try {
+        const stat = statSync(path);
+        const orphan = classifySessionLog(entry.name, stat.mtimeMs, cutoffMs, runsById);
+        if (orphan !== null) plan.expired.push({ path, bytes: stat.size, orphan });
+      } catch {
+        // A file that disappears during discovery is no longer reclaimable.
+      }
     }
-    const path = join(sessionsDir, entry.name);
-    try {
-      plan.expired.push({ path, bytes: statSync(path).size });
-    } catch {
-      // A file that disappears during discovery is no longer reclaimable.
-    }
+  } finally {
+    dir.closeSync();
   }
   return plan;
 }
 
+/** Returns null to keep the log, else whether it is reaped as an orphan (by mtime). */
+function classifySessionLog(
+  name: string,
+  mtimeMs: number,
+  cutoffMs: number,
+  runsById: ReadonlyMap<string, Run>,
+): boolean | null {
+  const run = runsById.get(SESSION_LOG_NAME_PATTERN.exec(name)?.[1] ?? "");
+  if (run === undefined) return runsById.size > 0 && mtimeMs < cutoffMs ? true : null;
+  const expired =
+    isTerminalRunStatus(run.status) &&
+    typeof run.finishedAt === "number" &&
+    Number.isFinite(run.finishedAt) &&
+    run.finishedAt < cutoffMs;
+  return expired ? false : null;
+}
+
 function printSessionLogSummary(
   verb: "Found" | "Reaped",
-  logs: readonly { path: string; bytes: number }[],
+  logs: readonly ExpiredSessionLog[],
   oldestKeptDate: string,
   io: { stdout: (s: string) => void },
 ): void {
   if (logs.length === 0) return;
   const bytes = logs.reduce((total, log) => total + log.bytes, 0);
   const byteLabel = verb === "Found" ? "reclaimable" : "reclaimed";
+  const orphans = logs.filter((log) => log.orphan).length;
+  const orphanSuffix = orphans > 0 ? ` (${orphans} by mtime, no run row)` : "";
   io.stdout(
-    `${verb} ${logs.length} expired session log(s): ${bytes} ${byteLabel} bytes; oldest kept date: ${oldestKeptDate}.\n`,
+    `${verb} ${logs.length} expired session log(s)${orphanSuffix}: ${bytes} ${byteLabel} bytes; oldest kept date: ${oldestKeptDate}.\n`,
   );
 }
 
@@ -1800,7 +1825,7 @@ async function executeConfirmedCleanup(
   );
   let sessionLogExit = 0;
   if (ctx.sessionLogPlan !== null) {
-    const reaped: { path: string; bytes: number }[] = [];
+    const reaped: ExpiredSessionLog[] = [];
     let failures = 0;
     for (const log of ctx.sessionLogPlan.expired) {
       try {

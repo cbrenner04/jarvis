@@ -177,9 +177,8 @@ function nonCompleteWorkflowStepStatus(cause: WriteLoopOutcomeKind): RunStatus {
  * applies to a deferred `in-progress` completion row: it implies a publication tail is still coming,
  * which never happens once the step itself has already ended non-`complete`.
  *
- * Settling here makes the row say what actually happened. A phantom run id (the routing-failure
- * outcome mints one that was never persisted) resolves to no row and is skipped; a row already
- * carrying this cause is left alone so a re-entry cannot rewrite its own settlement.
+ * Settling here makes the row say what actually happened. An id with no row is skipped; a row
+ * already carrying this cause is left alone so a re-entry cannot rewrite its own settlement.
  */
 function settleNonCompleteWorkflowStep(
   store: StateStore,
@@ -789,12 +788,56 @@ function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktre
   return landed.specPath;
 }
 
+interface LinkedRoutingRowContext {
+  store: StateStore;
+  step: WriteWorkflowStep;
+  workflowSnapshot: WorkflowSnapshot;
+}
+
+/** Persist the step's own row for a routing outcome reached before any link dispatched, settled to that outcome. */
+function persistLinkedRoutingRow(
+  routing: Extract<LinkedIndexRoutingResult, { ok: false }>,
+  isComplete: boolean,
+  totalIterationsConsumed: number,
+  logSink: LogSink | undefined,
+  { store, step, workflowSnapshot }: LinkedRoutingRowContext,
+): string {
+  const runId = store.createRun({
+    project: step.worktree.projectName,
+    specRef: step.worktree.baseRef,
+    worktreePath: getExternalWorktreePath(step.worktree),
+    branch: step.worktree.branchName,
+    specPath: step.specPath,
+    stepId: step.stepId,
+    workflowSnapshot,
+    status: "completed",
+  });
+  if (isComplete) {
+    settleCompletedPublication(store, runId);
+  } else {
+    settleNonCompleteWorkflowStep(
+      store,
+      logSink,
+      {
+        kind: "blocked",
+        runId,
+        iterationsConsumed: totalIterationsConsumed,
+        resumable: false,
+        routingFailure: `implement.${routing.errorKind}: ${routing.error}`,
+      },
+      totalIterationsConsumed,
+    );
+  }
+  return runId;
+}
+
 function linkedImplementRoutingFailureOutcome(
   routing: Extract<LinkedIndexRoutingResult, { ok: false }>,
   totalIterationsConsumed: number,
   stepIndex: number,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   logSink: LogSink | undefined,
+  rowContext: LinkedRoutingRowContext,
   existingRunId?: string,
 ): WorkflowStepOutcome {
   // When routing fails *after* a link's write loop already ran, that link has a real durable row —
@@ -802,10 +845,12 @@ function linkedImplementRoutingFailureOutcome(
   // completion row. Minting a fresh id here would orphan the outcome from that row and leave its
   // stale status with nothing to settle it (`settleNonCompleteWorkflowStep` resolves no row for an
   // id that was never persisted). Reuse the real id so the row is corrected.
-  const runId = existingRunId ?? crypto.randomUUID();
+  const isComplete = routing.errorKind === "empty_index" || routing.errorKind === "already_complete";
+  const runId =
+    existingRunId ?? persistLinkedRoutingRow(routing, isComplete, totalIterationsConsumed, logSink, rowContext);
   if (existingRunId === undefined) onStepRunCreated?.(stepIndex, runId);
 
-  if (routing.errorKind === "empty_index" || routing.errorKind === "already_complete") {
+  if (isComplete) {
     return {
       kind: "complete",
       runId,
@@ -968,6 +1013,7 @@ async function runLinkedImplementStep(
         stepIndex,
         onStepRunCreated,
         logSink,
+        { store, step, workflowSnapshot },
       );
     }
 
@@ -1012,6 +1058,7 @@ async function runLinkedImplementStep(
         stepIndex,
         onStepRunCreated,
         logSink,
+        { store, step, workflowSnapshot },
         stepped.runId,
       );
     }

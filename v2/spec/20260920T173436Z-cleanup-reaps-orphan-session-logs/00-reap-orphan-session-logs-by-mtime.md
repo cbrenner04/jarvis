@@ -17,13 +17,13 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup` reaps a session log with no matching run row whose mtime is older than the retention window, and keeps one whose mtime is inside the window; a new test in `v2/src/commands/cleanup.test.ts` covers both and fails against the pre-fix code.
-- [ ] A log owned by a non-terminal run row is preserved regardless of mtime; pinned by a test that fails against a naive mtime-only fallback.
-- [ ] A log whose basename does not parse but is older than the window is reaped; pinned by a test that fails against the pre-fix code.
-- [ ] With a store holding zero run rows and old logs in the sessions dir, nothing is reaped; pinned by a test that fails against a naive mtime fallback.
-- [ ] With orphans present, the dry-run and apply summaries show the orphan count via the `(M by mtime, no run row)` suffix on the existing line; pinned by a test that fails against the pre-fix code. With no orphans the line is unchanged.
-- [ ] Existing session-log retention tests in `v2/src/commands/cleanup.test.ts` stay green (terminal-run expiry, invalid-retention skip, dry-run summary without orphans).
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:shared`, and `bun run test:integration:v2` pass.
+- [x] `jarvis cleanup` reaps a session log with no matching run row whose mtime is older than the retention window, and keeps one whose mtime is inside the window; a new test in `v2/src/commands/cleanup.test.ts` covers both and fails against the pre-fix code.
+- [x] A log owned by a non-terminal run row is preserved regardless of mtime; pinned by a test that fails against a naive mtime-only fallback.
+- [x] A log whose basename does not parse but is older than the window is reaped; pinned by a test that fails against the pre-fix code.
+- [x] With a store holding zero run rows and old logs in the sessions dir, nothing is reaped; pinned by a test that fails against a naive mtime fallback.
+- [x] With orphans present, the dry-run and apply summaries show the orphan count via the `(M by mtime, no run row)` suffix on the existing line; pinned by a test that fails against the pre-fix code. With no orphans the line is unchanged.
+- [x] Existing session-log retention tests in `v2/src/commands/cleanup.test.ts` stay green (terminal-run expiry, invalid-retention skip, dry-run summary without orphans).
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:shared`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

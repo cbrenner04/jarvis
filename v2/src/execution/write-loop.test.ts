@@ -68,6 +68,7 @@ import {
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
+import { resolveCompletionCommitFailedResumeContext } from "./workflow-runner-resume.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
   acquireGateInvocationLease,
@@ -563,6 +564,16 @@ async function runLoop(args: {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
   const store = args.store ?? openStateStore(args.stateDbPath);
+  // A `completion_commit_failed` row settles `failed`; the loop's own re-entry replays publication only
+  // for `completed` rows, so re-open the row to exercise that replay and its recovery fence.
+  const priorRun = store.findRunByProjectBranch({
+    project: "demo",
+    branch: args.branchName ?? "write-run",
+    stepId: args.stepId ?? null,
+  });
+  if (priorRun?.status === "failed" && priorRun.terminalCause === "completion_commit_failed") {
+    store.setRunStatus(priorRun.id, "completed");
+  }
   const loopInput: WriteLoopInput = {
     worktree: {
       projectRoot: "/fake",
@@ -6341,7 +6352,7 @@ export function isLoadSensitive(file: string): boolean {
         expect(git("status", "--porcelain")).toBe("");
         const reopened = openStateStore(stateDbPath);
         try {
-          expect(reopened.loadRun(fenced.result.runId)?.status).toBe("completed");
+          expect(reopened.loadRun(fenced.result.runId)?.status).toBe("failed");
         } finally {
           reopened.close();
         }
@@ -8009,6 +8020,34 @@ export function isLoadSensitive(file: string): boolean {
       expect(publishCalls).toBe(2);
     });
 
+    test("completion_commit_failed settles the row failed, resumable, and admissible to run resume", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 2 }),
+        completionPublisher: async () => {
+          throw new Error("push failed");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+      expect(first.resumable).toBe(true);
+
+      const store = openStateStore(stateDbPath);
+      try {
+        const run = store.loadRun(first.runId);
+        expect(run).toMatchObject({ status: "failed", terminalCause: "completion_commit_failed" });
+        if (run === null || run === undefined) return;
+        const terminalRecord = logSink.tail(first.runId).at(-1) as PersistedRecord & { event: LoopFinishedEvent };
+        expect(resolveCompletionCommitFailedResumeContext(run, store, terminalRecord).ok).toBe(true);
+      } finally {
+        store.close();
+      }
+    });
+
     test("an inconclusive mutation candidate is recorded on the run and publication proceeds", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
@@ -8440,7 +8479,7 @@ index 1234567..abcdefg 100644
       const cases = [
         {
           kind: "ready_flip_failed",
-          status: "completed",
+          status: "failed",
           finalizer: async () => {
             throw new Error("gh pr ready failed");
           },
@@ -10628,6 +10667,8 @@ index 1234567..abcdefg 100644
         expect(first.kind).toBe("completion_commit_failed");
         // Two progress checkpoints plus the completing iteration's checkpoint.
         expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 3);
+        // The loop's own re-entry replays publication only for `completed` rows.
+        store.setRunStatus(first.runId, "completed");
 
         const resumed = await executeWriteLoop(
           iterLoopInput(jarvisRoot, branchName, store, {

@@ -1452,8 +1452,8 @@ async function runIntentResumeCommitAndPublish(
     const failureFields = resumePublicationFailureBoundaryFields(failure, message);
     store.commitCompletionBoundary({
       attemptId,
-      runStatus: isFlip ? "completed" : "failed",
-      outcomeKind: isFlip ? "done" : "invocation_failure",
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
       ...(failureFields.invocationFailureDetail !== undefined
         ? { invocationFailureDetail: failureFields.invocationFailureDetail }
         : {}),
@@ -2531,8 +2531,8 @@ async function settleFailedReviewMutationPublication(
   const failureFields = resumePublicationFailureBoundaryFields(failure, message);
   store.commitCompletionBoundary({
     attemptId,
-    runStatus: isFlip ? "completed" : "failed",
-    outcomeKind: isFlip ? "done" : "invocation_failure",
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
     ...(failureFields.invocationFailureDetail !== undefined
       ? { invocationFailureDetail: failureFields.invocationFailureDetail }
       : {}),

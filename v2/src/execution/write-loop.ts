@@ -4491,7 +4491,7 @@ function completionCommitFailed(
   const resumable = source instanceof Error || source?.resumable !== false;
   store.commitTerminalRunSettlement({
     runId: result.runId,
-    status: resumable ? "completed" : "failed",
+    status: "failed",
     terminalCause: "completion_commit_failed",
     terminalFailureDetail: terminalFailureDetailFromError(error, completionCommitErrorMessage),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
@@ -4608,7 +4608,8 @@ function readyFailed(
     kind === "non_terminating_mutation_failed" ||
     kind === "ready_gate_failed" ||
     kind === "ready_gate_command_missing" ||
-    kind === "ready_gate_out_of_scope"
+    kind === "ready_gate_out_of_scope" ||
+    kind === "ready_flip_failed"
       ? "failed"
       : "completed";
   const terminalFailureDetail =
@@ -4622,8 +4623,8 @@ function readyFailed(
             ? terminalFailureDetailFromError(error, "ready flip failed")
             : undefined;
   // Publication marks the row `in-progress` for the finalization tail, so every exit from that
-  // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
-  // smoke failures keep their documented `completed` status. Leaving `in-progress` strands the row
+  // tail must restore a terminal status. Gate, mutation, and flip failures demote to `failed`; smoke
+  // failures keep their documented `completed` status. Leaving `in-progress` strands the row
   // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
   store.commitTerminalRunSettlement({
     runId: result.runId,

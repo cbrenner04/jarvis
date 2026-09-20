@@ -12,10 +12,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/run.test.ts` proves `run list` renders the gate-refusal cause and, for a slot-contention refusal, its `<count>/<bound>` cell, with `-` in that cell for `ceiling_headroom` and `legacy_unknown` refusals and `-` in both cells for a non-refusal row; the test fails against the pre-fix row format.
-- [ ] A test proves `run wait` output preserves the structured `gateRefusalCause`, `slotRedriveCount`, and `slotRedriveBound` fields for a refused row.
-- [ ] Existing `v2/src/commands/run.test.ts` list/wait cases stay green (dismissal marker stays last).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/commands/run.test.ts` proves `run list` renders the gate-refusal cause and, for a slot-contention refusal, its `<count>/<bound>` cell, with `-` in that cell for `ceiling_headroom` and `legacy_unknown` refusals and `-` in both cells for a non-refusal row; the test fails against the pre-fix row format.
+- [x] A test proves `run wait` output preserves the structured `gateRefusalCause`, `slotRedriveCount`, and `slotRedriveBound` fields for a refused row.
+- [x] Existing `v2/src/commands/run.test.ts` list/wait cases stay green (dismissal marker stays last).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

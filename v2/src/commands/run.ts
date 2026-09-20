@@ -47,6 +47,8 @@ function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string
     run.prUrl ?? "-",
     e?.completionCommitError === undefined ? "-" : JSON.stringify(e.completionCommitError),
     e?.message === undefined ? "-" : JSON.stringify(e.message),
+    e?.gateRefusalCause ?? "-",
+    e?.gateRefusalCause === "slot_contention" ? `${e.slotRedriveCount ?? 0}/${e.slotRedriveBound ?? "?"}` : "-",
     ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
   ];
   return `${columns.join("\t")}\n`;

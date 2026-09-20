@@ -5,7 +5,7 @@
 ## Decisions
 
 - The exported reason builder takes an optional continue-path-available input; the clause is added only when the caller passes it true, defaulting to absent — rules out always appending, which would advertise continuation on dirty-tree, zero-commit, and disposable-branch refusals where continuation is never attempted.
-- Only the flag-forced retirement call site (clean, non-disposable, base-descended, commits ahead) passes true.
+- True is passed only when `resetDespiteContinuable` forced the fall-through; the `--reset-despite-landed-criteria` no-verdict fall-through through the same `applyPreContinuationGates` call keeps the pre-fix text. Lane shape does not discriminate the two callers — only the flag does.
 - Only the unlanded-commits reason gets the clause; `staleResetUnreachableWorktreeHeadGateReason` keeps the current recovery text — rules out editing the shared recovery string, which would advertise continuation for a `HEAD` the branch cannot reach and which continuation refuses.
 - Ordering is continue path, then hand-finish, then `--abandon`.
 
@@ -15,6 +15,7 @@
 - [ ] A test calls `staleResetUnlandedCommitsGateReason` without the input and asserts the pre-fix text, with no continue-path mention.
 - [ ] A test asserts the dirty-lane and disposable-branch unlanded-commits refusals do not advertise the continue path; it fails if the clause is appended unconditionally.
 - [ ] A test drives `jarvis run workflow implement --reset-despite-continuable` on a lane with unlanded non-staging commits and asserts the refusal names the continue path before hand-finish and `jarvis cleanup --abandon`.
+- [ ] A test asserts `--reset-despite-landed-criteria` without `--reset-despite-continuable` on an otherwise-continuable lane produces the unlanded-commits refusal with no continue-path clause; it fails if the clause keys off lane shape rather than the flag.
 - [ ] A test asserts `staleResetUnreachableWorktreeHeadGateReason` text is unchanged.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

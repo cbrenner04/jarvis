@@ -106,6 +106,7 @@ async function deriveAllowedOrUndefined(
   const derived = await deriveGateAllowedPaths(...args);
   return "allowed" in derived ? derived.allowed : undefined;
 }
+
 const { roots } = trackedTempRoots();
 
 function fastCeilingSchedule(delayMs = 50): WallSegmentSchedule {
@@ -5233,9 +5234,7 @@ describe("write loop", () => {
           },
         ]);
         expect(publication.failure?.kind).toBe("completion_commit_failed");
-        const message = publication.failure?.error?.message ?? "";
-        const loggedReason = logged[0]?.kind === "ready_gate_fence_derivation_failed" ? logged[0].reason : undefined;
-        expect(message).toContain(loggedReason ?? "missing-reason");
+        expect(publication.failure?.error?.message).toContain("diff_unavailable");
       });
 
       test("autofix path-enumeration derivation failure logs its named reason before settling", async () => {
@@ -5249,9 +5248,7 @@ describe("write loop", () => {
           { kind: "ready_gate_fence_derivation_failed", reason: "diff_unavailable", site: "autofix_path_enumeration" },
         ]);
         expect(publication.failure?.kind).toBe("completion_commit_failed");
-        const message = publication.failure?.error?.message ?? "";
-        const loggedReason = logged[0]?.kind === "ready_gate_fence_derivation_failed" ? logged[0].reason : undefined;
-        expect(message).toContain(loggedReason ?? "missing-reason");
+        expect(publication.failure?.error?.message).toContain("diff_unavailable");
       });
 
       test("ready-gate repair autofix scopes biome argv to changed paths", async () => {

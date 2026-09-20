@@ -4033,8 +4033,7 @@ async function runAutofixTypecheckVerification(
 
 const READY_GATE_AUTOFIX_MAX_DIAGNOSTICS = 256;
 
-/** Autofix path enumeration failed to derive the allowed path set; carries the named reason to the caller that owns the run log. */
-export class AutofixFenceDerivationError extends FixCommandError {
+class AutofixFenceDerivationError extends FixCommandError {
   constructor(readonly reason: GateAllowedPathsFailureReason) {
     super(`ready-gate autofix could not enumerate changed paths: ${reason}`);
     this.name = "AutofixFenceDerivationError";

@@ -28,10 +28,9 @@ export function waitForStdoutMarker(child: ChildProcess, marker: string): Promis
     };
     const onClose = (code: number | null, signal: NodeJS.Signals | null): void => {
       cleanup();
-      const stderrDetails = stderrTail.length > 0 ? `\nstderr tail:\n${stderrTail}` : "";
       reject(
         new Error(
-          `child closed (code ${String(code)}, signal ${String(signal)}) without reporting ${marker}${stderrDetails}`,
+          `child closed (code ${code}, signal ${signal}) without reporting ${marker}${stderrTail.length > 0 ? `\nstderr tail:\n${stderrTail}` : ""}`,
         ),
       );
     };

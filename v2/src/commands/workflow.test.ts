@@ -3707,7 +3707,12 @@ describe("implement preflight stale workspace reset", () => {
 
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("Cannot re-run incomplete spec:");
-    expect(cap.read().stderr).toContain("commit(s) not on base");
+    const stderr = cap.read().stderr;
+    expect(stderr).toContain("commit(s) not on base");
+    const continueAt = stderr.indexOf("re-run without `--reset-despite-continuable` to continue");
+    expect(continueAt).toBeGreaterThan(-1);
+    expect(continueAt).toBeLessThan(stderr.indexOf("hand-finish"));
+    expect(stderr.indexOf("hand-finish")).toBeLessThan(stderr.indexOf("jarvis cleanup --abandon"));
     expect(teardownCalls).toEqual([]);
     expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);

@@ -58,6 +58,8 @@ import {
   STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG,
   STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
+  staleResetUnlandedCommitsGateReason,
+  staleResetUnreachableWorktreeHeadGateReason,
 } from "./cleanup.ts";
 import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
 import type { LegacyDaemonArtifactDeps } from "./daemon.ts";
@@ -5070,6 +5072,105 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(reason).not.toContain("commit(s) not on base");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
+  });
+
+  test("staleResetUnlandedCommitsGateReason names the continue path before hand-finish and --abandon when available", () => {
+    const reason = staleResetUnlandedCommitsGateReason("abc123", 2, true);
+    const continueAt = reason.indexOf("re-run without `--reset-despite-continuable` to continue");
+    expect(continueAt).toBeGreaterThan(-1);
+    expect(continueAt).toBeLessThan(reason.indexOf("hand-finish"));
+    expect(reason.indexOf("hand-finish")).toBeLessThan(reason.indexOf("jarvis cleanup --abandon"));
+  });
+
+  test("staleResetUnlandedCommitsGateReason keeps the pre-fix text without the continue-path input", () => {
+    const expected =
+      "branch has 2 commit(s) not on base (tip abc123); hand-finish the branch or run `jarvis cleanup --abandon <branch>` before retiring the workspace";
+    expect(staleResetUnlandedCommitsGateReason("abc123", 2)).toBe(expected);
+    expect(staleResetUnlandedCommitsGateReason("abc123", 2, false)).toBe(expected);
+  });
+
+  test("staleResetUnreachableWorktreeHeadGateReason text is unchanged", () => {
+    expect(staleResetUnreachableWorktreeHeadGateReason("impl/x", "abc123")).toBe(
+      "worktree HEAD abc123 is not reachable from impl/x, so retiring the branch would discard it; hand-finish the branch or run `jarvis cleanup --abandon <branch>` before retiring the workspace",
+    );
+  });
+
+  test("resetStaleWorkspace names the continue path first when resetDespiteContinuable forces retirement of unlanded commits", async () => {
+    const branch = "impl/continue-path-named";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    const continueAt = reason.indexOf("re-run without `--reset-despite-continuable` to continue");
+    expect(continueAt).toBeGreaterThan(-1);
+    expect(continueAt).toBeLessThan(reason.indexOf("hand-finish"));
+    expect(reason.indexOf("hand-finish")).toBeLessThan(reason.indexOf("jarvis cleanup --abandon"));
+  });
+
+  test("resetStaleWorkspace does not advertise the continue path on a dirty lane with unlanded commits", async () => {
+    const branch = "impl/continue-path-dirty";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain("commit(s) not on base");
+    expect(reason).not.toContain("--reset-despite-continuable");
+  });
+
+  test("resetStaleWorkspace does not advertise the continue path on a disposable lane with unlanded commits", async () => {
+    const branch = "impl/continue-path-disposable";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      disposableLane: true,
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain("commit(s) not on base");
+    expect(reason).not.toContain("--reset-despite-continuable");
+  });
+
+  test("resetStaleWorkspace omits the continue path for resetDespiteLandedCriteria alone on a continuable lane", async () => {
+    const branch = "impl/continue-path-landed-criteria";
+    const specDir = join(projectRoot, "v2", "spec", "continue-path-spec");
+    const subspecRel = "v2/spec/continue-path-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add continue-path spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: "v2/spec/continue-path-spec/index.md",
+      skipLandedCriteriaGate: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain("commit(s) not on base");
+    expect(reason).not.toContain("--reset-despite-continuable");
   });
 
   async function setupSpecTree(specName: string, subspecContents: Record<string, string>): Promise<string> {

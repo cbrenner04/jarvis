@@ -11,13 +11,13 @@
 
 ## Acceptance criteria
 
-- [ ] A test calls `staleResetUnlandedCommitsGateReason` with the continue-path input and asserts the text names re-running without `--reset-despite-continuable` to continue, before hand-finish and before `jarvis cleanup --abandon`; it fails against the pre-fix builder.
-- [ ] A test calls `staleResetUnlandedCommitsGateReason` without the input and asserts the pre-fix text, with no continue-path mention.
-- [ ] A test asserts the dirty-lane and disposable-branch unlanded-commits refusals do not advertise the continue path; it fails if the clause is appended unconditionally.
-- [ ] A test drives `jarvis run workflow implement --reset-despite-continuable` on a lane with unlanded non-staging commits and asserts the refusal names the continue path before hand-finish and `jarvis cleanup --abandon`.
-- [ ] A test asserts `--reset-despite-landed-criteria` without `--reset-despite-continuable` on an otherwise-continuable lane produces the unlanded-commits refusal with no continue-path clause; it fails if the clause keys off lane shape rather than the flag.
-- [ ] A test asserts `staleResetUnreachableWorktreeHeadGateReason` text is unchanged.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test calls `staleResetUnlandedCommitsGateReason` with the continue-path input and asserts the text names re-running without `--reset-despite-continuable` to continue, before hand-finish and before `jarvis cleanup --abandon`; it fails against the pre-fix builder.
+- [x] A test calls `staleResetUnlandedCommitsGateReason` without the input and asserts the pre-fix text, with no continue-path mention.
+- [x] A test asserts the dirty-lane and disposable-branch unlanded-commits refusals do not advertise the continue path; it fails if the clause is appended unconditionally.
+- [x] A test drives `jarvis run workflow implement --reset-despite-continuable` on a lane with unlanded non-staging commits and asserts the refusal names the continue path before hand-finish and `jarvis cleanup --abandon`.
+- [x] A test asserts `--reset-despite-landed-criteria` without `--reset-despite-continuable` on an otherwise-continuable lane produces the unlanded-commits refusal with no continue-path clause; it fails if the clause keys off lane shape rather than the flag.
+- [x] A test asserts `staleResetUnreachableWorktreeHeadGateReason` text is unchanged.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

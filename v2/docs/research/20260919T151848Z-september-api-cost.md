@@ -8,7 +8,7 @@ Measured 2026-09-19T15:18:48.559706+00:00. Jarvis project only, September 1 thro
 - **Implementation dominates:** $783.18 (54.5% of observed API cost), 132.26 hours (71.3% of recorded time). Its usage coverage is only 584/988 calls and 74.70/132.26 hours, so the dollar total misses much of the slow work.
 - **Cache traffic dominates priced usage:** reads and writes contribute $1,127.19, or 78.4% of observed API cost. Cache reads alone account for $830.70. Cache reads are cheaper per token, but their volume makes them a useful efficiency target.
 - **Non-ok calls consumed 57.43 hours with no usage pricing:** errors 30.12 hours, stalls 17.81, quota 9.50. These are missing measurements, never $0. All 3 stall calls total 17.81 hours, so averages are sensitive to a few long-lived invocations.
-- **Returned cost differs materially:** on the same 2,199 calls, token-derived cost is $1,437.85 versus returned $1,285.79, a +$152.07 (+11.8%) difference. The disagreement is confined to Claude rows; its cause is not established by telemetry.
+- **Returned cost differs materially:** on the same 2,199 calls, token-derived cost is $1,437.85 versus returned $1,285.79, a +$152.07 (+11.8%) difference. Claude transcript reconciliation below identifies older Sonnet rates, cache lifetime, and subagent scope as causes; $11.12 remains unexplained in the matched cohort.
 
 ## Method and coverage
 
@@ -43,7 +43,7 @@ Rates below are dollars per million tokens from the frozen [repository catalog](
 
 ## Workflow, step, and role
 
-Collapse only numeric `~link-N` suffixes to `~link-*`; preserve other step names. Each row is a disjoint group. Priced hours are the subset of subprocess hours with at least one priced token field.
+Groups read **workflow / step / role**: the overall workflow, the harness step within it, and the role performing that invocation. For example, `implement / implement-review / actuator` is the implementation workflow's review step making requested changes. Collapse only numeric `~link-N` suffixes to `~link-*`; preserve other step names. Each row is a disjoint group. Priced hours are the subset of subprocess hours with at least one priced token field.
 
 | Group | Calls | Subprocess h | Priced calls | Priced h | API cost |
 |---|---|---|---|---|---|
@@ -79,7 +79,7 @@ Review roles (critic, adversary, advocate, adjudicator, actuator) total $399.39.
 
 ### Returned-cost cross-check
 
-All priceable calls in this snapshot also carry numeric returned cost. Deltas use paired calls only; floating-point noise rounds to zero. Claude aggregate usage is valued at the recorded binding price key; telemetry does not retain a per-model usage breakdown to resolve the discrepancy.
+All priceable calls in this snapshot also carry numeric returned cost. Deltas use paired calls only; floating-point noise rounds to zero. Claude aggregate usage is valued at the recorded binding price key; the following transcript audit supplies the model and cache-lifetime detail absent from telemetry.
 
 | Agent / model | Paired calls | Token-derived | Returned | Delta |
 |---|---|---|---|---|
@@ -88,6 +88,26 @@ All priceable calls in this snapshot also carry numeric returned cost. Deltas us
 | codex / gpt-5.6-sol | 108 | $103.49 | $103.49 | $0.00 |
 | codex / gpt-5.6-terra | 54 | $13.13 | $13.13 | $0.00 |
 | cursor / Composer 2.5 | 974 | $178.41 | $178.41 | $0.00 |
+
+### Why Claude disagrees
+
+The [transcript audit](./20260919T151848Z-transcript-audit.py) uniquely matched all 1,119 Claude calls to retained native transcripts. Deduplicated, time-bounded root messages reproduce all four telemetry token fields for 1,060/1,063 priced calls. Three Sonnet mismatches are excluded from this comparison; the 56 unpriced calls remain unpriced. These are the same September snapshot calls, not a refreshed cohort.
+
+Three measured differences matter:
+
+1. **Sonnet rates:** the operator supplied current Sonnet 5 API rates of $2 input, $10 output, $0.20 cache reads, $2.50 five-minute writes, and $4 one-hour writes per MTok. The frozen catalog uses $3/$15/$0.30/$3.75. Repricing the 529 matched Sonnet roots at the supplied rates, initially keeping five-minute writes, lowers their value by $314.98.
+2. **Cache lifetime:** every cache write in the matched roots is explicitly one-hour: 45,199,647 Sonnet tokens and 20,303,649 Opus tokens. One-hour writes cost twice base input; five-minute writes cost 1.25 times base. Correcting the lifetime adds $67.80 for Sonnet at the supplied rates and $76.14 for Opus at its unchanged $5 input rate. [Claude cache pricing](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+3. **Subagent scope:** 10 retained child transcripts across nine matched calls add $4.53. Claude's result `usage` covers the main loop, while `total_cost_usd` and `modelUsage` include subagents. Returned cost is also calculated from a client-side price table. [Claude SDK cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking).
+
+| Matched model | Calls | Frozen catalog, root | Correct rates and lifetime, root | Retained children | Returned | Unexplained remainder |
+|---|---|---|---|---|---|---|
+| Sonnet 5 | 529 | $944.95 | $697.76 | $4.22 | $707.43 | $5.44 |
+| Opus 5 | 531 | $197.32 | $273.45 | $0.31 | $279.44 | $5.67 |
+| Total | 1,060 | $1,142.26 | $971.22 | $4.53 | $986.86 | $11.12 |
+
+For example, Opus invocation `8ea26897-e278-462e-a0b4-49c2fd1387db` reconstructs to $0.486387 for its root plus $0.310304 for its retained child, versus $0.799756 returned: a $0.003065 remainder. Across the cohort, auxiliary requests are a possible explanation for the remaining $11.12, but their token usage is not established here. This is a partial reconciliation, not proof that returned cost is exact.
+
+The full-report totals retain the frozen catalog for comparability; the table above is an explicitly repriced, smaller cohort. No runtime or catalog changes are part of this research. Reconciliation excludes invocation IDs `8a937509-45cd-4154-9c02-3ab9bf5ffec0`, `6a7e0255-7972-41f8-ada0-c56e11f9a972`, and `d7918875-bb1b-4cc7-b8b3-91a7315b5065` because native and telemetry usage disagree.
 
 ## Exits, fallback, and later attempts
 
@@ -113,10 +133,10 @@ Fallback cost includes successful work performed after a preceding binding faile
 
 ## Next measurements
 
-1. Investigate long implementation failures and stalls first: their recorded duration is large and their token cost is missing. Correlate retained agent transcripts with invocation IDs/time windows before estimating savings.
-2. Compare prompt/context size and cache traffic for matched implementation tasks. Measure total token-derived cost and completion quality together; reducing cache reads at the expense of fresh input may increase cost.
-3. Compare review and shrink policies on comparable tasks, tracking defects caught and later repair work. This snapshot quantifies their cost but cannot establish return on that cost.
-4. Reconcile Claude aggregate usage, actual model usage, and returned cost on a small transcript-backed sample. Keep catalog-derived values as the comparable baseline meanwhile.
+1. Capture partial token usage on failures: [seed](../../spec/seeds/capture-token-usage-on-failed-invocations.md). The missing population is 57.43 subprocess hours, in addition to 4.42 unpriced successful hours. Preserve cache lifetime and root/subagent scope so recovered tokens can be valued correctly.
+2. The [four-call duration pilot and transcript/context study](./20260919T151848Z-transcript-context.md) justify targeted process-lifecycle measurements and controlled context experiments. They do not support treating long elapsed time as continuous model work.
+3. The [review study](./20260919T151848Z-review-effectiveness.md) finds substantive edits and a non-actionable bookkeeping cycle. Next, track finding disposition and later repair work before comparing review policies on matched tasks. Shrink already has [separate research](./20260831T052355Z-implement-shrink-impact.md).
+4. Resolve the three Claude usage mismatches and capture per-model totals/cache lifetime to close the remaining cost gap. The transcript-backed reconciliation above covers 1,060 calls; it does not replace missing telemetry.
 
 ## Reproduction
 

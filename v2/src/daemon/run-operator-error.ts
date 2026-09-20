@@ -265,7 +265,7 @@ function mapGateInvocationRefused(event: LoopFinishedEvent, gateRefusal: GateRef
   const remedy = slotContentionRemedy(count);
   return {
     ...base,
-    message: prefix === undefined ? remedy : `${prefix} — ${remedy}`,
+    message: `${prefix ?? "Gate invocation refused"} — ${remedy}`,
     gateRefusalCause: gateRefusal.cause,
     slotRedriveCount: count,
     slotRedriveBound: MAX_SLOT_REDRIVES,

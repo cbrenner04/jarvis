@@ -300,7 +300,7 @@ test("composeRunOperatorError projects slot remedy without a log event via termi
   };
   const error = composeRunOperatorError(run);
   expect(error?.reason).toBe("gate_invocation_refused");
-  expect(error?.message).toStartWith("automatic re-drive may be pending (2/3 used)");
+  expect(error?.message).toStartWith("Gate invocation refused — automatic re-drive may be pending (2/3 used)");
   expect(error?.gateRefusalCause).toBe("slot_contention");
 });
 

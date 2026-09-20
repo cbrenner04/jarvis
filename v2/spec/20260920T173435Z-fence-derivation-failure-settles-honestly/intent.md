@@ -33,10 +33,10 @@ The write-loop call site (`v2/src/execution/write-loop.ts`, `initializeFrozenRep
 
 - Allowset derivation succeeds for external spec homes and yields an empty allowset for an existing empty spec scope (landed, #4076).
 
-## Blocker
+## Deferred
 
-- Unresolved decision: what honest settlement is for a red ready gate plus an underivable repair fence.
+Settlement for a red ready gate plus an underivable repair fence is an unresolved operator decision and is **not** drafted here.
+
 - Both derivation sites (`initializeFrozenRepairAllowset`, the `dispatchReadyGateAutofix` catch) run inside `publishWithReadyRepair` past `isActiveReadyGateFailure(outcome)` (`write-loop.ts:4124`), so every fence-derivation failure occurs with the ready gate just failed red.
-- The third decision's "work is complete, pushed, and published; proceed to flip-to-ready" is false on "complete": flipping via `skipReadyGate` (a markdown-only seam) marks a PR ready with a known-red gate.
-- The operator must choose the settlement for red gate + underivable fence, then revise the third and fourth decisions and the flip-to-ready acceptance criteria, before a spec is drafted.
-- Preserved for the reworked intent: named derivation-failure reasons; run-log record before settlement; no `nextAction: resume` on a fixed-point derivation failure.
+- "Work is complete, pushed, and published; proceed to flip-to-ready" is false on "complete": flipping via `skipReadyGate` marks a PR ready with a known-red gate.
+- This spec therefore covers only the named reasons and the run-log record. The settlement question — including whether a fixed-point derivation failure should stop advertising `nextAction: resume` — needs its own intent once that decision is made.

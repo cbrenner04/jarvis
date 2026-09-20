@@ -7,7 +7,7 @@
 ## Decisions
 
 - A new `ready_gate_fence_derivation_failed` run-log record in `v2/src/persistence/log-stream.ts` carries the named reason and the derivation site (repair-fence initialization or autofix path enumeration); rules out folding the reason into the free-text `message` of an existing record, where it is not queryable.
-- The record is appended before settlement at both sites, so it survives even when the settlement shape changes in [02-published-lane-settles-honestly.md](02-published-lane-settles-honestly.md).
+- The record is appended before settlement at both sites, so it survives a later change to the settlement shape, which is deferred (see `## Deferred` in `intent.md`).
 - Adding the record needs no change to run-log rendering, the TUI, or `deriveOperatorIncidents`: sibling `ready_gate_*` kinds are referenced only by `log-stream.ts` and `write-loop.ts`, and `jarvis run log` renders records raw.
 - The error message carried into settlement names the reason too; rules out a log record and a settlement string that disagree about the cause.
 

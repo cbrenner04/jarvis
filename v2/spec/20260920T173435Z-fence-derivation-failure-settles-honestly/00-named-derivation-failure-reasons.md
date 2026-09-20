@@ -10,7 +10,7 @@
 - Reason names, one per failure above: `diff_unavailable`, `untracked_inventory_unavailable`, `spec_scope_unresolvable`, `spec_tree_path_invalid`, `diff_output_unparseable`, `untracked_output_unparseable`, `collected_path_invalid`. `spec_scope_unresolvable` covers both an invalid spec path and a missing scope root, per the intent.
 - `enumerateSpecTreePaths` returns its own reason instead of `null` so the two spec-scope causes stay separable inside the module; a `listSpecTreePaths` seam returning `null` maps to `spec_scope_unresolvable`, since an injected seam carries no cause.
 - `spec_tree_path_invalid` and both `spec_scope_unresolvable` causes (invalid spec path, missing scope root) are unreachable through the injected `listSpecTreePaths` seam; tests drive them with real filesystem fixtures and assert each separately; rules out collapsing them into one reason.
-- All three production call sites (`ready-finalize.ts:915`, `write-loop.ts:3546`, `write-loop.ts:4033`) and the `write-loop.test.ts` callers (`:5566, 6283, 6352, 6391, 6455, 6627, 6656`) adapt to the new shape with no change in what they do on failure; carrying the reason further is [01-log-derivation-reason-before-settlement.md](01-log-derivation-reason-before-settlement.md) and [02-published-lane-settles-honestly.md](02-published-lane-settles-honestly.md).
+- All three production call sites (`ready-finalize.ts:915`, `write-loop.ts:3546`, `write-loop.ts:4033`) and the `write-loop.test.ts` callers (`:5566, 6283, 6352, 6391, 6455, 6627, 6656`) adapt to the new shape with no change in what they do on failure; carrying the reason further is [01-log-derivation-reason-before-settlement.md](01-log-derivation-reason-before-settlement.md).
 - The reason type is exported from `ready-finalize.ts`; the later subspecs log and classify it.
 
 ## Acceptance criteria
@@ -21,4 +21,4 @@
 
 ## Documentation updates
 
-None. This subspec changes an internal return shape with no operator-facing or runtime behavior change; the operator-facing docs land with [01-log-derivation-reason-before-settlement.md](01-log-derivation-reason-before-settlement.md) and [02-published-lane-settles-honestly.md](02-published-lane-settles-honestly.md).
+None. This subspec changes an internal return shape with no operator-facing or runtime behavior change; the operator-facing docs land with [01-log-derivation-reason-before-settlement.md](01-log-derivation-reason-before-settlement.md).

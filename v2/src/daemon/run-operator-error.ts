@@ -1,3 +1,4 @@
+import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
 import {
   type BindingAttemptSummary,
   type InvocationFailureDetail,
@@ -19,6 +20,7 @@ import {
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
+import { MAX_SLOT_REDRIVES } from "./daemon-slot-redrive.ts";
 
 /** Closed operator-facing stop reason; not raw loop or invocation taxonomy. */
 const RUN_OPERATOR_ERROR_REASONS = [
@@ -85,13 +87,20 @@ export type RunOperatorError = {
   inventoryError?: string;
   requestedBase?: string;
   resolvedBase?: string;
+  gateRefusalCause?: GateRefusalRecoveryCause;
+  slotRedriveCount?: number;
+  slotRedriveBound?: number;
 };
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
 export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent };
 
+/** Durable gate-refusal evidence read from the run row (`Run.gateRefusalRecoveryState`). */
+type GateRefusalEvidence = { cause: GateRefusalRecoveryCause; slotRedriveCount?: number } | null;
+
 type RunWithAttempts = {
   status: RunStatus;
+  gateRefusalRecoveryState?: GateRefusalEvidence;
   attempts?: Attempt[];
   terminalCause?: WriteLoopOutcomeKind | null;
   terminalFailureDetail?: InvocationFailureDetail | null;
@@ -225,15 +234,41 @@ function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinis
 export function resolveFailedBlockedAttemptPrecedence(
   lastAttempt: Attempt | undefined,
   loopFinishedEvent: LoopFinishedEvent | undefined,
+  gateRefusal?: GateRefusalEvidence,
 ): RunOperatorError | undefined {
   if (loopFinishedEvent?.loopOutcomeKind === "mutation_repair_exhausted") {
     return mapFromLoopFinished(loopFinishedEvent, lastAttempt, false);
   }
   if (loopFinishedEvent && resumableFinalizationLoopFinishedOutranksAttemptDetail(loopFinishedEvent)) {
-    const fromFinalization = mapFromLoopFinished(loopFinishedEvent, lastAttempt, true);
+    const fromFinalization = mapFromLoopFinished(loopFinishedEvent, lastAttempt, true, gateRefusal);
     if (fromFinalization) return fromFinalization;
   }
   return lastAttempt ? mapInvocationFromAttempt(lastAttempt) : undefined;
+}
+
+/** Cause-specific slot-contention remedy; other causes keep the ordinary resume remedy. */
+function slotContentionRemedy(count: number): string {
+  return count >= MAX_SLOT_REDRIVES
+    ? `automatic slot re-drives exhausted (${count}/${MAX_SLOT_REDRIVES}); run jarvis run resume once the gate slot clears`
+    : `automatic re-drive may be pending (${count}/${MAX_SLOT_REDRIVES} used); run jarvis run resume to retry manually`;
+}
+
+function mapGateInvocationRefused(event: LoopFinishedEvent, gateRefusal: GateRefusalEvidence): RunOperatorError {
+  const prefix = event.gateCommand !== undefined ? `Gate invocation refused: ${event.gateCommand}` : undefined;
+  const base = op("gate_invocation_refused", "resume", true);
+  if (gateRefusal == null) return { ...base, ...(prefix !== undefined ? { message: prefix } : {}) };
+  if (gateRefusal.cause !== "slot_contention") {
+    return { ...base, ...(prefix !== undefined ? { message: prefix } : {}), gateRefusalCause: gateRefusal.cause };
+  }
+  const count = gateRefusal.slotRedriveCount ?? 0;
+  const remedy = slotContentionRemedy(count);
+  return {
+    ...base,
+    message: prefix === undefined ? remedy : `${prefix} — ${remedy}`,
+    gateRefusalCause: gateRefusal.cause,
+    slotRedriveCount: count,
+    slotRedriveBound: MAX_SLOT_REDRIVES,
+  };
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: maps each terminal loop_finished outcome kind to its operator error/recovery, one branch per kind
@@ -241,6 +276,7 @@ function mapFromLoopFinished(
   event: LoopFinishedEvent,
   lastAttempt?: Attempt,
   allowResumableLogOutcomes = true,
+  gateRefusal: GateRefusalEvidence = null,
 ): RunOperatorError | undefined {
   const resumable = RESUMABLE_TERMINALS[event.loopOutcomeKind];
   if (resumable) return allowResumableLogOutcomes ? resumable : undefined;
@@ -345,10 +381,7 @@ function mapFromLoopFinished(
       };
     }
     case "gate_invocation_refused":
-      return {
-        ...op("gate_invocation_refused", "resume", true),
-        ...(event.gateCommand !== undefined ? { message: `Gate invocation refused: ${event.gateCommand}` } : {}),
-      };
+      return mapGateInvocationRefused(event, gateRefusal);
     case "idle_output_timeout":
       return event.resumable ? op("idle_output_timeout", "resume", true) : op("idle_output_timeout", "stop");
     case "run_timeout":
@@ -433,7 +466,7 @@ function composeRunOperatorErrorFromState(
       return mapInvocationFailureDetail(run.terminalFailureDetail, true);
     }
     if (loopFinishedEvent?.loopOutcomeKind === run.terminalCause) {
-      const fromLog = mapFromLoopFinished(loopFinishedEvent, lastAttempt, true);
+      const fromLog = mapFromLoopFinished(loopFinishedEvent, lastAttempt, true, run.gateRefusalRecoveryState);
       if (fromLog) return fromLog;
     }
     const fromCause = mapFromLoopFinished(
@@ -447,6 +480,7 @@ function composeRunOperatorErrorFromState(
       },
       lastAttempt,
       true,
+      run.gateRefusalRecoveryState,
     );
     if (fromCause) return fromCause;
     if (run.status === "blocked") return op("agent_blocked", "inspect_spec");
@@ -490,12 +524,21 @@ function composeRunOperatorErrorFromState(
   }
 
   if (run.status === "failed" || run.status === "blocked") {
-    const fromPrecedence = resolveFailedBlockedAttemptPrecedence(lastAttempt, loopFinishedEvent);
+    const fromPrecedence = resolveFailedBlockedAttemptPrecedence(
+      lastAttempt,
+      loopFinishedEvent,
+      run.gateRefusalRecoveryState,
+    );
     if (fromPrecedence) return fromPrecedence;
   }
 
   if (terminalRecord?.event.kind === "loop_finished") {
-    const fromLog = mapFromLoopFinished(terminalRecord.event, lastAttempt, allowResumableLogOutcomes);
+    const fromLog = mapFromLoopFinished(
+      terminalRecord.event,
+      lastAttempt,
+      allowResumableLogOutcomes,
+      run.gateRefusalRecoveryState,
+    );
     if (fromLog) return fromLog;
   }
 

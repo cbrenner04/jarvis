@@ -272,7 +272,9 @@ For `ready_gate_failed`, terminal command evidence adds optional `message`: it n
 | `reason` | Closed stop category (not raw `failureKind` or `loopOutcomeKind`) |
 | `retryable` | Whether the operator may retry/resume without fixing underlying state |
 | `nextAction` | Closed remediation hint (`resume` \| `inspect_spec` \| `fix_config` \| `retry_later` \| `stop`) |
-| `message` | Optional bounded diagnostic for ready-gate evidence, binding-chain `invocation_error`, or daemon-owned invocation/model-config failure |
+| `message` | Optional bounded diagnostic for ready-gate evidence, binding-chain `invocation_error`, daemon-owned invocation/model-config failure, or the `gate_invocation_refused` gate command (plus a slot-contention remedy) |
+| `gateRefusalCause` | `gate_invocation_refused` only: durable `slot_contention` \| `ceiling_headroom` \| `legacy_unknown` from the run row |
+| `slotRedriveCount` / `slotRedriveBound` | `gate_invocation_refused` with `slot_contention` only: automatic re-drives consumed and the `MAX_SLOT_REDRIVES` bound; `nextAction` stays `resume` at the bound |
 
 | `reason` | Typical inputs | `retryable` | `nextAction` |
 | --- | --- | --- | --- |

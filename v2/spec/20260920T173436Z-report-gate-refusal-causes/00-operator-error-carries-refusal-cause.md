@@ -22,13 +22,13 @@ A composed `gate_invocation_refused` operator error carries the durable `gateRef
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves a `ceiling_headroom` refusal and a `slot_contention` refusal at the bound compose distinct `gateRefusalCause` values, and that the slot refusal carries its consumed `slotRedriveCount` and `slotRedriveBound`; the test fails against the pre-fix undifferentiated operator error.
-- [ ] A test through `composeRunOperatorError` proves the operator error `message` for a `ceiling_headroom` or `legacy_unknown` refusal keeps the ordinary resume-remedy shape, a `slot_contention` refusal at the bound carries distinct bounded-exhaustion text, and one below the bound carries non-committal automatic-re-drive text that still names `jarvis run resume`; it fails against the pre-fix single message.
-- [ ] A test proves a below-bound slot refusal whose lane was dropped from the coordinator (no durable evidence of the drop) composes the same non-committal message and still `nextAction: "resume"`.
-- [ ] A test proves a row with an unparseable `gateRefusalRecoveryState` column composes as `legacy_unknown` with no slot count or bound.
-- [ ] Daemon `list` and `wait` tests prove both refusal shapes reach the operator error projection with their cause, remedy `message`, and, for slot contention, count and bound.
-- [ ] Existing `v2/src/daemon/run-operator-error.test.ts` and `v2/src/daemon/daemon-wait-run-completion.test.ts` cases stay green (non-gate operator errors unchanged).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves a `ceiling_headroom` refusal and a `slot_contention` refusal at the bound compose distinct `gateRefusalCause` values, and that the slot refusal carries its consumed `slotRedriveCount` and `slotRedriveBound`; the test fails against the pre-fix undifferentiated operator error.
+- [x] A test through `composeRunOperatorError` proves the operator error `message` for a `ceiling_headroom` or `legacy_unknown` refusal keeps the ordinary resume-remedy shape, a `slot_contention` refusal at the bound carries distinct bounded-exhaustion text, and one below the bound carries non-committal automatic-re-drive text that still names `jarvis run resume`; it fails against the pre-fix single message.
+- [x] A test proves a below-bound slot refusal whose lane was dropped from the coordinator (no durable evidence of the drop) composes the same non-committal message and still `nextAction: "resume"`.
+- [x] A test proves a row with an unparseable `gateRefusalRecoveryState` column composes as `legacy_unknown` with no slot count or bound.
+- [x] Daemon `list` and `wait` tests prove both refusal shapes reach the operator error projection with their cause, remedy `message`, and, for slot contention, count and bound.
+- [x] Existing `v2/src/daemon/run-operator-error.test.ts` and `v2/src/daemon/daemon-wait-run-completion.test.ts` cases stay green (non-gate operator errors unchanged).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

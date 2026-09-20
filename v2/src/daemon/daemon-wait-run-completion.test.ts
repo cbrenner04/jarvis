@@ -546,6 +546,60 @@ test("list and wait expose the same terminal landing message", async () => {
   });
 });
 
+test("list and wait project gate refusal cause, remedy message, and slot count/bound", async () => {
+  const cases = [
+    {
+      state: { cause: "ceiling_headroom" as const, gateCommand: "bun run test:v2", slotRedriveCount: 0 },
+      expected: {
+        reason: "gate_invocation_refused",
+        nextAction: "resume",
+        gateRefusalCause: "ceiling_headroom",
+        message: "Gate invocation refused: bun run test:v2",
+      },
+    },
+    {
+      state: { cause: "slot_contention" as const, gateCommand: "bun run test:v2", slotRedriveCount: 3 },
+      expected: {
+        reason: "gate_invocation_refused",
+        nextAction: "resume",
+        gateRefusalCause: "slot_contention",
+        slotRedriveCount: 3,
+        slotRedriveBound: 3,
+      },
+    },
+  ];
+  for (const { state, expected } of cases) {
+    const runId = createImplementRun();
+    stateStore.commitCompletionBoundary({
+      attemptId: stateStore.recordAttemptStart(runId),
+      runStatus: "failed",
+      outcomeKind: "gate_invocation_refused",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: state,
+    });
+    logSink.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "gate_invocation_refused",
+      iterationsConsumed: 1,
+      resumable: true,
+      gateCommand: "bun run test:v2",
+    });
+
+    const list = await expectResponse(await listDirect());
+    const row = (list.runs as Array<{ runId: string; error?: { message?: string } }>).find(
+      (candidate) => candidate.runId === runId,
+    );
+    expect(row?.error).toMatchObject(expected);
+    const waited = (await expectResponse(await waitDirect(`gate-refusal-${state.cause}`, runId))) as {
+      error?: { message?: string };
+    };
+    expect(waited.error).toEqual(row?.error);
+    if (state.cause === "slot_contention") {
+      expect(row?.error?.message).toContain("automatic slot re-drives exhausted (3/3)");
+    }
+  }
+});
+
 test("list and wait project resumable iteration_timeout as resume", async () => {
   const runId = createImplementRun();
   stateStore.setRunStatus(runId, "failed");

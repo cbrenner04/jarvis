@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
+import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
 import { formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
+import { MAX_SLOT_REDRIVES } from "./daemon-slot-redrive.ts";
 import type {
   RunOperatorError,
   RunOperatorErrorReason,
@@ -242,6 +244,73 @@ test("composeRunOperatorError maps gate_invocation_refused to resume", () => {
     nextAction: "resume",
     message: "Gate invocation refused: bun run test:v2",
   });
+});
+
+function refusedRun(gateRefusalRecoveryState: { cause: GateRefusalRecoveryCause; slotRedriveCount?: number } | null) {
+  return { ...runWith("failed", [attempt("gate_invocation_refused")]), gateRefusalRecoveryState };
+}
+
+const refusedLog = () => loopFinished("gate_invocation_refused", { resumable: true, gateCommand: "bun run test:v2" });
+
+test("composeRunOperatorError carries gate refusal cause distinct per cause, with slot count and bound", () => {
+  const ceiling = composeRunOperatorError(refusedRun({ cause: "ceiling_headroom" }), refusedLog());
+  const slot = composeRunOperatorError(
+    refusedRun({ cause: "slot_contention", slotRedriveCount: MAX_SLOT_REDRIVES }),
+    refusedLog(),
+  );
+  expect(ceiling?.gateRefusalCause).toBe("ceiling_headroom");
+  expect(ceiling).not.toHaveProperty("slotRedriveCount");
+  expect(ceiling).not.toHaveProperty("slotRedriveBound");
+  expect(slot?.gateRefusalCause).toBe("slot_contention");
+  expect(slot?.slotRedriveCount).toBe(MAX_SLOT_REDRIVES);
+  expect(slot?.slotRedriveBound).toBe(MAX_SLOT_REDRIVES);
+});
+
+test("composeRunOperatorError gate refusal message: ordinary for ceiling/legacy, cause-specific for slot contention", () => {
+  const ordinary = "Gate invocation refused: bun run test:v2";
+  expect(composeRunOperatorError(refusedRun({ cause: "ceiling_headroom" }), refusedLog())?.message).toBe(ordinary);
+  const legacy = composeRunOperatorError(refusedRun({ cause: "legacy_unknown" }), refusedLog());
+  expect(legacy?.message).toBe(ordinary);
+  expect(legacy).not.toHaveProperty("slotRedriveCount");
+  const exhausted = composeRunOperatorError(
+    refusedRun({ cause: "slot_contention", slotRedriveCount: MAX_SLOT_REDRIVES }),
+    refusedLog(),
+  );
+  expect(exhausted?.message).toStartWith(`${ordinary} — automatic slot re-drives exhausted (3/3)`);
+  expect(exhausted?.nextAction).toBe("resume");
+  const below = composeRunOperatorError(refusedRun({ cause: "slot_contention", slotRedriveCount: 1 }), refusedLog());
+  expect(below?.message).toStartWith(`${ordinary} — automatic re-drive may be pending (1/3 used)`);
+  expect(below?.message).toContain("jarvis run resume");
+  expect(below?.message).not.toContain("exhausted");
+  expect(below?.slotRedriveCount).toBe(1);
+  expect(below?.nextAction).toBe("resume");
+});
+
+test("composeRunOperatorError below-bound slot refusal keeps the same message when the lane was dropped", () => {
+  const run = { ...refusedRun({ cause: "slot_contention", slotRedriveCount: 0 }), attempts: [] };
+  const error = composeRunOperatorError(run, refusedLog());
+  expect(error).toMatchObject({ nextAction: "resume", slotRedriveCount: 0, slotRedriveBound: MAX_SLOT_REDRIVES });
+  expect(error?.message).toContain("automatic re-drive may be pending (0/3 used)");
+});
+
+test("composeRunOperatorError projects slot remedy without a log event via terminalCause", () => {
+  const run = {
+    ...refusedRun({ cause: "slot_contention", slotRedriveCount: 2 }),
+    terminalCause: "gate_invocation_refused" as const,
+  };
+  const error = composeRunOperatorError(run);
+  expect(error?.reason).toBe("gate_invocation_refused");
+  expect(error?.message).toStartWith("automatic re-drive may be pending (2/3 used)");
+  expect(error?.gateRefusalCause).toBe("slot_contention");
+});
+
+test("composeRunOperatorError projects unparseable gate refusal state as legacy_unknown without slot fields", () => {
+  const run = refusedRun({ cause: "legacy_unknown" });
+  const error = composeRunOperatorError({ ...run, gateRefusalRecoveryStateCorrupt: true } as typeof run, refusedLog());
+  expect(error?.gateRefusalCause).toBe("legacy_unknown");
+  expect(error).not.toHaveProperty("slotRedriveCount");
+  expect(error).not.toHaveProperty("slotRedriveBound");
+  expect(error?.nextAction).toBe("resume");
 });
 
 test("composeRunOperatorError maps enriched resumable iteration_timeout to resume", () => {

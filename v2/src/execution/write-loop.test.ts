@@ -6421,6 +6421,52 @@ export function isLoadSensitive(file: string): boolean {
         }
       });
 
+      test("a non-resumable completion_commit_failed row does not re-enter as a completed run", async () => {
+        // Mutation checkpoint: keying `committedResult`'s re-entry on the terminal cause alone
+        // (`run.terminalCause === "completion_commit_failed"`) instead of the durable resumable flag
+        // hands this hand-fix-only row back as `kind: "complete"` and replays the publication tail on
+        // a row the runbook says `run resume` cannot clear — which re-fails as `completion_commit_failed`
+        // instead of the terminal `invocation_failure` the pre-change `failed` row produced.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-non-resumable-reentry";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const sink = new TestLogSink();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink: sink,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(false);
+
+        let published = 0;
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink: sink,
+          bindings: [],
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => {
+            published += 1;
+            return {};
+          },
+          readyFinalizer: async () => {},
+        });
+
+        expect(retry.runId).toBe(fenced.result.runId);
+        expect(retry.kind).toBe("invocation_failure");
+        expect(published).toBe(0);
+      });
+
       describe("refusal revert preserves pre-repair dirt", () => {
         async function runWithPreRepairDirt(branchName: string, dirt: (cwd: string) => void) {
           const { jarvisRoot, stateDbPath } = createJarvisHome();

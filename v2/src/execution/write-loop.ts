@@ -3125,15 +3125,19 @@ function idleOutputTimeoutResumableFromCheckpoint(commitOutcome: ProgressIterati
   return commitOutcome.kind === "committed";
 }
 
-function idleOutputTimeoutResumableFromDurableEvidence(logRecords: readonly PersistedRecord[]): boolean {
+function durableLoopResumable(
+  logRecords: readonly PersistedRecord[],
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  fallback: boolean,
+): boolean {
   let terminal: LoopFinishedEvent | undefined;
   for (const record of logRecords) {
     const event = record.event;
-    if (event.kind === "loop_finished" && event.loopOutcomeKind === "idle_output_timeout") {
+    if (event.kind === "loop_finished" && event.loopOutcomeKind === loopOutcomeKind) {
       terminal = event;
     }
   }
-  return terminal?.resumable ?? false;
+  return terminal?.resumable ?? fallback;
 }
 
 /** Terminal result already committed by a prior invocation, returned idempotently. Returns null when the run is resumable and has no committed terminal result, except the idle_output_timeout branch, which returns a non-null result echoing its durable resumable flag. */
@@ -3148,8 +3152,15 @@ function committedResult(
     priorLogRecords?: readonly PersistedRecord[];
   },
 ): WriteLoopResult | null {
-  // A `completion_commit_failed` row settles `failed` but re-enters as a completed run: publication replays idempotently.
-  if (run.status === "completed" || (run.status === "failed" && run.terminalCause === "completion_commit_failed")) {
+  // A `completion_commit_failed` row settles `failed` regardless of resumability, so the cause alone
+  // cannot decide re-entry. Only a *resumable* one re-enters as a completed run to replay publication
+  // idempotently; a non-resumable one (e.g. a ready-gate repair refused entirely out of diff) must
+  // stay a terminal failure the operator fixes by hand.
+  const resumableCompletionCommitFailure =
+    run.status === "failed" &&
+    run.terminalCause === "completion_commit_failed" &&
+    durableLoopResumable(resumeContext?.priorLogRecords ?? [], "completion_commit_failed", true);
+  if (run.status === "completed" || resumableCompletionCommitFailure) {
     const agent = run.attempts.at(-1)?.completionAgent?.trim();
     const stamp = boundaryStampFromStoredRun(run);
     return {
@@ -3200,7 +3211,7 @@ function committedResult(
               resumeContext?.expectedArtifactPath,
             )
           : outcomeKind === "idle_output_timeout"
-            ? idleOutputTimeoutResumableFromDurableEvidence(resumeContext?.priorLogRecords ?? [])
+            ? durableLoopResumable(resumeContext?.priorLogRecords ?? [], "idle_output_timeout", false)
             : false,
       ...(detail !== undefined ? detail : {}),
       ...(outcomeKind === "iteration_timeout"

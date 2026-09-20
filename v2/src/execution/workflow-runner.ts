@@ -1637,8 +1637,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 });
               }
               // The row was marked `in-progress` for the finalization tail, so both branches must
-              // restore a terminal status. A flip failure keeps its documented `completed` status;
-              // leaving `in-progress` strands it non-live and hangs `run wait`.
+              // restore a terminal status. Every publication failure — flip failures included —
+              // settles `failed`; leaving `in-progress` strands it non-live and hangs `run wait`.
               settleWorkflowPublicationFailure(
                 store,
                 lastResult.runId,

@@ -665,6 +665,7 @@ export function isPlanStageEntryRunRecoverable(
   reviewStepId: string,
 ): boolean {
   const writeStep = entryRun.workflowSnapshot?.steps.find((candidate) => candidate.stepId === entryRun.stepId);
+  if (entryRun.status === "failed" && entryRun.terminalCause === "ready_flip_failed") return false;
   if (entryRun.status !== "blocked" && entryRun.status !== "completed") return true;
   return (
     isBlockedPlanWriteRecoveryCandidate(entryRun, writeStep) ||

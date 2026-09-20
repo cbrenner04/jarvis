@@ -225,6 +225,54 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     });
   });
 
+  describe("failed publication-cause entry rows", () => {
+    function resolveWithTerminalCause(terminalCause: NonNullable<Run["terminalCause"]>) {
+      const stages: PipelineStageRecord[] = [
+        stageRow({ stageId: "intent", branchKey: "default", position: 0, status: "succeeded" }),
+        stageRow({
+          stageId: "plan",
+          branchKey: "default",
+          position: 1,
+          status: "failed",
+          workflowInvocationId: "run-plan",
+        }),
+      ];
+      const entryRun: Partial<Run> = {
+        project: "demo",
+        branch: "plan/branch",
+        worktreePath: "/worktrees/demo/plan/branch",
+        specPath: "specs/demo/plan/branch-plan.md",
+        stepId: "plan",
+        status: "failed",
+        terminalCause,
+      };
+      return resolveBlockedPlanStageRecoveryTarget(
+        { pipelineId: PIPELINE_ID, branchKey: "default" },
+        {
+          store: makeStore({ [PIPELINE_ID]: makePipeline(SINGLE_DEFINITION, stages) }, { "run-plan": entryRun }),
+          resolveStage: stubResolveSteps([]),
+        },
+      );
+    }
+
+    test("surfaces a failed ready_flip_failed entry row as a failed stage but refuses recovery", async () => {
+      const result = await resolveWithTerminalCause("ready_flip_failed");
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected recovery refusal");
+      expect(result.reason).toBe("stage_not_recoverable");
+      expect(result.message).toContain("linked entry run is not a recoverable plan stage");
+    });
+
+    test("surfaces a failed completion_commit_failed entry row as a failed stage and admits recovery", async () => {
+      const result = await resolveWithTerminalCause("completion_commit_failed");
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("expected admitted recovery target");
+      expect(result.target.runId).toBe("run-plan");
+    });
+  });
+
   test("does not consult paired dispatch results for fan-out recovery", async () => {
     const stages: PipelineStageRecord[] = [
       stageRow({

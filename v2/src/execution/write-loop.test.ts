@@ -5102,6 +5102,27 @@ describe("write loop", () => {
       });
 
       test("ready-gate repair prompt caps the failing step output, not the whole log", async () => {
+        // A short failing step preceded by oversized passing output: a whole-log tail would reach
+        // back into the passing step's padding, while a step-scoped cap leaves the short failing
+        // body whole. Only the step-scoped cap keeps PASSING-PAD-TAIL out of the prompt.
+        const stdout = [
+          readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun run check" }),
+          `${"x".repeat(20000)}PASSING-PAD-TAIL\n`,
+          readyStepStartRecord({ stepId: "2", attemptId: "2.1", command: "bun run test:v2" }),
+          "FAILING-BODY\n",
+        ].join("");
+        const stderr = [
+          readyStepCompletionRecord({ stepId: "1", attemptId: "1.1", command: "bun run check", status: 0 }),
+          readyStepCompletionRecord({ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }),
+        ].join("");
+
+        const prompt = await repairPromptForGateLog("repair-prompt-output-cap", `${stdout}${stderr}`);
+
+        expect(prompt).toContain("FAILING-BODY");
+        expect(prompt).not.toContain("PASSING-PAD-TAIL");
+      });
+
+      test("ready-gate repair prompt truncates an oversized failing step to its tail", async () => {
         const stdout = [
           readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun run check" }),
           `HEAD-MARK${"x".repeat(20000)}TAIL-MARK\n`,
@@ -5111,7 +5132,7 @@ describe("write loop", () => {
           readyStepCompletionRecord({ stepId: "1", attemptId: "1.1", command: "bun run check", status: 1 }),
         ].join("");
 
-        const prompt = await repairPromptForGateLog("repair-prompt-output-cap", `${stdout}${stderr}`);
+        const prompt = await repairPromptForGateLog("repair-prompt-output-cap-oversized", `${stdout}${stderr}`);
 
         expect(prompt).toContain("TAIL-MARK");
         expect(prompt).not.toContain("HEAD-MARK");

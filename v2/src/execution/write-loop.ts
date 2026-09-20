@@ -3125,15 +3125,19 @@ function idleOutputTimeoutResumableFromCheckpoint(commitOutcome: ProgressIterati
   return commitOutcome.kind === "committed";
 }
 
-function idleOutputTimeoutResumableFromDurableEvidence(logRecords: readonly PersistedRecord[]): boolean {
+function durableLoopResumable(
+  logRecords: readonly PersistedRecord[],
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  fallback: boolean,
+): boolean {
   let terminal: LoopFinishedEvent | undefined;
   for (const record of logRecords) {
     const event = record.event;
-    if (event.kind === "loop_finished" && event.loopOutcomeKind === "idle_output_timeout") {
+    if (event.kind === "loop_finished" && event.loopOutcomeKind === loopOutcomeKind) {
       terminal = event;
     }
   }
-  return terminal?.resumable ?? false;
+  return terminal?.resumable ?? fallback;
 }
 
 /** Terminal result already committed by a prior invocation, returned idempotently. Returns null when the run is resumable and has no committed terminal result, except the idle_output_timeout branch, which returns a non-null result echoing its durable resumable flag. */
@@ -3148,7 +3152,15 @@ function committedResult(
     priorLogRecords?: readonly PersistedRecord[];
   },
 ): WriteLoopResult | null {
-  if (run.status === "completed") {
+  // A `completion_commit_failed` row settles `failed` regardless of resumability, so the cause alone
+  // cannot decide re-entry. Only a *resumable* one re-enters as a completed run to replay publication
+  // idempotently; a non-resumable one (e.g. a ready-gate repair refused entirely out of diff) must
+  // stay a terminal failure the operator fixes by hand.
+  const resumableCompletionCommitFailure =
+    run.status === "failed" &&
+    run.terminalCause === "completion_commit_failed" &&
+    durableLoopResumable(resumeContext?.priorLogRecords ?? [], "completion_commit_failed", true);
+  if (run.status === "completed" || resumableCompletionCommitFailure) {
     const agent = run.attempts.at(-1)?.completionAgent?.trim();
     const stamp = boundaryStampFromStoredRun(run);
     return {
@@ -3199,7 +3211,7 @@ function committedResult(
               resumeContext?.expectedArtifactPath,
             )
           : outcomeKind === "idle_output_timeout"
-            ? idleOutputTimeoutResumableFromDurableEvidence(resumeContext?.priorLogRecords ?? [])
+            ? durableLoopResumable(resumeContext?.priorLogRecords ?? [], "idle_output_timeout", false)
             : false,
       ...(detail !== undefined ? detail : {}),
       ...(outcomeKind === "iteration_timeout"
@@ -4491,7 +4503,7 @@ function completionCommitFailed(
   const resumable = source instanceof Error || source?.resumable !== false;
   store.commitTerminalRunSettlement({
     runId: result.runId,
-    status: resumable ? "completed" : "failed",
+    status: "failed",
     terminalCause: "completion_commit_failed",
     terminalFailureDetail: terminalFailureDetailFromError(error, completionCommitErrorMessage),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
@@ -4603,14 +4615,7 @@ function readyFailed(
     ...survivingMutationLogFields(error),
     ...nonTerminatingMutationLogFields(error),
   };
-  const terminalStatus =
-    kind === "surviving_mutation_failed" ||
-    kind === "non_terminating_mutation_failed" ||
-    kind === "ready_gate_failed" ||
-    kind === "ready_gate_command_missing" ||
-    kind === "ready_gate_out_of_scope"
-      ? "failed"
-      : "completed";
+  const terminalStatus = kind === "runtime_smoke_failed" ? "completed" : "failed";
   const terminalFailureDetail =
     kind === "surviving_mutation_failed" || kind === "non_terminating_mutation_failed"
       ? terminalFailureDetailFromError(error)
@@ -4622,8 +4627,8 @@ function readyFailed(
             ? terminalFailureDetailFromError(error, "ready flip failed")
             : undefined;
   // Publication marks the row `in-progress` for the finalization tail, so every exit from that
-  // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
-  // smoke failures keep their documented `completed` status. Leaving `in-progress` strands the row
+  // tail must restore a terminal status. Gate, mutation, and flip failures demote to `failed`; smoke
+  // failures keep their documented `completed` status. Leaving `in-progress` strands the row
   // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
   store.commitTerminalRunSettlement({
     runId: result.runId,

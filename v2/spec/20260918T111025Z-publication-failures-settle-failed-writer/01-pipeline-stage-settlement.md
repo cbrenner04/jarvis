@@ -18,9 +18,9 @@ Depends on [00](00-writer-flip-incident-predicate-and-resume.md) landing first: 
 
 ## Acceptance criteria
 
-- [ ] A test proves a pipeline branch with a `failed` `ready_flip_failed` entry row is surfaced as a failed stage but `resolveBlockedPlanStageRecoveryTarget` refuses recovery for it; it fails against the pre-fix code, where the row is `completed` and `findBranchFailedWorkflowStage` never finds it as failed at all.
-- [ ] A test proves a pipeline branch with a `failed` `completion_commit_failed` entry row is surfaced as a failed stage and admitted for recovery, consistent with its resumability; it fails against the pre-fix code for the same reachability gap.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves a pipeline branch with a `failed` `ready_flip_failed` entry row is surfaced as a failed stage but `resolveBlockedPlanStageRecoveryTarget` refuses recovery for it; it fails against the pre-fix code, where the row is `completed` and `findBranchFailedWorkflowStage` never finds it as failed at all.
+- [x] A `pipeline-stage-recovery.test.ts` test pins that a `failed` `completion_commit_failed` entry row is surfaced as a failed stage and admitted for recovery. It seeds that row directly rather than producing it through the changed writer, so it does not fail against pre-fix code: a real drive cannot reach a plan *entry* row carrying a publication `terminalCause`, because `isDurableWorkflowStep` makes a `review-debate` step unconditionally durable and the failure settles on the review row instead. The writer behavior itself is proven pre-fix-failing by `workflow-runner-publication.test.ts` (`ready_flip_failed settles failed with atomic non-resumable cause`). Driving the daemon-side row through `workflow-runner-resume.ts`ʼs publication path is deferred.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -578,7 +578,7 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
-  test("ready_flip_failed keeps completed with atomic non-resumable cause", async () => {
+  test("ready_flip_failed settles failed with atomic non-resumable cause", async () => {
     const step = createStep({
       stepId: "publish-ready-flip-atomic",
       role: "implement",
@@ -597,7 +597,7 @@ describe("executeWorkflow completion publication", () => {
       expect(result.kind).toBe("ready_flip_failed");
       const settledRow = store.loadRun(result.runId);
       expect(settledRow).toMatchObject({
-        status: "completed",
+        status: "failed",
         terminalCause: "ready_flip_failed",
         terminalFailureDetail: {
           failureKind: "error",

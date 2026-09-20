@@ -1122,15 +1122,30 @@ test("composeRunOperatorError defaults durable completion_commit_failed to resum
     attempts: [],
     terminalCause,
   });
-  // Without a log the durable cause and status decide resumability: only a `completed`
-  // completion_commit_failed defaults to resume; the non-resumable settlement writes `failed`.
+  // Publication failures all settle `failed`, so durable status no longer encodes resumability:
+  // without a log the cause alone decides, and completion_commit_failed defaults to resume at
+  // either status. Only a `loop_finished` carrying `resumable: false` demotes it to stop.
   expect(composeRunOperatorError(durable("completion_commit_failed"))).toEqual(
     err("completion_commit_failed", "resume", true),
   );
   expect(composeRunOperatorError(durable("completion_commit_failed", "failed"))).toEqual(
-    err("completion_commit_failed", "stop"),
+    err("completion_commit_failed", "resume", true),
   );
   expect(composeRunOperatorError(durable("landing_failed", "failed"))).toEqual(err("landing_failed", "stop"));
+});
+
+test("composeRunOperatorError resumes a failed completion_commit_failed row whose terminal log was reaped", () => {
+  // Mutation checkpoint: restoring the `run.status !== "failed"` conjunct on the log-less
+  // resumable fallback makes this row project stop/non-retryable, telling the operator to abandon
+  // a row `run resume` can still clear. Session-log reaping routinely removes the terminal record.
+  const run = {
+    status: "failed" as RunStatus,
+    attempts: [],
+    terminalCause: "completion_commit_failed" as const,
+  };
+  const projected = composeRunOperatorError(run);
+  expect(projected?.nextAction).toBe("resume");
+  expect(projected?.retryable).toBe(true);
 });
 
 test("composeRunOperatorError projects model_config message from durable terminalFailureDetail", () => {

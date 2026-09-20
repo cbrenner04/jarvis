@@ -665,6 +665,7 @@ export function isPlanStageEntryRunRecoverable(
   reviewStepId: string,
 ): boolean {
   const writeStep = entryRun.workflowSnapshot?.steps.find((candidate) => candidate.stepId === entryRun.stepId);
+  if (entryRun.status === "failed" && entryRun.terminalCause === "ready_flip_failed") return false;
   if (entryRun.status !== "blocked" && entryRun.status !== "completed") return true;
   return (
     isBlockedPlanWriteRecoveryCandidate(entryRun, writeStep) ||
@@ -1452,8 +1453,8 @@ async function runIntentResumeCommitAndPublish(
     const failureFields = resumePublicationFailureBoundaryFields(failure, message);
     store.commitCompletionBoundary({
       attemptId,
-      runStatus: isFlip ? "completed" : "failed",
-      outcomeKind: isFlip ? "done" : "invocation_failure",
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
       ...(failureFields.invocationFailureDetail !== undefined
         ? { invocationFailureDetail: failureFields.invocationFailureDetail }
         : {}),
@@ -2531,8 +2532,8 @@ async function settleFailedReviewMutationPublication(
   const failureFields = resumePublicationFailureBoundaryFields(failure, message);
   store.commitCompletionBoundary({
     attemptId,
-    runStatus: isFlip ? "completed" : "failed",
-    outcomeKind: isFlip ? "done" : "invocation_failure",
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
     ...(failureFields.invocationFailureDetail !== undefined
       ? { invocationFailureDetail: failureFields.invocationFailureDetail }
       : {}),

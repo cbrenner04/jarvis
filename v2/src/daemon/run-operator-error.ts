@@ -475,8 +475,10 @@ function composeRunOperatorErrorFromState(
         kind: "loop_finished",
         loopOutcomeKind: run.terminalCause,
         iterationsConsumed: 0,
-        resumable:
-          loopFinishedEvent?.resumable ?? (run.terminalCause === "completion_commit_failed" && run.status !== "failed"),
+        // Durable status no longer encodes resumability (publication failures all settle `failed`),
+        // so the log-less fallback defaults `completion_commit_failed` to resumable. A genuinely
+        // non-resumable settlement records `resumable: false` on its `loop_finished`, which wins via `??`.
+        resumable: loopFinishedEvent?.resumable ?? run.terminalCause === "completion_commit_failed",
         ...(run.terminalFailureDetail?.message !== undefined ? { message: run.terminalFailureDetail.message } : {}),
       },
       lastAttempt,

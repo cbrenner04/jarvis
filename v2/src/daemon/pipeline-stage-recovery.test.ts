@@ -225,6 +225,67 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     });
   });
 
+  describe("failed publication-cause entry rows", () => {
+    /** Settles a real `running` plan stage from an entry run terminated `failed` with `terminalCause`, then resolves recovery. */
+    function resolveAfterRollup(terminalCause: NonNullable<Run["terminalCause"]>) {
+      return withStateStore(async (store) => {
+        const runId = store.createRun({
+          project: "demo",
+          specRef: "main",
+          branch: "plan/branch",
+          worktreePath: "/worktrees/demo/plan/branch",
+          specPath: "specs/demo/plan/branch-plan.md",
+          stepId: "plan",
+          workflowSnapshot: {
+            invocationId: "inv-plan",
+            steps: [
+              {
+                stepId: "plan",
+                role: "plan",
+                expectedArtifactPath: ".jarvis-plan-stage",
+                landingInputs: { sourceRoot: "/source", paths: [], consumeFrom: "source" },
+              },
+              { stepId: "plan-review", role: "", behavior: "review-debate", durable: false },
+            ],
+          },
+        });
+        store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause });
+        const pipelineId = store.createPipeline({ definition: SINGLE_DEFINITION });
+        store.updateStage({
+          pipelineId,
+          stageId: "plan",
+          patch: { status: "running", workflowInvocationId: runId, startedAt: 100 },
+        });
+        store.settleLinkedStagesFromEntryRun(runId);
+        const planStage = store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "plan");
+        const resolution = await resolveBlockedPlanStageRecoveryTarget(
+          { pipelineId, branchKey: "default" },
+          { store, resolveStage: stubResolveSteps([]) },
+        );
+        return { planStatus: planStage?.status, resolution, runId };
+      });
+    }
+
+    test("a failed ready_flip_failed entry row rolls up to a failed stage but refuses recovery", async () => {
+      const { planStatus, resolution } = await resolveAfterRollup("ready_flip_failed");
+
+      expect(planStatus).toBe("failed");
+      expect(resolution.ok).toBe(false);
+      if (resolution.ok) throw new Error("expected recovery refusal");
+      expect(resolution.reason).toBe("stage_not_recoverable");
+      expect(resolution.message).toContain("linked entry run is not a recoverable plan stage");
+    });
+
+    test("a failed completion_commit_failed entry row rolls up to a failed stage and admits recovery", async () => {
+      const { planStatus, resolution, runId } = await resolveAfterRollup("completion_commit_failed");
+
+      expect(planStatus).toBe("failed");
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) throw new Error("expected admitted recovery target");
+      expect(resolution.target.runId).toBe(runId);
+    });
+  });
+
   test("does not consult paired dispatch results for fan-out recovery", async () => {
     const stages: PipelineStageRecord[] = [
       stageRow({

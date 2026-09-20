@@ -319,15 +319,13 @@ function settleWorkflowPublicationFailure(
   prNumber?: number,
   prUrl?: string,
 ): void {
-  // Only ready_flip_failed keeps the run completed (the commit landed; the draft→ready flip is a
-  // post-completion PR-state fix). Every other publication failure kind — including
-  // runtime_smoke_failed — settles failed, matching the resume path and the pre-atomic inline path.
-  const terminalStatus = kind === "ready_flip_failed" ? "completed" : "failed";
+  // Every publication failure kind — including ready_flip_failed and runtime_smoke_failed — settles
+  // failed, matching the resume path and the pre-atomic inline path.
   const terminalFailureDetail = workflowPublicationFailureTerminalDetail(kind, error);
   const operatorFailureRecord = workflowPublicationOperatorFailureRecord(kind, error, resumable, worktreePath);
   store.commitTerminalRunSettlement({
     runId,
-    status: terminalStatus,
+    status: "failed",
     terminalCause: kind,
     ...(terminalFailureDetail !== undefined ? { terminalFailureDetail } : {}),
     operatorFailureRecord,
@@ -1639,8 +1637,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 });
               }
               // The row was marked `in-progress` for the finalization tail, so both branches must
-              // restore a terminal status. A flip failure keeps its documented `completed` status;
-              // leaving `in-progress` strands it non-live and hangs `run wait`.
+              // restore a terminal status. Every publication failure — flip failures included —
+              // settles `failed`; leaving `in-progress` strands it non-live and hangs `run wait`.
               settleWorkflowPublicationFailure(
                 store,
                 lastResult.runId,

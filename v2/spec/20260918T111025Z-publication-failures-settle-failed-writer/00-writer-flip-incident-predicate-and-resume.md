@@ -23,9 +23,9 @@ The two writers for `completion_commit_failed` already disagree: `write-loop.ts`
 
 ## Acceptance criteria
 
-- [ ] A test proves `completion_commit_failed` and `ready_flip_failed` settle the row `failed` with the same `terminalCause` and resumability as written today; it fails against the pre-fix code, which settles `completed` for both.
-- [ ] A test proves `run resume` admits a `failed` `completion_commit_failed` row and completes it without a duplicate commit or PR; it fails against the pre-fix code, whose writer produces a `completed` row that the resume status gate (`run.status !== "failed"`) rejects.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves `completion_commit_failed` and `ready_flip_failed` settle the row `failed` with the same `terminalCause` and resumability as written today; it fails against the pre-fix code, which settles `completed` for both.
+- [x] A test proves `run resume` admits a `failed` `completion_commit_failed` row and completes it without a duplicate commit or PR; it fails against the pre-fix code, whose writer produces a `completed` row that the resume status gate (`run.status !== "failed"`) rejects.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

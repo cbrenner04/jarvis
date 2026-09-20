@@ -68,6 +68,7 @@ import {
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
+import { resolveCompletionCommitFailedResumeContext } from "./workflow-runner-resume.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
   acquireGateInvocationLease,
@@ -6341,7 +6342,7 @@ export function isLoadSensitive(file: string): boolean {
         expect(git("status", "--porcelain")).toBe("");
         const reopened = openStateStore(stateDbPath);
         try {
-          expect(reopened.loadRun(fenced.result.runId)?.status).toBe("completed");
+          expect(reopened.loadRun(fenced.result.runId)?.status).toBe("failed");
         } finally {
           reopened.close();
         }
@@ -6418,6 +6419,52 @@ export function isLoadSensitive(file: string): boolean {
         } finally {
           reopened.close();
         }
+      });
+
+      test("a non-resumable completion_commit_failed row does not re-enter as a completed run", async () => {
+        // Mutation checkpoint: keying `committedResult`'s re-entry on the terminal cause alone
+        // (`run.terminalCause === "completion_commit_failed"`) instead of the durable resumable flag
+        // hands this hand-fix-only row back as `kind: "complete"` and replays the publication tail on
+        // a row the runbook says `run resume` cannot clear — which re-fails as `completion_commit_failed`
+        // instead of the terminal `invocation_failure` the pre-change `failed` row produced.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-non-resumable-reentry";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const sink = new TestLogSink();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink: sink,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+            writeFileSync(join(cwd, "v2/src/new-untracked.ts"), "export {}\n", "utf8");
+          },
+        });
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.resumable).toBe(false);
+
+        let published = 0;
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink: sink,
+          bindings: [],
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => {
+            published += 1;
+            return {};
+          },
+          readyFinalizer: async () => {},
+        });
+
+        expect(retry.runId).toBe(fenced.result.runId);
+        expect(retry.kind).toBe("invocation_failure");
+        expect(published).toBe(0);
       });
 
       describe("refusal revert preserves pre-repair dirt", () => {
@@ -8009,6 +8056,34 @@ export function isLoadSensitive(file: string): boolean {
       expect(publishCalls).toBe(2);
     });
 
+    test("completion_commit_failed settles the row failed, resumable, and admissible to run resume", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 2 }),
+        completionPublisher: async () => {
+          throw new Error("push failed");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+      expect(first.resumable).toBe(true);
+
+      const store = openStateStore(stateDbPath);
+      try {
+        const run = store.loadRun(first.runId);
+        expect(run).toMatchObject({ status: "failed", terminalCause: "completion_commit_failed" });
+        if (run === null || run === undefined) return;
+        const terminalRecord = logSink.tail(first.runId).at(-1) as PersistedRecord & { event: LoopFinishedEvent };
+        expect(resolveCompletionCommitFailedResumeContext(run, store, terminalRecord).ok).toBe(true);
+      } finally {
+        store.close();
+      }
+    });
+
     test("an inconclusive mutation candidate is recorded on the run and publication proceeds", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
@@ -8440,7 +8515,7 @@ index 1234567..abcdefg 100644
       const cases = [
         {
           kind: "ready_flip_failed",
-          status: "completed",
+          status: "failed",
           finalizer: async () => {
             throw new Error("gh pr ready failed");
           },

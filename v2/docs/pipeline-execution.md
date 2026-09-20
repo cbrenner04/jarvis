@@ -192,8 +192,8 @@ Malformed RPC params and transport errors: [`daemon-host.md`](./daemon-host.md).
 
 | Outcome | Reason |
 | --- | --- |
-| **Admitted** | Branch suffix has replayable `failed` row or approved-gate pending strand, no blocking gate |
-| **Refused** | `branch_not_found`; `branch_awaiting_approval`; `branch_rejected`; `branch_not_resumable`; reopen refusal from store |
+| **Admitted** | Branch suffix has replayable `failed` row, approved-gate pending strand, or a `succeeded` predecessor with a provisional `skipped` successor (reopened via `reopenProvisionalSkippedStages`, then dispatched); no blocking gate. Provisional-skip lanes are not listed as `branch_resume_required` keys |
+| **Refused** | `branch_not_found`; `branch_awaiting_approval`; `branch_rejected`; `branch_not_resumable` (includes a `skipped` successor with terminal or null/legacy provenance); reopen refusal from store |
 
 Resume captures the failed workflow row before reopen and scopes reset flags to that reopened stage and branch. `reopenFailedPipeline` persists a `pipeline_reopened_stage_reset` marker on the reopened row so `continuePipeline`, detached continuation, claim loss, and daemon restart continuation reconstruct the same stage/branch reset policy without caller-supplied flags. RPC `resetDespiteDirty` and `resetDespiteLandedCriteria` independently set the matching shared flags; failed-plan redraft resolves `skipDirtyWorktreeGate` at stale-reset time from harness-draft-dirt classification (see below), not from the persisted marker alone.
 

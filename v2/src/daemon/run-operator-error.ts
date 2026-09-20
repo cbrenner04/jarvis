@@ -255,11 +255,12 @@ function slotContentionRemedy(count: number): string {
 
 function mapGateInvocationRefused(event: LoopFinishedEvent, gateRefusal: GateRefusalEvidence): RunOperatorError {
   const prefix = event.gateCommand !== undefined ? `Gate invocation refused: ${event.gateCommand}` : undefined;
-  const base = op("gate_invocation_refused", "resume", true);
-  if (gateRefusal == null) return { ...base, ...(prefix !== undefined ? { message: prefix } : {}) };
-  if (gateRefusal.cause !== "slot_contention") {
-    return { ...base, ...(prefix !== undefined ? { message: prefix } : {}), gateRefusalCause: gateRefusal.cause };
-  }
+  const base = {
+    ...op("gate_invocation_refused", "resume", true),
+    ...(prefix !== undefined ? { message: prefix } : {}),
+  };
+  if (gateRefusal == null) return base;
+  if (gateRefusal.cause !== "slot_contention") return { ...base, gateRefusalCause: gateRefusal.cause };
   const count = gateRefusal.slotRedriveCount ?? 0;
   const remedy = slotContentionRemedy(count);
   return {

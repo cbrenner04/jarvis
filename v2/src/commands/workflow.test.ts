@@ -3706,8 +3706,8 @@ describe("implement preflight stale workspace reset", () => {
     );
 
     expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("Cannot re-run incomplete spec:");
     const stderr = cap.read().stderr;
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
     expect(stderr).toContain("commit(s) not on base");
     const continueAt = stderr.indexOf("re-run without `--reset-despite-continuable` to continue");
     expect(continueAt).toBeGreaterThan(-1);

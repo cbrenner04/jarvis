@@ -4185,6 +4185,13 @@ describe("cleanup: legacy daemon artifact reaping", () => {
   });
 });
 
+function expectContinuePathBeforeSalvage(reason: string): void {
+  const continueAt = reason.indexOf("re-run without `--reset-despite-continuable` to continue");
+  expect(continueAt).toBeGreaterThan(-1);
+  expect(continueAt).toBeLessThan(reason.indexOf("hand-finish"));
+  expect(reason.indexOf("hand-finish")).toBeLessThan(reason.indexOf("jarvis cleanup --abandon"));
+}
+
 describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   let tempRoot: string;
   let projectRoot: string;
@@ -5076,10 +5083,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
   test("staleResetUnlandedCommitsGateReason names the continue path before hand-finish and --abandon when available", () => {
     const reason = staleResetUnlandedCommitsGateReason("abc123", 2, true);
-    const continueAt = reason.indexOf("re-run without `--reset-despite-continuable` to continue");
-    expect(continueAt).toBeGreaterThan(-1);
-    expect(continueAt).toBeLessThan(reason.indexOf("hand-finish"));
-    expect(reason.indexOf("hand-finish")).toBeLessThan(reason.indexOf("jarvis cleanup --abandon"));
+    expectContinuePathBeforeSalvage(reason);
   });
 
   test("staleResetUnlandedCommitsGateReason keeps the pre-fix text without the continue-path input", () => {
@@ -5107,10 +5111,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
     expect(result.status).toBe("refused");
     const reason = genericRefusalReason(result);
-    const continueAt = reason.indexOf("re-run without `--reset-despite-continuable` to continue");
-    expect(continueAt).toBeGreaterThan(-1);
-    expect(continueAt).toBeLessThan(reason.indexOf("hand-finish"));
-    expect(reason.indexOf("hand-finish")).toBeLessThan(reason.indexOf("jarvis cleanup --abandon"));
+    expectContinuePathBeforeSalvage(reason);
   });
 
   test("resetStaleWorkspace does not advertise the continue path on a dirty lane with unlanded commits", async () => {

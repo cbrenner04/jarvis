@@ -5,4 +5,4 @@ A continuable implement lane (clean, unowned, base-descended, commits ahead of b
 Order: 00 lands before 01; 01's flag-path wiring depends on the flag.
 
 - [x] [00-reset-despite-continuable-flag.md](./00-reset-despite-continuable-flag.md) — `--reset-despite-continuable` on `jarvis run workflow implement` forces the retirement path, subject to every existing reset gate.
-- [ ] [01-unlanded-refusal-names-continue-path.md](./01-unlanded-refusal-names-continue-path.md) — the unlanded-commits refusal names the continue path before hand-finish and `--abandon`, only where continuation is available.
+- [x] [01-unlanded-refusal-names-continue-path.md](./01-unlanded-refusal-names-continue-path.md) — the unlanded-commits refusal names the continue path before hand-finish and `--abandon`, only where continuation is available.

@@ -891,7 +891,7 @@ Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sess
 
 **Reap-eligible.** Only regular files directly under `~/.jarvis/sessions/` whose names match `<run-id>-<session-log-timestamp>.log` (UUID run id before the session-log timestamp segment) when the basename resolves to a run row in the state store, that run's status is terminal, and `finishedAt` is a finite timestamp older than the cutoff. Also eligible: an orphan — a regular `.log` directly under the directory with no run row (unknown run id or unparseable basename) — whose mtime is older than the cutoff. The orphan fallback is suppressed when the state store holds zero run rows (an empty store would make every log look orphaned); row-based reaping continues.
 
-**Preserved.** Live and non-terminal runs, terminal runs finished within the window, rows with null or non-finite `finishedAt` (never aged by mtime), orphans younger than the cutoff, nested `.log` files, malformed names, and all non-`.log` paths under the sessions directory (including research decoys such as `telemetry.jsonl` and `state/v2.sqlite`).
+**Preserved.** Live and non-terminal runs, terminal runs finished within the window, rows with null or non-finite `finishedAt` (never aged by mtime), orphans younger than the cutoff, nested `.log` files, and all non-`.log` paths under the sessions directory (including research decoys such as `telemetry.jsonl` and `state/v2.sqlite`).
 
 **Invalid config.** Non-positive or non-integer `cleanup.sessionLogRetentionDays` skips this slice only: stderr names the key, no session `.log` is deleted, and other cleanup slices proceed.
 

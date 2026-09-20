@@ -564,16 +564,6 @@ async function runLoop(args: {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
   const store = args.store ?? openStateStore(args.stateDbPath);
-  // A `completion_commit_failed` row settles `failed`; the loop's own re-entry replays publication only
-  // for `completed` rows, so re-open the row to exercise that replay and its recovery fence.
-  const priorRun = store.findRunByProjectBranch({
-    project: "demo",
-    branch: args.branchName ?? "write-run",
-    stepId: args.stepId ?? null,
-  });
-  if (priorRun?.status === "failed" && priorRun.terminalCause === "completion_commit_failed") {
-    store.setRunStatus(priorRun.id, "completed");
-  }
   const loopInput: WriteLoopInput = {
     worktree: {
       projectRoot: "/fake",
@@ -10667,8 +10657,6 @@ index 1234567..abcdefg 100644
         expect(first.kind).toBe("completion_commit_failed");
         // Two progress checkpoints plus the completing iteration's checkpoint.
         expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 3);
-        // The loop's own re-entry replays publication only for `completed` rows.
-        store.setRunStatus(first.runId, "completed");
 
         const resumed = await executeWriteLoop(
           iterLoopInput(jarvisRoot, branchName, store, {

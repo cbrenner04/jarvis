@@ -3148,7 +3148,8 @@ function committedResult(
     priorLogRecords?: readonly PersistedRecord[];
   },
 ): WriteLoopResult | null {
-  if (run.status === "completed") {
+  // A `completion_commit_failed` row settles `failed` but re-enters as a completed run: publication replays idempotently.
+  if (run.status === "completed" || (run.status === "failed" && run.terminalCause === "completion_commit_failed")) {
     const agent = run.attempts.at(-1)?.completionAgent?.trim();
     const stamp = boundaryStampFromStoredRun(run);
     return {

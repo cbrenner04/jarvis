@@ -226,50 +226,63 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
   });
 
   describe("failed publication-cause entry rows", () => {
-    function resolveWithTerminalCause(terminalCause: NonNullable<Run["terminalCause"]>) {
-      const stages: PipelineStageRecord[] = [
-        stageRow({ stageId: "intent", branchKey: "default", position: 0, status: "succeeded" }),
-        stageRow({
+    /** Settles a real `running` plan stage from an entry run terminated `failed` with `terminalCause`, then resolves recovery. */
+    function resolveAfterRollup(terminalCause: NonNullable<Run["terminalCause"]>) {
+      return withStateStore(async (store) => {
+        const runId = store.createRun({
+          project: "demo",
+          specRef: "main",
+          branch: "plan/branch",
+          worktreePath: "/worktrees/demo/plan/branch",
+          specPath: "specs/demo/plan/branch-plan.md",
+          stepId: "plan",
+          workflowSnapshot: {
+            invocationId: "inv-plan",
+            steps: [
+              {
+                stepId: "plan",
+                role: "plan",
+                expectedArtifactPath: ".jarvis-plan-stage",
+                landingInputs: { sourceRoot: "/source", paths: [], consumeFrom: "source" },
+              },
+              { stepId: "plan-review", role: "", behavior: "review-debate", durable: false },
+            ],
+          },
+        });
+        store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause });
+        const pipelineId = store.createPipeline({ definition: SINGLE_DEFINITION });
+        store.updateStage({
+          pipelineId,
           stageId: "plan",
-          branchKey: "default",
-          position: 1,
-          status: "failed",
-          workflowInvocationId: "run-plan",
-        }),
-      ];
-      const entryRun: Partial<Run> = {
-        project: "demo",
-        branch: "plan/branch",
-        worktreePath: "/worktrees/demo/plan/branch",
-        specPath: "specs/demo/plan/branch-plan.md",
-        stepId: "plan",
-        status: "failed",
-        terminalCause,
-      };
-      return resolveBlockedPlanStageRecoveryTarget(
-        { pipelineId: PIPELINE_ID, branchKey: "default" },
-        {
-          store: makeStore({ [PIPELINE_ID]: makePipeline(SINGLE_DEFINITION, stages) }, { "run-plan": entryRun }),
-          resolveStage: stubResolveSteps([]),
-        },
-      );
+          patch: { status: "running", workflowInvocationId: runId, startedAt: 100 },
+        });
+        store.settleLinkedStagesFromEntryRun(runId);
+        const planStage = store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "plan");
+        const resolution = await resolveBlockedPlanStageRecoveryTarget(
+          { pipelineId, branchKey: "default" },
+          { store, resolveStage: stubResolveSteps([]) },
+        );
+        return { planStatus: planStage?.status, resolution, runId };
+      });
     }
 
-    test("surfaces a failed ready_flip_failed entry row as a failed stage but refuses recovery", async () => {
-      const result = await resolveWithTerminalCause("ready_flip_failed");
+    test("a failed ready_flip_failed entry row rolls up to a failed stage but refuses recovery", async () => {
+      const { planStatus, resolution } = await resolveAfterRollup("ready_flip_failed");
 
-      expect(result.ok).toBe(false);
-      if (result.ok) throw new Error("expected recovery refusal");
-      expect(result.reason).toBe("stage_not_recoverable");
-      expect(result.message).toContain("linked entry run is not a recoverable plan stage");
+      expect(planStatus).toBe("failed");
+      expect(resolution.ok).toBe(false);
+      if (resolution.ok) throw new Error("expected recovery refusal");
+      expect(resolution.reason).toBe("stage_not_recoverable");
+      expect(resolution.message).toContain("linked entry run is not a recoverable plan stage");
     });
 
-    test("surfaces a failed completion_commit_failed entry row as a failed stage and admits recovery", async () => {
-      const result = await resolveWithTerminalCause("completion_commit_failed");
+    test("a failed completion_commit_failed entry row rolls up to a failed stage and admits recovery", async () => {
+      const { planStatus, resolution, runId } = await resolveAfterRollup("completion_commit_failed");
 
-      expect(result.ok).toBe(true);
-      if (!result.ok) throw new Error("expected admitted recovery target");
-      expect(result.target.runId).toBe("run-plan");
+      expect(planStatus).toBe("failed");
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) throw new Error("expected admitted recovery target");
+      expect(resolution.target.runId).toBe(runId);
     });
   });
 

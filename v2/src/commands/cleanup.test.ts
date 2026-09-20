@@ -5007,6 +5007,71 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  test("resetStaleWorkspace refuses unlanded non-staging commits on a continuable lane when resetDespiteContinuable is set", async () => {
+    const branch = "impl/reset-despite-continuable-unlanded";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const tipSha = await commitInWorktree(worktreePath, "committed-work.txt");
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", resetDespiteContinuable: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(tipSha);
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a continuable lane carrying only staging commits when resetDespiteContinuable is set", async () => {
+    const branch = "impl/reset-despite-continuable-staging";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const stagingRel = ".jarvis-plan-stage/verdict-plan.md";
+    mkdirSync(join(worktreePath, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(join(worktreePath, stagingRel), "staging\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-f", stagingRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "staging only"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("reset");
+    expect(existsSync(worktreePath)).toBe(false);
+  });
+
+  test("resetStaleWorkspace refuses an unreachable worktree HEAD, not unlanded commits, when resetDespiteContinuable is set", async () => {
+    const branch = "impl/reset-despite-continuable-detached";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], worktreePath);
+    const detachedSha = await commitInWorktree(worktreePath, "detached-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${detachedSha} is not reachable from ${branch}`);
+    expect(reason).not.toContain("commit(s) not on base");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
   async function setupSpecTree(specName: string, subspecContents: Record<string, string>): Promise<string> {
     const specDir = join(projectRoot, "v2", "spec", specName);
     mkdirSync(specDir, { recursive: true });

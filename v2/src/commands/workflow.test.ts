@@ -107,7 +107,7 @@ function fakeReviewDebateStep(): ReviewDebateWorkflowStep {
 }
 
 const IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--reset-despite-continuable] [--detach]\n";
 const INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--detach]\n";
 const PLAN_USAGE =
@@ -3669,6 +3669,49 @@ describe("implement preflight stale workspace reset", () => {
       resetProjectRoot,
     );
     expect(existsSync(join(worktreePath, "lane-non-descendant.txt"))).toBe(true);
+  });
+
+  test("run workflow implement --reset-despite-continuable refuses a continuable lane with unlanded commits", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "continuable-reset");
+
+    const sent: unknown[] = [];
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          "--reset-despite-continuable",
+        ],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            // No open PR: an open PR would protect the commits and skip the unlanded-commits gate.
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("Cannot re-run incomplete spec:");
+    expect(cap.read().stderr).toContain("commit(s) not on base");
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
   });
 
   test("run workflow implement refuses stale reuse when HEAD lags base despite reset-despite-dirty", async () => {

@@ -2736,6 +2736,7 @@ export type ResetStaleWorkspaceOptions = {
   skipDirtyWorktreeGate?: boolean;
   skipLandedCriteriaGate?: boolean;
   disposableLane?: boolean;
+  resetDespiteContinuable?: boolean;
   baseRef?: string;
   specPath?: string;
 };
@@ -2851,24 +2852,29 @@ export async function resetStaleWorkspace(
         // must not be the one path that drops it.
         refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
       } else {
-        const continuation = await evaluateCommittedLaneContinuation({
-          projectRoot,
-          worktreePath,
-          branch,
-          baseRef,
-          baseHead,
-          worktreeHead,
-          trackableSpecPath,
-          skipLandedCriteriaGate,
-          runner,
-        });
+        // `--reset-despite-continuable` skips only the continuation verdict; the no-verdict branch
+        // below still applies every pre-continuation gate.
+        const continuation =
+          options.resetDespiteContinuable === true
+            ? undefined
+            : await evaluateCommittedLaneContinuation({
+                projectRoot,
+                worktreePath,
+                branch,
+                baseRef,
+                baseHead,
+                worktreeHead,
+                trackableSpecPath,
+                skipLandedCriteriaGate,
+                runner,
+              });
         if (continuation?.status === "refused") {
           refusalParts.push(continuation.reason);
         } else if (continuation?.status === "continue") {
           continuationEligible = true;
           preRebaseSha = continuation.preRebaseSha;
         } else {
-          // No verdict (e.g. `--reset-despite-landed-criteria` on an otherwise-continuable, descendant
+          // No verdict (e.g. `--reset-despite-landed-criteria` or `--reset-despite-continuable` on an otherwise-continuable, descendant
           // lane): fall through to the same pre-continuation gates as the dirty/nothing-ahead case.
           refusalParts.push(...(await applyPreContinuationGates(preContinuationGateArgs)));
         }

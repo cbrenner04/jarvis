@@ -28,6 +28,7 @@ export const IMPLEMENT_WORKFLOW_PARSE_OPTIONS = {
   "review-behavior": { type: "string" },
   "reset-despite-dirty": { type: "boolean" },
   "reset-despite-landed-criteria": { type: "boolean" },
+  "reset-despite-continuable": { type: "boolean" },
 } as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 type ReviewCliInput = { reviewPasses?: number; reviewBehavior?: ImplementReviewBehavior };
@@ -65,6 +66,7 @@ export type ImplementWorkflowCliInput =
       reviewBehavior?: ImplementReviewBehavior;
       resetDespiteDirty?: boolean;
       resetDespiteLandedCriteria?: boolean;
+      resetDespiteContinuable?: boolean;
     }
   | { ok: false };
 
@@ -94,6 +96,7 @@ export function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWo
 
   const resetDespiteDirty = values["reset-despite-dirty"] === true;
   const resetDespiteLandedCriteria = values["reset-despite-landed-criteria"] === true;
+  const resetDespiteContinuable = values["reset-despite-continuable"] === true;
 
   return {
     ok: true,
@@ -104,6 +107,7 @@ export function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWo
     ...review,
     ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
     ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+    ...(resetDespiteContinuable ? { resetDespiteContinuable: true } : {}),
   };
 }
 

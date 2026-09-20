@@ -17,6 +17,7 @@ export type WorkflowStartResetFlags = {
   skipDirtyWorktreeGate: boolean;
   skipLandedCriteriaGate: boolean;
   disposableLane?: boolean;
+  resetDespiteContinuable?: boolean;
 };
 
 /** Mirrors `DestroyedArtifacts` without importing cleanup's daemon dependency graph. */

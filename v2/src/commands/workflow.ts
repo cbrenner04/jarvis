@@ -460,6 +460,9 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
       flags: {
         skipDirtyWorktreeGate: "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true,
         skipLandedCriteriaGate: "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true,
+        ...("resetDespiteContinuable" in parsed && parsed.resetDespiteContinuable === true
+          ? { resetDespiteContinuable: true }
+          : {}),
       },
     },
   };

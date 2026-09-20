@@ -35,12 +35,14 @@ export function buildResetStaleWorkspaceOptions(args: {
     writeStep?.behavior === "write" && writeStep.specPath !== undefined && writeStep.externalPlanSpec !== true;
   const specPath = carriesSpecPath && writeStep?.behavior === "write" ? writeStep.specPath : undefined;
   const disposableLane = parsed.disposableLane === true;
+  const resetDespiteContinuable = parsed.resetDespiteContinuable === true;
   return {
     skipDirtyWorktreeGate,
     skipLandedCriteriaGate,
     ...(baseRef !== undefined ? { baseRef } : {}),
     ...(specPath !== undefined ? { specPath } : {}),
     ...(disposableLane ? { disposableLane: true } : {}),
+    ...(resetDespiteContinuable ? { resetDespiteContinuable: true } : {}),
   };
 }
 

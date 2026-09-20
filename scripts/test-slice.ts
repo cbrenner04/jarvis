@@ -8,20 +8,18 @@ export type TestIsolationClass = "poll-until-done" | "subprocess-spawning";
 const TEST_ISOLATION_DECLARATION = /^\s*export const TEST_ISOLATION_CLASS\s*=\s*"([^"\r\n]+)";?\s*$/gm;
 
 export function readTestIsolationClass(file: string, source: string): TestIsolationClass | undefined {
-  const declarations = [...source.matchAll(TEST_ISOLATION_DECLARATION)].map((match) => match[1]);
-  if (declarations.length === 0) {
-    return undefined;
-  }
-  for (const declaration of declarations) {
+  let isolationClass: TestIsolationClass | undefined;
+  for (const match of source.matchAll(TEST_ISOLATION_DECLARATION)) {
+    const declaration = match[1];
     if (declaration !== "poll-until-done" && declaration !== "subprocess-spawning") {
       throw new Error(`unrecognized TEST_ISOLATION_CLASS in ${file}: ${declaration ?? ""}`);
     }
+    if (isolationClass !== undefined && isolationClass !== declaration) {
+      throw new Error(`multiple TEST_ISOLATION_CLASS declarations in ${file}`);
+    }
+    isolationClass = declaration;
   }
-  const classes = new Set(declarations);
-  if (classes.size > 1) {
-    throw new Error(`multiple TEST_ISOLATION_CLASS declarations in ${file}`);
-  }
-  return declarations[0] as TestIsolationClass;
+  return isolationClass;
 }
 
 export function isSandboxUnrunnable(file: string): boolean {

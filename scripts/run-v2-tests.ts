@@ -5,7 +5,6 @@ import {
   planTestBatches,
   readTestIsolationClass,
   sliceTestFiles,
-  type TestIsolationClass,
   type TestSliceMode,
   walkTestFiles,
 } from "./test-slice.ts";
@@ -121,7 +120,7 @@ export interface FileResult {
   status: number | null;
 }
 
-function classOfTestFile(file: string): TestIsolationClass | undefined {
+function classOfTestFile(file: string) {
   if (!existsSync(file)) {
     return undefined;
   }

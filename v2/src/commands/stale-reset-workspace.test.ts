@@ -53,6 +53,23 @@ describe("buildResetStaleWorkspaceOptions: the real plan step shape", () => {
     expect("disposableLane" in options).toBe(false);
   });
 
+  test("threads resetDespiteContinuable only when the flag is true", () => {
+    const base = {
+      skipDirtyWorktreeGate: false,
+      skipLandedCriteriaGate: false,
+      baseRef: "main",
+      writeStep: planWriteStep("spec/20260911T015530Z-improve-api") as never,
+    };
+
+    const withFlag = buildResetStaleWorkspaceOptions({ ...base, parsed: { resetDespiteContinuable: true } });
+    const withoutFlag = buildResetStaleWorkspaceOptions({ ...base, parsed: {} });
+    const falseFlag = buildResetStaleWorkspaceOptions({ ...base, parsed: { resetDespiteContinuable: false } });
+
+    expect(withFlag.resetDespiteContinuable).toBe(true);
+    expect("resetDespiteContinuable" in withoutFlag).toBe(false);
+    expect("resetDespiteContinuable" in falseFlag).toBe(false);
+  });
+
   test("drops specPath for an external plan spec, which has no in-repo criteria to compare", () => {
     const options = buildResetStaleWorkspaceOptions({
       skipDirtyWorktreeGate: false,

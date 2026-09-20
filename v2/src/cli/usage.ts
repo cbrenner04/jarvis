@@ -16,7 +16,7 @@ export const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 export const RUN_START_USAGE =
   "usage: jarvis run start --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 export const WORKFLOW_IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--reset-despite-continuable] [--detach]\n";
 export const WORKFLOW_INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--detach]\n";
 export const WORKFLOW_PLAN_USAGE =

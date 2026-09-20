@@ -2534,6 +2534,7 @@ async function applyPreContinuationGates(args: {
   hasOpenPr: boolean;
   trackableSpecPath: string | undefined;
   skipLandedCriteriaGate: boolean;
+  continuePathAvailable?: boolean;
   runner: AsyncSubprocessRunner;
 }): Promise<string[]> {
   const {
@@ -2547,13 +2548,14 @@ async function applyPreContinuationGates(args: {
     hasOpenPr,
     trackableSpecPath,
     skipLandedCriteriaGate,
+    continuePathAvailable,
     runner,
   } = args;
   const parts: string[] = [];
   if (!hasOpenPr && commitCount > 0) {
     const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
     if (nonStagingPaths.length > 0 && !(await carriesNoUnlandedCommits(branch, baseRef, projectRoot, runner))) {
-      parts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
+      parts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount, continuePathAvailable === true));
     }
   }
   if (
@@ -2643,8 +2645,16 @@ function isHarnessWorkflowStagingPath(path: string): boolean {
 const staleResetUnlandedSalvageRecovery =
   "hand-finish the branch or run `jarvis cleanup --abandon <branch>` before retiring the workspace";
 
-export function staleResetUnlandedCommitsGateReason(tipSha: string, commitCount: number): string {
-  return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${staleResetUnlandedSalvageRecovery}`;
+/** `continuePathAvailable` is set only when `--reset-despite-continuable` forced retirement of a lane that could have continued. */
+export function staleResetUnlandedCommitsGateReason(
+  tipSha: string,
+  commitCount: number,
+  continuePathAvailable = false,
+): string {
+  const recovery = continuePathAvailable
+    ? `re-run without \`--reset-despite-continuable\` to continue the lane, ${staleResetUnlandedSalvageRecovery}`
+    : staleResetUnlandedSalvageRecovery;
+  return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${recovery}`;
 }
 
 /** Refusal when the worktree holds a commit the branch ref cannot reach, so retiring it would lose work. */
@@ -2761,6 +2771,7 @@ export type ResetStaleWorkspaceOptions = {
   skipDirtyWorktreeGate?: boolean;
   skipLandedCriteriaGate?: boolean;
   disposableLane?: boolean;
+  resetDespiteContinuable?: boolean;
   baseRef?: string;
   specPath?: string;
 };
@@ -2876,26 +2887,36 @@ export async function resetStaleWorkspace(
         // must not be the one path that drops it.
         refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
       } else {
-        const continuation = await evaluateCommittedLaneContinuation({
-          projectRoot,
-          worktreePath,
-          branch,
-          baseRef,
-          baseHead,
-          worktreeHead,
-          trackableSpecPath,
-          skipLandedCriteriaGate,
-          runner,
-        });
+        // `--reset-despite-continuable` skips only the continuation verdict; the no-verdict branch
+        // below still applies every pre-continuation gate.
+        const continuation =
+          options.resetDespiteContinuable === true
+            ? undefined
+            : await evaluateCommittedLaneContinuation({
+                projectRoot,
+                worktreePath,
+                branch,
+                baseRef,
+                baseHead,
+                worktreeHead,
+                trackableSpecPath,
+                skipLandedCriteriaGate,
+                runner,
+              });
         if (continuation?.status === "refused") {
           refusalParts.push(continuation.reason);
         } else if (continuation?.status === "continue") {
           continuationEligible = true;
           preRebaseSha = continuation.preRebaseSha;
         } else {
-          // No verdict (e.g. `--reset-despite-landed-criteria` on an otherwise-continuable, descendant
+          // No verdict (e.g. `--reset-despite-landed-criteria` or `--reset-despite-continuable` on an otherwise-continuable, descendant
           // lane): fall through to the same pre-continuation gates as the dirty/nothing-ahead case.
-          refusalParts.push(...(await applyPreContinuationGates(preContinuationGateArgs)));
+          refusalParts.push(
+            ...(await applyPreContinuationGates({
+              ...preContinuationGateArgs,
+              continuePathAvailable: options.resetDespiteContinuable === true,
+            })),
+          );
         }
       }
     }

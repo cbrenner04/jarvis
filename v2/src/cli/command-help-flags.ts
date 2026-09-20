@@ -150,6 +150,13 @@ const WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG: CommandFlag = {
     "Retire a stale workspace on incomplete re-run even when the worktree spec has criteria ticked absent from base.",
 };
 
+const WORKFLOW_CONTINUABLE_OVERRIDE_FLAG: CommandFlag = {
+  name: "--reset-despite-continuable",
+  argumentShape: "",
+  description:
+    "Retire a clean, continuable lane on incomplete re-run instead of continuing it; every reset gate still applies, so unlanded non-staging commits refuse.",
+};
+
 const WORKFLOW_DETACH_FLAG: CommandFlag = {
   name: "--detach",
   argumentShape: "",
@@ -301,5 +308,6 @@ export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   ...WORKFLOW_REVIEW_FLAGS,
   WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
   WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG,
+  WORKFLOW_CONTINUABLE_OVERRIDE_FLAG,
   WORKFLOW_DETACH_FLAG,
 ];

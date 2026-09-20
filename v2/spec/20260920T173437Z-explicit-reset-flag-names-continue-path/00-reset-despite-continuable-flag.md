@@ -12,12 +12,12 @@ Today a clean, unowned, base-descended implement lane with commits ahead of base
 
 ## Acceptance criteria
 
-- [ ] A test drives `jarvis run workflow implement` with `--reset-despite-continuable` against a clean, base-descended lane with unlanded non-staging commits ahead of base and asserts it refuses with the unlanded-commits reason instead of continuing; it fails against the pre-fix CLI, which rejects the unknown flag.
-- [ ] A test drives the same flag against a clean, base-descended lane whose commits carry only staging paths and asserts `resetStaleWorkspace` returns `status: "reset"`; it fails against the pre-fix CLI.
-- [ ] A test drives the flag against a lane whose worktree `HEAD` the branch cannot reach and asserts the unreachable-`HEAD` refusal, not the unlanded-commits one.
-- [ ] The existing continuation test that drives `resetStaleWorkspace` to `continue` on a clean, base-descended lane with commits ahead stays green without the flag.
-- [ ] `--reset-despite-continuable` appears in `jarvis run workflow implement` usage and `--help` flag listing.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test drives `jarvis run workflow implement` with `--reset-despite-continuable` against a clean, base-descended lane with unlanded non-staging commits ahead of base and asserts it refuses with the unlanded-commits reason instead of continuing; it fails against the pre-fix CLI, which rejects the unknown flag.
+- [x] A test drives the same flag against a clean, base-descended lane whose commits carry only staging paths and asserts `resetStaleWorkspace` returns `status: "reset"`; it fails against the pre-fix CLI.
+- [x] A test drives the flag against a lane whose worktree `HEAD` the branch cannot reach and asserts the unreachable-`HEAD` refusal, not the unlanded-commits one.
+- [x] The existing continuation test that drives `resetStaleWorkspace` to `continue` on a clean, base-descended lane with commits ahead stays green without the flag.
+- [x] `--reset-despite-continuable` appears in `jarvis run workflow implement` usage and `--help` flag listing.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -10,7 +10,11 @@ name: subprocess-marker-rejection-carries-cause
 
 ## Behavior
 
-On failure the helper buffers the child's stderr, waits for `exit` (bounded only by the caller's test timeout, no private wall clock), and rejects with an error containing exit code, signal, and a stderr tail. Success behavior and the no-deadline design are unchanged.
+On failure the helper buffers the child's stderr, waits for `exit` (bounded only by the caller's test timeout, no private wall clock), and rejects with an error containing exit code, signal, and a stderr tail; the tail size is the implementer's choice. Success behavior and the no-deadline design are unchanged.
+
+A child that closes stdout but never exits (e.g. a grandchild holding the pipe) hangs until the caller's test timeout; accepted, since the timeout already bounds the wait.
+
+A regression test spawns a child that exits non-zero, writes to stderr, and never prints the marker; it asserts the rejection message contains the exit code and the stderr text, and fails against the pre-fix helper.
 
 ## Prerequisites
 

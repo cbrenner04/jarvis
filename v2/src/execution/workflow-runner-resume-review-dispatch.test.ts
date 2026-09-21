@@ -1968,6 +1968,172 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
+  type RealVerifierRepairMode = "exhaust" | "later-blocked" | "abort-after-commit";
+
+  /** Drives the real diff-derived verifier to a confirmed survivor after every repair commit; records the event order. */
+  async function runRealVerifierRepairScenario(mode: RealVerifierRepairMode): Promise<{
+    events: string[];
+    outcome: { ok: boolean; message?: string } | { rejected: string };
+    finalHead: string;
+    terminalKind: string | undefined;
+  }> {
+    const workspace = initGitWorkspace(`review-mutation-repair-real-${mode}-`);
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      execFileSync("git", ["checkout", "-qb", `real-${mode}`], { cwd: workspace });
+      writeFileSync(join(workspace, "guard.ts"), "export const isBig = (n: number) => n > 10;\n", "utf8");
+      writeFileSync(
+        join(workspace, "guard.test.ts"),
+        'import { expect, test } from "bun:test";\nimport "./guard.ts";\ntest("loads", () => expect(1).toBe(1));\n',
+        "utf8",
+      );
+      const head = () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      const events: string[] = [];
+      const abort = new AbortController();
+      return await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot(`real-${mode}`, `implement: real-${mode}`);
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: `real-${mode}`,
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(writeRunId),
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(reviewRunId),
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
+        });
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+        });
+        seedSink.close();
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+        const logSink = openLogSink(logsPath);
+        let repairs = 0;
+        const realCommitter = createCompletionCommitter();
+        let outcome: Awaited<ReturnType<typeof resumeReviewMutationFinalization>> | { rejected: string };
+        try {
+          outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+            logSink,
+            signal: abort.signal,
+            completionCommitter: async (input) => {
+              const committed = await realCommitter(input);
+              if (input.step?.kind === "mutation-repair") {
+                events.push(`commit:${head()}`);
+                if (mode === "abort-after-commit") abort.abort();
+              }
+              return committed;
+            },
+            completionPublisher: async () => {
+              events.push(`publish:${head()}`);
+              return { pushSha: head(), prNumber: 3, prUrl: "https://example.test/pr/3" };
+            },
+            readyFinalizer: async () => {
+              throw new SurvivingMutationError("operator-flip: === → !==", "guard.ts", 1, [], "not-run");
+            },
+            mutationRepair: {
+              bindings: [
+                {
+                  id: "current-implement-binding",
+                  metadata: { agent: "current-agent", model: "current-model" },
+                  invoke: async ({ cwd }) => {
+                    repairs += 1;
+                    events.push(`repair:${repairs}`);
+                    if (mode === "later-blocked" && repairs === 2) {
+                      appendFileSync(join(cwd, "spec.md"), "\n## Blocker\n\nrepair blocked\n", "utf8");
+                      return { kind: "ok", stdout: "blocked", stderr: "" };
+                    }
+                    writeFileSync(join(cwd, `repair-${repairs}.txt`), "repaired\n", "utf8");
+                    return { kind: "ok", stdout: "done", stderr: "" };
+                  },
+                },
+              ],
+              stepRules: "repair rules",
+              iterationTimeoutMs: 60_000,
+              iterationCeilingMs: 120_000,
+            },
+          });
+        } catch (error) {
+          outcome = { rejected: error instanceof Error ? error.message : String(error) };
+        }
+        logSink.close();
+        return {
+          events,
+          outcome,
+          finalHead: head(),
+          terminalKind: (() => {
+            const event = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId))?.event;
+            return event?.kind === "loop_finished" ? event.loopOutcomeKind : undefined;
+          })(),
+        };
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  }
+
+  function repairCommitPublications(events: readonly string[]): { commits: string[]; ordered: boolean } {
+    const commits = events.filter((e) => e.startsWith("commit:")).map((e) => e.slice("commit:".length));
+    let ordered = true;
+    events.forEach((event, index) => {
+      if (event.startsWith("commit:") && events[index + 1] !== `publish:${event.slice("commit:".length)}`) {
+        ordered = false;
+      }
+    });
+    return { commits, ordered };
+  }
+
+  test("every mutation-repair commit is published before the next repair or exhaustion under the real verifier", async () => {
+    const { events, outcome, finalHead, terminalKind } = await runRealVerifierRepairScenario("exhaust");
+    const { commits, ordered } = repairCommitPublications(events);
+    expect(outcome).toMatchObject({ ok: false, message: "Mutation survived every repair attempt" });
+    expect(new Set(commits).size).toBe(3);
+    expect(ordered).toBe(true);
+    expect(commits.at(-1)).toBe(finalHead);
+    expect(events.at(-1)).toBe(`publish:${finalHead}`);
+    expect(terminalKind).toBe("mutation_repair_exhausted");
+  }, 120_000);
+
+  test("an earlier repair commit stays published when a later repair reports blocked", async () => {
+    const { events, outcome, terminalKind } = await runRealVerifierRepairScenario("later-blocked");
+    const { commits, ordered } = repairCommitPublications(events);
+    expect(outcome).toMatchObject({ ok: false, message: "Mutation repair agent reported blocked" });
+    expect(commits).toHaveLength(1);
+    expect(ordered).toBe(true);
+    expect(events.indexOf(`publish:${commits[0]}`)).toBeLessThan(events.indexOf("repair:2"));
+    expect(terminalKind).toBe("mutation_repair_exhausted");
+  }, 120_000);
+
+  test("a repair commit is published even when abort arrives right after the commit", async () => {
+    const { events, outcome } = await runRealVerifierRepairScenario("abort-after-commit");
+    const { commits, ordered } = repairCommitPublications(events);
+    expect(outcome).toEqual({ rejected: "write execution aborted" });
+    expect(commits).toHaveLength(1);
+    expect(ordered).toBe(true);
+    expect(events).not.toContain("repair:2");
+  }, 120_000);
+
   function publicationRepairIntroducedMutationSteps(branchName: string): {
     implementStep: WriteWorkflowStep;
     reviewStep: ReviewDebateWorkflowStep;

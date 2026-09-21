@@ -21,15 +21,15 @@
 
 ## Acceptance criteria
 
-- [ ] After every successful mutation-repair completion commit, push-only publication observes that distinct commit as `HEAD` before the loop starts another repair attempt or writes any terminal boundary.
-- [ ] Repair-commit publication preserves the draft PR; ready finalization occurs only after clean mutation verification.
-- [ ] A `mutation_repair_exhausted` row retains no mutation-repair commit ahead of the published branch/PR head; this condition is reachable on the pre-fix path in `v2/src/execution/workflow-runner-resume.ts` when its direct diff-derived verification returns `surviving-mutation` before `publishWithReadyRepair`.
-- [ ] Regression tests in `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` drive the real prepublication verifier through repeated confirmed survivors, record every distinct repair `HEAD` delivered to the publisher before retry or settlement, and prove the final repair tip is published before `mutation_repair_exhausted`; they fail against the pre-fix code.
-- [ ] Regression coverage proves a successful earlier repair commit remains published when a later mutation-repair invocation reports blocked or unsettled, and when abort or kill arrives after a repair commit before publication.
-- [ ] Existing success and publication-failure tests in `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] After every successful mutation-repair completion commit, push-only publication observes that distinct commit as `HEAD` before the loop starts another repair attempt or writes any terminal boundary.
+- [x] Repair-commit publication preserves the draft PR; ready finalization occurs only after clean mutation verification.
+- [x] A `mutation_repair_exhausted` row retains no mutation-repair commit ahead of the published branch/PR head; this condition is reachable on the pre-fix path in `v2/src/execution/workflow-runner-resume.ts` when its direct diff-derived verification returns `surviving-mutation` before `publishWithReadyRepair`.
+- [x] Regression tests in `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` drive the real prepublication verifier through repeated confirmed survivors, record every distinct repair `HEAD` delivered to the publisher before retry or settlement, and prove the final repair tip is published before `mutation_repair_exhausted`; they fail against the pre-fix code.
+- [x] Regression coverage proves a successful earlier repair commit remains published when a later mutation-repair invocation reports blocked or unsettled, and when abort or kill arrives after a repair commit before publication.
+- [x] Existing success and publication-failure tests in `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

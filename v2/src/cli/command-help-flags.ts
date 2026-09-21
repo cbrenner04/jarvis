@@ -45,6 +45,7 @@ export const CLEANUP_PARSE_ARG_OPTIONS = {
   "dry-run": { type: "boolean" },
   yes: { type: "boolean", short: "y" },
   abandon: { type: "string" },
+  "discard-unlanded": { type: "boolean" },
 } as const satisfies Record<string, { type: "boolean" | "string"; short?: string }>;
 
 type ParseArgOptionShape = { type: "boolean" | "string"; short?: string };
@@ -75,6 +76,11 @@ export const CLEANUP_HELP_FLAGS: readonly CommandFlag[] = [
     name: "--abandon",
     argumentShape: "<name>",
     description: "Retire a named worktree without the normal completion gate; mutually exclusive with <project>.",
+  },
+  {
+    name: "--discard-unlanded",
+    argumentShape: "",
+    description: "With --abandon, retire even when the branch carries commits not on base and no PR.",
   },
 ];
 

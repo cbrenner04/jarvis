@@ -21,8 +21,8 @@ One regression drives a single record through all four surfaces and asserts byte
 
 ## Acceptance criteria
 
-- [ ] A regression in `v2/src/cli/operator-failure-cross-surface.test.ts` passes one record through `run list`, `run wait`, `pipeline list`, and TUI detail, extracts each block by the documented boundary, and asserts byte-identical content while surrounding output differs; it fails against the pre-fix omissions and TUI raw JSON.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A regression in `v2/src/cli/operator-failure-cross-surface.test.ts` passes one record through `run list`, `run wait`, `pipeline list`, and TUI detail, extracts each block by the documented boundary, and asserts byte-identical content while surrounding output differs; it fails against the pre-fix omissions and TUI raw JSON.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

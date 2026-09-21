@@ -8,6 +8,7 @@ import {
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
+import { formatOperatorFailureBlock } from "../cli/operator-failure-presentation.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import {
@@ -66,6 +67,12 @@ function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string
     ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
   ];
   return `${columns.join("\t")}\n`;
+}
+
+function formatListFailureSection(run: DaemonListRunRow): string {
+  if (run.failure === undefined) return "";
+  const lines = [`run ${run.runId}\t${run.project}\t${run.branch}`, ...formatOperatorFailureBlock(run.failure)];
+  return `${lines.join("\n")}\n`;
 }
 
 function isRunAction(subcommand: string | undefined): subcommand is "pause" | "resume" | "kill" {
@@ -288,6 +295,10 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
     const rows = [...list.runs].sort((a, b) => a.runId.localeCompare(b.runId));
     const showDismissal = parsed.params.includeDismissed === true;
     for (const run of rows) io.stdout(formatListRunRow(run, showDismissal));
+    for (const run of rows) {
+      const section = formatListFailureSection(run);
+      if (section !== "") io.stdout(section);
+    }
     return 0;
   });
 }

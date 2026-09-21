@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
+import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
 import {
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
   PIPELINE_RECOVER_PARSE_ARG_OPTIONS,
@@ -9,6 +10,7 @@ import {
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatConnectionError, formatRpcError, request, withRunClient } from "../cli/ipc.ts";
+import { formatOperatorFailureBlock } from "../cli/operator-failure-presentation.ts";
 import { connectWithAutoStart } from "../cli/stale-dispatch.ts";
 import {
   PIPELINE_APPROVE_USAGE,
@@ -520,6 +522,31 @@ function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: n
     .join("\n")}\n`;
 }
 
+/** One block per stage whose `failureDetail` is a valid record, headed by full pipeline and stage coordinates. */
+function renderPipelineFailureSections(pipelines: readonly PipelineSnapshot[]): string {
+  const sections: string[] = [];
+  for (const pipeline of pipelines) {
+    for (const stage of pipeline.stages) {
+      const record = operatorFailureRecordFromUnknown(stage.failureDetail);
+      if (record === undefined) continue;
+      const header = `pipeline ${pipeline.pipelineId}\t${stage.stageId}\t${stage.branchKey}`;
+      sections.push(`${[header, ...formatOperatorFailureBlock(record)].join("\n")}\n`);
+    }
+  }
+  return sections.join("");
+}
+
+/** Adds `failureText` beside each stage `failureDetail` that is a valid record; other stages pass through. */
+function withStageFailureText(pipeline: PipelineSnapshot): PipelineSnapshot {
+  return {
+    ...pipeline,
+    stages: pipeline.stages.map((stage) => {
+      const record = operatorFailureRecordFromUnknown(stage.failureDetail);
+      return record === undefined ? stage : { ...stage, failureText: formatOperatorFailureBlock(record).join("\n") };
+    }),
+  };
+}
+
 /**
  * Request params for `pipeline_list`.
  *
@@ -560,7 +587,7 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
 
   const merged = listing.snapshots;
   if (parsed.json) {
-    io.stdout(`${JSON.stringify({ pipelines: orderPipelines(merged) })}\n`);
+    io.stdout(`${JSON.stringify({ pipelines: orderPipelines(merged).map(withStageFailureText) })}\n`);
     return 0;
   }
   const selected = selectPipelines(merged, parsed.since ?? -Infinity, parsed.state);
@@ -569,6 +596,7 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
     return 0;
   }
   io.stdout(renderPipelineListRows(selected, deps.now(), parsed.all));
+  io.stdout(renderPipelineFailureSections(selected));
   return 0;
 }
 

@@ -5,13 +5,16 @@ import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { Io } from "./io.ts";
 import { formatRpcError, request } from "./ipc.ts";
+import { formatOperatorFailureBlock } from "./operator-failure-presentation.ts";
 
-function buildWaitPayload(result: WaitRunCompletionResult): Record<string, unknown> {
+function buildWaitPayload(result: WaitRunCompletionResult, failureText: string | undefined): Record<string, unknown> {
   const payload: Record<string, unknown> = { runStatus: result.runStatus };
   if (result.loopOutcomeKind !== undefined) payload.loopOutcomeKind = result.loopOutcomeKind;
   if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
   if (result.resumable !== undefined) payload.resumable = result.resumable;
   if (result.error !== undefined) payload.error = result.error;
+  if (result.failure !== undefined) payload.failure = result.failure;
+  if (failureText !== undefined) payload.failureText = failureText;
   if (result.worktreePath !== undefined) payload.worktreePath = result.worktreePath;
   return payload;
 }
@@ -65,6 +68,8 @@ export async function waitForRunCompletion(client: IpcClient, runId: string, io:
     io.stderr("invalid daemon response\n");
     return 1;
   }
-  io.stdout(`${JSON.stringify(buildWaitPayload(result))}\n`);
+  const failureText = result.failure && formatOperatorFailureBlock(result.failure).join("\n");
+  io.stdout(`${JSON.stringify(buildWaitPayload(result, failureText))}\n`);
+  if (failureText !== undefined) io.stderr(`${failureText}\n`);
   return exitCodeForWaitResult(result);
 }

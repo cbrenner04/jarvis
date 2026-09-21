@@ -20,9 +20,9 @@ TUI run detail renders the formatter block from `run.failure`; stage detail rend
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` proves selected run and stage records render the shared block and an opaque legacy or malformed stage failure retains its existing stable-JSON row; it fails against the pre-fix missing run record and raw record JSON.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` lifecycle detail tests stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` proves selected run and stage records render the shared block and an opaque legacy or malformed stage failure retains its existing stable-JSON row; it fails against the pre-fix missing run record and raw record JSON.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` lifecycle detail tests stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

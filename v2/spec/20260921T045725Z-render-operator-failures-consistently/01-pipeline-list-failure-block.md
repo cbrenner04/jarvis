@@ -22,11 +22,11 @@ Human and JSON `pipeline list` render the formatter from subspec 00 for stages w
 
 ## Acceptance criteria
 
-- [ ] A `v2/src/commands/pipeline.test.ts` regression proves `pipeline list --json` preserves the unchanged stage `failureDetail` beside `failureText` for a valid record; it fails against the pre-fix raw-only presentation.
-- [ ] A `v2/src/commands/pipeline.test.ts` regression proves human `pipeline list` prints the formatter block for a valid record with unambiguous pipeline/stage identity when several stages fail; it fails against the pre-fix omission.
-- [ ] A `v2/src/commands/pipeline.test.ts` regression proves legacy non-record and malformed record-shaped `failureDetail` produce no human block, no `failureText` key in JSON, unchanged `failureDetail`, and no thrown error; it fails if either shape is rendered as a record.
-- [ ] `v2/src/commands/pipeline.test.ts` lifecycle/list tests stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A `v2/src/commands/pipeline.test.ts` regression proves `pipeline list --json` preserves the unchanged stage `failureDetail` beside `failureText` for a valid record; it fails against the pre-fix raw-only presentation.
+- [x] A `v2/src/commands/pipeline.test.ts` regression proves human `pipeline list` prints the formatter block for a valid record with unambiguous pipeline/stage identity when several stages fail; it fails against the pre-fix omission.
+- [x] A `v2/src/commands/pipeline.test.ts` regression proves legacy non-record and malformed record-shaped `failureDetail` produce no human block, no `failureText` key in JSON, unchanged `failureDetail`, and no thrown error; it fails if either shape is rendered as a record.
+- [x] `v2/src/commands/pipeline.test.ts` lifecycle/list tests stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

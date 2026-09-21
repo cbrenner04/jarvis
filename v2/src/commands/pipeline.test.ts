@@ -16,6 +16,8 @@ import {
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { withValidStageFailureRecords } from "../daemon/wire-failure-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import {
@@ -1132,6 +1134,111 @@ describe("pipeline list", () => {
     );
     expect(filteredCode).toBe(0);
     expect(filteredCap.read()).toEqual({ stdout: "No pipelines.\n", stderr: "" });
+  });
+
+  describe("failure blocks", () => {
+    const RECORD = {
+      expectation: "a plan file",
+      observation: "no plan file\nfound",
+      nearMiss: "plan.txt",
+      retryable: true,
+      referencedPaths: [{ path: "/repo/spec", origin: "operator-repository" }],
+    };
+    const RECORD_LINES = [
+      "failure:",
+      "  expectation: a plan file",
+      "  observation: no plan file\\nfound",
+      "  near miss: plan.txt",
+      "  reissue can help: yes",
+      "  path (operator-repository): /repo/spec",
+    ];
+    const MALFORMED = { expectation: "only this" };
+    const LEGACY = { reason: "legacy failure" };
+
+    function failingPipeline(pipelineId: string, createdAt: number, stages: Array<[string, string, unknown]>) {
+      return {
+        pipelineId,
+        name: `name-${pipelineId}`,
+        state: "failed",
+        createdAt,
+        stages: stages.map(([stageId, branchKey, failureDetail], position) => ({
+          stageId,
+          branchKey,
+          position,
+          status: "failed",
+          failureDetail,
+        })),
+      };
+    }
+
+    async function listWith(argv: string[], pipelines: unknown[]) {
+      const cap = captureIo();
+      const code = await withFixedUuid([SESSION_UUID, "pipe-fail"], () =>
+        main(["pipeline", "list", ...argv], cap.io, {
+          ...pipelineDeps(undefined),
+          connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-fail", pipelines)]),
+        }),
+      );
+      return { code, ...cap.read() };
+    }
+
+    test("--json keeps failureDetail and adds failureText beside a valid record", async () => {
+      const pipeline = failingPipeline("pipe-a", 2, [["plan", "default", RECORD]]);
+      const { code, stdout } = await listWith(["--json"], [pipeline]);
+      expect(code).toBe(0);
+      const [stage] = JSON.parse(stdout).pipelines[0].stages;
+      expect(stage.failureDetail).toEqual(RECORD);
+      expect(stage.failureText).toBe(RECORD_LINES.join("\n"));
+    });
+
+    test("human list prints one identified block per failing stage across pipelines", async () => {
+      const first = failingPipeline("pipe-a", 2, [
+        ["plan", "alpha", RECORD],
+        ["plan", "beta", { ...RECORD, observation: "second", nearMiss: undefined, retryable: false }],
+      ]);
+      const second = failingPipeline("pipe-b", 1, [["implement", "default", RECORD]]);
+      const { code, stdout, stderr } = await listWith([], [first, second]);
+      expect(code).toBe(0);
+      expect(stderr).toBe("");
+      const lines = stdout.trimEnd().split("\n");
+      expect(lines.slice(2)).toEqual([
+        "pipeline pipe-a\tplan\talpha",
+        ...RECORD_LINES,
+        "pipeline pipe-a\tplan\tbeta",
+        "failure:",
+        "  expectation: a plan file",
+        "  observation: second",
+        "  reissue can help: no",
+        "  path (operator-repository): /repo/spec",
+        "pipeline pipe-b\timplement\tdefault",
+        ...RECORD_LINES,
+      ]);
+      expect(lines[0]?.split("\t")[0]).toBe("pipe-a");
+      expect(lines[1]?.split("\t")[0]).toBe("pipe-b");
+    });
+
+    test("legacy and malformed failureDetail print no block and no failureText", async () => {
+      const pipeline = failingPipeline("pipe-a", 1, [
+        ["plan", "default", LEGACY],
+        ["implement", "default", MALFORMED],
+        ["review", "default", null],
+      ]);
+      const human = await listWith([], [pipeline]);
+      expect(human.code).toBe(0);
+      expect(human.stdout.trimEnd().split("\n")).toHaveLength(1);
+      expect(human.stdout).not.toContain("failure:");
+
+      const json = await listWith(["--json"], [pipeline]);
+      expect(json.code).toBe(0);
+      const stages = JSON.parse(json.stdout).pipelines[0].stages;
+      expect(stages[0].failureDetail).toEqual(LEGACY);
+      // Unchanged from the wire: the daemon parser drops malformed record-shaped detail to null; list neither rewrites nor removes it.
+      const [, wireStage] = withValidStageFailureRecords(pipeline as unknown as PipelineSnapshot).stages;
+      expect(wireStage?.failureDetail).toBeNull();
+      expect(Object.hasOwn(stages[1], "failureDetail")).toBe(true);
+      expect(stages[1].failureDetail).toEqual(wireStage?.failureDetail);
+      for (const stage of stages) expect(Object.hasOwn(stage, "failureText")).toBe(false);
+    });
   });
 
   test("list --all requests dismissed pipelines", async () => {

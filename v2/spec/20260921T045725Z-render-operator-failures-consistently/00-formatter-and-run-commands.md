@@ -26,14 +26,14 @@ A CLI-owned formatter renders a labeled failure block from `OperatorFailureRecor
 
 ## Acceptance criteria
 
-- [ ] Formatter cases in `v2/src/cli/operator-failure-presentation.test.ts` prove a no-candidate record and an unmatched-near-miss record keep distinct observations and only the latter renders the near miss; they fail if absence is rendered as a candidate or the near miss is dropped.
-- [ ] Formatter cases in the same file prove recorded `harness-internal` and `operator-repository` paths receive distinct origin labels, including paths whose spelling would defeat prefix inference.
-- [ ] Formatter cases in the same file prove the block boundary (first line `failure:`, all later lines two-space indented, no blank lines) and that `reissue can help` renders `yes` and `no` for `retryable` true and false.
-- [ ] Formatter cases in the same file prove tab, newline, carriage return, backslash, ESC (`\u001b`), and DEL in every text field render as the specified escapes with one physical line per field, and that the input record is not mutated; they fail if a raw control character reaches the output.
-- [ ] A `v2/src/commands/run.test.ts` regression proves `run wait --json` carries the unchanged `failure` object beside `failureText`, that `failureText` split on `\n` equals the formatter's lines, that a record containing a newline is encoded once by the formatter (JSON escaping is not folded into `failureText`), and that `failureText` is absent (not `null`) when no canonical record exists; it fails against the pre-fix payload.
-- [ ] A `v2/src/commands/run.test.ts` regression proves human `run wait` and human `run list` print the formatter block, with the list section carrying unambiguous run identity when several runs fail; it fails against the pre-fix omission.
-- [ ] `v2/src/commands/run.test.ts` wait exit-code and list identity-column tests, and `v2/src/cli/help-flags-parity.test.ts`, stay green (no `--json` flag added to `run list`).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Formatter cases in `v2/src/cli/operator-failure-presentation.test.ts` prove a no-candidate record and an unmatched-near-miss record keep distinct observations and only the latter renders the near miss; they fail if absence is rendered as a candidate or the near miss is dropped.
+- [x] Formatter cases in the same file prove recorded `harness-internal` and `operator-repository` paths receive distinct origin labels, including paths whose spelling would defeat prefix inference.
+- [x] Formatter cases in the same file prove the block boundary (first line `failure:`, all later lines two-space indented, no blank lines) and that `reissue can help` renders `yes` and `no` for `retryable` true and false.
+- [x] Formatter cases in the same file prove tab, newline, carriage return, backslash, ESC (`\u001b`), and DEL in every text field render as the specified escapes with one physical line per field, and that the input record is not mutated; they fail if a raw control character reaches the output.
+- [x] A `v2/src/commands/run.test.ts` regression proves `run wait --json` carries the unchanged `failure` object beside `failureText`, that `failureText` split on `\n` equals the formatter's lines, that a record containing a newline is encoded once by the formatter (JSON escaping is not folded into `failureText`), and that `failureText` is absent (not `null`) when no canonical record exists; it fails against the pre-fix payload.
+- [x] A `v2/src/commands/run.test.ts` regression proves human `run wait` and human `run list` print the formatter block, with the list section carrying unambiguous run identity when several runs fail; it fails against the pre-fix omission.
+- [x] `v2/src/commands/run.test.ts` wait exit-code and list identity-column tests, and `v2/src/cli/help-flags-parity.test.ts`, stay green (no `--json` flag added to `run list`).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

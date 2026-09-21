@@ -1,3 +1,8 @@
+import {
+  type OperatorFailureRecord,
+  operatorFailureRecordFromUnknown,
+} from "../../../shared/operator-failure-record.ts";
+import { formatOperatorFailureBlock } from "../cli/operator-failure-presentation.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { mergePipelineSnapshots } from "../daemon/merge-pipeline-snapshots.ts";
 import { derivePipelineBoundary, type PipelineSnapshot } from "../daemon/pipeline-observation.ts";
@@ -723,6 +728,15 @@ function absoluteDetailRows(
   return detailRows(entries.map(([label, value]) => [label, { value: formatAbsoluteTimestamp(value) }.value] as const));
 }
 
+function failureBlockRows(record: OperatorFailureRecord): MonitorLineRow[] {
+  return formatOperatorFailureBlock(record).map((line) => row(untoned(line)));
+}
+
+function stageFailureRows(failureDetail: unknown): MonitorLineRow[] {
+  const record = operatorFailureRecordFromUnknown(failureDetail);
+  return record === undefined ? detailRows([["failureDetail", failureDetail]]) : failureBlockRows(record);
+}
+
 function isStageArtifactShape(artifact: unknown): artifact is PipelineStageArtifact {
   if (typeof artifact !== "object" || artifact === null) return false;
   const record = artifact as Record<string, unknown>;
@@ -886,14 +900,15 @@ function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined, 
         ["status", stage.status],
         ["elapsed", stageElapsedLabel(stage, nowMs)],
         ["workflowInvocationId", stage.workflowInvocationId],
-        ["failureDetail", stage.failureDetail],
-      ]).concat(
-        absoluteDetailRows([
-          ["startedAt", stage.startedAt],
-          ["endedAt", stage.endedAt],
-          ["decidedAt", stage.decidedAt],
-        ]),
-      ),
+      ])
+        .concat(stageFailureRows(stage.failureDetail))
+        .concat(
+          absoluteDetailRows([
+            ["startedAt", stage.startedAt],
+            ["endedAt", stage.endedAt],
+            ["decidedAt", stage.decidedAt],
+          ]),
+        ),
     },
     artifactSection,
   ];
@@ -930,7 +945,8 @@ function selectedRunDetailRows(run: DaemonListRunRow): DetailSection[] {
             ["prNumber", run.prNumber],
             ["prUrl", run.prUrl],
           ]),
-        ),
+        )
+        .concat(run.failure === undefined ? [] : failureBlockRows(run.failure)),
     },
   ];
   if (run.workflow !== undefined && run.workflow.steps.length > 0) {

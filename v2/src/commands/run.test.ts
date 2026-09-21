@@ -1885,3 +1885,58 @@ describe("run dismiss", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: RUN_UNDISMISS_USAGE });
   });
 });
+
+describe("operator failure presentation on run commands", () => {
+  const failureRecord = {
+    expectation: "plan artifact",
+    observation: "line one\nline two",
+    retryable: false,
+    referencedPaths: [{ path: "v2/spec/x.md", origin: "operator-repository" }],
+  };
+  const block = [
+    "failure:",
+    "  expectation: plan artifact",
+    "  observation: line one\\nline two",
+    "  reissue can help: no",
+    "  path (operator-repository): v2/spec/x.md",
+  ];
+
+  test("run wait stdout carries the unchanged failure beside once-encoded failureText; human block goes to stderr", async () => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-f", [waitResponse({ runStatus: "failed", failure: failureRecord })]);
+    expect(code).toBe(3);
+    const { stdout, stderr } = cap.read();
+    const parsed = JSON.parse(stdout.trimEnd()) as { failure?: unknown; failureText?: string };
+    expect(parsed.failure).toEqual(failureRecord);
+    expect(parsed.failureText?.split("\n")).toEqual(block);
+    expect(stdout.split("\n")).toHaveLength(2);
+    expect(stderr).toBe(`${block.join("\n")}\n`);
+  });
+
+  test("run wait omits failureText (not null) and prints no block without a canonical record", async () => {
+    const cap = captureIo();
+    await runWait(cap, "run-f", [waitResponse({ runStatus: "failed" })]);
+    const { stdout, stderr } = cap.read();
+    const parsed = JSON.parse(stdout.trimEnd()) as Record<string, unknown>;
+    expect("failureText" in parsed).toBe(false);
+    expect("failure" in parsed).toBe(false);
+    expect(stderr).toBe("");
+  });
+
+  test("run list appends an identity-labeled failure section per failing run after the rows", async () => {
+    const { code, stdout } = await runSoloList([
+      { ...soloDaemonListRow("run-b"), status: "failed", failure: failureRecord },
+      soloDaemonListRow("run-a"),
+      { ...soloDaemonListRow("run-c"), status: "failed", failure: { ...failureRecord, retryable: true } },
+    ]);
+    expect(code).toBe(0);
+    const lines = stdout.trimEnd().split("\n");
+    expect(lines.slice(0, 3).map((line) => line.split("\t")[0])).toEqual(["run-a", "run-b", "run-c"]);
+    expect(lines.slice(3)).toEqual([
+      "run run-b\tdemo\tmain",
+      ...block,
+      "run run-c\tdemo\tmain",
+      ...block.map((line) => (line === "  reissue can help: no" ? "  reissue can help: yes" : line)),
+    ]);
+  });
+});

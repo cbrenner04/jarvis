@@ -1942,6 +1942,57 @@ describe("monitorRightPaneSegmentRows", () => {
     }
   });
 
+  test("stage failure records render the shared block; opaque or malformed detail keeps stable JSON", () => {
+    const record = {
+      expectation: "exp",
+      observation: "obs\nline",
+      retryable: true,
+      referencedPaths: [{ origin: "operator-repository", path: "a/b.md" }],
+    };
+    const linesFor = (failureDetail: unknown): string[] => {
+      const stage = snapshotStage({ stageId: "inspect", artifact: undefined, failureDetail });
+      const state = monitorState({
+        selectedNodeId: monitorPipelineStageNodeId(PIPELINE_ID, "inspect", "default"),
+        pipelineSnapshotsBySocketPath: {
+          "/tmp/test.sock": { pipelines: [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [stage] })] },
+        },
+      });
+      return monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+    };
+
+    const valid = linesFor(record);
+    expect(valid).toContain("failure:");
+    expect(valid).toContain("  expectation: exp");
+    expect(valid).toContain("  observation: obs\\nline");
+    expect(valid).toContain("  reissue can help: yes");
+    expect(valid).toContain("  path (operator-repository): a/b.md");
+    expect(valid.filter((line) => line.startsWith("failureDetail:"))).toEqual([]);
+
+    const malformed = { expectation: "exp", retryable: "yes" };
+    expect(linesFor(malformed)).toContain('failureDetail: {"expectation":"exp","retryable":"yes"}');
+    expect(linesFor(malformed)).not.toContain("failure:");
+    expect(linesFor("legacy text")).toContain("failureDetail: legacy text");
+  });
+
+  test("selected run renders the shared failure block from run.failure", () => {
+    const failure = { expectation: "exp", observation: "obs", retryable: false, referencedPaths: [] };
+    const linesFor = (run: DaemonListRunRow): string[] =>
+      monitorRightPaneSegmentRows(monitorState({ runs: [run], selectedNodeId: run.runId }), TREE_NOW_MS).map(
+        joinMonitorRow,
+      );
+
+    const failed = linesFor(workflowRun("run-fail", "failed", "inv-fail", { isLive: false, failure }));
+    const at = failed.indexOf("failure:");
+    expect(at).toBeGreaterThan(-1);
+    expect(failed.slice(at, at + 4)).toEqual([
+      "failure:",
+      "  expectation: exp",
+      "  observation: obs",
+      "  reissue can help: no",
+    ]);
+    expect(linesFor(workflowRun("run-ok", "failed", "inv-ok", { isLive: false }))).not.toContain("failure:");
+  });
+
   test("pipeline project resolves entry runs and is omitted when joined rows are absent or conflict", () => {
     const absent = pipelineSnapshot({
       pipelineId: "pipe-absent",

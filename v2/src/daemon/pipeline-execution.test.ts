@@ -637,9 +637,9 @@ describe("runPipeline", () => {
       expect(entryRunId).toBeDefined();
       const stage = store.loadPipeline(pipelineId)?.stages.find((candidate) => candidate.stageId === "s1");
       expect(stage?.status).toBe("failed");
-      const message = (stage?.failureDetail as { message?: string } | null)?.message;
-      expect(message).toContain("bun run ready");
-      expect(message).toContain('Script not found "ready"');
+      const detail = stage?.failureDetail as { expectation?: string; observation?: string } | null;
+      expect(detail?.expectation).toContain("bun run ready");
+      expect(detail?.observation).toContain('Script not found "ready"');
     } finally {
       logSink.close();
       store.close();

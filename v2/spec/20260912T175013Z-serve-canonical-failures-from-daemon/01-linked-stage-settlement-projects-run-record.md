@@ -22,10 +22,10 @@ When a terminal workflow stage settles from its linked entry run, the stage's `f
 
 ## Acceptance criteria
 
-- [ ] A test proves a terminal intent stage's `failureDetail` deep-equals its entry run's stored `OperatorFailureRecord`; it fails against the pre-fix composer-derived detail.
-- [ ] A test proves the same identical projection holds for terminal plan and implement stages settled from their entry runs.
-- [ ] A test proves an entry run with no stored record still settles its stage with the log-composed detail (fallback preserved).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves a terminal intent stage's `failureDetail` deep-equals its entry run's stored `OperatorFailureRecord`; it fails against the pre-fix composer-derived detail.
+- [x] A test proves the same identical projection holds for terminal plan and implement stages settled from their entry runs.
+- [x] A test proves an entry run with no stored record still settles its stage with the log-composed detail (fallback preserved).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

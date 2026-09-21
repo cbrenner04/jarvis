@@ -581,10 +581,12 @@ function wrapDecisionHandlers(
   handlers: ReturnType<typeof createRunControlHandlers>,
   deps: {
     store: PipelineOwnershipStore;
-    predecessorSocketPath: string | undefined;
+    predecessorSocketPath?: string | undefined;
+    discoverPeerSocketPaths?: () => readonly string[];
     connectOwnerClient: (socketPath: string) => Promise<IpcClient>;
   },
 ) {
+  const { predecessorSocketPath, discoverPeerSocketPaths, ...rest } = deps;
   return createStablePipelineDecisionHandlers(
     {
       pipeline_approve: handlers.pipeline_approve,
@@ -592,7 +594,11 @@ function wrapDecisionHandlers(
       pipeline_resume: handlers.pipeline_resume,
       pipeline_recover: handlers.pipeline_recover,
     },
-    deps,
+    {
+      ...rest,
+      discoverPeerSocketPaths:
+        discoverPeerSocketPaths ?? (() => (predecessorSocketPath === undefined ? [] : [predecessorSocketPath])),
+    },
   );
 }
 
@@ -1120,6 +1126,51 @@ describe("stable pipeline decision-verb ownership claim", () => {
     }
   });
 
+  test("real startDaemonRuntime wiring queries every discovered peer once, never its own public or private endpoint", async () => {
+    const dbPath = tempDbPath("real-wiring-peer-discovery");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const reader: LogReader = { tail: () => [], async *follow() {} };
+    const handlersByEndpoint = new Map<string, Record<string, RpcHandler>>();
+    const connectedSockets: string[] = [];
+
+    const runtime = await startDaemonRuntime("/fake/public.sock", store, reader, {
+      openLogSink: () => ({ append: () => undefined, close: () => undefined }),
+      startIpcServer: async (socketPath, boundHandlers = {}) => {
+        handlersByEndpoint.set(socketPath, boundHandlers);
+        return { socketPath, close: async () => undefined } as IpcServer;
+      },
+      privateSocketPath: "/fake/private.sock",
+      predecessorSocketPath: "/fake/predecessor.sock",
+      // Discovery echoes this daemon's own endpoints alongside two peers (one duplicating the predecessor).
+      enumerateOtherDaemonSockets: () => [
+        "/fake/private.sock",
+        "/fake/public.sock",
+        "/fake/predecessor.sock",
+        "/fake/older.sock",
+      ],
+      connectRunOwnerClient: async (socketPath) => {
+        connectedSockets.push(socketPath);
+        throw new Error("no real owner in this test");
+      },
+    });
+
+    try {
+      const approve = handlersByEndpoint.get("/fake/public.sock")?.pipeline_approve;
+      if (approve === undefined) throw new Error("pipeline_approve handler was not registered");
+      const response = await approve(
+        decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+        new AbortController().signal,
+      );
+
+      expect(response).toMatchObject({ kind: "error", code: "pipeline_no_live_owner" });
+      expect([...connectedSockets].sort()).toEqual(["/fake/older.sock", "/fake/predecessor.sock"]);
+    } finally {
+      await runtime.close();
+      store.close();
+    }
+  });
+
   test("a prefix pipeline id is resolved before the claim gate, not skipped past it", async () => {
     const dbPath = tempDbPath("prefix-id");
     const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
@@ -1157,6 +1208,198 @@ describe("stable pipeline decision-verb ownership claim", () => {
     expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
     await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
     await flushBackgroundRuns();
+    store.close();
+  });
+});
+
+const OLDEST_IDENTITY = "oldest-generation";
+const MIDDLE_SOCKET_PATH = "/private/middle.sock";
+const OLDEST_SOCKET_PATH = "/private/oldest.sock";
+const NO_LIVE_OWNER_REFUSAL = (pipelineId: string): Reply => ({
+  kind: "error",
+  code: "pipeline_no_live_owner",
+  message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+});
+
+/** Three generations: the row is owned by the oldest, both older generations are still live. */
+function seedOwnedByOldestOfThree(label: string): { store: StateStore; pipelineId: string } {
+  const dbPath = tempDbPath(label);
+  const seedStore = openStateStore(dbPath, { currentIdentity: OLDEST_IDENTITY });
+  const pipelineId = seedAwaitingGatePipeline(seedStore);
+  seedStore.close();
+  const store = openStateStore(dbPath, {
+    currentIdentity: SUCCESSOR_IDENTITY,
+    isOwnerAlive: async (identity) => identity === OLDEST_IDENTITY || identity === PREDECESSOR_IDENTITY,
+  });
+  return { store, pipelineId };
+}
+
+function noStageHandlers(store: StateStore) {
+  return createRunControlHandlers({
+    stateStore: store,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage: async () => ({ ok: true, steps: [] }),
+  });
+}
+
+function withClaim(
+  store: StateStore,
+  claimPipelineContinuation: PipelineOwnershipStore["claimPipelineContinuation"],
+): PipelineOwnershipStore {
+  return {
+    currentOwnerIdentity: () => store.currentOwnerIdentity(),
+    loadPipeline: (id) => store.loadPipeline(id),
+    listPipelines: () => store.listPipelines(),
+    adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+    pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
+    claimPipelineContinuation,
+  };
+}
+
+function approveFrame(pipelineId: string) {
+  return decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" });
+}
+
+function sentMethods(owner: ReturnType<typeof ownerClient>): string[] {
+  return owner.sent.map((sentFrame) => (sentFrame as { method: string }).method);
+}
+
+describe("stable pipeline decision-verb claim across older generations", () => {
+  test("approve claims from the owner two generations back without waiting for it to exit", async () => {
+    const { store, pipelineId } = seedOwnedByOldestOfThree("three-generations");
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: stageIndex === 2 ? [createWriteStep("s3-write", "pipeline-branch", doneWithArtifactBindingFactory)] : [],
+      }),
+    });
+    const middle = ownerClient({ kind: "response", result: { kind: "not_owner" } });
+    const oldest = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: OLDEST_IDENTITY } });
+    const clients: Record<string, ReturnType<typeof ownerClient>> = {
+      [MIDDLE_SOCKET_PATH]: middle,
+      [OLDEST_SOCKET_PATH]: oldest,
+    };
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      discoverPeerSocketPaths: () => [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH],
+      connectOwnerClient: async (path) => {
+        const owner = clients[path];
+        if (owner === undefined) throw new Error(`unexpected socket ${path}`);
+        return owner.client;
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
+
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "applied", pipelineId, stageId: "gate", decision: "approved" },
+    });
+    expect(sentMethods(oldest)).toEqual(["pipeline_owner"]);
+    expect(sentMethods(middle)).toEqual(["pipeline_owner"]);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+    await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("a peer answering a mismatched ownerIdentity alongside the real owner never receives the claim", async () => {
+    const { store, pipelineId } = seedOwnedByOldestOfThree("mismatched-peer");
+    const successorHandlers = noStageHandlers(store);
+    const priorOwners: (string | null)[] = [];
+    const claimTrackingStore: PipelineOwnershipStore = withClaim(store, (args) => {
+      priorOwners.push(args.priorOwnerIdentity);
+      return store.claimPipelineContinuation(args);
+    });
+    const impostor = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: "impostor" } });
+    const oldest = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: OLDEST_IDENTITY } });
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store: claimTrackingStore,
+      discoverPeerSocketPaths: () => [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH],
+      connectOwnerClient: async (path) => (path === MIDDLE_SOCKET_PATH ? impostor.client : oldest.client),
+    });
+
+    const response = (await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal)) as {
+      kind: string;
+    };
+
+    expect(response.kind).toBe("response");
+    expect(priorOwners).toEqual([OLDEST_IDENTITY]);
+    expect(sentMethods(impostor)).toEqual(["pipeline_owner"]);
+    expect(sentMethods(oldest)).toEqual(["pipeline_owner"]);
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("an unreachable owner and a non-matching ownerIdentity each refuse without claiming", async () => {
+    const unreachable = seedOwnedByOldestOfThree("owner-unreachable");
+    const nonMatching = seedOwnedByOldestOfThree("owner-non-matching");
+    const cases = [
+      {
+        ...unreachable,
+        connectOwnerClient: async (path: string): Promise<IpcClient> => {
+          if (path === MIDDLE_SOCKET_PATH)
+            return ownerClient({ kind: "response", result: { kind: "not_owner" } }).client;
+          throw new Error("connection refused");
+        },
+      },
+      {
+        ...nonMatching,
+        connectOwnerClient: async (): Promise<IpcClient> =>
+          ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: "someone-else" } }).client,
+      },
+    ];
+    for (const { store, pipelineId, connectOwnerClient } of cases) {
+      const successorHandlers = noStageHandlers(store);
+      const wrapped = wrapDecisionHandlers(successorHandlers, {
+        store,
+        discoverPeerSocketPaths: () => [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH],
+        connectOwnerClient,
+      });
+
+      const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
+
+      expect(response).toEqual(NO_LIVE_OWNER_REFUSAL(pipelineId));
+      expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(OLDEST_IDENTITY);
+      store.close();
+    }
+  });
+
+  test("a lost claim retries discovery and the owner queries across all peers", async () => {
+    const { store, pipelineId } = seedOwnedByOldestOfThree("lost-claim-rediscovers");
+    const successorHandlers = noStageHandlers(store);
+    const alwaysLosingStore: PipelineOwnershipStore = withClaim(store, (args) => ({
+      kind: "refused",
+      pipelineId: args.pipelineId,
+      reason: "stale_owner",
+    }));
+    let discoveries = 0;
+    const queriedPaths: string[] = [];
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store: alwaysLosingStore,
+      discoverPeerSocketPaths: () => {
+        discoveries += 1;
+        return [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH];
+      },
+      connectOwnerClient: async (path) => {
+        queriedPaths.push(path);
+        return ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: OLDEST_IDENTITY } }).client;
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
+
+    expect(response).toEqual(NO_LIVE_OWNER_REFUSAL(pipelineId));
+    expect(discoveries).toBe(2);
+    expect([...queriedPaths].sort()).toEqual(
+      [MIDDLE_SOCKET_PATH, MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH, OLDEST_SOCKET_PATH].sort(),
+    );
     store.close();
   });
 });

@@ -216,7 +216,7 @@ test("every pipeline verb reaches its pipeline through the stable address across
     },
     {
       store,
-      predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
+      discoverPeerSocketPaths: () => [PREDECESSOR_SOCKET_PATH],
       connectOwnerClient: async () => {
         predecessorQueries += 1;
         return predecessorOwnerClient();

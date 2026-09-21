@@ -1489,9 +1489,17 @@ export async function startDaemonRuntime(
           { resolveOwner: ownershipDirectory.resolveOwner, resolveOwnerForKey: ownershipDirectory.resolveOwnerForKey },
         );
 
-  // Wrapped unconditionally, predecessor or not: with no predecessor configured,
+  // Wrapped unconditionally, peers or not: with no live peer,
   // `claimPipelineForDecision` still refuses a not-locally-owned, non-adoptable pipeline with
   // `pipeline_no_live_owner` instead of letting the plain local handler run unchecked.
+  // Rediscovered per claim so a peer that appeared after startup is still consulted.
+  const discoverDecisionPeerSocketPaths = (): readonly string[] => {
+    const ownSocketPath = startupDeps.privateSocketPath ?? socketPath;
+    const discovered = enumerateSockets(jarvisHome(), ownSocketPath);
+    const all =
+      startupDeps.predecessorSocketPath === undefined ? discovered : [startupDeps.predecessorSocketPath, ...discovered];
+    return [...new Set(all)].filter((path) => path !== ownSocketPath && path !== socketPath);
+  };
   const stablePipelineDecisionHandlers = createStablePipelineDecisionHandlers(
     {
       pipeline_approve: runControlHandlers.pipeline_approve,
@@ -1501,7 +1509,7 @@ export async function startDaemonRuntime(
     },
     {
       store: runControlContext.store,
-      predecessorSocketPath: startupDeps.predecessorSocketPath,
+      discoverPeerSocketPaths: discoverDecisionPeerSocketPaths,
       connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
     },
   );

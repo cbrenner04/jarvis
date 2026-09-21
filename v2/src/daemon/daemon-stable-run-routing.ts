@@ -146,14 +146,15 @@ type PipelineOwnershipStore = Pick<
 
 type PipelineDecisionRoutingDeps = {
   store: PipelineOwnershipStore;
-  predecessorSocketPath: string | undefined;
+  /** Live peer generations' sockets (own socket excluded); re-invoked on every claim attempt. */
+  discoverPeerSocketPaths: () => readonly string[];
   connectOwnerClient: (socketPath: string) => Promise<IpcClient>;
-  /** Predecessor `pipeline_owner` confirmation query timeout; defaults to `PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS`. */
+  /** Peer `pipeline_owner` confirmation query timeout; defaults to `PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS`. */
   predecessorOwnerQueryTimeoutMs?: number;
 };
 
 // Strictly shorter than `PIPELINE_OWNER_RPC_TIMEOUT_MS`, matching the `pipeline_list` merge query's
-// own headroom rationale (`PREDECESSOR_PIPELINE_LIST_TIMEOUT_MS` above), so a slow predecessor
+// own headroom rationale (`PREDECESSOR_PIPELINE_LIST_TIMEOUT_MS` above), so a slow peer
 // can't push a stable decision-verb reply past the CLI's own request timeout.
 const PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS = Math.floor(PIPELINE_OWNER_RPC_TIMEOUT_MS * 0.75);
 
@@ -186,17 +187,17 @@ function pipelineNoLiveOwnerRefusal(pipelineId: string): { kind: "error"; code: 
   };
 }
 
-/** Confirms the direct predecessor still recognizes itself as owner before this generation
- * claims; returns its `ownerIdentity`, or `undefined` when unreachable or answering anything but
- * a matching `owner` witness — both refuse the claim identically, so callers don't distinguish. */
-async function queryPredecessorPipelineOwner(
+/** Asks one peer generation whether it recognizes itself as the pipeline's owner; returns its
+ * `ownerIdentity`, or `undefined` when unreachable or answering anything but an `owner` witness —
+ * both are simply "not the owner", so callers don't distinguish. */
+async function queryPeerPipelineOwner(
   pipelineId: string,
-  predecessorSocketPath: string,
+  peerSocketPath: string,
   deps: PipelineDecisionRoutingDeps,
 ): Promise<string | undefined> {
   let client: IpcClient;
   try {
-    client = await deps.connectOwnerClient(predecessorSocketPath);
+    client = await deps.connectOwnerClient(peerSocketPath);
   } catch {
     return undefined;
   }
@@ -217,13 +218,27 @@ async function queryPredecessorPipelineOwner(
   }
 }
 
+/** Queries every discovered peer in parallel; true when one answers an `owner` witness matching the
+ * row's recorded `ownerIdentity`. Only `pipeline_owner` is ever sent — never the verb. */
+async function anyPeerConfirmsOwner(
+  pipelineId: string,
+  ownerIdentity: string | null,
+  deps: PipelineDecisionRoutingDeps,
+): Promise<boolean> {
+  if (ownerIdentity === null) return false;
+  const answers = await Promise.all(
+    deps.discoverPeerSocketPaths().map((peerSocketPath) => queryPeerPipelineOwner(pipelineId, peerSocketPath, deps)),
+  );
+  return answers.includes(ownerIdentity);
+}
+
 /**
  * Claims a not-locally-owned pipeline before a decision verb runs its unmodified local handler:
  * this generation's own ownership, or `adoptOrphanedPipeline`'s dead-owner adoption, proceeds
- * unchanged; otherwise the direct predecessor's `pipeline_owner` must confirm it still holds the
+ * unchanged; otherwise a live peer generation's `pipeline_owner` must confirm it holds the
  * row's own recorded owner identity before `claimPipelineContinuation` moves ownership here. A
- * claim lost to a concurrent claimant re-resolves once against the now-current row rather than
- * surfacing the stale read.
+ * claim lost to a concurrent claimant re-resolves once (discovery and queries repeated) against
+ * the now-current row rather than surfacing the stale read.
  */
 async function claimPipelineForDecision(
   pipelineId: string,
@@ -242,12 +257,7 @@ async function claimPipelineForDecision(
   if (pipeline.status === "interrupted" && (await deps.store.pipelineOwnerIsDead(pipelineId))) {
     return { kind: "proceed" };
   }
-  const { predecessorSocketPath } = deps;
-  if (predecessorSocketPath === undefined) {
-    return { kind: "refused" };
-  }
-  const predecessorOwnerIdentity = await queryPredecessorPipelineOwner(pipelineId, predecessorSocketPath, deps);
-  if (predecessorOwnerIdentity !== pipeline.ownerIdentity) {
+  if (!(await anyPeerConfirmsOwner(pipelineId, pipeline.ownerIdentity, deps))) {
     return { kind: "refused" };
   }
   const claim = deps.store.claimPipelineContinuation({ pipelineId, priorOwnerIdentity: pipeline.ownerIdentity });
@@ -262,10 +272,10 @@ async function claimPipelineForDecision(
 
 /**
  * Wraps the four pipeline decision verbs on the stable endpoint only: a not-locally-owned
- * pipeline is durably claimed from its live, draining direct predecessor (see
+ * pipeline is durably claimed from whichever live peer generation owns it (see
  * `claimPipelineForDecision`) before the existing unmodified local handler runs, so any successor
  * stage the decision unblocks is admitted by this generation's own `pipelineExecutionDeps()`. The
- * predecessor's own handlers are never invoked — private endpoints keep the unwrapped handlers.
+ * peer's own handlers are never invoked — private endpoints keep the unwrapped handlers.
  */
 export function createStablePipelineDecisionHandlers(
   localHandlers: PipelineDecisionHandlers,

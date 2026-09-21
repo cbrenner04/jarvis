@@ -27,6 +27,7 @@ import { createRunControlHandlerContext } from "./daemon-run-control-context.ts"
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import type { RunTimeoutTimers } from "./run-time-budget.ts";
+import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type FakeTimer = { callback: () => void; ms: number; dueAt: number; interval: boolean; cleared: boolean };
 
@@ -498,6 +499,74 @@ test("resumeLinkedWorkflowStart forwards the resumed workflowSnapshot into execu
   const runId = (response as { result: { runId: string } }).result.runId;
 
   expect(stateStore.loadRun(runId)?.workflowSnapshot?.invocationId).toBe("resumed-invocation-id");
+});
+
+test("a live resumed ~link-N row keeps its canonical entry stage live until its terminal settlement", async () => {
+  const branch = "resume-link-settles-entry-stage";
+  const { createWriteStep } = writeStepFixtures();
+  let releaseWrite: (() => void) | undefined;
+  const writeHeld = new Promise<void>((resolve) => {
+    releaseWrite = resolve;
+  });
+  const step = createWriteStep(
+    "step-1~link-1",
+    branch,
+    createBindingFactory(async ({ cwd }) => {
+      await writeHeld;
+      writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    }),
+    { suppressShrink: true },
+  );
+  const snapshot: WorkflowSnapshot = {
+    invocationId: "resumed-link-invocation",
+    steps: [{ stepId: "step-1", role: "implement", durable: true }],
+  };
+  const entryRunId = stateStore.createRun({
+    project: step.worktree.projectName,
+    specRef: "main",
+    worktreePath: "/tmp/resume-link-entry",
+    branch,
+    specPath: "spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.commitTerminalRunSettlement({ runId: entryRunId, status: "failed", terminalCause: "invocation_failure" });
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "resume-link",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "none" }],
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 100 },
+  });
+  const { ctx, workflowStart } = workflowAdmission();
+
+  const response = await workflowStart.resumeLinkedWorkflowStart([step], snapshot);
+  expect(response.kind).toBe("response");
+  const linkRunId = (response as { result: { runId: string } }).result.runId;
+  expect(linkRunId).not.toBe(entryRunId);
+  for (let i = 0; i < 1_000 && !ctx.workflowPromisesByEntryRunId.has(entryRunId); i++) {
+    await flushBackgroundRuns();
+  }
+  expect(ctx.workflowPromisesByEntryRunId.has(entryRunId)).toBe(true);
+  expect(ctx.workflowPromisesByEntryRunId.has(linkRunId)).toBe(false);
+  expect(
+    settleStagesForEntryRun(
+      { store: stateStore, isEntryRunLive: (runId) => ctx.workflowPromisesByEntryRunId.has(runId) },
+      entryRunId,
+    ),
+  ).toEqual({ kind: "live" });
+  const settled = ctx.workflowPromisesByEntryRunId.get(entryRunId);
+  releaseWrite?.();
+  await settled;
+  await flushBackgroundRuns();
+
+  const stage = stateStore.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "implement");
+  expect(stage?.status).toBe("failed");
 });
 
 test("resumeLinkedWorkflowStart returns a refused resume admission before starting the workflow, releasing its claim", async () => {

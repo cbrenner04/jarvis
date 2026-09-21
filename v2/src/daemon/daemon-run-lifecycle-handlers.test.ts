@@ -516,6 +516,7 @@ type CapturedLinkedResume = {
   workflowSnapshot: WorkflowSnapshot;
   admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>;
   rollbackRunAdmission?: () => void;
+  settleStagesAfterResume?: (runId: string) => void;
 };
 
 function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps): {
@@ -535,12 +536,13 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
-    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun, rollbackRunAdmission) => {
+    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun, rollbackRunAdmission, settleStagesAfterResume) => {
       captured.push({
         steps,
         workflowSnapshot,
         ...(admitRun !== undefined ? { admitRun } : {}),
         ...(rollbackRunAdmission !== undefined ? { rollbackRunAdmission } : {}),
+        ...(settleStagesAfterResume !== undefined ? { settleStagesAfterResume } : {}),
       });
       return { kind: "response", result: { runId: "fake-entry-run" } };
     },
@@ -580,6 +582,7 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
     expect(response).toEqual({ kind: "response", result: { runId: "fake-entry-run" } });
     expect(captured).toHaveLength(1);
     expect(captured[0]?.workflowSnapshot.invocationId).toBe("linked-route-failed");
+    expect(captured[0]?.settleStagesAfterResume).toBeDefined();
     expect(captured[0]?.steps).toHaveLength(2);
     expect(captured[0]?.steps[0]).toMatchObject({
       behavior: "write",
@@ -933,6 +936,117 @@ test("a thrown republication tail rewrites the settled marker to failed", async 
   expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("failed");
 });
 
+test("a resume whose tail fails restores the failed stage the admission reopened", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = stateStore.createRun({
+    project: "republish",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "stage-restore",
+    specPath: "/tmp/spec.md",
+    status: "failed",
+    stepId: "step-1",
+    workflowSnapshot: workflowSnapshot("inv-stage-restore", [{ stepId: "step-1", role: "implement" }]),
+  });
+  stateStore.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "invocation_failure" });
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "stage-restore",
+      stages: [
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    },
+  });
+  const detail = { message: "tail boom" };
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: { status: "failed", workflowInvocationId: runId, startedAt: 100, endedAt: 200, failureDetail: detail },
+  });
+  stateStore.updateStage({ pipelineId, stageId: "gate", patch: { status: "skipped", skipProvenance: "terminal" } });
+  const stages = () => stateStore.loadPipeline(pipelineId)?.stages;
+
+  const outcome = await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "stage-restore" },
+    async () => {
+      expect(stages()?.map((stage) => stage.status)).toEqual(["running", "pending"]);
+      return { ok: false, message: "tail failed" };
+    },
+  );
+
+  expect(outcome).toMatchObject({ kind: "error", code: "internal_error" });
+  expect(stages()).toMatchObject([
+    { stageId: "implement", status: "failed", endedAt: 200, failureDetail: detail },
+    { stageId: "gate", status: "skipped", skipProvenance: "terminal" },
+  ]);
+});
+
+test("a resumed finalization settlement continues after its reopened stage succeeds", async () => {
+  const runId = stateStore.createRun({
+    project: "republish",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "stage-continue",
+    specPath: "/tmp/spec.md",
+    status: "failed",
+    stepId: "step-1",
+    workflowSnapshot: workflowSnapshot("inv-stage-continue", [{ stepId: "step-1", role: "implement" }]),
+  });
+  stateStore.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "invocation_failure" });
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "stage-continue",
+      stages: [
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: { status: "failed", workflowInvocationId: runId, failureDetail: { message: "stale" } },
+  });
+  stateStore.updateStage({ pipelineId, stageId: "gate", patch: { status: "skipped", skipProvenance: "terminal" } });
+  const continuations: Array<{ pipelineId: string; branchKey: string }> = [];
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    logReader: { tail: () => [], async *follow() {} },
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "unused" }),
+    continuePipelineAfterSettlement: async (continuedPipelineId, branchKey) => {
+      continuations.push({ pipelineId: continuedPipelineId, branchKey });
+    },
+  });
+
+  const outcome = await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "stage-continue" },
+    async () => {
+      const attemptId = stateStore.recordAttemptStart(runId);
+      stateStore.commitCompletionBoundary({
+        attemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+      return { ok: true };
+    },
+  );
+
+  expect(outcome).toMatchObject({ kind: "response" });
+  expect(stateStore.loadPipeline(pipelineId)?.stages).toMatchObject([
+    { stageId: "implement", status: "succeeded" },
+    { stageId: "gate", status: "pending" },
+  ]);
+  expect(continuations).toEqual([{ pipelineId, branchKey: "default" }]);
+});
+
 test("a republication tail returning a failure as a response rewrites the settled marker to failed", async () => {
   const { handlers } = lifecycleHandlers();
   const runId = settledInvocationRun("inv-republish-response", "republish-response");
@@ -997,7 +1111,8 @@ test("a republication tail aborted by run kill leaves the settled marker complet
         markStarted();
       }),
   );
-  await started;
+  // A refused admission settles the tail without starting execute; fail instead of awaiting `started` forever.
+  expect(await Promise.race([started.then(() => "started"), tail.then(() => "tail-settled")])).toBe("started");
   const killed = handlers.kill(
     { kind: "request", id: "k1", method: "kill", params: { runId } },
     new AbortController().signal,

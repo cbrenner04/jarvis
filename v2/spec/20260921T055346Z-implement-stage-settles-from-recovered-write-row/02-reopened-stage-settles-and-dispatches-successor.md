@@ -14,11 +14,11 @@ Once a resumed stage is `running` again (subspec 01) and settles (subspec 00), n
 
 ## Acceptance criteria
 
-- [ ] A test proves a stage whose write row settled `surviving_mutation_failed`, then was resumed and settled `completed`, settles `succeeded` with the PR artifact and dispatches its successor exactly once, driven through `settleStagesForEntryRun`; it fails against the pre-fix code, which leaves the stage `failed`.
-- [ ] A test shows a resumed row that settles failed leaves the stage `failed` with failure detail from the new settlement and its suffix skipped, and dispatches nothing. It fails against a settlement that keeps the stale pre-resume failure detail.
-- [ ] A test shows a second settlement of the same entry run does not dispatch the successor again.
-- [ ] `v2/src/persistence/pipeline-stage-settlement.test.ts` stays green (non-resumable failed rows settle as before).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves a stage whose write row settled `surviving_mutation_failed`, then was resumed and settled `completed`, settles `succeeded` with the PR artifact and dispatches its successor exactly once, driven through `settleStagesForEntryRun`; it fails against the pre-fix code, which leaves the stage `failed`.
+- [x] A test shows a resumed row that settles failed leaves the stage `failed` with failure detail from the new settlement and its suffix skipped, and dispatches nothing. It fails against a settlement that keeps the stale pre-resume failure detail.
+- [x] A test shows a second settlement of the same entry run does not dispatch the successor again.
+- [x] `v2/src/persistence/pipeline-stage-settlement.test.ts` stays green (non-resumable failed rows settle as before).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

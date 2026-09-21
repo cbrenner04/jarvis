@@ -46,7 +46,7 @@ import { daemonFailureDetail, type RunControlHandlerContext } from "./daemon-run
 import type { RunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { findTerminalLogRecord } from "./run-operator-error.ts";
 import { armRunTimeout, fireRunTimeout, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
-import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
+import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type WorkflowStartResult =
   | { kind: "response"; result: unknown }
@@ -77,6 +77,7 @@ export type WorkflowStartAdmission = {
     workflowSnapshot: WorkflowSnapshot,
     admitRun?: ResumeRunAdmission,
     rollbackRunAdmission?: () => void,
+    settleStagesAfterResume?: (runId: string) => void,
   ) => WorkflowStartResult;
   admitWorkflowStart: (lifecycle: WorkflowStartLifecycle) => Promise<Awaited<WorkflowStartResult>>;
   check_workflow_start_claim: RpcHandler;
@@ -231,10 +232,12 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     settleWorkflowStart: () => void,
     freshDispatch = true,
     workflowSnapshot?: WorkflowSnapshot,
+    settleStagesAfterResume?: (runId: string) => void,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
       let entryRunId: string | undefined;
+      let canonicalEntryRunId: string | undefined;
       let workflowInvocationId: string | undefined;
       let workflowSettledFailed = false;
       let trackPromiseResolve: (() => void) | undefined;
@@ -285,13 +288,43 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
             // Linked-implement link and shrink rows also report step 0; only the first is the entry.
             if (stepIndex === 0 && entryRunId === undefined) {
               entryRunId = runId;
+              canonicalEntryRunId = resolveInvocationEntryRunId(store, runId);
               workflowInvocationId = store.loadRun(runId)?.workflowSnapshot?.invocationId;
               runTimeout.bindKey(workflowInvocationId ?? runId);
-              workflowPromisesByEntryRunId.set(runId, trackPromise);
+              workflowPromisesByEntryRunId.set(canonicalEntryRunId, trackPromise);
               resolve({ kind: "response", result: { runId } });
             }
           },
         });
+      };
+      const settleTerminalInvocation = (settlementEntryRunId: string, killedWorkflowRuns: string[]): void => {
+        // Terminal event: the invocation is no longer live, so its durable rows settle every
+        // linked stage now — whether or not anything still awaits the promise. Best-effort by
+        // design: this runs in a promise `finally` that can outlive the store (daemon shutdown
+        // races the last workflow), and a store that is gone has nothing left to settle. The
+        // daemon-start sweep settles anything missed here.
+        try {
+          if (settleStagesAfterResume !== undefined) {
+            settleStagesAfterResume(settlementEntryRunId);
+          } else {
+            settleStagesForEntryRun(
+              {
+                store,
+                isEntryRunLive: () => false,
+                loadLogRecords: ctx.logReader === undefined ? undefined : (id) => ctx.logReader?.tail(id) ?? [],
+              },
+              settlementEntryRunId,
+            );
+          }
+        } catch (settlementError) {
+          console.error(`Stage settlement after terminal run ${settlementEntryRunId} failed:`, settlementError);
+        }
+        const settledCause = resolveWorkflowInvocationSettledCause(
+          killedWorkflowRuns.length > 0,
+          workflowSettledFailed,
+          runTimeout.timedOut(),
+        );
+        writeWorkflowInvocationSettledMarkerBestEffort(store, settlementEntryRunId, settledCause);
       };
       execute()
         .then((result) => {
@@ -346,30 +379,9 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
             clearLiveReviewProgress(workflowInvocationId);
           }
           if (entryRunId !== undefined) {
-            workflowPromisesByEntryRunId.delete(entryRunId);
-            // Terminal event: the invocation is no longer live, so its durable rows settle every
-            // linked stage now — whether or not anything still awaits the promise. Best-effort by
-            // design: this runs in a promise `finally` that can outlive the store (daemon shutdown
-            // races the last workflow), and a store that is gone has nothing left to settle. The
-            // daemon-start sweep settles anything missed here.
-            try {
-              settleStagesForEntryRun(
-                {
-                  store,
-                  isEntryRunLive: () => false,
-                  loadLogRecords: ctx.logReader === undefined ? undefined : (id) => ctx.logReader?.tail(id) ?? [],
-                },
-                entryRunId,
-              );
-            } catch (settlementError) {
-              console.error(`Stage settlement after terminal run ${entryRunId} failed:`, settlementError);
-            }
-            const settledCause = resolveWorkflowInvocationSettledCause(
-              killedWorkflowRuns.length > 0,
-              workflowSettledFailed,
-              runTimeout.timedOut(),
-            );
-            writeWorkflowInvocationSettledMarkerBestEffort(store, entryRunId, settledCause);
+            const settlementEntryRunId = canonicalEntryRunId ?? entryRunId;
+            workflowPromisesByEntryRunId.delete(settlementEntryRunId);
+            settleTerminalInvocation(settlementEntryRunId, killedWorkflowRuns);
           }
           trackPromiseResolve?.();
         });
@@ -499,6 +511,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     workflowSnapshot: WorkflowSnapshot,
     admitRun?: ResumeRunAdmission,
     rollbackRunAdmission?: () => void,
+    settleStagesAfterResume?: (runId: string) => void,
   ): WorkflowStartResult => {
     const workflowKey = workflowStartOwnershipKey(steps);
     const firstStep = steps[0];
@@ -517,7 +530,16 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
       },
       // An execute error after an applied admission restores the row's pre-admission status.
       ...(rollbackRunAdmission !== undefined ? { rollbackAdmission: rollbackRunAdmission } : {}),
-      execute: (onSettled) => startWorkflowRun(steps, claimRunId, abortController, onSettled, false, workflowSnapshot),
+      execute: (onSettled) =>
+        startWorkflowRun(
+          steps,
+          claimRunId,
+          abortController,
+          onSettled,
+          false,
+          workflowSnapshot,
+          settleStagesAfterResume,
+        ),
     });
   };
 

@@ -15,11 +15,11 @@ Settlement only matches `running` stages, so a `failed` stage stays `failed` aft
 
 ## Acceptance criteria
 
-- [ ] A test resumes a `surviving_mutation_failed` write row linked by a `failed` stage: the stage is `running` with cleared failure detail, its skipped suffix `pending`, and the pipeline in-progress. It fails against the pre-fix code, which leaves all three untouched.
-- [ ] A test resumes a row whose stage was relinked by `pipeline resume` (or whose pipeline is dismissed): the stage is not reopened.
-- [ ] A test shows a failed resume rollback leaves the stage `failed` with its original failure detail.
-- [ ] A test shows a `failed` stage linked to a non-resumable row (`nextAction: "stop"`) that a direct store write later marks `completed` stays `failed` with no `run resume` admission. It fails against a reopen keyed on row status rather than admission.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test resumes a `surviving_mutation_failed` write row linked by a `failed` stage: the stage is `running` with cleared failure detail, its skipped suffix `pending`, and the pipeline in-progress. It fails against the pre-fix code, which leaves all three untouched.
+- [x] A test resumes a row whose stage was relinked by `pipeline resume` (or whose pipeline is dismissed): the stage is not reopened.
+- [x] A test shows a failed resume rollback leaves the stage `failed` with its original failure detail.
+- [x] A test shows a `failed` stage linked to a non-resumable row (`nextAction: "stop"`) that a direct store write later marks `completed` stays `failed` with no `run resume` admission. It fails against a reopen keyed on row status rather than admission.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

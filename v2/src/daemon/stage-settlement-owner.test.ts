@@ -10,6 +10,7 @@ import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts"
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
 import {
   hasLiveForeignOwnerSibling,
+  resolveInvocationEntryRunId,
   settleOrphanedRunningStages,
   settleStagesForEntryRun,
 } from "./stage-settlement-owner.ts";
@@ -406,5 +407,36 @@ describe("settleStagesForEntryRun failure detail", () => {
     const detail = stageFailureDetail(pipelineId, "plan");
     expect(detail).toEqual(composeRunOperatorError(run, findTerminalLogRecord(LOG_RECORDS), LOG_RECORDS));
     expect(detail).not.toEqual(RECORD);
+  });
+});
+
+describe("resolveInvocationEntryRunId", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_OWNER });
+  });
+
+  afterEach(() => {
+    store.close();
+  });
+
+  test("a ~link-N row resolves to the invocation's entry row by snapshot step 0", () => {
+    const workflowSnapshot = implementSnapshot("inv-resolve");
+    const entryRunId = seedRun(store, { stepId: "implement", workflowSnapshot });
+    const linkRunId = seedRun(store, { stepId: "implement~link-1", workflowSnapshot });
+    expect(resolveInvocationEntryRunId(store, linkRunId)).toBe(entryRunId);
+    expect(resolveInvocationEntryRunId(store, entryRunId)).toBe(entryRunId);
+  });
+
+  test("a row with no snapshot, or whose entry row is absent, is its own entry run", () => {
+    const bareRunId = seedRun(store);
+    expect(resolveInvocationEntryRunId(store, bareRunId)).toBe(bareRunId);
+    const orphanRunId = seedRun(store, {
+      stepId: "implement~link-1",
+      workflowSnapshot: implementSnapshot("inv-orphan"),
+    });
+    expect(resolveInvocationEntryRunId(store, orphanRunId)).toBe(orphanRunId);
   });
 });

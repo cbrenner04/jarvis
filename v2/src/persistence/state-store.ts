@@ -386,6 +386,9 @@ type PipelineReopenOutcome =
   | { kind: "applied"; stageRecordId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineReopenRefusalReason };
 
+/** A `failed` stage reopened to `running` by a resume admission, with the skipped suffix it returned to `pending`; the pre-reopen rows restore it. */
+export type ReopenedFailedStage = { stage: PipelineStageRecord; suffix: readonly PipelineStageRecord[] };
+
 type ProvisionalSkipReopenOutcome =
   | { kind: "applied"; pipelineId: string; stageRecordIds: readonly string[] }
   | { kind: "refused"; pipelineId: string; reason: "pipeline_not_found" };
@@ -911,6 +914,18 @@ export interface StateStore {
    * `PipelineStageRecord.id` of the failed row on application.
    */
   reopenFailedPipeline(args: { pipelineId: string; branchKey?: string }): PipelineReopenOutcome;
+
+  /**
+   * Reopen every `failed` stage linked to `entryRunId` (undismissed pipelines only) to `running`,
+   * clearing its `endedAt` and `failureDetail` and returning the skipped suffix to `pending`. Each
+   * stage is a compare-and-set on `failed` and on its link still being `entryRunId`; a stage whose
+   * continuation shape is malformed is left alone. Returns the reopened stages for
+   * {@link StateStore.restoreReopenedFailedStages}.
+   */
+  reopenFailedStagesForResume(entryRunId: string): ReopenedFailedStage[];
+
+  /** Undo {@link StateStore.reopenFailedStagesForResume}: each stage still `running` on its link returns to its pre-reopen `failed` row and suffix. */
+  restoreReopenedFailedStages(reopened: readonly ReopenedFailedStage[]): void;
 
   /** Reopen every provisional skip on one branch; omitted `branchKey` defaults to `"default"`. */
   reopenProvisionalSkippedStages(args: { pipelineId: string; branchKey?: string }): ProvisionalSkipReopenOutcome;
@@ -2557,6 +2572,68 @@ class StateStoreImpl implements StateStore {
       }
       throw error;
     }
+  }
+
+  reopenFailedStagesForResume(entryRunId: string): ReopenedFailedStage[] {
+    try {
+      return this.db.transaction((): ReopenedFailedStage[] => {
+        const reopened: ReopenedFailedStage[] = [];
+        for (const pipeline of this.listPipelines()) {
+          if (pipeline.dismissedAt !== null) continue;
+          for (const stage of pipeline.stages) {
+            const entry = this.reopenLinkedFailedStage(pipeline.stages, stage, entryRunId);
+            if (entry !== null) reopened.push(entry);
+          }
+        }
+        return reopened;
+      })();
+    } catch (error) {
+      if (error instanceof PipelineReopenLostError) return [];
+      throw error;
+    }
+  }
+
+  private reopenLinkedFailedStage(
+    stages: readonly PipelineStageRecord[],
+    stage: PipelineStageRecord,
+    entryRunId: string,
+  ): ReopenedFailedStage | null {
+    if (stage.status !== "failed" || stage.workflowInvocationId !== entryRunId) return null;
+    const shape = analyzeFailedPipelineReopenShape(stages, stage.branchKey);
+    if (shape.kind !== "valid" || shape.failedStageRecordId !== stage.id) return null;
+    const reopenedStage = this.db
+      .prepare(
+        `UPDATE pipeline_stages SET status = 'running', ended_at = NULL, failure_detail = NULL
+         WHERE id = ? AND status = 'failed' AND workflow_invocation_id = ?`,
+      )
+      .run(stage.id, entryRunId);
+    if (reopenedStage.changes === 0) return null;
+    const suffix = stages.filter((row) => shape.suffixStageRecordIds.includes(row.id));
+    const reopenSuffix = this.db.prepare(
+      "UPDATE pipeline_stages SET status = 'pending', skip_provenance = NULL, ended_at = NULL WHERE id = ? AND status = 'skipped'",
+    );
+    for (const row of suffix) {
+      if (reopenSuffix.run(row.id).changes === 0) throw new PipelineReopenLostError();
+    }
+    return { stage, suffix };
+  }
+
+  restoreReopenedFailedStages(reopened: readonly ReopenedFailedStage[]): void {
+    this.db.transaction(() => {
+      const restoreStage = this.db.prepare(
+        `UPDATE pipeline_stages SET status = 'failed', ended_at = ?, failure_detail = ?
+         WHERE id = ? AND status = 'running' AND workflow_invocation_id IS ?`,
+      );
+      const restoreSuffix = this.db.prepare(
+        "UPDATE pipeline_stages SET status = 'skipped', skip_provenance = ?, ended_at = ? WHERE id = ? AND status = 'pending'",
+      );
+      for (const { stage, suffix } of reopened) {
+        const failureDetail = stage.failureDetail === null ? null : JSON.stringify(stage.failureDetail);
+        if (restoreStage.run(stage.endedAt, failureDetail, stage.id, stage.workflowInvocationId).changes === 0)
+          continue;
+        for (const row of suffix) restoreSuffix.run(row.skipProvenance ?? null, row.endedAt, row.id);
+      }
+    })();
   }
 
   reopenProvisionalSkippedStages(args: { pipelineId: string; branchKey?: string }): ProvisionalSkipReopenOutcome {

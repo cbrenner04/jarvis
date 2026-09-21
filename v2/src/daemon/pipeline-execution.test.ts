@@ -87,7 +87,6 @@ import {
   resumeAwaitingClaimsOnly,
   resumeDeferredRefusalApplies,
   resumeFailedRequiresReopen,
-  resumeInterruptedRequiresReopen,
   resumePipeline,
   resumeReopenedPendingContinuation,
   resumeTerminalRefusalReason,
@@ -4325,22 +4324,6 @@ describe("resumePipeline interrupted stage", () => {
       branchKey: "default",
       flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
     });
-  });
-
-  test("resumeInterruptedRequiresReopen holds only for an interrupted pipeline with no running stage", () => {
-    const { store } = fakeStore(RESTART_SWEEP_DEFINITION);
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "interrupted" } });
-    const idle = store.loadPipeline(PIPELINE_ID);
-    if (!idle) throw new Error("expected pipeline");
-    expect(resumeInterruptedRequiresReopen("interrupted", idle)).toBe(true);
-    expect(resumeDeferredRefusalApplies("interrupted", idle)).toBe(false);
-    expect(resumeInterruptedRequiresReopen("failed", idle)).toBe(false);
-
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "running" } });
-    const busy = store.loadPipeline(PIPELINE_ID);
-    if (!busy) throw new Error("expected pipeline");
-    expect(resumeInterruptedRequiresReopen("interrupted", busy)).toBe(false);
-    expect(resumeDeferredRefusalApplies("interrupted", busy)).toBe(true);
   });
 
   test("recoverContinuablePipelines leaves an interrupted-stage pipeline undispatched", async () => {

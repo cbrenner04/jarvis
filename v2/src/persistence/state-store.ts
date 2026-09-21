@@ -397,6 +397,20 @@ type ProvisionalSkipReopenOutcome =
 
 type PipelineStageAdmissionLoadOutcome = { kind: "absent" } | { kind: "present"; holderIdentity: string };
 
+const REOPEN_PIPELINE_STAGE_LIFECYCLE_SQL = `
+  UPDATE pipeline_stages
+  SET status = 'pending',
+      skip_provenance = NULL,
+      workflow_invocation_id = NULL,
+      started_at = NULL,
+      ended_at = NULL,
+      artifact = NULL,
+      decided_at = NULL,
+      awaiting_since = NULL,
+      failure_detail = NULL
+  WHERE id = ? AND status = ?
+`;
+
 type PipelineStageAdmissionClaimOutcome = { kind: "applied" } | { kind: "refused"; reason: "claim_lost" };
 
 type PipelineStageAdmissionReleaseOutcome = { kind: "applied" } | { kind: "refused"; reason: "stale_holder" };
@@ -929,12 +943,6 @@ export interface StateStore {
   /** Undo {@link StateStore.reopenFailedStagesForResume}: each stage still `running` on its link returns to its pre-reopen `failed` row and suffix. */
   restoreReopenedFailedStages(reopened: readonly ReopenedFailedStage[]): void;
 
-  /**
-   * Atomically reopen the one `interrupted` stage row in scope as `pending`, clearing only
-   * prior-attempt lifecycle payloads; suffix rows are untouched. Optional `branchKey` scopes to
-   * one named fan-out branch; omission and `"default"` consider every row. Returns the reopened
-   * row's durable `PipelineStageRecord.id`.
-   */
   reopenInterruptedPipeline(args: { pipelineId: string; branchKey?: string }): PipelineReopenOutcome;
 
   /** Reopen every provisional skip on one branch; omitted `branchKey` defaults to `"default"`. */
@@ -2548,19 +2556,7 @@ class StateStoreImpl implements StateStore {
           return { kind: "refused", pipelineId: args.pipelineId, reason: freshShape.reason };
         }
 
-        const reopenLifecycle = this.db.prepare(`
-        UPDATE pipeline_stages
-        SET status = 'pending',
-            skip_provenance = NULL,
-            workflow_invocation_id = NULL,
-            started_at = NULL,
-            ended_at = NULL,
-            artifact = NULL,
-            decided_at = NULL,
-            awaiting_since = NULL,
-            failure_detail = NULL
-        WHERE id = ? AND status = ?
-      `);
+        const reopenLifecycle = this.db.prepare(REOPEN_PIPELINE_STAGE_LIFECYCLE_SQL);
 
         const failedResult = reopenLifecycle.run(freshShape.failedStageRecordId, "failed");
         if (failedResult.changes === 0) {
@@ -2662,21 +2658,7 @@ class StateStoreImpl implements StateStore {
       if (interrupted.length > 1) {
         return { kind: "refused", pipelineId: args.pipelineId, reason: "multiple_interrupted_stages" };
       }
-      const result = this.db
-        .prepare(
-          `UPDATE pipeline_stages
-           SET status = 'pending',
-               skip_provenance = NULL,
-               workflow_invocation_id = NULL,
-               started_at = NULL,
-               ended_at = NULL,
-               artifact = NULL,
-               decided_at = NULL,
-               awaiting_since = NULL,
-               failure_detail = NULL
-           WHERE id = ? AND status = 'interrupted'`,
-        )
-        .run(target.id);
+      const result = this.db.prepare(REOPEN_PIPELINE_STAGE_LIFECYCLE_SQL).run(target.id, "interrupted");
       if (result.changes === 0) {
         return { kind: "refused", pipelineId: args.pipelineId, reason: "reopen_lost" };
       }

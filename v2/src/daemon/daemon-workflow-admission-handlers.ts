@@ -297,6 +297,35 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           },
         });
       };
+      const settleTerminalInvocation = (settlementEntryRunId: string, killedWorkflowRuns: string[]): void => {
+        // Terminal event: the invocation is no longer live, so its durable rows settle every
+        // linked stage now — whether or not anything still awaits the promise. Best-effort by
+        // design: this runs in a promise `finally` that can outlive the store (daemon shutdown
+        // races the last workflow), and a store that is gone has nothing left to settle. The
+        // daemon-start sweep settles anything missed here.
+        try {
+          if (settleStagesAfterResume !== undefined) {
+            settleStagesAfterResume(settlementEntryRunId);
+          } else {
+            settleStagesForEntryRun(
+              {
+                store,
+                isEntryRunLive: () => false,
+                loadLogRecords: ctx.logReader === undefined ? undefined : (id) => ctx.logReader?.tail(id) ?? [],
+              },
+              settlementEntryRunId,
+            );
+          }
+        } catch (settlementError) {
+          console.error(`Stage settlement after terminal run ${settlementEntryRunId} failed:`, settlementError);
+        }
+        const settledCause = resolveWorkflowInvocationSettledCause(
+          killedWorkflowRuns.length > 0,
+          workflowSettledFailed,
+          runTimeout.timedOut(),
+        );
+        writeWorkflowInvocationSettledMarkerBestEffort(store, settlementEntryRunId, settledCause);
+      };
       execute()
         .then((result) => {
           // A workflow that returns a non-`complete` outcome is not an exception, so the catch
@@ -352,33 +381,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           if (entryRunId !== undefined) {
             const settlementEntryRunId = canonicalEntryRunId ?? entryRunId;
             workflowPromisesByEntryRunId.delete(settlementEntryRunId);
-            // Terminal event: the invocation is no longer live, so its durable rows settle every
-            // linked stage now — whether or not anything still awaits the promise. Best-effort by
-            // design: this runs in a promise `finally` that can outlive the store (daemon shutdown
-            // races the last workflow), and a store that is gone has nothing left to settle. The
-            // daemon-start sweep settles anything missed here.
-            try {
-              if (settleStagesAfterResume !== undefined) {
-                settleStagesAfterResume(settlementEntryRunId);
-              } else {
-                settleStagesForEntryRun(
-                  {
-                    store,
-                    isEntryRunLive: () => false,
-                    loadLogRecords: ctx.logReader === undefined ? undefined : (id) => ctx.logReader?.tail(id) ?? [],
-                  },
-                  settlementEntryRunId,
-                );
-              }
-            } catch (settlementError) {
-              console.error(`Stage settlement after terminal run ${settlementEntryRunId} failed:`, settlementError);
-            }
-            const settledCause = resolveWorkflowInvocationSettledCause(
-              killedWorkflowRuns.length > 0,
-              workflowSettledFailed,
-              runTimeout.timedOut(),
-            );
-            writeWorkflowInvocationSettledMarkerBestEffort(store, settlementEntryRunId, settledCause);
+            settleTerminalInvocation(settlementEntryRunId, killedWorkflowRuns);
           }
           trackPromiseResolve?.();
         });

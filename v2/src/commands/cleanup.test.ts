@@ -2831,6 +2831,232 @@ describe("cleanup: runAbandonCommand", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
+  async function gitIn(cwd: string, ...args: string[]): Promise<string> {
+    return (await realAsyncSubprocessRunner.runAsync("git", args, cwd)).trim();
+  }
+
+  async function createLaneWorktree(branch: string, files: string[]): Promise<string> {
+    await gitIn(projectRoot, "branch", branch);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await gitIn(projectRoot, "worktree", "add", worktreePath, branch);
+    for (const file of files) {
+      mkdirSync(dirname(join(worktreePath, file)), { recursive: true });
+      writeFileSync(join(worktreePath, file), `lane ${file}\n`);
+      await gitIn(worktreePath, "add", ".");
+      await gitIn(worktreePath, "commit", "-m", `lane ${file}`);
+    }
+    return worktreePath;
+  }
+
+  type AbandonProbe = {
+    prs?: OpenPr[] | "unreachable";
+    closedPrs?: { number: number; isDraft: boolean; state: string }[];
+    failGit?: (args: string[]) => boolean;
+    worktreeHead?: { path: string; sha: string };
+  };
+
+  async function runAbandonWith(branch: string, probe: AbandonProbe, options: { discardUnlanded?: boolean } = {}) {
+    const mutations: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          if (probe.prs === "unreachable") throw GH_PR_LIST_PROBE_ERROR;
+          if (args.includes("closed")) return JSON.stringify(probe.closedPrs ?? []);
+          return JSON.stringify(probe.prs ?? []);
+        }
+        if (cmd === "gh" && args[0] === "repo") return "main\n";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          mutations.push("close-pr");
+          return "";
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+        if (cmd === "git" && probe.failGit?.(args) === true) throw new Error(`git ${args[0]} probe failed`);
+        if (cmd === "git" && args[0] === "rev-parse" && args[1] === "HEAD" && cwd === probe.worktreeHead?.path) {
+          return `${probe.worktreeHead.sha}\n`;
+        }
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") mutations.push("remove-worktree");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") mutations.push("delete-branch");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    let stdout = "";
+    let stderr = "";
+    let prompted = false;
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      {
+        ...options,
+        promptConfirm: async () => {
+          prompted = true;
+          return true;
+        },
+      },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => [],
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+    return { code, stdout, stderr, prompted, mutations };
+  }
+
+  async function expectNothingRetired(branch: string, worktreePath: string, mutations: string[]): Promise<void> {
+    expect(mutations).toEqual([]);
+    expect(await gitIn(projectRoot, "worktree", "list")).toContain(worktreePath);
+    expect(await gitIn(projectRoot, "branch")).toContain(branch);
+  }
+
+  test("abandon refuses a branch with unlanded commits and no PR", async () => {
+    const branch = "feat/unlanded";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt", "more.txt"]);
+    const tip = await gitIn(projectRoot, "rev-parse", branch);
+    await gitIn(projectRoot, "push", "origin", branch);
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain(tip);
+    expect(stderr).toContain("2 commit(s)");
+    expect(stderr).toContain("--discard-unlanded");
+    await expectNothingRetired(branch, worktreePath, mutations);
+    expect(await gitIn(projectRoot, "ls-remote", "origin", branch)).toContain(tip);
+  });
+
+  test("abandon refuses when the worktree HEAD is unreachable from the branch", async () => {
+    const branch = "feat/unreachable-head";
+    const worktreePath = await createUnmergedWorktree(branch);
+    const tree = await gitIn(projectRoot, "rev-parse", `${branch}^{tree}`);
+    const strayHead = await gitIn(projectRoot, "commit-tree", tree, "-m", "stray");
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, {
+      worktreeHead: { path: worktreePath, sha: strayHead },
+    });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain(strayHead);
+    expect(stderr).toContain("not reachable");
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refusal for unlanded work is not bypassed by --yes", async () => {
+    const branch = "feat/unlanded-yes";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    // `--yes` supplies an always-true promptConfirm, which is what this harness passes.
+    const { code, mutations } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(1);
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refusal happens before the confirm prompt", async () => {
+    const branch = "feat/unlanded-prompt";
+    await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stdout, prompted } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(1);
+    expect(prompted).toBe(false);
+    expect(stdout).not.toContain("Preview abandon");
+  });
+
+  test("abandon discards unlanded work under the explicit override", async () => {
+    const branch = "feat/unlanded-discard";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stdout, mutations } = await runAbandonWith(branch, {}, { discardUnlanded: true });
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Abandoned workspace");
+    expect(mutations).toEqual(["remove-worktree", "delete-branch"]);
+    expect(await gitIn(projectRoot, "worktree", "list")).not.toContain(worktreePath);
+  });
+
+  test("abandon retires a branch whose commits are all on base", async () => {
+    const branch = "feat/all-on-base";
+    await createUnmergedWorktree(branch);
+
+    const { code, prompted } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(0);
+    expect(prompted).toBe(true);
+  });
+
+  test("abandon retires a squash-merged branch", async () => {
+    const branch = "feat/squash-merged";
+    await createLaneWorktree(branch, ["a.txt", "b.txt"]);
+    writeFileSync(join(projectRoot, "a.txt"), "lane a.txt\n");
+    writeFileSync(join(projectRoot, "b.txt"), "lane b.txt\n");
+    await gitIn(projectRoot, "add", ".");
+    await gitIn(projectRoot, "commit", "-m", "squash of lane");
+
+    const { code } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(0);
+  });
+
+  test("abandon retires a branch whose only unlanded commits are harness staging", async () => {
+    const branch = "feat/staging-only";
+    await createLaneWorktree(branch, [".jarvis-plan-stage/note.md"]);
+
+    const { code } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(0);
+  });
+
+  test("abandon proceeds for a draft PR with unlanded commits", async () => {
+    const branch = "feat/draft-unlanded";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, mutations } = await runAbandonWith(branch, { prs: [{ number: 77, isDraft: true }] });
+
+    expect(code).toBe(0);
+    expect(mutations).toContain("close-pr");
+    expect(await gitIn(projectRoot, "worktree", "list")).not.toContain(worktreePath);
+    expect(await gitIn(projectRoot, "branch")).not.toContain(branch);
+  });
+
+  test("abandon refuses unlanded work when the PR is closed unmerged", async () => {
+    const branch = "feat/closed-unmerged";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, {
+      prs: [],
+      closedPrs: [{ number: 5, isDraft: false, state: "CLOSED" }],
+    });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("commit(s) not on base");
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refuses when gh is unreachable and the branch has unlanded commits", async () => {
+    const branch = "feat/gh-down-unlanded";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, { prs: "unreachable" });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain(OPEN_PR_PROBE_UNREACHABLE_REASON);
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refuses when a git probe fails", async () => {
+    const branch = "feat/probe-throws";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stderr, mutations, prompted } = await runAbandonWith(branch, {
+      failGit: (args) => args[0] === "rev-list",
+    });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("could not verify");
+    expect(prompted).toBe(false);
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
   test("abandon refuses when gh pr list probe fails without mutating workspace", async () => {
     const branch = "feat/gh-probe-fail";
     const worktreePath = await createUnmergedWorktree(branch);

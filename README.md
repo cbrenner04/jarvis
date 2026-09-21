@@ -80,7 +80,7 @@ jarvis run log <run-id>     Stream persisted structured records as JSON lines.
 jarvis run pause|resume|kill|wait <run-id>
 jarvis run workflow intent|plan|implement ...
 jarvis tui [log <run-id>]   Live ink monitor / per-run log follow.
-jarvis cleanup [<project>] [--dry-run] [--yes|-y] [--abandon <name>]
+jarvis cleanup [<project>] [--dry-run] [--yes|-y] [--abandon <name> [--discard-unlanded]]
                             Retire merged v2 worktrees; archive completed v2 specs. `<project>` and `--abandon <name>` are mutually exclusive.
 jarvis help                 List top-level commands.
 jarvis --version

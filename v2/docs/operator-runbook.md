@@ -724,7 +724,15 @@ jarvis cleanup --yes --abandon <name>       # agent/scripted removal (no TTY pro
 - **Single matching PR is ready (non-draft)**: operator-reviewed work — `--abandon` protects operator-reviewed branches from force-retirement. Merge the ready PR (preferred), or manually close it and retry.
 - **Unknown open-PR ownership (`gh pr list` failed)**: pre-mutation refusal — nothing is retired. stderr names `gh` reachability (`could not determine open PR state: gh is unreachable from this environment; retry outside the agent sandbox`). Sandboxed agent sessions are the dominant trigger; re-run outside the agent sandbox — not a missing PR. See [Coding agents in sandbox](#coding-agents-in-sandbox).
 
-A single open draft PR passes these gates and retirement proceeds. Zero matching PRs also pass.
+A single open draft PR passes these gates and retirement proceeds (the PR is closed with the branch).
+
+**Unlanded-commits gate:** with no open PR, `--abandon` also refuses, before the preview and confirm prompt, when the branch has commits not on base outside harness workflow staging, or when the worktree `HEAD` is not reachable from the branch. Stderr names the branch tip SHA and commit count (or the worktree `HEAD` SHA) and the recovery: hand-finish the branch, or re-run with `--discard-unlanded`. Branches whose commits are all on base, squash-merged, or staging-only pass; so does a draft-PR lane. A closed-unmerged PR does not count as a PR (only open PRs are probed), and a failing git probe refuses. `--yes` does not bypass; only `--discard-unlanded` (valid only with `--abandon`) does, and it also skips the unreachable-`HEAD` check.
+
+```sh
+jarvis cleanup --yes --abandon <name> --discard-unlanded   # retire despite unlanded commits
+```
+
+Session close: a circuit-broken lane looks like debris — clean tree, no PR, nothing pushed — until `git rev-list --count <base>..<branch>` shows the unlanded commits. Run it before discarding.
 
 **Guard order after a rebuild (2026-07-30):** retiring a wedged workspace after the executable was rebuilt hits two guards in sequence — `Cannot abandon: no daemon is listening` (the digest-keyed socket moved; fix with `jarvis daemon start`) and then `Cannot abandon: matching PR is ready (non-draft)` (fix with `gh pr close <n>`, or mark it draft again). Both are the guards working; the order is not obvious from the messages.
 

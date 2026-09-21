@@ -77,6 +77,68 @@ describe("runCleanupCliCommand argument parsing", () => {
     }
   });
 
+  test("--discard-unlanded without --abandon prints usage", async () => {
+    for (const argv of [["--discard-unlanded"], ["--discard-unlanded", "--yes"]]) {
+      const cap = captureIo();
+      const code = await runCleanupCliCommand(argv, cap.io, makeDeps());
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+    }
+  });
+
+  test("--abandon <name> --discard-unlanded parses and passes the override through to cleanup", async () => {
+    const tempRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-cleanup-cli-"));
+    try {
+      const projectRoot = join(tempRoot, "project");
+      const jarvisRoot = join(tempRoot, "jarvis-home");
+      const git = (cwd: string, ...args: string[]) => realAsyncSubprocessRunner.runAsync("git", args, cwd);
+      mkdirSync(projectRoot, { recursive: true });
+      await git(projectRoot, "init", "-b", "main");
+      await git(projectRoot, "config", "user.email", "t@t.com");
+      await git(projectRoot, "config", "user.name", "T");
+      writeFileSync(join(projectRoot, "README.md"), "# Test\n");
+      await git(projectRoot, "add", ".");
+      await git(projectRoot, "commit", "-m", "Initial");
+      const branch = "ws-unlanded";
+      await git(projectRoot, "branch", branch);
+      const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+      mkdirSync(dirname(worktreePath), { recursive: true });
+      await git(projectRoot, "worktree", "add", worktreePath, branch);
+      writeFileSync(join(worktreePath, "lane.txt"), "lane\n");
+      await git(worktreePath, "add", ".");
+      await git(worktreePath, "commit", "-m", "lane work");
+
+      const deps = {
+        readProjectRegistry: () => ({ project: { root: projectRoot } }),
+        connectIpcClient: async () => ({}) as IpcClient,
+        socketPath: "/nonexistent/daemon.sock",
+        jarvisRoot,
+        subprocessRunner: {
+          runAsync: async (cmd: string, args: string[], cwd?: string) =>
+            cmd === "gh"
+              ? args[0] === "repo"
+                ? "main"
+                : "[]"
+              : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+        },
+        promptConfirm: async () => false,
+      } as unknown as CliDeps;
+
+      const refused = captureIo();
+      expect(await runCleanupCliCommand(["--abandon", branch, "--dry-run"], refused.io, deps)).toBe(1);
+      expect(refused.read().stderr).toContain("--discard-unlanded");
+
+      const discarded = captureIo();
+      expect(
+        await runCleanupCliCommand(["--abandon", branch, "--discard-unlanded", "--dry-run"], discarded.io, deps),
+      ).toBe(0);
+      expect(discarded.read().stdout).toContain("Preview abandon");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test("--yes cannot be combined with --dry-run", async () => {
     for (const argv of [
       ["--yes", "--dry-run"],
@@ -118,7 +180,11 @@ describe("runCleanupCliCommand argument parsing", () => {
         jarvisRoot,
         subprocessRunner: {
           runAsync: async (cmd: string, args: string[], cwd?: string) =>
-            cmd === "gh" ? "[]" : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+            cmd === "gh"
+              ? args[0] === "repo"
+                ? "main"
+                : "[]"
+              : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
         },
         promptConfirm: async () => {
           throw new Error("dry-run must not prompt");

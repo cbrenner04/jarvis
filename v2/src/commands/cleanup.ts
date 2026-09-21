@@ -2760,16 +2760,21 @@ export function staleResetUnlandedCommitsGateReason(
   tipSha: string,
   commitCount: number,
   continuePathAvailable = false,
+  salvageRecovery = staleResetUnlandedSalvageRecovery,
 ): string {
   const recovery = continuePathAvailable
-    ? `re-run without \`--reset-despite-continuable\` to continue the lane, ${staleResetUnlandedSalvageRecovery}`
-    : staleResetUnlandedSalvageRecovery;
+    ? `re-run without \`--reset-despite-continuable\` to continue the lane, ${salvageRecovery}`
+    : salvageRecovery;
   return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${recovery}`;
 }
 
 /** Refusal when the worktree holds a commit the branch ref cannot reach, so retiring it would lose work. */
-export function staleResetUnreachableWorktreeHeadGateReason(branch: string, worktreeHead: string): string {
-  return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so retiring the branch would discard it; ${staleResetUnlandedSalvageRecovery}`;
+export function staleResetUnreachableWorktreeHeadGateReason(
+  branch: string,
+  worktreeHead: string,
+  salvageRecovery = staleResetUnlandedSalvageRecovery,
+): string {
+  return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so retiring the branch would discard it; ${salvageRecovery}`;
 }
 
 /** Refusal when a checked criterion absent from base has no backing `base..HEAD` commit — a forged tick, not committed progress. */
@@ -3345,10 +3350,47 @@ async function performAbandonmentSteps(
   return { ok: true, destroyed };
 }
 
+/**
+ * Refusal reason when abandoning would destroy work no PR protects: commits on the branch not on base
+ * (harness staging and squash-merged lanes exempt) or a worktree `HEAD` the branch cannot reach.
+ * Fail-closed: a missing project root or a throwing git probe refuses.
+ */
+async function abandonUnlandedWorkRefusal(
+  projectRoot: string | undefined,
+  branch: string,
+  worktreePath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  if (projectRoot === undefined) return "project root unknown; cannot verify the branch carries no unlanded commits";
+  const recovery = `hand-finish the branch, or re-run with --discard-unlanded to discard it`;
+  try {
+    const baseRef = await getBaseBranch(projectRoot, runner);
+    const [tipSha, worktreeHead] = await Promise.all([
+      resolveStaleResetRef(projectRoot, branch, runner),
+      resolveStaleResetRef(worktreePath, "HEAD", runner),
+    ]);
+    const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
+    if (commitCount > 0) {
+      const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
+      if (nonStagingPaths.length > 0 && !(await carriesNoUnlandedCommits(branch, baseRef, projectRoot, runner))) {
+        return staleResetUnlandedCommitsGateReason(tipSha, commitCount, false, recovery);
+      }
+    }
+    if (!(await isDescendantOfBase(branch, worktreeHead, projectRoot, runner))) {
+      return staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead, recovery);
+    }
+    return undefined;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `could not verify the branch carries no unlanded commits (${detail}); ${recovery}`;
+  }
+}
+
 export async function runAbandonCommand(
   workspaceName: string,
   options: {
     dryRun?: boolean;
+    discardUnlanded?: boolean;
     promptConfirm?: (message: string) => Promise<boolean>;
   },
   registry: Record<string, ProjectRegistryEntry>,
@@ -3386,6 +3428,14 @@ export async function runAbandonCommand(
   if (liveCheck.live) {
     io.stderr(`Error: Cannot abandon: ${liveCheck.reason}\n`);
     return 1;
+  }
+
+  if (prNumber === undefined && options.discardUnlanded !== true) {
+    const refusal = await abandonUnlandedWorkRefusal(projectRoot, branch, worktreePath, runner);
+    if (refusal !== undefined) {
+      io.stderr(`Error: Cannot abandon: ${refusal}\n`);
+      return 1;
+    }
   }
 
   // Preview actions

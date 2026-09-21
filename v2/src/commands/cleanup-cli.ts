@@ -24,6 +24,7 @@ type PromptStdin = {
 
 type CleanupCliArgs = {
   abandonName: string | undefined;
+  discardUnlanded: boolean;
   dryRun: boolean;
   projectName: string | undefined;
   yes: boolean;
@@ -49,6 +50,12 @@ function parseCleanupCliArgs(argv: readonly string[], io: Io): CleanupCliArgs | 
       return undefined;
     }
 
+    const discardUnlanded = values["discard-unlanded"] === true;
+    if (discardUnlanded && abandonName === undefined) {
+      io.stderr(CLEANUP_USAGE);
+      return undefined;
+    }
+
     const dryRun = values["dry-run"] === true;
     const yes = values.yes === true;
     if (dryRun && yes) {
@@ -56,7 +63,7 @@ function parseCleanupCliArgs(argv: readonly string[], io: Io): CleanupCliArgs | 
       return undefined;
     }
 
-    return { dryRun, yes, abandonName, projectName };
+    return { dryRun, yes, abandonName, discardUnlanded, projectName };
   } catch {
     io.stderr(CLEANUP_USAGE);
     return undefined;
@@ -100,7 +107,7 @@ export function createPromptFunction(
 export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const parsedArgs = parseCleanupCliArgs(argv, io);
   if (parsedArgs === undefined) return 1;
-  const { dryRun, yes, abandonName, projectName } = parsedArgs;
+  const { dryRun, yes, abandonName, discardUnlanded, projectName } = parsedArgs;
 
   const registry = deps.readProjectRegistry();
   if (projectName !== undefined && !Object.hasOwn(registry, projectName)) {
@@ -131,7 +138,7 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
 
     return runAbandonCommand(
       abandonName,
-      options,
+      { ...options, discardUnlanded },
       registry,
       deps.jarvisRoot ?? jarvisHome(),
       deps.subprocessRunner ?? realAsyncSubprocessRunner,

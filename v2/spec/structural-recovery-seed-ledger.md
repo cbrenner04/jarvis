@@ -2,33 +2,14 @@
 
 Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-09-20 against `main` @ `0e1e1e65e`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
 
-## Open specs (16: 14 landed and awaiting archival, 2 open)
+## Open specs (2)
 
-Fourteen dirs below are fully ticked and merged. Cleanup archives a spec only from a run row, and hand-finished lanes have none, so they need an archive PR. Until then each reads as unlanded work.
+| Spec | Plan PR | Subspecs | Status |
+| --- | --- | --- | --- |
+| `20260911T154954Z-tui-consumes-retained-pipeline-list` | #3791 | 0/2 | Pinning spec, valid |
+| `20260912T162038Z-bulk-terminal-run-dismissal-cli` | #3805 | 0/1 | Implement in flight, PR #4112 |
 
-| Spec | Landed | Note |
-| --- | --- | --- |
-| `20260910T230153Z-surviving-mutation-settlement-records-killing-set` | #3787 (00), #4102 (01) | chain D spec complete; tails still queued |
-| `20260911T142827Z-cleanup-archives-hand-landed-specs` | #4107 | — |
-| `20260912T175013Z-serve-canonical-failures-from-daemon` | #4108 | all 5 subspecs; chain C spec complete |
-| `20260918T111025Z-publication-failures-settle-failed-writer` | #4088 | ready-intent unreaped |
-| `20260918T114137Z-branch-resume-admits-skipped-successor-lane` | #4096 | chain A link 2 |
-| `20260918T214241Z-ready-gate-repair-prompt-targets-failing-step` | #4085 | closes #3040 |
-| `20260920T173435Z-fence-derivation-failure-settles-honestly` | #4090 | plan #4084; #3423 remainder |
-| `20260920T173436Z-cleanup-reaps-orphan-session-logs` | #4086 | plan #4081 |
-| `20260920T173436Z-report-gate-refusal-causes` | #4091 | plan #4083; chain B link 3 |
-| `20260920T173437Z-explicit-reset-flag-names-continue-path` | #4089 | plan #4082 |
-| `20260920T214859Z-subprocess-marker-rejection-carries-cause` | #4097 | plan #4094 closed as subsumed; ready-intent unreaped |
-| `20260920T214922Z-declared-isolation-class-for-wall-clock-bounded-suites` | #4098 | plan #4095 closed as subsumed; ready-intent unreaped |
-| `20260921T020642Z-branch-resume-refusal-names-blocking-row` | #4110 | plan #4103; chain A complete |
-| `20260921T020646Z-publication-failure-rows-migrate-failed` | #4109 | plan #4106 |
-
-Genuinely open:
-
-| Spec | Plan PR | Subspecs | Status | Unblocks |
-| --- | --- | --- | --- | --- |
-| `20260911T154954Z-tui-consumes-retained-pipeline-list` | #3791 | 0/2 | Pinning spec, valid | — |
-| `20260912T162038Z-bulk-terminal-run-dismissal-cli` | #3805 | 0/1 | Implement in flight, PR #4112 open | — |
+Every other spec landed this session was archived by `jarvis cleanup` and merged in #4114 and #4116.
 
 ## Ready-intents (10 queued: 5 live, 3 stale, 2 not startable)
 

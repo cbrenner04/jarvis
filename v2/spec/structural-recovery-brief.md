@@ -16,7 +16,6 @@ Counts on `main` @ `0e1e1e65e`: 16 open spec dirs, of which 14 are fully ticked 
 
 | P | Item | Why |
 | --- | --- | --- |
-| **P0** | Archive the 14 landed-but-open spec dirs, and reap the 3 stale ready-intents (ledger § Open specs) | An unarchived landed spec reads as unlanded work and blocks dependent plans |
 | **P0** | [[stage-failure-record-drops-terminal-cause]] | Regression from #4108: `stageFailedCause` reads `terminalCause` off a record that no longer carries it, so `run_timeout` incidents silently degrade to `failed` |
 | **P1** | Chain C tail: [[render-operator-failures-consistently]] (dispatchable, unblocked by #4108) | `failureDetailFromLogs` composes prose, TUI dumps raw detail |
 | **P1** | Publication tail: [[failed-publication-consumers-drop-completed-special-case]] (dispatchable, unblocked by #4088/#4109) | Consumers still special-case `completed` rows carrying a failure cause |

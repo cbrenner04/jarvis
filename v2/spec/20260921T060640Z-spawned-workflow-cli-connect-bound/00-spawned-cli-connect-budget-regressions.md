@@ -23,8 +23,8 @@ Spawned workflow CLI children in `v2/src/commands/workflow.test.ts` (`spawnWorkf
 - [ ] A spawned-CLI regression in `v2/src/commands/workflow.test.ts` holds the child's connection completion until 5001 ms, then releases it, and proves the child connects under the inherited 30000 ms budget; it fails against the pre-fix 5000 ms bound.
 - [ ] A spawned-CLI regression holds the child's test-controlled connection completion past an explicit 10 ms budget and asserts stderr names `IPC connect timeout` and `10ms`, not a Bun test timeout; it fails against the pre-fix diagnostic.
 - [ ] `v2/src/commands/workflow.test.ts` detach-continuation and attached-entry-terminal tests stay green.
-- [ ] `v2/docs/operator-practices.md` states an exact 5000 ms spawned-CLI failure is the IPC connect bound, not the test timeout, and raising the test timeout cannot fix it.
-- [ ] `v2/docs/v1-behaviors.md` records the inherited 30000 ms spawned-CLI connection budget and the distinct `IPC connect timeout` exhaustion diagnostic.
+- [x] `v2/docs/operator-practices.md` states an exact 5000 ms spawned-CLI failure is the IPC connect bound, not the test timeout, and raising the test timeout cannot fix it.
+- [x] `v2/docs/v1-behaviors.md` records the inherited 30000 ms spawned-CLI connection budget and the distinct `IPC connect timeout` exhaustion diagnostic.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

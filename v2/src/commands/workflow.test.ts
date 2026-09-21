@@ -1178,7 +1178,9 @@ function writeWorkflowCliChildScript(scriptPath: string): void {
   mkdirSync(dirname(scriptPath), { recursive: true });
   writeFileSync(
     scriptPath,
-    `import { join } from "node:path";
+    `import { existsSync } from "node:fs";
+import { Socket } from "node:net";
+import { join } from "node:path";
 import { main } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/cli.ts"))};
 import { createRuntimeDeps } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/cli/deps.ts"))};
 import { connectIpcClient } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/ipc/client.ts"))};
@@ -1191,13 +1193,29 @@ const argv = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_ARGV!) as string[];
 const steps = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_STEPS!);
 const machineConfigPath = process.env.JARVIS_WORKFLOW_CLI_MACHINE_CONFIG!;
 const socketDir = join(socketPath, "..");
+const connectBudgetMs = process.env.JARVIS_WORKFLOW_CLI_CONNECT_BUDGET_MS;
+const connectGateFile = process.env.JARVIS_WORKFLOW_CLI_CONNECT_GATE_FILE;
+
+if (connectGateFile) {
+  const realConnect = Socket.prototype.connect;
+  Socket.prototype.connect = function (this: Socket, ...args: unknown[]) {
+    const gate = setInterval(() => {
+      if (!existsSync(connectGateFile)) return;
+      clearInterval(gate);
+      (realConnect as (...a: unknown[]) => unknown).apply(this, args);
+    }, 5);
+    return this;
+  } as typeof Socket.prototype.connect;
+}
 
 const code = await main(argv, undefined, createRuntimeDeps({
   cwd: () => cwd,
   socketPath,
   pidPath: join(socketDir, "daemon.pid"),
   logPath: join(socketDir, "daemon.log"),
-  connectIpcClient,
+  connectIpcClient: connectBudgetMs
+    ? (sp, defaultTimeoutMs) => connectIpcClient(sp, defaultTimeoutMs, Number(connectBudgetMs))
+    : connectIpcClient,
   startDaemon: async (sp) => ({ pid: process.pid, socketPath: sp }),
   getDaemonStatus: async () => ({
     state: "running" as const,
@@ -1221,6 +1239,8 @@ type WorkflowCliChildEnv = {
   argv: readonly string[];
   steps: AnyWorkflowStep[];
   machineConfigPath: string;
+  connectBudgetMs?: number | undefined;
+  connectGateFile?: string;
 };
 
 function spawnWorkflowCliChild(scriptPath: string, env: WorkflowCliChildEnv) {
@@ -1234,6 +1254,10 @@ function spawnWorkflowCliChild(scriptPath: string, env: WorkflowCliChildEnv) {
       JARVIS_WORKFLOW_CLI_ARGV: JSON.stringify(env.argv),
       JARVIS_WORKFLOW_CLI_STEPS: JSON.stringify(env.steps),
       JARVIS_WORKFLOW_CLI_MACHINE_CONFIG: env.machineConfigPath,
+      ...(env.connectBudgetMs === undefined
+        ? {}
+        : { JARVIS_WORKFLOW_CLI_CONNECT_BUDGET_MS: String(env.connectBudgetMs) }),
+      ...(env.connectGateFile === undefined ? {} : { JARVIS_WORKFLOW_CLI_CONNECT_GATE_FILE: env.connectGateFile }),
     },
     stdout: "pipe" as const,
     stderr: "pipe" as const,
@@ -1333,6 +1357,63 @@ async function expectAttachedWorkflowMissesEntryTerminalContract(overrides: Part
     rmSync(socketPath, { force: true });
   }
 }
+
+describe("spawned workflow CLI connect budget", () => {
+  const SPAWNED_CONNECT_HOLD_MS = 5001;
+
+  async function runHeldConnectChild(opts: { connectBudgetMs?: number; releaseAfterMs?: number }) {
+    const runId = "run-connect-budget";
+    const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, {
+      entryTerminal: false,
+      releaseEntryTerminal: () => {},
+    });
+    const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+    const childDir = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+    const gateFile = join(childDir, "connect-gate");
+    try {
+      const proc = spawnWorkflowCliChild(join(childDir, "child.ts"), {
+        socketPath,
+        cwd: fx.repoSub,
+        registry: { "test-project": { root: fx.repoRoot } },
+        argv: [...IMPLEMENT_ARGS, "--detach"],
+        steps: fx.fakeImplementSteps,
+        machineConfigPath,
+        connectBudgetMs: opts.connectBudgetMs,
+        connectGateFile: gateFile,
+      });
+      if (opts.releaseAfterMs !== undefined) {
+        await Bun.sleep(opts.releaseAfterMs);
+        writeFileSync(gateFile, "");
+      }
+      const exitCode = await proc.exited;
+      return { exitCode, stderr: await new Response(proc.stderr).text() };
+    } finally {
+      await server.close();
+      rmSync(socketPath, { force: true });
+      rmSync(childDir, { recursive: true, force: true });
+    }
+  }
+
+  test.skipIf(!canUseUnixSockets())(
+    "connects after a 5001 ms held connection under the inherited 30000 ms budget",
+    async () => {
+      const { exitCode, stderr } = await runHeldConnectChild({ releaseAfterMs: SPAWNED_CONNECT_HOLD_MS });
+      expect(stderr).not.toContain("IPC connect timeout");
+      expect(exitCode).toBe(0);
+    },
+    20_000,
+  );
+
+  test.skipIf(!canUseUnixSockets())(
+    "a held connection past an explicit 10 ms budget fails with IPC connect timeout naming the budget",
+    async () => {
+      const { exitCode, stderr } = await runHeldConnectChild({ connectBudgetMs: 10 });
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain("IPC connect timeout");
+      expect(stderr).toContain("10ms");
+    },
+  );
+});
 
 describe("workflow attached entry-terminal wait", () => {
   const attachedSocketTest = test.skipIf(!canUseUnixSockets());

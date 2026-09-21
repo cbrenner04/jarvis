@@ -44,6 +44,7 @@ import {
   gateOnOpenPrs,
   hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
+  isHandLandedArtifactArchivable,
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
@@ -1063,6 +1064,136 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       /Archive branch for project: cleanup\/archive-\d{8}T\d{6}Z \(1 commit\(s\)\) at .* — push it and open one archive PR\./,
     );
     expect(existsSync(join(jarvisRoot, "worktrees", "project", "cleanup"))).toBe(true);
+  });
+
+  describe("hand-landed specs without a run row", () => {
+    const emptyStore = { listRuns: () => [] } as unknown as StateStore;
+    const specName = "20260911T000001Z-hand-landed";
+
+    function strandedArtifact(name: string) {
+      return {
+        home: join(projectRoot, "v2", "spec"),
+        source: join(projectRoot, "v2", "spec", name),
+        name,
+        project: "project",
+      };
+    }
+
+    async function inspect(
+      artifacts: ReturnType<typeof strandedArtifact>[],
+      store: StateStore,
+      worktrees: { path: string; branch: string | undefined }[] = [],
+    ) {
+      let stdout = "";
+      const eligible = await inspectStrandedArtifacts(
+        artifacts,
+        { project: { root: projectRoot } },
+        worktrees,
+        jarvisRoot,
+        store,
+        ghRunnerForPr("MERGED"),
+        { stdout: (s: string) => (stdout += s) },
+      );
+      return { eligible, stdout };
+    }
+
+    test("archives a complete in-repo spec with no run row and no owning worktree", async () => {
+      const { source } = createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          { project: { root: projectRoot } },
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          emptyStore,
+          io,
+        ),
+      ).toBe(0);
+
+      expect(stdout).toContain(`Archived: ${source} ->`);
+      expect(stdout).not.toContain("no durable implementation branch");
+      expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${specName}/index.md`);
+      expect(existsSync(source)).toBe(true);
+    });
+
+    test("previews the widened archive like any stranded archive", async () => {
+      const { source } = createSpec(specName, "[x] Done");
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        emptyStore,
+        io,
+      );
+
+      expect(stdout).toContain(`archive: ${source} -> ${join(projectRoot, "v2", "spec", "completed", specName)}`);
+    });
+
+    test("still skips a spec with an unchecked non-human-only criterion", async () => {
+      createSpec(specName, "[ ] Not done");
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain(
+        `Skipped artifact: ${join(projectRoot, "v2", "spec", specName)} — no durable implementation branch`,
+      );
+    });
+
+    test("still skips a spec whose source exists inside a materialized worktree", async () => {
+      createSpec(specName, "[x] Done");
+      const worktreePath = join(tempRoot, "some-worktree");
+      mkdirSync(join(worktreePath, "v2", "spec", specName), { recursive: true });
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore, [
+        { path: worktreePath, branch: "feature" },
+      ]);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain("no durable implementation branch");
+    });
+
+    test("still skips an external plan tree with no run row", async () =>
+      withJarvisHome(async () => {
+        writeMachineConfig({ specs: "external" });
+        const planName = "20260911T000002Z-external-hand";
+        const { specReadRoot, plansHome } = createExternalPlan(planName, "[x] Done");
+        const { eligible, stdout } = await inspect(
+          [{ home: plansHome, source: specReadRoot, name: planName, project: "project" }],
+          emptyStore,
+        );
+        expect(eligible).toEqual([]);
+        expect(stdout).toContain("no durable implementation branch");
+      }));
+
+    test("still skips an artifact whose run row resolves no branch", async () => {
+      createSpec(specName, "[x] Done");
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], storeForStrandedSpec(specName, ""));
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain("no durable implementation branch");
+    });
+
+    test("isHandLandedArtifactArchivable decides both directions from artifact, root and worktrees", () => {
+      createSpec(specName, "[x] Done");
+      createSpec("20260911T000003Z-incomplete", "[ ] Todo");
+      const worktreePath = join(tempRoot, "other-worktree");
+      mkdirSync(join(worktreePath, "v2", "spec", specName), { recursive: true });
+      const artifact = strandedArtifact(specName);
+
+      expect(isHandLandedArtifactArchivable(artifact, projectRoot, [])).toBe(true);
+      expect(isHandLandedArtifactArchivable(strandedArtifact("20260911T000003Z-incomplete"), projectRoot, [])).toBe(
+        false,
+      );
+      expect(isHandLandedArtifactArchivable(artifact, projectRoot, [{ path: worktreePath, branch: "b" }])).toBe(false);
+      expect(isHandLandedArtifactArchivable({ ...artifact, queue: "seed" }, projectRoot, [])).toBe(false);
+      expect(isHandLandedArtifactArchivable(artifact, join(tempRoot, "elsewhere"), [])).toBe(false);
+    });
   });
 
   test("archive publication failure restores the source tree", async () => {

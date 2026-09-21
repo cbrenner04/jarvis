@@ -51,6 +51,7 @@ import {
   type ArtifactSpec,
   archiveCompletedSpec,
   checkArtifactEligibility,
+  completedSpecEligibility,
   consumedExternalReadyIntentPlan,
   isExternalPlanArtifact,
   pruneConsumedQueueEntry,
@@ -1234,13 +1235,13 @@ export function discoverStrandedArtifacts(
   ];
 }
 
-function recordedStrandedBranch(
+function recordedStrandedRun(
   artifact: DiscoveredStrandedArtifact,
   projectRoot: string,
   store: StateStore,
   registry: Record<string, ProjectRegistryEntry>,
   configPath: string = join(jarvisHome(), "config.json"),
-): string | undefined {
+): Run | undefined {
   for (const run of store.listRuns()) {
     if (run.project !== artifact.project) continue;
     const source = sourceForRun(run, run.worktreePath, projectRoot, registry, configPath);
@@ -1253,8 +1254,72 @@ function recordedStrandedBranch(
     } catch {
       // compare lexical paths when realpath is unavailable
     }
-    if (resolve(resolvedSource) === resolve(resolvedArtifactSource)) return run.branch;
+    if (resolve(resolvedSource) === resolve(resolvedArtifactSource)) return run;
   }
+  return undefined;
+}
+
+/**
+ * An in-repo spec no run row ever named (authored and landed by hand) is archivable when its linked
+ * subspecs are complete and no materialized worktree carries its source. Inconclusive evidence declines.
+ */
+export function isHandLandedArtifactArchivable(
+  artifact: DiscoveredStrandedArtifact,
+  projectRoot: string,
+  allWorktrees: readonly DiscoveredWorktree[],
+): boolean {
+  if (artifact.queue !== undefined) return false;
+  const spec: ArtifactSpec = { ...artifact, branch: "" };
+  if (isExternalPlanArtifact(spec)) return false;
+  const inCheckout = relative(projectRoot, artifact.source);
+  if (inCheckout === "" || inCheckout.startsWith("..") || isAbsolute(inCheckout)) return false;
+  try {
+    return (
+      completedSpecEligibility(spec).status === "eligible" &&
+      !hasInRepoArtifactOwner(spec, projectRoot, "", allWorktrees)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function inspectSpecArtifact(
+  artifact: DiscoveredStrandedArtifact,
+  projectRoot: string,
+  registry: Record<string, ProjectRegistryEntry>,
+  allWorktrees: readonly DiscoveredWorktree[],
+  jarvisRoot: string,
+  store: StateStore,
+  runner: AsyncSubprocessRunner,
+  skips: ArtifactSkipLedger,
+): Promise<StrandedArtifact | undefined> {
+  const run = recordedStrandedRun(artifact, projectRoot, store, registry);
+  const handLanded = run === undefined && isHandLandedArtifactArchivable(artifact, projectRoot, allWorktrees);
+  if (!handLanded && (run === undefined || run.branch === "")) {
+    skips.skip(artifact.source, "no durable implementation branch");
+    return undefined;
+  }
+  const identified = { ...artifact, branch: run?.branch ?? "" };
+  if (!isExternalPlanArtifact(identified)) {
+    const relDest = relative(projectRoot, join(artifact.home, "completed", basename(artifact.source)));
+    const staged = await cleanupBranchCarryingArchive(runner, projectRoot, relDest);
+    if (staged !== undefined) {
+      skips.skip(artifact.source, `already staged on cleanup branch ${staged}; push it and open the archive PR`);
+      return undefined;
+    }
+  }
+  const identity: ArtifactOwnerIdentity = { store, projectRoot };
+  if (hasBranchKeyedArtifactOwner(identified, artifact.project, "", registry, allWorktrees, jarvisRoot, identity)) {
+    skips.skip(artifact.source, "another materialized worktree owns this spec");
+    return undefined;
+  }
+  if (handLanded) return identified;
+  const inspection = await checkArtifactEligibility(identified, {
+    findOpenPrs: async (branch) => (await listOpenPrsForBranch(branch, projectRoot, runner)).length,
+    hasMaterializedOwner: async () => false,
+  });
+  if (inspection.status === "eligible") return identified;
+  skips.skip(artifact.source, inspection.reason);
   return undefined;
 }
 
@@ -1274,39 +1339,11 @@ export async function inspectStrandedArtifacts(
     if (!existsSync(artifact.source)) continue;
     const projectRoot = registry[artifact.project]?.root;
     if (projectRoot === undefined) continue;
-    if (artifact.queue !== undefined) {
-      const queued = inspectQueueEntry(artifact, skips);
-      if (queued !== undefined) eligible.push(queued);
-      continue;
-    }
-    const branch = recordedStrandedBranch(artifact, projectRoot, store, registry);
-    if (branch === undefined) {
-      skips.skip(artifact.source, "no durable implementation branch");
-      continue;
-    }
-    const identified = { ...artifact, branch };
-    if (!isExternalPlanArtifact(identified)) {
-      const relDest = relative(projectRoot, join(artifact.home, "completed", basename(artifact.source)));
-      const staged = await cleanupBranchCarryingArchive(runner, projectRoot, relDest);
-      if (staged !== undefined) {
-        skips.skip(artifact.source, `already staged on cleanup branch ${staged}; push it and open the archive PR`);
-        continue;
-      }
-    }
-    const identity: ArtifactOwnerIdentity = { store, projectRoot };
-    if (hasBranchKeyedArtifactOwner(identified, artifact.project, "", registry, allWorktrees, jarvisRoot, identity)) {
-      skips.skip(artifact.source, "another materialized worktree owns this spec");
-      continue;
-    }
-    const inspection = await checkArtifactEligibility(identified, {
-      findOpenPrs: async (branch) => (await listOpenPrsForBranch(branch, projectRoot, runner)).length,
-      hasMaterializedOwner: async () => false,
-    });
-    if (inspection.status === "eligible") {
-      eligible.push(identified);
-    } else {
-      skips.skip(artifact.source, inspection.reason);
-    }
+    const inspected =
+      artifact.queue !== undefined
+        ? inspectQueueEntry(artifact, skips)
+        : await inspectSpecArtifact(artifact, projectRoot, registry, allWorktrees, jarvisRoot, store, runner, skips);
+    if (inspected !== undefined) eligible.push(inspected);
   }
   if (sharedSkips === undefined) skips.flush();
   return eligible;
@@ -1623,7 +1660,11 @@ async function retireStrandedArtifacts(
       continue;
     }
     const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-    if (hasBranchKeyedArtifactOwner(spec, spec.project, "", registry, current, jarvisRoot, { store, projectRoot })) {
+    if (
+      spec.branch === ""
+        ? hasInRepoArtifactOwner(spec, projectRoot, "", current)
+        : hasBranchKeyedArtifactOwner(spec, spec.project, "", registry, current, jarvisRoot, { store, projectRoot })
+    ) {
       skips.skip(spec.source, "another materialized worktree owns this spec");
       continue;
     }

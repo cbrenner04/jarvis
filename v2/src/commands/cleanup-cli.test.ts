@@ -820,7 +820,7 @@ describe("cleanup command through main", () => {
     const worktreePath = await materializeMergedWorktree(branch);
     const stranded = join(cleanupProjectRoot, "v2", "spec", "stranded");
     mkdirSync(stranded, { recursive: true });
-    writeFileSync(join(stranded, "index.md"), "# Stranded\n\n## Acceptance criteria\n\n- [x] done\n");
+    writeFileSync(join(stranded, "index.md"), "# Stranded\n\n## Acceptance criteria\n\n- [ ] done\n");
     const deadSocket = join(cleanupJarvisRoot, "daemon-deadbeefdeadbeef.sock");
     mkdirSync(dirname(deadSocket), { recursive: true });
     // No file at deadSocket: connectIpcClient below is fully mocked, so its role here is only the

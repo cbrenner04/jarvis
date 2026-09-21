@@ -23,16 +23,16 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup` archives an in-repo stranded spec that has no matching run row when its primary-checkout `index.md` links only subspecs whose non-human-only acceptance criteria are all checked and no materialized worktree contains its source path.
-- [ ] An in-repo stranded spec with no matching run row and an unchecked non-human-only acceptance criterion in a linked subspec is still skipped.
-- [ ] An in-repo stranded spec with no matching run row whose source path exists inside a materialized worktree of any registered project is still skipped.
-- [ ] An external plan tree with no matching run row is still skipped with `no durable implementation branch`.
-- [ ] An artifact whose run row exists but resolves no branch is still skipped.
-- [ ] Preview and apply report the widened archive with the same `stranded artifact` wording as any other stranded archive.
-- [ ] A new test in `v2/src/commands/cleanup.test.ts` drives a hand-landed in-repo spec (no run row, complete subspecs, no owning worktree) to an archive and fails against the pre-fix code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `jarvis cleanup` archives an in-repo stranded spec that has no matching run row when its primary-checkout `index.md` links only subspecs whose non-human-only acceptance criteria are all checked and no materialized worktree contains its source path.
+- [x] An in-repo stranded spec with no matching run row and an unchecked non-human-only acceptance criterion in a linked subspec is still skipped.
+- [x] An in-repo stranded spec with no matching run row whose source path exists inside a materialized worktree of any registered project is still skipped.
+- [x] An external plan tree with no matching run row is still skipped with `no durable implementation branch`.
+- [x] An artifact whose run row exists but resolves no branch is still skipped.
+- [x] Preview and apply report the widened archive with the same `stranded artifact` wording as any other stranded archive.
+- [x] A new test in `v2/src/commands/cleanup.test.ts` drives a hand-landed in-repo spec (no run row, complete subspecs, no owning worktree) to an archive and fails against the pre-fix code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

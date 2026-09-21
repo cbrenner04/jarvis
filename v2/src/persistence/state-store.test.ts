@@ -3132,7 +3132,7 @@ describe("pipelines", () => {
       const squashMarker = verify.prepare("SELECT 1 FROM _migrations WHERE id = ?").get("031-baseline-squash");
       expect(squashMarker).toBeTruthy();
       const legacyRows = verify
-        .prepare("SELECT COUNT(*) AS total FROM _migrations WHERE id != ?")
+        .prepare("SELECT COUNT(*) AS total FROM _migrations WHERE id < ?")
         .get("031-baseline-squash") as { total: number };
       expect(legacyRows.total).toBe(9);
       verify.close();

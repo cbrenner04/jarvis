@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
@@ -10,7 +11,7 @@ let fakeExecutor: FakeWriteLoopExecutor;
 let handlers: ReturnType<typeof createRunControlHandlers>;
 
 beforeEach(() => {
-  store = openStateStore(join(tmpdir(), `jarvis-run-dismiss-project-${process.pid}-${Date.now()}.db`));
+  store = openStateStore(join(trackedMkdtempSync(join(tmpdir(), "jarvis-run-dismiss-project-")), "state.db"));
   fakeExecutor = createFakeWriteLoopExecutor();
   handlers = createRunControlHandlers({
     stateStore: store,

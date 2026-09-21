@@ -96,6 +96,7 @@ import {
   leaseFromShaField,
   MAX_MUTATION_REPAIR_ATTEMPTS,
   type PersistedRepairFenceEnforcer,
+  publishCompletionArtifacts,
   publishWithReadyRepair,
   runMutationRepairIteration,
   type WriteLoopInput,
@@ -2404,6 +2405,38 @@ async function runMutationRepairAttempt(
         "completion_commit_failed",
         0,
         message,
+        deps.logSink,
+        REVIEW_MUTATION_RESUME_POLICY,
+      ),
+    };
+  }
+
+  // Push the repair commit (draft PR only, no ready flip) before verification can retry or settle.
+  const pushOnly = await publishCompletionArtifacts(
+    { ...repairArgs, skipReadyFinalization: true },
+    {
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+      branch: context.branch,
+      creationTitle,
+      ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
+      ...(body.specTemplate ? { specTemplate: true } : {}),
+      ...externalSpecGitScope(context),
+      ...leaseFromShaField(context),
+    },
+  );
+  throwIfAborted(deps.signal);
+  if (pushOnly.kind !== "success") {
+    return {
+      kind: "settled",
+      outcome: await settlePublicationResumeFailure(
+        store,
+        context,
+        store.recordAttemptStart(context.runId),
+        pushOnly.kind,
+        0,
+        pushOnly.error?.message ?? pushOnly.kind,
         deps.logSink,
         REVIEW_MUTATION_RESUME_POLICY,
       ),

@@ -3071,7 +3071,7 @@ export async function resetStaleWorkspace(
   };
 }
 
-type BranchTips = { localTipSha?: string; remoteTipSha?: string };
+type BranchTips = Pick<DestroyedArtifacts, "localTipSha" | "remoteTipSha">;
 
 async function resolveBranchTip(
   ref: string,

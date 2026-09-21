@@ -20,13 +20,13 @@
 
 ## Acceptance criteria
 
-- [ ] `run-operator-error.test.ts` proves a failed `completion_commit_failed` row composes retryable resume guidance and a completed row with the same stale cause does not; the completed-row assertion fails against the pre-fix code.
-- [ ] `run-operator-error.test.ts` proves the same for `ready_flip_failed` (failed row composes the non-retryable stop error; completed row with the stale cause composes none).
-- [ ] `run-operator-error.test.ts` proves a completed row with a stale `completion_commit_failed` cause plus a later `run_execution_failed` still composes the `run_execution_failed` error and no publication error; fails against the pre-fix code.
-- [ ] `run-operator-error.test.ts` "composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished" stays green (completed `ready_gate_failed` unchanged).
-- [ ] `daemon-wait-run-completion.test.ts` proves list and wait report a failed `completion_commit_failed` row as failed and resumable, and a failed `ready_flip_failed` row as failed and not resumable, while a completed row with either stale cause reports no `error` and no failure `loopOutcomeKind`; the completed-row control fails against the pre-fix projection.
-- [ ] `run-completion.test.ts` proves a completed row with a stale publication cause renders a success payload and exit code 0 through `waitForRunCompletion`, and a failed `completion_commit_failed` row renders a failure exit; the completed-row assertion fails against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `run-operator-error.test.ts` proves a failed `completion_commit_failed` row composes retryable resume guidance and a completed row with the same stale cause does not; the completed-row assertion fails against the pre-fix code.
+- [x] `run-operator-error.test.ts` proves the same for `ready_flip_failed` (failed row composes the non-retryable stop error; completed row with the stale cause composes none).
+- [x] `run-operator-error.test.ts` proves a completed row with a stale `completion_commit_failed` cause plus a later `run_execution_failed` still composes the `run_execution_failed` error and no publication error; fails against the pre-fix code.
+- [x] `run-operator-error.test.ts` "composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished" stays green (completed `ready_gate_failed` unchanged).
+- [x] `daemon-wait-run-completion.test.ts` proves list and wait report a failed `completion_commit_failed` row as failed and resumable, and a failed `ready_flip_failed` row as failed and not resumable, while a completed row with either stale cause reports no `error` and no failure `loopOutcomeKind`; the completed-row control fails against the pre-fix projection.
+- [x] `run-completion.test.ts` proves a completed row with a stale publication cause renders a success payload and exit code 0 through `waitForRunCompletion`, and a failed `completion_commit_failed` row renders a failure exit; the completed-row assertion fails against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

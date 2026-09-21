@@ -16,9 +16,9 @@
 
 ## Tasks
 
-- [ ] In `linkedImplementRoutingFailureOutcome`'s no-`existingRunId` branch, replace the `crypto.randomUUID()` mint with a `store.createRun(...)` call (thread `store` and the step/worktree/workflow-snapshot fields it needs through from `runLinkedImplementStep`), keeping `onStepRunCreated` and the outcome `kind` per `errorKind` unchanged.
-- [ ] Update `workflow-runner-debate.test.ts`'s `"returns a routing failure whose run id was never persisted without throwing"` test: rename it and invert its `store.loadRun(result.runId)` assertion to non-null now that the row is real.
-- [ ] Extend `"skips appended patch review when linked index is already complete"` (or add a sibling `empty_index` test) with a `store.loadRun(result.runId)` non-null assertion.
+- [x] In `linkedImplementRoutingFailureOutcome`'s no-`existingRunId` branch, replace the `crypto.randomUUID()` mint with a `store.createRun(...)` call (thread `store` and the step/worktree/workflow-snapshot fields it needs through from `runLinkedImplementStep`), keeping `onStepRunCreated` and the outcome `kind` per `errorKind` unchanged.
+- [x] Update `workflow-runner-debate.test.ts`'s `"returns a routing failure whose run id was never persisted without throwing"` test: rename it and invert its `store.loadRun(result.runId)` assertion to non-null now that the row is real.
+- [x] Extend `"skips appended patch review when linked index is already complete"` (or add a sibling `empty_index` test) with a `store.loadRun(result.runId)` non-null assertion.
 
 ## Acceptance criteria
 

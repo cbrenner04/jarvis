@@ -1769,4 +1769,92 @@ describe("run dismiss", () => {
       status: "not-a-status",
     });
   });
+
+  test("run dismiss --project issues one bulk request without runId and prints the count", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000060";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "dismiss", "--project", "alpha"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", dismissedCount: 7 })], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "dismiss", params: { project: "alpha" } }]);
+    expect(Object.keys((sent[0] as { params: object }).params)).toEqual(["project"]);
+    expect(cap.read()).toEqual({ stdout: "dismissed 7\n", stderr: "" });
+  });
+
+  test("run dismiss --project with a positional run id is refused before any daemon client opens", async () => {
+    for (const argv of [
+      ["run", "dismiss", "run-123", "--project", "alpha"],
+      ["run", "dismiss", "--project", "alpha", "run-123"],
+    ]) {
+      const cap = captureIo();
+      const code = await main(argv, cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({
+        stdout: "",
+        stderr: "run dismiss: a run ID and --project are mutually exclusive\n",
+      });
+    }
+  });
+
+  test("run dismiss --project rejects an empty or missing value with usage", async () => {
+    for (const argv of [
+      ["run", "dismiss", "--project", "  "],
+      ["run", "dismiss", "--project"],
+    ]) {
+      const cap = captureIo();
+      const code = await main(argv, cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: RUN_DISMISS_USAGE });
+    }
+  });
+
+  test("run dismiss --project rejects an unparsable bulk response", async () => {
+    const results = [
+      { kind: "applied" },
+      { kind: "applied", dismissedCount: -1 },
+      { kind: "applied", dismissedCount: 1.5 },
+      { kind: "refused", dismissedCount: 1 },
+      null,
+    ];
+    for (const [index, result] of results.entries()) {
+      const cap = captureIo();
+      const requestId = `00000000-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`;
+      const code = await withFixedUuid(requestId, () =>
+        main(["run", "dismiss", "--project", "alpha"], cap.io, {
+          connectIpcClient: async () => makeIpcClient([dismissalResponse(requestId, result)]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+    }
+  });
+
+  test("run dismiss usage documents the positional and --project forms", () => {
+    expect(RUN_DISMISS_USAGE).toBe("usage: jarvis run dismiss <run-id> | --project <name>\n");
+  });
+
+  test("run undismiss keeps its single-id grammar and rejects --project", async () => {
+    const cap = captureIo();
+    const code = await main(["run", "undismiss", "--project", "alpha"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: RUN_UNDISMISS_USAGE });
+  });
 });

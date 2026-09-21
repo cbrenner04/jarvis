@@ -7,6 +7,7 @@ import {
   PIPELINE_RECOVER_HELP_FLAGS,
   PIPELINE_RESUME_HELP_FLAGS,
   PIPELINE_START_HELP_FLAGS,
+  RUN_DISMISS_HELP_FLAGS,
   RUN_KILL_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
   RUN_LOG_HELP_FLAGS,
@@ -163,6 +164,7 @@ export const commandTree: CommandNode = {
           name: "dismiss",
           summary: "Hide a run from listings without deleting it.",
           usage: RUN_DISMISS_USAGE,
+          flags: RUN_DISMISS_HELP_FLAGS,
         },
         {
           name: "undismiss",

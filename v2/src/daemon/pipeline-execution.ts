@@ -426,8 +426,10 @@ function branchSuffixRowsPresent(
   return true;
 }
 
+type BranchResumeReopenKind = "failed" | "approved_gate" | "provisional_skip";
+
 type BranchSuffixScanResult =
-  | { kind: "admissible"; reopenFailed: boolean }
+  | { kind: "admissible"; reopenKind: BranchResumeReopenKind }
   | { kind: "gate_awaiting"; stageId: string }
   | { kind: "gate_rejected"; stageId: string }
   | { kind: "not_resumable"; status: string };
@@ -443,7 +445,7 @@ function scanBranchSuffixForAdmission(
     const entry = ordered[index];
     if (entry === undefined) continue;
     const { stage, record } = entry;
-    if (record.status === "failed") return { kind: "admissible", reopenFailed: true };
+    if (record.status === "failed") return { kind: "admissible", reopenKind: "failed" };
     if (stage.kind === "approval" && record.status === "awaiting") {
       return { kind: "gate_awaiting", stageId: stage.stageId };
     }
@@ -453,7 +455,10 @@ function scanBranchSuffixForAdmission(
     if (!isAuthoredStageSatisfied(stage, record)) {
       const prior = index > 0 ? ordered[index - 1] : undefined;
       if (isApprovedGatePendingSuccessor(prior, stage, record)) {
-        return { kind: "admissible", reopenFailed: false };
+        return { kind: "admissible", reopenKind: "approved_gate" };
+      }
+      if (record.status === "skipped" && record.skipProvenance === "provisional") {
+        return { kind: "admissible", reopenKind: "provisional_skip" };
       }
       return { kind: "not_resumable", status: record.status };
     }
@@ -471,7 +476,7 @@ function scanBranchSuffixForAdmission(
 function resolveBranchResumeAdmission(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchKey: string,
-): { kind: "ok"; reopenFailedStage: boolean } | { kind: "refused"; detail: BranchScopedResumeRefusalDetail } {
+): { kind: "ok"; reopenKind: BranchResumeReopenKind } | { kind: "refused"; detail: BranchScopedResumeRefusalDetail } {
   if (branchKey.trim() === "") return { kind: "refused", detail: { reason: "branch_not_found" } };
   if (findFanOutSplit(pipeline) === null) return { kind: "refused", detail: { reason: "branch_not_found" } };
 
@@ -493,7 +498,7 @@ function resolveBranchResumeAdmission(
   if (scan.kind === "not_resumable") {
     return { kind: "refused", detail: { reason: "branch_not_resumable", status: scan.status } };
   }
-  return { kind: "ok", reopenFailedStage: scan.reopenFailed };
+  return { kind: "ok", reopenKind: scan.reopenKind };
 }
 
 function branchListableForFailedPlanResume(
@@ -501,7 +506,7 @@ function branchListableForFailedPlanResume(
   branchKey: string,
 ): boolean {
   const admission = resolveBranchResumeAdmission(pipeline, branchKey);
-  if (admission.kind !== "ok" || !admission.reopenFailedStage) return false;
+  if (admission.kind !== "ok" || admission.reopenKind !== "failed") return false;
 
   const boundary = findBranchAdmissionBoundary(pipeline, branchKey);
   if (boundary === BRANCH_ADMISSION_BOUNDARY_NOT_FOUND) return false;
@@ -609,15 +614,21 @@ export async function resumePipeline(
     if (admission.kind === "refused") {
       return { kind: "refused", pipelineId, branchKey: branchScope, ...admission.detail };
     }
-    const reopenedStageReset = admission.reopenFailedStage
-      ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope), options)
-      : undefined;
-    if (admission.reopenFailedStage) {
+    const reopenedStageReset =
+      admission.reopenKind === "failed"
+        ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope), options)
+        : undefined;
+    if (admission.reopenKind === "failed") {
       const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });
       if (reopen.kind === "refused") {
         return { kind: "refused", pipelineId, branchKey: branchScope, reason: reopen.reason };
       }
       if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
+    } else if (admission.reopenKind === "provisional_skip") {
+      const reopen = store.reopenProvisionalSkippedStages({ pipelineId, branchKey: branchScope });
+      if (reopen.kind !== "applied") {
+        return { kind: "refused", pipelineId, branchKey: branchScope, reason: reopen.reason };
+      }
     }
     return continueAfterAdmission(undefined, reopenedStageReset);
   }

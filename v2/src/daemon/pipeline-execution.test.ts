@@ -3240,7 +3240,7 @@ describe("resumePipeline", () => {
 
   function setupFanOutFailedPlanResumeFixture(
     store: StateStore,
-    options: { extraFailedPlanBranches?: readonly string[] } = {},
+    options: { extraFailedPlanBranches?: readonly string[]; provisionalSkipBranches?: readonly string[] } = {},
   ): void {
     const intentArtifact: PipelineStageArtifact = {
       entryRunId: "run-intent",
@@ -3284,11 +3284,17 @@ describe("resumePipeline", () => {
       patch: { status: "skipped", skipProvenance: "provisional" },
     });
     const extraFailedPlan = new Set(options.extraFailedPlanBranches ?? []);
+    const provisionalSkip = new Set(options.provisionalSkipBranches ?? []);
     for (const branchKey of FAN_OUT_RESUME_BRANCH_KEYS) {
       if (branchKey === FAN_OUT_RESUME_BRANCH_TARGET) continue;
-      if (extraFailedPlan.has(branchKey)) {
+      if (provisionalSkip.has(branchKey) || extraFailedPlan.has(branchKey)) {
         store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "approved" } });
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey, patch: { status: "failed" } });
+        store.updateStage({
+          pipelineId: PIPELINE_ID,
+          stageId: "plan",
+          branchKey,
+          patch: { status: provisionalSkip.has(branchKey) ? "succeeded" : "failed" },
+        });
         store.updateStage({
           pipelineId: PIPELINE_ID,
           stageId: "implement",
@@ -3329,6 +3335,30 @@ describe("resumePipeline", () => {
       expect(dispatchOrder).toEqual([]);
       expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
     }
+  });
+
+  test("unscoped resume omits a succeeded-plan provisional-skip branch from failed plan branch keys", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      { "run-intent": { specPath: "ready-intents" } },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupFanOutFailedPlanResumeFixture(store, { provisionalSkipBranches: [FAN_OUT_RESUME_BRANCH_SIBLING_A] });
+    const before = stages().map((stage) => ({ ...stage }));
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
+
+    const dispatchOrder: number[] = [];
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatchOrder));
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      reason: "branch_resume_required",
+      branchKeys: [FAN_OUT_RESUME_BRANCH_TARGET],
+    });
+    expect(dispatchOrder).toEqual([]);
+    expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
   });
 
   test("unscoped resume lists every resumable failed plan branch key on aggregate awaiting-approval", async () => {
@@ -4337,6 +4367,222 @@ describe("resumePipeline branch scope", () => {
     });
     expect(noSplitDispatch).toEqual([]);
     expect(noSplit.stages().map((stage) => ({ ...stage }))).toEqual(noSplitBefore);
+  });
+
+  const SKIPPED_SUCCESSOR_BRANCH = "skipped-successor-target";
+  const SKIPPED_SUCCESSOR_SIBLING = "skipped-successor-sibling";
+
+  function setupSkippedSuccessorBranchFixture(
+    store: StateStore,
+    skipProvenance: "provisional" | "terminal",
+    pipelineId: string = PIPELINE_ID,
+  ): void {
+    const branchKeys = [SKIPPED_SUCCESSOR_BRANCH, SKIPPED_SUCCESSOR_SIBLING];
+    store.updateStage({
+      pipelineId,
+      stageId: "intent",
+      patch: {
+        status: "succeeded",
+        artifact: {
+          entryRunId: "run-intent",
+          specPath: "ready-intents",
+          downstreamInputs: branchKeys.map((key) => `ready-intents/${key}.md`),
+        },
+        workflowInvocationId: "run-intent",
+      },
+    });
+    for (const branchKey of branchKeys) {
+      store.createPipelineStageBranch({ pipelineId, stageId: "gate", branchKey });
+      store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
+    }
+    for (const stageId of ["gate", "plan", "implement"] as const) {
+      store.updateStage({
+        pipelineId,
+        stageId,
+        branchKey: "default",
+        patch: { status: "skipped", skipProvenance: "terminal" },
+      });
+    }
+    for (const branchKey of branchKeys) {
+      store.updateStage({ pipelineId, stageId: "gate", branchKey, patch: { status: "approved" } });
+      store.updateStage({
+        pipelineId,
+        stageId: "plan",
+        branchKey,
+        patch: {
+          status: "succeeded",
+          artifact: { entryRunId: `run-${branchKey}-plan`, specPath: `spec/${branchKey}/plan.md` },
+        },
+      });
+      store.updateStage({
+        pipelineId,
+        stageId: "implement",
+        branchKey,
+        patch: { status: "skipped", skipProvenance },
+      });
+    }
+  }
+
+  test("branch-scoped resume admits a succeeded plan with a provisional skipped successor and reopens only that lane", async () => {
+    const store = openStateStore(":memory:");
+    const pipelineId = store.createPipeline({ definition: FAN_OUT_PIPELINE_DEFINITION, context: persistedContext });
+    setupSkippedSuccessorBranchFixture(store, "provisional", pipelineId);
+    const loadStages = () => store.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage })) ?? [];
+    const before = loadStages();
+    expect(stageRecord(before, "implement", SKIPPED_SUCCESSOR_BRANCH)?.skipProvenance).toBe("provisional");
+
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageId: string; branchKey?: string };
+      dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
+      const entryRunId = store.createRun({
+        project: "pipeline-project",
+        specRef: "main",
+        worktreePath: "/tmp/worktree",
+        branch: "branch-skipped-implement",
+        specPath: "spec/skipped/implement.md",
+      });
+      return { ok: true, entryRunId, invocationId: "inv-skipped-implement" };
+    };
+    const wait: PipelineWorkflowWait = async (entryRunId) => {
+      store.setRunStatus(entryRunId, "completed");
+      return "completed";
+    };
+    const resolveStage = async (
+      _definition: PipelineDefinition,
+      stageIndex: number,
+      _context: PipelineContext,
+      _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      deps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => ({
+      ok: true,
+      steps: [
+        createMinimalDispatchWriteStep({
+          stageId: "implement",
+          stageIndex,
+          ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+        }),
+      ],
+    });
+
+    const outcome = await resumePipeline(
+      pipelineId,
+      { store, dispatch, wait, resolveStage },
+      { branchKey: SKIPPED_SUCCESSOR_BRANCH },
+    );
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId });
+    expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: SKIPPED_SUCCESSOR_BRANCH }]);
+    const after = loadStages();
+    for (const snapshot of before) {
+      if (snapshot.stageId === "implement" && snapshot.branchKey === SKIPPED_SUCCESSOR_BRANCH) continue;
+      expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
+    }
+    const implementAfter = stageRecord(after, "implement", SKIPPED_SUCCESSOR_BRANCH);
+    expect(implementAfter?.status).toBe("succeeded");
+    expect(implementAfter?.skipProvenance ?? null).toBeNull();
+    expect(stageRecord(after, "implement", SKIPPED_SUCCESSOR_SIBLING)?.skipProvenance).toBe("provisional");
+    store.close();
+  });
+
+  /**
+   * The failed-vs-provisional_skip reset guard: `reopenedStageReset` is built only for a
+   * `failed` branch admission, so stage resolution on the reopened lane sees the reset flags,
+   * while a `provisional_skip` lane resolves with none. Inversion target: flipping
+   * `admission.reopenKind === "failed"` on the `reopenedStageReset` assignment swaps which
+   * admission carries flags and turns this test RED.
+   */
+  test("branch-scoped resume carries stage-reset flags into resolution only on the failed admission", async () => {
+    const resolveStaleResetFlags = async (admission: "failed" | "provisional_skip"): Promise<unknown> => {
+      const store = openStateStore(":memory:");
+      try {
+        const pipelineId = store.createPipeline({ definition: FAN_OUT_PIPELINE_DEFINITION, context: persistedContext });
+        setupSkippedSuccessorBranchFixture(store, "provisional", pipelineId);
+        if (admission === "failed") {
+          store.updateStage({
+            pipelineId,
+            stageId: "implement",
+            branchKey: SKIPPED_SUCCESSOR_BRANCH,
+            patch: { status: "failed" },
+          });
+        }
+
+        let observedFlags: unknown = "resolve-stage-never-called";
+        const outcome = await resumePipeline(
+          pipelineId,
+          {
+            store,
+            dispatch: async () => ({
+              ok: true,
+              entryRunId: store.createRun({
+                project: "pipeline-project",
+                specRef: "main",
+                worktreePath: "/tmp/worktree",
+                branch: "branch-reset-implement",
+                specPath: "spec/reset/implement.md",
+              }),
+              invocationId: "inv-reset-implement",
+            }),
+            wait: async (entryRunId) => {
+              store.setRunStatus(entryRunId, "completed");
+              return "completed";
+            },
+            resolveStage: async (_definition, stageIndex, _context, _artifacts, deps) => {
+              observedFlags = deps?.staleReset?.flags;
+              return {
+                ok: true,
+                steps: [
+                  createMinimalDispatchWriteStep({
+                    stageId: "implement",
+                    stageIndex,
+                    ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+                  }),
+                ],
+              };
+            },
+            staleResetPreflight: noopStaleResetPreflightBundle(),
+          },
+          { branchKey: SKIPPED_SUCCESSOR_BRANCH, resetDespiteDirty: true },
+        );
+
+        expect(outcome).toEqual({ kind: "resumed", pipelineId });
+        return observedFlags;
+      } finally {
+        store.close();
+      }
+    };
+
+    expect(await resolveStaleResetFlags("failed")).toEqual({
+      skipDirtyWorktreeGate: true,
+      skipLandedCriteriaGate: false,
+    });
+    expect(await resolveStaleResetFlags("provisional_skip")).toBeUndefined();
+  });
+
+  test("branch-scoped resume refuses a terminal skipped successor as branch_not_resumable", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupSkippedSuccessorBranchFixture(store, "terminal");
+    const before = stages().map((stage) => ({ ...stage }));
+    const dispatchOrder: number[] = [];
+
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatchOrder), {
+      branchKey: SKIPPED_SUCCESSOR_BRANCH,
+    });
+
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: SKIPPED_SUCCESSOR_BRANCH,
+      reason: "branch_not_resumable",
+      status: "skipped",
+    });
+    expect(dispatchOrder).toEqual([]);
+    expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
   });
 
   test("resume branchKey default aliases the unscoped path", async () => {

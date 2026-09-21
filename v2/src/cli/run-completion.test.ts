@@ -55,12 +55,14 @@ describe("waitForRunCompletion failure presentation", () => {
 
 let stateStore: StateStore;
 let logSink: LogSink;
+let statePath: string;
 let logsPath: string;
 let handlers: ReturnType<typeof createRunControlHandlers>;
 
 beforeEach(() => {
   const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
-  stateStore = openStateStore(join(tmpdir(), `jarvis-run-completion-state-${unique}.db`));
+  statePath = join(tmpdir(), `jarvis-run-completion-state-${unique}.db`);
+  stateStore = openStateStore(statePath);
   logsPath = join(tmpdir(), `jarvis-run-completion-logs-${unique}.jsonl`);
   logSink = openLogSink(logsPath);
   handlers = createRunControlHandlers({
@@ -78,6 +80,7 @@ afterEach(() => {
   logSink.close();
   stateStore.close();
   rmSync(logsPath, { force: true });
+  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${statePath}${suffix}`, { force: true });
 });
 
 /** IPC client whose `wait` requests are answered by the real daemon wait handler. */

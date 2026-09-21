@@ -24,10 +24,10 @@ Daemon `list` rows and the `wait` completion result carry the run row's `Operato
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` gains a test proving a failed run's `list` row returns the stored record byte-for-byte (deep-equal to the settled record) with no terminal log records loaded; it fails against the pre-fix composer-only row.
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` gains a test proving `wait` returns the identical record for the same run; it fails against the pre-fix result shape.
-- [ ] A test proves a run whose stored column is corrupt (`operatorFailureRecordCorrupt`) omits `failure` on both `list` and `wait` while still reporting `error`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` gains a test proving a failed run's `list` row returns the stored record byte-for-byte (deep-equal to the settled record) with no terminal log records loaded; it fails against the pre-fix composer-only row.
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` gains a test proving `wait` returns the identical record for the same run; it fails against the pre-fix result shape.
+- [x] A test proves a run whose stored column is corrupt (`operatorFailureRecordCorrupt`) omits `failure` on both `list` and `wait` while still reporting `error`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

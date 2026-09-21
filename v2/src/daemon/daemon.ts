@@ -7,6 +7,7 @@ import {
   type ResolvedAgentBindingOptions,
 } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
@@ -605,6 +606,7 @@ export type WaitRunCompletionResult = {
   loopOutcomeKind?: LoopFinishedEvent["loopOutcomeKind"];
   iterationsConsumed?: number;
   resumable?: boolean;
+  failure?: OperatorFailureRecord;
   error?: RunOperatorError;
   /** Surviving worktree path; present when `runStatus` is `blocked`. */
   worktreePath?: string;
@@ -637,6 +639,7 @@ export function projectWorkflowEntryResult(
               ? entryResult.error
               : { ...entryResult.error, retryable: false, nextAction: "stop" },
         }),
+    ...(entryResult?.failure === undefined ? {} : { failure: entryResult.failure }),
   };
 }
 

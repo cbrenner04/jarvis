@@ -1,3 +1,4 @@
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { WaitRunCompletionResult, WorkflowStepListStatus } from "./daemon.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
@@ -29,6 +30,7 @@ export type DaemonListRunRow = {
   iterationsConsumed?: number;
   /** Whether this row's own run id is eligible for resume. */
   resumable?: boolean;
+  failure?: OperatorFailureRecord;
   error?: RunOperatorError;
   /** Retained implement review count; absent on non-implement workflow rows. */
   reviewPasses?: number;

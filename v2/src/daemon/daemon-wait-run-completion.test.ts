@@ -1,7 +1,9 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -11,6 +13,7 @@ import { createRunControlHandlers, projectWorkflowEntryResult, type WriteLoopBin
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 let stateStore: StateStore;
+let stateStorePath: string;
 let logSink: LogSink;
 let logsPath: string;
 let handlers: Handlers;
@@ -19,6 +22,16 @@ let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
 const WAIT_COMPLETION_MACHINE_PROFILE = "wait-completion-profile";
 const TIMEOUT_FIRST_SUBSPEC = "spec/implement/00-first.md";
 const TIMEOUT_SECOND_SUBSPEC = "spec/implement/01-second.md";
+const OPERATOR_FAILURE_RECORD: OperatorFailureRecord = {
+  expectation: "ready gate passes",
+  observation: "ready gate exited 1",
+  nearMiss: "typecheck passed",
+  retryable: true,
+  referencedPaths: [
+    { path: "v2/src/daemon/daemon.ts", origin: "harness-internal" },
+    { path: "spec.md", origin: "operator-repository" },
+  ],
+};
 
 function installWaitCompletionMachineProfile(): void {
   const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-wait-completion-profile-"));
@@ -133,7 +146,8 @@ async function waitForInProgress(runId: string): Promise<void> {
 beforeEach(() => {
   installWaitCompletionMachineProfile();
   const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
-  stateStore = openStateStore(join(tmpdir(), `jarvis-wait-state-${unique}.db`));
+  stateStorePath = join(tmpdir(), `jarvis-wait-state-${unique}.db`);
+  stateStore = openStateStore(stateStorePath);
   logsPath = join(tmpdir(), `jarvis-wait-logs-${unique}.jsonl`);
   logSink = openLogSink(logsPath);
   handlers = createRunControlHandlers({
@@ -178,21 +192,69 @@ test("wait returns immediately for quiescent run with last loop_finished payload
   });
 });
 
+test("wait returns only the stored operator failure record", async () => {
+  const recordedRunId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId: recordedRunId,
+    status: "failed",
+    terminalCause: "ready_gate_failed",
+    operatorFailureRecord: OPERATOR_FAILURE_RECORD,
+  });
+  const absentRunId = createRun();
+  stateStore.commitTerminalRunSettlement({ runId: absentRunId, status: "failed", terminalCause: "ready_gate_failed" });
+
+  const recorded = await expectResponse(await waitDirect("recorded-failure", recordedRunId));
+  const absent = await expectResponse(await waitDirect("absent-failure", absentRunId));
+
+  expect(recorded.failure).toEqual(OPERATOR_FAILURE_RECORD);
+  expect(absent).not.toHaveProperty("failure");
+});
+
+test("list and wait omit a corrupt operator failure record while retaining error", async () => {
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "failed",
+    terminalCause: "ready_gate_failed",
+    operatorFailureRecord: OPERATOR_FAILURE_RECORD,
+  });
+  const raw = new Database(stateStorePath);
+  raw.prepare("UPDATE runs SET operator_failure_record = ? WHERE id = ?").run("{not-json", runId);
+  raw.close();
+
+  const list = await expectResponse(await listDirect("corrupt-failure-list"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  const waited = await expectResponse(await waitDirect("corrupt-failure-wait", runId));
+
+  expect(row).not.toHaveProperty("failure");
+  expect(row).toHaveProperty("error");
+  expect(waited).not.toHaveProperty("failure");
+  expect(waited).toHaveProperty("error");
+});
+
 test("workflow entry payload omits absent optional outcome fields", () => {
   const present = projectWorkflowEntryResult(
-    { runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: true },
+    {
+      runStatus: "failed",
+      loopOutcomeKind: "surviving_mutation_failed",
+      iterationsConsumed: 3,
+      resumable: true,
+      failure: OPERATOR_FAILURE_RECORD,
+    },
     false,
   );
   expect(present).toMatchObject({
     loopOutcomeKind: "surviving_mutation_failed",
     iterationsConsumed: 3,
     resumable: false,
+    failure: OPERATOR_FAILURE_RECORD,
   });
 
   const absent = projectWorkflowEntryResult({ runStatus: "failed" }, false);
   expect(absent).not.toHaveProperty("loopOutcomeKind");
   expect(absent).not.toHaveProperty("iterationsConsumed");
   expect(absent).not.toHaveProperty("resumable");
+  expect(absent).not.toHaveProperty("failure");
 
   const partial = projectWorkflowEntryResult(
     { runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed" },

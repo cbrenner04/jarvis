@@ -5948,10 +5948,10 @@ describe("pipeline branch fan-out execution", () => {
     await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
 
     expect(dispatchLog.filter((entry) => entry.stageId === "plan")).toEqual([]);
-    const betaFailure = { message: stageFailureObservation(stageRecord(stages(), "plan", "beta")?.failureDetail) };
-    expect(betaFailure?.message).toContain('plan lane "beta"');
-    expect(betaFailure?.message).toContain("for downstream input ready-intents/beta.md");
-    expect(betaFailure?.message).toContain("has no paired fan-out result");
+    const betaFailure = stageFailureObservation(stageRecord(stages(), "plan", "beta")?.failureDetail);
+    expect(betaFailure).toContain('plan lane "beta"');
+    expect(betaFailure).toContain("for downstream input ready-intents/beta.md");
+    expect(betaFailure).toContain("has no paired fan-out result");
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
     expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
   });

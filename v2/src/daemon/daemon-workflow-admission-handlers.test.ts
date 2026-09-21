@@ -500,6 +500,48 @@ test("resumeLinkedWorkflowStart forwards the resumed workflowSnapshot into execu
   expect(stateStore.loadRun(runId)?.workflowSnapshot?.invocationId).toBe("resumed-invocation-id");
 });
 
+test("a resumed ~link-N row settles the stage linked to its invocation's entry run", async () => {
+  const branch = "resume-link-settles-entry-stage";
+  const { createWriteStep } = writeStepFixtures();
+  const step = createWriteStep("step-1~link-1", branch, doneWithArtifactBindingFactory, { suppressShrink: true });
+  const snapshot: WorkflowSnapshot = {
+    invocationId: "resumed-link-invocation",
+    steps: [{ stepId: "step-1", role: "implement", durable: true }],
+  };
+  const entryRunId = stateStore.createRun({
+    project: step.worktree.projectName,
+    specRef: "main",
+    worktreePath: "/tmp/resume-link-entry",
+    branch,
+    specPath: "spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.commitTerminalRunSettlement({ runId: entryRunId, status: "failed", terminalCause: "invocation_failure" });
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "resume-link",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "none" }],
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 100 },
+  });
+  const { ctx, workflowStart } = workflowAdmission();
+
+  const response = await workflowStart.resumeLinkedWorkflowStart([step], snapshot);
+  expect(response.kind).toBe("response");
+  const linkRunId = (response as { result: { runId: string } }).result.runId;
+  expect(linkRunId).not.toBe(entryRunId);
+  await ctx.workflowPromisesByEntryRunId.get(linkRunId);
+  await flushBackgroundRuns();
+
+  const stage = stateStore.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "implement");
+  expect(stage?.status).not.toBe("running");
+});
+
 test("resumeLinkedWorkflowStart returns a refused resume admission before starting the workflow, releasing its claim", async () => {
   const branch = "resume-admission-refused";
   const { createWriteStep } = writeStepFixtures();

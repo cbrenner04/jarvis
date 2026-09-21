@@ -91,6 +91,7 @@ import {
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
 import { armRunTimeout, fireRunTimeout, runBudgetKey, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
+import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 
 type LifecycleStartResult =
@@ -632,6 +633,22 @@ export function createRunLifecycleHandlers(
     return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
 
+  /** Best-effort: the durable row settles any stage linked to this run's invocation entry run. */
+  const settleStagesAfterWriteLoop = (runId: string): void => {
+    try {
+      settleStagesForEntryRun(
+        {
+          store,
+          isEntryRunLive: (entryRunId) => workflowPromisesByEntryRunId.has(entryRunId),
+          loadLogRecords: logReader === undefined ? undefined : (id) => logReader.tail(id),
+        },
+        resolveInvocationEntryRunId(store, runId),
+      );
+    } catch (settlementError) {
+      console.error(`Stage settlement after write loop ${runId} failed:`, settlementError);
+    }
+  };
+
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
@@ -672,6 +689,7 @@ export function createRunLifecycleHandlers(
         runTimeout.settle();
         activeRuns.delete(ks);
         registry.release(key);
+        settleStagesAfterWriteLoop(runId);
         promoteQueuedRun();
         ctx.slotRedrive.enqueue(runId);
       }

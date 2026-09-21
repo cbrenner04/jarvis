@@ -15,9 +15,9 @@ A stage links the invocation's entry run (`workflowInvocationId`). Two `run resu
 
 ## Acceptance criteria
 
-- [ ] A test resumes a `~link-N` row of an invocation whose entry run a `running` stage links; when the resumed workflow reaches terminal, the stage settles from the invocation's rows. It fails against the pre-fix code, which settles nothing.
-- [ ] A test bare-resumes a write row a `running` stage links; when the write loop ends, the stage settles from its durable row. It fails against the pre-fix code, which never settles it.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test resumes a `~link-N` row of an invocation whose entry run a `running` stage links; when the resumed workflow reaches terminal, the stage settles from the invocation's rows. It fails against the pre-fix code, which settles nothing.
+- [x] A test bare-resumes a write row a `running` stage links; when the write loop ends, the stage settles from its durable row. It fails against the pre-fix code, which never settles it.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -46,7 +46,7 @@ import { daemonFailureDetail, type RunControlHandlerContext } from "./daemon-run
 import type { RunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { findTerminalLogRecord } from "./run-operator-error.ts";
 import { armRunTimeout, fireRunTimeout, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
-import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
+import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type WorkflowStartResult =
   | { kind: "response"; result: unknown }
@@ -359,7 +359,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
                   isEntryRunLive: () => false,
                   loadLogRecords: ctx.logReader === undefined ? undefined : (id) => ctx.logReader?.tail(id) ?? [],
                 },
-                entryRunId,
+                resolveInvocationEntryRunId(store, entryRunId),
               );
             } catch (settlementError) {
               console.error(`Stage settlement after terminal run ${entryRunId} failed:`, settlementError);

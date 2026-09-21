@@ -805,6 +805,33 @@ test("resume on a killed workflow write run uses the persisted step contract", a
   ]);
 });
 
+test("a bare-resumed write row settles the stage linked to it once its write loop ends", async () => {
+  const runId = createWorkflowRun({ invocationId: "workflow-bare-settle" });
+  stateStore.setRunStatus(runId, "killed");
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "bare-resume",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "none" }],
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: { status: "running", workflowInvocationId: runId, startedAt: 100 },
+  });
+  const stageStatus = () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "implement")?.status;
+
+  const response = await resumeDirect(handlers, runId);
+  expect(response).toEqual({ kind: "response", result: { ok: true } });
+  expect(stageStatus()).toBe("running");
+
+  stateStore.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "invocation_failure" });
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+
+  expect(stageStatus()).toBe("failed");
+});
+
 test("resume on a workflow paused run with an empty agents list returns resume_unsupported", async () => {
   const pausedRunId = createWorkflowRun({ invocationId: "workflow-1", agents: [] });
   stateStore.setRunStatus(pausedRunId, "paused");

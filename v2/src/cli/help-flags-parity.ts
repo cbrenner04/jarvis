@@ -13,6 +13,7 @@ import {
   PIPELINE_RESUME_PARSE_ARG_OPTIONS,
   PIPELINE_START_PARSE_ARG_OPTIONS,
   parityFlagsFromParseOptions,
+  RUN_DISMISS_PARSE_ARG_OPTIONS,
   RUN_KILL_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
   RUN_LOG_PARSE_ARG_OPTIONS,
@@ -39,6 +40,8 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parityFlagsFromParseOptions(RUN_LOG_PARSE_ARG_OPTIONS);
     case "run kill":
       return parseOptionKeysToLongFlags(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS));
+    case "run dismiss":
+      return parseOptionKeysToLongFlags(Object.keys(RUN_DISMISS_PARSE_ARG_OPTIONS));
     case "daemon log":
       return parseOptionKeysToLongFlags(Object.keys(DAEMON_LOG_PARSE_ARG_OPTIONS));
     case "pipeline start":

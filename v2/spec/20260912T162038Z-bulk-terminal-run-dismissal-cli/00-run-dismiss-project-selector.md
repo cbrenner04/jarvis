@@ -18,15 +18,15 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/commands/run.test.ts` proves `run dismiss --project <name>` issues exactly one `dismiss` request whose params carry the project and no `runId`, and fails against the pre-fix single-positional signature.
-- [ ] A test in `v2/src/commands/run-dismiss-project.test.ts` drives the real daemon handler over a seeded store and proves every terminal row for the project — standalone and workflow step rows — becomes dismissed while in-progress, queued, and paused rows stay undismissed.
-- [ ] A test asserts bulk dismissal writes the daemon-reported dismissed-row count to stdout and exits zero.
-- [ ] A test asserts a positional run ID combined with `--project` exits non-zero with a named error on stderr and opens no daemon client.
-- [ ] `v2/src/cli/usage.ts` documents both the positional and `--project` forms in the `run dismiss` usage string, and a usage test asserts it.
-- [ ] `v2/src/cli/command-tree.ts` lists `--project` under `run dismiss` help, and the help-flags parity test stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A test in `v2/src/commands/run.test.ts` proves `run dismiss --project <name>` issues exactly one `dismiss` request whose params carry the project and no `runId`, and fails against the pre-fix single-positional signature.
+- [x] A test in `v2/src/commands/run-dismiss-project.test.ts` drives the real daemon handler over a seeded store and proves every terminal row for the project — standalone and workflow step rows — becomes dismissed while in-progress, queued, and paused rows stay undismissed.
+- [x] A test asserts bulk dismissal writes the daemon-reported dismissed-row count to stdout and exits zero.
+- [x] A test asserts a positional run ID combined with `--project` exits non-zero with a named error on stderr and opens no daemon client.
+- [x] `v2/src/cli/usage.ts` documents both the positional and `--project` forms in the `run dismiss` usage string, and a usage test asserts it.
+- [x] `v2/src/cli/command-tree.ts` lists `--project` under `run dismiss` help, and the help-flags parity test stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

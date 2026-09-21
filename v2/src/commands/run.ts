@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import {
+  RUN_DISMISS_PARSE_ARG_OPTIONS,
   RUN_KILL_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
   RUN_LOG_PARSE_ARG_OPTIONS,
@@ -418,6 +419,73 @@ function parseRunDismissalArgs(argv: readonly string[]): { ok: true; runId: stri
   return { ok: true, runId };
 }
 
+const RUN_DISMISS_SELECTOR_CONFLICT = "run dismiss: a run ID and --project are mutually exclusive\n";
+
+type RunDismissalSelector = { kind: "run"; runId: string } | { kind: "project"; project: string };
+
+function parseRunDismissSelector(
+  argv: readonly string[],
+): { ok: true; selector: RunDismissalSelector } | { ok: false; error?: string } {
+  let values: { project?: string };
+  let positionals: string[];
+  try {
+    const parsed = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      strict: true,
+      options: RUN_DISMISS_PARSE_ARG_OPTIONS,
+    });
+    values = parsed.values;
+    positionals = parsed.positionals;
+  } catch {
+    return { ok: false };
+  }
+  if (values.project === undefined) {
+    const single = parseRunDismissalArgs(positionals);
+    return single.ok ? { ok: true, selector: { kind: "run", runId: single.runId } } : { ok: false };
+  }
+  if (positionals.length > 0) return { ok: false, error: RUN_DISMISS_SELECTOR_CONFLICT };
+  if (values.project.trim().length === 0) return { ok: false };
+  return { ok: true, selector: { kind: "project", project: values.project } };
+}
+
+function parseBulkDismissalCount(value: unknown): number | undefined {
+  const record = value as { kind?: unknown; dismissedCount?: unknown } | null;
+  if (record?.kind !== "applied") return undefined;
+  const count = record.dismissedCount;
+  return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : undefined;
+}
+
+/** Sends a dismissal-family request; `undefined` after reporting an RPC error on stderr. */
+async function requestDismissal(
+  client: Parameters<typeof request>[0],
+  method: "dismiss" | "undismiss",
+  params: { runId: string } | { project: string },
+  io: Io,
+): Promise<{ response: unknown } | undefined> {
+  try {
+    return { response: await request(client, method, params) };
+  } catch (error) {
+    if (!(error instanceof RpcError)) throw error;
+    io.stderr(formatRpcError(error));
+    return undefined;
+  }
+}
+
+async function runRunBulkDismissalCommand(project: string, io: Io, deps: CliDeps): Promise<number> {
+  return withRunClient(io, deps, async (client) => {
+    const sent = await requestDismissal(client, "dismiss", { project }, io);
+    if (sent === undefined) return 1;
+    const dismissedCount = parseBulkDismissalCount(sent.response);
+    if (dismissedCount === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    io.stdout(`dismissed ${dismissedCount}\n`);
+    return 0;
+  });
+}
+
 function parseRunDismissalOutcome(value: unknown): RunDismissalOutcome | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const record = value as { kind?: unknown; runId?: unknown; status?: unknown; reason?: unknown };
@@ -439,18 +507,9 @@ async function runRunDismissalCommand(
   deps: CliDeps,
 ): Promise<number> {
   return withRunClient(io, deps, async (client) => {
-    const method = mode === "dismiss" ? "dismiss" : "undismiss";
-    let response: unknown;
-    try {
-      response = await request(client, method, { runId });
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      throw error;
-    }
-    const outcome = parseRunDismissalOutcome(response);
+    const sent = await requestDismissal(client, mode, { runId }, io);
+    if (sent === undefined) return 1;
+    const outcome = parseRunDismissalOutcome(sent.response);
     if (outcome === undefined) {
       io.stderr("invalid daemon response\n");
       return 1;
@@ -500,13 +559,23 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
     return runLogSubcommand(runId, logValues.follow === true, io, deps);
   }
 
-  if (subcommand === "dismiss" || subcommand === "undismiss") {
-    const parsed = parseRunDismissalArgs(argv.slice(1));
-    if (!parsed.ok) {
-      io.stderr(subcommand === "dismiss" ? RUN_DISMISS_USAGE : RUN_UNDISMISS_USAGE);
+  if (subcommand === "dismiss") {
+    const selector = parseRunDismissSelector(argv.slice(1));
+    if (!selector.ok) {
+      io.stderr(selector.error ?? RUN_DISMISS_USAGE);
       return 1;
     }
-    return runRunDismissalCommand(subcommand, parsed.runId, io, deps);
+    if (selector.selector.kind === "project") return runRunBulkDismissalCommand(selector.selector.project, io, deps);
+    return runRunDismissalCommand("dismiss", selector.selector.runId, io, deps);
+  }
+
+  if (subcommand === "undismiss") {
+    const parsed = parseRunDismissalArgs(argv.slice(1));
+    if (!parsed.ok) {
+      io.stderr(RUN_UNDISMISS_USAGE);
+      return 1;
+    }
+    return runRunDismissalCommand("undismiss", parsed.runId, io, deps);
   }
 
   if (isRunAction(subcommand)) return runActionCommand(subcommand, argv.slice(1), io, deps);

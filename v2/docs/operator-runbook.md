@@ -365,6 +365,7 @@ Hide a dead ad-hoc or workflow-entry run you no longer want listed, without dele
 
 ```sh
 jarvis run dismiss <run-id>
+jarvis run dismiss --project <name>
 jarvis run undismiss <run-id>
 ```
 
@@ -372,7 +373,9 @@ Both connect on the invoking digest's socket only — no cross-daemon owner disc
 
 Dismissal only hides the run from `run list`'s default output — it does not delete the durable row, and does not stop it; see it again with `jarvis run list --all` or the TUI **`D`** toggle. `run wait`, `run kill`, `run pause`, `run resume`, `run log`, `jarvis cleanup`'s daemon-list safety reads, and reconciliation all still reach a dismissed run; a dismissed but live run stays invisible in `run list` while still blocking worktree retirement the same as an undismissed one. Dismissing a live (`in-progress`, `budget-soft-stopped`, `paused`, or `queued`) run succeeds and prints a stderr warning naming the run and its status; `undismiss` never warns. Refusals print the daemon `reason` verbatim on stderr and exit non-zero.
 
-A workflow-entry run's step rows each carry their own `dismissedAt` — dismissing the entry row does not dismiss its steps, so shedding a whole invocation means dismissing each row individually; dismissed step rows are still folded back in when the daemon indexes listed runs for invocation display.
+A workflow-entry run's step rows each carry their own `dismissedAt` — dismissing the entry row by ID does not dismiss its steps; use `run dismiss --project <name>` to shed terminal rows in bulk (below). Dismissed step rows are still folded back in when the daemon indexes listed runs for invocation display.
+
+`run dismiss --project <name>` sends one `dismiss` request with `{ project }` and prints `dismissed <count>`. It dismisses every terminal run row for the exact project name, plus the terminal step rows of any matched invocation (even a step row whose own `project` differs); in-progress, queued, and paused rows are untouched. Selection happens in the daemon, so it reaches rows beyond the `run list` window: default `run list` shows only the fifty newest terminal rows, so dismissing them one ID at a time exposes older rows and the list looks like it refills. A run ID together with `--project` is a usage error before any daemon connect. `run undismiss` stays single-ID; `pipeline dismiss` has no bulk form.
 
 ### Ad-hoc write loop (live pause/kill)
 

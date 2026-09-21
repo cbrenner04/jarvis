@@ -136,6 +136,19 @@ export const RUN_KILL_HELP_FLAGS: readonly CommandFlag[] = [
   },
 ];
 
+/** `parseArgs` options for `jarvis run dismiss`. */
+export const RUN_DISMISS_PARSE_ARG_OPTIONS = {
+  project: { type: "string" },
+} as const satisfies Record<string, { type: "string" }>;
+
+export const RUN_DISMISS_HELP_FLAGS: readonly CommandFlag[] = [
+  {
+    name: "--project",
+    argumentShape: "<name>",
+    description: "Dismiss every terminal run for the exact project name instead of one run ID.",
+  },
+];
+
 const WORKFLOW_STALE_RESET_OVERRIDE_FLAG: CommandFlag = {
   name: "--reset-despite-dirty",
   argumentShape: "",

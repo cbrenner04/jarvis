@@ -448,27 +448,33 @@ function parseRunDismissSelector(
 }
 
 function parseBulkDismissalCount(value: unknown): number | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const record = value as { kind?: unknown; dismissedCount?: unknown };
-  if (record.kind !== "applied") return undefined;
-  if (typeof record.dismissedCount !== "number" || !Number.isInteger(record.dismissedCount)) return undefined;
-  if (record.dismissedCount < 0) return undefined;
-  return record.dismissedCount;
+  const record = value as { kind?: unknown; dismissedCount?: unknown } | null;
+  if (record?.kind !== "applied") return undefined;
+  const count = record.dismissedCount;
+  return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : undefined;
+}
+
+/** Sends a dismissal-family request; `undefined` after reporting an RPC error on stderr. */
+async function requestDismissal(
+  client: Parameters<typeof request>[0],
+  method: "dismiss" | "undismiss",
+  params: { runId: string } | { project: string },
+  io: Io,
+): Promise<{ response: unknown } | undefined> {
+  try {
+    return { response: await request(client, method, params) };
+  } catch (error) {
+    if (!(error instanceof RpcError)) throw error;
+    io.stderr(formatRpcError(error));
+    return undefined;
+  }
 }
 
 async function runRunBulkDismissalCommand(project: string, io: Io, deps: CliDeps): Promise<number> {
   return withRunClient(io, deps, async (client) => {
-    let response: unknown;
-    try {
-      response = await request(client, "dismiss", { project });
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      throw error;
-    }
-    const dismissedCount = parseBulkDismissalCount(response);
+    const sent = await requestDismissal(client, "dismiss", { project }, io);
+    if (sent === undefined) return 1;
+    const dismissedCount = parseBulkDismissalCount(sent.response);
     if (dismissedCount === undefined) {
       io.stderr("invalid daemon response\n");
       return 1;
@@ -499,18 +505,9 @@ async function runRunDismissalCommand(
   deps: CliDeps,
 ): Promise<number> {
   return withRunClient(io, deps, async (client) => {
-    const method = mode === "dismiss" ? "dismiss" : "undismiss";
-    let response: unknown;
-    try {
-      response = await request(client, method, { runId });
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      throw error;
-    }
-    const outcome = parseRunDismissalOutcome(response);
+    const sent = await requestDismissal(client, mode, { runId }, io);
+    if (sent === undefined) return 1;
+    const outcome = parseRunDismissalOutcome(sent.response);
     if (outcome === undefined) {
       io.stderr("invalid daemon response\n");
       return 1;

@@ -373,10 +373,12 @@ function hasOwnIncidentRow(rows: readonly Run[]): boolean {
   return rows.some((run) => run.status === "blocked" || run.terminalCause === "run_timeout");
 }
 
-/** Failure detail worth surfacing on the incident: only `completion_commit_failed` carries path-bearing text. */
+/** Failure detail worth surfacing on the incident: only a `failed` `completion_commit_failed` row carries path-bearing text. */
 function commitFailureDetail(run: Run): { detail: string } | Record<string, never> {
   const message = run.terminalFailureDetail?.message;
-  return run.terminalCause === "completion_commit_failed" && message !== undefined ? { detail: message } : {};
+  return run.status === "failed" && run.terminalCause === "completion_commit_failed" && message !== undefined
+    ? { detail: message }
+    : {};
 }
 
 /** The invocation's `completion_commit_failed` detail, when any row carries one. */

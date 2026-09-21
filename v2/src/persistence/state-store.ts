@@ -958,7 +958,7 @@ export interface StateStore {
 
   /**
    * Re-admit a run for resume: stamps `owner_identity` to the current process and sets
-   * status `in-progress`. Admits without a liveness probe when the row's prior owner is
+   * status `in-progress`, and clears `operator_failure_record` in the same write. Admits without a liveness probe when the row's prior owner is
    * `NULL` or already this process. Otherwise probes liveness first and refuses
    * `owner_alive` before any write when a different owner is still alive; a write that
    * matches zero rows because the owner changed between the probe and the write refuses
@@ -2875,7 +2875,8 @@ class StateStoreImpl implements StateStore {
     const changedAt = Date.now();
     const result = this.db
       .prepare(
-        `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?
+        `UPDATE runs SET owner_identity = ?, status = 'in-progress', finished_at = NULL, status_changed_at = ?,
+           operator_failure_record = NULL
          WHERE id = ? AND owner_identity IS ?`,
       )
       .run(this.currentIdentity, changedAt, runId, priorOwnerIdentity);

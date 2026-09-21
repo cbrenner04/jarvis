@@ -3771,6 +3771,19 @@ describe("admitRunForResume", () => {
     resumeStore.close();
   });
 
+  test("clears the stored operator failure record", async () => {
+    const runId = seedRun(seedStore, { branch: "clears-record", status: "failed" });
+    seedStore.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      operatorFailureRecord: { expectation: "e", observation: "o", retryable: true, referencedPaths: [] },
+    });
+    const resumeStore = openResumeStore(async () => false);
+    await expectAdmitted(resumeStore, runId);
+    expect(resumeStore.loadRun(runId)?.operatorFailureRecord).toBeNull();
+    resumeStore.close();
+  });
+
   test("refuses owner_alive and leaves owner_identity and status unchanged when a different owner is alive", async () => {
     const runId = seedRun(seedStore, { branch: "live-owner", status: "failed" });
 

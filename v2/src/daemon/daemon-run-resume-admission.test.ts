@@ -182,3 +182,19 @@ test("resolveRunResumeAdmission admits a stopping reason when the stored record 
   expect(admission).toEqual({ admitted: true });
   store.close();
 });
+
+test("a later settlement without a record uses per-reason resume admission after resume clears the stored record", async () => {
+  const { store, run } = settledRecordRun("ready_flip_failed", true);
+  expect((await store.admitRunForResume(run.id)).kind).toBe("applied");
+  expect(store.loadRun(run.id)?.operatorFailureRecord).toBeNull();
+  store.commitTerminalRunSettlement({ runId: run.id, status: "failed", terminalCause: "ready_flip_failed" });
+  const settled = store.loadRun(run.id);
+  if (!settled) throw new Error("expected run");
+  expect(settled.operatorFailureRecord).toBeNull();
+  const admission = resolveRunResumeAdmission(settled, undefined, [], {
+    store,
+    reconstructWriteResume: () => ({ ok: true, input: mockWriteLoopInput() }),
+  });
+  expect(admission).toEqual({ admitted: false, refusal: "terminal" });
+  store.close();
+});

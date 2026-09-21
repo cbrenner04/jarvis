@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
@@ -756,6 +757,54 @@ test("resume does not route a non-linked write row to resumeLinkedWorkflowStart"
   } finally {
     profile.cleanup();
   }
+});
+
+test("list and wait project a stored operator failure record only when one exists", async () => {
+  const record: OperatorFailureRecord = {
+    expectation: "ready gate passes",
+    observation: "ready gate exited 1",
+    nearMiss: "typecheck passed",
+    retryable: true,
+    referencedPaths: [{ path: "spec.md", origin: "operator-repository" }],
+  };
+  const settle = (operatorFailureRecord?: OperatorFailureRecord) => {
+    const runId = stateStore.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/test-project",
+      branch: `failure-${crypto.randomUUID()}`,
+      specPath: "/tmp/test-project/spec.md",
+    });
+    stateStore.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "ready_gate_failed",
+      ...(operatorFailureRecord === undefined ? {} : { operatorFailureRecord }),
+    });
+    return runId;
+  };
+  const recordedRunId = settle(record);
+  const absentRunId = settle();
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+
+  const listed = await handlers.list({ kind: "request", id: "l1", method: "list" }, signal);
+  if (listed.kind !== "response") throw new Error("list failed");
+  const rows = (listed.result as { runs: Array<{ runId: string }> }).runs;
+  expect(rows.find((row) => row.runId === recordedRunId)).toMatchObject({ failure: record });
+  expect(rows.find((row) => row.runId === absentRunId)).not.toHaveProperty("failure");
+
+  const recorded = await handlers.wait(
+    { kind: "request", id: "w1", method: "wait", params: { runId: recordedRunId } },
+    signal,
+  );
+  const absent = await handlers.wait(
+    { kind: "request", id: "w2", method: "wait", params: { runId: absentRunId } },
+    signal,
+  );
+  if (recorded.kind !== "response" || absent.kind !== "response") throw new Error("wait failed");
+  expect(recorded.result).toMatchObject({ failure: record });
+  expect(absent.result).not.toHaveProperty("failure");
 });
 
 test("workflow entry wait reports non_terminating_mutation_failed owned by a durable review step", async () => {

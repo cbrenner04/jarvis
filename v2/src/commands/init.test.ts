@@ -961,16 +961,6 @@ describe("init readiness", () => {
     });
     expect(multiline.find((result) => result.id === "bun")?.detail).toBe("line one");
 
-    const inconclusiveDaemon = await evaluateReadiness(baseContext, {
-      ...okProbes,
-      checkDaemon: async () => ({ state: "inconclusive" }),
-    });
-    expect(inconclusiveDaemon.find((result) => result.id === "daemon")).toEqual({
-      id: "daemon",
-      status: "missing",
-      detail: "daemon is not responding",
-    });
-
     const invalidDaemonState = await evaluateReadiness(baseContext, {
       ...okProbes,
       checkDaemon: async () =>

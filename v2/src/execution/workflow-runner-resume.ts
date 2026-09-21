@@ -2421,6 +2421,8 @@ async function runMutationRepairAttempt(
         verification.mutation,
         verification.sourceSite.file,
         verification.sourceSite.line,
+        verification.killingTests,
+        verification.killingSetObservedResult,
         verification.dualConstraint,
       ),
     };
@@ -2683,7 +2685,7 @@ async function runReviewMutationCommitAndPublish(
   return settleSuccessfulReviewMutationPublication(context, store, attemptId, publication, deps);
 }
 
-function survivingMutationErrorFromTerminalRecord(
+export function survivingMutationErrorFromTerminalRecord(
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): SurvivingMutationError | undefined {
   if (terminalRecord?.event.kind !== "loop_finished") return undefined;
@@ -2700,6 +2702,8 @@ function survivingMutationErrorFromTerminalRecord(
     fields.survivingMutation,
     fields.survivingMutationSourceFile,
     fields.survivingMutationSourceLine,
+    fields.survivingMutationKillingTests ?? [],
+    fields.survivingMutationKillingSetResult ?? "unknown",
   );
 }
 

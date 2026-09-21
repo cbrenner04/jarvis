@@ -10,6 +10,7 @@ import {
   type BaseRefProbeObservation,
   nonTerminatingMutationLogFields,
   readyGateOutOfScopeLogFields,
+  type SurvivingMutationKillingSetResult,
   survivingMutationLogFields,
 } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
@@ -76,6 +77,8 @@ export type RunOperatorError = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  survivingMutationKillingTests?: string[];
+  survivingMutationKillingSetResult?: SurvivingMutationKillingSetResult;
   nonTerminatingMutation?: string;
   nonTerminatingMutationSourceFile?: string;
   nonTerminatingMutationSourceLine?: number;

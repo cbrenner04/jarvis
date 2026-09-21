@@ -1474,7 +1474,7 @@ describe("executeWorkflow implement patch review", () => {
         completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
         },
       });
 

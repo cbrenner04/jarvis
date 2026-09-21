@@ -15,28 +15,28 @@ With the verifier result carrying the killing set and its observed result ([00](
 
 ## Task checklist
 
-- [ ] Widen `SurvivingMutationError` and `SurvivingMutationLogFields`/`survivingMutationLogFields` in `v2/src/execution/ready-finalize.ts`.
-- [ ] Widen `LoopFinishedEvent` in `v2/src/persistence/log-stream.ts` with the two optional fields so they round-trip through the persisted log.
-- [ ] Widen the `surviving_mutation_failed` run-result field shapes in `v2/src/execution/write-loop.ts` and `v2/src/execution/workflow-runner.ts`.
-- [ ] Widen `RunOperatorError` in `v2/src/daemon/run-operator-error.ts`.
-- [ ] Widen `formatListRunRow` in `v2/src/commands/run.ts` to append the two new columns.
-- [ ] Pass the verifier's new fields at every `new SurvivingMutationError(...)` site (`write-loop.ts` in-loop and publication, `workflow-runner-resume.ts` review-mutation retry); reconstruct legacy values only in `survivingMutationErrorFromTerminalRecord`.
+- [x] Widen `SurvivingMutationError` and `SurvivingMutationLogFields`/`survivingMutationLogFields` in `v2/src/execution/ready-finalize.ts`.
+- [x] Widen `LoopFinishedEvent` in `v2/src/persistence/log-stream.ts` with the two optional fields so they round-trip through the persisted log.
+- [x] Widen the `surviving_mutation_failed` run-result field shapes in `v2/src/execution/write-loop.ts` and `v2/src/execution/workflow-runner.ts`.
+- [x] Widen `RunOperatorError` in `v2/src/daemon/run-operator-error.ts`.
+- [x] Widen `formatListRunRow` in `v2/src/commands/run.ts` to append the two new columns.
+- [x] Pass the verifier's new fields at every `new SurvivingMutationError(...)` site (`write-loop.ts` in-loop and publication, `workflow-runner-resume.ts` review-mutation retry); reconstruct legacy values only in `survivingMutationErrorFromTerminalRecord`.
 
 ## Acceptance criteria
 
-- [ ] An in-loop `surviving_mutation_failed` settlement records the killing test paths the verifier ran and that set's observed result on the run's terminal `loop_finished` evidence.
-- [ ] The `surviving_mutation_failed` run result returned to the caller carries the same killing test paths and observed result.
-- [ ] `jarvis run`'s operator error for `surviving_mutation_failed` (`RunOperatorError`, surfaced on `jarvis run list` and `jarvis run wait`) reports the killing test paths and observed result alongside the mutation and source site, and `jarvis run list`'s tab-separated row carries the same two fields as additional columns.
-- [ ] A publication-time surviving mutation settles with the same killing-set evidence as the in-loop path.
-- [ ] Reconstructing a `SurvivingMutationError` from a persisted terminal record that predates these fields still yields a usable error, recording an empty killing set and `killingSetObservedResult: "unknown"`.
-- [ ] `v2/src/execution/write-loop.test.ts` gains a test asserting the killing set and observed result on an in-loop `surviving_mutation_failed` settlement; it fails against the pre-change code.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` gains a test asserting the operator error reports the killing set and observed result; it fails against the pre-change code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] An in-loop `surviving_mutation_failed` settlement records the killing test paths the verifier ran and that set's observed result on the run's terminal `loop_finished` evidence.
+- [x] The `surviving_mutation_failed` run result returned to the caller carries the same killing test paths and observed result.
+- [x] `jarvis run`'s operator error for `surviving_mutation_failed` (`RunOperatorError`, surfaced on `jarvis run list` and `jarvis run wait`) reports the killing test paths and observed result alongside the mutation and source site, and `jarvis run list`'s tab-separated row carries the same two fields as additional columns.
+- [x] A publication-time surviving mutation settles with the same killing-set evidence as the in-loop path.
+- [x] Reconstructing a `SurvivingMutationError` from a persisted terminal record that predates these fields still yields a usable error, recording an empty killing set and `killingSetObservedResult: "unknown"`.
+- [x] `v2/src/execution/write-loop.test.ts`'s existing `implement complete surviving mutation reprompt budget exhaustion settles surviving_mutation_failed` test asserts the killing test paths and observed result on the in-loop settlement; those assertions fail against the pre-change code.
+- [x] `v2/src/daemon/run-operator-error.test.ts`'s existing `composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished` test asserts the operator error reports the killing test paths and observed result; those assertions fail against the pre-change code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 
-- [ ] `v2/docs/write-behavior.md` records that the `surviving_mutation_failed` settlement carries the killing set and its observed result through to the run record and operator error, so a report can be compared against a hand flip-and-test without re-deriving resolution; updates the `jarvis run list` row-format table and column-count note (seventeen columns becomes nineteen; `--all`'s trailing `dismissed` column shifts accordingly).
-- [ ] `v2/docs/daemon-host.md` records the two new fields on the `surviving_mutation_failed` `error` projection.
-- [ ] `v2/docs/v1-behaviors.md` records the widened `surviving_mutation_failed` settlement evidence (existing behavior changed).
+- [x] `v2/docs/write-behavior.md` records that the `surviving_mutation_failed` settlement carries the killing set and its observed result through to the run record and operator error, so a report can be compared against a hand flip-and-test without re-deriving resolution; updates the `jarvis run list` row-format table and column-count note (nineteen columns becomes twenty-one; `--all`'s trailing `dismissed` column shifts accordingly).
+- [x] `v2/docs/daemon-host.md` records the two new fields on the `surviving_mutation_failed` `error` projection.
+- [x] `v2/docs/v1-behaviors.md` records the widened `surviving_mutation_failed` settlement evidence (existing behavior changed).

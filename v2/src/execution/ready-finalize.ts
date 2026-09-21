@@ -1032,11 +1032,15 @@ export function resolveAttributableRepairAllowset(frozen: Set<string>, error: Re
   return allowset;
 }
 
+export type SurvivingMutationKillingSetResult = "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
+
 export class SurvivingMutationError extends Error {
   constructor(
     readonly mutation: string,
     readonly sourceSiteFile: string,
     readonly sourceSiteLine: number,
+    readonly killingTests: string[],
+    readonly killingSetObservedResult: SurvivingMutationKillingSetResult,
     readonly dualConstraint?: true,
   ) {
     let message = `Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`;
@@ -1149,6 +1153,8 @@ export type SurvivingMutationLogFields = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  survivingMutationKillingTests?: string[];
+  survivingMutationKillingSetResult?: SurvivingMutationKillingSetResult;
 };
 
 export function survivingMutationLogFields(
@@ -1160,6 +1166,8 @@ export function survivingMutationLogFields(
       survivingMutation: source.mutation,
       survivingMutationSourceFile: source.sourceSiteFile,
       survivingMutationSourceLine: source.sourceSiteLine,
+      survivingMutationKillingTests: source.killingTests,
+      survivingMutationKillingSetResult: source.killingSetObservedResult,
     };
   }
   if (source instanceof Error) return {};
@@ -1170,6 +1178,12 @@ export function survivingMutationLogFields(
   }
   if (source.survivingMutationSourceLine !== undefined) {
     fields.survivingMutationSourceLine = source.survivingMutationSourceLine;
+  }
+  if (source.survivingMutationKillingTests !== undefined) {
+    fields.survivingMutationKillingTests = source.survivingMutationKillingTests;
+  }
+  if (source.survivingMutationKillingSetResult !== undefined) {
+    fields.survivingMutationKillingSetResult = source.survivingMutationKillingSetResult;
   }
   return fields;
 }

@@ -2,7 +2,11 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { sleep } from "../../../shared/sleep.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import type { BaseRefProbeObservation, GateAllowedPathsFailureReason } from "../execution/ready-finalize.ts";
+import type {
+  BaseRefProbeObservation,
+  GateAllowedPathsFailureReason,
+  SurvivingMutationKillingSetResult,
+} from "../execution/ready-finalize.ts";
 import type { GateInvocationRefusalCause, WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
@@ -61,6 +65,8 @@ export type LoopFinishedEvent = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  survivingMutationKillingTests?: string[];
+  survivingMutationKillingSetResult?: SurvivingMutationKillingSetResult;
   nonTerminatingMutation?: string;
   nonTerminatingMutationSourceFile?: string;
   nonTerminatingMutationSourceLine?: number;

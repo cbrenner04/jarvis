@@ -53,6 +53,7 @@ import {
   resolveWriteSiblingCommandSource,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
+  survivingMutationErrorFromTerminalRecord,
 } from "./workflow-runner-resume.ts";
 
 describe("executeWorkflow review dispatch", () => {
@@ -1467,7 +1468,7 @@ describe("executeWorkflow review dispatch", () => {
             expect(input.baseRef).toBe(baseRef);
             expect(input.requiredIntegrationScope).toBe("test:integration:v2");
             if (finalizerCalls === 1) {
-              throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+              throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
             }
             if (finalizerCalls <= 3) throw new ReadyGateError("bun run ready", 1, "still red");
             return undefined;
@@ -1730,7 +1731,7 @@ describe("executeWorkflow review dispatch", () => {
           completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
           readyFinalizer: async () => {
-            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
           },
           mutationRepair: {
             bindings: [
@@ -1830,7 +1831,9 @@ describe("executeWorkflow review dispatch", () => {
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
           readyFinalizer: async () => {
             finalizerCalls += 1;
-            if (finalizerCalls === 1) throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+            if (finalizerCalls === 1) {
+              throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
+            }
             return undefined;
           },
           runFixCommand: async () => {},
@@ -1921,7 +1924,7 @@ describe("executeWorkflow review dispatch", () => {
             return { pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" };
           },
           readyFinalizer: async () => {
-            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
           },
           mutationRepair: {
             bindings: [
@@ -2053,7 +2056,7 @@ describe("executeWorkflow review dispatch", () => {
         completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError(mutation, sourceFile, sourceLine);
+          throw new SurvivingMutationError(mutation, sourceFile, sourceLine, ["src/guard.test.ts"], "passed-confirmed");
         },
       });
 
@@ -2105,7 +2108,7 @@ describe("executeWorkflow review dispatch", () => {
         completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError(mutation, sourceFile, sourceLine);
+          throw new SurvivingMutationError(mutation, sourceFile, sourceLine, ["src/guard.test.ts"], "passed-confirmed");
         },
       });
 
@@ -2155,6 +2158,31 @@ describe("executeWorkflow review dispatch", () => {
       },
     };
   }
+
+  test("legacy surviving-mutation terminal record reconstructs with an empty killing set and an unknown result", () => {
+    // A row written before the killing-set fields existed must reconstruct as "unknown", never "not-run":
+    // "not-run" would claim no killing set was resolved, which is the conflation these fields remove.
+    const legacyRecord = {
+      ts: new Date().toISOString(),
+      seq: 1,
+      runId: "legacy-run",
+      event: {
+        kind: "loop_finished" as const,
+        loopOutcomeKind: "surviving_mutation_failed" as const,
+        iterationsConsumed: 0,
+        resumable: true,
+        survivingMutation: "operator-flip: === → !==",
+        survivingMutationSourceFile: "src/guard.ts",
+        survivingMutationSourceLine: 17,
+      },
+    };
+
+    const error = survivingMutationErrorFromTerminalRecord(legacyRecord);
+
+    expect(error).toBeInstanceOf(SurvivingMutationError);
+    expect(error?.killingTests).toEqual([]);
+    expect(error?.killingSetObservedResult).toBe("unknown");
+  });
 
   function reviewMutationSiblingFixture(
     store: ReturnType<typeof openStateStore>,

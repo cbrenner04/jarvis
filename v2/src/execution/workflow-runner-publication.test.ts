@@ -453,7 +453,13 @@ describe("executeWorkflow completion publication", () => {
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+          throw new SurvivingMutationError(
+            "operator-flip: === → !==",
+            "src/guard.ts",
+            17,
+            ["src/guard.test.ts"],
+            "passed-confirmed",
+          );
         },
       });
       expect(result.kind).toBe("surviving_mutation_failed");
@@ -461,6 +467,8 @@ describe("executeWorkflow completion publication", () => {
       expect(result.survivingMutation).toBe("operator-flip: === → !==");
       expect(result.survivingMutationSourceFile).toBe("src/guard.ts");
       expect(result.survivingMutationSourceLine).toBe(17);
+      expect(result.survivingMutationKillingTests).toEqual(["src/guard.test.ts"]);
+      expect(result.survivingMutationKillingSetResult).toBe("passed-confirmed");
       expect(store.loadRun(result.runId)?.status).toBe("failed");
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
@@ -469,6 +477,8 @@ describe("executeWorkflow completion publication", () => {
         survivingMutation: "operator-flip: === → !==",
         survivingMutationSourceFile: "src/guard.ts",
         survivingMutationSourceLine: 17,
+        survivingMutationKillingTests: ["src/guard.test.ts"],
+        survivingMutationKillingSetResult: "passed-confirmed",
       });
     });
   });

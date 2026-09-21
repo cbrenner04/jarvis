@@ -933,6 +933,53 @@ test("a thrown republication tail rewrites the settled marker to failed", async 
   expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("failed");
 });
 
+test("a resume whose tail fails restores the failed stage the admission reopened", async () => {
+  const { handlers } = lifecycleHandlers();
+  const runId = stateStore.createRun({
+    project: "republish",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "stage-restore",
+    specPath: "/tmp/spec.md",
+    status: "failed",
+    stepId: "step-1",
+    workflowSnapshot: workflowSnapshot("inv-stage-restore", [{ stepId: "step-1", role: "implement" }]),
+  });
+  stateStore.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "invocation_failure" });
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "stage-restore",
+      stages: [
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    },
+  });
+  const detail = { message: "tail boom" };
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: { status: "failed", workflowInvocationId: runId, startedAt: 100, endedAt: 200, failureDetail: detail },
+  });
+  stateStore.updateStage({ pipelineId, stageId: "gate", patch: { status: "skipped", skipProvenance: "terminal" } });
+  const stages = () => stateStore.loadPipeline(pipelineId)?.stages;
+
+  const outcome = await handlers.resumeFinalizationOnly(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch: "stage-restore" },
+    async () => {
+      expect(stages()?.map((stage) => stage.status)).toEqual(["running", "pending"]);
+      return { ok: false, message: "tail failed" };
+    },
+  );
+
+  expect(outcome).toMatchObject({ kind: "error", code: "internal_error" });
+  expect(stages()).toMatchObject([
+    { stageId: "implement", status: "failed", endedAt: 200, failureDetail: detail },
+    { stageId: "gate", status: "skipped", skipProvenance: "terminal" },
+  ]);
+});
+
 test("a republication tail returning a failure as a response rewrites the settled marker to failed", async () => {
   const { handlers } = lifecycleHandlers();
   const runId = settledInvocationRun("inv-republish-response", "republish-response");

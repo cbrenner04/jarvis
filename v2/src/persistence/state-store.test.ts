@@ -4065,6 +4065,78 @@ describe("failed pipeline reopen", () => {
     expect(succeeded).toEqual(succeededBefore);
   });
 
+  test("reopenFailedStagesForResume reopens a linked failed stage to running and its skipped suffix to pending, and restore undoes it", () => {
+    const { pipelineId } = seedContinuationPipeline([
+      { status: "succeeded" },
+      {
+        status: "failed",
+        workflowInvocationId: "entry-1",
+        startedAt: 5,
+        endedAt: 9,
+        failureDetail: { message: "boom" },
+      },
+      { status: "skipped", skipProvenance: "terminal" },
+    ]);
+
+    const reopened = store.reopenFailedStagesForResume("entry-1");
+
+    expect(reopened.map((entry) => entry.stage.stageId)).toEqual(["stage-1"]);
+    expect(loadPipelineOrThrow(store, pipelineId).stages.map((stage) => stage.status)).toEqual([
+      "succeeded",
+      "running",
+      "pending",
+    ]);
+    const running = loadPipelineOrThrow(store, pipelineId).stages[1];
+    expect(running).toMatchObject({
+      workflowInvocationId: "entry-1",
+      startedAt: 5,
+      endedAt: null,
+      failureDetail: null,
+    });
+
+    store.restoreReopenedFailedStages(reopened);
+
+    const restored = loadPipelineOrThrow(store, pipelineId).stages;
+    expect(restored.map((stage) => stage.status)).toEqual(["succeeded", "failed", "skipped"]);
+    expect(restored[1]).toMatchObject({ endedAt: 9, failureDetail: { message: "boom" } });
+    expect(restored[2]?.skipProvenance).toBe("terminal");
+  });
+
+  test("reopenFailedStagesForResume leaves stages linked elsewhere, malformed continuations, and dismissed pipelines alone", () => {
+    const other = seedContinuationPipeline([
+      { status: "failed", workflowInvocationId: "entry-other" },
+      { status: "skipped", skipProvenance: "terminal" },
+    ]).pipelineId;
+    const malformed = seedContinuationPipeline([
+      { status: "failed", workflowInvocationId: "entry-2" },
+      { status: "succeeded" },
+    ]).pipelineId;
+    const dismissed = seedContinuationPipeline([
+      { status: "failed", workflowInvocationId: "entry-2" },
+      { status: "skipped", skipProvenance: "terminal" },
+    ]).pipelineId;
+    store.dismissPipeline({ pipelineId: dismissed });
+
+    expect(store.reopenFailedStagesForResume("entry-2")).toEqual([]);
+
+    for (const pipelineId of [other, malformed, dismissed]) {
+      expect(loadPipelineOrThrow(store, pipelineId).stages[0]?.status).toBe("failed");
+    }
+    expect(loadPipelineOrThrow(store, other).stages[1]?.status).toBe("skipped");
+  });
+
+  test("restoreReopenedFailedStages skips a stage that is no longer running on its link", () => {
+    const { pipelineId } = seedContinuationPipeline([
+      { status: "failed", workflowInvocationId: "entry-3", failureDetail: { message: "boom" } },
+    ]);
+    const reopened = store.reopenFailedStagesForResume("entry-3");
+    store.updateStage({ pipelineId, stageId: "stage-0", patch: { status: "succeeded" } });
+
+    store.restoreReopenedFailedStages(reopened);
+
+    expect(loadPipelineOrThrow(store, pipelineId).stages[0]?.status).toBe("succeeded");
+  });
+
   test("reopenFailedPipeline clears decidedAt on the reopened row and its skipped suffix", () => {
     const pipelineId = store.createPipeline({
       definition: {

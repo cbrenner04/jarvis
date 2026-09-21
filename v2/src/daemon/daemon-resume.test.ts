@@ -33,6 +33,7 @@ import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry, type WriteLoopBindingSourceDeps } from "./daemon.ts";
+import { derivePipelineState } from "./pipeline-execution.ts";
 import { composeRunOperatorError, type TerminalLogRecord, terminalResumeRefusalMessage } from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
@@ -2317,6 +2318,123 @@ test("a completion_commit_failed from this tail stays retryable: a subsequent re
   } finally {
     rmSync(logsPath, { force: true });
   }
+});
+
+const FAILED_STAGE_DETAIL = { message: "surviving mutation" };
+
+/** A two-stage pipeline whose `implement` stage failed linked to `entryRunId`, its `gate` suffix skipped. */
+function seedFailedImplementStage(entryRunId: string): string {
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "failed-stage-resume",
+      stages: [
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "failed",
+      workflowInvocationId: entryRunId,
+      startedAt: 100,
+      endedAt: 200,
+      failureDetail: FAILED_STAGE_DETAIL,
+    },
+  });
+  stateStore.updateStage({ pipelineId, stageId: "gate", patch: { status: "skipped", skipProvenance: "terminal" } });
+  return pipelineId;
+}
+
+function stageRow(pipelineId: string, stageId: string) {
+  const stage = stateStore.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === stageId);
+  if (stage === undefined) throw new Error(`stage ${stageId} missing`);
+  return stage;
+}
+
+function seedFailedSurvivingMutationStage(invocationId: string, branch: string) {
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({ invocationId, branch, reviewBehavior: "review" });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath(`${invocationId}-logs`, reviewRunId);
+  const pipelineId = seedFailedImplementStage(writeRunId);
+  return { writeRunId, reviewRunId, logsPath, pipelineId };
+}
+
+function publishingHandlers(logsPath: string): Handlers {
+  return logBackedHandlers(logsPath, {
+    intentFinalizationResumeDeps: {
+      completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+      completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 31, prUrl: "https://example.test/pr/31" }),
+      readyFinalizer: async () => undefined,
+    },
+  });
+}
+
+test("resuming a surviving_mutation_failed row reopens the failed stage linked to its invocation's entry run", async () => {
+  const { reviewRunId, logsPath, pipelineId } = seedFailedSurvivingMutationStage(
+    "stage-reopen-resume",
+    "stage-reopen/resume",
+  );
+  try {
+    const response = await resumeDirect(publishingHandlers(logsPath), reviewRunId);
+    expect(response.kind).toBe("response");
+
+    expect(stageRow(pipelineId, "implement")).toMatchObject({ status: "running", endedAt: null, failureDetail: null });
+    expect(stageRow(pipelineId, "implement").startedAt).toBe(100);
+    expect(stageRow(pipelineId, "gate").status).toBe("pending");
+    const pipeline = stateStore.loadPipeline(pipelineId);
+    expect(pipeline && derivePipelineState(pipeline)).toBe("running");
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("resume does not reopen a failed stage that pipeline resume relinked, or one on a dismissed pipeline", async () => {
+  const { writeRunId, reviewRunId, logsPath, pipelineId } = seedFailedSurvivingMutationStage(
+    "stage-reopen-guarded",
+    "stage-reopen/guarded",
+  );
+  try {
+    const relinked = seedFailedImplementStage("relinked-entry-run");
+    const dismissed = seedFailedImplementStage(writeRunId);
+    stateStore.dismissPipeline({ pipelineId: dismissed });
+    stateStore.updateStage({ pipelineId, stageId: "implement", patch: { workflowInvocationId: "later-entry-run" } });
+
+    const response = await resumeDirect(publishingHandlers(logsPath), reviewRunId);
+    expect(response.kind).toBe("response");
+
+    for (const untouched of [pipelineId, relinked, dismissed]) {
+      expect(stageRow(untouched, "implement").status).toBe("failed");
+      expect(stageRow(untouched, "gate").status).toBe("skipped");
+    }
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("a failed stage linked to a non-resumable row stays failed when the row is later completed by a direct write", async () => {
+  const runId = createWorkflowRun({ invocationId: "stage-reopen-non-resumable" });
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "some error" },
+  });
+  const pipelineId = seedFailedImplementStage(runId);
+  const localHandlers = createHandlers(
+    loopFinishedLogReader(runId, { loopOutcomeKind: "invocation_failure", iterationsConsumed: 0, resumable: true }),
+  );
+
+  expect((await listRow(localHandlers, runId)).error?.nextAction).toBe("stop");
+  expect((await resumeDirect(localHandlers, runId)).kind).toBe("error");
+  stateStore.setRunStatus(runId, "completed");
+
+  expect(stageRow(pipelineId, "implement")).toMatchObject({ status: "failed", failureDetail: FAILED_STAGE_DETAIL });
+  expect(stageRow(pipelineId, "gate").status).toBe("skipped");
 });
 
 test("a stale pre-fix resumable:true record projects unsupported_resume_context once the write sibling can't be resolved", async () => {

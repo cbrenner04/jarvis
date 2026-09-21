@@ -38,6 +38,7 @@ import {
 import {
   type Attempt,
   isTerminalRunStatus,
+  type ReopenedFailedStage,
   type Run,
   type RunStatus,
   type StateStore,
@@ -156,24 +157,37 @@ function runOwnerConflictError(runId: string): { kind: "error"; code: "run_owner
 async function admitRunForResumeOrRefusal(
   store: StateStore,
   runId: string,
-): Promise<{ kind: "error"; code: string; message: string } | undefined> {
+): Promise<{ kind: "error"; code: string; message: string } | { kind: "admitted"; reopened: ReopenedFailedStage[] }> {
   const admission = await store.admitRunForResume(runId);
-  if (admission.kind === "applied") return undefined;
-  return {
-    kind: "error",
-    code: admission.reason,
-    message: `Run ${runId} resume admission refused: ${admission.reason}`,
-  };
+  if (admission.kind !== "applied") {
+    return {
+      kind: "error",
+      code: admission.reason,
+      message: `Run ${runId} resume admission refused: ${admission.reason}`,
+    };
+  }
+  return { kind: "admitted", reopened: reopenFailedStagesAfterAdmission(store, runId) };
+}
+
+/** Best-effort: an admitted resume reopens the `failed` stage linked to its invocation's entry run, so the resumed row settles it. */
+function reopenFailedStagesAfterAdmission(store: StateStore, runId: string): ReopenedFailedStage[] {
+  try {
+    return store.reopenFailedStagesForResume(resolveInvocationEntryRunId(store, runId));
+  } catch (reopenError) {
+    console.error(`Failed-stage reopen for resumed run ${runId} failed:`, reopenError);
+    return [];
+  }
 }
 
 /**
  * Undo an applied resume admission whose resume failed before a live loop owned the row: restore
  * the pre-admission status (and terminal cause/detail) so the row stays resumable, not an
  * ownerless `in-progress` orphan. Settles as this daemon, the owner admission stamped. No-op once
- * anything else moved the row off `in-progress`.
+ * anything else moved the row off `in-progress`. Stages the admission reopened return to `failed`.
  */
-function restoreRunAfterFailedResume(store: StateStore, prior: Run): void {
+function restoreRunAfterFailedResume(store: StateStore, prior: Run, reopened: readonly ReopenedFailedStage[]): void {
   if (store.loadRun(prior.id)?.status !== "in-progress") return;
+  store.restoreReopenedFailedStages(reopened);
   if (prior.status === "paused") {
     store.setRunStatus(prior.id, "paused");
     return;
@@ -212,9 +226,10 @@ function failedFinalizationTailResult(
   outcome: { ok: false; message: string },
   aborted: boolean,
   failureAsResponse: boolean,
+  reopened: readonly ReopenedFailedStage[],
 ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
   if (!aborted) {
-    restoreRunAfterFailedResume(store, run);
+    restoreRunAfterFailedResume(store, run, reopened);
     rewriteSettledMarkerAfterFailedRepublication(store, run);
   }
   return failureAsResponse
@@ -1190,8 +1205,8 @@ export function createRunLifecycleHandlers(
     }
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admissionError = await admitRunForResumeOrRefusal(store, runId);
-    if (admissionError) return admissionError;
+    const admission = await admitRunForResumeOrRefusal(store, runId);
+    if (admission.kind === "error") return admission;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
   };
@@ -1204,8 +1219,8 @@ export function createRunLifecycleHandlers(
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admissionError = await admitRunForResumeOrRefusal(store, run.id);
-    if (admissionError) return admissionError;
+    const admission = await admitRunForResumeOrRefusal(store, run.id);
+    if (admission.kind === "error") return admission;
     registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
     const activeKey = ownershipKeyString(key);
@@ -1221,7 +1236,14 @@ export function createRunLifecycleHandlers(
       };
       const outcome = await execute(resumeDeps);
       if (!outcome.ok) {
-        return failedFinalizationTailResult(store, run, outcome, abortController.signal.aborted, failureAsResponse);
+        return failedFinalizationTailResult(
+          store,
+          run,
+          outcome,
+          abortController.signal.aborted,
+          failureAsResponse,
+          admission.reopened,
+        );
       }
       return { kind: "response", result: outcome };
     } catch (error) {
@@ -1314,17 +1336,18 @@ export function createRunLifecycleHandlers(
         message: `${reconstructedSteps.message} — ${RUN_OPERATOR_ERROR_RECOVERY.unsupported_resume_context}`,
       };
     }
-    let admitted = false;
+    let admitted: { reopened: ReopenedFailedStage[] } | undefined;
     return deps.resumeLinkedWorkflowStart(
       reconstructedSteps.steps,
       snapshot,
       async () => {
-        const refusal = await admitRunForResumeOrRefusal(store, run.id);
-        admitted = refusal === undefined;
-        return refusal;
+        const admission = await admitRunForResumeOrRefusal(store, run.id);
+        if (admission.kind === "error") return admission;
+        admitted = admission;
+        return undefined;
       },
       () => {
-        if (admitted) restoreRunAfterFailedResume(store, run);
+        if (admitted !== undefined) restoreRunAfterFailedResume(store, run, admitted.reopened);
       },
     );
   };
@@ -1342,8 +1365,8 @@ export function createRunLifecycleHandlers(
     const key: OwnershipKey = { project: run.project, branch: run.branch };
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admissionError = await admitRunForResumeOrRefusal(store, runId);
-    if (admissionError) return admissionError;
+    const admission = await admitRunForResumeOrRefusal(store, runId);
+    if (admission.kind === "error") return admission;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
   };

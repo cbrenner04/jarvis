@@ -3345,8 +3345,6 @@ async function performAbandonmentSteps(
   return { ok: true, destroyed };
 }
 
-export const ABANDON_DISCARD_UNLANDED_CLI_FLAG = "--discard-unlanded";
-
 /**
  * Refusal reason when abandoning would destroy work no PR protects: commits on the branch not on base
  * (harness staging and squash-merged lanes exempt) or a worktree `HEAD` the branch cannot reach.
@@ -3359,7 +3357,7 @@ async function abandonUnlandedWorkRefusal(
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
   if (projectRoot === undefined) return "project root unknown; cannot verify the branch carries no unlanded commits";
-  const recovery = `hand-finish the branch, or re-run with ${ABANDON_DISCARD_UNLANDED_CLI_FLAG} to discard it`;
+  const recovery = `hand-finish the branch, or re-run with --discard-unlanded to discard it`;
   try {
     const baseRef = await getBaseBranch(projectRoot, runner);
     const [tipSha, worktreeHead] = await Promise.all([

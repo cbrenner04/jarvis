@@ -22,7 +22,7 @@ PR #4088 settles publication-tail failures `failed`; rows written before it stil
 - [x] A new migration test seeds a store stamped `031-baseline-squash` with `completed` rows carrying `completion_commit_failed` and `ready_flip_failed` causes, reopens it, and asserts both read `failed` with `terminal_cause`, `terminal_failure_detail`, `finished_at`, and `status_changed_at` unchanged; it fails against the pre-fix code.
 - [x] The same test asserts `completed` rows with `terminal_cause` `complete`, null, or `ready_gate_failed`, and non-`completed` rows with a failure cause, are untouched, that `_migrations` holds `032-completed-publication-failure-rows-to-failed`, and that reopening a second time is a no-op.
 - [x] A test seeds a pre-squash store (legacy `_migrations` ids, misclassified `completed` row) and asserts one open leaves it stamped `031-baseline-squash` and `032-completed-publication-failure-rows-to-failed` with the row `failed`.
-- [x] A test asserts `deriveOperatorIncidents` returns no incident for a repaired row whose `finished_at` is older than the recency window.
+- [x] `a repaired row derives a failed-state incident in window and none once stale` asserts `deriveOperatorIncidents` returns no incident for a repaired row whose `finished_at` is older than the recency window, and that the in-window incident reflects the repaired state — `cause: "failed"` and transition `terminal:failed:<statusChangedAt>`, since the incident's `cause` mirrors the row status; it fails against the pre-fix code, which leaves the row `completed` and derives `cause: "completed"`.
 - [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

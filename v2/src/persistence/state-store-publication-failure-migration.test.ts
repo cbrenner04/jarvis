@@ -125,18 +125,30 @@ describe("completed publication-failure rows migration", () => {
     ]);
   });
 
-  test("a repaired row older than the recency window derives no incident", () => {
+  test("a repaired row derives a failed-state incident in window and none once stale", () => {
     createStampedStore(dbPath);
     seedRows(dbPath, { stamp: [BASELINE_ID] });
     const store = openStateStore(dbPath);
     try {
       const staleNow = FINISHED_AT + ATTENTION_TERMINAL_RECENCY_MS + 1;
-      const incidentRunIds = (nowMs: number) =>
+      const repairedIncidents = (nowMs: number) =>
         deriveOperatorIncidents(store, nowMs)
-          .map((incident) => ("runId" in incident ? incident.runId : undefined))
-          .filter((runId) => runId !== undefined && REPAIRED_IDS.includes(runId));
-      expect(incidentRunIds(staleNow)).toEqual([]);
-      expect(incidentRunIds(FINISHED_AT + 1).sort()).toEqual([...REPAIRED_IDS].sort());
+          .filter((incident) => "runId" in incident && REPAIRED_IDS.includes(incident.runId))
+          .map((incident) => ({
+            runId: "runId" in incident ? incident.runId : undefined,
+            cause: incident.cause,
+            transition: incident.transition,
+          }))
+          .sort((left, right) => (left.runId ?? "").localeCompare(right.runId ?? ""));
+
+      expect(repairedIncidents(staleNow)).toEqual([]);
+      // The in-window incident reports the repaired state: `cause` mirrors the row's status, so an
+      // unrepaired `completed` row would report `completed` here instead of `failed`.
+      expect(repairedIncidents(FINISHED_AT + 1)).toEqual(
+        [...REPAIRED_IDS]
+          .sort()
+          .map((runId) => ({ runId, cause: "failed", transition: `terminal:failed:${CHANGED_AT}` })),
+      );
     } finally {
       store.close();
     }

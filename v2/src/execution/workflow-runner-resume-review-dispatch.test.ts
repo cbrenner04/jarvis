@@ -1968,7 +1968,7 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
-  type RealVerifierRepairMode = "exhaust" | "later-blocked" | "abort-after-commit";
+  type RealVerifierRepairMode = "exhaust" | "later-blocked" | "abort-after-commit" | "push-fails";
 
   /** Drives the real diff-derived verifier to a confirmed survivor after every repair commit; records the event order. */
   async function runRealVerifierRepairScenario(mode: RealVerifierRepairMode): Promise<{
@@ -2046,7 +2046,9 @@ describe("executeWorkflow review dispatch", () => {
               return committed;
             },
             completionPublisher: async () => {
+              const afterRepairCommit = events.at(-1)?.startsWith("commit:") === true;
               events.push(`publish:${head()}`);
+              if (mode === "push-fails" && afterRepairCommit) throw new Error("push rejected");
               return { pushSha: head(), prNumber: 3, prUrl: "https://example.test/pr/3" };
             },
             readyFinalizer: async () => {
@@ -2123,6 +2125,14 @@ describe("executeWorkflow review dispatch", () => {
     expect(ordered).toBe(true);
     expect(events.indexOf(`publish:${commits[0]}`)).toBeLessThan(events.indexOf("repair:2"));
     expect(terminalKind).toBe("mutation_repair_exhausted");
+  }, 120_000);
+
+  test("a failed repair-commit push settles the run as completion_commit_failed without another repair", async () => {
+    const { events, outcome, terminalKind } = await runRealVerifierRepairScenario("push-fails");
+    expect(outcome).toMatchObject({ ok: false, message: "push rejected" });
+    expect(events.filter((e) => e.startsWith("repair:"))).toEqual(["repair:1"]);
+    expect(events.at(-1)).toStartWith("publish:");
+    expect(terminalKind).toBe("completion_commit_failed");
   }, 120_000);
 
   test("a repair commit is published even when abort arrives right after the commit", async () => {

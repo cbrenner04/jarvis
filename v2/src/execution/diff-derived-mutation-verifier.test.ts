@@ -30,6 +30,7 @@ import {
   type RunScopedTestsOptions,
   resetVerifierTestRunTracking,
   resolveImporterScanRoot,
+  resolveImporterScanRoots,
   resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
   sharedRunMustQueue,
@@ -3724,7 +3725,7 @@ index 1234567..abcdefg 100644
     const ordered = [...candidates, directImporter, crossSurfaceImporter, transitiveImporter].sort();
     expect(candidates.every((path) => path.startsWith("v2/src/"))).toBe(true);
     expect(resolveImporterScanRoot(targetFile)).toBe("v2/src/");
-    expect(resolveImporterScanRoot("scripts/foo.ts")).toBeNull();
+    expect(resolveImporterScanRoot("v1/src/foo.ts")).toBeNull();
 
     const noTransitiveResult = await verifyImporterFixture({
       listImporterCandidates: () => [transitiveImporter, unrelatedImporter],
@@ -3750,6 +3751,61 @@ index 1234567..abcdefg 100644
       expect(capResult.sourceSite.file).toBe(targetFile);
     }
     expect(scopedRuns).toHaveLength(0);
+  });
+
+  it("the scripts surface is scanned, and its scan roots include root test/ so cross-directory importers are reachable", () => {
+    // Regression: `scripts/` was absent from the scanned surfaces, so any scripts module without a
+    // co-located <stem>.test.ts reported missing-killing-test even with real coverage in root test/.
+    expect(resolveImporterScanRoot("scripts/test-slice.ts")).toBe("scripts/");
+    expect(resolveImporterScanRoots("scripts/test-slice.ts")).toEqual(["scripts/", "test/"]);
+    expect(resolveImporterScanRoots("v2/src/feature/target.ts")).toEqual(["v2/src/"]);
+    expect(resolveImporterScanRoots("v1/src/foo.ts")).toEqual([]);
+  });
+
+  it("a scripts module covered only by a root test/ importer resolves that importer as its killing test", async () => {
+    const scriptFile = "scripts/test-slice.ts";
+    const rootTestImporter = "test/test-slices.test.ts";
+    const scriptDiff = `diff --git a/${scriptFile} b/${scriptFile}
+index 1234567..abcdefg 100644
+--- a/${scriptFile}
++++ b/${scriptFile}
+@@ -1,3 +1,3 @@
+ export function partitionTestFiles(x: unknown) {
+-  if (!x) return null;
++  if (!x) return "safe";
+   return x;
+`;
+    const scriptContent = `export function partitionTestFiles(x: unknown) {\n  if (!x) return "safe";\n  return x;\n}`;
+    const scanned: string[] = [];
+    const scopes: (readonly string[])[] = [];
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/wt", runBase: "main" },
+      {
+        gitDiff: async () => scriptDiff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => {
+          const rel = path.replace("/wt/", "");
+          if (rel === scriptFile) return scriptContent;
+          if (rel === rootTestImporter)
+            return `import { partitionTestFiles } from "../scripts/test-slice.ts";\nexport {};\n`;
+          if (rel === "scripts/unrelated.test.ts") return `import { other } from "./other.ts";\nexport {};\n`;
+          throw new Error(`ENOENT: ${path}`);
+        },
+        writeFile: async () => {},
+        listDir: () => [],
+        listImporterCandidates: (scanRoot) => {
+          scanned.push(scanRoot);
+          return scanRoot === "test/" ? [rootTestImporter] : ["scripts/unrelated.test.ts"];
+        },
+        runScopedTests: async (_cwd, scope) => {
+          scopes.push(scope);
+          return false;
+        },
+      },
+    );
+    expect(scanned).toEqual(["scripts/", "test/"]);
+    expect(scopes).toEqual([[rootTestImporter]]);
+    expect(result.kind).toBe("pass");
   });
 
   it("sibling-only co-located coverage skips importer discovery when the surface holds more than 200 test files", async () => {

@@ -213,7 +213,16 @@ function inconclusiveCandidateReason(
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
 const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
 
-const IMPORTER_SCAN_SURFACE_PREFIXES = ["v2/src/", "shared/"] as const;
+/**
+ * Production surfaces whose importers are discovered by scanning. `scanRoots` lists every directory
+ * that may hold a test importing the surface: `scripts/` modules are covered both co-located and by
+ * root `test/`, so both are scanned.
+ */
+const IMPORTER_SCAN_SURFACES = [
+  { prefix: "v2/src/", scanRoots: ["v2/src/"] },
+  { prefix: "shared/", scanRoots: ["shared/"] },
+  { prefix: "scripts/", scanRoots: ["scripts/", "test/"] },
+] as const;
 const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.ts";
 const RENDER_OBSERVER_MAP_BINDING = "RENDER_OBSERVER_TESTS";
 const MUTATION_RECORD_DIR = ".jarvis-diff-derived-mutations";
@@ -595,14 +604,20 @@ function defaultListImporterCandidates(scanRoot: string, worktreePath: string): 
   return files.sort();
 }
 
-export function resolveImporterScanRoot(productionPath: string): string | null {
-  let best: string | null = null;
-  for (const prefix of IMPORTER_SCAN_SURFACE_PREFIXES) {
-    if (productionPath.startsWith(prefix) && (best === null || prefix.length > best.length)) {
-      best = prefix;
+/** Every directory scanned for tests importing `productionPath`; `[]` when the surface is not scanned. */
+export function resolveImporterScanRoots(productionPath: string): readonly string[] {
+  let best: (typeof IMPORTER_SCAN_SURFACES)[number] | null = null;
+  for (const surface of IMPORTER_SCAN_SURFACES) {
+    if (productionPath.startsWith(surface.prefix) && (best === null || surface.prefix.length > best.prefix.length)) {
+      best = surface;
     }
   }
-  return best;
+  return best === null ? [] : best.scanRoots;
+}
+
+/** Primary importer scan root for `productionPath`, or `null` when the surface is not scanned. */
+export function resolveImporterScanRoot(productionPath: string): string | null {
+  return resolveImporterScanRoots(productionPath)[0] ?? null;
 }
 
 async function testDirectlyImportsProductionModule(
@@ -1636,19 +1651,24 @@ async function resolveKillingTests(
     return { killingTests, capExceeded: false };
   }
 
-  const scanRoot = resolveImporterScanRoot(candidateFile);
-  if (scanRoot === null) {
+  const scanRoots = resolveImporterScanRoots(candidateFile);
+  if (scanRoots.length === 0) {
     return { killingTests, capExceeded: false };
   }
 
   let inspectedImporterCandidates = 0;
-  for (const testPath of listImporterCandidates(scanRoot, worktreePath)) {
-    if (inspectedImporterCandidates >= MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE) {
-      return { killingTests, capExceeded: true };
-    }
-    inspectedImporterCandidates += 1;
-    if (await testDirectlyImportsProductionModule(worktreePath, testPath, candidateFile, readFile)) {
-      if (!killingTests.includes(testPath)) killingTests.push(testPath);
+  const seenCandidates = new Set<string>();
+  for (const scanRoot of scanRoots) {
+    for (const testPath of listImporterCandidates(scanRoot, worktreePath)) {
+      if (seenCandidates.has(testPath)) continue;
+      seenCandidates.add(testPath);
+      if (inspectedImporterCandidates >= MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE) {
+        return { killingTests, capExceeded: true };
+      }
+      inspectedImporterCandidates += 1;
+      if (await testDirectlyImportsProductionModule(worktreePath, testPath, candidateFile, readFile)) {
+        if (!killingTests.includes(testPath)) killingTests.push(testPath);
+      }
     }
   }
 

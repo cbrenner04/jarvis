@@ -53,6 +53,7 @@ import {
   resolveWriteSiblingCommandSource,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
+  survivingMutationErrorFromTerminalRecord,
 } from "./workflow-runner-resume.ts";
 
 describe("executeWorkflow review dispatch", () => {
@@ -2157,6 +2158,31 @@ describe("executeWorkflow review dispatch", () => {
       },
     };
   }
+
+  test("legacy surviving-mutation terminal record reconstructs with an empty killing set and an unknown result", () => {
+    // A row written before the killing-set fields existed must reconstruct as "unknown", never "not-run":
+    // "not-run" would claim no killing set was resolved, which is the conflation these fields remove.
+    const legacyRecord = {
+      ts: new Date().toISOString(),
+      seq: 1,
+      runId: "legacy-run",
+      event: {
+        kind: "loop_finished" as const,
+        loopOutcomeKind: "surviving_mutation_failed" as const,
+        iterationsConsumed: 0,
+        resumable: true,
+        survivingMutation: "operator-flip: === → !==",
+        survivingMutationSourceFile: "src/guard.ts",
+        survivingMutationSourceLine: 17,
+      },
+    };
+
+    const error = survivingMutationErrorFromTerminalRecord(legacyRecord);
+
+    expect(error).toBeInstanceOf(SurvivingMutationError);
+    expect(error?.killingTests).toEqual([]);
+    expect(error?.killingSetObservedResult).toBe("unknown");
+  });
 
   function reviewMutationSiblingFixture(
     store: ReturnType<typeof openStateStore>,

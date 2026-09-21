@@ -2685,7 +2685,7 @@ async function runReviewMutationCommitAndPublish(
   return settleSuccessfulReviewMutationPublication(context, store, attemptId, publication, deps);
 }
 
-function survivingMutationErrorFromTerminalRecord(
+export function survivingMutationErrorFromTerminalRecord(
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): SurvivingMutationError | undefined {
   if (terminalRecord?.event.kind !== "loop_finished") return undefined;

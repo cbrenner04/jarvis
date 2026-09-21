@@ -4075,7 +4075,7 @@ describe("failed pipeline reopen", () => {
         endedAt: 9,
         failureDetail: { message: "boom" },
       },
-      { status: "skipped", skipProvenance: "terminal" },
+      { status: "skipped", skipProvenance: "terminal", endedAt: 13 },
     ]);
 
     const reopened = store.reopenFailedStagesForResume("entry-1");
@@ -4093,13 +4093,14 @@ describe("failed pipeline reopen", () => {
       endedAt: null,
       failureDetail: null,
     });
+    expect(loadPipelineOrThrow(store, pipelineId).stages[2]).toMatchObject({ endedAt: null });
 
     store.restoreReopenedFailedStages(reopened);
 
     const restored = loadPipelineOrThrow(store, pipelineId).stages;
     expect(restored.map((stage) => stage.status)).toEqual(["succeeded", "failed", "skipped"]);
     expect(restored[1]).toMatchObject({ endedAt: 9, failureDetail: { message: "boom" } });
-    expect(restored[2]?.skipProvenance).toBe("terminal");
+    expect(restored[2]).toMatchObject({ skipProvenance: "terminal", endedAt: 13 });
   });
 
   test("reopenFailedStagesForResume leaves stages linked elsewhere, malformed continuations, and dismissed pipelines alone", () => {

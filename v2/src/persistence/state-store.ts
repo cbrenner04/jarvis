@@ -2610,7 +2610,7 @@ class StateStoreImpl implements StateStore {
     if (reopenedStage.changes === 0) return null;
     const suffix = stages.filter((row) => shape.suffixStageRecordIds.includes(row.id));
     const reopenSuffix = this.db.prepare(
-      "UPDATE pipeline_stages SET status = 'pending', skip_provenance = NULL WHERE id = ? AND status = 'skipped'",
+      "UPDATE pipeline_stages SET status = 'pending', skip_provenance = NULL, ended_at = NULL WHERE id = ? AND status = 'skipped'",
     );
     for (const row of suffix) {
       if (reopenSuffix.run(row.id).changes === 0) throw new PipelineReopenLostError();
@@ -2625,13 +2625,13 @@ class StateStoreImpl implements StateStore {
          WHERE id = ? AND status = 'running' AND workflow_invocation_id IS ?`,
       );
       const restoreSuffix = this.db.prepare(
-        "UPDATE pipeline_stages SET status = 'skipped', skip_provenance = ? WHERE id = ? AND status = 'pending'",
+        "UPDATE pipeline_stages SET status = 'skipped', skip_provenance = ?, ended_at = ? WHERE id = ? AND status = 'pending'",
       );
       for (const { stage, suffix } of reopened) {
         const failureDetail = stage.failureDetail === null ? null : JSON.stringify(stage.failureDetail);
         if (restoreStage.run(stage.endedAt, failureDetail, stage.id, stage.workflowInvocationId).changes === 0)
           continue;
-        for (const row of suffix) restoreSuffix.run(row.skipProvenance ?? null, row.id);
+        for (const row of suffix) restoreSuffix.run(row.skipProvenance ?? null, row.endedAt, row.id);
       }
     })();
   }

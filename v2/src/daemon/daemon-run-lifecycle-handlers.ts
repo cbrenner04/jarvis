@@ -108,6 +108,7 @@ type RunLifecycleHandlerDeps = {
     workflowSnapshot: WorkflowSnapshot,
     admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>,
     rollbackRunAdmission?: () => void,
+    settleStagesAfterResume?: (runId: string) => void,
   ) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
@@ -1366,6 +1367,7 @@ export function createRunLifecycleHandlers(
       () => {
         if (reopened !== undefined) restoreRunAfterFailedResume(store, run, reopened);
       },
+      settleStagesAfterWriteLoop,
     );
   };
 

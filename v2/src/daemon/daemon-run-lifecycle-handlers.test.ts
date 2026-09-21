@@ -516,6 +516,7 @@ type CapturedLinkedResume = {
   workflowSnapshot: WorkflowSnapshot;
   admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>;
   rollbackRunAdmission?: () => void;
+  settleStagesAfterResume?: (runId: string) => void;
 };
 
 function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps): {
@@ -535,12 +536,13 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
-    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun, rollbackRunAdmission) => {
+    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun, rollbackRunAdmission, settleStagesAfterResume) => {
       captured.push({
         steps,
         workflowSnapshot,
         ...(admitRun !== undefined ? { admitRun } : {}),
         ...(rollbackRunAdmission !== undefined ? { rollbackRunAdmission } : {}),
+        ...(settleStagesAfterResume !== undefined ? { settleStagesAfterResume } : {}),
       });
       return { kind: "response", result: { runId: "fake-entry-run" } };
     },
@@ -580,6 +582,7 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
     expect(response).toEqual({ kind: "response", result: { runId: "fake-entry-run" } });
     expect(captured).toHaveLength(1);
     expect(captured[0]?.workflowSnapshot.invocationId).toBe("linked-route-failed");
+    expect(captured[0]?.settleStagesAfterResume).toBeDefined();
     expect(captured[0]?.steps).toHaveLength(2);
     expect(captured[0]?.steps[0]).toMatchObject({
       behavior: "write",

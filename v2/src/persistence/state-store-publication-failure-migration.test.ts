@@ -25,6 +25,8 @@ const SEED_ROWS: SeedRow[] = [
   { id: "paused-flip", status: "paused", cause: "ready_flip_failed" },
 ];
 
+const REPAIRED_IDS = ["commit-failed", "ready-flip-failed"];
+
 function createStampedStore(dbPath: string): void {
   removeOrchestrationStore(dbPath);
   openStateStore(dbPath).close();
@@ -79,7 +81,7 @@ describe("completed publication-failure rows migration", () => {
     openStateStore(dbPath).close();
     const rows = readRows(dbPath);
 
-    for (const id of ["commit-failed", "ready-flip-failed"]) {
+    for (const id of REPAIRED_IDS) {
       const row = SEED_ROWS.find((seed) => seed.id === id);
       expect(rows[id]).toEqual({
         id,
@@ -90,7 +92,7 @@ describe("completed publication-failure rows migration", () => {
         status_changed_at: CHANGED_AT,
       });
     }
-    for (const seed of SEED_ROWS.filter((row) => !["commit-failed", "ready-flip-failed"].includes(row.id))) {
+    for (const seed of SEED_ROWS.filter((row) => !REPAIRED_IDS.includes(row.id))) {
       expect(rows[seed.id]).toMatchObject({ status: seed.status, terminal_cause: seed.cause });
     }
     expect(readMigrationIds(dbPath)).toEqual([BASELINE_ID, MIGRATION_ID]);
@@ -129,13 +131,12 @@ describe("completed publication-failure rows migration", () => {
     const store = openStateStore(dbPath);
     try {
       const staleNow = FINISHED_AT + ATTENTION_TERMINAL_RECENCY_MS + 1;
-      const repairedRunIds = ["commit-failed", "ready-flip-failed"];
       const incidentRunIds = (nowMs: number) =>
         deriveOperatorIncidents(store, nowMs)
           .map((incident) => ("runId" in incident ? incident.runId : undefined))
-          .filter((runId) => runId !== undefined && repairedRunIds.includes(runId));
+          .filter((runId) => runId !== undefined && REPAIRED_IDS.includes(runId));
       expect(incidentRunIds(staleNow)).toEqual([]);
-      expect(incidentRunIds(FINISHED_AT + 1).sort()).toEqual(repairedRunIds.sort());
+      expect(incidentRunIds(FINISHED_AT + 1).sort()).toEqual([...REPAIRED_IDS].sort());
     } finally {
       store.close();
     }

@@ -4242,6 +4242,34 @@ describe("resumePipeline interrupted stage", () => {
     expect(stages().find((stage) => stage.stageId === "s2")?.status).not.toBe("interrupted");
   });
 
+  test("resume persists the reset marker on the reopened interrupted stage", async () => {
+    const { store, stages } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+    const claimRefusal = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property === "claimPipelineContinuation") {
+          return () => ({ kind: "refused" as const, reason: "claimed" });
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as StateStore;
+
+    const outcome = await resumePipeline(PIPELINE_ID, { ...pipelineTestDeps(claimRefusal, []) });
+
+    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "claim_refused" });
+    expect(stageRecord(stages(), "s2")?.failureDetail).toMatchObject({
+      code: "pipeline_reopened_stage_reset",
+      stageId: "s2",
+      branchKey: "default",
+      flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
+    });
+  });
+
   test("resumeInterruptedRequiresReopen holds only for an interrupted pipeline with no running stage", () => {
     const { store } = fakeStore(RESTART_SWEEP_DEFINITION);
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "interrupted" } });

@@ -3107,6 +3107,47 @@ describe("implement preflight stale workspace reset", () => {
     expect(stderr).not.toContain("  PR: #");
   });
 
+  test("run workflow implement refuses retirement when --base names the retired branch", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const sent: unknown[] = [];
+    const baseStep = resetImplementSteps()[0];
+    if (baseStep === undefined || baseStep.behavior !== "write") {
+      throw new Error("expected implement write step");
+    }
+    const stepsWithBase: AnyWorkflowStep[] = [
+      { ...baseStep, worktree: { ...baseStep.worktree, baseRef: resetBranch } },
+    ];
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", resetBranch, "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: () => ({ ok: true as const, steps: stepsWithBase }) },
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain(`base '${resetBranch}' names the branch '${resetBranch}' being retired`);
+    expect(stderr).not.toContain("Retirement destroyed artifacts:");
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
   test("run workflow plan resets a stale worktree before daemon start", async () => {
     const worktreePath = await materializeStaleWorktree();
     const cap = captureIo();

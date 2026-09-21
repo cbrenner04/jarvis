@@ -3055,6 +3055,11 @@ export async function resetStaleWorkspace(
     return preRebaseSha !== undefined ? { status: "continue", preRebaseSha } : { status: "continue" };
   }
 
+  if (baseRef !== undefined) {
+    const baseRefusal = await staleResetBaseRefusalReason(baseRef, branch, projectRoot, runner);
+    if (baseRefusal !== undefined) return { status: "refused", reason: baseRefusal };
+  }
+
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
   if (abandonResult.ok) return { status: "reset", destroyed: abandonResult.destroyed };
   return {
@@ -3062,6 +3067,25 @@ export async function resetStaleWorkspace(
     reason: `retirement failed at ${abandonResult.step}; ${remainingArtifactsAfter(abandonResult.step)}`,
     destroyed: abandonResult.destroyed,
   };
+}
+
+/** Refuses a rematerialization base that retirement would destroy (name collision) or that is not a commit. */
+async function staleResetBaseRefusalReason(
+  baseRef: string,
+  branch: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  const retiredForms = [branch, `refs/heads/${branch}`, `origin/${branch}`, `refs/remotes/origin/${branch}`];
+  if (retiredForms.includes(baseRef)) {
+    return `base '${baseRef}' names the branch '${branch}' being retired; retirement would destroy it before rematerialization`;
+  }
+  try {
+    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`], projectRoot);
+  } catch {
+    return `base '${baseRef}' does not resolve to a commit in ${projectRoot}`;
+  }
+  return undefined;
 }
 
 async function isWorktreeLiveHeld(

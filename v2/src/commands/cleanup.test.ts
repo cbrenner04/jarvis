@@ -5148,6 +5148,94 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(result.status).toBe("reset");
   });
 
+  describe("base pre-validation before retirement", () => {
+    const destructiveCalls = (invocations: Array<{ cmd: string; args: string[] }>) =>
+      invocations.filter(
+        ({ cmd, args }) =>
+          (cmd === "git" && args[0] === "worktree" && args[1] === "remove") ||
+          (cmd === "git" && args[0] === "branch" && args[1] === "-D") ||
+          (cmd === "git" && args[0] === "push" && args[1] === "origin" && args.includes("--delete")) ||
+          (cmd === "gh" && args[0] === "pr" && args[1] === "close"),
+      );
+
+    function recordingRunner(invocations: Array<{ cmd: string; args: string[] }>): AsyncSubprocessRunner {
+      const inner = ghPrListRunner(projectRoot, []);
+      return {
+        runAsync: async (cmd, args, cwd) => {
+          invocations.push({ cmd, args: [...args] });
+          return inner.runAsync(cmd, args, cwd);
+        },
+      };
+    }
+
+    async function expectNothingDestroyed(
+      branch: string,
+      worktreePath: string,
+      invocations: Array<{ cmd: string; args: string[] }>,
+    ): Promise<void> {
+      expect(existsSync(worktreePath)).toBe(true);
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "--verify", `refs/heads/${branch}`], projectRoot);
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["rev-parse", "--verify", `refs/heads/${branch}`],
+        join(tempRoot, "origin.git"),
+      );
+      expect(destructiveCalls(invocations)).toEqual([]);
+    }
+
+    for (const form of ["X", "refs/heads/X", "origin/X", "refs/remotes/origin/X"]) {
+      test(`refuses retirement when baseRef is the retired branch as '${form}'`, async () => {
+        const branch = "impl/base-is-branch";
+        const worktreePath = await setupWorktreeAndBranch(branch);
+        await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+        const baseRef = form.replace("X", branch);
+        const invocations: Array<{ cmd: string; args: string[] }> = [];
+
+        const result = await callReset(branch, recordingRunner(invocations), noLiveDaemon, silentIo, { baseRef });
+
+        expect(result.status).toBe("refused");
+        const reason = genericRefusalReason(result);
+        expect(reason).toContain(`'${baseRef}'`);
+        expect(reason).toContain(`'${branch}'`);
+        await expectNothingDestroyed(branch, worktreePath, invocations);
+      });
+    }
+
+    test("does not refuse a distinct branch at the retired tip's SHA", async () => {
+      const branch = "impl/retire-me";
+      const worktreePath = await setupWorktreeAndBranch(branch);
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", "impl/base-twin", branch], projectRoot);
+
+      const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+        baseRef: "impl/base-twin",
+      });
+
+      expect(genericRefusalReason(result)).toBe("");
+      expect(result.status).toBe("reset");
+      expect(existsSync(worktreePath)).toBe(false);
+    });
+
+    test("an unresolvable baseRef destroys nothing", async () => {
+      const branch = "impl/base-unresolvable";
+      const worktreePath = await setupWorktreeAndBranch(branch);
+      await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+      const invocations: Array<{ cmd: string; args: string[] }> = [];
+
+      let outcome: "refused" | "threw" | "other" = "other";
+      try {
+        const result = await callReset(branch, recordingRunner(invocations), noLiveDaemon, silentIo, {
+          baseRef: "no-such-ref",
+        });
+        if (result.status === "refused") outcome = "refused";
+      } catch {
+        outcome = "threw";
+      }
+
+      expect(outcome).not.toBe("other");
+      await expectNothingDestroyed(branch, worktreePath, invocations);
+    });
+  });
+
   test("resetStaleWorkspace still refuses a non-descendant lane with an unlanded commit", async () => {
     const branch = "impl/unlanded-behind-base";
     const worktreePath = await setupWorktreeAndBranch(branch);

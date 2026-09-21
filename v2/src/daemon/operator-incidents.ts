@@ -216,10 +216,16 @@ function isUnattributedRunTimeout(run: Run, pipelineAttributedRunIds: ReadonlySe
   return run.terminalCause === "run_timeout" && run.status === "killed" && !pipelineAttributedRunIds.has(run.id);
 }
 
-/** Stage failure cause: `run_timeout` when the stage's entry settled by the whole-run timeout. */
-function stageFailedCause(stage: PipelineStageRecord): string {
-  const detail = stage.failureDetail as { terminalCause?: unknown } | null | undefined;
-  return detail?.terminalCause === "run_timeout" ? "run_timeout" : "failed";
+/** Stage failure cause: `run_timeout` when any durable row of the stage's entry invocation settled by the whole-run timeout. */
+function stageFailedCause(
+  stage: PipelineStageRecord,
+  entryRunsById: ReadonlyMap<string, Run>,
+  timedOutInvocationIds: ReadonlySet<string>,
+): string {
+  const entryRunId = stage.workflowInvocationId;
+  if (entryRunId === null) return "failed";
+  const invocationId = entryRunsById.get(entryRunId)?.workflowSnapshot?.invocationId;
+  return invocationId !== undefined && timedOutInvocationIds.has(invocationId) ? "run_timeout" : "failed";
 }
 
 /** Resumed runs reuse their row; the status-write timestamp separates each settlement from the last. */
@@ -448,7 +454,7 @@ function collectEntryRunIds(pipelines: readonly (Pipeline & { stages: PipelineSt
 function loadStageAttributedLookups(
   store: StateStore,
   pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[],
-): { entryRunsById: Map<string, Run>; pipelineAttributedRunIds: Set<string> } {
+): { entryRunsById: Map<string, Run>; pipelineAttributedRunIds: Set<string>; timedOutInvocationIds: Set<string> } {
   const entryRunIds = collectEntryRunIds(pipelines);
   const entryRunsById = new Map<string, Run>();
   for (const run of store.loadRunsByIds([...entryRunIds])) {
@@ -462,11 +468,14 @@ function loadStageAttributedLookups(
   }
 
   const pipelineAttributedRunIds = new Set<string>(entryRunIds);
+  const timedOutInvocationIds = new Set<string>();
   for (const run of store.findRunsByInvocationIds([...invocationIds])) {
     pipelineAttributedRunIds.add(run.id);
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (invocationId !== undefined && run.terminalCause === "run_timeout") timedOutInvocationIds.add(invocationId);
   }
 
-  return { entryRunsById, pipelineAttributedRunIds };
+  return { entryRunsById, pipelineAttributedRunIds, timedOutInvocationIds };
 }
 
 function resolvePipelineIncidentProject(
@@ -508,6 +517,7 @@ function pushPipelineTerminalIncident(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   state: PipelineDerivedState,
   project: string | null,
+  hasTimedOutStage: boolean,
 ): void {
   incidents.push({
     incidentId: pipelineIncidentId(pipeline.id),
@@ -515,9 +525,7 @@ function pushPipelineTerminalIncident(
     transition: `terminal:${state}`,
     project,
     pipelineId: pipeline.id,
-    cause: pipeline.stages.some((stage) => stage.status === "failed" && stageFailedCause(stage) === "run_timeout")
-      ? "run_timeout"
-      : state,
+    cause: hasTimedOutStage ? "run_timeout" : state,
     sinceMs: pipelineTerminalSinceMs(pipeline),
   });
 }
@@ -565,6 +573,7 @@ function collectPipelineIncidents(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   entryRunsById: ReadonlyMap<string, Run>,
+  timedOutInvocationIds: ReadonlySet<string>,
 ): { incidents: OperatorIncident[]; suppressedInvocationIds: Set<string> } {
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
@@ -579,7 +588,11 @@ function collectPipelineIncidents(
     if (hasPipelineTerminalPublicationFailure(pipeline)) {
       pushPublicationFailureIncident(incidents, pipeline, project);
     } else {
-      pushPipelineTerminalIncident(incidents, pipeline, state, project);
+      const hasTimedOutStage = pipeline.stages.some(
+        (stage) =>
+          stage.status === "failed" && stageFailedCause(stage, entryRunsById, timedOutInvocationIds) === "run_timeout",
+      );
+      pushPipelineTerminalIncident(incidents, pipeline, state, project, hasTimedOutStage);
     }
   }
 
@@ -594,7 +607,7 @@ function collectPipelineIncidents(
           pipelineId: pipeline.id,
           stageId: stage.stageId,
           branchKey: stage.branchKey,
-          cause: stageFailedCause(stage),
+          cause: stageFailedCause(stage, entryRunsById, timedOutInvocationIds),
           sinceMs: stageSinceMs(stage),
         });
       }
@@ -675,16 +688,20 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
   );
 
   const needsRunAttribution = candidateRuns.some((run) => !isPlainRun(run) && isTerminalRunStatus(run.status));
-  const { entryRunsById, pipelineAttributedRunIds } =
+  const { entryRunsById, pipelineAttributedRunIds, timedOutInvocationIds } =
     activePipelines.length > 0 || needsRunAttribution
       ? loadStageAttributedLookups(store, candidatePipelines)
-      : { entryRunsById: new Map<string, Run>(), pipelineAttributedRunIds: new Set<string>() };
+      : {
+          entryRunsById: new Map<string, Run>(),
+          pipelineAttributedRunIds: new Set<string>(),
+          timedOutInvocationIds: new Set<string>(),
+        };
 
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
 
   for (const pipeline of activePipelines) {
-    const pipelineIncidents = collectPipelineIncidents(store, pipeline, entryRunsById);
+    const pipelineIncidents = collectPipelineIncidents(store, pipeline, entryRunsById, timedOutInvocationIds);
     for (const incident of pipelineIncidents.incidents) {
       pushUndeliveredIncident(incidents, delivered, incident);
     }

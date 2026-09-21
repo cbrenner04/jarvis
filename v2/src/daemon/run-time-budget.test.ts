@@ -299,6 +299,20 @@ test("run_timeout settlements raise a distinct run-timeout incident for workflow
   expect(incidents).toContainEqual(expect.objectContaining({ runId: directRunId, kind: "run-ad-hoc-terminal" }));
 });
 
+function seedTimedOutEntryRun(invocationId: string): string {
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: `b-${invocationId}`,
+    specPath: "s.md",
+    stepId: "plan",
+    workflowSnapshot: { invocationId, steps: [{ stepId: "plan", role: "plan" }] },
+  });
+  store.commitTerminalRunSettlement({ runId, status: "killed", terminalCause: "run_timeout" });
+  return runId;
+}
+
 test("a pipeline whose stage entry settled run_timeout notifies with cause run_timeout", () => {
   const pipelineId = store.createPipeline({
     definition: {
@@ -312,7 +326,12 @@ test("a pipeline whose stage entry settled run_timeout notifies with cause run_t
   store.updateStage({
     pipelineId,
     stageId: "implement",
-    patch: { status: "failed", endedAt: 5, failureDetail: { reason: "run_timeout", terminalCause: "run_timeout" } },
+    patch: {
+      status: "failed",
+      endedAt: 5,
+      workflowInvocationId: seedTimedOutEntryRun("inv-terminal"),
+      failureDetail: { message: "timed out" },
+    },
   });
   // A lone failed stage ends the pipeline: the terminal incident carries the run_timeout cause.
   expect(deriveOperatorIncidents(store)).toContainEqual(
@@ -332,7 +351,12 @@ test("a pipeline whose stage entry settled run_timeout notifies with cause run_t
   store.updateStage({
     pipelineId: activePipelineId,
     stageId: "a",
-    patch: { status: "failed", endedAt: 6, failureDetail: { reason: "run_timeout", terminalCause: "run_timeout" } },
+    patch: {
+      status: "failed",
+      endedAt: 6,
+      workflowInvocationId: seedTimedOutEntryRun("inv-active"),
+      failureDetail: { message: "timed out" },
+    },
   });
   const active = deriveOperatorIncidents(store).filter((incident) => incident.pipelineId === activePipelineId);
   expect(active.map((incident) => incident.cause)).toContain("run_timeout");

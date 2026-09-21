@@ -2,9 +2,11 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { deriveOperatorIncidents, serializeOperatorIncident } from "./operator-incidents.ts";
+import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 const dbPath = join(tmpdir(), `jarvis-operator-incidents-${process.pid}.sqlite`);
 
@@ -969,4 +971,133 @@ test("incident for a non-commit terminal cause omits the failure detail", () => 
   const incidents = deriveOperatorIncidents(store);
   expect(incidents).toEqual([expect.objectContaining({ runId })]);
   expect(incidents[0]).not.toHaveProperty("detail");
+});
+
+const TIMEOUT_RECORD: OperatorFailureRecord = {
+  expectation: "run finishes in time",
+  observation: "run exceeded the whole-run timeout",
+  nearMiss: "last step was running",
+  retryable: true,
+  referencedPaths: [],
+};
+
+function seedInvocationStepRow(invocationId: string, stepId: string, branch: string): string {
+  return store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch,
+    specPath: "s.md",
+    stepId,
+    workflowSnapshot: {
+      invocationId,
+      steps: [
+        { stepId: "plan", role: "plan" },
+        { stepId: "review", role: "review" },
+      ],
+    },
+  });
+}
+
+/** Two pipelines whose `plan` stage links `entryRunId`: a lone stage (terminal) and a fan-out lane beside a running lane. */
+function linkStagePair(
+  entryRunId: string | null,
+  status: "running" | "failed",
+): { terminalId: string; openId: string } {
+  const terminalId = store.createPipeline({
+    definition: {
+      name: "terminal",
+      stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
+    },
+  });
+  const openId = seedFanOutPipeline([{ stageId: "plan", kind: "workflow" }]);
+  store.updateStage({ pipelineId: openId, stageId: "plan", branchKey: "b", patch: { status: "running" } });
+  const patch = {
+    status,
+    workflowInvocationId: entryRunId,
+    ...(status === "failed" ? { failureDetail: { message: "failed" } } : {}),
+  };
+  store.updateStage({ pipelineId: terminalId, stageId: "plan", patch });
+  store.updateStage({ pipelineId: openId, stageId: "plan", branchKey: "a", patch });
+  return { terminalId, openId };
+}
+
+function stageCauses(ids: { terminalId: string; openId: string }): { stageFailed: unknown; terminal: unknown } {
+  const incidents = deriveOperatorIncidents(store);
+  return {
+    stageFailed: incidents.find((i) => i.kind === "stage-failed" && i.pipelineId === ids.openId)?.cause,
+    terminal: incidents.find((i) => i.kind === "pipeline-terminal" && i.pipelineId === ids.terminalId)?.cause,
+  };
+}
+
+function planStageFailureDetail(pipelineId: string): unknown {
+  return store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "plan" && s.status === "failed")
+    ?.failureDetail;
+}
+
+test("a linked stage settled without log records derives timeout cause from durable invocation rows", () => {
+  const entryRunId = seedInvocationStepRow("inv-timeout", "plan", "b-timeout");
+  store.commitTerminalRunSettlement({
+    runId: entryRunId,
+    status: "killed",
+    terminalCause: "run_timeout",
+    operatorFailureRecord: TIMEOUT_RECORD,
+  });
+  const ids = linkStagePair(entryRunId, "running");
+
+  const outcome = settleStagesForEntryRun({ store, isEntryRunLive: () => false }, entryRunId);
+
+  expect(outcome.kind).toBe("settled");
+  expect(planStageFailureDetail(ids.terminalId)).toEqual(TIMEOUT_RECORD);
+  expect(planStageFailureDetail(ids.openId)).toEqual(TIMEOUT_RECORD);
+  expect(stageCauses(ids)).toEqual({ stageFailed: "run_timeout", terminal: "run_timeout" });
+});
+
+test.each([
+  ["entry", "run_timeout", "invocation_failure"],
+  ["sibling", "invocation_failure", "run_timeout"],
+] as const)("a timed-out %s row beside a non-timeout failed row derives run_timeout", (_label, entryCause, siblingCause) => {
+  const entryRunId = seedInvocationStepRow("inv-mixed", "plan", "b-mixed");
+  const siblingRunId = seedInvocationStepRow("inv-mixed", "review", "b-mixed");
+  store.commitTerminalRunSettlement({ runId: entryRunId, status: "killed", terminalCause: entryCause });
+  store.commitTerminalRunSettlement({ runId: siblingRunId, status: "killed", terminalCause: siblingCause });
+  expect(stageCauses(linkStagePair(entryRunId, "failed"))).toEqual({
+    stageFailed: "run_timeout",
+    terminal: "run_timeout",
+  });
+});
+
+test("a timeout row from a different invocation does not affect a stage's cause", () => {
+  const otherRunId = seedInvocationStepRow("inv-other", "plan", "b-other");
+  store.commitTerminalRunSettlement({ runId: otherRunId, status: "killed", terminalCause: "run_timeout" });
+  const entryRunId = seedInvocationStepRow("inv-own", "plan", "b-own");
+  store.commitTerminalRunSettlement({ runId: entryRunId, status: "failed", terminalCause: "invocation_failure" });
+  expect(stageCauses(linkStagePair(entryRunId, "failed"))).toEqual({ stageFailed: "failed", terminal: "failed" });
+});
+
+const ABSENT_ATTRIBUTION_CASES: readonly (readonly [string, () => string | null])[] = [
+  ["no entry run id", () => null],
+  ["an entry run that does not exist", () => "run-missing"],
+  [
+    "an entry run without an invocation id",
+    () => {
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath: "/tmp/w",
+        branch: "b-plain",
+        specPath: "s.md",
+      });
+      store.commitTerminalRunSettlement({ runId, status: "killed", terminalCause: "run_timeout" });
+      return runId;
+    },
+  ],
+];
+
+test.each(
+  ABSENT_ATTRIBUTION_CASES,
+)("a failed stage with %s derives failed despite unrelated timeout rows", (_label, entryRunIdFor) => {
+  const otherRunId = seedInvocationStepRow("inv-unrelated", "plan", "b-unrelated");
+  store.commitTerminalRunSettlement({ runId: otherRunId, status: "killed", terminalCause: "run_timeout" });
+  expect(stageCauses(linkStagePair(entryRunIdFor(), "failed"))).toEqual({ stageFailed: "failed", terminal: "failed" });
 });

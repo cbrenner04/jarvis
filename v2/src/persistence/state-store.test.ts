@@ -4203,6 +4203,38 @@ describe("failed pipeline reopen", () => {
     expect(rawStageRows(many)).toEqual(before);
   });
 
+  test("reopenInterruptedPipeline scopes to a named branch while omitted and default branchKey consider every row", () => {
+    const pipelineId = createFanOutPipeline(
+      "reopen-interrupted-branches",
+      ["stage-0"],
+      [{ stageId: "stage-0", branchKey: "alpha" }],
+    );
+    rawSeedStages(pipelineId, [
+      { stageId: "stage-0", status: "interrupted" },
+      { stageId: "stage-0", branchKey: "alpha", status: "interrupted" },
+    ]);
+    const alpha = rawStageRows(pipelineId).find((row) => row.branch_key === "alpha");
+    if (!alpha) throw new Error("alpha row should exist");
+    const before = rawStageRows(pipelineId);
+
+    for (const args of [{ pipelineId }, { pipelineId, branchKey: "default" }]) {
+      expect(store.reopenInterruptedPipeline(args)).toEqual({
+        kind: "refused",
+        pipelineId,
+        reason: "multiple_interrupted_stages",
+      });
+    }
+    expect(rawStageRows(pipelineId)).toEqual(before);
+
+    expect(store.reopenInterruptedPipeline({ pipelineId, branchKey: "alpha" })).toEqual({
+      kind: "applied",
+      stageRecordId: alpha.id,
+    });
+    const after = rawStageRows(pipelineId);
+    expect(after.find((row) => row.branch_key === "alpha")?.status).toBe("pending");
+    expect(after.find((row) => row.branch_key === "default")?.status).toBe("interrupted");
+  });
+
   test("reopenFailedPipeline clears decidedAt on the reopened row and its skipped suffix", () => {
     const pipelineId = store.createPipeline({
       definition: {

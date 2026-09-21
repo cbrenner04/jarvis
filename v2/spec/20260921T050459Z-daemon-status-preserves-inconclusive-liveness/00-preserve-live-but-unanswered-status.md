@@ -30,15 +30,15 @@
 
 ## Acceptance criteria
 
-- [ ] A regression test using the default (real) probers keeps a socket accepting connections while its health RPC exceeds the short budget and asserts status is not `stopped`; it fails against the pre-fix boolean-probe mapping.
-- [ ] A deterministic injected-prober test proves one short health attempt and exactly one strictly longer retry precede an `inconclusive` result naming both exhausted budgets, with the socket classified `live` after each miss.
-- [ ] A deterministic test proves health answering on the retry reports `running` with the existing revision output, and the `status` RPC receives the retry budget.
-- [ ] A deterministic test proves a socket classified `stale` or `absent` after the first miss, or turning `stale`/`absent` between attempts, reports `stopped` without a further retry.
-- [ ] A command test in `v2/src/commands/daemon.test.ts` proves inconclusive output begins `inconclusive`, names the health timeout and exhausted short/retry budgets, differs from `stopped`, and exits `1` without recommending `kill -9` or `daemon start`.
-- [ ] A test proves `init` readiness reports the daemon check not ready with detail `daemon is not responding` for `inconclusive`; it fails against the pre-fix two-state mapping.
-- [ ] The dead-socket and serving-daemon revision cases in `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` and the exact running/stopped output cases in `v2/src/commands/daemon.test.ts` stay green after adapting the probe seam.
-- [ ] `v2/src/commands/daemon.test.ts`'s start/stop tests and `v2/src/commands/init.test.ts`'s daemon-readiness tests (including the `daemon is not running` case) stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A regression test using the default (real) probers keeps a socket accepting connections while its health RPC exceeds the short budget and asserts status is not `stopped`; it fails against the pre-fix boolean-probe mapping.
+- [x] A deterministic injected-prober test proves one short health attempt and exactly one strictly longer retry precede an `inconclusive` result naming both exhausted budgets, with the socket classified `live` after each miss.
+- [x] A deterministic test proves health answering on the retry reports `running` with the existing revision output, and the `status` RPC receives the retry budget.
+- [x] A deterministic test proves a socket classified `stale` or `absent` after the first miss, or turning `stale`/`absent` between attempts, reports `stopped` without a further retry.
+- [x] A command test in `v2/src/commands/daemon.test.ts` proves inconclusive output begins `inconclusive`, names the health timeout and exhausted short/retry budgets, differs from `stopped`, and exits `1` without recommending `kill -9` or `daemon start`.
+- [x] A test proves `init` readiness reports the daemon check not ready with detail `daemon is not responding` for `inconclusive`; it fails against the pre-fix two-state mapping.
+- [x] The dead-socket and serving-daemon revision cases in `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` and the exact running/stopped output cases in `v2/src/commands/daemon.test.ts` stay green after adapting the probe seam.
+- [x] `v2/src/commands/daemon.test.ts`'s start/stop tests and `v2/src/commands/init.test.ts`'s daemon-readiness tests (including the `daemon is not running` case) stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

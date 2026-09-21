@@ -35,14 +35,19 @@ function publicationBaseRetargetFromLogRecords(
   return undefined;
 }
 
-/** Log-derived operator failure detail for a failed run; undefined leaves the durable-row projection in charge. */
-function failureDetailFromLogs(
+/**
+ * Operator failure detail for a failed run: its stored `OperatorFailureRecord`, else (legacy or corrupt
+ * column) the log-composed error; undefined leaves the durable-row projection in charge.
+ */
+function failureDetailForRun(
   store: StateStore,
   runId: string,
-  loadLogRecords: (runId: string) => PersistedRecord[],
+  loadLogRecords: ((runId: string) => PersistedRecord[]) | undefined,
 ): unknown {
   const run = store.loadRun(runId);
   if (run === null) return undefined;
+  if (run.operatorFailureRecord != null) return run.operatorFailureRecord;
+  if (loadLogRecords === undefined) return undefined;
   const logRecords = loadLogRecords(runId);
   return composeRunOperatorError(run, findTerminalLogRecord(logRecords), logRecords);
 }
@@ -64,13 +69,10 @@ export function settleStagesForEntryRun(
   if (entryRun !== null && !isTerminalRunStatus(entryRun.status)) return { kind: "live" };
   const logRecords = deps.loadLogRecords?.(entryRunId) ?? [];
   const publicationBaseRetarget = publicationBaseRetargetFromLogRecords(logRecords);
-  const { loadLogRecords } = deps;
   return deps.store.settleLinkedStagesFromEntryRun(entryRunId, {
     ...(stageTargets !== undefined ? { stageTargets } : {}),
     ...(publicationBaseRetarget !== undefined ? { publicationBaseRetarget } : {}),
-    ...(loadLogRecords !== undefined
-      ? { failureDetailForRun: (runId: string) => failureDetailFromLogs(deps.store, runId, loadLogRecords) }
-      : {}),
+    failureDetailForRun: (runId: string) => failureDetailForRun(deps.store, runId, deps.loadLogRecords),
   });
 }
 

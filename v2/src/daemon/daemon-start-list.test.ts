@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
@@ -60,6 +61,17 @@ const AGENT_MODEL_CONFIG: AgentModelConfig = {
       ],
     },
   },
+};
+
+const OPERATOR_FAILURE_RECORD: OperatorFailureRecord = {
+  expectation: "ready gate passes",
+  observation: "ready gate exited 1",
+  nearMiss: "typecheck passed",
+  retryable: true,
+  referencedPaths: [
+    { path: "v2/src/daemon/daemon.ts", origin: "harness-internal" },
+    { path: "spec.md", origin: "operator-repository" },
+  ],
 };
 
 function serialized(input: WriteLoopInput): WriteLoopInput {
@@ -195,6 +207,43 @@ test("settled run is no longer live in list", async () => {
   expect(runs?.length).toBeGreaterThan(0);
   const run = runs?.[0];
   expect(run?.isLive).toBe(false);
+});
+
+test("list returns only stored operator failure records without loading terminal logs", async () => {
+  const recordedRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: `recorded-${crypto.randomUUID()}`,
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.commitTerminalRunSettlement({
+    runId: recordedRunId,
+    status: "failed",
+    terminalCause: "ready_gate_failed",
+    operatorFailureRecord: OPERATOR_FAILURE_RECORD,
+  });
+  const absentRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: `absent-${crypto.randomUUID()}`,
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.commitTerminalRunSettlement({ runId: absentRunId, status: "failed", terminalCause: "ready_gate_failed" });
+  const storeOnlyHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  const rows = await listRunsDirect(storeOnlyHandlers);
+  storeOnlyHandlers.close();
+
+  expect(rows?.find((row) => row.runId === recordedRunId)?.failure).toEqual(OPERATOR_FAILURE_RECORD);
+  expect(rows?.find((row) => row.runId === absentRunId)).not.toHaveProperty("failure");
 });
 
 test("direct timeout releases liveness and worktree ownership", async () => {

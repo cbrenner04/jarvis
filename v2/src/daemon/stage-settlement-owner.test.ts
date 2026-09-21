@@ -2,10 +2,17 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
-import { hasLiveForeignOwnerSibling, settleOrphanedRunningStages } from "./stage-settlement-owner.ts";
+import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
+import {
+  hasLiveForeignOwnerSibling,
+  settleOrphanedRunningStages,
+  settleStagesForEntryRun,
+} from "./stage-settlement-owner.ts";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-stage-settlement-owner.sqlite");
 const CURRENT_OWNER = "22222:2000000";
@@ -314,5 +321,90 @@ describe("settleOrphanedRunningStages foreign-owner liveness gate", () => {
       foreignStoreA.close();
       foreignStoreB.close();
     }
+  });
+});
+
+describe("settleStagesForEntryRun failure detail", () => {
+  const RECORD: OperatorFailureRecord = {
+    expectation: "ready gate passes",
+    observation: "ready gate exited 1",
+    nearMiss: "typecheck passed",
+    retryable: true,
+    referencedPaths: [{ path: "spec.md", origin: "operator-repository" }],
+  };
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_OWNER });
+  });
+
+  afterEach(() => {
+    store.close();
+  });
+
+  function seedFailedStage(workflow: "intent" | "plan" | "implement", entryRunId: string): string {
+    const pipelineId = store.createPipeline({
+      definition: {
+        name: `fd-${workflow}`,
+        stages: [{ stageId: workflow, kind: "workflow", workflow, review: "none" }],
+      },
+    });
+    store.updateStage({
+      pipelineId,
+      stageId: workflow,
+      patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 100 },
+    });
+    return pipelineId;
+  }
+
+  function stageFailureDetail(pipelineId: string, stageId: string): unknown {
+    return store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === stageId)?.failureDetail;
+  }
+
+  const LOG_RECORDS: PersistedRecord[] = [
+    {
+      runId: "any",
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: { kind: "loop_finished", loopOutcomeKind: "landing_failed", iterationsConsumed: 1, resumable: true },
+    },
+  ];
+
+  for (const workflow of ["intent", "plan", "implement"] as const) {
+    test(`a terminal ${workflow} stage projects its entry run's stored failure record`, () => {
+      const entryRunId = seedRun(store);
+      store.commitTerminalRunSettlement({
+        runId: entryRunId,
+        status: "failed",
+        terminalCause: "invocation_failure",
+        operatorFailureRecord: RECORD,
+      });
+      const pipelineId = seedFailedStage(workflow, entryRunId);
+
+      const outcome = settleStagesForEntryRun(
+        { store, isEntryRunLive: () => false, loadLogRecords: () => LOG_RECORDS },
+        entryRunId,
+      );
+
+      expect(outcome.kind).toBe("settled");
+      expect(store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === workflow)?.status).toBe("failed");
+      expect(stageFailureDetail(pipelineId, workflow)).toEqual(RECORD);
+    });
+  }
+
+  test("an entry run with no stored record settles with the log-composed detail", () => {
+    const entryRunId = seedRun(store);
+    store.commitTerminalRunSettlement({ runId: entryRunId, status: "failed", terminalCause: "invocation_failure" });
+    const pipelineId = seedFailedStage("plan", entryRunId);
+
+    settleStagesForEntryRun({ store, isEntryRunLive: () => false, loadLogRecords: () => LOG_RECORDS }, entryRunId);
+
+    const run = store.loadRun(entryRunId);
+    if (run === null) throw new Error("expected entry run");
+    expect(run.operatorFailureRecord).toBeNull();
+    const detail = stageFailureDetail(pipelineId, "plan");
+    expect(detail).toEqual(composeRunOperatorError(run, findTerminalLogRecord(LOG_RECORDS), LOG_RECORDS));
+    expect(detail).not.toEqual(RECORD);
   });
 });

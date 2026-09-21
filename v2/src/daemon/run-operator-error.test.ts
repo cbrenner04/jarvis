@@ -1168,3 +1168,28 @@ test("composeRunOperatorError projects model_config message from durable termina
     message: "Unable to resolve bindings",
   });
 });
+
+const failureRecord = (retryable: boolean) => ({
+  expectation: "expected",
+  observation: "observed",
+  retryable,
+  referencedPaths: [],
+});
+
+test("composeRunOperatorError leaves a completed run undefined even when a failure record is stored", () => {
+  expect(
+    composeRunOperatorError({ ...runWith("completed"), operatorFailureRecord: failureRecord(true) }),
+  ).toBeUndefined();
+});
+
+test("composeRunOperatorError lets a retryable record promote a stop action to resume", () => {
+  expect(composeRunOperatorError({ ...runWith("failed"), operatorFailureRecord: failureRecord(true) })).toEqual(
+    err("harness_failure", "resume", true),
+  );
+});
+
+test("composeRunOperatorError lets a non-retryable record demote a resume action to stop", () => {
+  expect(composeRunOperatorError({ ...runWith("paused"), operatorFailureRecord: failureRecord(false) })).toEqual(
+    err("resumable_pause", "stop", false),
+  );
+});

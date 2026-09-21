@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -105,6 +106,10 @@ import {
 } from "./pipeline-stage-resolve.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
+
+function stageFailureObservation(failureDetail: unknown): string | undefined {
+  return operatorFailureRecordFromUnknown(failureDetail)?.observation;
+}
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text", configPath: "/fake/.jarvis/config.json" };
@@ -637,9 +642,9 @@ describe("runPipeline", () => {
       expect(entryRunId).toBeDefined();
       const stage = store.loadPipeline(pipelineId)?.stages.find((candidate) => candidate.stageId === "s1");
       expect(stage?.status).toBe("failed");
-      const message = (stage?.failureDetail as { message?: string } | null)?.message;
-      expect(message).toContain("bun run ready");
-      expect(message).toContain('Script not found "ready"');
+      const detail = stage?.failureDetail as { expectation?: string; observation?: string } | null;
+      expect(detail?.expectation).toContain("bun run ready");
+      expect(detail?.observation).toContain('Script not found "ready"');
     } finally {
       logSink.close();
       store.close();
@@ -931,6 +936,52 @@ describe("runPipeline", () => {
   });
 });
 
+describe("stage failure records", () => {
+  const singleStage: PipelineDefinition = {
+    name: "p",
+    stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+  };
+  const dispatchNever: PipelineWorkflowDispatch = async () => {
+    throw new Error("dispatch must not run");
+  };
+
+  test("an unexpected throw around stage execution settles a retryable record with the thrown text", async () => {
+    const { store, stages } = fakeStore(singleStage);
+    await runPipeline(PIPELINE_ID, {
+      store,
+      context: baseContext,
+      dispatch: dispatchNever,
+      wait: async () => "completed",
+      resolveStage: async () => {
+        throw new Error("resolver exploded");
+      },
+    });
+    const stage = stages().find((candidate) => candidate.stageId === "s1");
+    expect(stage?.status).toBe("failed");
+    const record = operatorFailureRecordFromUnknown(stage?.failureDetail);
+    expect(record?.observation).toBe("resolver exploded");
+    expect(record?.expectation).toBeTruthy();
+    expect(record?.retryable).toBe(true);
+    expect(record?.referencedPaths).toEqual([]);
+  });
+
+  test("a workflow-stage resolution failure settles a non-retryable record", async () => {
+    const { store, stages } = fakeStore(singleStage);
+    await runPipeline(PIPELINE_ID, {
+      store,
+      context: baseContext,
+      dispatch: dispatchNever,
+      wait: async () => "completed",
+      resolveStage: async () => ({ ok: false, error: "no such preset" }),
+    });
+    const stage = stages().find((candidate) => candidate.stageId === "s1");
+    expect(stage?.status).toBe("failed");
+    const record = operatorFailureRecordFromUnknown(stage?.failureDetail);
+    expect(record?.observation).toBe("no such preset");
+    expect(record?.retryable).toBe(false);
+  });
+});
+
 describe("pipeline context loader at execution", () => {
   const singleStageDefinition: PipelineDefinition = {
     name: "p",
@@ -973,7 +1024,7 @@ describe("pipeline context loader at execution", () => {
     expect(dispatchCalled).toBe(false);
     const stage = stages().find((candidate) => candidate.stageId === "s1");
     expect(stage?.status).toBe("failed");
-    const message = (stage?.failureDetail as { message?: string } | null)?.message;
+    const message = operatorFailureRecordFromUnknown(stage?.failureDetail)?.observation;
     expect(message).toMatch(/^pipeline-context-loader:/);
     if (!useContinuation) expect(message).toContain("configPath");
   });
@@ -5897,10 +5948,10 @@ describe("pipeline branch fan-out execution", () => {
     await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
 
     expect(dispatchLog.filter((entry) => entry.stageId === "plan")).toEqual([]);
-    const betaFailure = stageRecord(stages(), "plan", "beta")?.failureDetail as { message: string } | null;
-    expect(betaFailure?.message).toContain('plan lane "beta"');
-    expect(betaFailure?.message).toContain("for downstream input ready-intents/beta.md");
-    expect(betaFailure?.message).toContain("has no paired fan-out result");
+    const betaFailure = stageFailureObservation(stageRecord(stages(), "plan", "beta")?.failureDetail);
+    expect(betaFailure).toContain('plan lane "beta"');
+    expect(betaFailure).toContain("for downstream input ready-intents/beta.md");
+    expect(betaFailure).toContain("has no paired fan-out result");
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
     expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
   });
@@ -6064,7 +6115,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(alphaStaleResetInvoked).toBe(true);
     expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "alpha")).toEqual([]);
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("failed");
-    expect((stageRecord(stages(), "plan", "alpha")?.failureDetail as { message?: string } | null)?.message).toContain(
+    expect(stageFailureObservation(stageRecord(stages(), "plan", "alpha")?.failureDetail)).toContain(
       "alpha lane stale-reset refused",
     );
     expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toEqual([
@@ -6306,7 +6357,7 @@ describe("pipeline branch fan-out execution", () => {
 
     const intent = stageRecord(stages(), "intent");
     expect(intent?.status).toBe("failed");
-    expect((intent?.failureDetail as { message: string } | null)?.message).toContain('duplicate branchKey "alpha"');
+    expect(stageFailureObservation(intent?.failureDetail)).toContain('duplicate branchKey "alpha"');
     expect(dispatchLog.filter((entry) => entry.stageId === "plan")).toEqual([]);
   });
 
@@ -6764,7 +6815,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(macrotaskFiredWhilePeerStillPending).toBe(true);
     const beta = stageRecord(stages(), "plan", "beta");
     expect(beta?.status).toBe("failed");
-    expect((beta?.failureDetail as { message?: string } | null)?.message).toContain("timed out");
+    expect(stageFailureObservation(beta?.failureDetail)).toContain("timed out");
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("skipped");
     expect(stageRecord(stages(), "implement", "beta")?.skipProvenance).toBe("provisional");
   });
@@ -7351,9 +7402,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatchCalled).toBe(false);
       const record = stages().find((s) => s.stageId === "s1");
       expect(record?.status).toBe("failed");
-      expect((record?.failureDetail as { message?: string } | null)?.message).toContain(
-        "Cannot re-run incomplete spec",
-      );
+      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
       expect(existsSync(worktreePath)).toBe(true);
     } finally {
       rpc.close();
@@ -7569,7 +7618,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
       expect(readFileSync(join(planWorktree, "README.md"), "utf8")).toBe("operator edit\n");
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
       expect(stderr).toContain("README.md");
       expect(detail).toContain("README.md");
     } finally {
@@ -7615,7 +7664,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
     expect(dispatched).toBe(false);
     expect(existsSync(planWorktree)).toBe(true);
-    expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message).toContain(
+    expect(stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail)).toContain(
       "could not open daemon control socket",
     );
   });
@@ -7938,7 +7987,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(stderr).toContain("gh is unreachable from this environment");
       expect(stderr).toContain("outside the agent sandbox");
       expect(stderr).not.toContain("retired-and-rematerialized from base");
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
       expect(detail).toContain("never-landed classification is inconclusive");
       expect(detail).toContain("gh is unreachable from this environment");
     } finally {
@@ -8055,7 +8104,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(stderr).not.toContain("never-landed");
       const record = stageRecord(stages(), "plan");
       expect(record?.status).toBe("failed");
-      expect((record?.failureDetail as { message?: string } | null)?.message).toContain("not a descendant");
+      expect(stageFailureObservation(record?.failureDetail)).toContain("not a descendant");
       expect(existsSync(planWorktree)).toBe(true);
       const branchTip = (
         await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", planBranch], projectRoot)
@@ -8121,7 +8170,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
       expect(stderr).toContain("operator blocker");
       expect(stderr).toContain(stagedIntentPath);
       expect(detail).toContain("operator blocker");
@@ -8181,7 +8230,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
       expect(stderr).toContain("operator blocker");
       expect(stderr).toContain(stagedIntentPath);
       expect(detail).toContain("operator blocker");
@@ -8242,7 +8291,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       expect(dispatchCalled).toBe(false);
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
       expect(stderr).toContain("operator blocker");
       expect(stderr).toContain(stagedIntentPath);
       expect(detail).toContain("operator blocker");
@@ -8298,7 +8347,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       });
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
       expect(stderr).toContain("operator blocker");
       expect(stderr).toContain(stagedIntentPath);
       expect(detail).toContain(stagedIntentPath);
@@ -8376,7 +8425,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       }
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
       const expected = guard === "live worktree claim" ? "worktree lock" : "operator blocker";
       expect(stderr).toContain(expected);
       expect(detail).toContain(expected);
@@ -8518,7 +8567,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatched).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
       expect(stderr).toContain("acceptance criteria ticked");
-      expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string })?.message).toContain(
+      expect(stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail)).toContain(
         "acceptance criteria ticked",
       );
     } finally {
@@ -8587,7 +8636,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatched).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
       expect(stderr).toContain("acceptance criteria ticked");
-      expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string })?.message).toContain(
+      expect(stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail)).toContain(
         "acceptance criteria ticked",
       );
     } finally {
@@ -8642,9 +8691,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatchCalled).toBe(false);
       const record = stageRecord(stages(), "implement");
       expect(record?.status).toBe("failed");
-      expect((record?.failureDetail as { message?: string } | null)?.message).toContain(
-        "Cannot re-run incomplete spec",
-      );
+      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
       expect(existsSync(implementWorktree)).toBe(true);
     } finally {
       rpc.close();
@@ -8765,9 +8812,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatchCalled).toBe(false);
       const record = stageRecord(stages(), "implement");
       expect(record?.status).toBe("failed");
-      expect((record?.failureDetail as { message?: string } | null)?.message).toContain(
-        "Cannot re-run incomplete spec",
-      );
+      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
       expect(existsSync(implementWorktree)).toBe(true);
     } finally {
       rpc.close();
@@ -8830,9 +8875,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatchLog).not.toContain(alphaPlanBranch);
       const alphaRecord = stageRecord(stages(), "plan", "alpha");
       expect(alphaRecord?.status).toBe("failed");
-      expect((alphaRecord?.failureDetail as { message?: string } | null)?.message).toContain(
-        "Cannot re-run incomplete spec",
-      );
+      expect(stageFailureObservation(alphaRecord?.failureDetail)).toContain("Cannot re-run incomplete spec");
       expect(existsSync(alphaPlanWorktree)).toBe(true);
     } finally {
       rpc.close();

@@ -293,6 +293,11 @@ function runListRowError(
   return composeRunOperatorError(run, terminalRecord, logRecords);
 }
 
+function runFailureField(run: LoadedRun | undefined) {
+  if (run?.operatorFailureRecord == null || run.operatorFailureRecordCorrupt === true) return {};
+  return { failure: run.operatorFailureRecord };
+}
+
 function workflowEntrySnapshot(run: LoadedRun | undefined): WorkflowSnapshot | undefined {
   const snapshot = run?.workflowSnapshot;
   if (snapshot === null || snapshot === undefined) return undefined;
@@ -567,7 +572,7 @@ export function createRunLifecycleHandlers(
     const resumableProjection = runStatus !== "in-progress" ? { resumable: admission.admitted } : {};
     const base: WaitRunCompletionResult =
       loopOutcomeKind === undefined
-        ? { runStatus, ...resumableProjection }
+        ? { runStatus, ...resumableProjection, ...runFailureField(run ?? undefined) }
         : {
             runStatus,
             loopOutcomeKind,
@@ -575,6 +580,7 @@ export function createRunLifecycleHandlers(
               ? { iterationsConsumed: loopFinishedEvent.iterationsConsumed }
               : {}),
             ...resumableProjection,
+            ...runFailureField(run ?? undefined),
           };
     const withError = error === undefined ? base : { ...base, error };
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
@@ -613,6 +619,7 @@ export function createRunLifecycleHandlers(
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
       iterationsConsumed: owner.terminalRecord.event.iterationsConsumed,
       resumable: ownerAdmission.admitted,
+      ...runFailureField(entryRun),
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
     const entryAdmission = resolveRunResumeAdmission(
@@ -868,6 +875,7 @@ export function createRunLifecycleHandlers(
     const error = rowOutcome?.error ?? runListRowError(fullRun, admission, terminalRecord, logTail);
     const {
       runStatus: _entryRunStatus,
+      failure: _entryFailure,
       error: _entryError,
       worktreePath: _entryWorktreePath,
       ...entryOutcomeFields
@@ -886,6 +894,7 @@ export function createRunLifecycleHandlers(
       status: reportedStatus,
       isLive,
       ...entryOutcomeFields,
+      ...runFailureField(fullRun),
       ...(error !== undefined ? { error } : {}),
       ...runListReviewFields(snapshot),
       ...(fullRun?.stepId !== null && fullRun?.stepId !== undefined ? { stepId: fullRun.stepId } : {}),

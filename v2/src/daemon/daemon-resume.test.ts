@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
@@ -28,7 +29,7 @@ import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import { flushBackgroundRuns, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry, type WriteLoopBindingSourceDeps } from "./daemon.ts";
@@ -882,6 +883,44 @@ test("resume retries a failed run after a landing failure", async () => {
 
   expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
   expect(fakeExecutor.pendingCount()).toBe(1);
+});
+
+function failureRecord(retryable: boolean): OperatorFailureRecord {
+  return { expectation: "gate passes", observation: "gate failed", retryable, referencedPaths: [] };
+}
+
+test("a non-retryable stored record refuses resume and lists resumable false despite a resumable reason", async () => {
+  const runId = createWorkflowRun({ invocationId: "record-non-retryable" });
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "failed",
+    terminalCause: "ready_gate_failed",
+    operatorFailureRecord: failureRecord(false),
+  });
+
+  const row = (await listRunsDirect(handlers))?.find((entry) => entry.runId === runId);
+  expect(row?.resumable).toBe(false);
+  expect(row?.error?.nextAction).toBe("stop");
+  expect(row?.error?.reason).toBe("ready_gate_failed");
+  const response = await resumeDirect(handlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") expect(response.code).toBe("terminal_run");
+  expect(fakeExecutor.pendingCount()).toBe(0);
+});
+
+test("a retryable stored record lists resumable true despite a stopping reason", async () => {
+  const runId = createWorkflowRun({ invocationId: "record-retryable" });
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "failed",
+    terminalCause: "ready_flip_failed",
+    operatorFailureRecord: failureRecord(true),
+  });
+
+  const row = (await listRunsDirect(handlers))?.find((entry) => entry.runId === runId);
+  expect(row?.resumable).toBe(true);
+  expect(row?.error?.nextAction).toBe("resume");
+  expect(row?.error?.reason).toBe("ready_flip_failed");
 });
 
 test("resume admits ready_gate_failed when repair attempt ended blocked", async () => {

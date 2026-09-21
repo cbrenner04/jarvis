@@ -97,6 +97,46 @@ test("pipeline list queries retain valid snapshots and distinguish malformed rep
   ).toBeTrue();
 });
 
+test("pipeline list drops a malformed stage failure record and keeps sibling stages", async () => {
+  const stage = (stageId: string, failureDetail: unknown) => ({
+    id: `id-${stageId}`,
+    stageId,
+    branchKey: "default",
+    position: 0,
+    status: "failed",
+    workflowInvocationId: null,
+    startedAt: null,
+    endedAt: 5,
+    decidedAt: null,
+    artifact: null,
+    failureDetail,
+  });
+  const record = { expectation: "e", observation: "o", retryable: true, referencedPaths: [] };
+  const snapshot = {
+    pipelineId: PIPELINE_ID,
+    name: "test",
+    state: "failed",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: 5,
+    dismissedAt: null,
+    stages: [stage("bad", { ...record, retryable: "yes" }), stage("good", record), stage("legacy", { code: "c" })],
+  };
+  const result = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [snapshot] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(result.hasMalformedResponse).toBeFalse();
+  expect(result.snapshotsBySocketPath[INVOKING_SOCKET]?.[0]?.stages).toEqual([
+    stage("bad", null),
+    stage("good", record),
+    stage("legacy", { code: "c" }),
+  ]);
+});
+
 test("pipeline list distinguishes null from non-numeric nullable timestamps", async () => {
   const snapshot: PipelineSnapshot = {
     pipelineId: PIPELINE_ID,

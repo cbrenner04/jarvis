@@ -5,6 +5,7 @@ import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
 import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
+import { withValidStageFailureRecords } from "./wire-failure-record.ts";
 
 type QueryDaemonListsDeps = Pick<CliDeps, "connectIpcClient" | "socketPath">;
 
@@ -146,7 +147,7 @@ function isPipelineSnapshot(value: unknown): value is PipelineSnapshot {
 function parsePipelineList(value: unknown): readonly PipelineSnapshot[] | undefined {
   if (!isRecord(value) || !Array.isArray(value.pipelines) || !value.pipelines.every(isPipelineSnapshot))
     return undefined;
-  return value.pipelines;
+  return value.pipelines.map(withValidStageFailureRecords);
 }
 
 async function queryPipelineList(

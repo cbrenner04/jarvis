@@ -25,11 +25,11 @@ The run and pipeline wire parsers validate only the structured failure field, th
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-wire.test.ts` gains a test proving a `list` payload whose row carries a malformed failure record parses with that field absent and all other row fields intact; it fails against the pre-fix wholesale cast.
-- [ ] `v2/src/daemon/daemon-wire.test.ts` gains a test proving a valid record on a `wait` payload survives parsing unchanged.
-- [ ] `v2/src/daemon/pipeline-daemon-resolution.test.ts` gains a test proving a malformed stage failure record is dropped while sibling stages and stage fields survive; it fails against the pre-fix snapshot cast.
-- [ ] `v2/src/tui/tui-daemon-client.test.ts` gains a test proving `pipelineList` drops a malformed stage failure record while its sibling stages and stage fields survive; it fails against the pre-fix wholesale cast.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-wire.test.ts` gains a test proving a `list` payload whose row carries a malformed failure record parses with that field absent and all other row fields intact; it fails against the pre-fix wholesale cast.
+- [x] `v2/src/daemon/daemon-wire.test.ts` gains a test proving a valid record on a `wait` payload survives parsing unchanged.
+- [x] `v2/src/daemon/pipeline-daemon-resolution.test.ts` gains a test proving a malformed stage failure record is dropped while sibling stages and stage fields survive; it fails against the pre-fix snapshot cast.
+- [x] `v2/src/tui/tui-daemon-client.test.ts` gains a test proving `pipelineList` drops a malformed stage failure record while its sibling stages and stage fields survive; it fails against the pre-fix wholesale cast.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

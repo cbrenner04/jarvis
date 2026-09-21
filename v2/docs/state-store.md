@@ -41,6 +41,8 @@ The store enables `PRAGMA foreign_keys=ON` on its connection, so `pipeline_stage
 
 **Stamped-baseline column repair:** the `031-baseline-squash` stamp is not proof that every baseline column exists — a store stamped before a column was added skips `upgradeFromLegacyEra`. Every open therefore also runs idempotent `ADD COLUMN` repairs after migrations for columns added since the squash (`operator_notification_deliveries.incident_json`, `runs.operator_failure_record`, `pipeline_stages.skip_provenance`), the same way `run_verifier_process_groups` is created when absent. Adding `skip_provenance` does not backfill legacy rows; they load with absent provenance.
 
+**Stamped-baseline data repair:** after `applySchemaMigrations`, migration `032-completed-publication-failure-rows-to-failed` runs once (stamped in `_migrations`, so a pre-squash store is upgraded and repaired in one open). It rewrites `runs.status` from `completed` to `failed` where `terminal_cause` is `completion_commit_failed` or `ready_flip_failed` — rows written before publication-tail failures settled `failed`. All other columns (`terminal_cause`, `terminal_failure_detail`, `finished_at`, `status_changed_at`) are unchanged; other causes (e.g. a stale `ready_gate_failed` on a resumed run that completed) and `pipeline_stages` rows are not touched. Repaired rows older than the attention recency window derive no incident.
+
 ## API
 
 Repository-style named ops keyed by durable IDs — no public SQL surface. Signatures: the `StateStore` interface in [`state-store.ts`](../src/persistence/state-store.ts).

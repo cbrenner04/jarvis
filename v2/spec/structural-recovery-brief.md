@@ -10,7 +10,7 @@ The 2026-09-20 session closed every remaining P0. All five P0 rows are gone: rea
 
 What is left is no longer a fixed point that strands complete work. It is chain tails, one regression the session introduced, dogfood quality, and parked display work.
 
-Counts on `main` @ `0e1e1e65e`: 16 open spec dirs, of which 14 are fully ticked and landed and are waiting on an archive PR and 2 are genuinely open; 10 queued ready-intents, of which 3 are stale (their spec landed unreaped), 1 is evidence-gated, 1 has a false premise, and 5 are live; 30 seeds. Landed: ledger § Landed.
+Counts after the 2026-09-20 closeout: 2 open spec dirs (the archive sweep landed in #4114 and #4116); 10 queued ready-intents, of which 3 are stale (their spec landed unreaped), 1 is evidence-gated, 1 has a false premise, and 5 are live; 30 seeds. Landed: ledger § Landed.
 
 ## Priority-ordered work
 
@@ -30,7 +30,7 @@ Counts on `main` @ `0e1e1e65e`: 16 open spec dirs, of which 14 are fully ticked 
 | **P2** | Fan-out: [[superseded-pipeline-pr-hygiene]]; [[pipeline-fan-out-per-lane-terminal-settlement]]; [[pipeline-fan-out-lanes-serial-chained-bases]]; spec `tui-consumes-retained-pipeline-list` (0/2, genuinely open) | Fan-out pipelines still derive `failed` after every lane succeeds |
 | **P3** | [[agent-confinement-is-per-vendor-and-unexpressed]] (#1453); [[cli-retire-run-start-pause-and-config]]; [[tui-dock-command-grammar-mirrors-cli]]; [[tui-typed-run-steering-clears-command-input]] | Parked; see the open decision on `run pause` below |
 
-Dispatch order for the next session: open with the archive-and-reap PR, since 14 stale open dirs distort every read of the backlog; then the `stage-failure-record-drops-terminal-cause` regression as one intent-to-implement lane. Fan out the three unblocked tails (chain C, publication, chain D) as intents and plans in parallel behind it — all three heads are on `main`. Rewrite [[detach-admission-refuses-without-a-run-row]] by hand before it is planned at all, and leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
+Dispatch order for the next session: open with the `stage-failure-record-drops-terminal-cause` regression as one intent-to-implement lane, and reap the 3 stale ready-intents in the same PR. Fan out the three unblocked tails (chain C, publication, chain D) as intents and plans in parallel behind it — all three heads are on `main`. Rewrite [[detach-admission-refuses-without-a-run-row]] by hand before it is planned at all, and leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
 
 ## Contradictions and decisions surfaced by the audit
 

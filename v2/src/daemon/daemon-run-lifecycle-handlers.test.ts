@@ -1044,7 +1044,8 @@ test("a republication tail aborted by run kill leaves the settled marker complet
         markStarted();
       }),
   );
-  await started;
+  // A refused admission settles the tail without starting execute; fail instead of awaiting `started` forever.
+  expect(await Promise.race([started.then(() => "started"), tail.then(() => "tail-settled")])).toBe("started");
   const killed = handlers.kill(
     { kind: "request", id: "k1", method: "kill", params: { runId } },
     new AbortController().signal,

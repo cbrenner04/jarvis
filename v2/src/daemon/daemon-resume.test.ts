@@ -1158,7 +1158,8 @@ test("run kill during resumed finalization aborts the tail, skips publication, a
     });
 
     const resumed = resumeDirect(localHandlers, runId);
-    await entered;
+    // A refused admission settles the resume without entering the commit; fail instead of awaiting `entered` forever.
+    expect(await Promise.race([entered.then(() => "entered"), resumed.then(() => "resume-settled")])).toBe("entered");
     const key = { project: "test-project", branch: "test-branch" };
     expect(localRegistry.isClaimed(key)).toBe(true);
     const kill = await localHandlers.kill(

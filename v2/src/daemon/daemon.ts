@@ -595,7 +595,7 @@ export function runListTerminalFinishAtMs(
 /**
  * Read bound for the intent-stage stale-reset preflight's self-RPCs (`list`, `check_workflow_start_claim`).
  * These are fast local handlers; the bound only exists so a wedged reply can't hang the preflight
- * indefinitely (`connectIpcClient`'s own 5s bound covers connect, not reply). On timeout the preflight
+ * indefinitely (`connectIpcClient`'s 30000 ms default bound covers connect, not reply). On timeout the preflight
  * fails open (see `runSharedStaleResetPreflight`). Defined in `daemon-pipeline-handlers.ts`.
  */
 

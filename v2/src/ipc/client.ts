@@ -8,21 +8,19 @@ export type IpcClient = {
   close(): void;
 };
 
-const CONNECT_TIMEOUT_MS = 5_000;
+const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
 
 /**
  * Bounds the connection-establishment step itself (distinct from `nextFrame()`,
  * which stays legitimately unbounded by default for long-running production
- * waits). A local Unix-socket connect should always resolve or error almost
- * immediately; an unreachable/stale socket path has no legitimate reason to
- * hang here.
+ * waits). The clock starts before `socket.connect`.
  */
-function connectSocket(socketPath: string, timeoutMs = CONNECT_TIMEOUT_MS): Promise<Socket> {
+function connectSocket(socketPath: string, timeoutMs: number): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = new Socket();
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(new Error(`timed out connecting to socket "${socketPath}" after ${timeoutMs}ms`));
+      reject(new Error(`IPC connect timeout: socket "${socketPath}" not connected within ${timeoutMs}ms`));
     }, timeoutMs);
     socket.once("connect", () => {
       clearTimeout(timer);
@@ -41,9 +39,16 @@ function connectSocket(socketPath: string, timeoutMs = CONNECT_TIMEOUT_MS): Prom
  * unresponsive server fails fast instead of hanging. Left unset (the default), those calls wait
  * unbounded, matching this client's original behavior — production callers rely on that for
  * long-running waits (e.g. `wait` for a run to finish, RPC/log-tail read loops).
+ *
+ * `connectTimeoutMs` bounds connection establishment only (default 30000 ms) and never applies to
+ * `nextFrame()`. Exhaustion rejects with an `IPC connect timeout` error naming the budget.
  */
-export async function connectIpcClient(socketPath: string, defaultTimeoutMs?: number): Promise<IpcClient> {
-  const socket = await connectSocket(socketPath);
+export async function connectIpcClient(
+  socketPath: string,
+  defaultTimeoutMs?: number,
+  connectTimeoutMs: number = DEFAULT_CONNECT_TIMEOUT_MS,
+): Promise<IpcClient> {
+  const socket = await connectSocket(socketPath, connectTimeoutMs);
   const decoder = new FrameDecoder();
   const pending: IpcFrame[] = [];
   let waiter: {

@@ -11,9 +11,9 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/pipeline-execution.test.ts` asserts a `branch_not_resumable` refusal (e.g. the terminal-skipped successor case) carries the blocking row's `stageId` and `status`; it fails against the pre-fix detail.
-- [ ] A test drives the all-satisfied fallthrough through the public `resumePipeline` (a branch whose rows have all `succeeded`) and asserts the refusal carries `status: "succeeded"` and no `stageId`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/daemon/pipeline-execution.test.ts` asserts a `branch_not_resumable` refusal (e.g. the terminal-skipped successor case) carries the blocking row's `stageId` and `status`; it fails against the pre-fix detail.
+- [x] A test drives the all-satisfied fallthrough through the public `resumePipeline` (a branch whose rows have all `succeeded`) and asserts the refusal carries `status: "succeeded"` and no `stageId`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

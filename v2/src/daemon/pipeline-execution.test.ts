@@ -4347,6 +4347,7 @@ describe("resumePipeline branch scope", () => {
       branchKey: RESUME_BRANCH_RUNNING,
       reason: "branch_not_resumable",
       status: "running",
+      stageId: "implement",
     });
 
     expect(dispatchOrder).toEqual([]);
@@ -4580,6 +4581,41 @@ describe("resumePipeline branch scope", () => {
       branchKey: SKIPPED_SUCCESSOR_BRANCH,
       reason: "branch_not_resumable",
       status: "skipped",
+      stageId: "implement",
+    });
+    expect(dispatchOrder).toEqual([]);
+    expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
+  });
+
+  test("branch-scoped resume refuses a fully satisfied branch as branch_not_resumable without a stageId", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupSkippedSuccessorBranchFixture(store, "terminal");
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: SKIPPED_SUCCESSOR_BRANCH,
+      patch: {
+        status: "succeeded",
+        artifact: { entryRunId: "run-done-implement", specPath: "spec/done/implement.md" },
+      },
+    });
+    const before = stages().map((stage) => ({ ...stage }));
+    const dispatchOrder: number[] = [];
+
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatchOrder), {
+      branchKey: SKIPPED_SUCCESSOR_BRANCH,
+    });
+
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: SKIPPED_SUCCESSOR_BRANCH,
+      reason: "branch_not_resumable",
+      status: "succeeded",
     });
     expect(dispatchOrder).toEqual([]);
     expect(stages().map((stage) => ({ ...stage }))).toEqual(before);

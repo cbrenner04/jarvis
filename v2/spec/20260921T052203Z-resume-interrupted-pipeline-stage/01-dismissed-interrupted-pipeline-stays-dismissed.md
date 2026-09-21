@@ -14,9 +14,9 @@ Today a dismissed `interrupted` pipeline is refused only because derived `interr
 
 ## Acceptance criteria
 
-- [ ] A test proves `pipeline resume` on a dismissed `interrupted` pipeline refuses `pipeline_dismissed`, leaves stage rows unchanged, stays dismissed, and dispatches nothing; it fails against the reopen from the interrupted-reopen subspec without the guard.
-- [ ] A test proves the same for branch-scoped `pipeline resume <id> <branch>` on a dismissed pipeline with an `interrupted` branch stage; it fails without the guard.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves `pipeline resume` on a dismissed `interrupted` pipeline refuses `pipeline_dismissed`, leaves stage rows unchanged, stays dismissed, and dispatches nothing; it fails against the reopen from the interrupted-reopen subspec without the guard.
+- [x] A test proves the same for branch-scoped `pipeline resume <id> <branch>` on a dismissed pipeline with an `interrupted` branch stage; it fails without the guard.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

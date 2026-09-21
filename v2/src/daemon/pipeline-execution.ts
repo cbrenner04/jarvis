@@ -174,6 +174,7 @@ export type PipelineBranchResumeRefusalReason =
 export type PipelineResumeRefusalReason =
   | PipelineContinuationRefusalReason
   | PipelineReopenRefusalReason
+  | "pipeline_dismissed"
   | "pipeline_terminal_succeeded"
   | "pipeline_terminal_rejected"
   | "pipeline_not_resumable"
@@ -608,6 +609,21 @@ export async function resumePipeline(
 
   const branchScope = normalizeContinuationBranchKey(options.branchKey);
 
+  let branchAdmission: Extract<ReturnType<typeof resolveBranchResumeAdmission>, { kind: "ok" }> | undefined;
+  if (branchScope !== undefined) {
+    const admission = resolveBranchResumeAdmission(pipeline, branchScope);
+    if (admission.kind === "refused") {
+      return { kind: "refused", pipelineId, branchKey: branchScope, ...admission.detail };
+    }
+    branchAdmission = admission;
+  }
+  const reopensInterrupted =
+    branchAdmission?.reopenKind === "interrupted" ||
+    (branchAdmission === undefined && resumeInterruptedRequiresReopen(derivePipelineState(pipeline), pipeline));
+  if (pipeline.dismissedAt !== null && reopensInterrupted) {
+    return { kind: "refused", pipelineId, reason: "pipeline_dismissed" };
+  }
+
   const continueAfterAdmission = (
     continuationBranchKey?: string,
     continuationReopenedStageReset?: ReopenedStageReset,
@@ -633,11 +649,8 @@ export async function resumePipeline(
     return dispatchContinuation();
   };
 
-  if (branchScope !== undefined) {
-    const admission = resolveBranchResumeAdmission(pipeline, branchScope);
-    if (admission.kind === "refused") {
-      return { kind: "refused", pipelineId, branchKey: branchScope, ...admission.detail };
-    }
+  if (branchScope !== undefined && branchAdmission !== undefined) {
+    const admission = branchAdmission;
     const resetStatus =
       admission.reopenKind === "failed" || admission.reopenKind === "interrupted" ? admission.reopenKind : undefined;
     const reopenedStageReset =

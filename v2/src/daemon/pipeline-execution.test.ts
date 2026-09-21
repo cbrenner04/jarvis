@@ -193,6 +193,7 @@ function fakeStore(
     context?: PipelineContext | null;
     ownerIdentity?: string | null;
     currentIdentity?: string;
+    dismissedAt?: number | null;
     terminalPublicationFailure?: Pipeline["terminalPublicationFailure"];
     terminalPublicationSucceededAt?: Pipeline["terminalPublicationSucceededAt"];
   } = {},
@@ -241,6 +242,7 @@ function fakeStore(
             context: pipelineContext,
             terminalPublicationFailure,
             terminalPublicationSucceededAt,
+            dismissedAt: options.dismissedAt ?? null,
             stages: stages.map((s) => ({ ...s })),
           } as Pipeline & {
             stages: PipelineStageRecord[];
@@ -4212,6 +4214,26 @@ describe("resumePipeline", () => {
 });
 
 describe("resumePipeline interrupted stage", () => {
+  test("resume leaves a dismissed interrupted pipeline unchanged", async () => {
+    const dismissedAt = 1_700_000_000_000;
+    const { store, stages } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER, dismissedAt },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+    const before = structuredClone(stages());
+    const dispatched: number[] = [];
+
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatched));
+
+    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_dismissed" });
+    expect(stages()).toEqual(before);
+    expect(store.loadPipeline(PIPELINE_ID)?.dismissedAt).toBe(dismissedAt);
+    expect(dispatched).toEqual([]);
+  });
+
   test("resume reopens and dispatches an interrupted stage a force kill left", async () => {
     const { store, stages } = fakeStore(
       RESTART_SWEEP_DEFINITION,
@@ -4539,6 +4561,33 @@ describe("resumePipeline branch scope", () => {
       expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
     }
     expect(stageRecord(after, "implement", RESUME_BRANCH_FAILED)?.status).toBe("succeeded");
+  });
+
+  test("branch-scoped resume leaves a dismissed interrupted branch unchanged", async () => {
+    const dismissedAt = 1_700_000_000_000;
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER, dismissedAt },
+    );
+    setupBranchResumeFixture(store);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_FAILED,
+      patch: { status: "interrupted" },
+    });
+    const before = structuredClone(stages());
+    const dispatched: number[] = [];
+
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatched), {
+      branchKey: RESUME_BRANCH_FAILED,
+    });
+
+    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_dismissed" });
+    expect(stages()).toEqual(before);
+    expect(store.loadPipeline(PIPELINE_ID)?.dismissedAt).toBe(dismissedAt);
+    expect(dispatched).toEqual([]);
   });
 
   test("branch-scoped resume refuses the named branch gate, an unknown branch, and a branch without a replayable failure", async () => {

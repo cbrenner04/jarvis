@@ -1505,6 +1505,31 @@ function applySchemaMigrations(db: Database): void {
   db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(BASELINE_SQUASH_MIGRATION_ID, Date.now());
 }
 
+const PUBLICATION_FAILURE_ROWS_MIGRATION_ID = "032-completed-publication-failure-rows-to-failed";
+
+/** Rewrites `completed` rows left by publication-tail failures settled before they were classified `failed`. */
+function repairCompletedPublicationFailureRows(db: Database): void {
+  const applied = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(PUBLICATION_FAILURE_ROWS_MIGRATION_ID);
+  if (applied) return;
+  db.exec("BEGIN");
+  try {
+    if (tableHasColumn(db, "runs", "terminal_cause")) {
+      db.exec(`
+        UPDATE runs SET status = 'failed'
+        WHERE status = 'completed' AND terminal_cause IN ('completion_commit_failed', 'ready_flip_failed')
+      `);
+    }
+    db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(
+      PUBLICATION_FAILURE_ROWS_MIGRATION_ID,
+      Date.now(),
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
 /**
@@ -1936,6 +1961,7 @@ class StateStoreImpl implements StateStore {
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA foreign_keys=ON");
     applySchemaMigrations(this.db);
+    repairCompletedPublicationFailureRows(this.db);
     backfillVerifierProcessGroupsFromReadyGatePgid(this.db);
     addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
     // Stores stamped `031-baseline-squash` before these columns existed skip `upgradeFromLegacyEra`;

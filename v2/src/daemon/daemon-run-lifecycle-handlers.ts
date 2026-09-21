@@ -77,6 +77,7 @@ import {
   type RunResumeAdmission,
   resolveRunResumeAdmission,
 } from "./daemon-run-resume-admission.ts";
+import { skipSuffixOfSettledFailures } from "./pipeline-execution.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import {
   KILL_SETTLEMENT_BOUND_MS,
@@ -110,6 +111,7 @@ type RunLifecycleHandlerDeps = {
   ) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
+  continuePipelineAfterSettlement?: (pipelineId: string, branchKey: string) => Promise<void>;
 };
 
 export type RunLifecycleHandlers = {
@@ -651,14 +653,26 @@ export function createRunLifecycleHandlers(
   /** Best-effort: the durable row settles any stage linked to this run's invocation entry run. */
   const settleStagesAfterWriteLoop = (runId: string): void => {
     try {
-      settleStagesForEntryRun(
+      const entryRunId = resolveInvocationEntryRunId(store, runId);
+      const outcome = settleStagesForEntryRun(
         {
           store,
           isEntryRunLive: (entryRunId) => workflowPromisesByEntryRunId.has(entryRunId),
           loadLogRecords: logReader === undefined ? undefined : (id) => logReader.tail(id),
         },
-        resolveInvocationEntryRunId(store, runId),
+        entryRunId,
       );
+      if (outcome.kind !== "settled") return;
+      skipSuffixOfSettledFailures(store, [entryRunId]);
+      for (const target of outcome.stages) {
+        const stage = store
+          .loadPipeline(target.pipelineId)
+          ?.stages.find((row) => row.stageId === target.stageId && row.branchKey === target.branchKey);
+        if (stage?.status !== "succeeded") continue;
+        void deps.continuePipelineAfterSettlement?.(target.pipelineId, target.branchKey).catch((continuationError) => {
+          console.error(`Pipeline ${target.pipelineId} continuation after stage settlement failed:`, continuationError);
+        });
+      }
     } catch (settlementError) {
       console.error(`Stage settlement after write loop ${runId} failed:`, settlementError);
     }
@@ -1273,6 +1287,7 @@ export function createRunLifecycleHandlers(
       activeRuns.delete(activeKey);
       logSink?.close();
       registry.release(key);
+      settleStagesAfterWriteLoop(run.id);
     }
   };
 

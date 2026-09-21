@@ -1480,7 +1480,7 @@ function skipRemainingStages(
  * in-loop stage failure does. Without this the suffix stays `pending`, so the pipeline derives
  * `failed` while `reopenFailedPipeline` refuses it as a malformed continuation.
  */
-function skipSuffixOfSettledFailures(
+export function skipSuffixOfSettledFailures(
   store: StateStore,
   settledEntryRunIds: readonly string[],
   pipelineId?: string,

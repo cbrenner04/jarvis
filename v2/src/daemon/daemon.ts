@@ -84,6 +84,7 @@ import {
   runNotificationSweep,
   runNotificationSweepIntervalTick,
 } from "./operator-notification-sweep.ts";
+import { continuePipeline } from "./pipeline-execution.ts";
 import type { KillSurvivor } from "./run-kill-outcome.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
 import { startStableDigestTrigger } from "./stable-digest-trigger.ts";
@@ -751,11 +752,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     check_workflow_start_claim: checkWorkflowStartClaimHandler,
   } = workflowStart;
 
+  let continuePipelineAfterSettlement: (pipelineId: string, branchKey: string) => Promise<void>;
   const lifecycle = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart,
     resumeLinkedWorkflowStart,
     ...(deps.pipelineDispatch !== undefined ? { pipelineDispatch: deps.pipelineDispatch } : {}),
     ...(deps.pipelineWait !== undefined ? { pipelineWait: deps.pipelineWait } : {}),
+    continuePipelineAfterSettlement: (pipelineId, branchKey) => continuePipelineAfterSettlement(pipelineId, branchKey),
   });
   const {
     start: startHandler,
@@ -791,6 +794,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     ...(deps.staleResetCliDeps !== undefined ? { staleResetCliDeps: deps.staleResetCliDeps } : {}),
     ...(deps.reconciledRunIds !== undefined ? { reconciledRunIds: deps.reconciledRunIds } : {}),
   });
+  continuePipelineAfterSettlement = async (pipelineId, branchKey): Promise<void> => {
+    await continuePipeline(pipelineId, pipeline.pipelineExecutionDeps(), branchKey);
+  };
 
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
 

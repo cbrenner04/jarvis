@@ -35,6 +35,7 @@ import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../test
 import { createRunControlHandlers, WorktreeOwnershipRegistry, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 import { derivePipelineState } from "./pipeline-execution.ts";
 import { composeRunOperatorError, type TerminalLogRecord, terminalResumeRefusalMessage } from "./run-operator-error.ts";
+import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -2349,6 +2350,36 @@ function seedFailedImplementStage(entryRunId: string): string {
   return pipelineId;
 }
 
+function seedFailedImplementStageWithSuccessor(entryRunId: string): string {
+  const pipelineId = stateStore.createPipeline({
+    definition: {
+      name: "failed-stage-successor",
+      stages: [
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+        { stageId: "successor", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    },
+    context: { cwd: "/fake", seed: "seed text", configPath: "/fake/.jarvis/config.json" },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "failed",
+      workflowInvocationId: entryRunId,
+      startedAt: 100,
+      endedAt: 200,
+      failureDetail: FAILED_STAGE_DETAIL,
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "successor",
+    patch: { status: "skipped", skipProvenance: "terminal" },
+  });
+  return pipelineId;
+}
+
 function stageRow(pipelineId: string, stageId: string) {
   const stage = stateStore.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === stageId);
   if (stage === undefined) throw new Error(`stage ${stageId} missing`);
@@ -2373,20 +2404,93 @@ function publishingHandlers(logsPath: string): Handlers {
   });
 }
 
-test("resuming a surviving_mutation_failed row reopens the failed stage linked to its invocation's entry run", async () => {
-  const { reviewRunId, logsPath, pipelineId } = seedFailedSurvivingMutationStage(
-    "stage-reopen-resume",
-    "stage-reopen/resume",
-  );
+test("a resumed surviving_mutation_failed row succeeds with sibling PR evidence and dispatches its successor once", async () => {
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+    invocationId: "stage-reopen-resume",
+    branch: "stage-reopen/resume",
+    reviewBehavior: "review",
+  });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath("stage-reopen-resume-logs", reviewRunId);
+  const pipelineId = seedFailedImplementStageWithSuccessor(writeRunId);
+  let successorDispatches = 0;
   try {
-    const response = await resumeDirect(publishingHandlers(logsPath), reviewRunId);
-    expect(response.kind).toBe("response");
+    const localHandlers = logBackedHandlers(logsPath, {
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 31, prUrl: "https://example.test/pr/31" }),
+        readyFinalizer: async () => undefined,
+      },
+      resolveStage: async () => ({ ok: true, steps: [] }),
+      pipelineDispatch: async () => {
+        successorDispatches += 1;
+        const entryRunId = stateStore.createRun({
+          project: "test-project",
+          specRef: "main",
+          worktreePath: "/tmp/successor-worktree",
+          branch: "stage-reopen/successor",
+          specPath: "/tmp/successor.md",
+          status: "completed",
+        });
+        return { ok: true, entryRunId };
+      },
+      pipelineWait: async () => "completed",
+    });
 
-    expect(stageRow(pipelineId, "implement")).toMatchObject({ status: "running", endedAt: null, failureDetail: null });
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+    await flushBackgroundRuns(3);
+
+    expect(stageRow(pipelineId, "implement")).toMatchObject({
+      status: "succeeded",
+      failureDetail: null,
+      artifact: { entryRunId: writeRunId, prNumber: 31, prUrl: "https://example.test/pr/31" },
+    });
     expect(stageRow(pipelineId, "implement").startedAt).toBe(100);
-    expect(stageRow(pipelineId, "gate").status).toBe("pending");
+    expect(stageRow(pipelineId, "successor").status).toBe("succeeded");
+    expect(successorDispatches).toBe(1);
     const pipeline = stateStore.loadPipeline(pipelineId);
-    expect(pipeline && derivePipelineState(pipeline)).toBe("running");
+    expect(pipeline && derivePipelineState(pipeline)).toBe("succeeded");
+
+    const repeated = settleStagesForEntryRun({ store: stateStore, isEntryRunLive: () => false }, writeRunId);
+    expect(repeated.kind).toBe("no-linked-stages");
+    await flushBackgroundRuns(2);
+    expect(successorDispatches).toBe(1);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("a resumed row that fails again replaces stale stage detail, re-skips its suffix, and dispatches nothing", async () => {
+  const { reviewRunId, logsPath, pipelineId } = seedFailedSurvivingMutationStage(
+    "stage-resume-refail",
+    "stage-resume/refail",
+  );
+  let successorDispatches = 0;
+  try {
+    const localHandlers = logBackedHandlers(logsPath, {
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => {
+          throw new Error("new publication failure");
+        },
+        readyFinalizer: async () => undefined,
+      },
+      pipelineDispatch: async () => {
+        successorDispatches += 1;
+        return { ok: false, code: "unexpected", message: "must not dispatch" };
+      },
+    });
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("error");
+
+    const failed = stageRow(pipelineId, "implement");
+    expect(failed.status).toBe("failed");
+    expect(failed.failureDetail).not.toEqual(FAILED_STAGE_DETAIL);
+    expect(JSON.stringify(failed.failureDetail)).toContain("new publication failure");
+    expect(stageRow(pipelineId, "gate")).toMatchObject({ status: "skipped", skipProvenance: "provisional" });
+    expect(successorDispatches).toBe(0);
   } finally {
     rmSync(logsPath, { force: true });
   }

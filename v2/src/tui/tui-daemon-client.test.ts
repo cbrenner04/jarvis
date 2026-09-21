@@ -397,6 +397,52 @@ test("malformed success payloads reject as RpcConnectionError", async () => {
   });
 });
 
+test("pipelineList drops a malformed stage failure record and keeps sibling stages", async () => {
+  const stage = (stageId: string, failureDetail: unknown) => ({
+    id: `id-${stageId}`,
+    stageId,
+    branchKey: "default",
+    position: 0,
+    status: "failed",
+    workflowInvocationId: null,
+    startedAt: null,
+    endedAt: 5,
+    decidedAt: null,
+    artifact: null,
+    failureDetail,
+  });
+  const record = { expectation: "e", observation: "o", retryable: true, referencedPaths: [] };
+  const snapshot = (stages: ReturnType<typeof stage>[]) => ({
+    pipelineId: "pipe-1",
+    name: "sample-pipeline",
+    state: "failed" as const,
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: 5,
+    dismissedAt: null,
+    stages,
+  });
+
+  await withFixedUuid([PIPELINE_LIST_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
+      connectIpcClient: async () =>
+        makeGatedIpcClient([
+          {
+            kind: "response",
+            id: PIPELINE_LIST_REQUEST_ID,
+            result: { pipelines: [snapshot([stage("bad", { ...record, retryable: "yes" }), stage("good", record)])] },
+          },
+        ]),
+    });
+    await expect(client.pipelineList({ includeDismissed: false })).resolves.toEqual({
+      pipelines: [snapshot([stage("bad", null), stage("good", record)])],
+    });
+    client.close();
+  });
+});
+
 test("pipelineList sends one correlated IPC request and parses ordered PipelineSnapshot rows", async () => {
   const sent: unknown[] = [];
   const pipelineSnapshot = {

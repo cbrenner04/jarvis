@@ -2,6 +2,7 @@ import type { OperatorFailureRecord } from "../../../shared/operator-failure-rec
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { WaitRunCompletionResult, WorkflowStepListStatus } from "./daemon.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
+import { withValidFailureRecord } from "./wire-failure-record.ts";
 
 /** One workflow step on daemon `list` wire payloads. */
 type DaemonWorkflowStepSnapshot = {
@@ -129,24 +130,30 @@ export function parseStartResult(value: unknown): { runId: string } | undefined 
  *
  * Envelope-thin: the daemon is a trusted same-build process over a local Unix
  * socket, so per-row/per-step fields are not re-validated — see
- * `v2/docs/v2-architecture.md` (`## Interface & IPC`).
+ * `v2/docs/v2-architecture.md` (`## Interface & IPC`). Exception: a malformed
+ * `failure` record is dropped from its row.
  */
 export function parseListRuns(value: unknown): DaemonListResult | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const runs = (value as { runs?: unknown }).runs;
   if (!Array.isArray(runs)) return undefined;
-  return { runs: runs as DaemonListRunRow[] };
+  return {
+    runs: (runs as DaemonListRunRow[]).map((row) =>
+      typeof row === "object" && row !== null ? withValidFailureRecord(row) : row,
+    ),
+  };
 }
 
 /**
  * Parse a daemon `wait` success payload; returns `undefined` when malformed.
  *
  * Envelope-thin: only `runStatus` presence is checked before casting — see
- * `v2/docs/v2-architecture.md` (`## Interface & IPC`).
+ * `v2/docs/v2-architecture.md` (`## Interface & IPC`). Exception: a malformed
+ * `failure` record is dropped.
  */
 export function parseWaitCompletion(value: unknown): WaitRunCompletionResult | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const record = value as Record<string, unknown>;
   if (record.runStatus === undefined) return undefined;
-  return record as unknown as WaitRunCompletionResult;
+  return withValidFailureRecord(record) as unknown as WaitRunCompletionResult;
 }

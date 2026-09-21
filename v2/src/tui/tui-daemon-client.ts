@@ -8,6 +8,7 @@ import {
 } from "../daemon/daemon-wire.ts";
 import type { PipelineApprovalDecisionOutcome, ResumePipelineOutcome } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { withValidStageFailureRecords } from "../daemon/wire-failure-record.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
@@ -67,7 +68,7 @@ function parsePipelineList(value: unknown): PipelineListResult | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const pipelines = (value as { pipelines?: unknown }).pipelines;
   if (!Array.isArray(pipelines)) return undefined;
-  return { pipelines: pipelines as PipelineSnapshot[] };
+  return { pipelines: (pipelines as PipelineSnapshot[]).map(withValidStageFailureRecords) };
 }
 
 /**

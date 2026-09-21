@@ -194,6 +194,8 @@ Valid JSON with missing or invalid `kind` closes the connection.
 
 Run `list` rows and `wait` results carry optional `failure: OperatorFailureRecord`, copied unchanged from the named durable run row without log input. Null, absent, and corrupt records omit the field; `error` remains the independent reason/action projection.
 
+Wire parsers stay envelope-thin except for this one field: `parseListRuns` / `parseWaitCompletion` and both `pipeline_list` parsers (`pipeline-daemon-resolution.ts`, the TUI client) validate failure records through `operatorFailureRecordFromUnknown` and drop a malformed one while every other row or stage field survives. On stages only a `failureDetail` that carries record fields but fails validation is dropped (to `null`); legacy `{ code, message }` and marker payloads pass through. Valid records are unchanged.
+
 | `method` | `params` | `result` | Meaning |
 | --- | --- | --- | --- |
 | `health` | — | `{ ok: true }` | Channel liveness |

@@ -126,7 +126,10 @@ afterEach(async () => {
   rmSync(profileHome, { recursive: true, force: true });
 });
 
-function createHandlers(logReader?: LogReader): Handlers {
+function createHandlers(
+  logReader?: LogReader,
+  overrides: Partial<Parameters<typeof createRunControlHandlers>[0]> = {},
+): Handlers {
   return createRunControlHandlers({
     stateStore,
     ...(logReader !== undefined ? { logReader } : {}),
@@ -135,6 +138,7 @@ function createHandlers(logReader?: LogReader): Handlers {
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
     writeLoopBindingSourceDeps,
+    ...overrides,
   });
 }
 
@@ -332,7 +336,7 @@ test("resume rejects terminal run status", async () => {
 
 test("resume refusal on ready_flip_failed names manual PR-flip recovery", async () => {
   const runId = createWorkflowRun({ invocationId: "ready-flip-terminal" });
-  stateStore.setRunStatus(runId, "completed");
+  stateStore.setRunStatus(runId, "failed");
   const logReader = loopFinishedLogReader(runId, {
     loopOutcomeKind: "ready_flip_failed",
     iterationsConsumed: 1,
@@ -366,18 +370,21 @@ test("resume refusal on agent_blocked names spec inspection recovery", async () 
   }
 });
 
-test("resume retries a completed run after a resumable publication failure", async () => {
+test("resume retries a failed run after a resumable publication failure", async () => {
   const runId = createWorkflowRun({ invocationId: "publication-retry" });
-  stateStore.setRunStatus(runId, "completed");
+  stateStore.setRunStatus(runId, "failed");
   const logReader = loopFinishedLogReader(runId, {
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: 1,
     resumable: true,
   });
-  const localHandlers = createHandlers(logReader);
+  const localHandlers = createHandlers(logReader, {
+    intentFinalizationResumeDeps: { ...completionHooks, readyFinalizer: async () => undefined },
+  });
 
   expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
-  expect(fakeExecutor.pendingCount()).toBe(1);
+  expect(fakeExecutor.pendingCount()).toBe(0);
+  expect(stateStore.loadRun(runId)?.status).toBe("completed");
 });
 
 test("resume retries a failed run after surviving mutation verification", async () => {
@@ -1201,7 +1208,7 @@ test.each([
   },
   {
     invocationId: "completion-commit-failed",
-    status: "completed" as const,
+    status: "failed" as const,
     logOutcome: "completion_commit_failed" as const,
   },
   { invocationId: "ready-gate-failed", status: "completed" as const, logOutcome: "ready_gate_failed" as const },
@@ -1316,7 +1323,9 @@ test.each([
     expect(error?.nextAction).toBe("resume");
 
     // Verify that resume does not refuse terminal_run
-    const localHandlers = createHandlers(logReader);
+    const localHandlers = createHandlers(logReader, {
+      intentFinalizationResumeDeps: { ...completionHooks, readyFinalizer: async () => undefined },
+    });
     const response = await resumeDirect(localHandlers, runId);
     expect(response.kind).not.toBe("error");
     if (response.kind === "error") {

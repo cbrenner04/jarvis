@@ -16,10 +16,10 @@
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-recovery.test.ts` failed `completion_commit_failed` entry-row tests stay green: the linked stage settles failed and remains eligible for plan-stage recovery, with no completed row carrying the cause.
-- [ ] `pipeline-stage-dispatch.test.ts` failed-stage settlement tests stay green: `completion_commit_failed` / `resume` detail derives from a failed entry row.
-- [ ] `pipeline-stage-recovery.test.ts` proves a failed `ready_flip_failed` entry row settles its linked stage failed and is not admitted for plan-stage recovery; fails if the explicit non-recoverable guard is removed.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline-stage-recovery.test.ts` failed `completion_commit_failed` entry-row tests stay green: the linked stage settles failed and remains eligible for plan-stage recovery, with no completed row carrying the cause.
+- [x] `pipeline-stage-dispatch.test.ts` failed-stage settlement tests stay green: `completion_commit_failed` / `resume` detail derives from a failed entry row.
+- [x] `pipeline-stage-recovery.test.ts` proves a failed `ready_flip_failed` entry row settles its linked stage failed and is not admitted for plan-stage recovery; fails if the explicit non-recoverable guard is removed.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

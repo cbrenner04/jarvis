@@ -1006,3 +1006,52 @@ test("a republication tail aborted by run kill leaves the settled marker complet
   await killed;
   expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toEqual({ cause: "completed", settledAt: 1 });
 });
+
+test("wait projects a completed row's stale publication cause as complete unless the terminal record is run_execution_failed", async () => {
+  const signal = new AbortController().signal;
+  const cases = [
+    {
+      event: {
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_flip_failed",
+        iterationsConsumed: 2,
+        resumable: false,
+      },
+      expected: "complete",
+    },
+    { event: { kind: "run_execution_failed", message: "boom" }, expected: undefined },
+  ] as const;
+  for (const { event, expected } of cases) {
+    const runId = stateStore.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: `stale-${event.kind}`,
+      specPath: "/tmp/wt/spec.md",
+    });
+    stateStore.commitTerminalRunSettlement({ runId, status: "completed", terminalCause: "ready_flip_failed" });
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: {
+        tail: () => [{ runId, seq: 1, ts: new Date().toISOString(), event }],
+        async *follow() {},
+      },
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "unsupported" }),
+    });
+
+    const waited = await handlers.wait(
+      { kind: "request", id: `w-${event.kind}`, method: "wait", params: { runId } },
+      signal,
+    );
+    if (waited.kind !== "response") throw new Error("wait failed");
+    const result = waited.result as { runStatus: string; loopOutcomeKind?: string };
+    expect(result.runStatus).toBe("completed");
+    expect(result.loopOutcomeKind).toBe(expected);
+  }
+});

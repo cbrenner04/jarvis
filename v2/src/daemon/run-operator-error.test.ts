@@ -20,6 +20,7 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isPostBoundaryStateStoreLockTimeout,
+  isStalePublicationCause,
   RUN_OPERATOR_ERROR_RECOVERY,
   resolveFailedBlockedAttemptPrecedence,
 } from "./run-operator-error.ts";
@@ -1008,7 +1009,7 @@ test("composeRunOperatorError maps ready gate, surviving mutation, and flip fail
     nextAction: "resume",
     ...survivingMutation,
   });
-  expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_flip_failed"))).toEqual(
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("ready_flip_failed"))).toEqual(
     err("ready_flip_failed", "stop", false),
   );
   expect(composeRunOperatorError(runWith("failed"), loopFinished("mutation_repair_exhausted"))).toEqual(
@@ -1119,17 +1120,13 @@ test("composeRunOperatorError routes durable terminalCause invocation_failure th
 });
 
 test("composeRunOperatorError defaults durable completion_commit_failed to resumable without a terminal log", () => {
-  const durable = (terminalCause: "completion_commit_failed" | "landing_failed", status: RunStatus = "completed") => ({
+  const durable = (terminalCause: "completion_commit_failed" | "landing_failed", status: RunStatus = "failed") => ({
     status,
     attempts: [],
     terminalCause,
   });
-  // Publication failures all settle `failed`, so durable status no longer encodes resumability:
-  // without a log the cause alone decides, and completion_commit_failed defaults to resume at
-  // either status. Only a `loop_finished` carrying `resumable: false` demotes it to stop.
-  expect(composeRunOperatorError(durable("completion_commit_failed"))).toEqual(
-    err("completion_commit_failed", "resume", true),
-  );
+  // Publication failures all settle `failed`: without a log the cause alone decides, and
+  // completion_commit_failed defaults to resume. Only a `loop_finished` carrying `resumable: false` demotes it to stop.
   expect(composeRunOperatorError(durable("completion_commit_failed", "failed"))).toEqual(
     err("completion_commit_failed", "resume", true),
   );
@@ -1194,4 +1191,42 @@ test("composeRunOperatorError lets a non-retryable record demote a resume action
   expect(composeRunOperatorError({ ...runWith("paused"), operatorFailureRecord: failureRecord(false) })).toEqual(
     err("resumable_pause", "stop", false),
   );
+});
+
+test("composeRunOperatorError composes completion_commit_failed on a failed row but not a completed row with the stale cause", () => {
+  const failed = { ...runWith("failed"), terminalCause: "completion_commit_failed" as const };
+  const completed = { ...runWith("completed"), terminalCause: "completion_commit_failed" as const };
+  const record = loopFinished("completion_commit_failed", { resumable: true });
+  expect(composeRunOperatorError(failed, record)).toEqual(err("completion_commit_failed", "resume", true));
+  expect(composeRunOperatorError(failed)).toEqual(err("completion_commit_failed", "resume", true));
+  expect(composeRunOperatorError(completed, record)).toBeUndefined();
+  expect(composeRunOperatorError(completed)).toBeUndefined();
+  expect(composeRunOperatorError(runWith("completed"), record)).toBeUndefined();
+});
+
+test("composeRunOperatorError composes ready_flip_failed on a failed row but not a completed row with the stale cause", () => {
+  const failed = { ...runWith("failed"), terminalCause: "ready_flip_failed" as const };
+  const completed = { ...runWith("completed"), terminalCause: "ready_flip_failed" as const };
+  const record = loopFinished("ready_flip_failed");
+  expect(composeRunOperatorError(failed, record)).toEqual(err("ready_flip_failed", "stop", false));
+  expect(composeRunOperatorError(failed)).toEqual(err("ready_flip_failed", "stop", false));
+  expect(composeRunOperatorError(completed, record)).toBeUndefined();
+  expect(composeRunOperatorError(completed)).toBeUndefined();
+  expect(composeRunOperatorError(runWith("completed"), record)).toBeUndefined();
+});
+
+test("composeRunOperatorError keeps trailing run_execution_failed over a stale publication cause on a completed row", () => {
+  for (const cause of ["completion_commit_failed", "ready_flip_failed"] as const) {
+    const completed = { ...runWith("completed"), terminalCause: cause };
+    expect(composeRunOperatorError(completed, runExecutionFailed())).toEqual(err("harness_failure", "stop"));
+  }
+});
+
+test("isStalePublicationCause is true only for the two publication causes on completed rows", () => {
+  expect(isStalePublicationCause("completed", "completion_commit_failed")).toBe(true);
+  expect(isStalePublicationCause("completed", "ready_flip_failed")).toBe(true);
+  expect(isStalePublicationCause("failed", "completion_commit_failed")).toBe(false);
+  expect(isStalePublicationCause("failed", "ready_flip_failed")).toBe(false);
+  expect(isStalePublicationCause("completed", "ready_gate_failed")).toBe(false);
+  expect(isStalePublicationCause("completed", undefined)).toBe(false);
 });

@@ -205,6 +205,8 @@ export function countParityPreservationViolation(
  * falls back to local handling instead of erroring` in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
+  // Renamed: publication failures now settle the run as failed, not completed.
+  "resume retries a completed run after a resumable publication failure",
   // Legacy modes.plan.commit spec-home knob replaced by projects.<key>.specs (rejected, covered by chainedStageSpecsHome tests).
   "chainedStageEffectivePublishGit honors machine modes.plan.commit when project plan.commit is unset",
   "resolves external ready-intent downstream input when machine modes.plan.commit is false",

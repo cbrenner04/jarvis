@@ -86,6 +86,7 @@ import {
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
+  isStalePublicationCause,
   RUN_OPERATOR_ERROR_RECOVERY,
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
@@ -567,8 +568,17 @@ export function createRunLifecycleHandlers(
         : run
           ? composeRunOperatorError(run, record, logTail)
           : undefined;
-    const loopFinishedEvent = record?.event.kind === "loop_finished" ? record.event : undefined;
-    const loopOutcomeKind = run?.terminalCause ?? loopFinishedEvent?.loopOutcomeKind;
+    const rawLoopFinished = record?.event.kind === "loop_finished" ? record.event : undefined;
+    const staleLoopFinished = isStalePublicationCause(runStatus, rawLoopFinished?.loopOutcomeKind);
+    const staleDurableCause = isStalePublicationCause(runStatus, run?.terminalCause ?? undefined);
+    const loopFinishedEvent = staleLoopFinished ? undefined : rawLoopFinished;
+    // A completed row's stale publication cause projects as success, not as a failure kind or none.
+    const loopOutcomeKind =
+      (staleDurableCause ? undefined : run?.terminalCause) ??
+      loopFinishedEvent?.loopOutcomeKind ??
+      ((staleLoopFinished || staleDurableCause) && record?.event.kind !== "run_execution_failed"
+        ? "complete"
+        : undefined);
     const resumableProjection = runStatus !== "in-progress" ? { resumable: admission.admitted } : {};
     const base: WaitRunCompletionResult =
       loopOutcomeKind === undefined

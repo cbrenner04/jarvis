@@ -950,12 +950,46 @@ test("completion_commit_failed incident carries the terminal failure detail", ()
   const runId = seedInvocationRow("plan~detail-0", "in-progress");
   store.commitTerminalRunSettlement({
     runId,
+    status: "failed",
+    terminalCause: "completion_commit_failed",
+    terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
+  });
+  store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      runId,
+      cause: "failed",
+      transition: "terminal:failed:1000000",
+      detail: "refused: v2/src/a.ts",
+    }),
+  ]);
+});
+
+test("ready_flip_failed incident emits terminal:failed without detail", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = seedInvocationRow("plan~detail-2", "in-progress");
+  store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "ready_flip_failed" });
+  store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
+  const incidents = deriveOperatorIncidents(store);
+  expect(incidents).toEqual([
+    expect.objectContaining({ runId, cause: "failed", transition: "terminal:failed:1000000" }),
+  ]);
+  expect(incidents[0]).not.toHaveProperty("detail");
+});
+
+test("a completed row with a stale completion_commit_failed cause supplies no detail", () => {
+  setSystemTime(new Date(1_000_000));
+  const runId = seedInvocationRow("plan~detail-3", "in-progress");
+  store.commitTerminalRunSettlement({
+    runId,
     status: "completed",
     terminalCause: "completion_commit_failed",
     terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "refused: v2/src/a.ts" },
   });
   store.writeWorkflowInvocationSettledMarker(runId, "failed", 1_000_000);
-  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId, detail: "refused: v2/src/a.ts" })]);
+  const incidents = deriveOperatorIncidents(store);
+  expect(incidents).toEqual([expect.objectContaining({ runId })]);
+  expect(incidents[0]).not.toHaveProperty("detail");
 });
 
 test("incident for a non-commit terminal cause omits the failure detail", () => {

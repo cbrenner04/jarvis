@@ -21,12 +21,12 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/pipeline-execution.test.ts` seeds an `interrupted` stage row (store-driven, the state a `--force` kill leaves), then proves `pipeline resume` reopens and dispatches that stage; it fails against the pre-fix unconditional refusal.
-- [ ] A test proves branch-scoped `pipeline resume <id> <branch>` reopens and dispatches an `interrupted` branch stage; it fails against the pre-fix code.
-- [ ] A test proves resuming an `interrupted` stage with a dirty worktree refuses at the stale-reset gate without `resetDespiteDirty` and dispatches with it; it fails against the pre-fix code, which refuses before any gate.
-- [ ] A test proves `recoverContinuablePipelines` leaves an `interrupted`-stage pipeline undispatched.
-- [ ] `pipeline-execution.test.ts` "resume still refuses an interrupted pipeline carrying an unsettled running stage" stays green (unchanged, including its byte-identical `stages()` assertion).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/daemon/pipeline-execution.test.ts` seeds an `interrupted` stage row (store-driven, the state a `--force` kill leaves), then proves `pipeline resume` reopens and dispatches that stage; it fails against the pre-fix unconditional refusal.
+- [x] A test proves branch-scoped `pipeline resume <id> <branch>` reopens and dispatches an `interrupted` branch stage; it fails against the pre-fix code.
+- [x] A test proves resuming an `interrupted` stage with a dirty worktree refuses at the stale-reset gate without `resetDespiteDirty` and dispatches with it; it fails against the pre-fix code, which refuses before any gate.
+- [x] A test proves `recoverContinuablePipelines` leaves an `interrupted`-stage pipeline undispatched.
+- [x] `pipeline-execution.test.ts` "resume still refuses an interrupted pipeline carrying an unsettled running stage" stays green (unchanged, including its byte-identical `stages()` assertion).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

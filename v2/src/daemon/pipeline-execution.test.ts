@@ -4581,6 +4581,62 @@ describe("resumePipeline branch scope", () => {
     expect(stageRecord(after, "implement", RESUME_BRANCH_FAILED)?.status).toBe("succeeded");
   });
 
+  test("whole-pipeline resume reopens only the interrupted branch row and leaves a failed sibling unchanged", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {
+        "run-running-implement": {
+          specPath: "spec/running/implement.md",
+          stepId: "s1-entry",
+          workflowSnapshot: entryOnlySnapshot("inv-running-implement"),
+        },
+      },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_RUNNING,
+      patch: { status: "interrupted" },
+    });
+    const before = stages().map((stage) => ({ ...stage }));
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageId: string; branchKey?: string };
+      dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
+      return { ok: true, entryRunId: "run-running-implement", invocationId: "inv-running-implement" };
+    };
+    const resolveStage = async (
+      _definition: PipelineDefinition,
+      stageIndex: number,
+      _context: PipelineContext,
+      _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      deps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => ({
+      ok: true,
+      steps: [
+        createMinimalDispatchWriteStep({
+          stageId: "implement",
+          stageIndex,
+          ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+        }),
+      ],
+    });
+
+    const outcome = await resumePipeline(PIPELINE_ID, { store, dispatch, wait: async () => "completed", resolveStage });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: RESUME_BRANCH_RUNNING }]);
+    const after = stages();
+    for (const snapshot of before) {
+      if (snapshot.stageId === "implement" && snapshot.branchKey === RESUME_BRANCH_RUNNING) continue;
+      expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
+    }
+    expect(stageRecord(after, "implement", RESUME_BRANCH_FAILED)?.status).toBe("failed");
+    expect(stageRecord(after, "implement", RESUME_BRANCH_RUNNING)?.status).toBe("succeeded");
+  });
+
   test("branch-scoped resume leaves a dismissed interrupted branch unchanged", async () => {
     const dismissedAt = 1_700_000_000_000;
     const { store, stages } = fakeStore(

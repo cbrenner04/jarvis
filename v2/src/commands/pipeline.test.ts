@@ -16,6 +16,8 @@ import {
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { withValidStageFailureRecords } from "../daemon/wire-failure-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import {
@@ -1230,6 +1232,11 @@ describe("pipeline list", () => {
       expect(json.code).toBe(0);
       const stages = JSON.parse(json.stdout).pipelines[0].stages;
       expect(stages[0].failureDetail).toEqual(LEGACY);
+      // Unchanged from the wire: the daemon parser drops malformed record-shaped detail to null; list neither rewrites nor removes it.
+      const [, wireStage] = withValidStageFailureRecords(pipeline as unknown as PipelineSnapshot).stages;
+      expect(wireStage?.failureDetail).toBeNull();
+      expect(Object.hasOwn(stages[1], "failureDetail")).toBe(true);
+      expect(stages[1].failureDetail).toEqual(wireStage?.failureDetail);
       for (const stage of stages) expect(Object.hasOwn(stage, "failureText")).toBe(false);
     });
   });

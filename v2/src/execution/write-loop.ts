@@ -99,6 +99,7 @@ import {
   resolveAttributableRepairAllowset,
   resolveGateRepairAllowset,
   SurvivingMutationError,
+  type SurvivingMutationKillingSetResult,
   selectFailedReadyStepOutput,
   survivingMutationLogFields,
   validateRepoRelativePath,
@@ -175,7 +176,7 @@ export type WriteLoopResult = {
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
   survivingMutationKillingTests?: string[];
-  survivingMutationKillingSetResult?: "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
+  survivingMutationKillingSetResult?: SurvivingMutationKillingSetResult;
   nonTerminatingMutation?: string;
   nonTerminatingMutationSourceFile?: string;
   nonTerminatingMutationSourceLine?: number;

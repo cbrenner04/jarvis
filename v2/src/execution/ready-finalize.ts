@@ -1032,13 +1032,15 @@ export function resolveAttributableRepairAllowset(frozen: Set<string>, error: Re
   return allowset;
 }
 
+export type SurvivingMutationKillingSetResult = "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
+
 export class SurvivingMutationError extends Error {
   constructor(
     readonly mutation: string,
     readonly sourceSiteFile: string,
     readonly sourceSiteLine: number,
     readonly killingTests: string[],
-    readonly killingSetObservedResult: "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown",
+    readonly killingSetObservedResult: SurvivingMutationKillingSetResult,
     readonly dualConstraint?: true,
   ) {
     let message = `Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`;
@@ -1152,7 +1154,7 @@ export type SurvivingMutationLogFields = {
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
   survivingMutationKillingTests?: string[];
-  survivingMutationKillingSetResult?: "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
+  survivingMutationKillingSetResult?: SurvivingMutationKillingSetResult;
 };
 
 export function survivingMutationLogFields(

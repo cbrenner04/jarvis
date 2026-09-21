@@ -60,7 +60,7 @@ import {
   type PublicationLanding,
 } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
-import type { BaseRefProbeObservation, ReadyFinalizer } from "./ready-finalize.ts";
+import type { BaseRefProbeObservation, ReadyFinalizer, SurvivingMutationKillingSetResult } from "./ready-finalize.ts";
 import {
   nonTerminatingMutationLogFields,
   ReadyGateError,
@@ -503,7 +503,7 @@ export type WorkflowResult = {
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
   survivingMutationKillingTests?: string[];
-  survivingMutationKillingSetResult?: "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
+  survivingMutationKillingSetResult?: SurvivingMutationKillingSetResult;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
   invocationFailureMessage?: string;

@@ -1770,6 +1770,27 @@ describe("run dismiss", () => {
     });
   });
 
+  test("run dismiss does not report a non-RpcError as an RPC failure", async () => {
+    // requestDismissal formats RpcError to stderr and swallows it; anything else must propagate.
+    // Flipping that guard makes a transport/programming error read to the operator as a daemon refusal.
+    const cap = captureIo();
+    const boom = new Error("socket exploded");
+    const code = await main(["run", "dismiss", "--project", "alpha"], cap.io, {
+      connectIpcClient: async () => ({
+        send: () => {
+          throw boom;
+        },
+        nextFrame: async () => {
+          throw boom;
+        },
+        close: () => {},
+      }),
+    });
+
+    expect(code).not.toBe(0);
+    expect(cap.read().stderr).toBe("IPC connection lost\n");
+  });
+
   test("run dismiss --project issues one bulk request without runId and prints the count", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

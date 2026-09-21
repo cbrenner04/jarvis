@@ -447,6 +447,24 @@ done
 - **`jarvis run log` records lifecycle events, not the agent stream.** Silence there is not evidence of a stall.
 - **An empty query result is not evidence.** Prove malformed queries (`grep "live"` matching `not-live`, wrong telemetry keys, sandboxed `git`/`gh`) before concluding absence.
 
+### Reading a contract failure
+
+A run with a durable failure record renders one block; `run list` prints it after the rows under a `run <id>\t<project>\t<branch>` line, `run wait` prints it on stderr (stdout stays the JSON line, which also carries the structured `failure` and the same block as `failureText`; `failureText` is absent without a record).
+
+```text
+failure:
+  expectation: <what the harness expected>
+  observation: <what it saw>
+  near miss: <closest candidate>
+  reissue can help: yes|no
+  path (harness-internal|operator-repository): <path>
+```
+
+- `near miss` appears only when the harness recorded one; a record without it saw no candidate at all.
+- `reissue can help: yes` means re-running or resuming can change the answer; `no` means fix the named input first.
+- Each `path` line names its recorded owner: `harness-internal` is a harness file, `operator-repository` is a file in your repo. The label comes from the record, never from the path's spelling.
+- The block is `failure:` plus two-space-indented lines, one per field. Backslash, tab, newline, and carriage return print as `\\`, `\t`, `\n`, `\r`; any other control character or DEL prints as `\uXXXX`.
+
 ### Worktrees and branches
 
 v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not `<repo>/.worktree/`. Intent branches: `intent/<slug>`. Plan branches: `plan/<name>`. Implement branch defaults to the spec directory basename.

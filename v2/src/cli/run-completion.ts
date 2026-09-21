@@ -5,6 +5,7 @@ import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { Io } from "./io.ts";
 import { formatRpcError, request } from "./ipc.ts";
+import { formatOperatorFailureBlock } from "./operator-failure-presentation.ts";
 
 function buildWaitPayload(result: WaitRunCompletionResult): Record<string, unknown> {
   const payload: Record<string, unknown> = { runStatus: result.runStatus };
@@ -12,6 +13,10 @@ function buildWaitPayload(result: WaitRunCompletionResult): Record<string, unkno
   if (result.iterationsConsumed !== undefined) payload.iterationsConsumed = result.iterationsConsumed;
   if (result.resumable !== undefined) payload.resumable = result.resumable;
   if (result.error !== undefined) payload.error = result.error;
+  if (result.failure !== undefined) {
+    payload.failure = result.failure;
+    payload.failureText = formatOperatorFailureBlock(result.failure).join("\n");
+  }
   if (result.worktreePath !== undefined) payload.worktreePath = result.worktreePath;
   return payload;
 }
@@ -66,5 +71,6 @@ export async function waitForRunCompletion(client: IpcClient, runId: string, io:
     return 1;
   }
   io.stdout(`${JSON.stringify(buildWaitPayload(result))}\n`);
+  if (result.failure !== undefined) io.stderr(`${formatOperatorFailureBlock(result.failure).join("\n")}\n`);
   return exitCodeForWaitResult(result);
 }

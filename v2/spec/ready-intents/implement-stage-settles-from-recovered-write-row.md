@@ -16,7 +16,7 @@ When a failed implement stage's linked write row settled resumable (any kind, e.
 ## Acceptance criteria
 
 - [ ] A test proves a stage whose write row settled `surviving_mutation_failed`, then was resumed and settled `completed`, settles `succeeded` with the PR artifact and dispatches its successor; it fails against the pre-fix code, which leaves the stage `failed`.
-- [ ] A test proves a non-resumable failed implement stage is unaffected.
+- [ ] `v2/src/persistence/pipeline-stage-settlement.test.ts` stays green (non-resumable failed rows settle as before).
 
 ## Documentation updates
 

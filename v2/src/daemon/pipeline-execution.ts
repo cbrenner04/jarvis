@@ -174,8 +174,10 @@ export type PipelineBranchResumeRefusalReason =
 export type PipelineResumeRefusalReason =
   | PipelineContinuationRefusalReason
   | PipelineReopenRefusalReason
+  | "pipeline_dismissed"
   | "pipeline_terminal_succeeded"
   | "pipeline_terminal_rejected"
+  | "pipeline_interrupted_running_stage"
   | "pipeline_not_resumable"
   | "branch_resume_required"
   | PipelineBranchResumeRefusalReason;
@@ -185,8 +187,19 @@ export type ResumePipelineOutcome =
   | {
       kind: "refused";
       pipelineId: string;
-      reason: Exclude<PipelineResumeRefusalReason, PipelineBranchResumeRefusalReason>;
+      reason: Exclude<
+        PipelineResumeRefusalReason,
+        PipelineBranchResumeRefusalReason | "pipeline_interrupted_running_stage"
+      >;
       branchKeys?: string[];
+    }
+  | {
+      kind: "refused";
+      pipelineId: string;
+      reason: "pipeline_interrupted_running_stage";
+      state: "interrupted";
+      stageId: string;
+      runId?: string;
     }
   | {
       kind: "refused";
@@ -221,12 +234,13 @@ export function resumeFailedRequiresReopen(derivedState: PipelineDerivedState): 
   return derivedState === "failed";
 }
 
-/** True when derived state refuses resume without a reopened failed continuation. */
+/** True when derived state refuses resume without a reopened failed or interrupted continuation. */
 export function resumeDeferredRefusalApplies(
   derivedState: PipelineDerivedState,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
 ): boolean {
-  if (derivedState === "running" || derivedState === "interrupted") return true;
+  if (derivedState === "running") return true;
+  if (derivedState === "interrupted") return pipeline.stages.some((stage) => stage.status === "running");
   return derivedState === "pending" && !isReopenedFailedContinuation(pipeline);
 }
 
@@ -427,7 +441,7 @@ function branchSuffixRowsPresent(
   return true;
 }
 
-type BranchResumeReopenKind = "failed" | "approved_gate" | "provisional_skip";
+type BranchResumeReopenKind = "failed" | "interrupted" | "approved_gate" | "provisional_skip";
 
 type BranchSuffixScanResult =
   | { kind: "admissible"; reopenKind: BranchResumeReopenKind }
@@ -446,7 +460,9 @@ function scanBranchSuffixForAdmission(
     const entry = ordered[index];
     if (entry === undefined) continue;
     const { stage, record } = entry;
-    if (record.status === "failed") return { kind: "admissible", reopenKind: "failed" };
+    if (record.status === "failed" || record.status === "interrupted") {
+      return { kind: "admissible", reopenKind: record.status };
+    }
     if (stage.kind === "approval" && record.status === "awaiting") {
       return { kind: "gate_awaiting", stageId: stage.stageId };
     }
@@ -536,11 +552,12 @@ function listBranchResumeRequiredKeys(pipeline: Pipeline & { stages: PipelineSta
 export function findFailedStageForReopen(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchScope: string | undefined,
+  status: "failed" | "interrupted" = "failed",
 ): PipelineStageRecord | undefined {
   return pipeline.stages.find((record) => {
     const stage = pipeline.definition.stages[record.position];
     return (
-      record.status === "failed" &&
+      record.status === status &&
       stage?.kind === "workflow" &&
       (branchScope === undefined || record.branchKey === branchScope)
     );
@@ -592,6 +609,23 @@ export async function resumePipeline(
 
   const branchScope = normalizeContinuationBranchKey(options.branchKey);
 
+  let branchAdmission: Extract<ReturnType<typeof resolveBranchResumeAdmission>, { kind: "ok" }> | undefined;
+  if (branchScope !== undefined) {
+    const admission = resolveBranchResumeAdmission(pipeline, branchScope);
+    if (admission.kind === "refused") {
+      return { kind: "refused", pipelineId, branchKey: branchScope, ...admission.detail };
+    }
+    branchAdmission = admission;
+  }
+  const reopensInterrupted =
+    branchAdmission?.reopenKind === "interrupted" ||
+    (branchAdmission === undefined &&
+      derivePipelineState(pipeline) === "interrupted" &&
+      !pipeline.stages.some((stage) => stage.status === "running"));
+  if (pipeline.dismissedAt !== null && reopensInterrupted) {
+    return { kind: "refused", pipelineId, reason: "pipeline_dismissed" };
+  }
+
   const continueAfterAdmission = (
     continuationBranchKey?: string,
     continuationReopenedStageReset?: ReopenedStageReset,
@@ -617,17 +651,19 @@ export async function resumePipeline(
     return dispatchContinuation();
   };
 
-  if (branchScope !== undefined) {
-    const admission = resolveBranchResumeAdmission(pipeline, branchScope);
-    if (admission.kind === "refused") {
-      return { kind: "refused", pipelineId, branchKey: branchScope, ...admission.detail };
-    }
+  if (branchScope !== undefined && branchAdmission !== undefined) {
+    const admission = branchAdmission;
+    const resetStatus =
+      admission.reopenKind === "failed" || admission.reopenKind === "interrupted" ? admission.reopenKind : undefined;
     const reopenedStageReset =
-      admission.reopenKind === "failed"
-        ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope), options)
+      resetStatus !== undefined
+        ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope, resetStatus), options)
         : undefined;
-    if (admission.reopenKind === "failed") {
-      const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });
+    if (resetStatus !== undefined) {
+      const reopen =
+        resetStatus === "failed"
+          ? store.reopenFailedPipeline({ pipelineId, branchKey: branchScope })
+          : store.reopenInterruptedPipeline({ pipelineId, branchKey: branchScope });
       if (reopen.kind === "refused") {
         return { kind: "refused", pipelineId, branchKey: branchScope, reason: reopen.reason };
       }
@@ -643,7 +679,7 @@ export async function resumePipeline(
 
   // Settlement precondition: a stage whose entry run this daemon no longer drives settles from
   // its durable rows here, so resume sees the row it would otherwise have to redrive by hand.
-  // An `interrupted` pipeline is refused outright below, so it is left byte-identical instead.
+  // Settlement is skipped for an `interrupted` pipeline, so a refusal below leaves its rows byte-identical.
   const settledEntryRuns =
     derivePipelineState(pipeline) === "interrupted"
       ? []
@@ -670,6 +706,32 @@ export async function resumePipeline(
   }
   if (derivedState === "running") {
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
+  }
+  if (derivedState === "interrupted") {
+    const runningStage = current.stages.find((stage) => stage.status === "running");
+    if (runningStage !== undefined) {
+      return {
+        kind: "refused",
+        pipelineId,
+        reason: "pipeline_interrupted_running_stage",
+        state: derivedState,
+        stageId: runningStage.stageId,
+        ...(runningStage.workflowInvocationId === null ? {} : { runId: runningStage.workflowInvocationId }),
+      };
+    }
+  }
+  if (derivedState === "interrupted" && !current.stages.some((stage) => stage.status === "running")) {
+    const reopenedStageReset = buildReopenedStageReset(
+      current,
+      findFailedStageForReopen(current, undefined, "interrupted"),
+      options,
+    );
+    const reopen = store.reopenInterruptedPipeline({ pipelineId });
+    if (reopen.kind === "refused") {
+      return { kind: "refused", pipelineId, reason: reopen.reason };
+    }
+    if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
+    return continueAfterAdmission(undefined, reopenedStageReset);
   }
   const approvedGateBranchKey = approvedGatePendingStrandBranchKey(current);
   if (!resumeAwaitingClaimsOnly(derivedState) && approvedGateBranchKey !== undefined) {

@@ -192,6 +192,7 @@ function fakeStore(
     context?: PipelineContext | null;
     ownerIdentity?: string | null;
     currentIdentity?: string;
+    dismissedAt?: number | null;
     terminalPublicationFailure?: Pipeline["terminalPublicationFailure"];
     terminalPublicationSucceededAt?: Pipeline["terminalPublicationSucceededAt"];
   } = {},
@@ -240,6 +241,7 @@ function fakeStore(
             context: pipelineContext,
             terminalPublicationFailure,
             terminalPublicationSucceededAt,
+            dismissedAt: options.dismissedAt ?? null,
             stages: stages.map((s) => ({ ...s })),
           } as Pipeline & {
             stages: PipelineStageRecord[];
@@ -401,6 +403,37 @@ function fakeStore(
         });
       }
       return { kind: "applied" as const, stageRecordId: shape.failedStageRecordId };
+    },
+    reopenInterruptedPipeline: (args: { pipelineId: string; branchKey?: string }) => {
+      if (args.pipelineId !== PIPELINE_ID) {
+        return { kind: "refused" as const, pipelineId: args.pipelineId, reason: "pipeline_not_found" as const };
+      }
+      const scoped = args.branchKey !== undefined && args.branchKey !== "default";
+      const interrupted = stages.filter(
+        (stage) => stage.status === "interrupted" && (!scoped || stage.branchKey === args.branchKey),
+      );
+      const [target] = interrupted;
+      if (target === undefined) {
+        return { kind: "refused" as const, pipelineId: args.pipelineId, reason: "no_interrupted_stage" as const };
+      }
+      if (interrupted.length > 1) {
+        return {
+          kind: "refused" as const,
+          pipelineId: args.pipelineId,
+          reason: "multiple_interrupted_stages" as const,
+        };
+      }
+      Object.assign(target, {
+        status: "pending",
+        skipProvenance: null,
+        workflowInvocationId: null,
+        startedAt: null,
+        endedAt: null,
+        artifact: null,
+        failureDetail: null,
+        decidedAt: null,
+      });
+      return { kind: "applied" as const, stageRecordId: target.id };
     },
     reopenProvisionalSkippedStages: (args: { pipelineId: string; branchKey?: string }) => {
       if (args.pipelineId !== PIPELINE_ID) {
@@ -3760,7 +3793,7 @@ describe("resumePipeline", () => {
     expect(stages().map((stage) => ({ stageId: stage.stageId, status: stage.status }))).toEqual(before);
   });
 
-  test("refuses derived running, pending, and interrupted pipelines without stage dispatch", async () => {
+  test("refuses derived running and pending pipelines without stage dispatch", async () => {
     const running = fakeStore(reopenDefinition, {}, { context: persistedContext });
     running.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "running" } });
 
@@ -3769,10 +3802,7 @@ describe("resumePipeline", () => {
     if (!pendingPipeline) throw new Error("expected pipeline");
     expect(derivePipelineState(pendingPipeline)).toBe("pending");
 
-    const interrupted = fakeStore(reopenDefinition, {}, { context: persistedContext });
-    interrupted.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "interrupted" } });
-
-    for (const store of [running.store, pending.store, interrupted.store]) {
+    for (const store of [running.store, pending.store]) {
       const dispatchOrder: number[] = [];
       const before = store.loadPipeline(PIPELINE_ID)?.stages.map((stage) => ({
         stageId: stage.stageId,
@@ -3842,6 +3872,16 @@ describe("resumePipeline", () => {
     expect(resumeDeferredRefusalApplies("running", pipeline)).toBe(true);
     expect(!resumeDeferredRefusalApplies("running", pipeline)).toBe(false);
     expect(resumeDeferredRefusalApplies("pending", pipeline)).toBe(false);
+    const withRunning = {
+      ...pipeline,
+      stages: pipeline.stages.map((stage, i) => (i === 0 ? { ...stage, status: "running" as const } : stage)),
+    };
+    const withoutRunning = {
+      ...pipeline,
+      stages: pipeline.stages.map((stage) => ({ ...stage, status: "pending" as const })),
+    };
+    expect(resumeDeferredRefusalApplies("interrupted", withRunning)).toBe(true);
+    expect(resumeDeferredRefusalApplies("interrupted", withoutRunning)).toBe(false);
     expect(resumeReopenedPendingContinuation(derivedState, pipeline)).toBe(true);
     expect(!resumeReopenedPendingContinuation(derivedState, pipeline)).toBe(false);
   });
@@ -4176,7 +4216,152 @@ describe("resumePipeline", () => {
       resolveStage: resolveStageStub(),
     });
 
-    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      reason: "pipeline_interrupted_running_stage",
+      state: "interrupted",
+      stageId: "s1",
+      runId: entryRunId,
+    });
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+  });
+
+  test("interrupted running-stage refusal omits a clearing run when the stage has no linked run", async () => {
+    const { store } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      {
+        context: persistedContext,
+        ownerIdentity: PRIOR_OWNER,
+      },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "running" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => ({ ok: true, entryRunId: "should-not-dispatch" }),
+      wait: restartSweepWait({}),
+      resolveStage: resolveStageStub(),
+    });
+
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      reason: "pipeline_interrupted_running_stage",
+      state: "interrupted",
+      stageId: "s1",
+    });
+  });
+});
+
+describe("resumePipeline interrupted stage", () => {
+  test("resume leaves a dismissed interrupted pipeline unchanged", async () => {
+    const dismissedAt = 1_700_000_000_000;
+    const { store, stages } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER, dismissedAt },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+    const before = structuredClone(stages());
+    const dispatched: number[] = [];
+
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatched));
+
+    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_dismissed" });
+    expect(stages()).toEqual(before);
+    expect(store.loadPipeline(PIPELINE_ID)?.dismissedAt).toBe(dismissedAt);
+    expect(dispatched).toEqual([]);
+  });
+
+  test("resume reopens and dispatches an interrupted stage a force kill left", async () => {
+    const { store, stages } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(pipeline)).toBe("interrupted");
+
+    const dispatched: number[] = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      dispatched.push(stageIndexOf(steps));
+      return { ok: true, entryRunId: "run-s2", invocationId: "inv-s2" };
+    };
+
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait: async () => "completed",
+      resolveStage: resolveStageStub(),
+    });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(dispatched).toEqual([1]);
+    expect(stages().find((stage) => stage.stageId === "s2")?.status).not.toBe("interrupted");
+  });
+
+  test("resume persists the reset marker on the reopened interrupted stage", async () => {
+    const { store, stages } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+    const claimRefusal = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property === "claimPipelineContinuation") {
+          return () => ({ kind: "refused" as const, reason: "claimed" });
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as StateStore;
+
+    const outcome = await resumePipeline(PIPELINE_ID, { ...pipelineTestDeps(claimRefusal, []) });
+
+    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "claim_refused" });
+    expect(stageRecord(stages(), "s2")?.failureDetail).toMatchObject({
+      code: "pipeline_reopened_stage_reset",
+      stageId: "s2",
+      branchKey: "default",
+      flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
+    });
+  });
+
+  test("recoverContinuablePipelines leaves an interrupted-stage pipeline undispatched", async () => {
+    const { store, stages } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          return { ok: true, entryRunId: "unexpected" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageStub(),
+      },
+      async () => false,
+    );
+
+    expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
   });
@@ -4344,6 +4529,149 @@ describe("resumePipeline branch scope", () => {
       invocationId: "inv-target-implement",
       specPath: "spec/target/implement.md",
     });
+  });
+
+  test("branch-scoped resume reopens and dispatches an interrupted branch stage", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {
+        "run-target-implement": {
+          specPath: "spec/target/implement.md",
+          stepId: "s1-entry",
+          workflowSnapshot: entryOnlySnapshot("inv-target-implement"),
+        },
+      },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_FAILED,
+      patch: { status: "interrupted" },
+    });
+    const before = stages().map((stage) => ({ ...stage }));
+
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageId: string; branchKey?: string };
+      dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
+      return { ok: true, entryRunId: "run-target-implement", invocationId: "inv-target-implement" };
+    };
+    const resolveStage = async (
+      _definition: PipelineDefinition,
+      stageIndex: number,
+      _context: PipelineContext,
+      _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      deps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => ({
+      ok: true,
+      steps: [
+        createMinimalDispatchWriteStep({
+          stageId: "implement",
+          stageIndex,
+          ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+        }),
+      ],
+    });
+
+    const outcome = await resumePipeline(
+      PIPELINE_ID,
+      { store, dispatch, wait: async () => "completed", resolveStage },
+      { branchKey: RESUME_BRANCH_FAILED },
+    );
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: RESUME_BRANCH_FAILED }]);
+    const after = stages();
+    for (const snapshot of before) {
+      if (snapshot.stageId === "implement" && snapshot.branchKey === RESUME_BRANCH_FAILED) continue;
+      expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
+    }
+    expect(stageRecord(after, "implement", RESUME_BRANCH_FAILED)?.status).toBe("succeeded");
+  });
+
+  test("whole-pipeline resume reopens only the interrupted branch row and leaves a failed sibling unchanged", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {
+        "run-running-implement": {
+          specPath: "spec/running/implement.md",
+          stepId: "s1-entry",
+          workflowSnapshot: entryOnlySnapshot("inv-running-implement"),
+        },
+      },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_RUNNING,
+      patch: { status: "interrupted" },
+    });
+    const before = stages().map((stage) => ({ ...stage }));
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageId: string; branchKey?: string };
+      dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
+      return { ok: true, entryRunId: "run-running-implement", invocationId: "inv-running-implement" };
+    };
+    const resolveStage = async (
+      _definition: PipelineDefinition,
+      stageIndex: number,
+      _context: PipelineContext,
+      _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      deps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => ({
+      ok: true,
+      steps: [
+        createMinimalDispatchWriteStep({
+          stageId: "implement",
+          stageIndex,
+          ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+        }),
+      ],
+    });
+
+    const outcome = await resumePipeline(PIPELINE_ID, { store, dispatch, wait: async () => "completed", resolveStage });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: RESUME_BRANCH_RUNNING }]);
+    const after = stages();
+    for (const snapshot of before) {
+      if (snapshot.stageId === "implement" && snapshot.branchKey === RESUME_BRANCH_RUNNING) continue;
+      expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
+    }
+    expect(stageRecord(after, "implement", RESUME_BRANCH_FAILED)?.status).toBe("failed");
+    expect(stageRecord(after, "implement", RESUME_BRANCH_RUNNING)?.status).toBe("succeeded");
+  });
+
+  test("branch-scoped resume leaves a dismissed interrupted branch unchanged", async () => {
+    const dismissedAt = 1_700_000_000_000;
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER, dismissedAt },
+    );
+    setupBranchResumeFixture(store);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_FAILED,
+      patch: { status: "interrupted" },
+    });
+    const before = structuredClone(stages());
+    const dispatched: number[] = [];
+
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatched), {
+      branchKey: RESUME_BRANCH_FAILED,
+    });
+
+    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_dismissed" });
+    expect(stages()).toEqual(before);
+    expect(store.loadPipeline(PIPELINE_ID)?.dismissedAt).toBe(dismissedAt);
+    expect(dispatched).toEqual([]);
   });
 
   test("branch-scoped resume refuses the named branch gate, an unknown branch, and a branch without a replayable failure", async () => {
@@ -8794,6 +9122,113 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatchOrder).toEqual(["reset", "dispatch"]);
       expect(stageRecord(stages(), "implement")?.status).toBe("succeeded");
       expect(existsSync(implementWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("interrupted implement resume with a dirty worktree refuses at the stale-reset gate without resetDespiteDirty", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    const implementWorktree = await materializeWorktree(implementBranch, "main");
+    writeFileSync(join(implementWorktree, "README.md"), "dirty\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      implementChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan/index.md", worktreePath: planWorktree, branch: planBranch },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      patch: { status: "succeeded", artifact: { entryRunId: "run-plan", specPath: "spec/plan/index.md" } },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "implement", patch: { status: "interrupted" } });
+
+    const rpc = daemonRpcClient();
+    let dispatchCalled = false;
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          return { ok: true, entryRunId: "run-implement", invocationId: "inv-implement" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedImplementSteps,
+        staleResetPreflight: staleResetBundle(rpc),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(false);
+      const record = stageRecord(stages(), "implement");
+      expect(record?.status).toBe("failed");
+      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
+      expect(existsSync(implementWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("interrupted implement resume with resetDespiteDirty clears dirty reuse and dispatches", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    const implementWorktree = await materializeWorktree(implementBranch, planBranch);
+    writeFileSync(join(implementWorktree, "README.md"), "dirty\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      implementChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan/index.md", worktreePath: planWorktree, branch: planBranch },
+        "run-implement": { specPath: "spec/plan/index.md" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      patch: { status: "succeeded", artifact: { entryRunId: "run-plan", specPath: "spec/plan/index.md" } },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "implement", patch: { status: "interrupted" } });
+
+    const rpc = daemonRpcClient();
+    let dispatchCalled = false;
+    try {
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        {
+          store,
+          dispatch: async () => {
+            dispatchCalled = true;
+            expect(existsSync(implementWorktree)).toBe(false);
+            return { ok: true, entryRunId: "run-implement", invocationId: "inv-implement" };
+          },
+          wait: async () => "completed",
+          resolveStage: resolveStageWithFixedImplementSteps,
+          staleResetPreflight: staleResetBundle(rpc),
+        },
+        { resetDespiteDirty: true },
+      );
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(true);
+      expect(stageRecord(stages(), "implement")?.status).toBe("succeeded");
     } finally {
       rpc.close();
     }

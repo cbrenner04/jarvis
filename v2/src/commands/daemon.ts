@@ -176,6 +176,12 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
       io.stdout("stopped\n");
       return 1;
     }
+    if (status.state === "inconclusive") {
+      io.stdout(
+        `inconclusive: health request unanswered after ${status.healthTimeoutMs}ms and retry ${status.retryHealthTimeoutMs}ms; socket still accepts connections\n`,
+      );
+      return 1;
+    }
     io.stdout(`running loaded=${status.loadedRevision}\n`);
     return 0;
   }

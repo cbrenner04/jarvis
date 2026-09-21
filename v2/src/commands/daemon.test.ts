@@ -181,6 +181,28 @@ describe("daemon command", () => {
     expect(cap.read()).toEqual({ stdout: "running loaded=abc123\n", stderr: "" });
   });
 
+  test("daemon status prints inconclusive with exit 1 and no recovery instruction", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+
+    const code = await main(["daemon", "status"], cap.io, {
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      getDaemonStatus: async () => ({ state: "inconclusive", healthTimeoutMs: 1000, retryHealthTimeoutMs: 2000 }),
+    });
+
+    const { stdout, stderr } = cap.read();
+    expect(code).toBe(1);
+    expect(stderr).toBe("");
+    expect(stdout).toStartWith("inconclusive");
+    expect(stdout).toContain("health");
+    expect(stdout).toContain("1000ms");
+    expect(stdout).toContain("2000ms");
+    expect(stdout).not.toBe("stopped\n");
+    expect(stdout).not.toContain("kill");
+    expect(stdout).not.toContain("daemon start");
+  });
+
   test("daemon status prints stopped with exit 1 when the socket does not answer", async () => {
     const cap = captureIo();
     const paths = tempPaths();

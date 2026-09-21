@@ -355,7 +355,7 @@ Daemon lifecycle commands use production defaults:
 | --- | --- | --- |
 | `jarvis daemon start` | Compact JSON `{"pid":<n>,"socketPath":"..."}` | `0` on success, `1` with `<ErrorName>: <message>` on lifecycle failure |
 | `jarvis daemon stop [--force]` | `stopped`, or blocker IDs on stderr | `0`, or `1` when guarded |
-| `jarvis daemon status` | `running loaded=<revision>` or `stopped` | `0` when running, `1` when stopped |
+| `jarvis daemon status` | `running loaded=<revision>`, `stopped`, or `inconclusive: …` | `0` when running, `1` when stopped or inconclusive |
 | `jarvis daemon log` | Retained bytes of the daemon process log (`~/.jarvis/daemon.log`) on stdout | `0` on success, `1` with `daemon process log not found: <path>` on stderr when absent, `1` on read failure |
 | `jarvis daemon log --follow` | Replay then follow appends on stdout | `130` on SIGINT; `1` on read/watch/reopen failure or when the file is removed while following (missing path on stderr) |
 
@@ -363,9 +363,10 @@ Daemon lifecycle commands use production defaults:
 
 `jarvis daemon status` probes the socket for lifecycle state. A socket that answers reports the daemon's boot-time Git revision without comparing executable digests; if the follow-up status RPC fails or omits that revision, it reports `unknown` because the daemon is still serving. Output format:
 - `running loaded=<revision>` (exit 0): daemon is serving; `<revision>` is `unknown` when its status reply cannot supply the boot-time Git revision
-- `stopped` (exit 1): daemon process dead or socket unreachable
+- `stopped` (exit 1): socket `stale` or `absent` after a missed `health` request
+- `inconclusive: health request unanswered after <short>ms and retry <retry>ms; socket still accepts connections` (exit 1): socket accepts connections but `health` missed both budgets; distinguished from `stopped` only by the first stdout token, and carries no recovery instruction
 
-The daemon captures its startup Git HEAD once at boot. Exit `0` means running; `1` means stopped. PID file absence or parse failure does not determine status. Note: this is distinct from the daemon IPC `status` RPC response, which work-dispatch guards and `jarvis tui` use after `health` to prove the channel is live. See [TUI CLI](#tui-cli).
+The daemon captures its startup Git HEAD once at boot. Exit `0` means running; `1` means `stopped` or `inconclusive` (the first stdout token tells them apart). PID file absence or parse failure does not determine status. Note: this is distinct from the daemon IPC `status` RPC response, which work-dispatch guards and `jarvis tui` use after `health` to prove the channel is live. See [TUI CLI](#tui-cli).
 
 `jarvis daemon log` reads the process log directly off disk — no PID, socket, or IPC-status check, so it works regardless of whether the daemon is running. It is distinct from `jarvis run log <run-id>` and `jarvis tui log <run-id>`, which read structured per-run records over IPC (see [Run control CLI](#run-control-cli) and [TUI CLI](#tui-cli)). Only the bare and `--follow` forms are accepted; any other flags, args, or ordering print `usage: jarvis daemon log [--follow]` and exit `1`. See [`daemon-host.md`](./daemon-host.md#jarvis-daemon-log---follow) for the replay/follow contract (lossless handoff, truncation/replacement resume, removal/failure reporting).
 

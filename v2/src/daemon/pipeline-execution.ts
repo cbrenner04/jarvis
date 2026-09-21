@@ -387,7 +387,7 @@ type BranchScopedResumeRefusalDetail =
   | { reason: "branch_not_found" }
   | { reason: "branch_awaiting_approval"; stageId: string }
   | { reason: "branch_rejected"; stageId: string }
-  | { reason: "branch_not_resumable"; status: string };
+  | { reason: "branch_not_resumable"; status: string; stageId?: string };
 
 /** Sentinel `findBranchAdmissionBoundary` return when the named branch never appears alongside a `default` sibling. */
 const BRANCH_ADMISSION_BOUNDARY_NOT_FOUND = -1;
@@ -433,7 +433,7 @@ type BranchSuffixScanResult =
   | { kind: "admissible"; reopenKind: BranchResumeReopenKind }
   | { kind: "gate_awaiting"; stageId: string }
   | { kind: "gate_rejected"; stageId: string }
-  | { kind: "not_resumable"; status: string };
+  | { kind: "not_resumable"; status: string; stageId?: string };
 
 /** Scan a named branch's own suffix in order for its first blocking gate, replayable failure, or in-progress row. */
 function scanBranchSuffixForAdmission(
@@ -461,7 +461,7 @@ function scanBranchSuffixForAdmission(
       if (record.status === "skipped" && record.skipProvenance === "provisional") {
         return { kind: "admissible", reopenKind: "provisional_skip" };
       }
-      return { kind: "not_resumable", status: record.status };
+      return { kind: "not_resumable", status: record.status, stageId: stage.stageId };
     }
   }
   return { kind: "not_resumable", status: "succeeded" };
@@ -497,7 +497,14 @@ function resolveBranchResumeAdmission(
     return { kind: "refused", detail: { reason: "branch_rejected", stageId: scan.stageId } };
   }
   if (scan.kind === "not_resumable") {
-    return { kind: "refused", detail: { reason: "branch_not_resumable", status: scan.status } };
+    return {
+      kind: "refused",
+      detail: {
+        reason: "branch_not_resumable",
+        status: scan.status,
+        ...(scan.stageId === undefined ? {} : { stageId: scan.stageId }),
+      },
+    };
   }
   return { kind: "ok", reopenKind: scan.reopenKind };
 }

@@ -1846,24 +1846,39 @@ describe("pipeline resume", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: `${reason}\n` });
   });
 
-  test("pipeline resume prints a branch-scoped refusal verbatim on stderr", async () => {
+  async function resumeBranchRefusal(response: Record<string, unknown>) {
     const cap = captureIo();
-
     const code = await main(["pipeline", "resume", "pipe-fan", "alpha"], cap.io, {
       ...pipelineDeps(undefined),
       connectIpcClient: stableVerbConnectIpcClient(() =>
-        pipelineListClient({
-          kind: "refused",
-          pipelineId: "pipe-fan",
-          branchKey: "alpha",
-          stageId: "gate",
-          reason: "branch_awaiting_approval",
-        }),
+        pipelineListClient({ kind: "refused", pipelineId: "pipe-fan", branchKey: "alpha", ...response }),
       ),
     });
+    return { code, ...cap.read() };
+  }
 
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "branch_awaiting_approval\n" });
+  test.each([
+    [
+      { reason: "branch_not_resumable", stageId: "impl", status: "running" },
+      "branch_not_resumable: stage impl is running\n",
+    ],
+    [{ reason: "branch_not_resumable", status: "succeeded" }, "branch_not_resumable: branch is succeeded\n"],
+    [{ reason: "branch_awaiting_approval", stageId: "gate" }, "branch_awaiting_approval: stage gate\n"],
+    [{ reason: "branch_rejected", stageId: "gate" }, "branch_rejected: stage gate\n"],
+  ] as const)("pipeline resume renders the blocking row for %p", async (response, stderr) => {
+    expect(await resumeBranchRefusal(response)).toEqual({ code: 1, stdout: "", stderr });
+  });
+
+  test.each([
+    [{ reason: "branch_not_found" }],
+    [{ reason: "no_failed_stage" }],
+    [{ reason: "branch_not_resumable" }],
+    [{ reason: "branch_not_resumable", stageId: 7, status: 3 }],
+    [{ reason: "branch_awaiting_approval" }],
+    [{ reason: "branch_awaiting_approval", stageId: 7 }],
+    [{ reason: "branch_rejected", stageId: "" }],
+  ] as const)("pipeline resume prints the bare reason for %p", async (response) => {
+    expect(await resumeBranchRefusal(response)).toEqual({ code: 1, stdout: "", stderr: `${response.reason}\n` });
   });
 
   test("pipeline resume lists resumable failed plan branch keys on stderr when branch key is omitted", async () => {

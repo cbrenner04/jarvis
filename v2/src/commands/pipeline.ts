@@ -79,7 +79,14 @@ function exitCodeForPipelineTerminalState(state: PipelineTerminalState): number 
 type PipelineMutationOutcome =
   | { kind: "applied" }
   | { kind: "resumed"; pipelineId: string }
-  | { kind: "refused"; reason: string; branchKeys?: string[]; candidates?: string[] };
+  | {
+      kind: "refused";
+      reason: string;
+      branchKeys?: string[];
+      candidates?: string[];
+      stageId?: string;
+      status?: string;
+    };
 
 function parsePipelineMutationOutcome(
   value: unknown,
@@ -92,6 +99,8 @@ function parsePipelineMutationOutcome(
     branchKeys?: unknown;
     candidates?: unknown;
     pipelineId?: unknown;
+    stageId?: unknown;
+    status?: unknown;
   };
   if (record.kind === successKind) {
     if (successKind === "resumed" && !isNonEmptyString(record.pipelineId)) return undefined;
@@ -110,9 +119,23 @@ function parsePipelineMutationOutcome(
       reason: record.reason,
       ...(branchKeys.length > 0 ? { branchKeys } : {}),
       ...(candidates.length > 0 ? { candidates } : {}),
+      ...(isNonEmptyString(record.stageId) ? { stageId: record.stageId } : {}),
+      ...(isNonEmptyString(record.status) ? { status: record.status } : {}),
     };
   }
   return undefined;
+}
+
+/** Branch-scoped resume refusals name the blocking stage row; anything else (or a missing field) renders the bare reason. */
+function formatMutationRefusal(outcome: { reason: string; stageId?: string; status?: string }): string {
+  const { reason, stageId, status } = outcome;
+  if (reason === "branch_not_resumable" && status !== undefined) {
+    return `${reason}: ${stageId === undefined ? "branch" : `stage ${stageId}`} is ${status}`;
+  }
+  if ((reason === "branch_awaiting_approval" || reason === "branch_rejected") && stageId !== undefined) {
+    return `${reason}: stage ${stageId}`;
+  }
+  return reason;
 }
 
 /** Candidate ids named by a `pipeline_id_ambiguous` refusal; empty for every other reason. */
@@ -627,7 +650,7 @@ async function runPipelineMutationCommand(
       return 1;
     }
     if (outcome.kind === "refused") {
-      io.stderr(`${outcome.reason}\n`);
+      io.stderr(`${formatMutationRefusal(outcome)}\n`);
       const named = outcome.branchKeys ?? outcome.candidates;
       if (named !== undefined) {
         io.stderr(`${named.join("\n")}\n`);

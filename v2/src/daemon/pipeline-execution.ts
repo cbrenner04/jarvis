@@ -45,6 +45,7 @@ import {
   shouldStopForInFlightStageRow,
   stageArtifactKey,
 } from "./pipeline-stage-dispatch.ts";
+import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
 import {
   isFanOutStageResolution,
   noopStaleResetPreflight,
@@ -1390,7 +1391,11 @@ function settleApprovalBoundaryFailure(
     pipelineId,
     stageId,
     branchKey,
-    patch: { status: "failed", endedAt: Date.now(), failureDetail: { message } },
+    patch: {
+      status: "failed",
+      endedAt: Date.now(),
+      failureDetail: buildStageFailureRecord("approval boundary write settles a decidable status", message, true),
+    },
   });
 }
 
@@ -1892,12 +1897,17 @@ function failWorkflowStageAt(
   stageRecords: readonly PipelineStageRecord[],
   skipFromPosition: number,
   message: string,
+  retryable: boolean,
 ): StageStepOutcome {
   store.updateStage({
     pipelineId,
     stageId,
     branchKey,
-    patch: { status: "failed", endedAt: Date.now(), failureDetail: { message } },
+    patch: {
+      status: "failed",
+      endedAt: Date.now(),
+      failureDetail: buildStageFailureRecord("workflow stage resolves and dispatches", message, retryable),
+    },
   });
   skipRemainingStages(store, pipelineId, stageRecords, skipFromPosition, branchKey);
   return "stop";
@@ -1927,6 +1937,7 @@ function failFirstPendingWorkflowStageOnContextError(
       pipeline.stages,
       record.position + 1,
       message,
+      false,
     );
     return;
   }
@@ -1980,6 +1991,7 @@ function handleSucceededWorkflowStage(args: {
       args.stageRecords,
       args.index + 1,
       admission.error,
+      false,
     );
   }
   return "continue";
@@ -2050,12 +2062,22 @@ async function performFanOutStageResolution(
       stageRecords,
       index + 1,
       "pipeline-stage-resolve: fan-out resolution missing downstreamInputs",
+      false,
     );
   }
 
   const admission = admitFanOutBranches(store, pipelineId, definition, splitPosition, downstreamInputs);
   if (!admission.ok) {
-    return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, stageRecords, index + 1, admission.error);
+    return failWorkflowStageAt(
+      store,
+      pipelineId,
+      stage.stageId,
+      branchKey,
+      stageRecords,
+      index + 1,
+      admission.error,
+      false,
+    );
   }
 
   const pipeline = store.loadPipeline(pipelineId);
@@ -2119,7 +2141,7 @@ function settlePeerClaimTimeout(args: AdvanceWorkflowStageArgs, message: string)
       artifact: settledRecord.artifact,
     });
   }
-  return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, settledRecords, index + 1, message);
+  return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, settledRecords, index + 1, message, true);
 }
 
 /**
@@ -2210,6 +2232,7 @@ async function advanceFanOutBranches(
         opts.loadedStages,
         index + 1,
         failure.error,
+        false,
       );
     }
     return bindingFailures.some((failure) => failure.targetBranchKey === branchKey);
@@ -2293,7 +2316,16 @@ async function runFanOutBranchAction(
     ? await refuseReopenedPlanOperatorBlockerWithGit(args, steps, preflightCapture, targetBranchKey)
     : refuseReopenedPlanOperatorBlockerLocal(args, steps, preflightCapture, targetBranchKey);
   if (!blocker.ok) {
-    failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, blocker.message);
+    failWorkflowStageAt(
+      store,
+      pipelineId,
+      stage.stageId,
+      targetBranchKey,
+      stageRecords,
+      index + 1,
+      blocker.message,
+      false,
+    );
     return "acted";
   }
   const staleReset =
@@ -2307,7 +2339,16 @@ async function runFanOutBranchAction(
           preflightCapture,
         );
   if (!staleReset.ok) {
-    failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, staleReset.message);
+    failWorkflowStageAt(
+      store,
+      pipelineId,
+      stage.stageId,
+      targetBranchKey,
+      stageRecords,
+      index + 1,
+      staleReset.message,
+      false,
+    );
     return "acted";
   }
   if (staleReset.disposition !== undefined) {
@@ -2554,6 +2595,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
         stageRecords,
         index + 1,
         resolution.error,
+        false,
       );
     }
 
@@ -2566,7 +2608,16 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       ? await refuseReopenedPlanOperatorBlockerWithGit(args, resolvedSteps, preflightCapture, branchKey)
       : refuseReopenedPlanOperatorBlockerLocal(args, resolvedSteps, preflightCapture, branchKey);
     if (!blocker.ok) {
-      return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, stageRecords, index + 1, blocker.message);
+      return failWorkflowStageAt(
+        store,
+        pipelineId,
+        stage.stageId,
+        branchKey,
+        stageRecords,
+        index + 1,
+        blocker.message,
+        false,
+      );
     }
     const staleReset =
       args.staleResetPreflight === undefined
@@ -2587,6 +2638,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
         stageRecords,
         index + 1,
         staleReset.message,
+        false,
       );
     }
     if (staleReset.disposition !== undefined) {
@@ -2628,7 +2680,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
         patch: {
           status: "failed",
           endedAt: Date.now(),
-          failureDetail: { message: error instanceof Error ? error.message : String(error) },
+          failureDetail: buildStageFailureRecord("stage execution completes without an unexpected throw", error, true),
         },
       });
     } catch {
@@ -2647,7 +2699,7 @@ function failStrandedPipelineStage(
 ): void {
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline) return;
-  const detail = { message: error instanceof Error ? error.message : String(error) };
+  const detail = buildStageFailureRecord("pipeline stage advance completes without an unexpected throw", error, true);
   for (const stageRecord of pipeline.stages) {
     const authored = definition.stages[stageRecord.position];
     if (authored?.kind !== "workflow") continue;

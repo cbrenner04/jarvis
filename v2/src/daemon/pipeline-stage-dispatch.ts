@@ -9,6 +9,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
 import { hasLiveForeignOwnerSibling, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 /**
@@ -70,7 +71,7 @@ function settleUnexpectedThrow(store: StateStore, target: PipelineStageTarget, e
       patch: {
         status: "failed",
         endedAt: Date.now(),
-        failureDetail: { message: error instanceof Error ? error.message : String(error) },
+        failureDetail: buildStageFailureRecord("stage dispatch completes without an unexpected throw", error, true),
       },
     });
   } catch {
@@ -219,7 +220,11 @@ export async function dispatchPipelineStage(args: {
         patch: {
           status: "failed",
           endedAt: Date.now(),
-          failureDetail: { code: dispatched.code, message: dispatched.message },
+          failureDetail: buildStageFailureRecord(
+            "stage dispatch is admitted",
+            `${dispatched.code}: ${dispatched.message}`,
+            true,
+          ),
         },
       });
       return;

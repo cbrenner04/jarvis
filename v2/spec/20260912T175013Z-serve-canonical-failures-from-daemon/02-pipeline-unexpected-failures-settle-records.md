@@ -25,11 +25,11 @@ Every terminal stage failure these paths settle carries an `OperatorFailureRecor
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` gains a test proving a stage failed by an unexpected throw settles a `failureDetail` that parses as a complete `OperatorFailureRecord` with the thrown text in `observation` and `retryable: true`; it fails against the pre-fix `{ message }` detail.
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` gains a test proving a workflow-stage resolution failure settles `retryable: false`; it fails against the pre-fix `{ message }` detail, which carries no retryability at all.
-- [ ] `v2/src/daemon/pipeline-stage-dispatch.test.ts` gains a test proving a refused dispatch settles the same record contract with `retryable: true`; it fails against the pre-fix `{ code, message }` detail.
-- [ ] `v2/src/daemon/pipeline-execution.test.ts`'s `"reconstructs failed-plan reset policy after a lost resume claim"` test (`describe("reopened pipeline continuation")`) stays green: the reset marker's `failureDetail` still matches `{ code: "pipeline_reopened_stage_reset", stageId, branchKey, flags }`, not an `OperatorFailureRecord`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` gains a test proving a stage failed by an unexpected throw settles a `failureDetail` that parses as a complete `OperatorFailureRecord` with the thrown text in `observation` and `retryable: true`; it fails against the pre-fix `{ message }` detail.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` gains a test proving a workflow-stage resolution failure settles `retryable: false`; it fails against the pre-fix `{ message }` detail, which carries no retryability at all.
+- [x] `v2/src/daemon/pipeline-stage-dispatch.test.ts` gains a test proving a refused dispatch settles the same record contract with `retryable: true`; it fails against the pre-fix `{ code, message }` detail.
+- [x] `v2/src/daemon/pipeline-execution.test.ts`'s `"reconstructs failed-plan reset policy after a lost resume claim"` test (`describe("reopened pipeline continuation")`) stays green: the reset marker's `failureDetail` still matches `{ code: "pipeline_reopened_stage_reset", stageId, branchKey, flags }`, not an `OperatorFailureRecord`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

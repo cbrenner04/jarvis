@@ -589,7 +589,10 @@ test("pipeline_resume branchKey replays only the named branch while sibling gate
   );
   expect(implementAfter?.status).toBe("failed");
   expect(implementAfter?.failureDetail).toEqual({
-    message: "test: implement stage intentionally fails to pin reopened suffix state",
+    expectation: "workflow stage resolves and dispatches",
+    observation: "test: implement stage intentionally fails to pin reopened suffix state",
+    retryable: false,
+    referencedPaths: [],
   });
 
   // (3) Both siblings stay untouched at their own awaiting gate, and the shared intent row is unchanged.

@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import ts from "typescript";
+import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -838,7 +839,12 @@ describe("dispatchPipelineStage", () => {
     expect(waitCalled).toBe(false);
     expect(patches).toHaveLength(1);
     expect(patches[0]?.patch.status).toBe("failed");
-    expect(patches[0]?.patch.failureDetail).toEqual({ code: "worktree_claimed", message: "already claimed" });
+    expect(operatorFailureRecordFromUnknown(patches[0]?.patch.failureDetail)).toEqual({
+      expectation: "stage dispatch is admitted",
+      observation: "worktree_claimed: already claimed",
+      retryable: true,
+      referencedPaths: [],
+    });
     expect(patches[0]?.patch.startedAt).toBeUndefined();
     expect(patches[0]?.patch.workflowInvocationId).toBeUndefined();
   });

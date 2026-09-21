@@ -16,23 +16,23 @@
 
 ## Acceptance criteria
 
-- [ ] New cleanup test `abandon refuses a branch with unlanded commits and no PR`: ahead-of-base non-staging commits, no PR → refusal naming tip SHA and commit count; worktree, local and remote branches untouched, no PR close attempted; fails pre-fix.
-- [ ] New cleanup test `abandon refuses when the worktree HEAD is unreachable from the branch`: refusal names the worktree `HEAD` SHA; worktree and branch untouched; fails pre-fix.
-- [ ] New cleanup test `abandon refusal for unlanded work is not bypassed by --yes`.
-- [ ] New cleanup test `abandon refusal happens before the confirm prompt`: no preview or prompt is issued on refusal.
-- [ ] New cleanup test `abandon discards unlanded work under the explicit override`: `--discard-unlanded --yes --abandon` completes ordinary retirement.
-- [ ] New cleanup test `abandon retires a branch whose commits are all on base`.
-- [ ] New cleanup test `abandon retires a squash-merged branch`: pins the `merge-tree` squash handling in `carriesNoUnlandedCommits`.
-- [ ] New cleanup test `abandon retires a branch whose only unlanded commits are harness staging`.
-- [ ] New cleanup test `abandon proceeds for a draft PR with unlanded commits`: the PR is closed and the branch retired.
-- [ ] New cleanup test `abandon refuses unlanded work when the PR is closed unmerged`: `gh` stub reports a closed-unmerged PR for the branch (not in the open list); the gate ignores it and refuses.
-- [ ] New cleanup test `abandon refuses when gh is unreachable and the branch has unlanded commits` (fail-closed; nothing retired).
-- [ ] New cleanup test `abandon refuses when a git probe fails`: probe throws → refusal, nothing retired.
-- [ ] New cleanup-cli test `--discard-unlanded without --abandon prints usage`.
-- [ ] New cleanup-cli test `--abandon <name> --discard-unlanded` parses and passes the override through to cleanup.
-- [ ] `v2/docs/operator-runbook.md` § `--abandon` documents the refusal, `--discard-unlanded`, and a session-close note that a circuit-broken lane looks like debris without `git rev-list --count <base>..<branch>`.
-- [ ] `v2/docs/v1-behaviors.md` `[v2 difference]` `cleanup --abandon` entry records the unlanded-commits gate, staging exemption, draft-PR/closed-PR behavior, and `--discard-unlanded`.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] New cleanup test `abandon refuses a branch with unlanded commits and no PR`: ahead-of-base non-staging commits, no PR → refusal naming tip SHA and commit count; worktree, local and remote branches untouched, no PR close attempted; fails pre-fix.
+- [x] New cleanup test `abandon refuses when the worktree HEAD is unreachable from the branch`: refusal names the worktree `HEAD` SHA; worktree and branch untouched; fails pre-fix.
+- [x] New cleanup test `abandon refusal for unlanded work is not bypassed by --yes`.
+- [x] New cleanup test `abandon refusal happens before the confirm prompt`: no preview or prompt is issued on refusal.
+- [x] New cleanup test `abandon discards unlanded work under the explicit override`: `--discard-unlanded --yes --abandon` completes ordinary retirement.
+- [x] New cleanup test `abandon retires a branch whose commits are all on base`.
+- [x] New cleanup test `abandon retires a squash-merged branch`: pins the `merge-tree` squash handling in `carriesNoUnlandedCommits`.
+- [x] New cleanup test `abandon retires a branch whose only unlanded commits are harness staging`.
+- [x] New cleanup test `abandon proceeds for a draft PR with unlanded commits`: the PR is closed and the branch retired.
+- [x] New cleanup test `abandon refuses unlanded work when the PR is closed unmerged`: `gh` stub reports a closed-unmerged PR for the branch (not in the open list); the gate ignores it and refuses.
+- [x] New cleanup test `abandon refuses when gh is unreachable and the branch has unlanded commits` (fail-closed; nothing retired).
+- [x] New cleanup test `abandon refuses when a git probe fails`: probe throws → refusal, nothing retired.
+- [x] New cleanup-cli test `--discard-unlanded without --abandon prints usage`.
+- [x] New cleanup-cli test `--abandon <name> --discard-unlanded` parses and passes the override through to cleanup.
+- [x] `v2/docs/operator-runbook.md` § `--abandon` documents the refusal, `--discard-unlanded`, and a session-close note that a circuit-broken lane looks like debris without `git rev-list --count <base>..<branch>`.
+- [x] `v2/docs/v1-behaviors.md` `[v2 difference]` `cleanup --abandon` entry records the unlanded-commits gate, staging exemption, draft-PR/closed-PR behavior, and `--discard-unlanded`.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

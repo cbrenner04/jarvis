@@ -11,7 +11,7 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 
 Every other spec landed this session was archived by `jarvis cleanup` and merged in #4114 and #4116.
 
-## Ready-intents (10 queued: 5 live, 3 stale, 2 not startable)
+## Ready-intents (7 queued: 4 live, 3 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
@@ -22,9 +22,6 @@ Every other spec landed this session was archived by `jarvis cleanup` and merged
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 | `workflow-terminal-waits-await-durable-boundary` | **premise false — retire.** `bunfig.toml` sets `[test] timeout = 30000` and `workflow.test.ts` has no `5000`; plan PR #4105 rejected. Superseded by seed `spawned-cli-tests-inherit-a-five-second-connect-bound` | — |
-| `publication-failures-settle-failed-writer` | stale — spec landed #4088, unreaped | reap |
-| `subprocess-marker-rejection-carries-cause` | stale — spec landed #4097, unreaped | reap |
-| `declared-isolation-class-for-wall-clock-bounded-suites` | stale — spec landed #4098, unreaped | reap |
 
 ## Seeds (30)
 

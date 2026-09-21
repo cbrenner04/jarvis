@@ -10,7 +10,7 @@ The 2026-09-20 session closed every remaining P0. All five P0 rows are gone: rea
 
 What is left is no longer a fixed point that strands complete work. It is chain tails, one regression the session introduced, dogfood quality, and parked display work.
 
-Counts after the 2026-09-20 closeout: 2 open spec dirs (the archive sweep landed in #4114 and #4116); 10 queued ready-intents, of which 3 are stale (their spec landed unreaped), 1 is evidence-gated, 1 has a false premise, and 5 are live; 30 seeds. Landed: ledger § Landed.
+Counts after the 2026-09-20 closeout: 2 open spec dirs and 7 queued ready-intents (the archive sweep landed in #4114 and #4116, which also reaped 3 consumed ready-intents); of those 7, 1 is evidence-gated, 1 has a false premise, 1 needs a rewrite before planning, and 4 are live. 30 seeds. Landed: ledger § Landed.
 
 ## Priority-ordered work
 

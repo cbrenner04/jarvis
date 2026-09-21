@@ -64,7 +64,7 @@ export function pruneConsumedQueueEntry(spec: ArtifactSpec, fs: ArtifactFs = rea
   }
 }
 
-type ArtifactEligibility = { status: "eligible" } | { status: "ineligible"; reason: string };
+export type ArtifactEligibility = { status: "eligible" } | { status: "ineligible"; reason: string };
 
 /** True when `home` is `~/.jarvis/specs/<safeId>/plans`. */
 export function isExternalPlanArtifact(spec: ArtifactSpec): boolean {
@@ -82,7 +82,7 @@ type ArtifactInspection = {
   hasMaterializedOwner: (spec: ArtifactSpec) => Promise<boolean>;
 };
 
-type ArtifactFs = {
+export type ArtifactFs = {
   exists: (path: string) => boolean;
   mkdir: (path: string) => void;
   read: (path: string) => Buffer;

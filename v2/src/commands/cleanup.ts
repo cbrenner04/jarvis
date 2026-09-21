@@ -48,6 +48,8 @@ import {
 } from "./cleanup-archive-publication.ts";
 import {
   type ArchiveResult,
+  type ArtifactEligibility,
+  type ArtifactFs,
   type ArtifactSpec,
   archiveCompletedSpec,
   checkArtifactEligibility,
@@ -1259,27 +1261,87 @@ function recordedStrandedRun(
   return undefined;
 }
 
+/** Reason carried when an artifact is not a hand-landed archival candidate at all. */
+const NO_DURABLE_BRANCH_REASON = "no durable implementation branch";
+
+/**
+ * A read-only `ArtifactFs` over one spec tree as committed on `ref`, or undefined when that tree is
+ * absent or unreadable there. Directory entries are synthesized from the listed blob paths.
+ */
+async function specTreeFsAtRef(
+  projectRoot: string,
+  source: string,
+  ref: string,
+  runner: AsyncSubprocessRunner,
+): Promise<ArtifactFs | undefined> {
+  const relSource = relative(projectRoot, source);
+  let listing: string;
+  try {
+    listing = await runner.runAsync("git", ["ls-tree", "-r", "-z", "--name-only", ref, "--", relSource], projectRoot);
+  } catch {
+    return undefined;
+  }
+  const relPaths = listing.split("\0").filter((line) => line.length > 0);
+  if (relPaths.length === 0) return undefined;
+
+  const root = resolve(projectRoot);
+  const files = new Map<string, Buffer>();
+  const dirs = new Set<string>();
+  for (const relPath of relPaths) {
+    let content: string;
+    try {
+      content = await runner.runAsync("git", ["show", `${ref}:${relPath}`], projectRoot);
+    } catch {
+      return undefined;
+    }
+    const absPath = resolve(root, relPath);
+    files.set(absPath, Buffer.from(content, "utf8"));
+    for (let dir = dirname(absPath); dir.startsWith(root); dir = dirname(dir)) dirs.add(dir);
+  }
+  const readOnly = (): never => {
+    throw new Error("a spec tree read at a git ref is read-only");
+  };
+  return {
+    exists: (path) => files.has(resolve(path)) || dirs.has(resolve(path)),
+    read: (path) => {
+      const content = files.get(resolve(path));
+      if (content === undefined) throw new Error(`not committed on ${ref}: ${path}`);
+      return content;
+    },
+    mkdir: readOnly,
+    rename: readOnly,
+    unlink: readOnly,
+  };
+}
+
 /**
  * An in-repo spec no run row ever named (authored and landed by hand) is archivable when its linked
- * subspecs are complete and no materialized worktree carries its source. Inconclusive evidence declines.
+ * subspecs are complete **as committed on the repository default branch** — ticks reach that branch
+ * only through a merged PR, so a locally edited checkbox is never evidence of completion — and no
+ * materialized worktree carries its source. Absent, unreadable, or inconclusive evidence declines.
  */
-export function isHandLandedArtifactArchivable(
+export async function handLandedArtifactArchivability(
   artifact: DiscoveredStrandedArtifact,
   projectRoot: string,
   allWorktrees: readonly DiscoveredWorktree[],
-): boolean {
-  if (artifact.queue !== undefined) return false;
+  runner: AsyncSubprocessRunner,
+): Promise<ArtifactEligibility> {
+  const declined = { status: "ineligible", reason: NO_DURABLE_BRANCH_REASON } as const;
+  if (artifact.queue !== undefined) return declined;
   const spec: ArtifactSpec = { ...artifact, branch: "" };
-  if (isExternalPlanArtifact(spec)) return false;
+  if (isExternalPlanArtifact(spec)) return declined;
   const inCheckout = relative(projectRoot, artifact.source);
-  if (inCheckout === "" || inCheckout.startsWith("..") || isAbsolute(inCheckout)) return false;
+  if (inCheckout === "" || inCheckout.startsWith("..") || isAbsolute(inCheckout)) return declined;
   try {
-    return (
-      completedSpecEligibility(spec).status === "eligible" &&
-      !hasInRepoArtifactOwner(spec, projectRoot, "", allWorktrees)
-    );
+    const baseBranch = await getBaseBranch(projectRoot, runner);
+    const committed = await specTreeFsAtRef(projectRoot, artifact.source, baseBranch, runner);
+    if (committed === undefined) return { status: "ineligible", reason: `spec is not committed on ${baseBranch}` };
+    const completion = completedSpecEligibility(spec, committed);
+    if (completion.status === "ineligible") return completion;
+    if (hasInRepoArtifactOwner(spec, projectRoot, "", allWorktrees)) return declined;
+    return { status: "eligible" };
   } catch {
-    return false;
+    return declined;
   }
 }
 
@@ -1294,9 +1356,16 @@ async function inspectSpecArtifact(
   skips: ArtifactSkipLedger,
 ): Promise<StrandedArtifact | undefined> {
   const run = recordedStrandedRun(artifact, projectRoot, store, registry);
-  const handLanded = run === undefined && isHandLandedArtifactArchivable(artifact, projectRoot, allWorktrees);
-  if (!handLanded && (run === undefined || run.branch === "")) {
-    skips.skip(artifact.source, "no durable implementation branch");
+  let handLanded = false;
+  if (run === undefined) {
+    const archivability = await handLandedArtifactArchivability(artifact, projectRoot, allWorktrees, runner);
+    if (archivability.status === "ineligible") {
+      skips.skip(artifact.source, archivability.reason);
+      return undefined;
+    }
+    handLanded = true;
+  } else if (run.branch === "") {
+    skips.skip(artifact.source, NO_DURABLE_BRANCH_REASON);
     return undefined;
   }
   const identified = { ...artifact, branch: run?.branch ?? "" };

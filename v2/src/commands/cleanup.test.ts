@@ -42,9 +42,9 @@ import {
   discoverStrandedArtifacts,
   exactOriginTrackingRefOid,
   gateOnOpenPrs,
+  handLandedArtifactArchivability,
   hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
-  isHandLandedArtifactArchivable,
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
@@ -1123,6 +1123,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     test("previews the widened archive like any stranded archive", async () => {
       const { source } = createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
       let stdout = "";
       const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
 
@@ -1139,17 +1140,41 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(stdout).toContain(`archive: ${source} -> ${join(projectRoot, "v2", "spec", "completed", specName)}`);
     });
 
-    test("still skips a spec with an unchecked non-human-only criterion", async () => {
+    test("still skips a spec with an unchecked non-human-only criterion, naming the real reason", async () => {
       createSpec(specName, "[ ] Not done");
+      await commitFixtures(projectRoot);
       const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore);
       expect(eligible).toEqual([]);
       expect(stdout).toContain(
-        `Skipped artifact: ${join(projectRoot, "v2", "spec", specName)} — no durable implementation branch`,
+        `Skipped artifact: ${join(projectRoot, "v2", "spec", specName)} — unchecked acceptance criterion in index.md: Not done`,
+      );
+    });
+
+    test("skips a spec whose criteria are ticked only in the working tree", async () => {
+      createSpec(specName, "[ ] Not done");
+      await commitFixtures(projectRoot);
+      // The operator ticks the checkbox locally; nothing merged.
+      writeFileSync(
+        join(projectRoot, "v2", "spec", specName, "index.md"),
+        "# Plan\n\n## Acceptance criteria\n\n- [x] Not done\n",
+      );
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain("unchecked acceptance criterion in index.md: Not done");
+    });
+
+    test("skips a spec absent from the default branch even when complete on disk", async () => {
+      createSpec(specName, "[x] Done");
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain(
+        `Skipped artifact: ${join(projectRoot, "v2", "spec", specName)} — spec is not committed on`,
       );
     });
 
     test("still skips a spec whose source exists inside a materialized worktree", async () => {
       createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
       const worktreePath = join(tempRoot, "some-worktree");
       mkdirSync(join(worktreePath, "v2", "spec", specName), { recursive: true });
       const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore, [
@@ -1174,25 +1199,39 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     test("still skips an artifact whose run row resolves no branch", async () => {
       createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
       const { eligible, stdout } = await inspect([strandedArtifact(specName)], storeForStrandedSpec(specName, ""));
       expect(eligible).toEqual([]);
       expect(stdout).toContain("no durable implementation branch");
     });
 
-    test("isHandLandedArtifactArchivable decides both directions from artifact, root and worktrees", () => {
+    test("handLandedArtifactArchivability decides both directions from the default-branch spec tree", async () => {
       createSpec(specName, "[x] Done");
       createSpec("20260911T000003Z-incomplete", "[ ] Todo");
+      await commitFixtures(projectRoot);
+      const uncommitted = createSpec("20260911T000004Z-uncommitted", "[x] Done");
+      expect(existsSync(uncommitted.source)).toBe(true);
       const worktreePath = join(tempRoot, "other-worktree");
       mkdirSync(join(worktreePath, "v2", "spec", specName), { recursive: true });
       const artifact = strandedArtifact(specName);
+      const runner = ghRunnerForPr("MERGED");
+      const decide = (
+        spec: Parameters<typeof handLandedArtifactArchivability>[0],
+        root = projectRoot,
+        worktrees: DiscoveredWorktree[] = [],
+      ) => handLandedArtifactArchivability(spec, root, worktrees, runner);
 
-      expect(isHandLandedArtifactArchivable(artifact, projectRoot, [])).toBe(true);
-      expect(isHandLandedArtifactArchivable(strandedArtifact("20260911T000003Z-incomplete"), projectRoot, [])).toBe(
-        false,
-      );
-      expect(isHandLandedArtifactArchivable(artifact, projectRoot, [{ path: worktreePath, branch: "b" }])).toBe(false);
-      expect(isHandLandedArtifactArchivable({ ...artifact, queue: "seed" }, projectRoot, [])).toBe(false);
-      expect(isHandLandedArtifactArchivable(artifact, join(tempRoot, "elsewhere"), [])).toBe(false);
+      expect(await decide(artifact)).toEqual({ status: "eligible" });
+      expect(await decide(strandedArtifact("20260911T000003Z-incomplete"))).toMatchObject({ status: "ineligible" });
+      expect(await decide(strandedArtifact("20260911T000004Z-uncommitted"))).toMatchObject({
+        status: "ineligible",
+        reason: expect.stringContaining("not committed on"),
+      });
+      expect(await decide(artifact, projectRoot, [{ path: worktreePath, branch: "b" }])).toMatchObject({
+        status: "ineligible",
+      });
+      expect(await decide({ ...artifact, queue: "seed" })).toMatchObject({ status: "ineligible" });
+      expect(await decide(artifact, join(tempRoot, "elsewhere"))).toMatchObject({ status: "ineligible" });
     });
   });
 

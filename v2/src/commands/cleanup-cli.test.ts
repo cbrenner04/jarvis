@@ -820,7 +820,7 @@ describe("cleanup command through main", () => {
     const worktreePath = await materializeMergedWorktree(branch);
     const stranded = join(cleanupProjectRoot, "v2", "spec", "stranded");
     mkdirSync(stranded, { recursive: true });
-    writeFileSync(join(stranded, "index.md"), "# Stranded\n\n## Acceptance criteria\n\n- [ ] done\n");
+    writeFileSync(join(stranded, "index.md"), "# Stranded\n\n## Acceptance criteria\n\n- [x] done\n");
     const deadSocket = join(cleanupJarvisRoot, "daemon-deadbeefdeadbeef.sock");
     mkdirSync(dirname(deadSocket), { recursive: true });
     // No file at deadSocket: connectIpcClient below is fully mocked, so its role here is only the
@@ -870,7 +870,8 @@ describe("cleanup command through main", () => {
     expect(stderr).not.toContain("connect ENOENT");
     expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
     expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
-    expect(stdout).toContain(`Skipped artifact: ${stranded}`);
+    // Complete in the checkout but never committed on the default branch: hand-landed archival declines.
+    expect(stdout).toContain(`Skipped artifact: ${stranded} — spec is not committed on`);
     expect(stdout).not.toContain(rawSocketError);
     expect(existsSync(deadArtifact)).toBe(false);
     expect(existsSync(worktreePath)).toBe(true);

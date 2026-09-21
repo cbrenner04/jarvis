@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "./markdownlint-repair.ts";
 import { assembleBulletBlocks } from "./spec-parser.ts";
@@ -7,6 +7,12 @@ import type { AsyncSubprocessRunner } from "./subprocess.ts";
 export type IntentStageFile = { slug: string; path: string };
 type Result = { ok: true; intents: IntentStageFile[] } | { ok: false; error: string };
 const INTENT_FILE_RE = /^[a-z0-9-]+$/;
+/** Bookkeeping dirs an agent CLI creates in its cwd (Claude Code writes `.claude/.cc-writes`); never intent output. */
+const AGENT_VENDOR_DIRS = [".claude"];
+
+function removeAgentVendorDirs(stagingDir: string): void {
+  for (const name of AGENT_VENDOR_DIRS) rmSync(join(stagingDir, name), { recursive: true, force: true });
+}
 
 export function listIntentStageMarkdownFiles(stagingDir: string): string[] {
   return readdirSync(stagingDir, { withFileTypes: true })
@@ -289,6 +295,7 @@ export async function validateIntentStage(
   const rogue = modifiedPaths.filter((path) => path !== ".jarvis-intent-stage" && !path.startsWith(allowedPrefix));
   if (rogue.length > 0)
     return { ok: false, error: `intent: splitter wrote outside .jarvis-intent-stage/: ${rogue.join(", ")}` };
+  removeAgentVendorDirs(stagingDir);
   const entries = readdirSync(stagingDir, { withFileTypes: true });
   for (const entry of entries)
     if (!entry.isFile() || !entry.name.endsWith(".md"))
@@ -305,6 +312,7 @@ export async function validateIntentStage(
 
 export function validateIntentStageStructure(stagingDir: string): { ok: true } | { ok: false; error: string } {
   try {
+    removeAgentVendorDirs(stagingDir);
     for (const entry of readdirSync(stagingDir, { withFileTypes: true }))
       if (!entry.isFile() || !entry.name.endsWith(".md"))
         return { ok: false, error: `intent: invalid splitter output ${entry.name}; expected only markdown files` };

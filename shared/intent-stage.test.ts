@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -50,6 +50,20 @@ function expectValidPrerequisitesIntent(prerequisitesBody: string): void {
 }
 
 describe("intent stage contract", () => {
+  test("removes agent vendor bookkeeping dirs instead of rejecting the stage", async () => {
+    const dir = stage();
+    const path = writeIntent(dir, "one-thing", "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n");
+    mkdirSync(join(dir, ".claude"));
+    writeFileSync(join(dir, ".claude", ".cc-writes"), "x", "utf8");
+    const runner: AsyncSubprocessRunner = { runAsync: async () => "" };
+    const result = await validateIntentStage(dir, [".jarvis-intent-stage/.claude/.cc-writes"], () => {}, null, runner);
+    expect(result).toEqual({ ok: true, intents: [{ slug: "one-thing", path }] });
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    mkdirSync(join(dir, ".claude"));
+    expect(validateIntentStageStructure(dir)).toEqual({ ok: true });
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+  });
+
   test("accepts valid flat intents", () => {
     const dir = stage();
     const path = writeIntent(

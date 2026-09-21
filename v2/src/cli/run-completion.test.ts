@@ -1,4 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createRunControlHandlers } from "../daemon/daemon.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import type { IpcFrame } from "../ipc/types.ts";
+import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { captureIo, makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { waitForRunCompletion } from "./run-completion.ts";
@@ -43,4 +51,93 @@ describe("waitForRunCompletion failure presentation", () => {
     expect("failureText" in payload).toBe(false);
     expect(stderr).toBe("");
   });
+});
+
+let stateStore: StateStore;
+let logSink: LogSink;
+let logsPath: string;
+let handlers: ReturnType<typeof createRunControlHandlers>;
+
+beforeEach(() => {
+  const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+  stateStore = openStateStore(join(tmpdir(), `jarvis-run-completion-state-${unique}.db`));
+  logsPath = join(tmpdir(), `jarvis-run-completion-logs-${unique}.jsonl`);
+  logSink = openLogSink(logsPath);
+  handlers = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    writeLoopExecutor: async () => undefined,
+    failureReporter: () => undefined,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+});
+
+afterEach(() => {
+  handlers.close();
+  logSink.close();
+  stateStore.close();
+  rmSync(logsPath, { force: true });
+});
+
+/** IPC client whose `wait` requests are answered by the real daemon wait handler. */
+function daemonBackedClient(): IpcClient {
+  const replies: IpcFrame[] = [];
+  let notify: (() => void) | undefined;
+  return {
+    send(frame) {
+      const request = frame as Parameters<typeof handlers.wait>[0];
+      void Promise.resolve(handlers.wait(request, new AbortController().signal)).then((reply) => {
+        replies.push({ ...reply, id: request.id } as IpcFrame);
+        notify?.();
+      });
+    },
+    async nextFrame() {
+      while (replies.length === 0) await new Promise<void>((resolve) => (notify = resolve));
+      return replies.shift() as IpcFrame;
+    },
+    close() {},
+  };
+}
+
+async function settleAndWait(status: RunStatus): Promise<{ code: number; stdout: string }> {
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: `test-branch-${crypto.randomUUID()}`,
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.commitTerminalRunSettlement({ runId, status, terminalCause: "completion_commit_failed" });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  let stdout = "";
+  const code = await waitForRunCompletion(daemonBackedClient(), runId, {
+    stdout: (s) => {
+      stdout += s;
+    },
+    stderr: () => undefined,
+  });
+  return { code, stdout };
+}
+
+test("waitForRunCompletion renders a completed row with a stale publication cause as success", async () => {
+  const { code, stdout } = await settleAndWait("completed");
+  expect(code).toBe(0);
+  const payload = JSON.parse(stdout) as Record<string, unknown>;
+  expect(payload.runStatus).toBe("completed");
+  expect(payload.loopOutcomeKind).toBe("complete");
+  expect(payload).not.toHaveProperty("error");
+});
+
+test("waitForRunCompletion renders a failed completion_commit_failed row as a failure exit", async () => {
+  const { code, stdout } = await settleAndWait("failed");
+  expect(code).toBe(1);
+  const payload = JSON.parse(stdout) as { runStatus: string; error?: { reason: string } };
+  expect(payload.runStatus).toBe("failed");
+  expect(payload.error?.reason).toBe("completion_commit_failed");
 });

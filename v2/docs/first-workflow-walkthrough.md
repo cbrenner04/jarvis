@@ -214,7 +214,7 @@ Plan and implement PR bodies contain the deterministic template after `Spec:`: l
 - PR: `gh pr list --head your/feature-branch` or the URL printed by `gh` when
   the draft was created.
 
-If `gh` auth or `origin` is missing, the run can still reach `completed` locally but publication fails with a retryable `completion_commit_failed` operator error on `list` / `wait`; fix prerequisites and use `jarvis run resume <run-id>` to retry publish without a duplicate commit.
+If `gh` auth or `origin` is missing, publication failure settles the run `failed` with a retryable `completion_commit_failed` operator error on `list` / `wait`; fix prerequisites and use `jarvis run resume <run-id>` to retry publish without a duplicate commit.
 
 ## Session close-out
 

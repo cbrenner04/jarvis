@@ -134,6 +134,11 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   stall: op("role_stalled", "retry_later", true),
 };
 
+/** Publication causes that are stale evidence on a `completed` row (migration `032` rewrites them to `failed`). */
+export function isStalePublicationCause(status: RunStatus, kind: WriteLoopOutcomeKind | undefined): boolean {
+  return status === "completed" && (kind === "completion_commit_failed" || kind === "ready_flip_failed");
+}
+
 /** Chronologically last terminal event; `list` and `wait` share this selection. */
 export function findTerminalLogRecord(records: PersistedRecord[]): TerminalLogRecord | undefined {
   let latest: TerminalLogRecord | undefined;
@@ -461,9 +466,17 @@ export function terminalResumeRefusalMessage(
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: operator-error precedence composition over durable status vs terminal log
 function composeRunOperatorErrorFromState(
-  run: RunWithAttempts,
-  terminalRecord?: TerminalLogRecord,
+  rawRun: RunWithAttempts,
+  rawTerminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
+  const run = isStalePublicationCause(rawRun.status, rawRun.terminalCause ?? undefined)
+    ? { ...rawRun, terminalCause: null }
+    : rawRun;
+  const terminalRecord =
+    rawTerminalRecord?.event.kind === "loop_finished" &&
+    isStalePublicationCause(run.status, rawTerminalRecord.event.loopOutcomeKind)
+      ? undefined
+      : rawTerminalRecord;
   if (run.status === "in-progress") return undefined;
   const lastAttempt = lastCommittedAttempt(run.attempts ?? []);
   const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;

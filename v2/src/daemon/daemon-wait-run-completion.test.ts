@@ -1570,3 +1570,47 @@ test("workflow wait returns killed when review step never runs and workflow is n
   const result = await expectResponse(await waitDirect("wait-killed", entryRunId));
   expect(result.runStatus).toBe("killed");
 });
+
+function settlePublicationRow(
+  runId: string,
+  status: RunStatus,
+  cause: "completion_commit_failed" | "ready_flip_failed",
+) {
+  stateStore.commitTerminalRunSettlement({ runId, status, terminalCause: cause });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: cause,
+    iterationsConsumed: 2,
+    resumable: cause === "completion_commit_failed",
+  });
+}
+
+test("list and wait report failed publication rows as failed and completed rows with the stale cause as successful", async () => {
+  const cases = [
+    { cause: "completion_commit_failed", resumable: true },
+    { cause: "ready_flip_failed", resumable: false },
+  ] as const;
+  for (const { cause, resumable } of cases) {
+    const failedId = createImplementRun();
+    const completedId = createRun();
+    settlePublicationRow(failedId, "failed", cause);
+    settlePublicationRow(completedId, "completed", cause);
+
+    const list = await expectResponse(await listDirect(`list-${cause}`));
+    const rows = list.runs as Array<{ runId: string; status: string; error?: { reason: string } }>;
+    expect(rows.find((row) => row.runId === failedId)).toMatchObject({ status: "failed", error: { reason: cause } });
+    const completedRow = rows.find((row) => row.runId === completedId);
+    expect(completedRow?.status).toBe("completed");
+    expect(completedRow?.error).toBeUndefined();
+
+    expect(await expectResponse(await waitDirect(`wait-failed-${cause}`, failedId))).toMatchObject({
+      runStatus: "failed",
+      loopOutcomeKind: cause,
+      resumable,
+      error: { reason: cause },
+    });
+    const completed = await expectResponse(await waitDirect(`wait-completed-${cause}`, completedId));
+    expect(completed).toMatchObject({ runStatus: "completed", loopOutcomeKind: "complete", resumable: false });
+    expect(completed).not.toHaveProperty("error");
+  }
+});

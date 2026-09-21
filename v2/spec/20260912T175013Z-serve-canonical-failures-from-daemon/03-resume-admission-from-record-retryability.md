@@ -13,6 +13,7 @@ When a run's stored `OperatorFailureRecord` exists, its `retryable` gates the an
 - Widen `composeRunOperatorError`'s `RunWithAttempts` run parameter (`v2/src/daemon/run-operator-error.ts`) to carry `operatorFailureRecord`, and consult it before the per-reason mapping; rules out adding a second retryability computation in `daemon-run-resume-admission.ts` that could drift from what `list`/`wait` display, since those already call the same composer directly for `error`.
 - `retryable: true` still passes through resume-context reconstruction, and an unreconstructable context refuses `unsupported`; rules out admitting a resume that cannot be replayed and would repeat unchanged.
 - The finalization-tail resume contexts (intent finalization, review mutation, exhausted-red, out-of-scope, non-terminating, completion-commit) keep admitting ahead of the composer/record check — they return in `resolveRunResumeAdmission` before `composeRunOperatorError` is ever called; rules out a non-retryable publication record suppressing a tail resume that is known-replayable on its own evidence.
+- `admitRunForResume` (`v2/src/persistence/state-store.ts`) clears the stored `operator_failure_record` when it admits a run for resume; without that clearing the resumed run inherits the record that settled its previous failure, so a `retryable: false` record would make the retryability gate above refuse the run permanently — unresumable no matter how the retry goes. Rules out gating on a record that describes an attempt that is no longer the current one.
 - `projectWorkflowEntryResult` needs no code change: it already only downgrades the entry result it's given, and that result already carries the corrected `resumable`/`error` once the composer is fixed; rules out re-deriving retryability a second time in the projection.
 
 ## Task checklist
@@ -27,6 +28,7 @@ When a run's stored `OperatorFailureRecord` exists, its `retryable` gates the an
 - [x] `v2/src/daemon/daemon-resume.test.ts` gains a test proving a run whose stored record is `retryable: false` reports `resumable: false` and an `error.nextAction` other than `resume` on its `list` row even when the composer's own reason mapping would say `resume`, and that `run resume` refuses the same run; it fails against the pre-fix code, where `error.nextAction`, `resumable`, and admission all follow the composer's reason alone.
 - [x] A test proves the symmetric case: a run whose stored record is `retryable: true` reports `resumable: true` with `nextAction: resume` even when the composer's own reason mapping alone would refuse it.
 - [x] `v2/src/daemon/daemon-resume.test.ts` finalization-tail resume tests stay green (tail admission returns before the composer/record check runs, so it is unaffected).
+- [x] `v2/src/persistence/state-store.test.ts` covers the clearing with `admitRunForResume > clears the stored operator failure record`, which admits a run carrying a stored record and asserts `loadRun(runId)?.operatorFailureRecord` is null afterwards; it fails when the clearing write is reverted.
 - [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

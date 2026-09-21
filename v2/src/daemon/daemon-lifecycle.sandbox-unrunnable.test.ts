@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
@@ -32,6 +35,7 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
 import { DaemonSocketBindFailureError, formatDaemonBindFailureLogLine } from "../ipc/server.ts";
 import type { Run } from "../persistence/state-store";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
+import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   DaemonHandoffFailedError,
   DaemonReadinessTimeoutError,
@@ -1031,6 +1035,129 @@ describe("daemon-lifecycle", () => {
       });
       expect(status).toEqual({ state: "running", loadedRevision: "head" });
     });
+
+    test("a socket that accepts connections but never answers health is inconclusive, not stopped (real probers)", async () => {
+      if (!canUseUnixSockets()) return;
+      const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-status-busy-"));
+      const socketPath = join(dir, "busy.sock");
+      const sockets: Socket[] = [];
+      const server = createServer((socket) => {
+        sockets.push(socket);
+      });
+      await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+      try {
+        const status = await getDaemonStatus(socketPath, { healthTimeoutMs: 50, retryHealthTimeoutMs: 100 });
+        expect(status).toEqual({ state: "inconclusive", healthTimeoutMs: 50, retryHealthTimeoutMs: 100 });
+      } finally {
+        for (const socket of sockets) socket.destroy();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
+    test("inconclusive follows one short and one strictly longer health attempt, live after each miss", async () => {
+      const budgets: number[] = [];
+      const classified: string[] = [];
+      const status = await getDaemonStatus("/fake/socket", {
+        healthTimeoutMs: 10,
+        retryHealthTimeoutMs: 40,
+        socketProber: {
+          probe: async (_path, timeoutMs) => {
+            budgets.push(timeoutMs);
+            classified.push("probe");
+            return false;
+          },
+        },
+        classifySocketLiveness: async () => {
+          classified.push("classify");
+          return "live";
+        },
+      });
+      expect(status).toEqual({ state: "inconclusive", healthTimeoutMs: 10, retryHealthTimeoutMs: 40 });
+      expect(budgets).toEqual([10, 40]);
+      expect(classified).toEqual(["probe", "classify", "probe", "classify"]);
+    });
+
+    test("the retry budget is strictly longer than the short budget", async () => {
+      const budgets: number[] = [];
+      await getDaemonStatus("/fake/socket", {
+        healthTimeoutMs: 5_000,
+        retryHealthTimeoutMs: 100,
+        socketProber: {
+          probe: async (_path, timeoutMs) => {
+            budgets.push(timeoutMs);
+            return false;
+          },
+        },
+        classifySocketLiveness: async () => "live",
+      });
+      expect(budgets).toEqual([5_000, 5_001]);
+    });
+
+    test("health answering on the retry reports running and the status RPC gets the retry budget", async () => {
+      const budgets: number[] = [];
+      let requestId = "";
+      const status = await getDaemonStatus("/fake/socket", {
+        healthTimeoutMs: 20,
+        retryHealthTimeoutMs: 2_000,
+        socketProber: {
+          probe: async (_path, timeoutMs) => {
+            budgets.push(timeoutMs);
+            return budgets.length > 1;
+          },
+        },
+        classifySocketLiveness: async () => "live",
+        connectIpcClient: async () => ({
+          send: (frame) => {
+            requestId = (frame as { id?: string }).id ?? "";
+          },
+          // Answers after the short budget: only a status RPC given the retry budget survives.
+          nextFrame: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            return {
+              kind: "response",
+              id: requestId,
+              result: { state: "running", loadedRevision: "retry-head", loadedExecutableDigest: "digest" },
+            };
+          },
+          close: () => {},
+        }),
+      });
+      expect(budgets).toEqual([20, 2_000]);
+      expect(status).toEqual({ state: "running", loadedRevision: "retry-head" });
+    });
+
+    for (const verdict of ["stale", "absent"] as const) {
+      test(`a ${verdict} socket after the first miss is stopped without a retry`, async () => {
+        let probes = 0;
+        const status = await getDaemonStatus("/fake/socket", {
+          socketProber: {
+            probe: async () => {
+              probes++;
+              return false;
+            },
+          },
+          classifySocketLiveness: async () => verdict,
+        });
+        expect(status).toEqual({ state: "stopped" });
+        expect(probes).toBe(1);
+      });
+
+      test(`a socket turning ${verdict} between attempts is stopped without a third attempt`, async () => {
+        let probes = 0;
+        let classifications = 0;
+        const status = await getDaemonStatus("/fake/socket", {
+          socketProber: {
+            probe: async () => {
+              probes++;
+              return false;
+            },
+          },
+          classifySocketLiveness: async () => (++classifications === 1 ? "live" : verdict),
+        });
+        expect(status).toEqual({ state: "stopped" });
+        expect(probes).toBe(2);
+      });
+    }
 
     test("returns stopped if socket probe fails", async () => {
       const socketProber: SocketProber = {

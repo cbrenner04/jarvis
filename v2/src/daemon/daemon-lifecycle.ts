@@ -3,7 +3,12 @@ import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, stat
 import { dirname, join, resolve } from "node:path";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
-import { parseDaemonBindFailureLogLine, removeUnansweredSocketPath } from "../ipc/server.ts";
+import {
+  parseDaemonBindFailureLogLine,
+  probeSocketLiveness,
+  removeUnansweredSocketPath,
+  type SocketLiveness,
+} from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
@@ -566,25 +571,46 @@ export async function stopDaemon(
   return { reconciledRunIds: await reconcile(orphaned) };
 }
 
-type DaemonStatusResult = { state: "running"; loadedRevision: string } | { state: "stopped" };
+const DEFAULT_STATUS_HEALTH_TIMEOUT_MS = 1_000;
+const DEFAULT_STATUS_RETRY_HEALTH_TIMEOUT_MS = 2_000;
 
+type DaemonStatusResult =
+  | { state: "running"; loadedRevision: string }
+  | { state: "stopped" }
+  | { state: "inconclusive"; healthTimeoutMs: number; retryHealthTimeoutMs: number };
+
+/**
+ * The socket decides, not a recorded pid. A missed health request is classified by connect probe:
+ * `stale`/`absent` is `stopped` at once; `live` earns one longer retry, and a second miss on a still
+ * `live` socket is `inconclusive` — a busy daemon must not read as dead.
+ */
 export async function getDaemonStatus(
   socketPath: string,
   options?: {
     healthTimeoutMs?: number;
+    /** Retry budget after a live-but-unanswered first attempt; always longer than `healthTimeoutMs`. */
+    retryHealthTimeoutMs?: number;
     socketProber?: SocketProber;
+    classifySocketLiveness?: (socketPath: string) => Promise<SocketLiveness>;
     connectIpcClient?: typeof connectIpcClient;
   },
 ): Promise<DaemonStatusResult> {
-  const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
+  const healthTimeoutMs = options?.healthTimeoutMs ?? DEFAULT_STATUS_HEALTH_TIMEOUT_MS;
+  const retryHealthTimeoutMs = Math.max(
+    options?.retryHealthTimeoutMs ?? DEFAULT_STATUS_RETRY_HEALTH_TIMEOUT_MS,
+    healthTimeoutMs + 1,
+  );
   const socketProber = options?.socketProber ?? { probe: probeSocket };
+  const classifyLiveness = options?.classifySocketLiveness ?? probeSocketLiveness;
 
-  // The socket is the service, so it decides. A recorded pid can be stale or absent while a
-  // daemon is serving normally, and reporting `stopped` for a reachable daemon sends operators
-  // into destructive recovery for a machine that is working.
-  const up = await socketProber.probe(socketPath, healthTimeoutMs);
-  if (!up) {
-    return { state: "stopped" };
+  let answeredTimeoutMs = healthTimeoutMs;
+  if (!(await socketProber.probe(socketPath, healthTimeoutMs))) {
+    if ((await classifyLiveness(socketPath)) !== "live") return { state: "stopped" };
+    answeredTimeoutMs = retryHealthTimeoutMs;
+    if (!(await socketProber.probe(socketPath, retryHealthTimeoutMs))) {
+      if ((await classifyLiveness(socketPath)) !== "live") return { state: "stopped" };
+      return { state: "inconclusive", healthTimeoutMs, retryHealthTimeoutMs };
+    }
   }
 
   const connectClient = options?.connectIpcClient ?? connectIpcClient;
@@ -593,7 +619,7 @@ export async function getDaemonStatus(
     const client = await connectClient(socketPath);
     const transport = createRpcTransport(client);
     try {
-      const response = await transport.request("status", undefined, { timeoutMs: healthTimeoutMs });
+      const response = await transport.request("status", undefined, { timeoutMs: answeredTimeoutMs });
       const daemonStatus = parseStatusResult(response);
       if (daemonStatus?.loadedRevision === undefined || daemonStatus.loadedExecutableDigest === undefined) {
         return { state: "running", loadedRevision: "unknown" };

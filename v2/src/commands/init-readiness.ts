@@ -106,7 +106,7 @@ export type ReadinessContext = {
   targetDir: string;
 };
 
-export type DaemonCheck = () => Promise<{ state: "running" | "stopped" }>;
+export type DaemonCheck = () => Promise<{ state: "running" | "stopped" | "inconclusive" }>;
 
 export type ReadinessProbes = {
   checkBunRuntime?: () => Promise<{ ok: boolean; detail?: string }>;
@@ -145,7 +145,7 @@ function defaultDirectoryExists(path: string): boolean {
   return existsSync(path);
 }
 
-async function defaultCheckDaemon(): Promise<{ state: "running" | "stopped" }> {
+async function defaultCheckDaemon(): Promise<{ state: "running" | "stopped" | "inconclusive" }> {
   try {
     return await getDaemonStatus(DAEMON_SOCKET_PATH);
   } catch {
@@ -229,6 +229,7 @@ export async function evaluateReadiness(
     await safeCheck("daemon", async () => {
       const status = await checkDaemon();
       if (status.state === "running") return ok();
+      if (status.state === "inconclusive") return missing("daemon is not responding");
       return missing("daemon is not running");
     }),
   );

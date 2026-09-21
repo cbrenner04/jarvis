@@ -15,6 +15,9 @@ import {
   validatePerFileTimeout,
 } from "./run-v2-tests.ts";
 
+const POLL_UNTIL_DONE_FILE = "v2/src/commands/workflow.test.ts";
+const SUBPROCESS_SPAWNING_FILE = "v2/src/execution/diff-derived-mutation-verifier.test.ts";
+
 describe("isSpawnTimeout", () => {
   test("detects a SIGKILL with null status as a timeout", () => {
     expect(isSpawnTimeout({ signal: "SIGKILL", status: null })).toBe(true);
@@ -482,6 +485,67 @@ describe("runV2TestFiles", () => {
     const results = await runV2TestFiles("agent", files, spawn, "v2", 2);
 
     expect(results.map((r) => r.file).sort()).toEqual(["failing.test.ts", "slow-ok.test.ts"]);
+  });
+
+  test("declared poll and subprocess suites are never in flight together", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const inFlight = new Set<string>();
+    let overlapped = false;
+    let releaseGate = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      inFlight.add(file);
+      overlapped ||= inFlight.has(POLL_UNTIL_DONE_FILE) && inFlight.has(SUBPROCESS_SPAWNING_FILE);
+      await gate;
+      inFlight.delete(file);
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const run = runV2TestFiles("agent", [POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE], spawn, "v2", 2);
+    releaseGate();
+    await run;
+
+    expect(overlapped).toBeFalse();
+  });
+
+  test("stop-admitting state carries across declared and load-sensitive batches", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const isolated = "later.sandbox-unrunnable.test.ts";
+    const nonAgentCalls: string[] = [];
+    const nonAgentSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      nonAgentCalls.push(file);
+      return { status: file === POLL_UNTIL_DONE_FILE ? 1 : 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    await runV2TestFiles("integration", [POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE], nonAgentSpawn, "v2", 2);
+
+    expect(nonAgentCalls).toEqual([POLL_UNTIL_DONE_FILE]);
+
+    const agentCalls: string[] = [];
+    const agentSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      agentCalls.push(file);
+      if (file === POLL_UNTIL_DONE_FILE) {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return {
+        status: file === SUBPROCESS_SPAWNING_FILE ? 1 : 0,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+      };
+    };
+
+    await runV2TestFiles("agent", [POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE, isolated], agentSpawn, "v2", 2);
+
+    expect(agentCalls).toEqual([POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE]);
   });
 });
 

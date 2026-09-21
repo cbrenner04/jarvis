@@ -3872,6 +3872,16 @@ describe("resumePipeline", () => {
     expect(resumeDeferredRefusalApplies("running", pipeline)).toBe(true);
     expect(!resumeDeferredRefusalApplies("running", pipeline)).toBe(false);
     expect(resumeDeferredRefusalApplies("pending", pipeline)).toBe(false);
+    const withRunning = {
+      ...pipeline,
+      stages: pipeline.stages.map((stage, i) => (i === 0 ? { ...stage, status: "running" as const } : stage)),
+    };
+    const withoutRunning = {
+      ...pipeline,
+      stages: pipeline.stages.map((stage) => ({ ...stage, status: "pending" as const })),
+    };
+    expect(resumeDeferredRefusalApplies("interrupted", withRunning)).toBe(true);
+    expect(resumeDeferredRefusalApplies("interrupted", withoutRunning)).toBe(false);
     expect(resumeReopenedPendingContinuation(derivedState, pipeline)).toBe(true);
     expect(!resumeReopenedPendingContinuation(derivedState, pipeline)).toBe(false);
   });

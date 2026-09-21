@@ -1,6 +1,6 @@
 # Structural-recovery traceability ledger
 
-Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-09-20 against `main` @ `0e1e1e65e`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
+Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-09-21 against `main` @ `a076cafff`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
 
 ## Open specs (1)
 
@@ -8,34 +8,29 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 | --- | --- | --- | --- |
 | `20260911T154954Z-tui-consumes-retained-pipeline-list` | #3791 | 0/2 | Pinning spec, valid |
 
-Every other spec landed this session was archived by `jarvis cleanup` and merged in #4114 and #4116.
+Every other landed spec is archived under `completed/`.
 
-## Ready-intents (6 queued: 4 live, 2 not startable)
+## Ready-intents (8 queued: 4 dispatchable, 4 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
-| `render-operator-failures-consistently` | **dispatchable** — chain C tail, unblocked by #4108; no shared formatter, TUI dumps raw `failureDetail` | — |
-| `failed-publication-consumers-drop-completed-special-case` | **dispatchable** — unblocked by #4088/#4109 | — |
-| `mutation-repair-commits-pushed-before-settlement` | **dispatchable** — chain D tail, unblocked by #4102; `settleMutationRepairExhausted` commits, never pushes | — |
-| `repair-exhausted-error-names-site-and-killing-set` | `mutation_repair_exhausted` op spreads no site fields | previous row |
+| `repair-exhausted-error-names-site-and-killing-set` | **dispatchable** — chain D tail, unblocked by #4138; op spreads no site fields | — |
+| `pipeline-resume-resumes-resumable-implement-row` | **dispatchable** — unblocked by #4149 | — |
+| `run-resume-returns-admission-refusal` | **dispatchable** — resume-surfaces head (#4139) | — |
+| `run-projection-names-resume-refusal` | queued | `run-resume-returns-admission-refusal` |
+| `pipeline-resume-preflights-dispatch-refusals` | **dispatchable** — resume-surfaces head (#4139) | — |
+| `tui-surfaces-resume-refusal` | queued | `pipeline-resume-preflights-dispatch-refusals` |
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 
-## Seeds (30)
+## Seeds (22)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
-| `stage-failure-record-drops-terminal-cause` | P0 | — | **new** (#4111) — regression from #4108: `stageFailedCause` reads `terminalCause` off an `OperatorFailureRecord` that lacks it; `run_timeout` degrades to `failed` |
-| `spawned-cli-tests-inherit-a-five-second-connect-bound` | P1 | — | **new** (#4111) — `CONNECT_TIMEOUT_MS = 5_000` (`v2/src/ipc/client.ts:11`) bounds spawned-CLI tests; supersedes the retired `workflow-terminal-waits` premise |
 | `capture-token-usage-on-failed-invocations` | P2 | — | open (#4080); usage fields live on `InvocationOk` only, so failed calls are unpriced |
-| `pipeline-resume-resumes-a-resumable-implement-row` | P1 | — | open; widened #4016 (any resumable kind recovered by `run resume` orphans its stage); stray AC moved into section |
-| `resume-surfaces-admission-gate-refusal` | P1 | — | open; preflight refusal text reaches only detached dispatch |
-| `interrupted-pipeline-stage-cannot-be-resumed` | P1 | #2996 | **new** — carved from the closed settlement seed; `resumeDeferredRefusalApplies` still refuses `interrupted` |
 | `stale-reset-destroys-commits-for-external-specs` | P1 | #3433 | rewritten: branch deletion closed by #4014; gate 2 still blind to external trees; tip SHA still missing |
-| `implement-retirement-destroys-artifacts-before-materialization` | P1 | — | open; `--base <own-branch>` still destroys then fails; plan-side `validateExplicitPlanBase` is the pattern |
-| `abandon-refuses-unlanded-work-with-no-pr` | P1 | — | open; `runAbandonCommand` gates only on open/ready PRs; `carriesNoUnlandedCommits` exists |
 | `retention-tiers-for-session-logs-and-telemetry` | P1 | — | open; sequence after `cleanup-reaps-orphan-session-logs` (landed #4086) |
 | `worktree-materialization-fails-on-committed-node-modules-symlink` | P1 | #4003 | half landed (#3022 completion-side exclusion); link-path `lstat` and iteration-commit pathspec remain |
 | `review-roles-check-falsifiability-not-plausibility` | P2 | — | open; no falsifiability mandate in `prompts/implement/review-*.md` |
@@ -48,7 +43,7 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | P2 | — | open; scope corrected to one file |
 | `completed-write-step-rows-stamp-finished-at` | P2 | — | rewritten; producer fixed incidentally by #3982, fallback UPDATE + backfill + test remain |
 | `serial-rerun-includes-frozen-v1` | P2 | — | open; `CLAUDE.md` still says bare `bun test` |
-| `non-terminating-mutation-settlement-names-its-site` | P2 | — | open; one missing spread in `publicationLoopFinishedBase`; sequence after killing-set 01 |
+| `non-terminating-mutation-settlement-names-its-site` | P2 | — | open; one missing spread in `publicationLoopFinishedBase`; sequence after `repair-exhausted-error-names-site-and-killing-set` |
 | `superseded-pipeline-pr-hygiene` | P2 | — | unblocked by #3745; absorbs stacked-PR cleanup from the retired merge-at-gate seed |
 | `pipeline-fan-out-per-lane-terminal-settlement` | P2 | — | ready-flip half served by #3970; per-lane `merge` + spurious `failed` remain; doc target moved to `pipeline-execution.md` |
 | `pipeline-fan-out-lanes-serial-chained-bases` | P2 | — | open; prerequisite (per-lane settlement) not landed |
@@ -56,11 +51,18 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
-| `daemon-status-reports-stopped-on-a-busy-daemon` | P1 | — | open (#3832 = seed PR); `probeSocket` still `catch → false`; classifier names refreshed |
 
 ## Open intake issues without a seed
 
 Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one still needing work. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
+
+## Reaped 2026-09-21
+
+| Item | Reason |
+| --- | --- |
+| seeds `stage-failure-record-drops-terminal-cause`, `spawned-cli-tests-inherit-a-five-second-connect-bound`, `daemon-status-reports-stopped-on-a-busy-daemon`, `implement-retirement-destroys-artifacts-before-materialization`, `abandon-refuses-unlanded-work-with-no-pr`, `interrupted-pipeline-stage-cannot-be-resumed`, `pipeline-resume-resumes-a-resumable-implement-row`, `resume-surfaces-admission-gate-refusal` | consumed by intents #4120 #4121 #4122 #4129 #4130 #4131 #4137 #4139 |
+| ready-intent `workflow-terminal-waits-await-durable-boundary` | false premise; retired #4119 |
+| plan PRs #4124, #4125, #4128, #4133, #4134, #4150 | closed as subsumed |
 
 ## Reaped 2026-09-20
 
@@ -98,6 +100,16 @@ Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one st
 | seed `merge-pipeline-stage-pr-at-its-approval-gate` | contradicted `detached-pipeline-plan-stage-consumes-ready-intents`; self-admitted merge-at-gate alone is a no-op; stacked-PR half moved to `superseded-pipeline-pr-hygiene` |
 | seeds `ready-gate-repair-out-of-diff-edits`, `render-observer-verification-keeps-a-fixed-deadline`, `implement-admission-persists-its-run-row`, `publication-failures-settle-failed`, `gate-allowset-derivation-fails-on-external-spec-home` | consumed into ready-intents by #4031, #4032, #4033, #4035, #4036, #4038 |
 | ready-intent `single-spec-home-predicate` | landed #3916/#3917 (`specsHome`, `resolveSpecsHome`); residual is a two-line wrapper, not worth a lane |
+
+## Landed 2026-09-21 (for tracing; details in `reports/`)
+
+- P0: #4132 linked-stage timeout incident cause from durable runs.
+- Tails: #4151 chain C `render-operator-failures-consistently`; #4145 publication `failed-publication-consumers-drop-completed-special-case`; #4138 chain D `mutation-repair-commits-pushed-before-settlement`.
+- IPC and daemon: #4136 connect-bound policy and diagnostic; #4152 spawned workflow CLI connect bound; #4143 `daemon status` preserves inconclusive liveness; #4153 decision verbs claim from any draining generation (seed #4146).
+- Retirement: #4140 implement retirement validates before destroying; #4147 `cleanup --abandon` refuses unlanded work with no PR.
+- Resume: #4149 failed implement stage settles from its recovered write row; #4154 operator-killed pipeline stages resumable (#2996; no auto-continue).
+- Direct fix: #4142 intent stage discards agent vendor dirs before validation.
+- Plans: #4123, #4126, #4127, #4135, #4141, #4144. Intents: #4120, #4121, #4122, #4129, #4130, #4131, #4137, #4139, #4148.
 
 ## Landed 2026-09-20 (for tracing; details in `reports/`)
 

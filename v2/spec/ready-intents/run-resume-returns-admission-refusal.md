@@ -12,12 +12,15 @@ A `run resume` refused by an admission gate (incomplete-re-run descendant check 
 
 - The daemon resume handler returns the gate's refusal as a typed structural refusal (verbatim reason) in its response, and records it on the run so later projections can read it.
 - CLI `run resume` exits non-zero with that verbatim reason on stderr.
-- Refusals are classified structural (won't succeed re-issued as-is) vs transient; only structural refusals are recorded as blocking.
+- Refusals are classified structural (won't succeed re-issued as-is) vs transient. The descendant / `stale reuse refused`, dirty-tree, and landed-criteria-drift gates are structural; any other refusal is transient. Only structural refusals are recorded on the run.
 - Out of scope: changing the gates themselves.
+- Intent order: this → `pipeline-resume-preflights-dispatch-refusals`; this → `run-projection-names-resume-refusal` → `tui-surfaces-resume-refusal`.
 
 ## Acceptance criteria
 
 - [ ] A `run resume` refused by the descendant / `stale reuse refused` gate exits non-zero with the daemon's refusal reason on stderr; regression fails against the pre-fix daemon-log-only path.
+- [ ] A `run resume` refused by the dirty-tree gate and one refused by the landed-criteria-drift gate each exit non-zero with the gate's reason on stderr; regression fails against the pre-fix daemon-log-only path.
+- [ ] A structural refusal is recorded on the run (verbatim reason readable from run state); a transient refusal leaves no record; regression fails against the pre-fix code, which records neither.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -23,5 +23,6 @@ A refused resume shows no change in the TUI.
 
 ## Prerequisites
 
+- Plan after `run-resume-returns-admission-refusal` and `run-projection-names-resume-refusal` merge.
 - The daemon records a structural resume refusal (verbatim reason) on the run when `run resume` is refused by an admission gate.
 - `run list` / `run wait` project a recorded structural resume refusal as a named blocking state with its reason.

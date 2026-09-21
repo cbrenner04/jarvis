@@ -23,11 +23,11 @@ When a run's stored `OperatorFailureRecord` exists, its `retryable` gates the an
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-run-resume-admission.test.ts` gains a test proving a run whose composer-derived reason alone would admit resume is refused `terminal` when its stored record is `retryable: false`, and a run whose composer-derived reason alone would refuse is admitted when its stored record is `retryable: true`; both fail against the pre-fix code, which decides purely from the composer's reason mapping and never reads the stored record.
-- [ ] `v2/src/daemon/daemon-resume.test.ts` gains a test proving a run whose stored record is `retryable: false` reports `resumable: false` and an `error.nextAction` other than `resume` on its `list` row even when the composer's own reason mapping would say `resume`, and that `run resume` refuses the same run; it fails against the pre-fix code, where `error.nextAction`, `resumable`, and admission all follow the composer's reason alone.
-- [ ] A test proves the symmetric case: a run whose stored record is `retryable: true` reports `resumable: true` with `nextAction: resume` even when the composer's own reason mapping alone would refuse it.
-- [ ] `v2/src/daemon/daemon-resume.test.ts` finalization-tail resume tests stay green (tail admission returns before the composer/record check runs, so it is unaffected).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-run-resume-admission.test.ts` gains a test proving a run whose composer-derived reason alone would admit resume is refused `terminal` when its stored record is `retryable: false`, and a run whose composer-derived reason alone would refuse is admitted when its stored record is `retryable: true`; both fail against the pre-fix code, which decides purely from the composer's reason mapping and never reads the stored record.
+- [x] `v2/src/daemon/daemon-resume.test.ts` gains a test proving a run whose stored record is `retryable: false` reports `resumable: false` and an `error.nextAction` other than `resume` on its `list` row even when the composer's own reason mapping would say `resume`, and that `run resume` refuses the same run; it fails against the pre-fix code, where `error.nextAction`, `resumable`, and admission all follow the composer's reason alone.
+- [x] A test proves the symmetric case: a run whose stored record is `retryable: true` reports `resumable: true` with `nextAction: resume` even when the composer's own reason mapping alone would refuse it.
+- [x] `v2/src/daemon/daemon-resume.test.ts` finalization-tail resume tests stay green (tail admission returns before the composer/record check runs, so it is unaffected).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

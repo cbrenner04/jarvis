@@ -140,3 +140,45 @@ test("resolveRunResumeAdmission names the missing landing inputs when an intent 
   });
   store.close();
 });
+
+function settledRecordRun(terminalCause: "ready_gate_failed" | "ready_flip_failed", retryable: boolean) {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(jarvisRoot);
+  const store = openStateStore(`${jarvisRoot}/state.db`);
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath: "/tmp/demo",
+    branch: `demo/${terminalCause}-${retryable}`,
+    specPath: "spec.md",
+  });
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "failed",
+    terminalCause,
+    operatorFailureRecord: { expectation: "gate passes", observation: "gate failed", retryable, referencedPaths: [] },
+  });
+  const run = store.loadRun(runId);
+  if (!run) throw new Error("expected run");
+  return { store, run };
+}
+
+test("resolveRunResumeAdmission refuses a resumable reason when the stored record is not retryable", () => {
+  const { store, run } = settledRecordRun("ready_gate_failed", false);
+  const admission = resolveRunResumeAdmission(run, undefined, [], {
+    store,
+    reconstructWriteResume: () => ({ ok: true, input: mockWriteLoopInput() }),
+  });
+  expect(admission).toEqual({ admitted: false, refusal: "terminal" });
+  store.close();
+});
+
+test("resolveRunResumeAdmission admits a stopping reason when the stored record is retryable", () => {
+  const { store, run } = settledRecordRun("ready_flip_failed", true);
+  const admission = resolveRunResumeAdmission(run, undefined, [], {
+    store,
+    reconstructWriteResume: () => ({ ok: true, input: mockWriteLoopInput() }),
+  });
+  expect(admission).toEqual({ admitted: true });
+  store.close();
+});

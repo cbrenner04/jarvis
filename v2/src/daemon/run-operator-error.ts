@@ -1,4 +1,5 @@
 import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import {
   type BindingAttemptSummary,
   type InvocationFailureDetail,
@@ -104,6 +105,7 @@ type RunWithAttempts = {
   attempts?: Attempt[];
   terminalCause?: WriteLoopOutcomeKind | null;
   terminalFailureDetail?: InvocationFailureDetail | null;
+  operatorFailureRecord?: OperatorFailureRecord | null;
 };
 
 const op = (
@@ -550,12 +552,27 @@ function composeRunOperatorErrorFromState(
   return undefined;
 }
 
+/** The stored record's `retryable` gates resume ahead of the per-reason mapping. */
+function applyRecordRetryability(
+  error: RunOperatorError | undefined,
+  record: OperatorFailureRecord | null | undefined,
+): RunOperatorError | undefined {
+  if (error === undefined || record == null) return error;
+  if (record.retryable) {
+    return error.nextAction === "resume" ? error : { ...error, retryable: true, nextAction: "resume" };
+  }
+  return error.nextAction === "resume" ? { ...error, retryable: false, nextAction: "stop" } : error;
+}
+
 export function composeRunOperatorError(
   run: RunWithAttempts,
   terminalRecord?: TerminalLogRecord,
   logRecords?: PersistedRecord[],
 ): RunOperatorError | undefined {
-  const error = composeRunOperatorErrorFromState(run, terminalRecord);
+  const error = applyRecordRetryability(
+    composeRunOperatorErrorFromState(run, terminalRecord),
+    run.operatorFailureRecord,
+  );
   if (error?.reason !== "contract_miss" || !logRecords) return error;
   let lastDetailEvent: ContractMissDetailEvent | undefined;
   for (const record of logRecords) {

@@ -265,7 +265,7 @@ When a run is not a clean in-progress or success terminal, `list` rows and `wait
 { "reason": "<closed-reason>", "retryable": false, "nextAction": "<closed-action>" }
 ```
 
-No raw attempt transcripts or exit codes appear in this contract. `invocation_error` may include the persisted bounded final-binding stderr tail or daemon diagnostic as `message`; daemon `model_config` failures may include their bounded binding-resolution diagnostic.
+When the run row carries a stored `OperatorFailureRecord`, its `retryable` gates resume ahead of the per-reason mapping: `retryable: false` turns a `resume` action into `stop`, and `retryable: true` raises any non-`resume` action to `resume`. `run resume` admission, `list`/`wait` `resumable`, and `nextAction` all read this one composed answer; rows without a stored record keep the per-reason mapping. Finalization-tail resume contexts still admit ahead of it, and an unreconstructable resume context still refuses `unsupported`. No raw attempt transcripts or exit codes appear in this contract. `invocation_error` may include the persisted bounded final-binding stderr tail or daemon diagnostic as `message`; daemon `model_config` failures may include their bounded binding-resolution diagnostic.
 
 For `ready_gate_failed`, terminal command evidence adds optional `message`: it names the resolved gate command and includes the bounded terminal output when present, and pipeline settlement persists the same composed object in stage `failureDetail`. Legacy terminal rows without command evidence keep the reason/retryability/action-only shape; `ready_gate_out_of_scope` keeps its existing outside-path fields, resumability, and no `message`.
 

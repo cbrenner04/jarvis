@@ -16,18 +16,19 @@ Linked-stage settlement now stores a failing run's `OperatorFailureRecord` uncha
 
 ## Behavior
 
-Derive a failed linked stage's incident cause from its attributed durable invocation rows. A `run_timeout` row yields `run_timeout`; other stored failure records yield `failed`. Preserve the stage's canonical `OperatorFailureRecord` unchanged and do not change daemon settlement behavior, record shape, or unrelated incident derivation.
+Derive a failed linked stage's incident cause from durable rows sharing its admitted entry run's invocation id. Any attributed row with `terminalCause: "run_timeout"` yields `run_timeout`, including when other attributed rows have non-timeout failures; otherwise, including when the entry run, invocation id, or attributed rows are absent, yield `failed`. Preserve the stage's canonical `OperatorFailureRecord` unchanged and do not change daemon settlement behavior, record shape, or unrelated incident derivation.
 
 ## Acceptance criteria
 
 - [ ] A regression test settles a linked stage with no `loadLogRecords` from a timeout run carrying an `OperatorFailureRecord`, then proves its stage or terminal-pipeline incident has cause `run_timeout`; it fails against the pre-fix `stage.failureDetail.terminalCause` read.
-- [ ] A test proves the same settlement path with a non-timeout stored record derives incident cause `failed`.
+- [ ] A test proves an attributed invocation with both timeout and non-timeout durable rows derives `run_timeout`.
+- [ ] A test proves the same settlement path with only non-timeout rows, or no resolvable attributed rows, derives incident cause `failed`.
 - [ ] The settled stage's `failureDetail` remains the stored `OperatorFailureRecord` unchanged.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/daemon-host.md` — state that linked-stage timeout notification causes derive from durable invocation rows while canonical stage failure detail remains unchanged.
+- `v2/docs/daemon-host.md` — state that linked-stage timeout notification causes derive from any durable row sharing the entry-run invocation id, override non-timeout rows, fall back to `failed` when no rows resolve, and leave canonical stage failure detail unchanged.
 - `v2/docs/v1-behaviors.md` — record the corrected v2 incident derivation.
 
 ## Prerequisites

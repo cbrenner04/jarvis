@@ -3060,12 +3060,58 @@ export async function resetStaleWorkspace(
     if (baseRefusal !== undefined) return { status: "refused", reason: baseRefusal };
   }
 
+  const tips = await captureBranchTips(branch, projectRoot, runner);
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
-  if (abandonResult.ok) return { status: "reset", destroyed: abandonResult.destroyed };
+  const destroyed = withDestroyedBranchTips(abandonResult.destroyed, tips);
+  if (abandonResult.ok) return { status: "reset", destroyed };
   return {
     status: "refused",
     reason: `retirement failed at ${abandonResult.step}; ${remainingArtifactsAfter(abandonResult.step)}`,
-    destroyed: abandonResult.destroyed,
+    destroyed,
+  };
+}
+
+type BranchTips = { localTipSha?: string; remoteTipSha?: string };
+
+async function resolveBranchTip(
+  ref: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  try {
+    const sha = (
+      await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], projectRoot)
+    ).trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Best-effort tips for the report of what retirement destroys; must run before deletion. Remote tip is the local remote-tracking ref (no network, may be stale). */
+async function captureBranchTips(
+  branch: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<BranchTips> {
+  const [localTipSha, remoteTipSha] = await Promise.all([
+    resolveBranchTip(`refs/heads/${branch}`, projectRoot, runner),
+    resolveBranchTip(`refs/remotes/origin/${branch}`, projectRoot, runner),
+  ]);
+  return {
+    ...(localTipSha !== undefined ? { localTipSha } : {}),
+    ...(remoteTipSha !== undefined ? { remoteTipSha } : {}),
+  };
+}
+
+/** Tips are reported only for branches retirement actually deleted. */
+function withDestroyedBranchTips(destroyed: DestroyedArtifacts, tips: BranchTips): DestroyedArtifacts {
+  return {
+    ...destroyed,
+    ...(destroyed.localBranch !== undefined && tips.localTipSha !== undefined ? { localTipSha: tips.localTipSha } : {}),
+    ...(destroyed.remoteBranch !== undefined && tips.remoteTipSha !== undefined
+      ? { remoteTipSha: tips.remoteTipSha }
+      : {}),
   };
 }
 
@@ -3215,6 +3261,10 @@ export type DestroyedArtifacts = {
   localBranch?: string;
   remoteBranch?: string;
   remoteTrackingRef?: string;
+  /** Tip of `localBranch` before deletion; set only when that branch was destroyed. */
+  localTipSha?: string;
+  /** Last-fetched tip of `remoteBranch` before deletion; set only when that branch was destroyed. */
+  remoteTipSha?: string;
 };
 
 type AbandonOutcome =

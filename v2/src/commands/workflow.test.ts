@@ -3107,6 +3107,112 @@ describe("implement preflight stale workspace reset", () => {
     expect(stderr).not.toContain("  PR: #");
   });
 
+  async function setRemoteTrackingTip(sha: string): Promise<void> {
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["update-ref", `refs/remotes/origin/${resetBranch}`, sha],
+      resetProjectRoot,
+    );
+  }
+
+  /** A commit distinct from the branch tip, standing in for a diverged remote tip. */
+  async function divergentCommitSha(): Promise<string> {
+    return (
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "diverged remote tip"],
+        resetProjectRoot,
+      )
+    ).trim();
+  }
+
+  async function localBranchTip(): Promise<string> {
+    return (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${resetBranch}`], resetProjectRoot)
+    ).trim();
+  }
+
+  async function runFailedDispatchAfterRetirement(): Promise<string> {
+    const cap = captureIo();
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-fail", { runStatus: "failed" })),
+        }),
+      ),
+    );
+    expect(code).toBe(3);
+    return cap.read().stderr;
+  }
+
+  test("run workflow implement destroyed-artifact summary reports the local branch tip sha and no remote sha without a remote-tracking ref", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+
+    const stderr = await runFailedDispatchAfterRetirement();
+
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).toMatch(new RegExp(`^ {2}remote branch: ${resetBranch}$`, "m"));
+  });
+
+  test("run workflow implement destroyed-artifact summary reports both tips when the remote tip differs", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+    const remoteTip = await divergentCommitSha();
+    expect(remoteTip).not.toBe(localTip);
+    await setRemoteTrackingTip(remoteTip);
+
+    const stderr = await runFailedDispatchAfterRetirement();
+
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).toContain(`  remote branch: ${resetBranch} @ ${remoteTip}`);
+  });
+
+  test("run workflow implement destroyed-artifact summary prints an equal tip sha once", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+    await setRemoteTrackingTip(localTip);
+
+    const stderr = await runFailedDispatchAfterRetirement();
+
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).toMatch(new RegExp(`^ {2}remote branch: ${resetBranch}$`, "m"));
+    expect(stderr.split(localTip)).toHaveLength(2);
+  });
+
+  test("run workflow implement destroyed-artifact summary omits the remote tip when retirement aborts at remote branch deletion", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+    const remoteTip = await divergentCommitSha();
+    await setRemoteTrackingTip(remoteTip);
+    const cap = captureIo();
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "remote" && args[1] === "get-url") return "origin-url";
+            if (cmd === "git" && args[0] === "push" && args[1] === "origin") throw new Error("push rejected");
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).not.toContain("  remote branch:");
+    expect(stderr).not.toContain(remoteTip);
+  });
+
   test("run workflow implement refuses retirement when --base names the retired branch", async () => {
     const worktreePath = await materializeStaleWorktree();
     const cap = captureIo();
@@ -3946,6 +4052,29 @@ describe("implement preflight stale workspace reset", () => {
       },
       subprocessRunner,
     );
+  });
+
+  test("run workflow plan destroyed-artifact summary reports the retired branch tip sha", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await advanceBasePastStaleWorktree(worktreePath, "plan-tip");
+    const localTip = await localBranchTip();
+    const cap = captureIo();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner: emptyPrListSubprocessRunner(),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-plan-tip", { runStatus: "failed" })),
+        }),
+      ),
+    );
+
+    expect(code).toBe(3);
+    expect(cap.read().stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
   });
 
   test("run workflow plan retires a never-landed lane through landed-criteria-only drift", async () => {

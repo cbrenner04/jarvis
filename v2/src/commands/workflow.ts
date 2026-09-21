@@ -279,8 +279,13 @@ async function maybeRecoverImplement(
 function formatDestroyedArtifactsSummary(destroyed: DestroyedArtifacts): string {
   const lines: string[] = ["Retirement destroyed artifacts:"];
   if (destroyed.worktreePath) lines.push(`  worktree: ${destroyed.worktreePath}`);
-  if (destroyed.localBranch) lines.push(`  local branch: ${destroyed.localBranch}`);
-  if (destroyed.remoteBranch) lines.push(`  remote branch: ${destroyed.remoteBranch}`);
+  if (destroyed.localBranch) {
+    lines.push(`  local branch: ${destroyed.localBranch}${destroyed.localTipSha ? ` @ ${destroyed.localTipSha}` : ""}`);
+  }
+  if (destroyed.remoteBranch) {
+    const showRemoteTip = destroyed.remoteTipSha !== undefined && destroyed.remoteTipSha !== destroyed.localTipSha;
+    lines.push(`  remote branch: ${destroyed.remoteBranch}${showRemoteTip ? ` @ ${destroyed.remoteTipSha}` : ""}`);
+  }
   if (destroyed.remoteTrackingRef) lines.push(`  remote-tracking ref: ${destroyed.remoteTrackingRef}`);
   if (destroyed.closedPrNumber) lines.push(`  PR: #${destroyed.closedPrNumber}`);
   return lines.join("\n");

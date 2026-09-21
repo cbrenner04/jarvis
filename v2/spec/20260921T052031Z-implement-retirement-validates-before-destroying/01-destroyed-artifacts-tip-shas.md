@@ -20,13 +20,13 @@ When retirement has destroyed artifacts and a later step fails, `formatDestroyed
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/commands/workflow.test.ts` forces rematerialization to fail after retirement and asserts stderr contains `local branch: <name> @ <local tip sha>`; fails against the pre-fix code.
-- [ ] A test with a remote-tracking tip differing from the local tip asserts both SHAs print (`remote branch: <name> @ <remote sha>`); a test with equal tips asserts the SHA appears once and the remote line has no ` @ `.
-- [ ] A test where capture fails (no remote-tracking ref) asserts retirement still completes and the remote line prints without a SHA.
-- [ ] A test where only the local branch was destroyed (retirement aborted at remote branch deletion) prints no remote SHA.
-- [ ] A test in `v2/src/commands/workflow.test.ts` on a standalone plan or intent re-dispatch confirms the same SHA rendering.
-- [ ] Existing `Retirement destroyed artifacts:` tests in `v2/src/commands/workflow.test.ts` and the `jarvis cleanup --abandon` tests in `v2/src/commands/cleanup.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] A new test in `v2/src/commands/workflow.test.ts` forces rematerialization to fail after retirement and asserts stderr contains `local branch: <name> @ <local tip sha>`; fails against the pre-fix code.
+- [x] A test with a remote-tracking tip differing from the local tip asserts both SHAs print (`remote branch: <name> @ <remote sha>`); a test with equal tips asserts the SHA appears once and the remote line has no ` @ `.
+- [x] A test where capture fails (no remote-tracking ref) asserts retirement still completes and the remote line prints without a SHA.
+- [x] A test where only the local branch was destroyed (retirement aborted at remote branch deletion) prints no remote SHA.
+- [x] A test in `v2/src/commands/workflow.test.ts` on a standalone plan or intent re-dispatch confirms the same SHA rendering.
+- [x] Existing `Retirement destroyed artifacts:` tests in `v2/src/commands/workflow.test.ts` and the `jarvis cleanup --abandon` tests in `v2/src/commands/cleanup.test.ts` stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

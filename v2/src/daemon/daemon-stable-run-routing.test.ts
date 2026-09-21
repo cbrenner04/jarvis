@@ -1126,6 +1126,51 @@ describe("stable pipeline decision-verb ownership claim", () => {
     }
   });
 
+  test("real startDaemonRuntime wiring queries every discovered peer once, never its own public or private endpoint", async () => {
+    const dbPath = tempDbPath("real-wiring-peer-discovery");
+    const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);
+    const store = reopenAsAliveSuccessor(dbPath);
+    const reader: LogReader = { tail: () => [], async *follow() {} };
+    const handlersByEndpoint = new Map<string, Record<string, RpcHandler>>();
+    const connectedSockets: string[] = [];
+
+    const runtime = await startDaemonRuntime("/fake/public.sock", store, reader, {
+      openLogSink: () => ({ append: () => undefined, close: () => undefined }),
+      startIpcServer: async (socketPath, boundHandlers = {}) => {
+        handlersByEndpoint.set(socketPath, boundHandlers);
+        return { socketPath, close: async () => undefined } as IpcServer;
+      },
+      privateSocketPath: "/fake/private.sock",
+      predecessorSocketPath: "/fake/predecessor.sock",
+      // Discovery echoes this daemon's own endpoints alongside two peers (one duplicating the predecessor).
+      enumerateOtherDaemonSockets: () => [
+        "/fake/private.sock",
+        "/fake/public.sock",
+        "/fake/predecessor.sock",
+        "/fake/older.sock",
+      ],
+      connectRunOwnerClient: async (socketPath) => {
+        connectedSockets.push(socketPath);
+        throw new Error("no real owner in this test");
+      },
+    });
+
+    try {
+      const approve = handlersByEndpoint.get("/fake/public.sock")?.pipeline_approve;
+      if (approve === undefined) throw new Error("pipeline_approve handler was not registered");
+      const response = await approve(
+        decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+        new AbortController().signal,
+      );
+
+      expect(response).toMatchObject({ kind: "error", code: "pipeline_no_live_owner" });
+      expect([...connectedSockets].sort()).toEqual(["/fake/older.sock", "/fake/predecessor.sock"]);
+    } finally {
+      await runtime.close();
+      store.close();
+    }
+  });
+
   test("a prefix pipeline id is resolved before the claim gate, not skipped past it", async () => {
     const dbPath = tempDbPath("prefix-id");
     const pipelineId = seedAsPredecessor(dbPath, seedAwaitingGatePipeline);

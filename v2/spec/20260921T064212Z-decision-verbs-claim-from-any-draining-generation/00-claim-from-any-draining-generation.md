@@ -22,11 +22,11 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/daemon-stable-run-routing.test.ts`, using injected fake owner clients via `connectOwnerClient` (not the `.sandbox-unrunnable` variant), with three generations (owner two back from stable) proves `approve` claims and applies without waiting for the owner to exit; it fails against the pre-fix direct-predecessor-only claim.
-- [ ] A test proves a peer with a mismatched `ownerIdentity` answering alongside the real owner does not receive the claim, and the claim goes to the matching owner.
-- [ ] A test proves an unreachable owner and a non-matching `ownerIdentity` each still refuse `pipeline_no_live_owner`.
-- [ ] A test proves a lost claim retries discovery across all peers.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/daemon/daemon-stable-run-routing.test.ts`, using injected fake owner clients via `connectOwnerClient` (not the `.sandbox-unrunnable` variant), with three generations (owner two back from stable) proves `approve` claims and applies without waiting for the owner to exit; it fails against the pre-fix direct-predecessor-only claim.
+- [x] A test proves a peer with a mismatched `ownerIdentity` answering alongside the real owner does not receive the claim, and the claim goes to the matching owner.
+- [x] A test proves an unreachable owner and a non-matching `ownerIdentity` each still refuse `pipeline_no_live_owner`.
+- [x] A test proves a lost claim retries discovery across all peers.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

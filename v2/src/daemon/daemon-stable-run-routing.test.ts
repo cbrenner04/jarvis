@@ -1234,6 +1234,30 @@ function seedOwnedByOldestOfThree(label: string): { store: StateStore; pipelineI
   return { store, pipelineId };
 }
 
+function noStageHandlers(store: StateStore) {
+  return createRunControlHandlers({
+    stateStore: store,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage: async () => ({ ok: true, steps: [] }),
+  });
+}
+
+function withClaim(
+  store: StateStore,
+  claimPipelineContinuation: PipelineOwnershipStore["claimPipelineContinuation"],
+): PipelineOwnershipStore {
+  return {
+    currentOwnerIdentity: () => store.currentOwnerIdentity(),
+    loadPipeline: (id) => store.loadPipeline(id),
+    listPipelines: () => store.listPipelines(),
+    adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+    pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
+    claimPipelineContinuation,
+  };
+}
+
 function approveFrame(pipelineId: string) {
   return decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" });
 }
@@ -1287,25 +1311,12 @@ describe("stable pipeline decision-verb claim across older generations", () => {
 
   test("a peer answering a mismatched ownerIdentity alongside the real owner never receives the claim", async () => {
     const { store, pipelineId } = seedOwnedByOldestOfThree("mismatched-peer");
-    const successorHandlers = createRunControlHandlers({
-      stateStore: store,
-      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      resolveStage: async () => ({ ok: true, steps: [] }),
-    });
+    const successorHandlers = noStageHandlers(store);
     const priorOwners: (string | null)[] = [];
-    const claimTrackingStore: PipelineOwnershipStore = {
-      currentOwnerIdentity: () => store.currentOwnerIdentity(),
-      loadPipeline: (id) => store.loadPipeline(id),
-      listPipelines: () => store.listPipelines(),
-      adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
-      pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
-      claimPipelineContinuation: (args) => {
-        priorOwners.push(args.priorOwnerIdentity);
-        return store.claimPipelineContinuation(args);
-      },
-    };
+    const claimTrackingStore: PipelineOwnershipStore = withClaim(store, (args) => {
+      priorOwners.push(args.priorOwnerIdentity);
+      return store.claimPipelineContinuation(args);
+    });
     const impostor = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: "impostor" } });
     const oldest = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: OLDEST_IDENTITY } });
     const wrapped = wrapDecisionHandlers(successorHandlers, {
@@ -1345,13 +1356,7 @@ describe("stable pipeline decision-verb claim across older generations", () => {
       },
     ];
     for (const { store, pipelineId, connectOwnerClient } of cases) {
-      const successorHandlers = createRunControlHandlers({
-        stateStore: store,
-        writeLoopExecutor: createFakeWriteLoopExecutor().executor,
-        failureReporter: () => {},
-        hasMemoryHeadroom: () => true,
-        resolveStage: async () => ({ ok: true, steps: [] }),
-      });
+      const successorHandlers = noStageHandlers(store);
       const wrapped = wrapDecisionHandlers(successorHandlers, {
         store,
         discoverPeerSocketPaths: () => [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH],
@@ -1368,21 +1373,12 @@ describe("stable pipeline decision-verb claim across older generations", () => {
 
   test("a lost claim retries discovery and the owner queries across all peers", async () => {
     const { store, pipelineId } = seedOwnedByOldestOfThree("lost-claim-rediscovers");
-    const successorHandlers = createRunControlHandlers({
-      stateStore: store,
-      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      resolveStage: async () => ({ ok: true, steps: [] }),
-    });
-    const alwaysLosingStore: PipelineOwnershipStore = {
-      currentOwnerIdentity: () => store.currentOwnerIdentity(),
-      loadPipeline: (id) => store.loadPipeline(id),
-      listPipelines: () => store.listPipelines(),
-      adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
-      pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
-      claimPipelineContinuation: (args) => ({ kind: "refused", pipelineId: args.pipelineId, reason: "stale_owner" }),
-    };
+    const successorHandlers = noStageHandlers(store);
+    const alwaysLosingStore: PipelineOwnershipStore = withClaim(store, (args) => ({
+      kind: "refused",
+      pipelineId: args.pipelineId,
+      reason: "stale_owner",
+    }));
     let discoveries = 0;
     const queriedPaths: string[] = [];
     const wrapped = wrapDecisionHandlers(successorHandlers, {

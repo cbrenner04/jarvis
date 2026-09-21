@@ -581,10 +581,12 @@ function wrapDecisionHandlers(
   handlers: ReturnType<typeof createRunControlHandlers>,
   deps: {
     store: PipelineOwnershipStore;
-    predecessorSocketPath: string | undefined;
+    predecessorSocketPath?: string | undefined;
+    discoverPeerSocketPaths?: () => readonly string[];
     connectOwnerClient: (socketPath: string) => Promise<IpcClient>;
   },
 ) {
+  const { predecessorSocketPath, discoverPeerSocketPaths, ...rest } = deps;
   return createStablePipelineDecisionHandlers(
     {
       pipeline_approve: handlers.pipeline_approve,
@@ -592,7 +594,11 @@ function wrapDecisionHandlers(
       pipeline_resume: handlers.pipeline_resume,
       pipeline_recover: handlers.pipeline_recover,
     },
-    deps,
+    {
+      ...rest,
+      discoverPeerSocketPaths:
+        discoverPeerSocketPaths ?? (() => (predecessorSocketPath === undefined ? [] : [predecessorSocketPath])),
+    },
   );
 }
 
@@ -1157,6 +1163,202 @@ describe("stable pipeline decision-verb ownership claim", () => {
     expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
     await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
     await flushBackgroundRuns();
+    store.close();
+  });
+});
+
+const OLDEST_IDENTITY = "oldest-generation";
+const MIDDLE_SOCKET_PATH = "/private/middle.sock";
+const OLDEST_SOCKET_PATH = "/private/oldest.sock";
+const NO_LIVE_OWNER_REFUSAL = (pipelineId: string): Reply => ({
+  kind: "error",
+  code: "pipeline_no_live_owner",
+  message: `Pipeline ${pipelineId} has no reachable live owner; ${PIPELINE_UNREACHABLE_OWNER_RECOVERY}.`,
+});
+
+/** Three generations: the row is owned by the oldest, both older generations are still live. */
+function seedOwnedByOldestOfThree(label: string): { store: StateStore; pipelineId: string } {
+  const dbPath = tempDbPath(label);
+  const seedStore = openStateStore(dbPath, { currentIdentity: OLDEST_IDENTITY });
+  const pipelineId = seedAwaitingGatePipeline(seedStore);
+  seedStore.close();
+  const store = openStateStore(dbPath, {
+    currentIdentity: SUCCESSOR_IDENTITY,
+    isOwnerAlive: async (identity) => identity === OLDEST_IDENTITY || identity === PREDECESSOR_IDENTITY,
+  });
+  return { store, pipelineId };
+}
+
+function approveFrame(pipelineId: string) {
+  return decisionFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" });
+}
+
+function sentMethods(owner: ReturnType<typeof ownerClient>): string[] {
+  return owner.sent.map((sentFrame) => (sentFrame as { method: string }).method);
+}
+
+describe("stable pipeline decision-verb claim across older generations", () => {
+  test("approve claims from the owner two generations back without waiting for it to exit", async () => {
+    const { store, pipelineId } = seedOwnedByOldestOfThree("three-generations");
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: stageIndex === 2 ? [createWriteStep("s3-write", "pipeline-branch", doneWithArtifactBindingFactory)] : [],
+      }),
+    });
+    const middle = ownerClient({ kind: "response", result: { kind: "not_owner" } });
+    const oldest = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: OLDEST_IDENTITY } });
+    const clients: Record<string, ReturnType<typeof ownerClient>> = {
+      [MIDDLE_SOCKET_PATH]: middle,
+      [OLDEST_SOCKET_PATH]: oldest,
+    };
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store,
+      discoverPeerSocketPaths: () => [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH],
+      connectOwnerClient: async (path) => {
+        const owner = clients[path];
+        if (owner === undefined) throw new Error(`unexpected socket ${path}`);
+        return owner.client;
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
+
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "applied", pipelineId, stageId: "gate", decision: "approved" },
+    });
+    expect(sentMethods(oldest)).toEqual(["pipeline_owner"]);
+    expect(sentMethods(middle)).toEqual(["pipeline_owner"]);
+    expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(SUCCESSOR_IDENTITY);
+    await waitFor(() => store.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("a peer answering a mismatched ownerIdentity alongside the real owner never receives the claim", async () => {
+    const { store, pipelineId } = seedOwnedByOldestOfThree("mismatched-peer");
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async () => ({ ok: true, steps: [] }),
+    });
+    const priorOwners: (string | null)[] = [];
+    const claimTrackingStore: PipelineOwnershipStore = {
+      currentOwnerIdentity: () => store.currentOwnerIdentity(),
+      loadPipeline: (id) => store.loadPipeline(id),
+      listPipelines: () => store.listPipelines(),
+      adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+      pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
+      claimPipelineContinuation: (args) => {
+        priorOwners.push(args.priorOwnerIdentity);
+        return store.claimPipelineContinuation(args);
+      },
+    };
+    const impostor = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: "impostor" } });
+    const oldest = ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: OLDEST_IDENTITY } });
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store: claimTrackingStore,
+      discoverPeerSocketPaths: () => [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH],
+      connectOwnerClient: async (path) => (path === MIDDLE_SOCKET_PATH ? impostor.client : oldest.client),
+    });
+
+    const response = (await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal)) as {
+      kind: string;
+    };
+
+    expect(response.kind).toBe("response");
+    expect(priorOwners).toEqual([OLDEST_IDENTITY]);
+    expect(sentMethods(impostor)).toEqual(["pipeline_owner"]);
+    expect(sentMethods(oldest)).toEqual(["pipeline_owner"]);
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("an unreachable owner and a non-matching ownerIdentity each refuse without claiming", async () => {
+    const unreachable = seedOwnedByOldestOfThree("owner-unreachable");
+    const nonMatching = seedOwnedByOldestOfThree("owner-non-matching");
+    const cases = [
+      {
+        ...unreachable,
+        connectOwnerClient: async (path: string): Promise<IpcClient> => {
+          if (path === MIDDLE_SOCKET_PATH)
+            return ownerClient({ kind: "response", result: { kind: "not_owner" } }).client;
+          throw new Error("connection refused");
+        },
+      },
+      {
+        ...nonMatching,
+        connectOwnerClient: async (): Promise<IpcClient> =>
+          ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: "someone-else" } }).client,
+      },
+    ];
+    for (const { store, pipelineId, connectOwnerClient } of cases) {
+      const successorHandlers = createRunControlHandlers({
+        stateStore: store,
+        writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+        failureReporter: () => {},
+        hasMemoryHeadroom: () => true,
+        resolveStage: async () => ({ ok: true, steps: [] }),
+      });
+      const wrapped = wrapDecisionHandlers(successorHandlers, {
+        store,
+        discoverPeerSocketPaths: () => [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH],
+        connectOwnerClient,
+      });
+
+      const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
+
+      expect(response).toEqual(NO_LIVE_OWNER_REFUSAL(pipelineId));
+      expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe(OLDEST_IDENTITY);
+      store.close();
+    }
+  });
+
+  test("a lost claim retries discovery and the owner queries across all peers", async () => {
+    const { store, pipelineId } = seedOwnedByOldestOfThree("lost-claim-rediscovers");
+    const successorHandlers = createRunControlHandlers({
+      stateStore: store,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async () => ({ ok: true, steps: [] }),
+    });
+    const alwaysLosingStore: PipelineOwnershipStore = {
+      currentOwnerIdentity: () => store.currentOwnerIdentity(),
+      loadPipeline: (id) => store.loadPipeline(id),
+      listPipelines: () => store.listPipelines(),
+      adoptOrphanedPipeline: (id) => store.adoptOrphanedPipeline(id),
+      pipelineOwnerIsDead: (id) => store.pipelineOwnerIsDead(id),
+      claimPipelineContinuation: (args) => ({ kind: "refused", pipelineId: args.pipelineId, reason: "stale_owner" }),
+    };
+    let discoveries = 0;
+    const queriedPaths: string[] = [];
+    const wrapped = wrapDecisionHandlers(successorHandlers, {
+      store: alwaysLosingStore,
+      discoverPeerSocketPaths: () => {
+        discoveries += 1;
+        return [MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH];
+      },
+      connectOwnerClient: async (path) => {
+        queriedPaths.push(path);
+        return ownerClient({ kind: "response", result: { kind: "owner", ownerIdentity: OLDEST_IDENTITY } }).client;
+      },
+    });
+
+    const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
+
+    expect(response).toEqual(NO_LIVE_OWNER_REFUSAL(pipelineId));
+    expect(discoveries).toBe(2);
+    expect([...queriedPaths].sort()).toEqual(
+      [MIDDLE_SOCKET_PATH, MIDDLE_SOCKET_PATH, OLDEST_SOCKET_PATH, OLDEST_SOCKET_PATH].sort(),
+    );
     store.close();
   });
 });

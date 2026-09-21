@@ -1,4 +1,7 @@
-import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
+import {
+  type OperatorFailureRecord,
+  operatorFailureRecordFromUnknown,
+} from "../../../shared/operator-failure-record.ts";
 import { formatOperatorFailureBlock } from "../cli/operator-failure-presentation.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { mergePipelineSnapshots } from "../daemon/merge-pipeline-snapshots.ts";
@@ -725,7 +728,7 @@ function absoluteDetailRows(
   return detailRows(entries.map(([label, value]) => [label, { value: formatAbsoluteTimestamp(value) }.value] as const));
 }
 
-function failureBlockRows(record: Parameters<typeof formatOperatorFailureBlock>[0]): MonitorLineRow[] {
+function failureBlockRows(record: OperatorFailureRecord): MonitorLineRow[] {
   return formatOperatorFailureBlock(record).map((line) => row(untoned(line)));
 }
 

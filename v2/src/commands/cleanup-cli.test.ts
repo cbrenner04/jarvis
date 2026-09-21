@@ -870,7 +870,8 @@ describe("cleanup command through main", () => {
     expect(stderr).not.toContain("connect ENOENT");
     expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
     expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
-    expect(stdout).toContain(`Skipped artifact: ${stranded}`);
+    // Complete in the checkout but never committed on the default branch: hand-landed archival declines.
+    expect(stdout).toContain(`Skipped artifact: ${stranded} — spec is not committed on`);
     expect(stdout).not.toContain(rawSocketError);
     expect(existsSync(deadArtifact)).toBe(false);
     expect(existsSync(worktreePath)).toBe(true);

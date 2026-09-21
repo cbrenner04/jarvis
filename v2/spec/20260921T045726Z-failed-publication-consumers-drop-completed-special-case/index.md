@@ -5,5 +5,5 @@ Remove the obsolete `completed`-row publication-failure compatibility path for `
 ## Subspecs
 
 - [x] [00 — Incident derivation keys on failed publication rows](00-incident-derivation-failed-publication-rows.md)
-- [ ] [01 — Operator error and list/wait projection ignore stale publication causes on completed rows](01-operator-error-and-projection-failed-publication-rows.md)
+- [x] [01 — Operator error and list/wait projection ignore stale publication causes on completed rows](01-operator-error-and-projection-failed-publication-rows.md)
 - [ ] [02 — Pipeline stage recovery and dispatch stay on failed publication rows](02-stage-recovery-and-dispatch-failed-publication-rows.md)

@@ -5669,6 +5669,18 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(stdout).toContain(`Pruned stale remote-tracking ref: origin/${branch}`);
   });
 
+  test("reset reports the deleted local branch's tip SHA in destroyed artifacts", async () => {
+    const branch = "impl/local-tip-report";
+    await setupWorktreeAndBranch(branch);
+    const localTip = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${branch}`], projectRoot)
+    ).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 807, isDraft: true }]));
+
+    expect(result).toMatchObject({ status: "reset", destroyed: { localBranch: branch, localTipSha: localTip } });
+  });
+
   test("stale origin tracking ref prune guard inversion leaves ref when update-ref is skipped", async () => {
     const branch = "impl/stale-origin-guard-inversion";
     await setupWorktreeAndBranch(branch);

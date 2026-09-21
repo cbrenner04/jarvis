@@ -14,13 +14,13 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/commands/pipeline.test.ts` feeds a daemon `branch_not_resumable` response carrying `stageId` and `status` and asserts `pipeline resume <id> <branch>` stderr includes both without `--json`; it fails against the pre-fix bare-reason output.
-- [ ] A test feeds a `branch_not_resumable` response with `status` but no `stageId` and asserts a readable `branch is <status>` message.
-- [ ] A test feeds a `branch_awaiting_approval` response with `stageId` and asserts stderr includes the stage id; it fails against the pre-fix bare-reason output (updating the existing verbatim-reason test).
-- [ ] A test feeds a `branch_rejected` response with `stageId` and asserts stderr includes the stage id; it fails against the pre-fix bare-reason output.
-- [ ] Tests assert `branch_not_found` and a `reopenFailedPipeline`-passthrough refusal (e.g. `no_failed_stage`) still render the bare `reason`.
-- [ ] A test asserts a `branch_not_resumable` / `branch_awaiting_approval` response with a missing or non-string `stageId`/`status` falls back to the bare `reason`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/commands/pipeline.test.ts` feeds a daemon `branch_not_resumable` response carrying `stageId` and `status` and asserts `pipeline resume <id> <branch>` stderr includes both without `--json`; it fails against the pre-fix bare-reason output.
+- [x] A test feeds a `branch_not_resumable` response with `status` but no `stageId` and asserts a readable `branch is <status>` message.
+- [x] A test feeds a `branch_awaiting_approval` response with `stageId` and asserts stderr includes the stage id; it fails against the pre-fix bare-reason output (updating the existing verbatim-reason test).
+- [x] A test feeds a `branch_rejected` response with `stageId` and asserts stderr includes the stage id; it fails against the pre-fix bare-reason output.
+- [x] Tests assert `branch_not_found` and a `reopenFailedPipeline`-passthrough refusal (e.g. `no_failed_stage`) still render the bare `reason`.
+- [x] A test asserts a `branch_not_resumable` / `branch_awaiting_approval` response with a missing or non-string `stageId`/`status` falls back to the bare `reason`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

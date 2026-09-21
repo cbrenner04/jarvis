@@ -177,6 +177,7 @@ export type PipelineResumeRefusalReason =
   | "pipeline_dismissed"
   | "pipeline_terminal_succeeded"
   | "pipeline_terminal_rejected"
+  | "pipeline_interrupted_running_stage"
   | "pipeline_not_resumable"
   | "branch_resume_required"
   | PipelineBranchResumeRefusalReason;
@@ -186,8 +187,19 @@ export type ResumePipelineOutcome =
   | {
       kind: "refused";
       pipelineId: string;
-      reason: Exclude<PipelineResumeRefusalReason, PipelineBranchResumeRefusalReason>;
+      reason: Exclude<
+        PipelineResumeRefusalReason,
+        PipelineBranchResumeRefusalReason | "pipeline_interrupted_running_stage"
+      >;
       branchKeys?: string[];
+    }
+  | {
+      kind: "refused";
+      pipelineId: string;
+      reason: "pipeline_interrupted_running_stage";
+      state: "interrupted";
+      stageId: string;
+      runId?: string;
     }
   | {
       kind: "refused";
@@ -704,6 +716,19 @@ export async function resumePipeline(
   }
   if (derivedState === "running") {
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
+  }
+  if (derivedState === "interrupted") {
+    const runningStage = current.stages.find((stage) => stage.status === "running");
+    if (runningStage !== undefined) {
+      return {
+        kind: "refused",
+        pipelineId,
+        reason: "pipeline_interrupted_running_stage",
+        state: derivedState,
+        stageId: runningStage.stageId,
+        ...(runningStage.workflowInvocationId === null ? {} : { runId: runningStage.workflowInvocationId }),
+      };
+    }
   }
   if (resumeInterruptedRequiresReopen(derivedState, current)) {
     const reopenedStageReset = buildReopenedStageReset(

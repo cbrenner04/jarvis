@@ -16,9 +16,9 @@ An `interrupted` pipeline carrying an unsettled `running` stage refuses resume w
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` "resume still refuses an interrupted pipeline carrying an unsettled running stage" asserts the `pipeline_interrupted_running_stage` refusal naming state `interrupted`, the `running` stage id, and the linked run id; it fails against the pre-fix bare `pipeline_not_resumable`. Its `dispatchCalled === false` and byte-identical `stages()` assertions are unchanged.
-- [ ] A `commands/pipeline.test.ts` test proves `pipeline resume` renders that refusal on stderr naming the interrupted state, the stage, and `run kill --force <runId>`; it fails against the pre-fix bare reason.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline-execution.test.ts` "resume still refuses an interrupted pipeline carrying an unsettled running stage" asserts the `pipeline_interrupted_running_stage` refusal naming state `interrupted`, the `running` stage id, and the linked run id; it fails against the pre-fix bare `pipeline_not_resumable`. Its `dispatchCalled === false` and byte-identical `stages()` assertions are unchanged.
+- [x] A `commands/pipeline.test.ts` test proves `pipeline resume` renders that refusal on stderr naming the interrupted state, the stage, and `run kill --force <runId>`; it fails against the pre-fix bare reason.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

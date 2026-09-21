@@ -4207,9 +4207,44 @@ describe("resumePipeline", () => {
       resolveStage: resolveStageStub(),
     });
 
-    expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      reason: "pipeline_interrupted_running_stage",
+      state: "interrupted",
+      stageId: "s1",
+      runId: entryRunId,
+    });
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
+  });
+
+  test("interrupted running-stage refusal omits a clearing run when the stage has no linked run", async () => {
+    const { store } = fakeStore(
+      RESTART_SWEEP_DEFINITION,
+      {},
+      {
+        context: persistedContext,
+        ownerIdentity: PRIOR_OWNER,
+      },
+    );
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "running" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "interrupted" } });
+
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => ({ ok: true, entryRunId: "should-not-dispatch" }),
+      wait: restartSweepWait({}),
+      resolveStage: resolveStageStub(),
+    });
+
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      reason: "pipeline_interrupted_running_stage",
+      state: "interrupted",
+      stageId: "s1",
+    });
   });
 });
 

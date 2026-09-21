@@ -1953,6 +1953,33 @@ describe("pipeline resume", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: `${reason}\n` });
   });
 
+  test.each([
+    ["with linked run", { runId: "run-live" }, "; clear with run kill --force run-live"],
+    ["without linked run", {}, ""],
+  ] as const)("pipeline resume renders an interrupted running-stage refusal %s", async (_label, linkedRun, clearing) => {
+    const cap = captureIo();
+
+    const code = await main(["pipeline", "resume", "pipe-interrupted"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() =>
+        pipelineListClient({
+          kind: "refused",
+          pipelineId: "pipe-interrupted",
+          reason: "pipeline_interrupted_running_stage",
+          state: "interrupted",
+          stageId: "implement",
+          ...linkedRun,
+        }),
+      ),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: `pipeline_interrupted_running_stage: pipeline is interrupted; stage implement is running${clearing}\n`,
+    });
+  });
+
   async function resumeBranchRefusal(response: Record<string, unknown>) {
     const cap = captureIo();
     const code = await main(["pipeline", "resume", "pipe-fan", "alpha"], cap.io, {
@@ -1984,6 +2011,8 @@ describe("pipeline resume", () => {
     [{ reason: "branch_awaiting_approval" }],
     [{ reason: "branch_awaiting_approval", stageId: 7 }],
     [{ reason: "branch_rejected", stageId: "" }],
+    [{ reason: "pipeline_interrupted_running_stage", stageId: "implement" }],
+    [{ reason: "pipeline_interrupted_running_stage", state: "interrupted" }],
   ] as const)("pipeline resume prints the bare reason for %p", async (response) => {
     expect(await resumeBranchRefusal(response)).toEqual({ code: 1, stdout: "", stderr: `${response.reason}\n` });
   });

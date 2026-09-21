@@ -88,7 +88,23 @@ type PipelineMutationOutcome =
       candidates?: string[];
       stageId?: string;
       status?: string;
+      state?: string;
+      runId?: string;
     };
+
+function mutationOutcomeDetail(record: { stageId?: unknown; status?: unknown; state?: unknown; runId?: unknown }): {
+  stageId?: string;
+  status?: string;
+  state?: string;
+  runId?: string;
+} {
+  return {
+    ...(isNonEmptyString(record.stageId) ? { stageId: record.stageId } : {}),
+    ...(isNonEmptyString(record.status) ? { status: record.status } : {}),
+    ...(isNonEmptyString(record.state) ? { state: record.state } : {}),
+    ...(isNonEmptyString(record.runId) ? { runId: record.runId } : {}),
+  };
+}
 
 function parsePipelineMutationOutcome(
   value: unknown,
@@ -103,6 +119,8 @@ function parsePipelineMutationOutcome(
     pipelineId?: unknown;
     stageId?: unknown;
     status?: unknown;
+    state?: unknown;
+    runId?: unknown;
   };
   if (record.kind === successKind) {
     if (successKind === "resumed" && !isNonEmptyString(record.pipelineId)) return undefined;
@@ -121,16 +139,25 @@ function parsePipelineMutationOutcome(
       reason: record.reason,
       ...(branchKeys.length > 0 ? { branchKeys } : {}),
       ...(candidates.length > 0 ? { candidates } : {}),
-      ...(isNonEmptyString(record.stageId) ? { stageId: record.stageId } : {}),
-      ...(isNonEmptyString(record.status) ? { status: record.status } : {}),
+      ...mutationOutcomeDetail(record),
     };
   }
   return undefined;
 }
 
-/** Branch-scoped resume refusals name the blocking stage row; anything else (or a missing field) renders the bare reason. */
-function formatMutationRefusal(outcome: { reason: string; stageId?: string; status?: string }): string {
-  const { reason, stageId, status } = outcome;
+/** Resume refusals with actionable detail name it; anything else (or a missing field) renders the bare reason. */
+function formatMutationRefusal(outcome: {
+  reason: string;
+  stageId?: string;
+  status?: string;
+  state?: string;
+  runId?: string;
+}): string {
+  const { reason, stageId, status, state, runId } = outcome;
+  if (reason === "pipeline_interrupted_running_stage" && state !== undefined && stageId !== undefined) {
+    const detail = `${reason}: pipeline is ${state}; stage ${stageId} is running`;
+    return runId === undefined ? detail : `${detail}; clear with run kill --force ${runId}`;
+  }
   if (reason === "branch_not_resumable" && status !== undefined) {
     return `${reason}: ${stageId === undefined ? "branch" : `stage ${stageId}`} is ${status}`;
   }

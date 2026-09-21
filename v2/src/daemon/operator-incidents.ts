@@ -170,7 +170,7 @@ function reachableGates(pipeline: Pipeline & { stages: PipelineStageRecord[] }):
 }
 
 function previewPipelineIncidentKeys(
-  store: StateStore,
+  _store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
 ): IncidentKey[] {
   const keys: IncidentKey[] = [];
@@ -572,7 +572,7 @@ function pushStageSucceededIncident(
 }
 
 function collectPipelineIncidents(
-  store: StateStore,
+  _store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   entryRunsById: ReadonlyMap<string, Run>,
   timedOutInvocationIds: ReadonlySet<string>,

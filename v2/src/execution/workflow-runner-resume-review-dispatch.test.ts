@@ -1973,6 +1973,7 @@ describe("executeWorkflow review dispatch", () => {
   /** Drives the real diff-derived verifier to a confirmed survivor after every repair commit; records the event order. */
   async function runRealVerifierRepairScenario(mode: RealVerifierRepairMode): Promise<{
     events: string[];
+    publishedBodySummaries: Array<string | undefined>;
     outcome: { ok: boolean; message?: string } | { rejected: string };
     finalHead: string;
     terminalKind: string | undefined;
@@ -1993,6 +1994,7 @@ describe("executeWorkflow review dispatch", () => {
       );
       const head = () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
       const events: string[] = [];
+      const publishedBodySummaries: Array<string | undefined> = [];
       const abort = new AbortController();
       return await withStateStore(async (store) => {
         const snapshot = reviewMutationWorkflowSnapshot(`real-${mode}`, `implement: real-${mode}`);
@@ -2045,7 +2047,8 @@ describe("executeWorkflow review dispatch", () => {
               }
               return committed;
             },
-            completionPublisher: async () => {
+            completionPublisher: async (input) => {
+              publishedBodySummaries.push(input.bodySummary);
               const afterRepairCommit = events.at(-1)?.startsWith("commit:") === true;
               events.push(`publish:${head()}`);
               if (mode === "push-fails" && afterRepairCommit) throw new Error("push rejected");
@@ -2082,6 +2085,7 @@ describe("executeWorkflow review dispatch", () => {
         logSink.close();
         return {
           events,
+          publishedBodySummaries,
           outcome,
           finalHead: head(),
           terminalKind: (() => {
@@ -2107,7 +2111,8 @@ describe("executeWorkflow review dispatch", () => {
   }
 
   test("every mutation-repair commit is published before the next repair or exhaustion under the real verifier", async () => {
-    const { events, outcome, finalHead, terminalKind } = await runRealVerifierRepairScenario("exhaust");
+    const { events, publishedBodySummaries, outcome, finalHead, terminalKind } =
+      await runRealVerifierRepairScenario("exhaust");
     const { commits, ordered } = repairCommitPublications(events);
     expect(outcome).toMatchObject({ ok: false, message: "Mutation survived every repair attempt" });
     expect(new Set(commits).size).toBe(3);
@@ -2115,6 +2120,8 @@ describe("executeWorkflow review dispatch", () => {
     expect(commits.at(-1)).toBe(finalHead);
     expect(events.at(-1)).toBe(`publish:${finalHead}`);
     expect(terminalKind).toBe("mutation_repair_exhausted");
+    expect(publishedBodySummaries).toHaveLength(events.filter((e) => e.startsWith("publish:")).length);
+    for (const summary of publishedBodySummaries) expect(typeof summary).toBe("string");
   }, 120_000);
 
   test("an earlier repair commit stays published when a later repair reports blocked", async () => {

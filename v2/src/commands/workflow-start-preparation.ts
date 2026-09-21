@@ -27,6 +27,8 @@ type WorkflowStartDestroyedArtifacts = {
   localBranch?: string;
   remoteBranch?: string;
   remoteTrackingRef?: string;
+  localTipSha?: string;
+  remoteTipSha?: string;
 };
 
 export type WorkflowStartPreparationRequest<TDeps = unknown, TIo = unknown> = {

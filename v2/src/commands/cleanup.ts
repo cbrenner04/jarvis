@@ -3060,13 +3060,83 @@ export async function resetStaleWorkspace(
     return preRebaseSha !== undefined ? { status: "continue", preRebaseSha } : { status: "continue" };
   }
 
+  if (baseRef !== undefined) {
+    const baseRefusal = await staleResetBaseRefusalReason(baseRef, branch, projectRoot, runner);
+    if (baseRefusal !== undefined) return { status: "refused", reason: baseRefusal };
+  }
+
+  const tips = await captureBranchTips(branch, projectRoot, runner);
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
-  if (abandonResult.ok) return { status: "reset", destroyed: abandonResult.destroyed };
+  const destroyed = withDestroyedBranchTips(abandonResult.destroyed, tips);
+  if (abandonResult.ok) return { status: "reset", destroyed };
   return {
     status: "refused",
     reason: `retirement failed at ${abandonResult.step}; ${remainingArtifactsAfter(abandonResult.step)}`,
-    destroyed: abandonResult.destroyed,
+    destroyed,
   };
+}
+
+type BranchTips = Pick<DestroyedArtifacts, "localTipSha" | "remoteTipSha">;
+
+async function resolveBranchTip(
+  ref: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  try {
+    const sha = (
+      await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], projectRoot)
+    ).trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Best-effort tips for the report of what retirement destroys; must run before deletion. Remote tip is the local remote-tracking ref (no network, may be stale). */
+async function captureBranchTips(
+  branch: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<BranchTips> {
+  const [localTipSha, remoteTipSha] = await Promise.all([
+    resolveBranchTip(`refs/heads/${branch}`, projectRoot, runner),
+    resolveBranchTip(`refs/remotes/origin/${branch}`, projectRoot, runner),
+  ]);
+  return {
+    ...(localTipSha !== undefined ? { localTipSha } : {}),
+    ...(remoteTipSha !== undefined ? { remoteTipSha } : {}),
+  };
+}
+
+/** Tips are reported only for branches retirement actually deleted. */
+function withDestroyedBranchTips(destroyed: DestroyedArtifacts, tips: BranchTips): DestroyedArtifacts {
+  return {
+    ...destroyed,
+    ...(destroyed.localBranch !== undefined && tips.localTipSha !== undefined ? { localTipSha: tips.localTipSha } : {}),
+    ...(destroyed.remoteBranch !== undefined && tips.remoteTipSha !== undefined
+      ? { remoteTipSha: tips.remoteTipSha }
+      : {}),
+  };
+}
+
+/** Refuses a rematerialization base that retirement would destroy (name collision) or that is not a commit. */
+async function staleResetBaseRefusalReason(
+  baseRef: string,
+  branch: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  const retiredForms = [branch, `refs/heads/${branch}`, `origin/${branch}`, `refs/remotes/origin/${branch}`];
+  if (retiredForms.includes(baseRef)) {
+    return `base '${baseRef}' names the branch '${branch}' being retired; retirement would destroy it before rematerialization`;
+  }
+  try {
+    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`], projectRoot);
+  } catch {
+    return `base '${baseRef}' does not resolve to a commit in ${projectRoot}`;
+  }
+  return undefined;
 }
 
 async function isWorktreeLiveHeld(
@@ -3196,6 +3266,10 @@ export type DestroyedArtifacts = {
   localBranch?: string;
   remoteBranch?: string;
   remoteTrackingRef?: string;
+  /** Tip of `localBranch` before deletion; set only when that branch was destroyed. */
+  localTipSha?: string;
+  /** Last-fetched tip of `remoteBranch` before deletion; set only when that branch was destroyed. */
+  remoteTipSha?: string;
 };
 
 type AbandonOutcome =

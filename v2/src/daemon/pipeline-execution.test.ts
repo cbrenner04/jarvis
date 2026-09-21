@@ -4486,6 +4486,80 @@ describe("resumePipeline branch scope", () => {
     store.close();
   });
 
+  /**
+   * The failed-vs-provisional_skip reset guard: `reopenedStageReset` is built only for a
+   * `failed` branch admission, so stage resolution on the reopened lane sees the reset flags,
+   * while a `provisional_skip` lane resolves with none. Inversion target: flipping
+   * `admission.reopenKind === "failed"` on the `reopenedStageReset` assignment swaps which
+   * admission carries flags and turns this test RED.
+   */
+  test("branch-scoped resume carries stage-reset flags into resolution only on the failed admission", async () => {
+    const resolveStaleResetFlags = async (admission: "failed" | "provisional_skip"): Promise<unknown> => {
+      const store = openStateStore(":memory:");
+      try {
+        const pipelineId = store.createPipeline({ definition: FAN_OUT_PIPELINE_DEFINITION, context: persistedContext });
+        setupSkippedSuccessorBranchFixture(store, "provisional", pipelineId);
+        if (admission === "failed") {
+          store.updateStage({
+            pipelineId,
+            stageId: "implement",
+            branchKey: SKIPPED_SUCCESSOR_BRANCH,
+            patch: { status: "failed" },
+          });
+        }
+
+        let observedFlags: unknown = "resolve-stage-never-called";
+        const outcome = await resumePipeline(
+          pipelineId,
+          {
+            store,
+            dispatch: async () => ({
+              ok: true,
+              entryRunId: store.createRun({
+                project: "pipeline-project",
+                specRef: "main",
+                worktreePath: "/tmp/worktree",
+                branch: "branch-reset-implement",
+                specPath: "spec/reset/implement.md",
+              }),
+              invocationId: "inv-reset-implement",
+            }),
+            wait: async (entryRunId) => {
+              store.setRunStatus(entryRunId, "completed");
+              return "completed";
+            },
+            resolveStage: async (_definition, stageIndex, _context, _artifacts, deps) => {
+              observedFlags = deps?.staleReset?.flags;
+              return {
+                ok: true,
+                steps: [
+                  createMinimalDispatchWriteStep({
+                    stageId: "implement",
+                    stageIndex,
+                    ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+                  }),
+                ],
+              };
+            },
+            staleResetPreflight: noopStaleResetPreflightBundle(),
+          },
+          { branchKey: SKIPPED_SUCCESSOR_BRANCH, resetDespiteDirty: true },
+        );
+
+        expect(outcome).toEqual({ kind: "resumed", pipelineId });
+        return observedFlags;
+      } finally {
+        store.close();
+      }
+    };
+
+    expect(await resolveStaleResetFlags("failed")).toEqual({
+      skipDirtyWorktreeGate: true,
+      skipLandedCriteriaGate: false,
+    });
+    expect(await resolveStaleResetFlags("provisional_skip")).toBeUndefined();
+  });
+
   test("branch-scoped resume refuses a terminal skipped successor as branch_not_resumable", async () => {
     const { store, stages } = fakeStore(
       FAN_OUT_PIPELINE_DEFINITION,

@@ -2760,16 +2760,21 @@ export function staleResetUnlandedCommitsGateReason(
   tipSha: string,
   commitCount: number,
   continuePathAvailable = false,
+  salvageRecovery = staleResetUnlandedSalvageRecovery,
 ): string {
   const recovery = continuePathAvailable
-    ? `re-run without \`--reset-despite-continuable\` to continue the lane, ${staleResetUnlandedSalvageRecovery}`
-    : staleResetUnlandedSalvageRecovery;
+    ? `re-run without \`--reset-despite-continuable\` to continue the lane, ${salvageRecovery}`
+    : salvageRecovery;
   return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${recovery}`;
 }
 
 /** Refusal when the worktree holds a commit the branch ref cannot reach, so retiring it would lose work. */
-export function staleResetUnreachableWorktreeHeadGateReason(branch: string, worktreeHead: string): string {
-  return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so retiring the branch would discard it; ${staleResetUnlandedSalvageRecovery}`;
+export function staleResetUnreachableWorktreeHeadGateReason(
+  branch: string,
+  worktreeHead: string,
+  salvageRecovery = staleResetUnlandedSalvageRecovery,
+): string {
+  return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so retiring the branch would discard it; ${salvageRecovery}`;
 }
 
 /** Refusal when a checked criterion absent from base has no backing `base..HEAD` commit — a forged tick, not committed progress. */
@@ -3368,11 +3373,11 @@ async function abandonUnlandedWorkRefusal(
     if (commitCount > 0) {
       const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
       if (nonStagingPaths.length > 0 && !(await carriesNoUnlandedCommits(branch, baseRef, projectRoot, runner))) {
-        return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${recovery}`;
+        return staleResetUnlandedCommitsGateReason(tipSha, commitCount, false, recovery);
       }
     }
     if (!(await isDescendantOfBase(branch, worktreeHead, projectRoot, runner))) {
-      return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so abandoning would discard it; ${recovery}`;
+      return staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead, recovery);
     }
     return undefined;
   } catch (error) {

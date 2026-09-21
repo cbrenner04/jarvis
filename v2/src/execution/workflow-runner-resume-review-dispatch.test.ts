@@ -1467,7 +1467,7 @@ describe("executeWorkflow review dispatch", () => {
             expect(input.baseRef).toBe(baseRef);
             expect(input.requiredIntegrationScope).toBe("test:integration:v2");
             if (finalizerCalls === 1) {
-              throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+              throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
             }
             if (finalizerCalls <= 3) throw new ReadyGateError("bun run ready", 1, "still red");
             return undefined;
@@ -1730,7 +1730,7 @@ describe("executeWorkflow review dispatch", () => {
           completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
           readyFinalizer: async () => {
-            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
           },
           mutationRepair: {
             bindings: [
@@ -1830,7 +1830,9 @@ describe("executeWorkflow review dispatch", () => {
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
           readyFinalizer: async () => {
             finalizerCalls += 1;
-            if (finalizerCalls === 1) throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+            if (finalizerCalls === 1) {
+              throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
+            }
             return undefined;
           },
           runFixCommand: async () => {},
@@ -1921,7 +1923,7 @@ describe("executeWorkflow review dispatch", () => {
             return { pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" };
           },
           readyFinalizer: async () => {
-            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
           },
           mutationRepair: {
             bindings: [
@@ -2053,7 +2055,7 @@ describe("executeWorkflow review dispatch", () => {
         completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError(mutation, sourceFile, sourceLine);
+          throw new SurvivingMutationError(mutation, sourceFile, sourceLine, ["src/guard.test.ts"], "passed-confirmed");
         },
       });
 
@@ -2105,7 +2107,7 @@ describe("executeWorkflow review dispatch", () => {
         completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError(mutation, sourceFile, sourceLine);
+          throw new SurvivingMutationError(mutation, sourceFile, sourceLine, ["src/guard.test.ts"], "passed-confirmed");
         },
       });
 

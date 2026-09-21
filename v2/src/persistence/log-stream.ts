@@ -61,6 +61,8 @@ export type LoopFinishedEvent = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  survivingMutationKillingTests?: string[];
+  survivingMutationKillingSetResult?: "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
   nonTerminatingMutation?: string;
   nonTerminatingMutationSourceFile?: string;
   nonTerminatingMutationSourceLine?: number;

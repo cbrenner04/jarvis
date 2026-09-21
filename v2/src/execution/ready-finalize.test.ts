@@ -35,6 +35,7 @@ import {
   readyGateSubprocessTimeoutMs,
   resolveSpecScopeRoot,
   SurvivingMutationError,
+  survivingMutationLogFields,
   selectFailedReadyStepOutput,
   selectTerminalFailedReadyStep,
   selectTerminalFailedReadyTestStep,
@@ -1458,7 +1459,13 @@ index 1234567..abcdefg 100644
           },
         );
         if (result.kind === "surviving-mutation") {
-          throw new SurvivingMutationError(result.mutation, result.sourceSite.file, result.sourceSite.line);
+          throw new SurvivingMutationError(
+            result.mutation,
+            result.sourceSite.file,
+            result.sourceSite.line,
+            result.killingTests,
+            result.killingSetObservedResult,
+          );
         }
       },
       ghReadyFlip: async () => {
@@ -1514,7 +1521,13 @@ index 1234567..abcdefg 100644
         runMutationVerification: async (worktreePath, runBase) => {
           const result = await verifyDiffDerivedMutations({ worktreePath, runBase });
           if (result.kind === "surviving-mutation") {
-            throw new SurvivingMutationError(result.mutation, result.sourceSite.file, result.sourceSite.line);
+            throw new SurvivingMutationError(
+              result.mutation,
+              result.sourceSite.file,
+              result.sourceSite.line,
+              result.killingTests,
+              result.killingSetObservedResult,
+            );
           }
         },
         ghReadyFlip: async () => {
@@ -2249,15 +2262,61 @@ index 1234567..abcdefg 100644
   });
 
   it("appends dual-constraint clause only when both timer callback and guarded root apply", () => {
-    const dual = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3, true);
+    const dual = new SurvivingMutationError(
+      "guard-flip: !x → x",
+      "v2/src/execution/test.ts",
+      3,
+      ["v2/src/execution/test.test.ts"],
+      "passed-confirmed",
+      true,
+    );
     expect(dual.message).toContain("Surviving mutation in v2/src/execution/test.ts:3: guard-flip: !x → x");
     expect(dual.message).toContain("setTimeout/setInterval callback");
     expect(dual.message).toContain("determinism-guarded");
     expect(dual.message).toContain("pure exported predicate");
     expect(dual.message).toContain("both truth directions");
 
-    const single = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3);
+    const single = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3, [], "not-run");
     expect(single.message).toBe("Surviving mutation in v2/src/execution/test.ts:3: guard-flip: !x → x");
+  });
+});
+
+describe("survivingMutationLogFields", () => {
+  it("projects killing-set evidence and preserves legacy omission", () => {
+    const error = new SurvivingMutationError(
+      "operator-flip: === → !==",
+      "v2/src/execution/ready-finalize.ts",
+      1035,
+      ["v2/src/execution/ready-finalize.test.ts"],
+      "passed-confirmed",
+    );
+    expect(survivingMutationLogFields(error)).toEqual({
+      survivingMutation: "operator-flip: === → !==",
+      survivingMutationSourceFile: "v2/src/execution/ready-finalize.ts",
+      survivingMutationSourceLine: 1035,
+      survivingMutationKillingTests: ["v2/src/execution/ready-finalize.test.ts"],
+      survivingMutationKillingSetResult: "passed-confirmed",
+    });
+    expect(
+      survivingMutationLogFields({
+        survivingMutationKillingTests: ["src/guard.test.ts"],
+        survivingMutationKillingSetResult: "passed-unconfirmed",
+      }),
+    ).toEqual({
+      survivingMutationKillingTests: ["src/guard.test.ts"],
+      survivingMutationKillingSetResult: "passed-unconfirmed",
+    });
+    expect(
+      survivingMutationLogFields({
+        survivingMutation: "legacy",
+        survivingMutationSourceFile: "src/legacy.ts",
+        survivingMutationSourceLine: 1,
+      }),
+    ).toEqual({
+      survivingMutation: "legacy",
+      survivingMutationSourceFile: "src/legacy.ts",
+      survivingMutationSourceLine: 1,
+    });
   });
 });
 

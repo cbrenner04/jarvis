@@ -988,6 +988,8 @@ test("composeRunOperatorError maps ready gate, surviving mutation, and flip fail
     survivingMutation: "flip === to !==",
     survivingMutationSourceFile: "src/guard.ts",
     survivingMutationSourceLine: 12,
+    survivingMutationKillingTests: ["src/guard.test.ts"] as string[],
+    survivingMutationKillingSetResult: "passed-confirmed" as const,
   } as const;
   expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_gate_failed"))).toEqual(
     err("ready_gate_failed", "resume", true),

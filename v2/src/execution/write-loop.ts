@@ -174,6 +174,8 @@ export type WriteLoopResult = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  survivingMutationKillingTests?: string[];
+  survivingMutationKillingSetResult?: "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
   nonTerminatingMutation?: string;
   nonTerminatingMutationSourceFile?: string;
   nonTerminatingMutationSourceLine?: number;
@@ -1993,6 +1995,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             verificationResult.mutation,
             verificationResult.sourceSite.file,
             verificationResult.sourceSite.line,
+            verificationResult.killingTests,
+            verificationResult.killingSetObservedResult,
             verificationResult.dualConstraint,
           );
           const mutationFields = survivingMutationLogFields(mutationError);
@@ -4320,6 +4324,8 @@ async function runReadyFinalizer(
             verificationResult.mutation,
             verificationResult.sourceSite.file,
             verificationResult.sourceSite.line,
+            verificationResult.killingTests,
+            verificationResult.killingSetObservedResult,
             verificationResult.dualConstraint,
           );
         }

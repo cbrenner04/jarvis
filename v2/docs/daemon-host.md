@@ -315,6 +315,8 @@ For binding-chain `invocation_error`, persisted `InvocationFailureDetail.message
 
 A failed hidden shrink publication row remains `failed` and resumable; the workflow entry row rolls up to `failed` rather than `completed`.
 
+For `surviving_mutation_failed`, the `error` projection also carries `survivingMutationKillingTests` and `survivingMutationKillingSetResult` from the terminal `loop_finished` row alongside the mutation and source site.
+
 Every publication-tail outcome, `surviving_mutation_failed` included, settles on the workflow's durable completion row regardless of which step actually produced it — status per outcome is as listed above. A non-durable last step (e.g. a light review with no landing) redirects the tail to the completion step's hidden `~shrink` row when one exists, else that step's own row, so the terminal record always lands on a row `list`/`wait` can see.
 
 **Omission:** `error` is absent on `in-progress` runs and on `completed` runs with no operator-actionable stop.

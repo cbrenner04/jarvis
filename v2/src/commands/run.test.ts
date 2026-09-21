@@ -1218,6 +1218,8 @@ describe("run control", () => {
           survivingMutation: "operator-flip",
           survivingMutationSourceFile: "src/guard.ts",
           survivingMutationSourceLine: 17,
+          survivingMutationKillingTests: ["src/guard.test.ts"],
+          survivingMutationKillingSetResult: "passed-confirmed",
         },
       },
       { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
@@ -1228,9 +1230,13 @@ describe("run control", () => {
     expect(mutation?.[10]).toBe("operator-flip");
     expect(mutation?.[11]).toBe("src/guard.ts");
     expect(mutation?.[12]).toBe("17");
+    expect(mutation?.[19]).toBe('["src/guard.test.ts"]');
+    expect(mutation?.[20]).toBe("passed-confirmed");
     expect(plain?.[10]).toBe("-");
     expect(plain?.[11]).toBe("-");
     expect(plain?.[12]).toBe("-");
+    expect(plain?.[19]).toBe("-");
+    expect(plain?.[20]).toBe("-");
   });
 
   test("run list renders completionCommitError in trailing column after prUrl", async () => {
@@ -1349,10 +1355,10 @@ describe("run control", () => {
 
     expect(code).toBe(0);
     const [ceiling, legacy, plain, slot] = rows();
-    expect(slot?.slice(17)).toEqual(["slot_contention", "2/3"]);
-    expect(ceiling?.slice(17)).toEqual(["ceiling_headroom", "-"]);
-    expect(legacy?.slice(17)).toEqual(["legacy_unknown", "-"]);
-    expect(plain?.slice(17)).toEqual(["-", "-"]);
+    expect(slot?.slice(17)).toEqual(["slot_contention", "2/3", "-", "-"]);
+    expect(ceiling?.slice(17)).toEqual(["ceiling_headroom", "-", "-", "-"]);
+    expect(legacy?.slice(17)).toEqual(["legacy_unknown", "-", "-", "-"]);
+    expect(plain?.slice(17)).toEqual(["-", "-", "-", "-"]);
   });
 
   test("run list --all keeps the dismissal marker after the refusal cause cells", async () => {
@@ -1379,7 +1385,7 @@ describe("run control", () => {
     );
 
     expect(code).toBe(0);
-    expect(row().slice(17)).toEqual(["slot_contention", "1/3", "dismissed"]);
+    expect(row().slice(17)).toEqual(["slot_contention", "1/3", "-", "-", "dismissed"]);
   });
 
   // Pass-through pin only: `waitForRunCompletion` copies `result.error` verbatim and `parseWaitCompletion`
@@ -1451,15 +1457,15 @@ describe("run control", () => {
 
     expect(code).toBe(0);
     const [dismissed, notDismissed] = rows();
-    expect(dismissed?.[19]).toBe("dismissed");
-    expect(notDismissed?.[19]).toBe("-");
+    expect(dismissed?.[21]).toBe("dismissed");
+    expect(notDismissed?.[21]).toBe("-");
   });
 
   test("run list without --all renders no dismissal column", async () => {
     const { code, row } = await runSoloList([{ ...soloDaemonListRow("dismissed-run"), dismissedAt: 123 }]);
 
     expect(code).toBe(0);
-    expect(row()).toHaveLength(19);
+    expect(row()).toHaveLength(21);
   });
 
   test("run list --all --since <duration> --project <name> composes the opt-in with dimension filters", async () => {

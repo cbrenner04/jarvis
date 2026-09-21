@@ -284,7 +284,7 @@ describe("executeWorkflow implement patch light review", () => {
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
         },
       });
 
@@ -334,7 +334,7 @@ describe("executeWorkflow implement patch light review", () => {
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
         },
       });
 
@@ -394,7 +394,7 @@ describe("executeWorkflow implement patch light review", () => {
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
         },
       });
 

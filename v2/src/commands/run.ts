@@ -60,6 +60,8 @@ function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string
     e?.message === undefined ? "-" : JSON.stringify(e.message),
     e?.gateRefusalCause ?? "-",
     formatSlotRedriveCell(e),
+    e?.survivingMutationKillingTests === undefined ? "-" : JSON.stringify(e.survivingMutationKillingTests),
+    e?.survivingMutationKillingSetResult ?? "-",
     ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
   ];
   return `${columns.join("\t")}\n`;

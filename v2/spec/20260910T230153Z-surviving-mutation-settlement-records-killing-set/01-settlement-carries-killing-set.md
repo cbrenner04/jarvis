@@ -24,16 +24,16 @@ With the verifier result carrying the killing set and its observed result ([00](
 
 ## Acceptance criteria
 
-- [ ] An in-loop `surviving_mutation_failed` settlement records the killing test paths the verifier ran and that set's observed result on the run's terminal `loop_finished` evidence.
-- [ ] The `surviving_mutation_failed` run result returned to the caller carries the same killing test paths and observed result.
-- [ ] `jarvis run`'s operator error for `surviving_mutation_failed` (`RunOperatorError`, surfaced on `jarvis run list` and `jarvis run wait`) reports the killing test paths and observed result alongside the mutation and source site, and `jarvis run list`'s tab-separated row carries the same two fields as additional columns.
-- [ ] A publication-time surviving mutation settles with the same killing-set evidence as the in-loop path.
-- [ ] Reconstructing a `SurvivingMutationError` from a persisted terminal record that predates these fields still yields a usable error, recording an empty killing set and `killingSetObservedResult: "unknown"`.
-- [ ] `v2/src/execution/write-loop.test.ts` gains a test asserting the killing set and observed result on an in-loop `surviving_mutation_failed` settlement; it fails against the pre-change code.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` gains a test asserting the operator error reports the killing set and observed result; it fails against the pre-change code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] An in-loop `surviving_mutation_failed` settlement records the killing test paths the verifier ran and that set's observed result on the run's terminal `loop_finished` evidence.
+- [x] The `surviving_mutation_failed` run result returned to the caller carries the same killing test paths and observed result.
+- [x] `jarvis run`'s operator error for `surviving_mutation_failed` (`RunOperatorError`, surfaced on `jarvis run list` and `jarvis run wait`) reports the killing test paths and observed result alongside the mutation and source site, and `jarvis run list`'s tab-separated row carries the same two fields as additional columns.
+- [x] A publication-time surviving mutation settles with the same killing-set evidence as the in-loop path.
+- [x] Reconstructing a `SurvivingMutationError` from a persisted terminal record that predates these fields still yields a usable error, recording an empty killing set and `killingSetObservedResult: "unknown"`.
+- [x] `v2/src/execution/write-loop.test.ts` gains a test asserting the killing set and observed result on an in-loop `surviving_mutation_failed` settlement; it fails against the pre-change code.
+- [x] `v2/src/daemon/run-operator-error.test.ts` gains a test asserting the operator error reports the killing set and observed result; it fails against the pre-change code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -2421,6 +2421,8 @@ async function runMutationRepairAttempt(
         verification.mutation,
         verification.sourceSite.file,
         verification.sourceSite.line,
+        verification.killingTests,
+        verification.killingSetObservedResult,
         verification.dualConstraint,
       ),
     };
@@ -2700,6 +2702,8 @@ function survivingMutationErrorFromTerminalRecord(
     fields.survivingMutation,
     fields.survivingMutationSourceFile,
     fields.survivingMutationSourceLine,
+    fields.survivingMutationKillingTests ?? [],
+    fields.survivingMutationKillingSetResult ?? "unknown",
   );
 }
 

@@ -3985,7 +3985,7 @@ describe("write loop", () => {
           },
           store,
           { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
-          new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17),
+          new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run"),
           1,
         );
 
@@ -8302,6 +8302,8 @@ index 1234567..abcdefg 100644
       expect(result.survivingMutation).toBe(IN_LOOP_SURVIVING_MUTATION);
       expect(result.survivingMutationSourceFile).toBe(IN_LOOP_SURVIVING_SOURCE_FILE);
       expect(result.survivingMutationSourceLine).toBe(IN_LOOP_SURVIVING_SOURCE_LINE);
+      expect(result.survivingMutationKillingTests).toEqual(["v2/src/guard.test.ts"]);
+      expect(result.survivingMutationKillingSetResult).toBe("passed-confirmed");
       expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
       const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
       expect(events).toContain("surviving_mutation_reprompt");
@@ -8316,6 +8318,8 @@ index 1234567..abcdefg 100644
         survivingMutation: IN_LOOP_SURVIVING_MUTATION,
         survivingMutationSourceFile: IN_LOOP_SURVIVING_SOURCE_FILE,
         survivingMutationSourceLine: IN_LOOP_SURVIVING_SOURCE_LINE,
+        survivingMutationKillingTests: ["v2/src/guard.test.ts"],
+        survivingMutationKillingSetResult: "passed-confirmed",
       });
       const run = openStateStore(stateDbPath).loadRun(result.runId);
       expect(run).toBeDefined();
@@ -8462,7 +8466,13 @@ index 1234567..abcdefg 100644
         completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {
-          throw new SurvivingMutationError("operator-flip: === → !==", "src/test.ts", 42);
+          throw new SurvivingMutationError(
+            "operator-flip: === → !==",
+            "src/test.ts",
+            42,
+            ["src/test.test.ts"],
+            "passed-unconfirmed",
+          );
         },
       });
 
@@ -8471,6 +8481,8 @@ index 1234567..abcdefg 100644
       expect(result.survivingMutation).toBe("operator-flip: === → !==");
       expect(result.survivingMutationSourceFile).toBe("src/test.ts");
       expect(result.survivingMutationSourceLine).toBe(42);
+      expect(result.survivingMutationKillingTests).toEqual(["src/test.test.ts"]);
+      expect(result.survivingMutationKillingSetResult).toBe("passed-unconfirmed");
       expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
@@ -8479,6 +8491,8 @@ index 1234567..abcdefg 100644
         survivingMutation: "operator-flip: === → !==",
         survivingMutationSourceFile: "src/test.ts",
         survivingMutationSourceLine: 42,
+        survivingMutationKillingTests: ["src/test.test.ts"],
+        survivingMutationKillingSetResult: "passed-unconfirmed",
       });
     });
 

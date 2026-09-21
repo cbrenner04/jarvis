@@ -820,7 +820,7 @@ describe("ticked implement recovery", () => {
     const fixture = createRecoveryFixture({
       outcomeKind: "surviving_mutation_failed",
       readyFinalizer: async () => {
-        throw new SurvivingMutationError("flip ===", "src/guard.ts", 12);
+        throw new SurvivingMutationError("flip ===", "src/guard.ts", 12, [], "not-run");
       },
     });
     try {

@@ -502,6 +502,8 @@ export type WorkflowResult = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  survivingMutationKillingTests?: string[];
+  survivingMutationKillingSetResult?: "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
   invocationFailureMessage?: string;

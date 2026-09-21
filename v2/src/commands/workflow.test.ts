@@ -1178,7 +1178,7 @@ function writeWorkflowCliChildScript(scriptPath: string): void {
   mkdirSync(dirname(scriptPath), { recursive: true });
   writeFileSync(
     scriptPath,
-    `import { existsSync } from "node:fs";
+    `import { appendFileSync, existsSync } from "node:fs";
 import { Socket } from "node:net";
 import { join } from "node:path";
 import { main } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/cli.ts"))};
@@ -1195,10 +1195,12 @@ const machineConfigPath = process.env.JARVIS_WORKFLOW_CLI_MACHINE_CONFIG!;
 const socketDir = join(socketPath, "..");
 const connectBudgetMs = process.env.JARVIS_WORKFLOW_CLI_CONNECT_BUDGET_MS;
 const connectGateFile = process.env.JARVIS_WORKFLOW_CLI_CONNECT_GATE_FILE;
+const connectCalledFile = process.env.JARVIS_WORKFLOW_CLI_CONNECT_CALLED_FILE;
 
 if (connectGateFile) {
   const realConnect = Socket.prototype.connect;
   Socket.prototype.connect = function (this: Socket, ...args: unknown[]) {
+    if (connectCalledFile) appendFileSync(connectCalledFile, "x\\n");
     const gate = setInterval(() => {
       if (!existsSync(connectGateFile)) return;
       clearInterval(gate);
@@ -1214,7 +1216,11 @@ const code = await main(argv, undefined, createRuntimeDeps({
   pidPath: join(socketDir, "daemon.pid"),
   logPath: join(socketDir, "daemon.log"),
   connectIpcClient: connectBudgetMs
-    ? (sp, defaultTimeoutMs) => connectIpcClient(sp, defaultTimeoutMs, Number(connectBudgetMs))
+    ? (sp, defaultTimeoutMs) =>
+        connectIpcClient(sp, defaultTimeoutMs, Number(connectBudgetMs)).catch((error: Error) => {
+          console.error(error.message);
+          throw error;
+        })
     : connectIpcClient,
   startDaemon: async (sp) => ({ pid: process.pid, socketPath: sp }),
   getDaemonStatus: async () => ({
@@ -1241,6 +1247,7 @@ type WorkflowCliChildEnv = {
   machineConfigPath: string;
   connectBudgetMs?: number | undefined;
   connectGateFile?: string;
+  connectCalledFile?: string;
 };
 
 function spawnWorkflowCliChild(scriptPath: string, env: WorkflowCliChildEnv) {
@@ -1258,6 +1265,9 @@ function spawnWorkflowCliChild(scriptPath: string, env: WorkflowCliChildEnv) {
         ? {}
         : { JARVIS_WORKFLOW_CLI_CONNECT_BUDGET_MS: String(env.connectBudgetMs) }),
       ...(env.connectGateFile === undefined ? {} : { JARVIS_WORKFLOW_CLI_CONNECT_GATE_FILE: env.connectGateFile }),
+      ...(env.connectCalledFile === undefined
+        ? {}
+        : { JARVIS_WORKFLOW_CLI_CONNECT_CALLED_FILE: env.connectCalledFile }),
     },
     stdout: "pipe" as const,
     stderr: "pipe" as const,
@@ -1370,6 +1380,7 @@ describe("spawned workflow CLI connect budget", () => {
     const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
     const childDir = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
     const gateFile = join(childDir, "connect-gate");
+    const calledFile = join(childDir, "connect-called");
     try {
       const proc = spawnWorkflowCliChild(join(childDir, "child.ts"), {
         socketPath,
@@ -1380,13 +1391,16 @@ describe("spawned workflow CLI connect budget", () => {
         machineConfigPath,
         connectBudgetMs: opts.connectBudgetMs,
         connectGateFile: gateFile,
+        connectCalledFile: calledFile,
       });
       if (opts.releaseAfterMs !== undefined) {
+        while (!existsSync(calledFile) && proc.exitCode === null) await Bun.sleep(5);
         await Bun.sleep(opts.releaseAfterMs);
         writeFileSync(gateFile, "");
       }
       const exitCode = await proc.exited;
-      return { exitCode, stderr: await new Response(proc.stderr).text() };
+      const connectCalls = existsSync(calledFile) ? readFileSync(calledFile, "utf8").split("\n").length - 1 : 0;
+      return { exitCode, stderr: await new Response(proc.stderr).text(), connectCalls };
     } finally {
       await server.close();
       rmSync(socketPath, { force: true });
@@ -1397,8 +1411,9 @@ describe("spawned workflow CLI connect budget", () => {
   test.skipIf(!canUseUnixSockets())(
     "connects after a 5001 ms held connection under the inherited 30000 ms budget",
     async () => {
-      const { exitCode, stderr } = await runHeldConnectChild({ releaseAfterMs: SPAWNED_CONNECT_HOLD_MS });
+      const { exitCode, stderr, connectCalls } = await runHeldConnectChild({ releaseAfterMs: SPAWNED_CONNECT_HOLD_MS });
       expect(stderr).not.toContain("IPC connect timeout");
+      expect(connectCalls).toBe(1);
       expect(exitCode).toBe(0);
     },
     20_000,

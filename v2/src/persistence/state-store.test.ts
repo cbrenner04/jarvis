@@ -4138,6 +4138,71 @@ describe("failed pipeline reopen", () => {
     expect(loadPipelineOrThrow(store, pipelineId).stages[0]?.status).toBe("succeeded");
   });
 
+  test("reopenInterruptedPipeline reopens only the interrupted row and leaves every other row untouched", () => {
+    const { pipelineId, stages } = seedContinuationPipeline([
+      {
+        status: "succeeded",
+        workflowInvocationId: "wf-0",
+        startedAt: 10,
+        endedAt: 20,
+        artifact: { entryRunId: "run-0" },
+      },
+      {
+        status: "interrupted",
+        workflowInvocationId: "wf-1",
+        startedAt: 30,
+        endedAt: 40,
+        artifact: { entryRunId: "run-1" },
+        failureDetail: { message: "killed" },
+      },
+      { status: "pending" },
+    ]);
+    const interrupted = stages.find((stage) => stage.status === "interrupted");
+    if (!interrupted) throw new Error("interrupted stage should exist");
+    const before = rawStageRows(pipelineId);
+
+    expect(store.reopenInterruptedPipeline({ pipelineId })).toEqual({
+      kind: "applied",
+      stageRecordId: interrupted.id,
+    });
+
+    const after = rawStageRows(pipelineId);
+    expect(after.filter((row) => row.id !== interrupted.id)).toEqual(before.filter((row) => row.id !== interrupted.id));
+    const reopened = after.find((row) => row.id === interrupted.id);
+    expect(reopened).toMatchObject({
+      status: "pending",
+      workflow_invocation_id: null,
+      started_at: null,
+      ended_at: null,
+      artifact: null,
+      failure_detail: null,
+    });
+  });
+
+  test("reopenInterruptedPipeline refuses missing, absent, and multiple interrupted rows without writing", () => {
+    expect(store.reopenInterruptedPipeline({ pipelineId: "missing-pipeline" })).toEqual({
+      kind: "refused",
+      pipelineId: "missing-pipeline",
+      reason: "pipeline_not_found",
+    });
+
+    const { pipelineId: none } = seedContinuationPipeline([{ status: "succeeded" }, { status: "pending" }]);
+    expect(store.reopenInterruptedPipeline({ pipelineId: none })).toEqual({
+      kind: "refused",
+      pipelineId: none,
+      reason: "no_interrupted_stage",
+    });
+
+    const { pipelineId: many } = seedContinuationPipeline([{ status: "interrupted" }, { status: "interrupted" }]);
+    const before = rawStageRows(many);
+    expect(store.reopenInterruptedPipeline({ pipelineId: many })).toEqual({
+      kind: "refused",
+      pipelineId: many,
+      reason: "multiple_interrupted_stages",
+    });
+    expect(rawStageRows(many)).toEqual(before);
+  });
+
   test("reopenFailedPipeline clears decidedAt on the reopened row and its skipped suffix", () => {
     const pipelineId = store.createPipeline({
       definition: {

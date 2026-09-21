@@ -221,12 +221,21 @@ export function resumeFailedRequiresReopen(derivedState: PipelineDerivedState): 
   return derivedState === "failed";
 }
 
-/** True when derived state refuses resume without a reopened failed continuation. */
+/** True when derived `interrupted` carries no `running` stage, so resume can reopen the interrupted row. */
+export function resumeInterruptedRequiresReopen(
+  derivedState: PipelineDerivedState,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): boolean {
+  return derivedState === "interrupted" && !pipeline.stages.some((stage) => stage.status === "running");
+}
+
+/** True when derived state refuses resume without a reopened failed or interrupted continuation. */
 export function resumeDeferredRefusalApplies(
   derivedState: PipelineDerivedState,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
 ): boolean {
-  if (derivedState === "running" || derivedState === "interrupted") return true;
+  if (derivedState === "running") return true;
+  if (derivedState === "interrupted") return !resumeInterruptedRequiresReopen(derivedState, pipeline);
   return derivedState === "pending" && !isReopenedFailedContinuation(pipeline);
 }
 
@@ -427,13 +436,18 @@ function branchSuffixRowsPresent(
   return true;
 }
 
-type BranchResumeReopenKind = "failed" | "approved_gate" | "provisional_skip";
+type BranchResumeReopenKind = "failed" | "interrupted" | "approved_gate" | "provisional_skip";
 
 type BranchSuffixScanResult =
   | { kind: "admissible"; reopenKind: BranchResumeReopenKind }
   | { kind: "gate_awaiting"; stageId: string }
   | { kind: "gate_rejected"; stageId: string }
   | { kind: "not_resumable"; status: string; stageId?: string };
+
+/** The in-place reopen a stage row's status calls for, or `undefined` when it is not replayable as-is. */
+function replayableStatusReopenKind(status: string): "failed" | "interrupted" | undefined {
+  return status === "failed" || status === "interrupted" ? status : undefined;
+}
 
 /** Scan a named branch's own suffix in order for its first blocking gate, replayable failure, or in-progress row. */
 function scanBranchSuffixForAdmission(
@@ -446,7 +460,8 @@ function scanBranchSuffixForAdmission(
     const entry = ordered[index];
     if (entry === undefined) continue;
     const { stage, record } = entry;
-    if (record.status === "failed") return { kind: "admissible", reopenKind: "failed" };
+    const replayKind = replayableStatusReopenKind(record.status);
+    if (replayKind !== undefined) return { kind: "admissible", reopenKind: replayKind };
     if (stage.kind === "approval" && record.status === "awaiting") {
       return { kind: "gate_awaiting", stageId: stage.stageId };
     }
@@ -536,11 +551,12 @@ function listBranchResumeRequiredKeys(pipeline: Pipeline & { stages: PipelineSta
 export function findFailedStageForReopen(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchScope: string | undefined,
+  status: "failed" | "interrupted" = "failed",
 ): PipelineStageRecord | undefined {
   return pipeline.stages.find((record) => {
     const stage = pipeline.definition.stages[record.position];
     return (
-      record.status === "failed" &&
+      record.status === status &&
       stage?.kind === "workflow" &&
       (branchScope === undefined || record.branchKey === branchScope)
     );
@@ -622,12 +638,17 @@ export async function resumePipeline(
     if (admission.kind === "refused") {
       return { kind: "refused", pipelineId, branchKey: branchScope, ...admission.detail };
     }
+    const resetStatus =
+      admission.reopenKind === "failed" || admission.reopenKind === "interrupted" ? admission.reopenKind : undefined;
     const reopenedStageReset =
-      admission.reopenKind === "failed"
-        ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope), options)
+      resetStatus !== undefined
+        ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope, resetStatus), options)
         : undefined;
-    if (admission.reopenKind === "failed") {
-      const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });
+    if (resetStatus !== undefined) {
+      const reopen =
+        resetStatus === "failed"
+          ? store.reopenFailedPipeline({ pipelineId, branchKey: branchScope })
+          : store.reopenInterruptedPipeline({ pipelineId, branchKey: branchScope });
       if (reopen.kind === "refused") {
         return { kind: "refused", pipelineId, branchKey: branchScope, reason: reopen.reason };
       }
@@ -643,7 +664,7 @@ export async function resumePipeline(
 
   // Settlement precondition: a stage whose entry run this daemon no longer drives settles from
   // its durable rows here, so resume sees the row it would otherwise have to redrive by hand.
-  // An `interrupted` pipeline is refused outright below, so it is left byte-identical instead.
+  // Settlement is skipped for an `interrupted` pipeline, so a refusal below leaves its rows byte-identical.
   const settledEntryRuns =
     derivePipelineState(pipeline) === "interrupted"
       ? []
@@ -670,6 +691,19 @@ export async function resumePipeline(
   }
   if (derivedState === "running") {
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
+  }
+  if (resumeInterruptedRequiresReopen(derivedState, current)) {
+    const reopenedStageReset = buildReopenedStageReset(
+      current,
+      findFailedStageForReopen(current, undefined, "interrupted"),
+      options,
+    );
+    const reopen = store.reopenInterruptedPipeline({ pipelineId });
+    if (reopen.kind === "refused") {
+      return { kind: "refused", pipelineId, reason: reopen.reason };
+    }
+    if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
+    return continueAfterAdmission(undefined, reopenedStageReset);
   }
   const approvedGateBranchKey = approvedGatePendingStrandBranchKey(current);
   if (!resumeAwaitingClaimsOnly(derivedState) && approvedGateBranchKey !== undefined) {

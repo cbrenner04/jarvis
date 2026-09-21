@@ -2,16 +2,15 @@
 
 Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-09-20 against `main` @ `0e1e1e65e`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
 
-## Open specs (2)
+## Open specs (1)
 
 | Spec | Plan PR | Subspecs | Status |
 | --- | --- | --- | --- |
 | `20260911T154954Z-tui-consumes-retained-pipeline-list` | #3791 | 0/2 | Pinning spec, valid |
-| `20260912T162038Z-bulk-terminal-run-dismissal-cli` | #3805 | 0/1 | Implement in flight, PR #4112 |
 
 Every other spec landed this session was archived by `jarvis cleanup` and merged in #4114 and #4116.
 
-## Ready-intents (7 queued: 4 live, 3 not startable)
+## Ready-intents (6 queued: 4 live, 2 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
@@ -21,7 +20,6 @@ Every other spec landed this session was archived by `jarvis cleanup` and merged
 | `repair-exhausted-error-names-site-and-killing-set` | `mutation_repair_exhausted` op spreads no site fields | previous row |
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
-| `workflow-terminal-waits-await-durable-boundary` | **premise false — retire.** `bunfig.toml` sets `[test] timeout = 30000` and `workflow.test.ts` has no `5000`; plan PR #4105 rejected. Superseded by seed `spawned-cli-tests-inherit-a-five-second-connect-bound` | — |
 
 ## Seeds (30)
 
@@ -62,7 +60,7 @@ P is the brief's priority. Issue is the intake issue where one exists.
 
 ## Open intake issues without a seed
 
-Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one still needing work. #3423 (remainder landed #4090) and #3417 (remainder landed #4076) are done and should be closed. Closed: #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
+Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one still needing work. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
 
 ## Reaped 2026-09-20
 
@@ -73,6 +71,8 @@ Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one st
 | ready-intents `fence-derivation-failure-settles-honestly`, `report-gate-refusal-causes`, `cleanup-reaps-orphan-session-logs`, `explicit-reset-flag-names-continue-path`, `branch-resume-refusal-names-blocking-row`, `publication-failure-rows-migrate-failed` | reaped by their own implement PRs |
 | ready-intent `linked-implement-routing-settles-a-real-outcome`, spec dir | landed #4087; archived and reaped by #4104 |
 | plan PRs #4094, #4095 | closed as subsumed by implement PRs #4097, #4098 |
+| ready-intent `workflow-terminal-waits-await-durable-boundary` | false premise; superseded by seed `spawned-cli-tests-inherit-a-five-second-connect-bound` |
+| spec `bulk-terminal-run-dismissal-cli` | landed #4112; archived #4118 |
 | plan PRs #4100, #4105 | rejected — un-tickable criteria (#4100) and a false premise (#4105) |
 
 ## Reaped 2026-09-19

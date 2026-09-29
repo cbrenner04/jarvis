@@ -20,7 +20,7 @@ Every other landed spec is archived under `completed/`.
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 
-## Seeds (22)
+## Seeds (23)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
@@ -48,6 +48,7 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
 | `reopened-implement-rolls-up-killed-without-review-row` | P1 | — | new 2026-09-29; stranded shard lane (`f13b29a3`) at false `resumable_kill` over a ready PR |
+| `run-resume-refused-while-draining-generation-owns-terminal-row` | P1 | — | new 2026-09-29; terminal rows owned by a draining generation refuse `owner_alive` while `run list` advertises resume |
 
 ## Open intake issues without a seed
 

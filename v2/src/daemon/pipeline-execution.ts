@@ -597,8 +597,15 @@ function buildPrefixStageArtifactsForResumeProbe(
     const stage = pipeline.definition.stages[index];
     if (stage === undefined) continue;
     const record = findStageRecord(pipeline.stages, stage.stageId, branchKey);
-    if (record?.artifact !== undefined && record.artifact !== null) {
-      artifacts.set(stageArtifactKey(stage.stageId, branchKey), record.artifact);
+    const rawArtifact = record?.artifact;
+    if (
+      rawArtifact !== undefined &&
+      rawArtifact !== null &&
+      typeof rawArtifact === "object" &&
+      typeof (rawArtifact as PipelineStageArtifact).entryRunId === "string" &&
+      typeof (rawArtifact as PipelineStageArtifact).specPath === "string"
+    ) {
+      artifacts.set(stageArtifactKey(stage.stageId, branchKey), rawArtifact as PipelineStageArtifact);
     }
   }
   return artifacts;

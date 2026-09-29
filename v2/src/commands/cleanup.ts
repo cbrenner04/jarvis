@@ -2864,7 +2864,10 @@ function hasNotGitRepositoryDiagnostic(error: unknown): boolean {
     typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
       ? (error as { stderr: string }).stderr
       : "";
-  return `${message}\n${stderr}`.includes("not a git repository");
+  return (
+    `${message}\n${stderr}`.includes("not a git repository") ||
+    `${message}\n${stderr}`.includes("gitfile does not point to a valid repository")
+  );
 }
 
 export function staleResetDirtyWorktreeGateReason(

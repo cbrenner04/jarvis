@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
@@ -201,6 +201,7 @@ async function ensureExternalWorktree(
     throwIfAborted(signal);
     await assertReusableWorktreeMatches(args, worktreePath, runner);
     throwIfAborted(signal);
+    reconcileNodeModulesLink(args.projectRoot, worktreePath);
     return { path: worktreePath, reused: true };
   }
   throwIfAborted(signal);
@@ -245,13 +246,54 @@ async function ensureExternalWorktree(
     }
     await assertReusableWorktreeMatches(args, worktreePath, runner);
     throwIfAborted(signal);
-    const projectNodeModules = join(args.projectRoot, MATERIALIZED_NODE_MODULES_PATH);
-    if (statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()) {
-      symlinkSync(projectNodeModules, join(worktreePath, MATERIALIZED_NODE_MODULES_PATH), "dir");
-    }
+    reconcileNodeModulesLink(args.projectRoot, worktreePath);
     return { path: worktreePath, reused: false };
   } catch (error) {
     throw new WorktreeMaterializationError(worktreePath, error);
+  }
+}
+
+function fsEntryType(stat: ReturnType<typeof lstatSync>): string {
+  if (stat.isDirectory()) return "directory";
+  if (stat.isFile()) return "file";
+  return "special entry";
+}
+
+/** True when `link` resolves to `target`; a dangling link resolves to nothing. */
+function linkResolvesTo(link: string, target: string): boolean {
+  try {
+    return realpathSync(link) === realpathSync(target);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure the worktree's `node_modules` is a symlink to the project's while that is a directory:
+ * keep a correct link, replace a wrong-target or dangling one, create when absent, and refuse
+ * (without removing) any non-symlink collision.
+ */
+function reconcileNodeModulesLink(projectRoot: string, worktreePath: string): void {
+  const projectNodeModules = join(projectRoot, MATERIALIZED_NODE_MODULES_PATH);
+  if (!statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()) return;
+  const linkPath = join(worktreePath, MATERIALIZED_NODE_MODULES_PATH);
+  try {
+    const current = lstatSync(linkPath, { throwIfNoEntry: false });
+    if (current !== undefined) {
+      if (!current.isSymbolicLink()) {
+        throw new WorktreeMaterializationError(
+          worktreePath,
+          new Error(
+            `${linkPath} is a ${fsEntryType(current)}, not a symlink to ${projectNodeModules}; remove it or ignore ${MATERIALIZED_NODE_MODULES_PATH} without a trailing slash`,
+          ),
+        );
+      }
+      if (linkResolvesTo(linkPath, projectNodeModules)) return;
+      unlinkSync(linkPath);
+    }
+    symlinkSync(projectNodeModules, linkPath, "dir");
+  } catch (error) {
+    throw error instanceof WorktreeMaterializationError ? error : new WorktreeMaterializationError(worktreePath, error);
   }
 }
 

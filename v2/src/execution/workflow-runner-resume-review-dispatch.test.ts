@@ -9,7 +9,7 @@ import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openLogReader, openLogSink, type LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
@@ -1760,11 +1760,112 @@ describe("executeWorkflow review dispatch", () => {
           kind: "loop_finished",
           loopOutcomeKind: "mutation_repair_exhausted",
           resumable: false,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+          survivingMutationKillingTests: [],
+          survivingMutationKillingSetResult: "not-run",
         });
         expect(composeRunOperatorError(settledRun ?? { status: "failed" }, settledTerminal)).toMatchObject({
           reason: "mutation_repair_exhausted",
           retryable: false,
           nextAction: "inspect_spec",
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+          survivingMutationKillingTests: [],
+          survivingMutationKillingSetResult: "not-run",
+        });
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("mutation repair exhaustion records the latest survivor after a later attempt finds a different one", async () => {
+    const workspace = initGitWorkspace("review-mutation-repair-exhausted-latest-");
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot(
+          "repair-exhausted-latest",
+          "implement: repair-exhausted-latest",
+        );
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "repair-exhausted-latest",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(writeRunId),
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(reviewRunId),
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
+        });
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+        });
+        seedSink.close();
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+        const logSink = openLogSink(logsPath);
+        let finalizeCalls = 0;
+        await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          logSink,
+          completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          readyFinalizer: async () => {
+            finalizeCalls += 1;
+            if (finalizeCalls === 1) {
+              throw new SurvivingMutationError("mut-a", "src/a.ts", 1, ["a.test.ts"], "passed-confirmed");
+            }
+            throw new SurvivingMutationError("mut-b", "src/b.ts", 2, ["b.test.ts"], "passed-confirmed");
+          },
+          mutationRepair: {
+            bindings: [
+              {
+                id: "current-implement-binding",
+                metadata: { agent: "current-agent", model: "current-model" },
+                invoke: async ({ cwd }) => {
+                  writeFileSync(join(cwd, `repair-${finalizeCalls}.txt`), "repaired\n", "utf8");
+                  return { kind: "ok", stdout: "done", stderr: "" };
+                },
+              },
+            ],
+            stepRules: "repair rules",
+            iterationTimeoutMs: 1_000,
+            iterationCeilingMs: 2_000,
+          },
+        });
+        logSink.close();
+        expect(findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId))?.event).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "mutation_repair_exhausted",
+          survivingMutation: "mut-b",
+          survivingMutationSourceFile: "src/b.ts",
+          survivingMutationSourceLine: 2,
+          survivingMutationKillingTests: ["b.test.ts"],
+          survivingMutationKillingSetResult: "passed-confirmed",
         });
       });
     } finally {
@@ -1961,6 +2062,11 @@ describe("executeWorkflow review dispatch", () => {
           kind: "loop_finished",
           loopOutcomeKind: "mutation_repair_exhausted",
           resumable: false,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+          survivingMutationKillingTests: [],
+          survivingMutationKillingSetResult: "not-run",
         });
       });
     } finally {
@@ -1977,6 +2083,7 @@ describe("executeWorkflow review dispatch", () => {
     outcome: { ok: boolean; message?: string } | { rejected: string };
     finalHead: string;
     terminalKind: string | undefined;
+    terminalEvent: LoopFinishedEvent | undefined;
   }> {
     const workspace = initGitWorkspace(`review-mutation-repair-real-${mode}-`);
     const logsPath = join(workspace, "resume.jsonl");
@@ -2083,15 +2190,16 @@ describe("executeWorkflow review dispatch", () => {
           outcome = { rejected: error instanceof Error ? error.message : String(error) };
         }
         logSink.close();
+        const settledTerminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+        const terminalEvent =
+          settledTerminalRecord?.event.kind === "loop_finished" ? settledTerminalRecord.event : undefined;
         return {
           events,
           publishedBodySummaries,
           outcome,
           finalHead: head(),
-          terminalKind: (() => {
-            const event = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId))?.event;
-            return event?.kind === "loop_finished" ? event.loopOutcomeKind : undefined;
-          })(),
+          terminalKind: terminalEvent?.loopOutcomeKind,
+          terminalEvent,
         };
       });
     } finally {
@@ -2111,7 +2219,7 @@ describe("executeWorkflow review dispatch", () => {
   }
 
   test("every mutation-repair commit is published before the next repair or exhaustion under the real verifier", async () => {
-    const { events, publishedBodySummaries, outcome, finalHead, terminalKind } =
+    const { events, publishedBodySummaries, outcome, finalHead, terminalKind, terminalEvent } =
       await runRealVerifierRepairScenario("exhaust");
     const { commits, ordered } = repairCommitPublications(events);
     expect(outcome).toMatchObject({ ok: false, message: "Mutation survived every repair attempt" });
@@ -2120,18 +2228,29 @@ describe("executeWorkflow review dispatch", () => {
     expect(commits.at(-1)).toBe(finalHead);
     expect(events.at(-1)).toBe(`publish:${finalHead}`);
     expect(terminalKind).toBe("mutation_repair_exhausted");
+    expect(terminalEvent).toMatchObject({
+      survivingMutationKillingSetResult: "passed-confirmed",
+    });
+    expect(terminalEvent?.survivingMutationKillingTests?.length).toBeGreaterThan(0);
+    expect(terminalEvent?.survivingMutation).toEqual(expect.any(String));
+    expect(terminalEvent?.survivingMutationSourceFile).toBe("guard.ts");
     expect(publishedBodySummaries).toHaveLength(events.filter((e) => e.startsWith("publish:")).length);
     for (const summary of publishedBodySummaries) expect(typeof summary).toBe("string");
   }, 120_000);
 
   test("an earlier repair commit stays published when a later repair reports blocked", async () => {
-    const { events, outcome, terminalKind } = await runRealVerifierRepairScenario("later-blocked");
+    const { events, outcome, terminalKind, terminalEvent } = await runRealVerifierRepairScenario("later-blocked");
     const { commits, ordered } = repairCommitPublications(events);
     expect(outcome).toMatchObject({ ok: false, message: "Mutation repair agent reported blocked" });
     expect(commits).toHaveLength(1);
     expect(ordered).toBe(true);
     expect(events.indexOf(`publish:${commits[0]}`)).toBeLessThan(events.indexOf("repair:2"));
     expect(terminalKind).toBe("mutation_repair_exhausted");
+    expect(terminalEvent).toMatchObject({
+      survivingMutationSourceFile: "guard.ts",
+      survivingMutationKillingSetResult: "passed-confirmed",
+    });
+    expect(terminalEvent?.survivingMutationKillingTests?.length).toBeGreaterThan(0);
   }, 120_000);
 
   test("a failed repair-commit push settles the run as completion_commit_failed without another repair", async () => {

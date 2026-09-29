@@ -230,13 +230,12 @@ An explicit `jarvis run workflow implement --review-passes <n>` overrides the re
 
 ### Cleanup
 
-`jarvis cleanup` reads optional machine keys from `~/.jarvis/config.json`. Session-log retention is global (not project-scoped). Operator semantics: [operator-runbook.md § Cleanup](./operator-runbook.md#cleanup-eligibility-gate).
+`jarvis cleanup` reads optional machine keys from `~/.jarvis/config.json`. Session-log retention is global (not project-scoped); hand-edit the block — there is no `jarvis config` subcommand for it. Operator semantics: [operator-runbook.md § Cleanup](./operator-runbook.md#cleanup-eligibility-gate). The default session-log deletion window widened from the prior single-key default of `14` days to `90` days via `retention.sessions.coldDays` when the block is absent.
 
 | Key | Role | Default | Validation |
 | --- | --- | --- | --- |
-| `cleanup.sessionLogRetentionDays` | Retention window for expired terminal-run session logs under `~/.jarvis/sessions/` | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — stderr names `cleanup.sessionLogRetentionDays` — without affecting other cleanup slices |
-
-There is no `jarvis config` subcommand for this field; hand-edit `~/.jarvis/config.json`.
+| `retention.sessions.hotDays` | Reserved hot-tier boundary (no runtime effect yet) | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — stderr names `retention.sessions.hotDays` — without affecting other cleanup slices |
+| `retention.sessions.coldDays` | Retention window for expired terminal-run session logs under `~/.jarvis/sessions/` | `90` when absent | Positive integer, must be strictly greater than `retention.sessions.hotDays`; non-integer, zero, negative, non-number, or ordering failure skips session-log reaping — stderr names `retention.sessions.coldDays` or both fields when `retention` / `retention.sessions` is not an object (`retention.sessions.hotDays and retention.sessions.coldDays must be positive integers`) or reports `retention.sessions.coldDays must be greater than retention.sessions.hotDays` — without affecting other cleanup slices |
 
 ## Daemon
 

@@ -6876,6 +6876,10 @@ describe("cleanup: session log retention", () => {
     return path;
   }
 
+  function writeRetentionConfig(hotDays: number, coldDays: number): void {
+    writeFileSync(configPath, JSON.stringify({ retention: { sessions: { hotDays, coldDays } } }));
+  }
+
   async function runSessionCleanup(
     sessionsDir: string,
     runs: Run[],
@@ -6913,6 +6917,7 @@ describe("cleanup: session log retention", () => {
   });
 
   test("session retention reaps only old terminal run logs", async () => {
+    writeRetentionConfig(1, 14);
     const defaultDir = join(jarvisRoot, "default-sessions");
     const old = runRow(runId(1), "completed", now.getTime() - 15 * dayMs);
     const recent = runRow(runId(2), "completed", now.getTime() - 13 * dayMs);
@@ -6948,7 +6953,7 @@ describe("cleanup: session log retention", () => {
     }
     expect(existsSync(unknownPath)).toBe(true);
 
-    writeFileSync(configPath, JSON.stringify({ cleanup: { sessionLogRetentionDays: 30 } }));
+    writeFileSync(configPath, JSON.stringify({ retention: { sessions: { hotDays: 1, coldDays: 30 } } }));
     const configuredDir = join(jarvisRoot, "configured-sessions");
     const configuredOld = runRow(runId(9), "blocked", now.getTime() - 31 * dayMs);
     const configuredRecent = runRow(runId(10), "interrupted", now.getTime() - 20 * dayMs);
@@ -6964,18 +6969,18 @@ describe("cleanup: session log retention", () => {
   });
 
   test("session retention config default and invalid values refuse reaping", async () => {
-    const defaultRun = runRow(runId(11), "completed", now.getTime() - 15 * dayMs);
+    const defaultRun = runRow(runId(11), "completed", now.getTime() - 91 * dayMs);
     const defaultPath = writeSessionLog(join(jarvisRoot, "default-config-sessions"), defaultRun.id);
 
     await runSessionCleanup(dirname(defaultPath), [defaultRun]);
     expect(existsSync(defaultPath)).toBe(false);
 
     const invalidConfigs: unknown[] = [
-      { cleanup: "invalid" },
-      { cleanup: { sessionLogRetentionDays: 1.5 } },
-      { cleanup: { sessionLogRetentionDays: 0 } },
-      { cleanup: { sessionLogRetentionDays: -1 } },
-      { cleanup: { sessionLogRetentionDays: "30" } },
+      { retention: "invalid" },
+      { retention: { sessions: { hotDays: 1, coldDays: 1.5 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: 0 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: -1 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: "30" } } },
     ];
     for (const [index, config] of invalidConfigs.entries()) {
       writeFileSync(configPath, JSON.stringify(config));
@@ -6987,13 +6992,30 @@ describe("cleanup: session log retention", () => {
       const result = await runSessionCleanup(dirname(path), [run]);
 
       expect(result.code).toBe(0);
-      expect(result.stderr).toContain("cleanup.sessionLogRetentionDays");
+      expect(result.stderr).toMatch(/retention\.sessions\.(hotDays|coldDays)/);
       expect(existsSync(path)).toBe(true);
       if (index === 0) expect(existsSync(otherSlicePath)).toBe(false);
     }
   });
 
+  test("session retention skips reaping when top-level machine config is not an object", async () => {
+    writeFileSync(configPath, JSON.stringify(["not", "config"]));
+    const otherSlicePath = join(jarvisRoot, "daemon-0000000000000098.pid");
+    writeFileSync(otherSlicePath, "999999");
+    const run = runRow(runId(99), "completed", now.getTime() - 60 * dayMs);
+    const path = writeSessionLog(join(jarvisRoot, "bad-root-config"), run.id);
+
+    const result = await runSessionCleanup(dirname(path), [run]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("Failed to load machine config");
+    expect(result.stderr).not.toContain("retention.sessions");
+    expect(existsSync(path)).toBe(true);
+    expect(existsSync(otherSlicePath)).toBe(false);
+  });
+
   test("session retention guard preserves excluded paths", async () => {
+    writeRetentionConfig(1, 14);
     const sessionsDir = join(jarvisRoot, "sessions");
     const run = runRow(runId(30), "completed", now.getTime() - 20 * dayMs);
     const expiredPath = writeSessionLog(sessionsDir, run.id);
@@ -7021,6 +7043,7 @@ describe("cleanup: session log retention", () => {
   });
 
   test("session retention dry-run reports aggregate summary without filenames", async () => {
+    writeRetentionConfig(1, 14);
     const sessionsDir = join(jarvisRoot, "sessions");
     const first = runRow(runId(40), "completed", now.getTime() - 20 * dayMs);
     const second = runRow(runId(41), "failed", now.getTime() - 30 * dayMs);
@@ -7046,6 +7069,7 @@ describe("cleanup: session log retention", () => {
   }
 
   test("orphan logs age by mtime; live rows and young orphans are kept", async () => {
+    writeRetentionConfig(1, 14);
     const sessionsDir = join(jarvisRoot, "sessions");
     const owner = runRow(runId(50), "completed", now.getTime() - 15 * dayMs);
     const live = runRow(runId(51), "in-progress", null);
@@ -7084,6 +7108,7 @@ describe("cleanup: session log retention", () => {
   });
 
   test("summary has no orphan suffix without orphans", async () => {
+    writeRetentionConfig(1, 14);
     const sessionsDir = join(jarvisRoot, "sessions");
     const run = runRow(runId(70), "completed", now.getTime() - 20 * dayMs);
     writeSessionLog(sessionsDir, run.id, "abc");

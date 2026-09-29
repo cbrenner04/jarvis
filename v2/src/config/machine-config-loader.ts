@@ -115,11 +115,22 @@ export function resolveWritePathIterationBounds(configPath: string = MACHINE_CON
   };
 }
 
-export function readCleanupSessionLogRetentionDays(
+const DEFAULT_SESSION_HOT_DAYS = 14;
+const DEFAULT_SESSION_COLD_DAYS = 90;
+const RETENTION_SESSIONS_BLOCK_ERROR =
+  "retention.sessions.hotDays and retention.sessions.coldDays must be positive integers";
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+export function readRetentionSessions(
   configPath: string = MACHINE_CONFIG_PATH,
-): { ok: true; days: number } | { ok: false; error: string } {
+): { ok: true; hotDays: number; coldDays: number } | { ok: false; error: string } {
   const parsed = readMachineConfigFile(configPath);
-  if (parsed === undefined) return { ok: true, days: 14 };
+  if (parsed === undefined) {
+    return { ok: true, hotDays: DEFAULT_SESSION_HOT_DAYS, coldDays: DEFAULT_SESSION_COLD_DAYS };
+  }
   if (!isRecord(parsed)) {
     throw new Error(
       `Machine config at ${configPath} must be a JSON object, got ${
@@ -128,18 +139,42 @@ export function readCleanupSessionLogRetentionDays(
     );
   }
 
-  const cleanup = parsed.cleanup;
-  if (cleanup === undefined) return { ok: true, days: 14 };
-  if (!isRecord(cleanup)) {
-    return { ok: false, error: "cleanup.sessionLogRetentionDays must be a positive integer" };
+  const retention = parsed.retention;
+  if (retention === undefined) {
+    return { ok: true, hotDays: DEFAULT_SESSION_HOT_DAYS, coldDays: DEFAULT_SESSION_COLD_DAYS };
+  }
+  if (!isRecord(retention)) {
+    return { ok: false, error: RETENTION_SESSIONS_BLOCK_ERROR };
   }
 
-  const value = cleanup.sessionLogRetentionDays;
-  if (value === undefined) return { ok: true, days: 14 };
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    return { ok: false, error: "cleanup.sessionLogRetentionDays must be a positive integer" };
+  const sessions = retention.sessions;
+  if (sessions === undefined) {
+    return { ok: true, hotDays: DEFAULT_SESSION_HOT_DAYS, coldDays: DEFAULT_SESSION_COLD_DAYS };
   }
-  return { ok: true, days: value };
+  if (!isRecord(sessions)) {
+    return { ok: false, error: RETENTION_SESSIONS_BLOCK_ERROR };
+  }
+
+  let hotDays = DEFAULT_SESSION_HOT_DAYS;
+  let coldDays = DEFAULT_SESSION_COLD_DAYS;
+
+  if (sessions.hotDays !== undefined) {
+    if (!isPositiveInteger(sessions.hotDays)) {
+      return { ok: false, error: "retention.sessions.hotDays must be a positive integer" };
+    }
+    hotDays = sessions.hotDays;
+  }
+  if (sessions.coldDays !== undefined) {
+    if (!isPositiveInteger(sessions.coldDays)) {
+      return { ok: false, error: "retention.sessions.coldDays must be a positive integer" };
+    }
+    coldDays = sessions.coldDays;
+  }
+  if (coldDays <= hotDays) {
+    return { ok: false, error: "retention.sessions.coldDays must be greater than retention.sessions.hotDays" };
+  }
+
+  return { ok: true, hotDays, coldDays };
 }
 
 export function readMachineConfigDocument(

@@ -57,7 +57,7 @@ Two-point rule ([`operator-practices.md`](./operator-practices.md#operator-feedb
 
 Session close-out obligations ([`operator-practices.md` § Definition of done](./operator-practices.md#definition-of-done-session)):
 
-1. **Drive + review + merge** v2 work through the normal PR path.
+1. **Drive + review + merge** v2 work through the normal PR path. Keep hand-opened PRs draft until their last commit is pushed ([§ Merging](./operator-practices.md#merging)).
 2. **Seed harness gaps** surfaced while dogfooding — link stopgaps in this runbook to the seed and a cleanup trigger.
 3. **Triage harness suggestions** ([`operator-practices.md` § Harness suggestions](./operator-practices.md#harness-suggestions-from-other-repos)).
 4. **Session report** under `reports/` with UTC timestamp; link every implementation PR.

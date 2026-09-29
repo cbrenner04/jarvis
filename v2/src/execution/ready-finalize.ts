@@ -1188,16 +1188,6 @@ export function survivingMutationLogFields(
   return fields;
 }
 
-/** Omits killing-set fields when the observed result is legacy `unknown`. */
-export function survivingMutationOperatorErrorFields(
-  source: SurvivingMutationLogFields | undefined,
-): SurvivingMutationLogFields {
-  const fields = survivingMutationLogFields(source);
-  if (fields.survivingMutationKillingSetResult !== "unknown") return fields;
-  const { survivingMutationKillingTests: _tests, survivingMutationKillingSetResult: _result, ...rest } = fields;
-  return rest;
-}
-
 export type NonTerminatingMutationLogFields = {
   nonTerminatingMutation?: string;
   nonTerminatingMutationSourceFile?: string;

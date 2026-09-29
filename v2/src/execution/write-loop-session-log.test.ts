@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -73,6 +73,36 @@ function defaultSessionsDir(jarvisRoot: string): string {
   return join(jarvisRoot, "sessions");
 }
 
+function sessionLogBasenames(sessionsDir: string): string[] {
+  const basenames: string[] = [];
+  for (const entry of readdirSync(sessionsDir)) {
+    if (entry.endsWith(".log")) {
+      basenames.push(entry);
+      continue;
+    }
+    for (const name of readdirSync(join(sessionsDir, entry))) {
+      if (name.endsWith(".log")) {
+        basenames.push(name);
+      }
+    }
+  }
+  return basenames.sort();
+}
+
+function sessionLogPath(sessionsDir: string, basename: string): string {
+  const flat = join(sessionsDir, basename);
+  if (existsSync(flat)) {
+    return flat;
+  }
+  for (const entry of readdirSync(sessionsDir)) {
+    const sharded = join(sessionsDir, entry, basename);
+    if (existsSync(sharded)) {
+      return sharded;
+    }
+  }
+  throw new Error(`session log not found: ${basename}`);
+}
+
 /** Never produces output on its own, but quiesces (rejects) once the write loop aborts it. */
 function hangingBindings(): InvocationBinding[] {
   return [
@@ -107,9 +137,9 @@ describe.serial("write loop session logs", () => {
       maxIterations: 1,
     });
 
-    const files = readdirSync(sessionsDir);
+    const files = sessionLogBasenames(sessionsDir);
     expect(files).toHaveLength(1);
-    const content = readFileSync(join(sessionsDir, files[0] ?? ""), "utf8");
+    const content = readFileSync(sessionLogPath(sessionsDir, files[0] ?? ""), "utf8");
     expect(content).toContain(`run=${result.runId}`);
     expect(content).toContain("spec=spec.md");
     expect(content).toContain("iteration=1");
@@ -128,9 +158,9 @@ describe.serial("write loop session logs", () => {
         id: "stall",
         metadata: { agent: "sim", model: "sim" },
         invoke: async ({ cwd }) => {
-          const files = readdirSync(sessionsDir);
+          const files = sessionLogBasenames(sessionsDir);
           expect(files).toHaveLength(1);
-          logPath = join(sessionsDir, files[0] ?? "");
+          logPath = sessionLogPath(sessionsDir, files[0] ?? "");
           const mid = readFileSync(logPath, "utf8");
           expect(mid).toContain("[harness]");
           expect(mid).toContain(`run=`);
@@ -171,7 +201,7 @@ describe.serial("write loop session logs", () => {
     });
 
     expect(result.iterationsConsumed).toBe(2);
-    const files = readdirSync(sessionsDir).sort();
+    const files = sessionLogBasenames(sessionsDir);
     expect(files).toHaveLength(2);
     expect(files[0]).not.toBe(files[1]);
     const secondPrefix = `${result.runId}-2026-07-12T22-00-00.`;
@@ -194,9 +224,9 @@ describe.serial("write loop session logs", () => {
     });
 
     expect(result.kind).toBe("iteration_timeout");
-    const files = readdirSync(sessionsDir);
+    const files = sessionLogBasenames(sessionsDir);
     expect(files).toHaveLength(1);
-    const content = readFileSync(join(sessionsDir, files[0] ?? ""), "utf8");
+    const content = readFileSync(sessionLogPath(sessionsDir, files[0] ?? ""), "utf8");
     expect(content).toContain(`run=${result.runId}`);
     expect(content).toContain("[outbound]");
     expect(content).toContain("outcome=timeout");
@@ -221,7 +251,7 @@ describe.serial("write loop session logs", () => {
     });
 
     expect(result.kind).toBe("progress");
-    const content = readFileSync(join(sessionsDir, readdirSync(sessionsDir)[0] ?? ""), "utf8");
+    const content = readFileSync(sessionLogPath(sessionsDir, sessionLogBasenames(sessionsDir)[0] ?? ""), "utf8");
     expect(content).toContain(`run=${result.runId}`);
     expect(content).toContain("[outbound]");
     expect(content).toContain("outcome=abort");
@@ -257,7 +287,7 @@ describe.serial("write loop session logs", () => {
       });
 
       expect(result.kind).toBe("invocation_failure");
-      const content = readFileSync(join(sessionsDir, readdirSync(sessionsDir)[0] ?? ""), "utf8");
+      const content = readFileSync(sessionLogPath(sessionsDir, sessionLogBasenames(sessionsDir)[0] ?? ""), "utf8");
       expect(content).toContain(`run=${result.runId}`);
       expect(content).toContain("outcome=error");
     } finally {

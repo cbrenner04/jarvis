@@ -35,11 +35,14 @@ function splitLines(text: string): string[] {
 export function openSessionLog(namespace: string, timestamp: string, opts?: SessionLogOptions): SessionLog {
   const sessionsDir = opts?.sessionsDir ?? defaultSessionsDir();
   const clock = opts?.clock ?? (() => new Date());
+  const monthShard = clock().toISOString().slice(0, 7);
+  const logBasename = `${namespace}-${timestamp}.log`;
+  const shardDir = join(sessionsDir, monthShard);
 
   let fd: number | null = null;
   try {
-    mkdirSync(sessionsDir, { recursive: true });
-    fd = openSync(join(sessionsDir, `${namespace}-${timestamp}.log`), "a");
+    mkdirSync(shardDir, { recursive: true });
+    fd = openSync(join(shardDir, logBasename), "a");
   } catch {
     fd = null;
   }

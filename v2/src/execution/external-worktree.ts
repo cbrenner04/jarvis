@@ -255,6 +255,11 @@ async function ensureExternalWorktree(
   }
 }
 
+/** True when git's diagnostic says the path is not a usable repo; git >=2.56 reports broken gitfiles differently. */
+export function isNotGitRepositoryDiagnostic(text: string): boolean {
+  return text.includes("not a git repository") || text.includes("gitfile does not point to a valid repository");
+}
+
 type GitWorktreeState = "not-worktree" | "worktree" | "unknown";
 
 async function classifyGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<GitWorktreeState> {
@@ -264,7 +269,7 @@ async function classifyGitWorktree(worktreePath: string, runner: AsyncSubprocess
       ? "worktree"
       : "not-worktree";
   } catch (error) {
-    return error instanceof Error && error.message.includes("not a git repository") ? "not-worktree" : "unknown";
+    return error instanceof Error && isNotGitRepositoryDiagnostic(error.message) ? "not-worktree" : "unknown";
   }
 }
 

@@ -27,7 +27,6 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
 | `capture-token-usage-on-failed-invocations` | P2 | — | open (#4080); usage fields live on `InvocationOk` only, so failed calls are unpriced |
-| `stale-reset-destroys-commits-for-external-specs` | P1 | #3433 | rewritten: branch deletion closed by #4014; gate 2 still blind to external trees; tip SHA still missing |
 | `retention-tiers-for-session-logs-and-telemetry` | P1 | — | open; sequence after `cleanup-reaps-orphan-session-logs` (landed #4086) |
 | `worktree-materialization-fails-on-committed-node-modules-symlink` | P1 | #4003 | half landed (#3022 completion-side exclusion); link-path `lstat` and iteration-commit pathspec remain |
 | `review-roles-check-falsifiability-not-plausibility` | P2 | — | open; no falsifiability mandate in `prompts/implement/review-*.md` |
@@ -57,6 +56,7 @@ Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one st
 
 | Item | Reason |
 | --- | --- |
+| seed `stale-reset-destroys-commits-for-external-specs` → ready-intents `stale-reset-compares-specs-at-read-root`, `workflow-preflight-routes-external-spec-trees` | by design: no loss path out-of-root (plan blocker); pipeline e0128f15 rejected; closes #3433 |
 | ready-intents `run-resume-returns-admission-refusal`, `run-projection-names-resume-refusal`, `tui-surfaces-resume-refusal` | false premise: `run resume` never reaches the stale-reset gates; plan c5f09414 blocked on it |
 
 ## Reaped 2026-09-21

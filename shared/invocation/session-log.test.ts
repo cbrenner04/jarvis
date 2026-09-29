@@ -15,11 +15,6 @@ afterEach(() => {
   rmSync(scratchDir, { recursive: true, force: true });
 });
 
-function shardedLogPath(sessionsDir: string, namespace: string, timestamp: string, clock: () => Date): string {
-  const month = clock().toISOString().slice(0, 7);
-  return join(sessionsDir, month, `${namespace}-${timestamp}.log`);
-}
-
 describe("session log writer", () => {
   test("creates the sessions dir and the namespaced log file under the UTC month shard", () => {
     const sessionsDir = join(scratchDir, "sessions");
@@ -28,9 +23,7 @@ describe("session log writer", () => {
     log.append("harness", "hello");
     log.close();
 
-    const logPath = shardedLogPath(sessionsDir, "write", "2026-07-12T00-00-00Z", clock);
-    expect(logPath).toContain(`${join("2026-07", "write-2026-07-12T00-00-00Z.log")}`);
-    const content = readFileSync(logPath, "utf8");
+    const content = readFileSync(join(sessionsDir, "2026-07", "write-2026-07-12T00-00-00Z.log"), "utf8");
     expect(content).toContain("[harness] hello");
     expect(readdirSync(sessionsDir).every((name) => !name.endsWith(".log"))).toBe(true);
   });
@@ -57,8 +50,7 @@ describe("session log writer", () => {
     second.append("harness", "second");
     second.close();
 
-    const logPath = shardedLogPath(sessionsDir, "write", "same", clock);
-    const content = readFileSync(logPath, "utf8");
+    const content = readFileSync(join(sessionsDir, "2026-03", "write-same.log"), "utf8");
     expect(content).toContain("first");
     expect(content).toContain("second");
     expect(readdirSync(join(sessionsDir, "2026-03")).filter((n) => n.endsWith(".log"))).toHaveLength(1);
@@ -71,7 +63,7 @@ describe("session log writer", () => {
     log.append("outbound", "line one\nline two");
     log.close();
 
-    const lines = readFileSync(shardedLogPath(sessionsDir, "write", "ts", clock), "utf8")
+    const lines = readFileSync(join(sessionsDir, "2026-01", "write-ts.log"), "utf8")
       .trim()
       .split("\n");
     expect(lines).toEqual([
@@ -86,7 +78,7 @@ describe("session log writer", () => {
     const log = openSessionLog("write", "readback", { sessionsDir, clock });
     log.append("harness", "line-a");
 
-    const content = readFileSync(shardedLogPath(sessionsDir, "write", "readback", clock), "utf8");
+    const content = readFileSync(join(sessionsDir, "2026-05", "write-readback.log"), "utf8");
     expect(content).toContain("line-a");
 
     log.close();
@@ -101,7 +93,7 @@ describe("session log writer", () => {
     log.append("harness", "after-close");
     log.close();
 
-    const content = readFileSync(shardedLogPath(sessionsDir, "write", "closed", clock), "utf8");
+    const content = readFileSync(join(sessionsDir, "2026-05", "write-closed.log"), "utf8");
     expect(content).toContain("before-close");
     expect(content).not.toContain("after-close");
   });
@@ -136,8 +128,7 @@ describe("session log writer", () => {
     log.append("harness", "hello");
     log.close();
 
-    const logPath = shardedLogPath(sessionsDir, "write", "fresh", clock);
-    expect(readFileSync(logPath, "utf8")).toContain("hello");
+    expect(readFileSync(join(sessionsDir, "2026-09", "write-fresh.log"), "utf8")).toContain("hello");
   });
 
   test("shards by UTC month, not local month, under a non-UTC TZ", () => {

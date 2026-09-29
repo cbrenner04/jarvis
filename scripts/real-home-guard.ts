@@ -12,7 +12,6 @@ import { join } from "node:path";
 // specs/ nests a few levels deep (specs/<org>/<project>/<timestamp>-<name>/...); bounded recursion
 // avoids a full walk of a directory that, like sessions/, can grow very large.
 const SPECS_WALK_MAX_DEPTH = 4;
-const SESSIONS_WALK_MAX_DEPTH = 1;
 
 export type RealHomeSnapshot = {
   sessionEntries: string[];
@@ -72,8 +71,7 @@ export function shouldGuardRealHome(env: Record<string, string | undefined>): bo
 /** Snapshot of `homeDir`'s sessions/specs listings and telemetry log stat. */
 export function snapshotRealHome(homeDir: string): RealHomeSnapshot {
   return {
-    // One level into month shards (maxDepth 1): flat legacy logs stay visible; sharded leaks past the first per month need the descent.
-    sessionEntries: listBoundedDepthEntries(join(homeDir, "sessions"), SESSIONS_WALK_MAX_DEPTH),
+    sessionEntries: listBoundedDepthEntries(join(homeDir, "sessions"), 1),
     specEntries: listBoundedDepthEntries(join(homeDir, "specs"), SPECS_WALK_MAX_DEPTH),
     telemetry: statTelemetry(homeDir),
   };

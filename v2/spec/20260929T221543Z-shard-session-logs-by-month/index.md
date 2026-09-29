@@ -4,7 +4,7 @@ New session logs open under `sessions/<YYYY-MM>/`, chosen from the log's injecte
 
 ## Subspecs
 
-- [ ] [00-month-shard-session-log-writer.md](./00-month-shard-session-log-writer.md)
+- [x] [00-month-shard-session-log-writer.md](./00-month-shard-session-log-writer.md)
 
 ## Out of scope
 

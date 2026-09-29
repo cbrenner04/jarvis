@@ -12,7 +12,6 @@ import {
   readyGateOutOfScopeLogFields,
   type SurvivingMutationKillingSetResult,
   survivingMutationLogFields,
-  survivingMutationOperatorErrorFields,
 } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import {
@@ -283,6 +282,13 @@ function mapGateInvocationRefused(event: LoopFinishedEvent, gateRefusal: GateRef
   };
 }
 
+function mutationRepairExhaustedOperatorFields(event: LoopFinishedEvent) {
+  const fields = survivingMutationLogFields(event);
+  if (fields.survivingMutationKillingSetResult !== "unknown") return fields;
+  const { survivingMutationKillingTests: _tests, survivingMutationKillingSetResult: _result, ...rest } = fields;
+  return rest;
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: maps each terminal loop_finished outcome kind to its operator error/recovery, one branch per kind
 function mapFromLoopFinished(
   event: LoopFinishedEvent,
@@ -375,7 +381,7 @@ function mapFromLoopFinished(
     case "mutation_repair_exhausted":
       return {
         ...op("mutation_repair_exhausted", "inspect_spec"),
-        ...survivingMutationOperatorErrorFields(event),
+        ...mutationRepairExhaustedOperatorFields(event),
       };
     case "blocked":
       return op("agent_blocked", "inspect_spec");

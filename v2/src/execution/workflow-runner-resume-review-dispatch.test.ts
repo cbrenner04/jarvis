@@ -57,6 +57,14 @@ import {
 } from "./workflow-runner-resume.ts";
 
 describe("executeWorkflow review dispatch", () => {
+  const mockNotRunRepairSurvivorLogFields = {
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
+    survivingMutationKillingTests: [] as string[],
+    survivingMutationKillingSetResult: "not-run" as const,
+  };
+
   test("retries reviewed-intent landing without rerunning review and persists its cause", async () => {
     const workspace = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-retry-"));
     stageReviewedIntent(workspace);
@@ -1731,7 +1739,14 @@ describe("executeWorkflow review dispatch", () => {
           completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
           readyFinalizer: async () => {
-            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
+            const f = mockNotRunRepairSurvivorLogFields;
+            throw new SurvivingMutationError(
+              f.survivingMutation,
+              f.survivingMutationSourceFile,
+              f.survivingMutationSourceLine,
+              f.survivingMutationKillingTests,
+              f.survivingMutationKillingSetResult,
+            );
           },
           mutationRepair: {
             bindings: [
@@ -1760,21 +1775,13 @@ describe("executeWorkflow review dispatch", () => {
           kind: "loop_finished",
           loopOutcomeKind: "mutation_repair_exhausted",
           resumable: false,
-          survivingMutation: "operator-flip: === → !==",
-          survivingMutationSourceFile: "src/guard.ts",
-          survivingMutationSourceLine: 17,
-          survivingMutationKillingTests: [],
-          survivingMutationKillingSetResult: "not-run",
+          ...mockNotRunRepairSurvivorLogFields,
         });
         expect(composeRunOperatorError(settledRun ?? { status: "failed" }, settledTerminal)).toMatchObject({
           reason: "mutation_repair_exhausted",
           retryable: false,
           nextAction: "inspect_spec",
-          survivingMutation: "operator-flip: === → !==",
-          survivingMutationSourceFile: "src/guard.ts",
-          survivingMutationSourceLine: 17,
-          survivingMutationKillingTests: [],
-          survivingMutationKillingSetResult: "not-run",
+          ...mockNotRunRepairSurvivorLogFields,
         });
       });
     } finally {
@@ -2025,7 +2032,14 @@ describe("executeWorkflow review dispatch", () => {
             return { pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" };
           },
           readyFinalizer: async () => {
-            throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17, [], "not-run");
+            const f = mockNotRunRepairSurvivorLogFields;
+            throw new SurvivingMutationError(
+              f.survivingMutation,
+              f.survivingMutationSourceFile,
+              f.survivingMutationSourceLine,
+              f.survivingMutationKillingTests,
+              f.survivingMutationKillingSetResult,
+            );
           },
           mutationRepair: {
             bindings: [
@@ -2062,11 +2076,7 @@ describe("executeWorkflow review dispatch", () => {
           kind: "loop_finished",
           loopOutcomeKind: "mutation_repair_exhausted",
           resumable: false,
-          survivingMutation: "operator-flip: === → !==",
-          survivingMutationSourceFile: "src/guard.ts",
-          survivingMutationSourceLine: 17,
-          survivingMutationKillingTests: [],
-          survivingMutationKillingSetResult: "not-run",
+          ...mockNotRunRepairSurvivorLogFields,
         });
       });
     } finally {
@@ -2082,7 +2092,6 @@ describe("executeWorkflow review dispatch", () => {
     publishedBodySummaries: Array<string | undefined>;
     outcome: { ok: boolean; message?: string } | { rejected: string };
     finalHead: string;
-    terminalKind: string | undefined;
     terminalEvent: LoopFinishedEvent | undefined;
   }> {
     const workspace = initGitWorkspace(`review-mutation-repair-real-${mode}-`);
@@ -2198,7 +2207,6 @@ describe("executeWorkflow review dispatch", () => {
           publishedBodySummaries,
           outcome,
           finalHead: head(),
-          terminalKind: terminalEvent?.loopOutcomeKind,
           terminalEvent,
         };
       });
@@ -2219,7 +2227,7 @@ describe("executeWorkflow review dispatch", () => {
   }
 
   test("every mutation-repair commit is published before the next repair or exhaustion under the real verifier", async () => {
-    const { events, publishedBodySummaries, outcome, finalHead, terminalKind, terminalEvent } =
+    const { events, publishedBodySummaries, outcome, finalHead, terminalEvent } =
       await runRealVerifierRepairScenario("exhaust");
     const { commits, ordered } = repairCommitPublications(events);
     expect(outcome).toMatchObject({ ok: false, message: "Mutation survived every repair attempt" });
@@ -2227,38 +2235,42 @@ describe("executeWorkflow review dispatch", () => {
     expect(ordered).toBe(true);
     expect(commits.at(-1)).toBe(finalHead);
     expect(events.at(-1)).toBe(`publish:${finalHead}`);
-    expect(terminalKind).toBe("mutation_repair_exhausted");
-    expect(terminalEvent).toMatchObject({
-      survivingMutationKillingSetResult: "passed-confirmed",
-    });
-    expect(terminalEvent?.survivingMutationKillingTests?.length).toBeGreaterThan(0);
-    expect(terminalEvent?.survivingMutation).toEqual(expect.any(String));
-    expect(terminalEvent?.survivingMutationSourceFile).toBe("guard.ts");
+    expect(terminalEvent?.loopOutcomeKind).toBe("mutation_repair_exhausted");
+    expect(terminalEvent).toEqual(
+      expect.objectContaining({
+        survivingMutationSourceFile: "guard.ts",
+        survivingMutationKillingSetResult: "passed-confirmed",
+        survivingMutation: expect.any(String),
+        survivingMutationKillingTests: expect.arrayContaining([expect.any(String)]),
+      }),
+    );
     expect(publishedBodySummaries).toHaveLength(events.filter((e) => e.startsWith("publish:")).length);
     for (const summary of publishedBodySummaries) expect(typeof summary).toBe("string");
   }, 120_000);
 
   test("an earlier repair commit stays published when a later repair reports blocked", async () => {
-    const { events, outcome, terminalKind, terminalEvent } = await runRealVerifierRepairScenario("later-blocked");
+    const { events, outcome, terminalEvent } = await runRealVerifierRepairScenario("later-blocked");
     const { commits, ordered } = repairCommitPublications(events);
     expect(outcome).toMatchObject({ ok: false, message: "Mutation repair agent reported blocked" });
     expect(commits).toHaveLength(1);
     expect(ordered).toBe(true);
     expect(events.indexOf(`publish:${commits[0]}`)).toBeLessThan(events.indexOf("repair:2"));
-    expect(terminalKind).toBe("mutation_repair_exhausted");
-    expect(terminalEvent).toMatchObject({
-      survivingMutationSourceFile: "guard.ts",
-      survivingMutationKillingSetResult: "passed-confirmed",
-    });
-    expect(terminalEvent?.survivingMutationKillingTests?.length).toBeGreaterThan(0);
+    expect(terminalEvent?.loopOutcomeKind).toBe("mutation_repair_exhausted");
+    expect(terminalEvent).toEqual(
+      expect.objectContaining({
+        survivingMutationSourceFile: "guard.ts",
+        survivingMutationKillingSetResult: "passed-confirmed",
+        survivingMutationKillingTests: expect.arrayContaining([expect.any(String)]),
+      }),
+    );
   }, 120_000);
 
   test("a failed repair-commit push settles the run as completion_commit_failed without another repair", async () => {
-    const { events, outcome, terminalKind } = await runRealVerifierRepairScenario("push-fails");
+    const { events, outcome, terminalEvent } = await runRealVerifierRepairScenario("push-fails");
     expect(outcome).toMatchObject({ ok: false, message: "push rejected" });
     expect(events.filter((e) => e.startsWith("repair:"))).toEqual(["repair:1"]);
     expect(events.at(-1)).toStartWith("publish:");
-    expect(terminalKind).toBe("completion_commit_failed");
+    expect(terminalEvent?.loopOutcomeKind).toBe("completion_commit_failed");
   }, 120_000);
 
   test("a repair commit is published even when abort arrives right after the commit", async () => {

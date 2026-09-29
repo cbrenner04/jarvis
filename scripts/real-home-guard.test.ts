@@ -3,7 +3,7 @@
 // targets the SPECS_WALK_MAX_DEPTH boundary guard specifically.
 
 import { expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
@@ -85,6 +85,22 @@ test("specs/ walk recurses past the first level: entries below SPECS_WALK_MAX_DE
 
     expect(snapshot.specEntries).toContain("a/b");
     expect(snapshot.specEntries).toContain("a/b/c");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("sessions/ walk recurses one level: a new log under an existing month shard is flagged", () => {
+  const home = trackedMkdtempSync(join(tmpdir(), "jarvis-real-home-guard-sessions-depth-test-"));
+  try {
+    mkdirSync(join(home, "sessions", "2026-01"), { recursive: true });
+    writeFileSync(join(home, "sessions", "2026-01", "baseline.log"), "pre-existing\n");
+
+    const before = snapshotRealHome(home);
+    writeFileSync(join(home, "sessions", "2026-01", "leak.log"), "leaked\n");
+    const after = snapshotRealHome(home);
+
+    expect(diffRealHomeSnapshots(before, after)).toEqual(["sessions/2026-01/leak.log"]);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

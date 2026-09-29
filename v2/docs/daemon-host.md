@@ -640,7 +640,7 @@ Each trigger considers `queued` runs oldest (`created_at`) first, skipping any w
 
 ## Invocation session logs
 
-Each write-loop iteration opens an on-disk transcript at `~/.jarvis/sessions/<run-id>-<timestamp>.log` (default sessions dir; timestamp is millisecond-granularity ISO with `:` replaced for filesystem safety). One file per iteration — not one per run and not one per binding attempt in the fallback chain.
+Each write-loop iteration opens an on-disk transcript at `~/.jarvis/sessions/<YYYY-MM>/<run-id>-<timestamp>.log` (default sessions dir; `<YYYY-MM>` is UTC at open; timestamp is millisecond-granularity ISO with `:` replaced for filesystem safety). One file per iteration — not one per run and not one per binding attempt in the fallback chain.
 
 Lines mirror v1: `<ISO ts> [<tag>] <text>` with tags `harness`, `outbound`, `inbound_stdout`, `inbound_stderr`. Before the agent subprocess spawns, the loop writes a `harness` line naming run id, spec path, and iteration number; the invocation layer appends binding `harness`/`outbound` and post-settle `inbound_*` into the same file. When the iteration settles (including timeout, abort, and thrown-error paths), the loop appends a final `harness` line (`outcome=completed|timeout|abort|error`) and closes the file.
 

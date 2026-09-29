@@ -920,7 +920,13 @@ Preview lists every present artifact of a reapable unit under `remove:`; apply r
 
 ### Session-log retention
 
-Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sessions/`. This slice is global (not project-scoped) and runs on every invocation even when the other slices report nothing eligible.
+Write-loop session logs live under `~/.jarvis/sessions/<YYYY-MM>/<run-id>-<timestamp>.log` (UTC month at open). Legacy flat logs may still sit directly under `~/.jarvis/sessions/`. To print the newest log for a run across both layouts:
+
+```bash
+ls -t ~/.jarvis/sessions/<run-id>-*.log ~/.jarvis/sessions/*/<run-id>-*.log 2>/dev/null | head -1 | xargs cat
+```
+
+Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sessions/`. This slice is global (not project-scoped) and runs on every invocation even when the other slices report nothing eligible. The reaper still considers only regular files **directly** under `~/.jarvis/sessions/` (not month shards), so every post-shard log is permanently non-reap-eligible until a future reaper-surface change — not merely delayed.
 
 **Retention window.** Default 14 days; override with `cleanup.sessionLogRetentionDays` in `~/.jarvis/config.json` ([install-and-config.md](./install-and-config.md#cleanup)). Expiry compares the owning run's durable `finishedAt` against `now - retentionDays`; a log with no run row (orphan) ages by file mtime against the same cutoff instead.
 

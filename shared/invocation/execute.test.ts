@@ -688,7 +688,8 @@ describe("telemetry text field cap", () => {
     const longStderr = `quota exceeded: ${"x".repeat(OVERSIZED_LENGTH - "quota exceeded: ".length)}`;
     const namespace = "cap-exit-reason";
     const timestamp = "2026-09-14T00-00-00-000Z";
-    const log = openSessionLog(namespace, timestamp, { sessionsDir: scratchDir });
+    const clock = () => new Date("2026-09-14T00:00:00.000Z");
+    const log = openSessionLog(namespace, timestamp, { sessionsDir: scratchDir, clock });
     const rows: InvocationCompletedRecord[] = [];
 
     await executeWithQuotaFallback({
@@ -708,7 +709,7 @@ describe("telemetry text field cap", () => {
     expect(exitReason).not.toBeNull();
     expectCappedField(exitReason as string, longStderr);
 
-    const logContents = readFileSync(join(scratchDir, `${namespace}-${timestamp}.log`), "utf8");
+    const logContents = readFileSync(join(scratchDir, "2026-09", `${namespace}-${timestamp}.log`), "utf8");
     expect(logContents).toContain(longStderr);
   });
 

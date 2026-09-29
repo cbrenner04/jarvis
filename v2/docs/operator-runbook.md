@@ -477,6 +477,8 @@ A hand-created worktree (e.g. under repo `.scratch/`) has no `node_modules`; tes
 
 If a failed materialization leaves an ordinary directory at its managed path, retry the workflow: v2 removes that proven unregistered non-Git husk and rematerializes it under the same branch lock. It refuses and leaves the path intact when Git recognizes it as a worktree, the target repository still registers it, or Git ownership/validation is inconclusive; inspect that state before manual removal. Incomplete implement and plan re-dispatches defer this non-Git husk to locked materialization, with or without `--reset-despite-dirty`. Other `git status` listing failures still refuse before any retirement; the override applies only to a successful dirty listing.
 
+If materialization fails naming a `node_modules` collision, the base branch tracks `node_modules` (or the worktree holds a real file/directory there); the harness never deletes it. Untrack it on the base branch (`git rm --cached -r node_modules`) and ignore it with a pattern that matches a symlink — `node_modules`, not the directory-only `node_modules/` — then retry; the existing worktree is reconciled on the next call. A wrong or dangling symlink needs no action: it is replaced.
+
 ## Implementation on jarvis specs
 
 **`jarvis run workflow implement`** is the only path; live `jarvis run kill` stops an in-flight write step. Verify preflight and gates independently — see [Gate trust](#gate-trust) for what the gate covers.

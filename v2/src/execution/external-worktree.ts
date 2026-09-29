@@ -1,4 +1,14 @@
-import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  type Stats,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
@@ -253,7 +263,7 @@ async function ensureExternalWorktree(
   }
 }
 
-function fsEntryType(stat: ReturnType<typeof lstatSync>): string {
+function fsEntryType(stat: Stats): string {
   if (stat.isDirectory()) return "directory";
   if (stat.isFile()) return "file";
   return "special entry";

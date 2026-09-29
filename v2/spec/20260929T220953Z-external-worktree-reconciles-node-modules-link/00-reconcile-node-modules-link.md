@@ -22,13 +22,13 @@ Worktree materialization unconditionally creates the worktree-root `node_modules
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/external-worktree.test.ts` proves a fresh checkout whose `node_modules` is already a symlink resolving to the project root's `node_modules` reaches the callback and leaves the link's target and identity unchanged; this regression fails against the pre-fix unconditional `symlinkSync` with `EEXIST`.
-- [ ] `v2/src/execution/external-worktree.test.ts` proves a fresh checkout's wrong-target `node_modules` symlink, and separately a dangling `node_modules` symlink (target does not exist), are each replaced with a link to the project root's `node_modules` before the callback.
-- [ ] `v2/src/execution/external-worktree.test.ts` proves regular-file and real-directory collisions remain intact, the callback is not invoked, and `WorktreeMaterializationError` diagnostics name the link path, current type, and expected target.
-- [ ] `v2/src/execution/external-worktree.test.ts` proves a registered worktree from a fresh attempt refused on a `node_modules` collision, once the collision is resolved out-of-band, has its link reconciled (created or corrected) by the next `withExternalWorktree` call for that branch via the reuse path, before the callback runs.
-- [ ] `v2/src/execution/external-worktree.test.ts` tests `a project without node_modules leaves the fresh worktree root free of it`, `a project whose node_modules is a regular file leaves the fresh worktree root free of it`, and `provisions project dependencies before the first callback` stay green.
-- [ ] `v2/docs/operator-runbook.md`, `v2/docs/workflow-runner.md`, and `v2/docs/v1-behaviors.md` document the recovery, reconciliation contract, and v2 behavior change without duplicating implementation detail.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/external-worktree.test.ts` proves a fresh checkout whose `node_modules` is already a symlink resolving to the project root's `node_modules` reaches the callback and leaves the link's target and identity unchanged; this regression fails against the pre-fix unconditional `symlinkSync` with `EEXIST`.
+- [x] `v2/src/execution/external-worktree.test.ts` proves a fresh checkout's wrong-target `node_modules` symlink, and separately a dangling `node_modules` symlink (target does not exist), are each replaced with a link to the project root's `node_modules` before the callback.
+- [x] `v2/src/execution/external-worktree.test.ts` proves regular-file and real-directory collisions remain intact, the callback is not invoked, and `WorktreeMaterializationError` diagnostics name the link path, current type, and expected target.
+- [x] `v2/src/execution/external-worktree.test.ts` proves a registered worktree from a fresh attempt refused on a `node_modules` collision, once the collision is resolved out-of-band, has its link reconciled (created or corrected) by the next `withExternalWorktree` call for that branch via the reuse path, before the callback runs.
+- [x] `v2/src/execution/external-worktree.test.ts` tests `a project without node_modules leaves the fresh worktree root free of it`, `a project whose node_modules is a regular file leaves the fresh worktree root free of it`, and `provisions project dependencies before the first callback` stay green.
+- [x] `v2/docs/operator-runbook.md`, `v2/docs/workflow-runner.md`, and `v2/docs/v1-behaviors.md` document the recovery, reconciliation contract, and v2 behavior change without duplicating implementation detail.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

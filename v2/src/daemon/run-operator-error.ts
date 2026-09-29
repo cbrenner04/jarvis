@@ -12,6 +12,7 @@ import {
   readyGateOutOfScopeLogFields,
   type SurvivingMutationKillingSetResult,
   survivingMutationLogFields,
+  survivingMutationOperatorErrorFields,
 } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import {
@@ -372,7 +373,10 @@ function mapFromLoopFinished(
         ...nonTerminatingMutationLogFields(event),
       };
     case "mutation_repair_exhausted":
-      return op("mutation_repair_exhausted", "inspect_spec");
+      return {
+        ...op("mutation_repair_exhausted", "inspect_spec"),
+        ...survivingMutationOperatorErrorFields(event),
+      };
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":

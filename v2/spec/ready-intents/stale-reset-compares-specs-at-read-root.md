@@ -23,12 +23,12 @@ name: stale-reset-compares-specs-at-read-root
 
 - [ ] A `v2/src/commands/cleanup.test.ts` regression places a linked spec tree outside the code project root, ticks a subspec only in the current tree, and proves gate 2 refuses retirement naming that subspec; it fails against the current out-of-root early return.
 - [ ] A test proves an unreadable or otherwise incomparable spec tree refuses retirement with a named reason and no retirement mutation.
-- [ ] Existing in-project landed-criteria tests stay green, and tests prove `--reset-despite-landed-criteria` bypasses only gate 2 for both in-project and out-of-root trees.
-- [ ] Tests pin that gates 1 and 3, continuation tick-backing, and `cleanup --abandon` are unchanged.
+- [ ] `v2/src/commands/cleanup.test.ts` in-project landed-criteria tests stay green, and new tests prove `--reset-despite-landed-criteria` bypasses only gate 2 for both in-project and out-of-root trees.
+- [ ] `v2/src/commands/cleanup.test.ts` unlanded-commit, continuation, and `cleanup --abandon` tests stay green (gates 1 and 3, continuation tick-backing, and `cleanup --abandon` unchanged).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- None. This intent adds the internal comparison capability; production routing and operator semantics belong to the dependent intent.
+- `v2/docs/v1-behaviors.md` — gate 2 compares external and prior-stage spec trees from their read root and refuses inconclusive context.
 
 ## Prerequisites

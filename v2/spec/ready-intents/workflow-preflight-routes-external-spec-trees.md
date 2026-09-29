@@ -24,7 +24,7 @@ name: workflow-preflight-routes-external-spec-trees
 - [ ] A workflow-preflight regression drives an external plan tree whose subspec is ticked only in the current tree and proves retirement is refused naming that subspec; it fails against the current `externalPlanSpec` omission.
 - [ ] A chained pipeline regression proves a prior-stage worktree outside the code project root reaches the same comparison rather than being skipped.
 - [ ] A test proves missing, unreadable, or non-Git external comparison context refuses with a named reason and leaves the stale workspace intact.
-- [ ] Tests prove in-project behavior is unchanged and `--reset-despite-landed-criteria` bypasses only gate 2 for in-project, external-home, and prior-stage trees.
+- [ ] `v2/src/commands/workflow.test.ts` in-project stale-reset tests stay green, and new tests prove `--reset-despite-landed-criteria` bypasses only gate 2 for in-project, external-home, and prior-stage trees.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

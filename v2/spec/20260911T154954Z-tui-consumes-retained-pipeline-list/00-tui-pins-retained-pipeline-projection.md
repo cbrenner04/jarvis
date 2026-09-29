@@ -25,7 +25,7 @@
 - [x] An attention-model test proves a terminal pipeline absent from a given result set contributes no gate, stage-failure, or publication-failure row, while pipelines present in the result keep their existing attention rows.
 - [x] `v2/src/tui/tui-entry.test.ts`'s existing snapshot-replacement tests ("a selected pipeline that leaves the snapshot clears the selection", "when a refresh drops the selected id from the selectable list, selectedNodeId clears") stay green, and a new assertion in that suite shows a successful refresh returning a strictly smaller pipeline set also drops the removed pipelines' descendants, work counts, and attention rows.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 
 ## Verification
 

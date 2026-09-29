@@ -10,9 +10,9 @@ name: pipeline-resume-preflights-dispatch-refusals
 
 ## Decisions
 
-- Before returning `resumed`/`admitted`, `pipeline resume` / `pipeline recover` evaluate the same pre-dispatch refusals the continuation would hit: dirty worktree, lane not descended from base, unresolved `## Blocker`.
-- A refusal known at admission exits non-zero with the verbatim reason on stderr, using the same structural-refusal response shape as `run resume`; no stage is dispatched.
-- Reuse the existing preflight checks; do not change the gates.
+- Before returning `resumed`/`admitted`, `pipeline resume` / `pipeline recover` evaluate the same pre-dispatch refusals the continuation would hit: dirty worktree, lane not descended from base, landed-criteria drift, unresolved `## Blocker`.
+- Admission preflight calls the same `maybeResetStaleWorkspace` refusal checks the re-dispatch uses (`v2/src/daemon/pipeline-execution.ts`) without resetting; a refusal returns an RPC error frame with the verbatim reason, printed by the existing RpcError→stderr path with a non-zero exit. No stage is dispatched.
+- Reuse the existing preflight checks; do not change the gates. `run resume` needs no change: its admission refusals already return RPC error frames.
 
 ## Acceptance criteria
 
@@ -28,5 +28,4 @@ name: pipeline-resume-preflights-dispatch-refusals
 
 ## Prerequisites
 
-- Plan after `run-resume-returns-admission-refusal` merges.
-- The daemon returns a typed structural admission refusal (verbatim reason) to the CLI, which exits non-zero with it on stderr.
+None.

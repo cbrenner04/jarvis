@@ -10,16 +10,13 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 
 Every other landed spec is archived under `completed/`.
 
-## Ready-intents (8 queued: 4 dispatchable, 4 not startable)
+## Ready-intents (5 queued: 3 dispatchable, 2 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
 | `repair-exhausted-error-names-site-and-killing-set` | **dispatchable** — chain D tail, unblocked by #4138; op spreads no site fields | — |
 | `pipeline-resume-resumes-resumable-implement-row` | **dispatchable** — unblocked by #4149 | — |
-| `run-resume-returns-admission-refusal` | **dispatchable** — resume-surfaces head (#4139) | — |
-| `run-projection-names-resume-refusal` | queued | `run-resume-returns-admission-refusal` |
-| `pipeline-resume-preflights-dispatch-refusals` | **dispatchable** — resume-surfaces head (#4139) | — |
-| `tui-surfaces-resume-refusal` | queued | `pipeline-resume-preflights-dispatch-refusals` |
+| `pipeline-resume-preflights-dispatch-refusals` | **dispatchable** — rewritten self-contained 2026-09-29 | — |
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 
@@ -55,6 +52,12 @@ P is the brief's priority. Issue is the intake issue where one exists.
 ## Open intake issues without a seed
 
 Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one still needing work. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
+
+## Reaped 2026-09-29
+
+| Item | Reason |
+| --- | --- |
+| ready-intents `run-resume-returns-admission-refusal`, `run-projection-names-resume-refusal`, `tui-surfaces-resume-refusal` | false premise: `run resume` never reaches the stale-reset gates; plan c5f09414 blocked on it |
 
 ## Reaped 2026-09-21
 

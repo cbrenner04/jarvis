@@ -1866,6 +1866,20 @@ describe("pipeline resume", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([expect.objectContaining({ params: { pipelineId } })]);
   });
 
+  test("pipeline resume prints stale-reset dispatch refusal on stderr and exits non-zero", async () => {
+    const refusal =
+      "Error: Cannot re-run incomplete spec: worktree has uncommitted changes (README.md); commit, discard local changes, pass --reset-despite-dirty on re-run, or run `jarvis cleanup --abandon <branch>` to retire the workspace, then re-run";
+    const cap = captureIo();
+
+    const code = await main(["pipeline", "resume", "pipe-dirty"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineErrorRpcClient("resume_dispatch_refused", refusal)),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `resume_dispatch_refused: ${refusal}\n` });
+  });
+
   test("pipeline resume forwards the branch positional as branchKey", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

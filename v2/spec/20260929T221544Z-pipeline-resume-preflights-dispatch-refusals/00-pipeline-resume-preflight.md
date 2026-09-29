@@ -18,11 +18,11 @@
 
 ## Acceptance criteria
 
-- [ ] A new daemon-handler test drives `pipeline_resume` against real git fixtures whose re-dispatch would be refused by, separately, a dirty worktree, a lane not descended from base, landed-criteria drift, and an unresolved `## Blocker` on a reopened plan stage; each returns an RPC error frame carrying the exact dispatch refusal line and dispatches no stage; fails against the pre-fix `resumed` outcome.
-- [ ] A CLI-level test shows `jarvis pipeline resume` on the dirty-worktree case prints the reason on stderr and exits non-zero; fails against the pre-fix exit 0.
-- [ ] Tests show `resetDespiteDirty` on the dirty-worktree case and `resetDespiteLandedCriteria` on the drift case each still admit (`resumed`).
-- [ ] The probe leaves worktree contents, branch, and HEAD unchanged (asserted in the dirty, not-descended, and rebase-eligible-clean-lane cases).
-- [ ] A test shows a clean, rebase-eligible lane admits (`resumed`) and the probe performs no rebase.
+- [x] A new daemon-handler test drives `pipeline_resume` against real git fixtures whose re-dispatch would be refused by, separately, a dirty worktree, a lane not descended from base, landed-criteria drift, and an unresolved `## Blocker` on a reopened plan stage; each returns an RPC error frame carrying the exact dispatch refusal line and dispatches no stage; fails against the pre-fix `resumed` outcome.
+- [x] A CLI-level test shows `jarvis pipeline resume` on the dirty-worktree case prints the reason on stderr and exits non-zero; fails against the pre-fix exit 0.
+- [x] Tests show `resetDespiteDirty` on the dirty-worktree case and `resetDespiteLandedCriteria` on the drift case each still admit (`resumed`).
+- [x] The probe leaves worktree contents, branch, and HEAD unchanged (asserted in the dirty, not-descended, and rebase-eligible-clean-lane cases).
+- [x] A test shows a clean, rebase-eligible lane admits (`resumed`) and the probe performs no rebase.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

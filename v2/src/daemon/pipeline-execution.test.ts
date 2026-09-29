@@ -87,6 +87,7 @@ import {
   resumeAwaitingClaimsOnly,
   resumeDeferredRefusalApplies,
   resumeFailedRequiresReopen,
+  probePipelineResumeRedispatchRefusal,
   resumePipeline,
   resumeReopenedPendingContinuation,
   resumeTerminalRefusalReason,
@@ -7307,14 +7308,14 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   const readyIntentContent = "---\nname: feature\n---\n\n## Prerequisites\n\n- none\n";
 
   function staleResetBundle(
-    rpc: { client: ReturnType<typeof makeIpcClient> },
+    rpc: { connectClient: () => Promise<ReturnType<typeof makeIpcClient>> },
     io: Io = { stdout: () => {}, stderr: () => {} },
     subprocessRunner: AsyncSubprocessRunner = ghPrListRunner([]),
   ) {
     return {
       cliDeps: { jarvisRoot, subprocessRunner } as unknown as CliDeps,
       io,
-      connectClient: async () => rpc.client,
+      connectClient: () => rpc.connectClient(),
     };
   }
 
@@ -7647,9 +7648,13 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     });
   }
 
-  /** An in-process daemon RPC client wired to real `list`/`check_workflow_start_claim` handlers
-   * against a fresh real `StateStore` — not a loopback socket connection. */
-  function daemonRpcClient(): { client: ReturnType<typeof makeIpcClient>; close: () => void } {
+  /** In-process daemon RPC clients wired to real `list`/`check_workflow_start_claim` handlers
+   * against a fresh real `StateStore` — not loopback sockets. Each `connectClient()` is a new client
+   * so admission probe can close its connection without breaking dispatch. */
+  function daemonRpcClient(): {
+    connectClient: () => Promise<ReturnType<typeof makeIpcClient>>;
+    close: () => void;
+  } {
     const stateStore = openStateStore(join(tmp, `state-${crypto.randomUUID()}.sqlite`));
     const logsPath = join(tmp, `logs-${crypto.randomUUID()}.jsonl`);
     const handlers = createRunControlHandlers({
@@ -7662,32 +7667,35 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       logsPath,
       logReader: openLogReader(logsPath),
     });
-    const client = makeIpcClient([], { gated: true, deferred: true });
-    const send = client.send.bind(client);
-    client.send = (frame: unknown): void => {
-      send(frame);
-      const request = frame as { id?: string; method?: string; params?: unknown };
-      if (typeof request.id !== "string" || typeof request.method !== "string") return;
-      const requestId = request.id;
-      const handler = request.method === "list" ? handlers.list : handlers.check_workflow_start_claim;
-      void Promise.resolve(
-        handler(
-          { kind: "request", id: requestId, method: request.method, params: request.params },
-          new AbortController().signal,
-        ),
-      )
-        .then((response) => client.push({ ...response, id: requestId }))
-        .catch((error: unknown) =>
-          client.push({
-            kind: "error",
-            id: requestId,
-            code: "internal_error",
-            message: error instanceof Error ? error.message : String(error),
-          }),
-        );
+    const connectClient = async (): Promise<ReturnType<typeof makeIpcClient>> => {
+      const client = makeIpcClient([], { gated: true, deferred: true });
+      const send = client.send.bind(client);
+      client.send = (frame: unknown): void => {
+        send(frame);
+        const request = frame as { id?: string; method?: string; params?: unknown };
+        if (typeof request.id !== "string" || typeof request.method !== "string") return;
+        const requestId = request.id;
+        const handler = request.method === "list" ? handlers.list : handlers.check_workflow_start_claim;
+        void Promise.resolve(
+          handler(
+            { kind: "request", id: requestId, method: request.method, params: request.params },
+            new AbortController().signal,
+          ),
+        )
+          .then((response) => client.push({ ...response, id: requestId }))
+          .catch((error: unknown) =>
+            client.push({
+              kind: "error",
+              id: requestId,
+              code: "internal_error",
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          );
+      };
+      return client;
     };
     return {
-      client,
+      connectClient,
       close: () => {
         handlers.close();
         stateStore.close();
@@ -7735,7 +7743,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  test("pipeline intent-stage stale-reset refusal fails stage without dispatch", async () => {
+  test("pipeline intent-stage stale-reset refusal returns dispatch_refused without dispatch", async () => {
     const worktreePath = await materializeWorktree(intentBranch);
     writeFileSync(join(worktreePath, "README.md"), "dirty\n", "utf8");
 
@@ -7762,11 +7770,11 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         staleResetPreflight: staleResetBundle(rpc),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      expect(outcome.kind === "dispatch_refused" && outcome.message).toContain("Cannot re-run incomplete spec");
       expect(dispatchCalled).toBe(false);
       const record = stages().find((s) => s.stageId === "s1");
-      expect(record?.status).toBe("failed");
-      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
+      expect(record?.status).toBe("pending");
       expect(existsSync(worktreePath)).toBe(true);
     } finally {
       rpc.close();
@@ -7978,13 +7986,15 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         }),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot re-run incomplete spec");
+      expect(refusalLine).toContain("README.md");
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
       expect(readFileSync(join(planWorktree, "README.md"), "utf8")).toBe("operator edit\n");
-      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
-      expect(stderr).toContain("README.md");
-      expect(detail).toContain("README.md");
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8018,7 +8028,9 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       wait: async () => "completed",
       resolveStage: resolveStageWithFixedPlanSteps,
       staleResetPreflight: {
-        ...staleResetBundle({ client: makeIpcClient([], { gated: true, deferred: true }) }),
+        ...staleResetBundle({
+          connectClient: async () => makeIpcClient([], { gated: true, deferred: true }),
+        }),
         connectClient: async () => {
           throw new Error("EMFILE: too many open files");
         },
@@ -8343,17 +8355,18 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         ),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot redraft failed plan stage");
+      expect(refusalLine).toContain("never-landed classification is inconclusive");
+      expect(refusalLine).toContain("gh is unreachable from this environment");
+      expect(refusalLine).toContain("outside the agent sandbox");
+      expect(refusalLine).not.toContain("retired-and-rematerialized from base");
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
       expect(existsSync(join(planWorktree, ".jarvis-plan-stage", "intent.md"))).toBe(true);
-      expect(stderr).toContain("never-landed classification is inconclusive");
-      expect(stderr).toContain("gh is unreachable from this environment");
-      expect(stderr).toContain("outside the agent sandbox");
-      expect(stderr).not.toContain("retired-and-rematerialized from base");
-      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
-      expect(detail).toContain("never-landed classification is inconclusive");
-      expect(detail).toContain("gh is unreachable from this environment");
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8531,14 +8544,15 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         }),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot redraft failed plan stage");
+      expect(refusalLine).toContain("operator blocker");
+      expect(refusalLine).toContain(stagedIntentPath);
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
-      expect(stderr).toContain("operator blocker");
-      expect(stderr).toContain(stagedIntentPath);
-      expect(detail).toContain("operator blocker");
-      expect(detail).toContain(stagedIntentPath);
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8591,14 +8605,15 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         ),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot redraft failed plan stage");
+      expect(refusalLine).toContain("operator blocker");
+      expect(refusalLine).toContain(stagedIntentPath);
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
-      expect(stderr).toContain("operator blocker");
-      expect(stderr).toContain(stagedIntentPath);
-      expect(detail).toContain("operator blocker");
-      expect(detail).toContain(stagedIntentPath);
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8653,13 +8668,14 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         }),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot redraft failed plan stage");
+      expect(refusalLine).toContain("operator blocker");
+      expect(refusalLine).toContain(stagedIntentPath);
       expect(dispatchCalled).toBe(false);
-      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
-      expect(stderr).toContain("operator blocker");
-      expect(stderr).toContain(stagedIntentPath);
-      expect(detail).toContain("operator blocker");
-      expect(detail).toContain(stagedIntentPath);
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8710,11 +8726,13 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         }),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
-      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
-      expect(stderr).toContain("operator blocker");
-      expect(stderr).toContain(stagedIntentPath);
-      expect(detail).toContain(stagedIntentPath);
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot redraft failed plan stage");
+      expect(refusalLine).toContain("operator blocker");
+      expect(refusalLine).toContain(stagedIntentPath);
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8781,18 +8799,20 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         { resetDespiteDirty: true, resetDespiteLandedCriteria: true },
       );
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       if (guard === "harness-only blocker") {
+        expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
         expect(dispatchCalled).toBe(true);
         expect(stageRecord(stages(), "plan")?.status).toBe("succeeded");
         return;
       }
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot re-run incomplete spec");
+      expect(refusalLine).toContain("worktree lock");
       expect(dispatchCalled).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      const detail = stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail) ?? "";
-      const expected = guard === "live worktree claim" ? "worktree lock" : "operator blocker";
-      expect(stderr).toContain(expected);
-      expect(detail).toContain(expected);
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8927,13 +8947,14 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         { resetDespiteDirty: true },
       );
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot re-run incomplete spec");
+      expect(refusalLine).toContain("acceptance criteria ticked");
       expect(dispatched).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      expect(stderr).toContain("acceptance criteria ticked");
-      expect(stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail)).toContain(
-        "acceptance criteria ticked",
-      );
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
@@ -8996,19 +9017,20 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         ),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      const refusalLine = outcome.kind === "dispatch_refused" ? outcome.message : "";
+      expect(refusalLine).toContain("Cannot re-run incomplete spec");
+      expect(refusalLine).toContain("acceptance criteria ticked");
       expect(dispatched).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      expect(stderr).toContain("acceptance criteria ticked");
-      expect(stageFailureObservation(stageRecord(stages(), "plan")?.failureDetail)).toContain(
-        "acceptance criteria ticked",
-      );
+      expect(stageRecord(stages(), "plan")?.status).toBe("pending");
+      expect(stderr).toBe("");
     } finally {
       rpc.close();
     }
   });
 
-  test("pipeline implement-stage stale-reset refusal fails stage without dispatch", async () => {
+  test("pipeline implement-stage stale-reset refusal returns dispatch_refused without dispatch", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
@@ -9051,11 +9073,11 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         staleResetPreflight: staleResetBundle(rpc),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      expect(outcome.kind === "dispatch_refused" && outcome.message).toContain("Cannot re-run incomplete spec");
       expect(dispatchCalled).toBe(false);
       const record = stageRecord(stages(), "implement");
-      expect(record?.status).toBe("failed");
-      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
+      expect(record?.status).toBe("pending");
       expect(existsSync(implementWorktree)).toBe(true);
     } finally {
       rpc.close();
@@ -9168,11 +9190,11 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         staleResetPreflight: staleResetBundle(rpc),
       });
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      expect(outcome.kind === "dispatch_refused" && outcome.message).toContain("Cannot re-run incomplete spec");
       expect(dispatchCalled).toBe(false);
       const record = stageRecord(stages(), "implement");
-      expect(record?.status).toBe("failed");
-      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
+      expect(record?.status).toBe("pending");
       expect(existsSync(implementWorktree)).toBe(true);
     } finally {
       rpc.close();
@@ -9279,11 +9301,11 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         { resetDespiteLandedCriteria: true },
       );
 
-      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(outcome).toMatchObject({ kind: "dispatch_refused", pipelineId: PIPELINE_ID });
+      expect(outcome.kind === "dispatch_refused" && outcome.message).toContain("Cannot re-run incomplete spec");
       expect(dispatchCalled).toBe(false);
       const record = stageRecord(stages(), "implement");
-      expect(record?.status).toBe("failed");
-      expect(stageFailureObservation(record?.failureDetail)).toContain("Cannot re-run incomplete spec");
+      expect(record?.status).toBe("pending");
       expect(existsSync(implementWorktree)).toBe(true);
     } finally {
       rpc.close();
@@ -9353,6 +9375,104 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
+  test("resume redispatch probe preserves worktree head and branch on dirty refusal", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(join(planWorktree, "README.md"), "dirty\n", "utf8");
+
+    const { store } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+    store.reopenFailedPipeline({ pipelineId: PIPELINE_ID });
+
+    const rpc = daemonRpcClient();
+    const headBefore = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], planWorktree)).trim();
+    const branchBefore = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], planWorktree)
+    ).trim();
+    try {
+      const refusal = await probePipelineResumeRedispatchRefusal(
+        PIPELINE_ID,
+        {
+          store,
+          dispatch: async () => ({ ok: true, entryRunId: "run-plan", invocationId: "inv-plan" }),
+          wait: async () => "completed",
+          resolveStage: resolveStageWithFixedPlanSteps,
+          staleResetPreflight: staleResetBundle(rpc),
+        },
+        {},
+      );
+      expect(refusal?.message).toContain("Cannot re-run incomplete spec");
+      const headAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], planWorktree)).trim();
+      const branchAfter = (
+        await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], planWorktree)
+      ).trim();
+      expect(headAfter).toBe(headBefore);
+      expect(branchAfter).toBe(branchBefore);
+      expect(readFileSync(join(planWorktree, "README.md"), "utf8")).toBe("dirty\n");
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("resume redispatch probe does not rebase a clean continuation-eligible plan lane", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(join(planWorktree, "impl.txt"), "lane work\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "impl.txt"], planWorktree);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "ahead"], planWorktree);
+
+    const { store } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+    store.reopenFailedPipeline({ pipelineId: PIPELINE_ID });
+
+    const rpc = daemonRpcClient();
+    const headBefore = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], planWorktree)).trim();
+    try {
+      const refusal = await probePipelineResumeRedispatchRefusal(
+        PIPELINE_ID,
+        {
+          store,
+          dispatch: async () => ({ ok: true, entryRunId: "run-plan", invocationId: "inv-plan" }),
+          wait: async () => "completed",
+          resolveStage: resolveStageWithFixedPlanSteps,
+          staleResetPreflight: staleResetBundle(rpc),
+        },
+        {},
+      );
+      expect(refusal).toBeUndefined();
+      const headAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], planWorktree)).trim();
+      expect(headAfter).toBe(headBefore);
+    } finally {
+      rpc.close();
+    }
+  });
+
   test("intent-stage preflight fails open when the daemon cannot open its own control socket", async () => {
     const worktreePath = await materializeWorktree(intentBranch);
     writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
@@ -9376,7 +9496,9 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       wait: async () => "completed",
       resolveStage: resolveStageWithFixedIntentSteps,
       staleResetPreflight: {
-        ...staleResetBundle({ client: makeIpcClient([], { gated: true, deferred: true }) }),
+        ...staleResetBundle({
+          connectClient: async () => makeIpcClient([], { gated: true, deferred: true }),
+        }),
         connectClient: async () => {
           throw new Error("EMFILE: too many open files");
         },

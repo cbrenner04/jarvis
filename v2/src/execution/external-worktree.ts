@@ -259,7 +259,7 @@ async function ensureExternalWorktree(
     reconcileNodeModulesLink(args.projectRoot, worktreePath);
     return { path: worktreePath, reused: false };
   } catch (error) {
-    throw new WorktreeMaterializationError(worktreePath, error);
+    throw error instanceof WorktreeMaterializationError ? error : new WorktreeMaterializationError(worktreePath, error);
   }
 }
 

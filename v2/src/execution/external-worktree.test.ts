@@ -316,6 +316,37 @@ describe("external worktree node_modules reconciliation", () => {
     expect(callbackLink).toBe(join(repoRoot, "node_modules"));
   });
 
+  for (const kind of ["file", "directory"] as const) {
+    test(`reuse path refuses a ${kind} collision and leaves it intact`, async () => {
+      const { repoRoot, jarvisRoot, runner } = setupMockRepo();
+      const input = makeInput(jarvisRoot, repoRoot);
+      const first = await withExternalWorktree(input, (w) => w.path, runner);
+      const linkPath = join(first.value, "node_modules");
+      rmSync(linkPath);
+      if (kind === "file") writeFileSync(linkPath, "tracked");
+      else mkdirSync(linkPath);
+      let callbackRan = false;
+      const attempt = withExternalWorktree(
+        input,
+        () => {
+          callbackRan = true;
+        },
+        runner,
+      );
+      await expect(attempt).rejects.toBeInstanceOf(WorktreeMaterializationError);
+      const message = await attempt.then(
+        () => "",
+        (e: Error) => e.message,
+      );
+      expect(message).toContain(linkPath);
+      expect(message).toContain(kind);
+      expect(message).toContain(join(repoRoot, "node_modules"));
+      expect(callbackRan).toBe(false);
+      expect(lstatSync(linkPath).isSymbolicLink()).toBe(false);
+      expect(lstatSync(linkPath).isDirectory()).toBe(kind === "directory");
+    });
+  }
+
   test("reuse path corrects a wrong-target link", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
     const input = makeInput(jarvisRoot, repoRoot);

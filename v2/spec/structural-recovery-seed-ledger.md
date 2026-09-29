@@ -47,6 +47,7 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
+| `reopened-implement-rolls-up-killed-without-review-row` | P1 | — | new 2026-09-29; stranded shard lane (`f13b29a3`) at false `resumable_kill` over a ready PR |
 
 ## Open intake issues without a seed
 

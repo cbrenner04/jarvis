@@ -6114,6 +6114,23 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(withLeftover.paths).toEqual(expect.arrayContaining(["leftover.txt"]));
     expect(withLeftover.paths).not.toContain("node_modules");
   });
+
+  test("listDirtyWorktreePathsForStaleReset treats a broken gitfile worktree as not-git-repository", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-broken-gitfile-"));
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], root);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], root);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], root);
+    writeFileSync(join(root, "README.md"), "seed\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], root);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "seed"], root);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "lane"], root);
+    const worktreePath = join(root, "wt");
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, "lane"], root);
+    writeFileSync(join(worktreePath, ".git"), "gitdir: /nonexistent\n", "utf8");
+    expect(await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner)).toEqual({
+      status: "not-git-repository",
+    });
+  });
 });
 
 type MergedBranchGhPr = {

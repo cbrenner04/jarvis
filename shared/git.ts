@@ -275,3 +275,20 @@ export async function getCurrentHeadAsync(
 ): Promise<string> {
   return (await runner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
 }
+
+/** Git stderr/messages that mean a path is not a usable worktree (husk), not an arbitrary probe failure. */
+export function gitCommandIndicatesManagedWorktreeHusk(combinedOutput: string): boolean {
+  return (
+    combinedOutput.includes("not a git repository") ||
+    combinedOutput.includes("gitfile does not point to a valid repository")
+  );
+}
+
+export function errorIndicatesManagedWorktreeHusk(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const stderr =
+    typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
+      ? (error as { stderr: string }).stderr
+      : "";
+  return gitCommandIndicatesManagedWorktreeHusk(`${message}\n${stderr}`);
+}

@@ -1,7 +1,12 @@
 import { existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
-import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
+import {
+  branchExistsLocalAsync,
+  branchExistsOnOriginAsync,
+  getCurrentBranchAsync,
+  gitCommandIndicatesManagedWorktreeHusk,
+} from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome, managedWorktreePath } from "../paths.ts";
@@ -264,7 +269,7 @@ async function classifyGitWorktree(worktreePath: string, runner: AsyncSubprocess
       ? "worktree"
       : "not-worktree";
   } catch (error) {
-    return error instanceof Error && error.message.includes("not a git repository") ? "not-worktree" : "unknown";
+    return error instanceof Error && gitCommandIndicatesManagedWorktreeHusk(error.message) ? "not-worktree" : "unknown";
   }
 }
 

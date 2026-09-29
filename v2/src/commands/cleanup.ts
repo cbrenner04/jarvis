@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
+  errorIndicatesManagedWorktreeHusk,
   getBaseBranch,
   getCurrentBranchAsync,
   getGitStatusInventory,
@@ -2854,17 +2855,8 @@ export async function listDirtyWorktreePathsForStaleReset(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("Malformed git status inventory:")) return { status: "dirty", paths: [] };
-    return hasNotGitRepositoryDiagnostic(err) ? { status: "not-git-repository" } : { status: "error", message };
+    return errorIndicatesManagedWorktreeHusk(err) ? { status: "not-git-repository" } : { status: "error", message };
   }
-}
-
-function hasNotGitRepositoryDiagnostic(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const stderr =
-    typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
-      ? (error as { stderr: string }).stderr
-      : "";
-  return `${message}\n${stderr}`.includes("not a git repository");
 }
 
 export function staleResetDirtyWorktreeGateReason(

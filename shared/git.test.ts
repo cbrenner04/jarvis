@@ -8,6 +8,7 @@ import {
   branchExistsOnOrigin,
   getCurrentBranch,
   getGitStatusInventory,
+  gitCommandIndicatesManagedWorktreeHusk,
   isWorktreeDirty,
 } from "./git.ts";
 import type { AsyncSubprocessRunner, SubprocessRunner } from "./subprocess.ts";
@@ -134,6 +135,18 @@ describe("getGitStatusInventory", () => {
       "missing rename or copy origin",
     );
     await expect(getGitStatusInventory("/repo", fakeAsyncRunner(" M path"))).rejects.toThrow("missing terminal NUL");
+  });
+});
+
+describe("gitCommandIndicatesManagedWorktreeHusk", () => {
+  test("recognizes classic and gitfile husk diagnostics", () => {
+    expect(
+      gitCommandIndicatesManagedWorktreeHusk("fatal: not a git repository (or any of the parent directories): .git"),
+    ).toBe(true);
+    expect(
+      gitCommandIndicatesManagedWorktreeHusk("fatal: gitfile does not point to a valid repository: /wt/.git"),
+    ).toBe(true);
+    expect(gitCommandIndicatesManagedWorktreeHusk("fatal: validation probe failed")).toBe(false);
   });
 });
 

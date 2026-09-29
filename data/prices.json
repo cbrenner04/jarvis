@@ -9,6 +9,14 @@
       "source_url": "https://www.anthropic.com/pricing",
       "as_of": "2026-07-24"
     },
+    "claude-opus-5-5": {
+      "input_per_mtok": 4.0,
+      "output_per_mtok": 20.0,
+      "cache_read_per_mtok": 0.2,
+      "cache_write_per_mtok": 5.0,
+      "source_url": "https://www.anthropic.com/pricing",
+      "as_of": "2026-09-29"
+    },
     "claude-opus-4-8": {
       "input_per_mtok": 5.0,
       "output_per_mtok": 25.0,
@@ -26,12 +34,20 @@
       "as_of": "2026-06-06"
     },
     "claude-sonnet-5": {
-      "input_per_mtok": 3.0,
-      "output_per_mtok": 15.0,
-      "cache_read_per_mtok": 0.3,
-      "cache_write_per_mtok": 3.75,
+      "input_per_mtok": 2.0,
+      "output_per_mtok": 10.0,
+      "cache_read_per_mtok": 0.2,
+      "cache_write_per_mtok": 2.5,
       "source_url": "https://www.anthropic.com/pricing",
-      "as_of": "2026-07-03"
+      "as_of": "2026-09-29"
+    },
+    "claude-sonnet-5-5": {
+      "input_per_mtok": 2.0,
+      "output_per_mtok": 10.0,
+      "cache_read_per_mtok": 0.2,
+      "cache_write_per_mtok": 2.5,
+      "source_url": "https://www.anthropic.com/pricing",
+      "as_of": "2026-09-29"
     },
     "claude-haiku-4-5-20251001": {
       "input_per_mtok": 1.0,
@@ -70,11 +86,11 @@
       "as_of": "2026-06-06"
     },
     "gpt-5.6-terra": {
-      "input_per_mtok": 2.5,
-      "output_per_mtok": 15.0,
-      "cache_read_per_mtok": 0.25,
+      "input_per_mtok": 2.0,
+      "output_per_mtok": 12.0,
+      "cache_read_per_mtok": 0.2,
       "source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
-      "as_of": "2026-06-06"
+      "as_of": "2026-09-29"
     },
     "gpt-5.6-luna": {
       "input_per_mtok": 1.0,
@@ -82,6 +98,13 @@
       "cache_read_per_mtok": 0.1,
       "source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
       "as_of": "2026-06-06"
+    },
+    "gpt-6.1-sol": {
+      "input_per_mtok": 2.0,
+      "output_per_mtok": 10.0,
+      "cache_read_per_mtok": 0.1,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "as_of": "2026-09-29"
     },
     "Composer 2": {
       "input_per_mtok": 0.5,

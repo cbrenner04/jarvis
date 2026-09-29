@@ -28,8 +28,11 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import {
   buildTreeRunRow,
+  joinMonitorRow,
   monitorDockLines,
+  monitorLeftPaneAttentionRows,
   monitorLeftPaneTreeRows,
+  monitorLeftPaneWorkHeadingRows,
   monitorSelectableNodeIds,
   monitorTextLines,
 } from "./tui-monitor-lines.ts";
@@ -384,6 +387,21 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
     },
   ],
 };
+
+function terminalAttentionPipeline(pipelineId: string): PipelineSnapshot {
+  return {
+    ...PIPELINE_SNAPSHOT_ATTENTION_GATES,
+    pipelineId,
+    state: "failed",
+    terminalAction: "merge",
+    terminalPublicationFailure: { terminalAction: "merge", failure: { operation: "merge", message: "conflict" } },
+    finishedAtMs: 1_699_999_994_000,
+    stages: PIPELINE_SNAPSHOT_ATTENTION_GATES.stages.map((stage) => ({
+      ...stage,
+      id: `${stage.id}-${pipelineId}`,
+    })),
+  };
+}
 
 const ATTENTION_FAILED_RUN: DaemonListRunRow = {
   runId: "run-attn-failed",
@@ -2129,6 +2147,64 @@ describe("runTuiEntry", () => {
 
     view.quit();
     await pending;
+  });
+
+  test("work-tree model renders the complete pipeline_list result without its own retention filter", () => {
+    const pipelines: PipelineSnapshot[] = Array.from({ length: 52 }, (_, index) => {
+      const running = index === 51;
+      return {
+        pipelineId: `pipe-retained-${index}`,
+        name: `pipeline-${index}`,
+        state: running ? "running" : "succeeded",
+        terminalPublicationSucceededAt: null,
+        terminalPublicationFailure: null,
+        createdAt: index,
+        finishedAtMs: running ? null : index + 1,
+        dismissedAt: null,
+        stages: [],
+      };
+    });
+    const state: TuiMonitorState = {
+      runs: [],
+      selectedNodeId: null,
+      steeringFeedback: null,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines } },
+    };
+    const layout = computeShellLayout(245, 72, 0);
+    const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+    const pipelineIds = fullTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id);
+
+    expect(pipelineIds).toHaveLength(pipelines.length);
+    expect(new Set(pipelineIds)).toEqual(new Set(pipelines.map((pipeline) => pipeline.pipelineId)));
+    expect(pipelineIds).toContain("pipe-retained-0");
+    expect(pipelineIds).toContain("pipe-retained-51");
+    expect(monitorLeftPaneWorkHeadingRows(state).map(joinMonitorRow)).toEqual(["── Work (52) ──"]);
+  });
+
+  test("attention model only projects incidents from pipelines in the pipeline_list result", () => {
+    const omitted = terminalAttentionPipeline("pipe-omitted");
+    const retained = terminalAttentionPipeline("pipe-retained");
+    const rowIds = (pipelines: PipelineSnapshot[]) =>
+      buildAttentionRows({ "/tmp/test.sock": { pipelines } }, [], {}, WORKFLOW_FILTER_NOW_MS).rows.map((row) => row.id);
+    const omittedIds = [
+      "attention:gate:pipe-omitted:approve-intent:default",
+      "attention:gate:pipe-omitted:approve-plan:default",
+      "attention:stage:pipe-omitted:plan:default",
+      "attention:publication:pipe-omitted",
+    ];
+    const retainedIds = [
+      "attention:gate:pipe-retained:approve-intent:default",
+      "attention:gate:pipe-retained:approve-plan:default",
+      "attention:stage:pipe-retained:plan:default",
+      "attention:publication:pipe-retained",
+    ];
+
+    const allRows = rowIds([omitted, retained]);
+    expect(allRows).toEqual(expect.arrayContaining([...omittedIds, ...retainedIds]));
+
+    const retainedRows = rowIds([retained]);
+    expect(retainedRows).toEqual(expect.arrayContaining(retainedIds));
+    expect(retainedRows.some((rowId) => rowId.includes(omitted.pipelineId))).toBe(false);
   });
 
   test("invocation identity carries the invoking digest-keyed socket through selection", async () => {
@@ -3887,6 +3963,61 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
+  test("a smaller pipeline_list result replaces descendants, work counts, and attention", async () => {
+    const removed = terminalAttentionPipeline("pipe-removed");
+    const retained = PIPELINE_SNAPSHOT_ALPHA;
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }, { runs: [] }],
+        pipelineListResponses: [{ pipelines: [removed, retained] }, { pipelines: [retained] }],
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: 245, rows: 72 }),
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode(removed.pipelineId);
+    await view.toggleExpansion();
+
+    const initialState = view.monitorStates.at(-1);
+    if (initialState === undefined) throw new Error("expected initial monitor state");
+    const layout = computeShellLayout(245, 72, 0);
+    const initialRows = monitorLeftPaneTreeRows(initialState, layout, WORKFLOW_FILTER_NOW_MS).fullTreeRows;
+    const removedStageIds = removed.stages.map((stage) =>
+      monitorPipelineStageNodeId(removed.pipelineId, stage.stageId, stage.branchKey),
+    );
+    expect(initialRows.map((row) => row.id)).toEqual(expect.arrayContaining([removed.pipelineId, ...removedStageIds]));
+    expect(monitorLeftPaneWorkHeadingRows(initialState).map(joinMonitorRow)).toEqual(["── Work (2) ──"]);
+    expect(monitorLeftPaneAttentionRows(initialState, WORKFLOW_FILTER_NOW_MS).map(joinMonitorRow).join("\n")).toContain(
+      "full-review",
+    );
+
+    // Complements the selection-replacement pins by checking every pipeline-backed projection.
+    await flushIntervalTick(refresh);
+
+    const refreshedState = view.monitorStates.at(-1);
+    if (refreshedState === undefined) throw new Error("expected refreshed monitor state");
+    expect(refreshedState.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [retained] });
+    const refreshedRowIds = monitorLeftPaneTreeRows(refreshedState, layout, WORKFLOW_FILTER_NOW_MS).fullTreeRows.map(
+      (row) => row.id,
+    );
+    expect(refreshedRowIds.some((rowId) => rowId.includes(removed.pipelineId))).toBe(false);
+    expect(monitorLeftPaneWorkHeadingRows(refreshedState).map(joinMonitorRow)).toEqual(["── Work (1) ──"]);
+    expect(monitorLeftPaneAttentionRows(refreshedState, WORKFLOW_FILTER_NOW_MS)).toEqual([]);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
   test("display tick advances running work but not parked work without additional list or pipeline_list RPC", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();
@@ -5049,6 +5180,7 @@ describe("runTuiEntry", () => {
     try {
       await view.waitUntilOpen();
       await flush();
+      // Exact request shapes pin the retained default projection: no history/state selector is sent.
       expect(clientOptions.pipelineListRequests).toEqual([{ includeDismissed: false }]);
       await view.toggleShowDismissedAndFlush();
       expect(clientOptions.pipelineListRequests).toEqual([{ includeDismissed: false }, { includeDismissed: true }]);
@@ -5070,6 +5202,7 @@ describe("runTuiEntry", () => {
       await view.toggleShowDismissedAndFlush();
       expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("pipe-dismissed");
       await view.toggleShowDismissedAndFlush();
+      // The off toggle returns to the same unqualified retained projection.
       expect(clientOptions.pipelineListRequests?.at(-1)).toEqual({ includeDismissed: false });
       expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("pipe-dismissed");
     } finally {

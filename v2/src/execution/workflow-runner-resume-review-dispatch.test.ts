@@ -9,7 +9,7 @@ import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import { openLogReader, openLogSink, type LoopFinishedEvent } from "../persistence/log-stream.ts";
+import { type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";

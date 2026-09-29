@@ -20,15 +20,13 @@ Every other landed spec is archived under `completed/`.
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 
-## Seeds (23)
+## Seeds (21)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
 | `capture-token-usage-on-failed-invocations` | P2 | — | open (#4080); usage fields live on `InvocationOk` only, so failed calls are unpriced |
-| `retention-tiers-for-session-logs-and-telemetry` | P1 | — | open; sequence after `cleanup-reaps-orphan-session-logs` (landed #4086) |
-| `worktree-materialization-fails-on-committed-node-modules-symlink` | P1 | #4003 | half landed (#3022 completion-side exclusion); link-path `lstat` and iteration-commit pathspec remain |
 | `review-roles-check-falsifiability-not-plausibility` | P2 | — | open; no falsifiability mandate in `prompts/implement/review-*.md` |
 | `implement-respects-target-repo-doc-layout` | P2 | #3426 | open; leak 3 closed by #4029; `intent-split.test.ts` pins leak 1 |
 | `intent-split-covers-sibling-repo-surfaces` | P2 | #3439 | re-scoped to split-internal prerequisite consistency (`siblings` was v1-only) |

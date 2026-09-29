@@ -10,7 +10,7 @@ Every telemetry producer appends forever to `~/.jarvis/telemetry.jsonl`, so the 
 
 ## Behavior
 
-All telemetry producers append the current UTC month to `telemetry.jsonl`. The first append after a month boundary closes the prior file as `telemetry/<YYYY-MM>.jsonl.gz` and starts a new current file. Closed months are retained, never included in cleanup deletion, and remain readable with standard gzip tooling. Sink path and clock remain injectable.
+All telemetry producers append the current UTC month to `telemetry.jsonl`. Before an append, a restarted writer determines the existing current file's month from its UTC mtime; when it differs from the clock month, it closes that file as `telemetry/<mtime YYYY-MM>.jsonl.gz` and starts a new current file. Skipped months produce no archive. Closed months are retained, never included in cleanup deletion, and remain readable with standard gzip tooling. Sink path and clock remain injectable.
 
 ## Primary implementation surface
 
@@ -18,7 +18,7 @@ All telemetry producers append the current UTC month to `telemetry.jsonl`. The f
 
 ## Acceptance criteria
 
-- [ ] Telemetry-sink tests with an injected clock and `JARVIS_HOME` fail against the unbounded sink and pin same-month append, one-time boundary roll, gzip contents, closed-month retention, and both record kinds using the same rolling behavior.
+- [ ] Telemetry-sink tests with an injected clock and `JARVIS_HOME` fail against the unbounded sink and pin same-month append, one-time boundary roll, restarted and skipped-month rolls named from the current file's UTC mtime, gzip contents, closed-month retention, and both record kinds using the same rolling behavior.
 - [ ] Cleanup tests pin that closed telemetry archives are never deleted.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

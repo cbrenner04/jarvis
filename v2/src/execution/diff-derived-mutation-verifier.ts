@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
@@ -12,12 +12,13 @@ import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shar
 import {
   type ChangedLine,
   changedPathsFromDiff,
+  type DiffFlipSkipContext,
   defaultGitDiff,
   defaultReadFile,
   defaultUntrackedFiles,
   isCodePath,
   isProductionFile,
-  parseDiff,
+  parseDiffWithFlipSkip,
 } from "./diff-scan.ts";
 import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
 import { type KillingTestPaths, killingTestPaths } from "./test-scope.ts";
@@ -700,11 +701,67 @@ const COMPARISON_OPERATOR_KINDS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.GreaterThanEqualsToken,
 ]);
 
+const FLIP_SKIP_TOKEN_PATTERN =
+  />>>|>>|<<|===|!==|==|!=|<=|>=|&&|\|\||[+\-*/%&|^~!<>=?:;,.[\]{}()]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[a-zA-Z_$][\w$]*/g;
+
+function whitespaceNormalizedFlipSkipTokens(text: string): string[] {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  if (normalized.length === 0) return [];
+  return normalized.match(FLIP_SKIP_TOKEN_PATTERN) ?? [];
+}
+
+function spanIsUnconsumed(start: number, length: number, consumed: readonly boolean[] | undefined): boolean {
+  if (consumed === undefined) return true;
+  for (let offset = 0; offset < length; offset += 1) {
+    if (consumed[start + offset] === true) return false;
+  }
+  return true;
+}
+
+/**
+ * Index where `needle` occurs in order and contiguously in `haystack` (skipping spans that touch a
+ * `consumed` position), or -1. Order matters: `a > b` never matches `b > a`.
+ */
+function contiguousTokenMatchStart(
+  needle: readonly string[],
+  haystack: readonly string[],
+  consumed?: readonly boolean[],
+): number {
+  if (needle.length === 0) return -1;
+  for (let start = 0; start + needle.length <= haystack.length; start += 1) {
+    if (
+      needle.every((token, offset) => haystack[start + offset] === token) &&
+      spanIsUnconsumed(start, needle.length, consumed)
+    ) {
+      return start;
+    }
+  }
+  return -1;
+}
+
+function removedTokensForHunk(flipSkip: DiffFlipSkipContext, hunkKey: string): string[] {
+  const tokens: string[] = [];
+  for (const line of flipSkip.removedLineContentsByHunkKey.get(hunkKey) ?? []) {
+    tokens.push(...whitespaceNormalizedFlipSkipTokens(line));
+  }
+  return tokens;
+}
+
+function operatorFlipCandidateTokens(node: ts.BinaryExpression, sourceFile: ts.SourceFile): string[] {
+  const operator = node.operatorToken.getText(sourceFile);
+  return [
+    ...whitespaceNormalizedFlipSkipTokens(node.left.getText(sourceFile)),
+    ...whitespaceNormalizedFlipSkipTokens(operator),
+    ...whitespaceNormalizedFlipSkipTokens(node.right.getText(sourceFile)),
+  ];
+}
+
 function deriveOperatorMutations(
   file: string,
   source: string,
   changedLineNumbers: ReadonlySet<number>,
   candidates: Candidate[],
+  shouldSkipFlip: (line: number, candidateTokens: readonly string[]) => boolean,
 ): void {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
@@ -714,6 +771,10 @@ function deriveOperatorMutations(
       const position = sourceFile.getLineAndCharacterOfPosition(start);
       const line = position.line + 1;
       if (!changedLineNumbers.has(line)) {
+        ts.forEachChild(node, visit);
+        return;
+      }
+      if (shouldSkipFlip(line, operatorFlipCandidateTokens(node, sourceFile))) {
         ts.forEachChild(node, visit);
         return;
       }
@@ -735,6 +796,75 @@ function deriveOperatorMutations(
   visit(sourceFile);
 }
 
+function unwrapParenthesizedExpression(node: ts.Node): ts.Node {
+  let current = node;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function descendPastLeadingNegationChain(start: ts.Node): ts.Node {
+  let inner = start;
+  while (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken) {
+    inner = unwrapParenthesizedExpression(inner.operand);
+  }
+  return inner;
+}
+
+function guardFlipChangedLineSpan(
+  node: ts.PrefixUnaryExpression,
+  sourceFile: ts.SourceFile,
+  changedLineNumbers: ReadonlySet<number>,
+): { line: number; startPos: ts.LineAndCharacter; endPos: ts.LineAndCharacter } | null {
+  const start = node.getStart(sourceFile);
+  const end = node.getEnd();
+  const startPos = sourceFile.getLineAndCharacterOfPosition(start);
+  const endPos = sourceFile.getLineAndCharacterOfPosition(end);
+  const line = startPos.line + 1;
+  if (!changedLineNumbers.has(line) || startPos.line !== endPos.line) return null;
+  return { line, startPos, endPos };
+}
+
+/**
+ * Returns true when the guard visit handled subtree descent and the outer `visit` should return.
+ */
+function visitGuardPrefixUnaryExpression(
+  node: ts.PrefixUnaryExpression,
+  visit: (node: ts.Node) => void,
+  sourceFile: ts.SourceFile,
+  file: string,
+  changedLineNumbers: ReadonlySet<number>,
+  shouldSkipFlip: (line: number, candidateTokens: readonly string[]) => boolean,
+  candidates: Candidate[],
+): boolean {
+  const span = guardFlipChangedLineSpan(node, sourceFile, changedLineNumbers);
+  const admitted = span !== null;
+  if (admitted) {
+    if (shouldSkipFlip(span.line, whitespaceNormalizedFlipSkipTokens(node.getText(sourceFile)))) {
+      ts.forEachChild(node, visit);
+      return true;
+    }
+    const original = node.getText(sourceFile);
+    const mutated = original.slice(1).trimStart();
+    candidates.push({
+      file,
+      line: span.line,
+      columnStart: span.startPos.character,
+      columnEnd: span.endPos.character,
+      originalText: original,
+      mutatedText: mutated,
+      mutation: `guard-flip: ${original} → ${mutated}`,
+    });
+  }
+  const operand = unwrapParenthesizedExpression(node.operand);
+  if (admitted && ts.isPrefixUnaryExpression(operand) && operand.operator === ts.SyntaxKind.ExclamationToken) {
+    visit(descendPastLeadingNegationChain(operand));
+    return true;
+  }
+  return false;
+}
+
 /**
  * Classifies `!` prefix-unary expressions over the full current source, admitting a candidate only
  * when its `!` token sits on a changed line and the node's complete span fits on that one line — a
@@ -749,45 +879,15 @@ function deriveGuardMutations(
   source: string,
   changedLineNumbers: ReadonlySet<number>,
   candidates: Candidate[],
+  shouldSkipFlip: (line: number, candidateTokens: readonly string[]) => boolean,
 ): void {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
   function visit(node: ts.Node): void {
     if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
-      const start = node.getStart(sourceFile);
-      const end = node.getEnd();
-      const startPos = sourceFile.getLineAndCharacterOfPosition(start);
-      const endPos = sourceFile.getLineAndCharacterOfPosition(end);
-      const line = startPos.line + 1;
-      let admitted = false;
-      if (changedLineNumbers.has(line) && startPos.line === endPos.line) {
-        admitted = true;
-        const original = node.getText(sourceFile);
-        const mutated = original.slice(1).trimStart();
-        candidates.push({
-          file,
-          line,
-          columnStart: startPos.character,
-          columnEnd: endPos.character,
-          originalText: original,
-          mutatedText: mutated,
-          mutation: `guard-flip: ${original} → ${mutated}`,
-        });
-      }
-      let operand: ts.Node = node.operand;
-      while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
-      if (admitted && ts.isPrefixUnaryExpression(operand) && operand.operator === ts.SyntaxKind.ExclamationToken) {
-        // One logical toggle is one candidate, so the chained `!`s are not re-derived. Abandoning the
-        // whole subtree here would also drop an independent guard nested inside the operand
-        // (`!!foo(!bar)` loses `!bar`), so descend past the chain and keep visiting from the first
-        // non-negation node instead of returning outright.
-        let inner: ts.Node = operand;
-        while (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken) {
-          let next: ts.Node = inner.operand;
-          while (ts.isParenthesizedExpression(next)) next = next.expression;
-          inner = next;
-        }
-        visit(inner);
+      if (
+        visitGuardPrefixUnaryExpression(node, visit, sourceFile, file, changedLineNumbers, shouldSkipFlip, candidates)
+      ) {
         return;
       }
     }
@@ -1473,10 +1573,46 @@ function groupCandidatesByLine(candidates: readonly Candidate[]): Map<number, Ca
   return byLine;
 }
 
+/**
+ * A changed line is reflow-only when its normalized tokens appear in order and contiguously in the
+ * hunk's joined removed-token stream. Lines claim matches in diff order and consume them, so a guard
+ * copied onto two `+` lines against one `-` line still derives for the second copy.
+ */
+function flipSkipForFile(
+  lines: readonly ChangedLine[],
+  flipSkip: DiffFlipSkipContext,
+): (line: number, candidateTokens: readonly string[]) => boolean {
+  const removedTokensByHunkKey = new Map<string, string[]>();
+  const consumedByHunkKey = new Map<string, boolean[]>();
+  const reflowHunkKeyByLine = new Map<number, string>();
+  for (const line of lines) {
+    const hunkKey = line.hunkKey;
+    if (hunkKey === undefined) continue;
+    let removedTokens = removedTokensByHunkKey.get(hunkKey);
+    if (removedTokens === undefined) {
+      removedTokens = removedTokensForHunk(flipSkip, hunkKey);
+      removedTokensByHunkKey.set(hunkKey, removedTokens);
+    }
+    const consumed = consumedByHunkKey.get(hunkKey) ?? [];
+    consumedByHunkKey.set(hunkKey, consumed);
+    const lineTokens = whitespaceNormalizedFlipSkipTokens(line.content);
+    const start = contiguousTokenMatchStart(lineTokens, removedTokens, consumed);
+    if (start < 0) continue;
+    for (let offset = 0; offset < lineTokens.length; offset += 1) consumed[start + offset] = true;
+    reflowHunkKeyByLine.set(line.lineNumber, hunkKey);
+  }
+  return (line, candidateTokens) => {
+    const hunkKey = reflowHunkKeyByLine.get(line);
+    if (hunkKey === undefined) return false;
+    return contiguousTokenMatchStart(candidateTokens, removedTokensByHunkKey.get(hunkKey) ?? []) >= 0;
+  };
+}
+
 async function deriveCandidates(
   changedLinesByFile: Map<string, ChangedLine[]>,
   worktreePath: string,
   readFile: ReadFile,
+  flipSkip: DiffFlipSkipContext,
 ): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
   for (const [file, lines] of changedLinesByFile) {
@@ -1486,11 +1622,12 @@ async function deriveCandidates(
       try {
         const source = sourceWithChangedLines(await readFile(`${worktreePath}/${file}`), lines);
         const changedLineNumbers = new Set(lines.map((line) => line.lineNumber));
+        const shouldSkipFlip = flipSkipForFile(lines, flipSkip);
         const operatorCandidates: Candidate[] = [];
-        deriveOperatorMutations(file, source, changedLineNumbers, operatorCandidates);
+        deriveOperatorMutations(file, source, changedLineNumbers, operatorCandidates, shouldSkipFlip);
         operatorCandidatesByLine = groupCandidatesByLine(operatorCandidates);
         const guardCandidates: Candidate[] = [];
-        deriveGuardMutations(file, source, changedLineNumbers, guardCandidates);
+        deriveGuardMutations(file, source, changedLineNumbers, guardCandidates, shouldSkipFlip);
         guardCandidatesByLine = groupCandidatesByLine(guardCandidates);
       } catch {
         // The later verifier read will report an untestable production file; omit guards/operators here rather than parsing a changed line without lexical context.
@@ -1822,7 +1959,7 @@ export async function verifyDiffDerivedMutations(
     seams?.writeFile === undefined ? defaultMutationRecordStore : { record() {}, remove() {} };
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
-  const changedLines = parseDiff(diffOutput);
+  const { changedLines, flipSkip } = parseDiffWithFlipSkip(diffOutput);
 
   const { changedFiles, changedLinesByFile, diffPaths } = await buildChangedFiles(
     diffOutput,
@@ -1860,7 +1997,7 @@ export async function verifyDiffDerivedMutations(
   );
   if (promptFailure) return promptFailure;
 
-  const candidates = await deriveCandidates(changedLinesByFile, input.worktreePath, readFile);
+  const candidates = await deriveCandidates(changedLinesByFile, input.worktreePath, readFile, flipSkip);
 
   if (candidates.length === 0) {
     return {

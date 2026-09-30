@@ -21,6 +21,7 @@ Linked stage settlement calls `resolveWorkflowRunRollup` with invocation sibling
 ## Acceptance criteria
 
 - [ ] `pipeline-stage-settlement.test.ts` adds a reopened-implement-shaped case: completed entry `implement` row with `terminalCause: "complete"`, zero attempts, PR evidence, no `implement-review` sibling row, prior same-lane `completed` review row, running linked stage settles `succeeded` with that PR evidence on the artifact; fails against the pre-fix `resumable_kill` path reachable via `settleLinkedStagesFromEntryRunWith` today (`pipeline-stage-settlement.test.ts` test `a missing-step killed rollup does not report the completed entry row's status` constructs the killed-rollup settlement failure).
+- [ ] Same fixture with the latest prior same-lane `implement-review` row `killed` (an earlier prior invocation's `completed` review row present) settles the linked stage `failed`, not `succeeded`; a settlement whose rollup never reaches the missing-successor rule (e.g. entry `attemptCount > 0`) does not call `findWorkflowRunsOnLane` (store spy).
 - [ ] `pipeline-stage-settlement.test.ts` `settleLinkedStagesFromEntryRunWith` and `settleLinkedStagesFromEntryRunWith failure cause` describe blocks stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

@@ -6,9 +6,8 @@ Operator docs do not name a live-roster serial confirmation command, so hand rec
 
 ## Decisions
 
-- Document two layers when a ready or scoped gate fails: the harness may already rerun the same pooled `test:*` step once; hand confirmation afterward is `bun run test:confirm:live` (aggregate live roster, per-file serial, no `v1/`) before treating the failure as real or chasing flakes — rules out reading recovery as if confirmation replaces or duplicates ready retry.
-- Document `bun run test:confirm:live` for operator/agent hand recovery after a scoped `test:*` or ready test-step failure; state explicitly that frozen `v1/` is never part of confirmation — rules out implying bare `bun test` is equivalent.
-- `v2/docs/test-writing.md` contrasts scoped `test:*` gates (fast, surface-scoped) with `test:confirm:live` (full live aggregate including integration, serial, no `v1/`); mid-work use follows existing sandbox/integration policy — not a scoped gate substitute and not harness finalization integration — rules out duplicating full roster mechanics at the runner and rules out implicit integration policy after subspec 01 moves agents to this command.
+- Document two layers when a ready or scoped gate fails: `scripts/ready.ts` already reruns the identical pooled test step once; hand confirmation afterward is `bun run test:confirm:live` (aggregate live roster, serial, never frozen `v1/`) before treating the failure as real — rules out reading confirmation as replacing ready retry or as equivalent to bare `bun test`.
+- `v2/docs/test-writing.md` contrasts scoped `test:*` gates (fast, surface-scoped) with `test:confirm:live` (full live aggregate including `*.sandbox-unrunnable.test.ts`, serial); in-sandbox use follows existing integration policy — rules out implying it substitutes for scoped gates or harness finalization integration.
 - `v2/docs/v1-behaviors.md` updates only the agent mid-work serial retry and implement-rules migration catalog bullets that still cite bare `bun test` for jarvis-repo confirmation — rules out rewriting unrelated v1 parity entries (e.g. ready-gate retry semantics) in this subspec.
 - Ready-gate / `scripts/ready.ts` serial retry behavior is not changed in this spec; doc edits must not claim the ready gate already invokes `test:confirm:live` — rules out false catalog statements reachable on main today.
 
@@ -28,7 +27,7 @@ Operator docs do not name a live-roster serial confirmation command, so hand rec
 - [ ] `v2/docs/prompts.md` states jarvis-specific serial confirmation lives in `AGENTS.md` via `test:confirm:live`.
 - [ ] `bun run lint:md` passes.
 - [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
+- [ ] `bun run test` passes (branch diff includes subspec 00's root tooling).
 
 ## Documentation updates
 

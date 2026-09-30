@@ -12,14 +12,15 @@
 
 ## Tasks
 
-- [ ] Update `AGENTS.md` serial-confirmation instruction to `bun run test:confirm:live` (no bare `bun test` for that step).
+- [ ] Update `AGENTS.md` serial-confirmation instruction to `bun run test:confirm:live`, dropping bare `bun test` and its "without `--parallel`, no path/filter args" parenthetical. Edit `AGENTS.md` only (`CLAUDE.md` symlinks to it).
 - [ ] Update `shared/prompts/implement-prompts.test.ts` test `the migrated jarvis-specific rules live in this repo's injected guidance` to expect `bun run test:confirm:live` instead of bare `bun test`.
 
 ## Acceptance criteria
 
 - [ ] `shared/prompts/implement-prompts.test.ts` test `the migrated jarvis-specific rules live in this repo's injected guidance` asserts `bun run test:confirm:live` instead of bare `bun test` and fails against the pre-fix guidance.
 - [ ] `AGENTS.md` no longer tells agents to run bare `bun test` for serial failure confirmation.
-- [ ] `bun run test:shared` passes.
+- [ ] `bun run typecheck` passes.
+- [ ] `bun run test` passes (branch diff includes subspec 00's root tooling).
 
 ## Documentation updates
 

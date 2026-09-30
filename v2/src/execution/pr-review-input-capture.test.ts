@@ -3,8 +3,6 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
-  isBotLogin,
-  isTopLevelCommentEligible,
   refreshPrReviewInputCapture,
   resolvePrReviewInputArtifactPath,
   type PrReviewInputCaptureArtifact,
@@ -143,39 +141,36 @@ function prViewPayload(): string {
 function createFixtureRunner(laneWorktreePath: string): AsyncSubprocessRunner {
   return {
     runAsync: async (cmd, args, cwd) => {
-      if (cmd !== "gh") {
-        throw new Error(`unexpected command ${cmd}`);
-      }
-      if (args[0] === "repo" && args[1] === "view") {
-        return `${FIXTURE.owner}/${FIXTURE.repo}\n`;
-      }
-      if (args[0] === "api" && args[1] === "graphql") {
-        return reviewThreadsGraphqlPayload();
-      }
-      if (args[0] === "pr" && args[1] === "view" && args.includes("reviews,comments")) {
-        return prViewPayload();
-      }
+      if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
+      if (args[0] === "repo" && args[1] === "view") return `${FIXTURE.owner}/${FIXTURE.repo}\n`;
+      if (args[0] === "api" && args[1] === "graphql") return reviewThreadsGraphqlPayload();
+      if (args[0] === "pr" && args[1] === "view" && args.includes("reviews,comments")) return prViewPayload();
       throw new Error(`unexpected gh invocation: ${args.join(" ")} in ${cwd ?? laneWorktreePath}`);
     },
   };
 }
 
-function readArtifact(laneWorktreePath: string): PrReviewInputCaptureArtifact {
-  const path = resolvePrReviewInputArtifactPath(laneWorktreePath);
-  expect(existsSync(path)).toBe(true);
-  return JSON.parse(readFileSync(path, "utf8")) as PrReviewInputCaptureArtifact;
+async function withFixtureArtifact(
+  run: (artifact: PrReviewInputCaptureArtifact) => void | Promise<void>,
+): Promise<void> {
+  const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-");
+  try {
+    await refreshPrReviewInputCapture({
+      laneWorktreePath,
+      prNumber: FIXTURE.prNumber,
+      runner: createFixtureRunner(laneWorktreePath),
+    });
+    const path = resolvePrReviewInputArtifactPath(laneWorktreePath);
+    expect(existsSync(path)).toBe(true);
+    await run(JSON.parse(readFileSync(path, "utf8")) as PrReviewInputCaptureArtifact);
+  } finally {
+    rmSync(laneWorktreePath, { recursive: true, force: true });
+  }
 }
 
 describe("refreshPrReviewInputCapture", () => {
   test("refresh writes actionable PR review threads and comments with stable GitHub ids", async () => {
-    const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-");
-    try {
-      await refreshPrReviewInputCapture({
-        laneWorktreePath,
-        prNumber: FIXTURE.prNumber,
-        runner: createFixtureRunner(laneWorktreePath),
-      });
-      const artifact = readArtifact(laneWorktreePath);
+    await withFixtureArtifact((artifact) => {
       expect(artifact.captureVersion).toBe(1);
       expect(artifact.prNumber).toBe(FIXTURE.prNumber);
       expect(artifact.threads.map((thread) => thread.threadId)).toEqual([FIXTURE.threadActive, FIXTURE.threadOutdated]);
@@ -185,35 +180,17 @@ describe("refreshPrReviewInputCapture", () => {
         FIXTURE.commentHumanB,
       ]);
       expect(artifact.topLevelComments.map((comment) => comment.commentId)).toEqual([FIXTURE.topKeep]);
-    } finally {
-      rmSync(laneWorktreePath, { recursive: true, force: true });
-    }
+    });
   });
 
   test("resolved threads are excluded from the artifact", async () => {
-    const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-");
-    try {
-      await refreshPrReviewInputCapture({
-        laneWorktreePath,
-        prNumber: FIXTURE.prNumber,
-        runner: createFixtureRunner(laneWorktreePath),
-      });
-      const artifact = readArtifact(laneWorktreePath);
+    await withFixtureArtifact((artifact) => {
       expect(artifact.threads.some((thread) => thread.threadId === FIXTURE.threadResolved)).toBe(false);
-    } finally {
-      rmSync(laneWorktreePath, { recursive: true, force: true });
-    }
+    });
   });
 
   test("outdated threads are kept and flagged outdated", async () => {
-    const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-");
-    try {
-      await refreshPrReviewInputCapture({
-        laneWorktreePath,
-        prNumber: FIXTURE.prNumber,
-        runner: createFixtureRunner(laneWorktreePath),
-      });
-      const artifact = readArtifact(laneWorktreePath);
+    await withFixtureArtifact((artifact) => {
       const outdated = artifact.threads.find((thread) => thread.threadId === FIXTURE.threadOutdated);
       expect(outdated).toBeDefined();
       expect(outdated?.outdated).toBe(true);
@@ -221,46 +198,16 @@ describe("refreshPrReviewInputCapture", () => {
       const active = artifact.threads.find((thread) => thread.threadId === FIXTURE.threadActive);
       expect(active?.outdated).toBe(false);
       expect(active?.comments.every((comment) => !comment.outdated)).toBe(true);
-    } finally {
-      rmSync(laneWorktreePath, { recursive: true, force: true });
-    }
+    });
   });
 
   test("bot comments and pre-review top-level comments are dropped", async () => {
-    const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-");
-    try {
-      await refreshPrReviewInputCapture({
-        laneWorktreePath,
-        prNumber: FIXTURE.prNumber,
-        runner: createFixtureRunner(laneWorktreePath),
-      });
-      const artifact = readArtifact(laneWorktreePath);
+    await withFixtureArtifact((artifact) => {
       const active = artifact.threads.find((thread) => thread.threadId === FIXTURE.threadActive);
       expect(active?.comments.some((comment) => comment.commentId === FIXTURE.commentBot)).toBe(false);
       expect(artifact.topLevelComments.some((comment) => comment.commentId === FIXTURE.topOld)).toBe(false);
       expect(artifact.topLevelComments.some((comment) => comment.commentId === FIXTURE.topBot)).toBe(false);
       expect(artifact.topLevelComments).toHaveLength(1);
-    } finally {
-      rmSync(laneWorktreePath, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("isBotLogin", () => {
-  test("treats logins ending in [bot] as bots", () => {
-    expect(isBotLogin("dependabot[bot]")).toBe(true);
-    expect(isBotLogin("human-reviewer")).toBe(false);
-    expect(isBotLogin(undefined)).toBe(false);
-  });
-});
-
-describe("isTopLevelCommentEligible", () => {
-  test("keeps comments at or after the latest submitted review", () => {
-    expect(isTopLevelCommentEligible("2026-05-10T00:00:00Z", "2026-05-10T00:00:00Z")).toBe(true);
-    expect(isTopLevelCommentEligible("2026-05-09T23:59:59Z", "2026-05-10T00:00:00Z")).toBe(false);
-  });
-
-  test("keeps all comments when no review was submitted", () => {
-    expect(isTopLevelCommentEligible("2026-05-01T00:00:00Z", null)).toBe(true);
+    });
   });
 });

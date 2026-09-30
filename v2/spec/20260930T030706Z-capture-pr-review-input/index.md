@@ -4,4 +4,4 @@ Review feedback on a published lane PR is captured from GitHub into a lane-scope
 
 Single subspec: `00` gh capture library seam and artifact write.
 
-- [ ] [00 - PR review input capture](./00-pr-review-input-capture.md)
+- [x] [00 - PR review input capture](./00-pr-review-input-capture.md)

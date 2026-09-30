@@ -8,8 +8,6 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 
-export const PR_REVIEW_INPUT_ARTIFACT_NAME = ".jarvis-pr-review-input.json";
-
 export type PrReviewInputCaptureComment = {
   commentId: string;
   author: string;
@@ -41,8 +39,14 @@ export type PrReviewInputCaptureArtifact = {
   topLevelComments: PrReviewInputTopLevelComment[];
 };
 
+type CaptureArgs = {
+  laneWorktreePath: string;
+  prNumber: number;
+  runner: AsyncSubprocessRunner;
+};
+
 export function resolvePrReviewInputArtifactPath(laneWorktreePath: string): string {
-  return join(laneWorktreePath, PR_REVIEW_INPUT_ARTIFACT_NAME);
+  return join(laneWorktreePath, ".jarvis-pr-review-input.json");
 }
 
 export async function refreshPrReviewInputCapture(args: {
@@ -50,29 +54,19 @@ export async function refreshPrReviewInputCapture(args: {
   prNumber: number;
   runner?: AsyncSubprocessRunner;
 }): Promise<PrReviewInputCaptureArtifact> {
-  const runner = args.runner ?? realAsyncSubprocessRunner;
-  const artifact = await collectPrReviewInputCapture({
+  const capture: CaptureArgs = {
     laneWorktreePath: args.laneWorktreePath,
     prNumber: args.prNumber,
-    runner,
-  });
-  writePrReviewInputArtifactAtomically(resolvePrReviewInputArtifactPath(args.laneWorktreePath), artifact);
-  return artifact;
-}
-
-export async function collectPrReviewInputCapture(args: {
-  laneWorktreePath: string;
-  prNumber: number;
-  runner: AsyncSubprocessRunner;
-}): Promise<PrReviewInputCaptureArtifact> {
-  const threads = await fetchReviewThreads(args);
-  const topLevelComments = await fetchTopLevelComments(args);
-  return {
+    runner: args.runner ?? realAsyncSubprocessRunner,
+  };
+  const artifact: PrReviewInputCaptureArtifact = {
     captureVersion: 1,
     prNumber: args.prNumber,
-    threads,
-    topLevelComments,
+    threads: await fetchReviewThreads(capture),
+    topLevelComments: await fetchTopLevelComments(capture),
   };
+  writePrReviewInputArtifactAtomically(resolvePrReviewInputArtifactPath(args.laneWorktreePath), artifact);
+  return artifact;
 }
 
 function writePrReviewInputArtifactAtomically(path: string, artifact: PrReviewInputCaptureArtifact): void {
@@ -113,11 +107,24 @@ const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $prNumber: 
   }
 }`;
 
-async function fetchReviewThreads(args: {
-  laneWorktreePath: string;
-  prNumber: number;
-  runner: AsyncSubprocessRunner;
-}): Promise<PrReviewInputCaptureThread[]> {
+type GraphqlReviewThreadNode = {
+  id?: string | null;
+  isResolved?: boolean;
+  isOutdated?: boolean;
+  comments?: {
+    nodes?: Array<{
+      id?: string | null;
+      author?: { login?: string | null } | null;
+      body?: string | null;
+      createdAt?: string | null;
+      path?: string | null;
+      line?: number | null;
+      diffHunk?: string | null;
+    }>;
+  } | null;
+};
+
+async function fetchReviewThreads(args: CaptureArgs): Promise<PrReviewInputCaptureThread[]> {
   const { owner, name } = await resolveRepoOwnerAndName(args.laneWorktreePath, args.runner);
   const stdout = await runGh(args.runner, args.laneWorktreePath, [
     "api",
@@ -131,38 +138,15 @@ async function fetchReviewThreads(args: {
     "-F",
     `prNumber=${String(args.prNumber)}`,
   ]);
-  const parsed = JSON.parse(stdout) as {
-    data?: {
-      repository?: {
-        pullRequest?: {
-          reviewThreads?: {
-            nodes?: Array<{
-              id?: string | null;
-              isResolved?: boolean;
-              isOutdated?: boolean;
-              comments?: {
-                nodes?: Array<{
-                  id?: string | null;
-                  author?: { login?: string | null } | null;
-                  body?: string | null;
-                  createdAt?: string | null;
-                  path?: string | null;
-                  line?: number | null;
-                  diffHunk?: string | null;
-                }>;
-              } | null;
-            }>;
-          } | null;
-        } | null;
-      } | null;
-    };
-  };
-  const nodes = parsed.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  const nodes =
+    (
+      JSON.parse(stdout) as {
+        data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: GraphqlReviewThreadNode[] } } } };
+      }
+    ).data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
   const out: PrReviewInputCaptureThread[] = [];
   for (const thread of nodes) {
-    if (thread.isResolved === true) {
-      continue;
-    }
+    if (thread.isResolved === true) continue;
     const threadOutdated = thread.isOutdated === true;
     const comments = (thread.comments?.nodes ?? [])
       .filter((comment) => !isBotLogin(comment.author?.login))
@@ -177,24 +161,14 @@ async function fetchReviewThreads(args: {
         outdated: threadOutdated,
       }))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    if (comments.length === 0) {
-      continue;
-    }
-    out.push({
-      threadId: thread.id ?? "",
-      outdated: threadOutdated,
-      comments,
-    });
+    if (comments.length === 0) continue;
+    out.push({ threadId: thread.id ?? "", outdated: threadOutdated, comments });
   }
   out.sort((a, b) => (a.comments[0]?.createdAt ?? "").localeCompare(b.comments[0]?.createdAt ?? ""));
   return out;
 }
 
-async function fetchTopLevelComments(args: {
-  laneWorktreePath: string;
-  prNumber: number;
-  runner: AsyncSubprocessRunner;
-}): Promise<PrReviewInputTopLevelComment[]> {
+async function fetchTopLevelComments(args: CaptureArgs): Promise<PrReviewInputTopLevelComment[]> {
   const stdout = await runGh(args.runner, args.laneWorktreePath, [
     "pr",
     "view",
@@ -214,7 +188,10 @@ async function fetchTopLevelComments(args: {
   const latestSubmittedReview = latestSubmittedAt(parsed.reviews ?? []);
   return (parsed.comments ?? [])
     .filter((comment) => !isBotLogin(comment.author?.login))
-    .filter((comment) => isTopLevelCommentEligible(comment.createdAt ?? "", latestSubmittedReview))
+    .filter((comment) => {
+      if (latestSubmittedReview === null) return true;
+      return (comment.createdAt ?? "") >= latestSubmittedReview;
+    })
     .map((comment) => ({
       commentId: comment.id ?? "",
       author: comment.author?.login ?? "unknown",
@@ -224,32 +201,18 @@ async function fetchTopLevelComments(args: {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export function isBotLogin(login: string | null | undefined): boolean {
-  if (login === null || login === undefined) {
-    return false;
-  }
-  return login.endsWith("[bot]");
+function isBotLogin(login: string | null | undefined): boolean {
+  return login != null && login.endsWith("[bot]");
 }
 
-export function latestSubmittedAt(reviews: Array<{ submittedAt?: string | null }>): string | null {
+function latestSubmittedAt(reviews: Array<{ submittedAt?: string | null }>): string | null {
   let latest: string | null = null;
   for (const review of reviews) {
     const submittedAt = review.submittedAt ?? null;
-    if (submittedAt === null) {
-      continue;
-    }
-    if (latest === null || submittedAt > latest) {
-      latest = submittedAt;
-    }
+    if (submittedAt === null) continue;
+    if (latest === null || submittedAt > latest) latest = submittedAt;
   }
   return latest;
-}
-
-export function isTopLevelCommentEligible(createdAt: string, latestSubmittedReview: string | null): boolean {
-  if (latestSubmittedReview === null) {
-    return true;
-  }
-  return createdAt >= latestSubmittedReview;
 }
 
 async function resolveRepoOwnerAndName(
@@ -261,10 +224,7 @@ async function resolveRepoOwnerAndName(
   if (slash <= 0 || slash === value.length - 1) {
     throw new Error(`invalid gh repo identity: ${JSON.stringify(value)}`);
   }
-  return {
-    owner: value.slice(0, slash),
-    name: value.slice(slash + 1),
-  };
+  return { owner: value.slice(0, slash), name: value.slice(slash + 1) };
 }
 
 async function runGh(runner: AsyncSubprocessRunner, cwd: string, args: string[]): Promise<string> {

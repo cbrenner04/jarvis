@@ -6,6 +6,7 @@ import type { CompletionPublisherInput } from "./completion-publisher.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { buildReviewFeedbackWorkflowSteps, REVIEW_FEEDBACK_WRITE_SIDECAR } from "./review-feedback-workflow-steps.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
+import type { StateStore } from "../persistence/state-store.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import { externalWorktreeBinding, initGitWorkspace } from "./workflow-runner.test-support.ts";
@@ -13,6 +14,49 @@ import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 
 const PROJECT = "demo";
 const PR_NUMBER = 99;
+const ENTRY_INTENT_INVOCATION_ID = "entry-intent-invocation";
+
+function seedIntentLaneEntryRun(
+  store: StateStore,
+  workspace: string,
+  baseRef: string,
+  fixture: LaneFixture,
+  step: WriteWorkflowStep,
+): string {
+  const ownedIntent = "lane-owned-intent.md";
+  const entryRunId = store.createRun({
+    project: PROJECT,
+    specRef: baseRef,
+    worktreePath: workspace,
+    branch: fixture.branchName,
+    specPath: fixture.entrySpecPath,
+    stepId: "intent",
+    status: "completed",
+    workflowSnapshot: {
+      invocationId: ENTRY_INTENT_INVOCATION_ID,
+      steps: [
+        {
+          stepId: "intent",
+          role: "plan",
+          stepRules: "",
+          expectedArtifactPath: fixture.entrySpecPath,
+          agents: [],
+          agentModelConfig: {},
+        },
+      ],
+    },
+  });
+  if (step.reviewFeedbackLane !== undefined) {
+    step.reviewFeedbackLane.entryRunId = entryRunId;
+  }
+  writeFileSync(join(workspace, fixture.entrySpecPath, ownedIntent), "# Owned intent\n", "utf8");
+  writeFileSync(
+    join(workspace, ".git", "jarvis-intent-output.json"),
+    `${JSON.stringify({ [ENTRY_INTENT_INVOCATION_ID]: [ownedIntent] })}\n`,
+    "utf8",
+  );
+  return ownedIntent;
+}
 
 type LaneFixture = {
   laneKind: ReviewFeedbackLaneTarget["laneKind"];
@@ -105,6 +149,10 @@ async function runReviewFeedbackWrite(args: {
   });
 
   await withStateStore(async (store) => {
+    let ownedIntentFile: string | undefined;
+    if (args.fixture.laneKind === "intent") {
+      ownedIntentFile = seedIntentLaneEntryRun(store, workspace, baseRef, args.fixture, step);
+    }
     const result = await executeWorkflow({
       steps: [step],
       stateStore: store,
@@ -125,6 +173,9 @@ async function runReviewFeedbackWrite(args: {
     expect(publication?.branch).toBe(args.fixture.branchName);
     expect(publication?.baseRef).toBe(baseRef);
     expect(publication?.specPath).toBe(args.fixture.entrySpecPath);
+    if (ownedIntentFile !== undefined) {
+      expect(publication?.bodySummary).toContain(`- ${ownedIntentFile}`);
+    }
   });
 
   return { ...(publication !== undefined ? { publication } : {}), headBranch: args.fixture.branchName, prompts };

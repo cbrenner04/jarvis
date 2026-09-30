@@ -1005,9 +1005,9 @@ export interface StateStore {
 
   /**
    * Atomically persist attempt completion, its outcome classification, and the
-   * run checkpoint (attempt_count + status). Idempotent: re-committing an
-   * already-finished boundary is a no-op. `beforeRunUpdate` is a test seam to
-   * force a mid-transaction failure.
+   * run checkpoint (attempt_count + status; terminal checkpoints also stamp
+   * `finished_at`). Idempotent: re-committing an already-finished boundary is a
+   * no-op. `beforeRunUpdate` is a test seam to force a mid-transaction failure.
    */
   commitCompletionBoundary(args: CommitCompletionBoundaryInput): void;
 

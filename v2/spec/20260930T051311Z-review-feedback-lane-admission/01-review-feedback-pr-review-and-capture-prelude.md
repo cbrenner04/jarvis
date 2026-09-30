@@ -27,10 +27,10 @@ A resolved lane target still needs an open, reviewed PR and a refreshed `.jarvis
 
 ## Acceptance criteria
 
-- [ ] `review-feedback-admission-prelude.test.ts` test `succeeds for an open PR with a submitted review and refreshes capture` fails against the pre-fix code and passes after implementation.
-- [ ] Tests `refuses when the PR has no submitted review`, `refuses when the PR head branch does not match the resolved lane branch`, `refuses when the PR is merged`, `refuses when the PR is closed`, and `refuses when capture throws` each assert the documented refusal code and fail against the pre-fix code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `review-feedback-admission-prelude.test.ts` test `succeeds for an open PR with a submitted review and refreshes capture` fails against the pre-fix code and passes after implementation.
+- [x] Tests `refuses when the PR has no submitted review`, `refuses when the PR head branch does not match the resolved lane branch`, `refuses when the PR is merged`, `refuses when the PR is closed`, and `refuses when capture throws` each assert the documented refusal code and fail against the pre-fix code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

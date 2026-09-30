@@ -6,19 +6,21 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 
 | Spec | Plan PR | Subspecs | Status |
 | --- | --- | --- | --- |
-| `20260911T154954Z-tui-consumes-retained-pipeline-list` | #3791 | 0/2 | Pinning spec, valid |
+| `20260930T095610Z-skipped-durable-successor-rollup-completed` | #4240 | 0/1 | implement in flight |
 
-Every other landed spec is archived under `completed/`.
+`tui-consumes-retained-pipeline-list` landed #4172. Every other landed spec is archived under `completed/`.
 
-## Ready-intents (5 queued: 3 dispatchable, 2 not startable)
+## Ready-intents (7 queued: 3 dispatchable or in flight, 2 chained, 2 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
-| `repair-exhausted-error-names-site-and-killing-set` | **landed #4180**; reap with archival | — |
-| `pipeline-resume-resumes-resumable-implement-row` | **landed #4186**; reap with archival | — |
-| `pipeline-resume-preflights-dispatch-refusals` | in flight — PR #4190 open | — |
-| `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
-| `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
+| `review-feedback-write-run` | plan in flight | — |
+| `roll-and-retain-monthly-telemetry` | plan in flight | — |
+| `live-serial-test-confirmation` | dispatchable (plan) | — |
+| `reopened-implement-stage-settles-succeeded` | chained | `skipped-durable-successor-rollup-completed` |
+| `review-feedback-item-traceability` | chained | `review-feedback-write-run` |
+| `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Contradicts #4087 (persisted row) | a hand rewrite |
+| `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
 ## Seeds (22)
 
@@ -36,7 +38,7 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `mutation-verifier-ignores-whitespace-only-line-changes` | P2 | — | open; no normalized base-line comparison |
 | `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | P2 | — | open; scope corrected to one file |
 | `completed-write-step-rows-stamp-finished-at` | P2 | — | rewritten; producer fixed incidentally by #3982, fallback UPDATE + backfill + test remain |
-| `serial-rerun-includes-frozen-v1` | P2 | — | open; `AGENTS.md` still says bare `bun test` |
+| `cleanup-retires-subsumed-and-landed-worktrees` | P1 | — | new 2026-09-30; 29 manual `--abandon` calls across two sessions |
 | `superseded-pipeline-pr-hygiene` | P2 | — | unblocked by #3745; absorbs stacked-PR cleanup from the retired merge-at-gate seed |
 | `pipeline-fan-out-per-lane-terminal-settlement` | P2 | — | ready-flip half served by #3970; per-lane `merge` + spurious `failed` remain; doc target moved to `pipeline-execution.md` |
 | `pipeline-fan-out-lanes-serial-chained-bases` | P2 | — | open; prerequisite (per-lane settlement) not landed |
@@ -51,7 +53,18 @@ P is the brief's priority. Issue is the intake issue where one exists.
 
 ## Open intake issues without a seed
 
-Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one still needing work. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
+None; #3029 closed 2026-09-30. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
+
+## Reaped 2026-09-30 (second session)
+
+| Item | Reason |
+| --- | --- |
+| seed `serial-rerun-includes-frozen-v1` | intent #4249 fanned out a strict 3-lane chain; rejected and hand-assembled into ready-intent `live-serial-test-confirmation` |
+| issue #3029 | closed: mechanisms 2 and 4 fixed by #3670 and #3734; stale runbook note removed |
+| ready-intents `capture-pr-review-input`, `configure-session-log-retention-tiers`, `handoff-rollback-restores-admission-after-handoff-supersede`, `non-pipeline-preset`, `republication-redrafts-harness-ready-pr`, `retiring-sole-daemon-self-heals-admission`, `terminal-publication-records-ready-flip` | landed #4208 #4188 #4203 #4209 #4233 #4227 #4231; not reaped by their implement PRs |
+| spec dirs `repair-exhausted-…`, `pipeline-resume-resumes-…`, `pipeline-resume-preflights-…`, `run-resume-claims-…`, `non-terminating-mutation-…`, `review-feedback-lane-admission` | archived by cleanup (landed #4180 #4186 #4190 #4216/#4236 #4191 #4234) |
+| pipelines c1d2db5f, 96f57442, f13b29a3, bb738352 | stale gates rejected, dismissed; remaining lanes re-dispatched standalone |
+| issue #4003 | closed: #4168 #4237 |
 
 ## Reaped 2026-09-30
 

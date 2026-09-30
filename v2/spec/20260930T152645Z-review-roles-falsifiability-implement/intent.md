@@ -24,7 +24,7 @@ Add one shared prompt fragment (generic wording: per-ticked-criterion falsifiabi
 - [ ] `shared/prompts/review-implement.test.ts` test `implement review critic, adversary, and advocate renders include falsifiability mandate, defect-shape taxonomy, and empty-verdict-when-nothing-found` fails against the pre-change prompt corpus.
 - [ ] `shared/prompts/review-falsifiability-fragment.test.ts` test `implement review falsifiability guidance is defined only on the shared fragment` fails when the same prose is copy-pasted into any of the three implement review step bodies.
 - [ ] `shared/prompts/review-falsifiability-fragment.test.ts` test `review falsifiability fragment has no project-specific identifiers` pins the new fragment body (or an equivalent check scoped to that fragment id).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
+- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

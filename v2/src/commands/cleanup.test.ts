@@ -14,6 +14,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
@@ -6916,56 +6917,108 @@ describe("cleanup: session log retention", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  test("session retention reaps only old terminal run logs", async () => {
-    writeRetentionConfig(1, 14);
-    const defaultDir = join(jarvisRoot, "default-sessions");
-    const old = runRow(runId(1), "completed", now.getTime() - 15 * dayMs);
-    const recent = runRow(runId(2), "completed", now.getTime() - 13 * dayMs);
-    const live = runRow(runId(3), "in-progress", now.getTime() - 30 * dayMs);
-    const paused = runRow(runId(4), "paused", now.getTime() - 30 * dayMs);
-    const unsettled = runRow(runId(5), "failed", null);
-    const nonfinite = runRow(runId(6), "failed", Number.NaN);
-    const atCutoff = runRow(runId(7), "killed", now.getTime() - 14 * dayMs);
-    const unknownId = runId(8);
-    const paths = new Map(
-      [old, recent, live, paused, unsettled, nonfinite, atCutoff].map((run) => [
-        run.id,
-        writeSessionLog(defaultDir, run.id),
-      ]),
+  function ageLog(path: string, ageDays: number): void {
+    const when = new Date(now.getTime() - ageDays * dayMs);
+    utimesSync(path, when, when);
+  }
+
+  function writeColdGzip(logPath: string, plain: string): string {
+    const gzPath = `${logPath}.gz`;
+    writeFileSync(gzPath, gzipSync(plain));
+    return gzPath;
+  }
+
+  test("tiered session log retention hot cold gone", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const shardDir = join(sessionsDir, "2026-08");
+    mkdirSync(shardDir, { recursive: true });
+
+    const hot = runRow(runId(1), "completed", now.getTime() - 5 * dayMs);
+    const warm = runRow(runId(2), "completed", now.getTime() - 20 * dayMs);
+    const coldPlain = runRow(runId(3), "completed", now.getTime() - 40 * dayMs);
+    const coldGzip = runRow(runId(4), "killed", now.getTime() - 45 * dayMs);
+    const live = runRow(runId(5), "in-progress", now.getTime() - 60 * dayMs);
+    const unsettled = runRow(runId(6), "failed", null);
+
+    const hotPath = writeSessionLog(sessionsDir, hot.id, "hot-plain");
+    const warmPath = writeSessionLog(sessionsDir, warm.id, "warm-plain");
+    const coldPlainPath = writeSessionLog(shardDir, coldPlain.id, "cold-plain");
+    const coldGzipLogPath = writeSessionLog(shardDir, coldGzip.id, "gone-plain");
+    const coldGzipPath = writeColdGzip(coldGzipLogPath, "gone-plain");
+    rmSync(coldGzipLogPath, { force: true });
+    const livePath = writeSessionLog(sessionsDir, live.id, "live");
+    const unsettledPath = writeSessionLog(sessionsDir, unsettled.id, "unsettled");
+
+    const oldOrphanPath = writeSessionLog(sessionsDir, runId(7));
+    const youngOrphanPath = writeSessionLog(shardDir, runId(8));
+    ageLog(oldOrphanPath, 40);
+    ageLog(youngOrphanPath, 5);
+
+    const runs = [hot, warm, coldPlain, coldGzip, live, unsettled];
+    const first = await runSessionCleanup(sessionsDir, runs);
+    expect(first.code).toBe(0);
+    expect(first.stdout).toContain("Reaped 3 session log(s) for cold-to-gone deletion (1 by mtime, no run row)");
+    expect(first.stdout).toContain("Reaped 3 session log(s) for hot-to-cold compression (1 by mtime, no run row)");
+
+    expect(existsSync(hotPath)).toBe(true);
+    expect(existsSync(warmPath)).toBe(false);
+    expect(existsSync(`${warmPath}.gz`)).toBe(true);
+    expect(gunzipSync(readFileSync(`${warmPath}.gz`)).toString()).toBe("warm-plain");
+    expect(existsSync(coldPlainPath)).toBe(false);
+    expect(existsSync(`${coldPlainPath}.gz`)).toBe(false);
+    expect(existsSync(coldGzipPath)).toBe(false);
+    expect(existsSync(livePath)).toBe(true);
+    expect(existsSync(unsettledPath)).toBe(true);
+    expect(existsSync(oldOrphanPath)).toBe(false);
+    expect(existsSync(`${oldOrphanPath}.gz`)).toBe(false);
+    expect(existsSync(youngOrphanPath)).toBe(true);
+
+    const second = await runSessionCleanup(sessionsDir, runs);
+    expect(second.code).toBe(0);
+    expect(second.stdout).not.toContain("hot-to-cold");
+    expect(second.stdout).not.toContain("cold-to-gone");
+  });
+
+  test("tiered session log retention recovers interrupted compression", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const run = runRow(runId(9), "completed", now.getTime() - 20 * dayMs);
+    const plainPath = writeSessionLog(sessionsDir, run.id, "recover-me");
+    const staleGz = writeColdGzip(plainPath, "stale");
+    const tmpPath = `${plainPath}.gz.tmp`;
+    writeFileSync(tmpPath, "partial");
+
+    const result = await runSessionCleanup(sessionsDir, [run]);
+    expect(result.code).toBe(0);
+    expect(existsSync(plainPath)).toBe(false);
+    expect(existsSync(tmpPath)).toBe(false);
+    expect(existsSync(staleGz)).toBe(true);
+    expect(gunzipSync(readFileSync(staleGz)).toString()).toBe("recover-me");
+    expect(result.stdout).toContain("Reaped 1 session log(s) for hot-to-cold compression");
+  });
+
+  test("tiered session log retention dry-run per-tier summary", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const compress = runRow(runId(10), "completed", now.getTime() - 20 * dayMs);
+    const deleteGzip = runRow(runId(11), "failed", now.getTime() - 40 * dayMs);
+    const compressPath = writeSessionLog(sessionsDir, compress.id, "abcd");
+    const deletePlainPath = writeSessionLog(sessionsDir, deleteGzip.id, "gone");
+    const deleteGzipPath = writeColdGzip(deletePlainPath, "gone");
+    rmSync(deletePlainPath, { force: true });
+
+    const result = await runSessionCleanup(sessionsDir, [compress, deleteGzip], { dryRun: true });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Found 1 session log(s) for hot-to-cold compression: 4 plain bytes.");
+    expect(result.stdout).toContain(
+      `Found 1 session log(s) for cold-to-gone deletion: ${readFileSync(deleteGzipPath).length} gzip bytes.`,
     );
-    const unknownPath = writeSessionLog(defaultDir, unknownId);
-
-    const defaultResult = await runSessionCleanup(defaultDir, [
-      old,
-      recent,
-      live,
-      paused,
-      unsettled,
-      nonfinite,
-      atCutoff,
-    ]);
-
-    expect(defaultResult.code).toBe(0);
-    expect(defaultResult.stdout).toContain("Reaped 1 expired session log(s)");
-    expect(existsSync(paths.get(old.id) ?? "")).toBe(false);
-    for (const run of [recent, live, paused, unsettled, nonfinite, atCutoff]) {
-      expect(existsSync(paths.get(run.id) ?? "")).toBe(true);
-    }
-    expect(existsSync(unknownPath)).toBe(true);
-
-    writeRetentionConfig(1, 30);
-    const configuredDir = join(jarvisRoot, "configured-sessions");
-    const configuredOld = runRow(runId(9), "blocked", now.getTime() - 31 * dayMs);
-    const configuredRecent = runRow(runId(10), "interrupted", now.getTime() - 20 * dayMs);
-    const configuredOldPath = writeSessionLog(configuredDir, configuredOld.id, "old");
-    const configuredRecentPath = writeSessionLog(configuredDir, configuredRecent.id, "recent");
-
-    const configuredResult = await runSessionCleanup(configuredDir, [configuredOld, configuredRecent]);
-
-    expect(configuredResult.code).toBe(0);
-    expect(configuredResult.stdout).toContain("oldest kept date: 2026-08-08");
-    expect(existsSync(configuredOldPath)).toBe(false);
-    expect(existsSync(configuredRecentPath)).toBe(true);
+    expect(result.stdout).not.toContain(basename(compressPath));
+    expect(result.stdout).not.toContain(basename(deleteGzipPath));
+    expect(result.stdout).toContain("dry-run: no changes made");
+    expect(existsSync(compressPath)).toBe(true);
+    expect(existsSync(deleteGzipPath)).toBe(true);
   });
 
   test("session retention config default and invalid values refuse reaping", async () => {
@@ -6974,6 +7027,7 @@ describe("cleanup: session log retention", () => {
 
     await runSessionCleanup(dirname(defaultPath), [defaultRun]);
     expect(existsSync(defaultPath)).toBe(false);
+    expect(existsSync(`${defaultPath}.gz`)).toBe(false);
 
     const invalidConfigs: unknown[] = [
       { retention: "invalid" },
@@ -7036,63 +7090,11 @@ describe("cleanup: session log retention", () => {
     await runSessionCleanup(sessionsDir, [run]);
 
     expect(existsSync(expiredPath)).toBe(false);
+    expect(existsSync(`${expiredPath}.gz`)).toBe(false);
     for (const path of [telemetryPath, statePath, nestedLogPath, malformedLogPath, outsidePath]) {
       expect(existsSync(path)).toBe(true);
     }
     expect(existsSync(join(sessionsDir, "decoy.log"))).toBe(true);
-  });
-
-  test("session retention dry-run reports aggregate summary without filenames", async () => {
-    writeRetentionConfig(1, 14);
-    const sessionsDir = join(jarvisRoot, "sessions");
-    const first = runRow(runId(40), "completed", now.getTime() - 20 * dayMs);
-    const second = runRow(runId(41), "failed", now.getTime() - 30 * dayMs);
-    const firstPath = writeSessionLog(sessionsDir, first.id, "abc");
-    const secondPath = writeSessionLog(sessionsDir, second.id, "12345");
-
-    const result = await runSessionCleanup(sessionsDir, [first, second], { dryRun: true });
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain(
-      "Found 2 expired session log(s): 8 reclaimable bytes; oldest kept date: 2026-08-24.",
-    );
-    expect(result.stdout).not.toContain(basename(firstPath));
-    expect(result.stdout).not.toContain(basename(secondPath));
-    expect(result.stdout).toContain("dry-run: no changes made");
-    expect(existsSync(firstPath)).toBe(true);
-    expect(existsSync(secondPath)).toBe(true);
-  });
-
-  function ageLog(path: string, ageDays: number): void {
-    const when = new Date(now.getTime() - ageDays * dayMs);
-    utimesSync(path, when, when);
-  }
-
-  test("orphan logs age by mtime; live rows and young orphans are kept", async () => {
-    writeRetentionConfig(1, 14);
-    const sessionsDir = join(jarvisRoot, "sessions");
-    const owner = runRow(runId(50), "completed", now.getTime() - 15 * dayMs);
-    const live = runRow(runId(51), "in-progress", null);
-    const ownerPath = writeSessionLog(sessionsDir, owner.id);
-    const livePath = writeSessionLog(sessionsDir, live.id);
-    const oldOrphan = writeSessionLog(sessionsDir, runId(52));
-    const youngOrphan = writeSessionLog(sessionsDir, runId(53));
-    const oldUnparseable = join(sessionsDir, "stray.log");
-    writeFileSync(oldUnparseable, "stray");
-    for (const path of [livePath, oldOrphan, oldUnparseable]) ageLog(path, 90);
-    ageLog(youngOrphan, 13);
-
-    const result = await runSessionCleanup(sessionsDir, [owner, live], { dryRun: true });
-    expect(result.stdout).toContain("Found 3 expired session log(s) (2 by mtime, no run row):");
-
-    const applied = await runSessionCleanup(sessionsDir, [owner, live]);
-
-    expect(applied.stdout).toContain("Reaped 3 expired session log(s) (2 by mtime, no run row):");
-    expect(existsSync(ownerPath)).toBe(false);
-    expect(existsSync(oldOrphan)).toBe(false);
-    expect(existsSync(oldUnparseable)).toBe(false);
-    expect(existsSync(livePath)).toBe(true);
-    expect(existsSync(youngOrphan)).toBe(true);
   });
 
   test("zero run rows suppress the orphan mtime fallback", async () => {
@@ -7103,20 +7105,9 @@ describe("cleanup: session log retention", () => {
     const result = await runSessionCleanup(sessionsDir, []);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).not.toContain("expired session log(s)");
+    expect(result.stdout).not.toContain("session log(s) for hot-to-cold");
+    expect(result.stdout).not.toContain("session log(s) for cold-to-gone");
     expect(existsSync(path)).toBe(true);
-  });
-
-  test("summary has no orphan suffix without orphans", async () => {
-    writeRetentionConfig(1, 14);
-    const sessionsDir = join(jarvisRoot, "sessions");
-    const run = runRow(runId(70), "completed", now.getTime() - 20 * dayMs);
-    writeSessionLog(sessionsDir, run.id, "abc");
-
-    const result = await runSessionCleanup(sessionsDir, [run], { dryRun: true });
-
-    expect(result.stdout).toContain("Found 1 expired session log(s): 3 reclaimable bytes;");
-    expect(result.stdout).not.toContain("by mtime");
   });
 });
 

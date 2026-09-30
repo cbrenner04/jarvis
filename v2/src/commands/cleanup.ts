@@ -6,10 +6,13 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import {
   getBaseBranch,
   getCurrentBranchAsync,
@@ -1561,12 +1564,120 @@ async function retireEligibleWorktrees(
 
 type ReaperResult = Awaited<ReturnType<typeof reapLegacyDaemonArtifacts>>;
 
-type ExpiredSessionLog = { path: string; bytes: number; orphan: boolean };
+type SessionLogHotToCold = { path: string; plainBytes: number; orphan: boolean };
+type SessionLogColdToGone = { path: string; gzipBytes: number; orphan: boolean };
 
-type SessionLogReapPlan = { expired: ExpiredSessionLog[]; oldestKeptDate: string } | null;
+type SessionLogReapPlan = {
+  hotToCold: SessionLogHotToCold[];
+  coldToGone: SessionLogColdToGone[];
+  tmpToRemove: string[];
+} | null;
 
 const SESSION_LOG_NAME_PATTERN =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.log$/i;
+const SESSION_LOG_MONTH_SHARD_PATTERN = /^\d{4}-\d{2}$/;
+
+function collectSessionLogScanDirs(sessionsDir: string): string[] {
+  const dirs = [sessionsDir];
+  if (!existsSync(sessionsDir)) return dirs;
+  let entries: string[];
+  try {
+    entries = readdirSync(sessionsDir);
+  } catch {
+    return dirs;
+  }
+  for (const name of entries) {
+    if (!SESSION_LOG_MONTH_SHARD_PATTERN.test(name)) continue;
+    const path = join(sessionsDir, name);
+    try {
+      if (statSync(path).isDirectory()) dirs.push(path);
+    } catch {
+      // Directory may disappear between listing and stat.
+    }
+  }
+  return dirs;
+}
+
+function planSessionLogGzEntry(
+  dir: string,
+  path: string,
+  gzName: string,
+  gzipBytes: number,
+  mtimeMs: number,
+  coldCutoffMs: number,
+  runsById: ReadonlyMap<string, Run>,
+  plan: NonNullable<SessionLogReapPlan>,
+): void {
+  const plainName = gzName.slice(0, -".gz".length);
+  if (existsSync(join(dir, plainName))) return;
+  const tier = classifySessionLog(plainName, mtimeMs, coldCutoffMs, runsById);
+  if (tier === null) return;
+  plan.coldToGone.push({ path, gzipBytes, orphan: tier });
+}
+
+function planSessionLogPlainEntry(
+  path: string,
+  name: string,
+  stat: { size: number; mtimeMs: number },
+  hotCutoffMs: number,
+  coldCutoffMs: number,
+  runsById: ReadonlyMap<string, Run>,
+  plan: NonNullable<SessionLogReapPlan>,
+): void {
+  const hotTier = classifySessionLog(name, stat.mtimeMs, hotCutoffMs, runsById);
+  if (hotTier === null) return;
+  plan.hotToCold.push({ path, plainBytes: stat.size, orphan: hotTier });
+  const coldTier = classifySessionLog(name, stat.mtimeMs, coldCutoffMs, runsById);
+  if (coldTier === null || existsSync(`${path}.gz`)) return;
+  plan.coldToGone.push({
+    path: `${path}.gz`,
+    gzipBytes: gzipSync(readFileSync(path)).length,
+    orphan: coldTier,
+  });
+}
+
+function scanSessionLogDir(
+  dir: string,
+  hotCutoffMs: number,
+  coldCutoffMs: number,
+  runsById: ReadonlyMap<string, Run>,
+  plan: NonNullable<SessionLogReapPlan>,
+): void {
+  if (!existsSync(dir)) return;
+  let handle: Dir;
+  try {
+    handle = opendirSync(dir);
+  } catch {
+    return;
+  }
+  try {
+    for (let entry = handle.readSync(); entry !== null; entry = handle.readSync()) {
+      if (!entry.isFile()) continue;
+      const path = join(dir, entry.name);
+      if (entry.name.endsWith(".log.gz.tmp")) {
+        plan.tmpToRemove.push(path);
+        continue;
+      }
+      if (entry.name.endsWith(".log.gz")) {
+        try {
+          const stat = statSync(path);
+          planSessionLogGzEntry(dir, path, entry.name, stat.size, stat.mtimeMs, coldCutoffMs, runsById, plan);
+        } catch {
+          // A file that disappears during discovery is no longer reclaimable.
+        }
+        continue;
+      }
+      if (!entry.name.endsWith(".log")) continue;
+      try {
+        planSessionLogPlainEntry(path, entry.name, statSync(path), hotCutoffMs, coldCutoffMs, runsById, plan);
+      } catch {
+        // A file that disappears during discovery is no longer reclaimable.
+      }
+    }
+  } finally {
+    handle.closeSync();
+  }
+}
 
 function discoverExpiredSessionLogs(
   sessionsDir: string,
@@ -1589,36 +1700,25 @@ function discoverExpiredSessionLogs(
     return null;
   }
 
-  const cutoffMs = clock().getTime() - retention.coldDays * 24 * 60 * 60 * 1000;
-  const plan: NonNullable<SessionLogReapPlan> = {
-    expired: [],
-    oldestKeptDate: new Date(cutoffMs).toISOString().slice(0, 10),
-  };
-  if (!existsSync(sessionsDir)) return plan;
-
+  const nowMs = clock().getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const hotCutoffMs = nowMs - retention.hotDays * dayMs;
+  const coldCutoffMs = nowMs - retention.coldDays * dayMs;
+  const plan: NonNullable<SessionLogReapPlan> = { hotToCold: [], coldToGone: [], tmpToRemove: [] };
   const runsById = new Map(store.listRuns().map((run) => [run.id, run]));
-  let dir: Dir;
-  try {
-    dir = opendirSync(sessionsDir);
-  } catch {
-    return plan;
-  }
-  try {
-    for (let entry = dir.readSync(); entry !== null; entry = dir.readSync()) {
-      if (!entry.isFile() || !entry.name.endsWith(".log")) continue;
-      const path = join(sessionsDir, entry.name);
-      try {
-        const stat = statSync(path);
-        const orphan = classifySessionLog(entry.name, stat.mtimeMs, cutoffMs, runsById);
-        if (orphan !== null) plan.expired.push({ path, bytes: stat.size, orphan });
-      } catch {
-        // A file that disappears during discovery is no longer reclaimable.
-      }
-    }
-  } finally {
-    dir.closeSync();
+  for (const dir of collectSessionLogScanDirs(sessionsDir)) {
+    scanSessionLogDir(dir, hotCutoffMs, coldCutoffMs, runsById, plan);
   }
   return plan;
+}
+
+function gzipSessionLogPlainToCold(plainPath: string): void {
+  const gzPath = `${plainPath}.gz`;
+  const tmpPath = `${gzPath}.tmp`;
+  const compressed = gzipSync(readFileSync(plainPath));
+  writeFileSync(tmpPath, compressed);
+  renameSync(tmpPath, gzPath);
+  rmSync(plainPath, { force: true });
 }
 
 /** Returns null to keep the log, else whether it is reaped as an orphan (by mtime). */
@@ -1640,18 +1740,25 @@ function classifySessionLog(
 
 function printSessionLogSummary(
   verb: "Found" | "Reaped",
-  logs: readonly ExpiredSessionLog[],
-  oldestKeptDate: string,
+  plan: Pick<NonNullable<SessionLogReapPlan>, "hotToCold" | "coldToGone">,
   io: { stdout: (s: string) => void },
 ): void {
-  if (logs.length === 0) return;
-  const bytes = logs.reduce((total, log) => total + log.bytes, 0);
-  const byteLabel = verb === "Found" ? "reclaimable" : "reclaimed";
-  const orphans = logs.filter((log) => log.orphan).length;
-  const orphanSuffix = orphans > 0 ? ` (${orphans} by mtime, no run row)` : "";
-  io.stdout(
-    `${verb} ${logs.length} expired session log(s)${orphanSuffix}: ${bytes} ${byteLabel} bytes; oldest kept date: ${oldestKeptDate}.\n`,
-  );
+  if (plan.hotToCold.length > 0) {
+    const bytes = plan.hotToCold.reduce((total, log) => total + log.plainBytes, 0);
+    const orphans = plan.hotToCold.filter((log) => log.orphan).length;
+    const orphanSuffix = orphans > 0 ? ` (${orphans} by mtime, no run row)` : "";
+    io.stdout(
+      `${verb} ${plan.hotToCold.length} session log(s) for hot-to-cold compression${orphanSuffix}: ${bytes} plain bytes.\n`,
+    );
+  }
+  if (plan.coldToGone.length > 0) {
+    const bytes = plan.coldToGone.reduce((total, log) => total + log.gzipBytes, 0);
+    const orphans = plan.coldToGone.filter((log) => log.orphan).length;
+    const orphanSuffix = orphans > 0 ? ` (${orphans} by mtime, no run row)` : "";
+    io.stdout(
+      `${verb} ${plan.coldToGone.length} session log(s) for cold-to-gone deletion${orphanSuffix}: ${bytes} gzip bytes.\n`,
+    );
+  }
 }
 
 function hasNothingToClean(
@@ -1667,7 +1774,10 @@ function hasNothingToClean(
     reaperResult.dead.length === 0 &&
     reaperResult.preserved.length === 0 &&
     branchRefCandidates.length === 0 &&
-    (sessionLogPlan === null || sessionLogPlan.expired.length === 0)
+    (sessionLogPlan === null ||
+      (sessionLogPlan.hotToCold.length === 0 &&
+        sessionLogPlan.coldToGone.length === 0 &&
+        sessionLogPlan.tmpToRemove.length === 0))
   );
 }
 
@@ -1890,7 +2000,7 @@ async function previewAllCleanupTargets(
   }
   previewReaperResult(ctx.reaperResult, io);
   if (ctx.sessionLogPlan !== null) {
-    printSessionLogSummary("Found", ctx.sessionLogPlan.expired, ctx.sessionLogPlan.oldestKeptDate, io);
+    printSessionLogSummary("Found", ctx.sessionLogPlan, io);
   }
 }
 
@@ -1935,19 +2045,37 @@ async function executeConfirmedCleanup(
   );
   let sessionLogExit = 0;
   if (ctx.sessionLogPlan !== null) {
-    const reaped: ExpiredSessionLog[] = [];
+    const applied: Pick<NonNullable<SessionLogReapPlan>, "hotToCold" | "coldToGone"> = {
+      hotToCold: [],
+      coldToGone: [],
+    };
     let failures = 0;
-    for (const log of ctx.sessionLogPlan.expired) {
+    for (const path of ctx.sessionLogPlan.tmpToRemove) {
       try {
-        rmSync(log.path);
-        reaped.push(log);
+        rmSync(path, { force: true });
       } catch {
         failures += 1;
       }
     }
-    printSessionLogSummary("Reaped", reaped, ctx.sessionLogPlan.oldestKeptDate, io);
+    for (const log of ctx.sessionLogPlan.hotToCold) {
+      try {
+        gzipSessionLogPlainToCold(log.path);
+        applied.hotToCold.push(log);
+      } catch {
+        failures += 1;
+      }
+    }
+    for (const log of ctx.sessionLogPlan.coldToGone) {
+      try {
+        rmSync(log.path, { force: true });
+        applied.coldToGone.push(log);
+      } catch {
+        failures += 1;
+      }
+    }
+    printSessionLogSummary("Reaped", applied, io);
     if (failures > 0) {
-      io.stderr(`Failed to reap ${failures} expired session log(s).\n`);
+      io.stderr(`Failed to apply ${failures} session-log retention action(s).\n`);
       sessionLogExit = 1;
     }
   }

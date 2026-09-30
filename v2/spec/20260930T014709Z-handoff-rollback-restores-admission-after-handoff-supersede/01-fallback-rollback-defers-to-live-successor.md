@@ -19,13 +19,13 @@ Depends on [00-rollback-clears-handoff-origin-supersede.md](00-rollback-clears-h
 
 ## Acceptance criteria
 
-- [ ] A focused fake-driven fallback regression (fake `bindPublicServer`, fake clock) asserts first `bindPublicServer` rejects `EADDRINUSE`, a rescheduled attempt succeeds, admission reopens, and the transaction is `rolled_back`; it fails against the pre-fix code.
-- [ ] Fallback regressions use injected fakes and a fake clock only — no sandbox sockets, no real timers.
-- [ ] A focused fake-driven fallback regression with a live successor holding the public address asserts rollback defers without rescheduling a competing rebind until that successor settles commit or rollback; it fails against the pre-fix code.
-- [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` "a fallback rollback that fails once still resolves the pending handoff once rebind succeeds" stays green (transient reclaim failure without a live peer still reschedules).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A focused fake-driven fallback regression (fake `bindPublicServer`, fake clock) asserts first `bindPublicServer` rejects `EADDRINUSE`, a rescheduled attempt succeeds, admission reopens, and the transaction is `rolled_back`; it fails against the pre-fix code.
+- [x] Fallback regressions use injected fakes and a fake clock only — no sandbox sockets, no real timers.
+- [x] A focused fake-driven fallback regression with a live successor holding the public address asserts rollback defers without rescheduling a competing rebind until that successor settles commit or rollback; it fails against the pre-fix code.
+- [x] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` "a fallback rollback that fails once still resolves the pending handoff once rebind succeeds" stays green (transient reclaim failure without a live peer still reschedules).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -28,6 +28,7 @@ import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import {
   DaemonSocketBindFailureError,
+  DaemonSocketInUseError,
   formatDaemonBindFailureLogLine,
   type IpcServer,
   type RpcHandler,
@@ -891,6 +892,8 @@ type HandoffTransaction = {
   rollbackPromise?: Promise<RpcHandlerResult>;
   /** Set by `scheduleFallback` once the transaction exists; a failed fallback rollback reschedules it. */
   fallbackTimer?: ReturnType<typeof setTimeout>;
+  /** After a live successor refused reclaim, defer competing rollback until the probe reads live. */
+  fallbackDeferRollbackForLiveSuccessor?: boolean;
   /** Set by `scheduleWatch` once committed; a failed rebind attempt reschedules it. */
   watchTimer?: ReturnType<typeof setTimeout>;
 };
@@ -908,6 +911,8 @@ type HandoffHandlersDeps = ChangeoverHandlerDeps & {
   probePublicServer: () => Promise<boolean>;
   /** Bounds an unanswered handoff. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   fallbackMs?: number;
+  /** Test seam: defaults to `setTimeout`. */
+  scheduleAfter?: (callback: () => void, delayMs: number) => unknown;
   /** Records this generation's retire trigger; called with "changeover" once this handoff actually begins. */
   recordRetireTrigger: (trigger: "changeover") => void;
 };
@@ -935,6 +940,21 @@ export function isHandoffStillPending(
  */
 export function fallbackVerdict(publicDaemonLive: boolean): "commit" | "rollback" {
   return publicDaemonLive ? "commit" : "rollback";
+}
+
+/** True when reclaim lost the stable public address to a still-listening successor. */
+export function isLiveSuccessorPublicBindRefusal(error: unknown): boolean {
+  if (error instanceof DaemonSocketInUseError) return true;
+  if (error instanceof DaemonSocketBindFailureError && error.errno === "EADDRINUSE") return true;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: unknown }).code === "EADDRINUSE"
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Whether a `supersede` should keep pending rollback from reopening admission. */
@@ -1079,6 +1099,9 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
         await deps.bindPublicServer();
       } catch (error) {
         if (reopen) deps.setRetiring();
+        if (isLiveSuccessorPublicBindRefusal(error)) {
+          active.fallbackDeferRollbackForLiveSuccessor = true;
+        }
         delete active.rollbackPromise;
         const message = error instanceof Error ? error.message : String(error);
         return { kind: "error", code: "handoff_rollback_failed", message };
@@ -1101,11 +1124,14 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     return handoffResponse("committed");
   };
 
+  const scheduleAfter =
+    deps.scheduleAfter ?? ((callback: () => void, delayMs: number) => setTimeout(callback, delayMs));
+
   const scheduleFallback = (active: HandoffTransaction, handoffId: string): void => {
     if (closed) return;
-    active.fallbackTimer = setTimeout(() => {
+    active.fallbackTimer = scheduleAfter(() => {
       void resolveFallback(handoffId);
-    }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS);
+    }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS) as ReturnType<typeof setTimeout>;
   };
 
   const resolveFallback = async (handoffId: string): Promise<void> => {
@@ -1120,9 +1146,19 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (closed || transaction !== active || !isHandoffStillPending(transaction.id, transaction.state, handoffId)) {
       return;
     }
-    const verdict = fallbackVerdict(publicDaemonLive);
-    console.error(formatHandoffSettlementLogLine("handoff_fallback", verdict));
-    const result = verdict === "commit" ? await commit(active) : await rollback(active);
+    if (publicDaemonLive) {
+      active.fallbackDeferRollbackForLiveSuccessor = false;
+      console.error(formatHandoffSettlementLogLine("handoff_fallback", "commit"));
+      await commit(active);
+      return;
+    }
+    if (active.fallbackDeferRollbackForLiveSuccessor) {
+      active.fallbackDeferRollbackForLiveSuccessor = false;
+      scheduleFallback(active, handoffId);
+      return;
+    }
+    console.error(formatHandoffSettlementLogLine("handoff_fallback", "rollback"));
+    const result = await rollback(active);
     if (result.kind === "error") {
       console.error(`Daemon handoff fallback failed: ${result.message}`);
       // A failed rollback (rebind still failing) must not strand the transaction pending forever:

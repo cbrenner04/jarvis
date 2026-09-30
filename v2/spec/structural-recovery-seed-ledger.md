@@ -46,7 +46,7 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
-| `apply-pr-review-feedback-to-a-lane` | P1 | — | new 2026-09-30; **not dispatchable as one seed** — shape confirmed; split into slice seeds first |
+| `apply-pr-review-feedback-to-a-lane` | P1 | — | new 2026-09-30; shape confirmed; dispatch as one seed, intent must split one ready-intent per slice |
 | `cursor-quota-classified-from-stream-json-content` | P1 | — | new 2026-09-29; 6/52 cursor calls false-`quota`, escalating to paid rungs |
 | `harness-exposes-agent-toolset` | — | — | new 2026-09-29; **not dispatchable until owner sign-off** (near a new engine generation) |
 | `fold-shared-into-v2` | P3 | — | new 2026-09-29; prerequisite of `retire-v2-nomenclature` |

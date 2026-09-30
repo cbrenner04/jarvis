@@ -4,7 +4,7 @@ name: apply-pr-review-feedback-to-a-lane
 
 # No jarvis command applies PR review feedback to a lane
 
-> **Not dispatchable as one seed.** Large additive behavior (a new workflow preset). Shape confirmed by the owner 2026-09-30; split into the slices below as separate seeds before any dispatch; do not run intent/plan/pipeline on this file.
+> Large additive behavior (a new workflow preset); shape confirmed by the owner 2026-09-30. Dispatch as one seed: the intent split must produce one ready-intent per slice below (with prerequisites between them). The operator rejects the `approve-intent` gate if slices are merged or drift.
 
 ## Problem
 
@@ -16,8 +16,9 @@ Evidence (2026-09-29/30 session, all hand-applied): plan PR #4163 (`ResumePipeli
 
 A standalone preset that runs only against a **completed plan or implement lane** — bare workflow or pipeline stage alike — whose PR is still open, and does exactly one thing: address the review feedback on that PR, committing to the same branch and PR through the normal gate. Merged or closed PRs and lanes still in flight are refused with a named reason.
 
-## Slices (each its own seed)
+## Slices (one ready-intent each)
 
+0. **Non-pipeline preset** — the preset registry can mark a preset not pipeline-eligible, and pipeline definitions refuse it by name.
 1. **Review input capture** — read the PR's review threads/comments (`gh`) into one durable review artifact for the stage. The PR is the only feedback source.
 2. **Admission** — resolve a completed plan/implement lane (bare workflow or pipeline stage) to its branch, worktree, and open PR; refuse everything else by name.
 3. **Feedback run** — the preset's write step addresses the captured items on the same branch, then gate and publication to the same PR.

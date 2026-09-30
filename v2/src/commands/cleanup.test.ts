@@ -6370,6 +6370,17 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).not.toContain(worktreePath);
   });
 
+  test("listDirtyWorktreePathsForStaleReset treats invalid gitfile as not-git-repository", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        throw new Error(
+          "Command failed: git rev-parse HEAD\nfatal: gitfile does not point to a valid repository: /bad/.git",
+        );
+      },
+    };
+    expect(await listDirtyWorktreePathsForStaleReset("/any", runner)).toEqual({ status: "not-git-repository" });
+  });
+
   test("listDirtyWorktreePathsForStaleReset reports lossless status paths", async () => {
     const branch = "impl/dirty-list-unit";
     const worktreePath = await setupWorktreeAndBranch(branch);

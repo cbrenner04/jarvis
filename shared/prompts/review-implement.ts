@@ -3,7 +3,6 @@ import { dirname, join, relative } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../subprocess.ts";
 import { renderPromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
-import { renderArtifactTemplate, renderTemplateWithDeclarations } from "./render.ts";
 import { bindReviewPromptProfile, implementReviewProfile } from "./review-profile.ts";
 
 export const PATCH_REVIEW_CRITIC_PROMPT_ID = "implement.prompt.review.critic" as const;

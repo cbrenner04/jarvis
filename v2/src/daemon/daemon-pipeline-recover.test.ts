@@ -1,23 +1,28 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { CliDeps } from "../cli/deps.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
 import { createStubMarkdownlintRunner, writeLintCleanPlanStage } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
+import { makeStaleResetIpcClient, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
 ensureWorkflowRunnerResumeDepsWired();
 
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type PipelineContext, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
-import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import { createBindingFactory, doneBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, shouldShutdownNow, WorktreeOwnershipRegistry } from "./daemon.ts";
 import {
@@ -97,8 +102,11 @@ function seedBlockedPlanDraftRun(
 }
 
 /** Production-shaped `full-review` fan-out: three branches, `targetBranchKey`'s plan row `failed` and linked to `entryRunId`. */
-function seedFanOutPipeline(store: StateStore, args: { targetBranchKey: string; entryRunId: string }): string {
-  const pipelineId = store.createPipeline({ definition: FAN_OUT_DEFINITION, context: CONTEXT });
+function seedFanOutPipeline(
+  store: StateStore,
+  args: { targetBranchKey: string; entryRunId: string; context?: typeof CONTEXT },
+): string {
+  const pipelineId = store.createPipeline({ definition: FAN_OUT_DEFINITION, context: args.context ?? CONTEXT });
   store.updateStage({
     pipelineId,
     stageId: "intent",
@@ -272,21 +280,18 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
 
   const draftAgentInvocations: string[] = [];
   const dispatchCalls: AnyWorkflowStep[][] = [];
-  let staleResetConnections = 0;
   let settleAttempt!: () => void;
   const attemptSettled = new Promise<void>((resolve) => {
     settleAttempt = resolve;
   });
-  const recoverHandlers = createRunControlHandlers({
+  let recoverHandlers!: ReturnType<typeof createRunControlHandlers>;
+  recoverHandlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: createFakeWriteLoopExecutor().executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     daemonSocketPath: "/unused-pipeline-recover-reset.sock",
-    connectStaleResetClient: async () => {
-      staleResetConnections += 1;
-      throw new Error("pipeline_recover must not invoke stale reset");
-    },
+    connectStaleResetClient: async () => makeStaleResetIpcClient([]),
     pipelineDispatch: async (steps) => {
       dispatchCalls.push(steps);
       return { ok: true, entryRunId: "unexpected-run", invocationId: "unexpected-inv" };
@@ -343,7 +348,6 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
   expect(recoverHandlers.hasActiveRuns()).toBe(false);
   expect(draftAgentInvocations).toEqual([]);
   expect(dispatchCalls).toEqual([]);
-  expect(staleResetConnections).toBe(0);
   expect(await lintStagedMarkdown(specPath, { worktreePath, runner: stagedMarkdownLintRunner })).toEqual({
     kind: "clean",
   });
@@ -1013,4 +1017,265 @@ test("daemon restart continuation never auto-recovers a blocked plan stage", asy
   const planRow = pipeline?.stages.find((s) => s.stageId === "plan" && s.branchKey === "default");
   expect(planRow?.status).toBe("failed");
   expect(planRow?.workflowInvocationId).toBe(entryRunId);
+});
+
+function initRecoverPreflightRepo(): string {
+  const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-recover-preflight-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd: repoRoot });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoRoot });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: repoRoot });
+  writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+  execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+  return repoRoot;
+}
+
+async function materializeRecoverPreflightWorktree(
+  repoRoot: string,
+  jarvisRoot: string,
+  branchName: string,
+  baseRef: string,
+): Promise<string> {
+  try {
+    await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "--verify", branchName], repoRoot);
+  } catch {
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branchName, baseRef], repoRoot);
+  }
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(dirname(worktreePath), { recursive: true });
+  await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branchName], repoRoot);
+  return worktreePath;
+}
+
+function createRecoverPreflightResolveStage(args: {
+  repoRoot: string;
+  jarvisRoot: string;
+  intentBranch: string;
+  planBranch: string;
+  readyIntentRel: string;
+  planSpecDir: string;
+  planWorktree: string;
+}) {
+  const managedWorktree = (branchName: string, baseRef: string) => ({
+    projectRoot: args.repoRoot,
+    projectName: "demo" as const,
+    branchName,
+    baseRef,
+    jarvisRoot: args.jarvisRoot,
+  });
+  const planSteps = [
+    createWriteStep("plan", args.planBranch, doneBindingFactory, {
+      role: "plan",
+      promptId: "plan.prompt",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+      worktree: managedWorktree(args.planBranch, args.intentBranch),
+      specPath: args.planSpecDir,
+      expectedArtifactPath: ".jarvis-plan-stage",
+      publishCompletion: true,
+      landing: {
+        kind: "plan-tree",
+        stagingDir: ".jarvis-plan-stage",
+        durablePath: args.planSpecDir,
+        inputs: { sourceRoot: args.repoRoot, paths: [args.readyIntentRel], consumeFrom: "worktree" },
+      },
+    }),
+    planReviewStep({
+      worktreePath: args.planWorktree,
+      stage: join(args.planWorktree, ".jarvis-plan-stage"),
+      durable: join(args.planWorktree, args.planSpecDir),
+      branch: args.planBranch,
+    }),
+  ];
+  return async () => ({ ok: true as const, steps: planSteps });
+}
+
+test("pipeline_recover returns recover_dispatch_refused for dirty worktree without dispatch", async () => {
+  const priorJarvisHome = process.env.JARVIS_HOME;
+  const jarvisRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-recover-preflight-"));
+  process.env.JARVIS_HOME = jarvisRoot;
+  const repoRoot = initRecoverPreflightRepo();
+  const intentBranch = "intent/feature";
+  const readyIntentRel = "spec/ready-intents/feature.md";
+  const planBranch = "plan/feature";
+  const planSpecDir = "spec/feature";
+  const intentWorktree = await materializeRecoverPreflightWorktree(repoRoot, jarvisRoot, intentBranch, "HEAD");
+  mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+  writeFileSync(join(intentWorktree, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], intentWorktree);
+  await realAsyncSubprocessRunner.runAsync("git", ["commit", "-qm", "intent"], intentWorktree);
+  const planWorktree = await materializeRecoverPreflightWorktree(repoRoot, jarvisRoot, planBranch, intentBranch);
+  mkdirSync(join(planWorktree, planSpecDir), { recursive: true });
+  writeFileSync(join(planWorktree, `${planSpecDir}/index.md`), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+  writeFileSync(
+    join(planWorktree, `${planSpecDir}/00-work.md`),
+    "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+    "utf8",
+  );
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], planWorktree);
+  await realAsyncSubprocessRunner.runAsync("git", ["commit", "-qm", "plan"], planWorktree);
+  writeFileSync(join(planWorktree, "README.md"), "dirty\n", "utf8");
+
+  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+  const admissionContext: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+  let dispatchCalls = 0;
+  let recoveryAttemptCalls = 0;
+  let recoverHandlers!: ReturnType<typeof createRunControlHandlers>;
+  const intentRunId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath: intentWorktree,
+    branch: intentBranch,
+    specPath: readyIntentRel,
+    status: "completed",
+  });
+  const entryRunId = seedBlockedPlanDraftRun(stateStore, {
+    project: "demo",
+    branch: planBranch,
+    worktreePath: planWorktree,
+    specPath: planSpecDir,
+    stepId: "plan",
+    invocationId: "recover-preflight-inv",
+  });
+  const pipelineId = stateStore.createPipeline({ definition: SINGLE_DEFINITION, context: admissionContext });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: {
+      status: "succeeded",
+      workflowInvocationId: intentRunId,
+      artifact: { entryRunId: intentRunId, specPath: readyIntentRel },
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "plan",
+    patch: { status: "failed", workflowInvocationId: entryRunId, failureDetail: { message: "blocked" } },
+  });
+  const runsBefore = stateStore.listRuns().length;
+  recoverHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage: createRecoverPreflightResolveStage({
+      repoRoot,
+      jarvisRoot,
+      intentBranch,
+      planBranch,
+      readyIntentRel,
+      planSpecDir,
+      planWorktree,
+    }),
+    pipelineDispatch: async () => {
+      dispatchCalls += 1;
+      return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+    },
+    daemonSocketPath: "/recover-preflight.sock",
+    staleResetCliDeps: {
+      jarvisRoot,
+      subprocessRunner: {
+        runAsync: async (cmd: string, args: string[], cwd: string) => {
+          if (cmd === "gh") return "[]";
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+        },
+      },
+    } as unknown as CliDeps,
+    connectStaleResetClient: async () => makeStaleResetIpcClient([]),
+    settleDelayMs: 0,
+    recoveryAttempt: async () => {
+      recoveryAttemptCalls += 1;
+      return completeOutcome(entryRunId);
+    },
+  });
+  try {
+    const response = await recoverHandlers.pipeline_recover(
+      requestFrame("recover-preflight-dirty", "pipeline_recover", { pipelineId, branchKey: "default" }),
+      new AbortController().signal,
+    );
+    expect(response.kind).toBe("error");
+    if (response.kind !== "error") return;
+    expect(response.code).toBe("recover_dispatch_refused");
+    expect(response.message).toContain("Cannot re-run incomplete spec");
+    expect(dispatchCalls).toBe(0);
+    expect(recoveryAttemptCalls).toBe(0);
+    expect(stateStore.listRuns().length).toBe(runsBefore);
+    expect(stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "plan")?.status).toBe("failed");
+  } finally {
+    recoverHandlers.close();
+    if (priorJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = priorJarvisHome;
+    rmSync(jarvisRoot, { recursive: true, force: true });
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("pipeline_recover admits dirty worktree when resetDespiteDirty is set", async () => {
+  const planWorktree = createPlanWorktree("pipeline-recover-preflight-admit-");
+  const stage = join(planWorktree, ".jarvis-plan-stage");
+  writeLintCleanPlanStage(stage, "00-first.md");
+  const specPath = "spec/2026-recover-preflight-admit";
+  const branch = "plan/recover-preflight-admit";
+  writeFileSync(join(planWorktree, "README.md"), "dirty\n", "utf8");
+  const entryRunId = seedBlockedPlanDraftRun(stateStore, {
+    project: "demo",
+    branch,
+    worktreePath: planWorktree,
+    specPath,
+    stepId: "plan",
+    invocationId: "recover-preflight-admit-inv",
+  });
+  const pipelineId = stateStore.createPipeline({ definition: SINGLE_DEFINITION, context: CONTEXT });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: {
+      status: "succeeded",
+      workflowInvocationId: "run-intent",
+      artifact: { entryRunId: "run-intent", specPath: "ready-intents/solo.md" },
+    },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "plan",
+    patch: { status: "failed", workflowInvocationId: entryRunId, failureDetail: { message: "blocked" } },
+  });
+  let settleAttempt!: () => void;
+  const attemptSettled = new Promise<void>((resolve) => {
+    settleAttempt = resolve;
+  });
+  const recoverHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage: recoveryStageResolver({ branch, worktreePath: planWorktree, specPath }),
+    daemonSocketPath: "/recover-preflight-admit.sock",
+    connectStaleResetClient: async () => makeStaleResetIpcClient([]),
+    settleDelayMs: 0,
+    recoveryAttempt: async () => {
+      try {
+        return completeOutcome(entryRunId);
+      } finally {
+        settleAttempt();
+      }
+    },
+  });
+  try {
+    const response = await recoverHandlers.pipeline_recover(
+      requestFrame("recover-preflight-admit", "pipeline_recover", {
+        pipelineId,
+        branchKey: "default",
+        resetDespiteDirty: true,
+      }),
+      new AbortController().signal,
+    );
+    expect(response).toEqual({
+      kind: "response",
+      result: { kind: "admitted", pipelineId, branchKey: "default", stageId: "plan", entryRunId },
+    });
+    await attemptSettled;
+    await flushBackgroundRuns(5);
+  } finally {
+    recoverHandlers.close();
+  }
 });

@@ -2,8 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { renderPromptForStep } from "./assemble.ts";
 import { listIntentStageMarkdownFiles } from "./intent-split.ts";
-import { loadPromptRegistry } from "./registry.ts";
-import { enforceDelimiterPolicy, renderTemplateWithDeclarations } from "./render.ts";
+import { enforceDelimiterPolicy } from "./render.ts";
 import { bindReviewPromptProfile, intentReviewProfile } from "./review-profile.ts";
 
 export type IntentReviewPromptContext = {
@@ -30,8 +29,6 @@ function renderIntentReviewPrompt(
   verdict = "",
   extra: Record<string, string> = {},
 ): string {
-  const registry = loadPromptRegistry();
-  const artifact = registry.getById(promptId);
   const staged = stagedIntents(context.stagingDir);
   enforceDelimiterPolicy({
     value: staged,

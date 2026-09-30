@@ -17,6 +17,7 @@ import {
   isPipelineTerminal,
   type PipelineDerivedState,
   type PipelineExecutionDeps,
+  probePipelineRecoverRedispatchRefusal,
   recoverContinuablePipelines,
   resumePipeline,
   runPipeline,
@@ -276,6 +277,10 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       resetDespiteDirty: params.resetDespiteDirty === true,
       resetDespiteLandedCriteria: params.resetDespiteLandedCriteria === true,
     });
+    if (outcome.kind === "dispatch_refused") {
+      const message = outcome.message.endsWith("\n") ? outcome.message.slice(0, -1) : outcome.message;
+      return { kind: "error", code: "resume_dispatch_refused", message };
+    }
     return { kind: "response", result: outcome };
   };
 
@@ -332,6 +337,21 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       };
     }
     const { target } = resolution;
+    const dispatchRefusal = await probePipelineRecoverRedispatchRefusal(
+      pipelineId,
+      { stageId: target.stageId, branchKey },
+      pipelineExecutionDeps(),
+      {
+        resetDespiteDirty: params.resetDespiteDirty === true,
+        resetDespiteLandedCriteria: params.resetDespiteLandedCriteria === true,
+      },
+    );
+    if (dispatchRefusal !== undefined) {
+      const message = dispatchRefusal.message.endsWith("\n")
+        ? dispatchRefusal.message.slice(0, -1)
+        : dispatchRefusal.message;
+      return { kind: "error", code: "recover_dispatch_refused", message };
+    }
     const key: OwnershipKey = { project: target.project, branch: target.branch };
     const activeKey = ownershipKeyString(key);
     const activeRun: ActiveRun = { kind: "recovery", runId: target.runId };

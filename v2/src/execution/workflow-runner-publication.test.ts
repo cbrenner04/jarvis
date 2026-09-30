@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { type LogSink, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
@@ -21,6 +21,7 @@ import {
 } from "./ready-finalize.test.ts";
 import {
   formatReadyGateOutOfScopeDetail,
+  NonTerminatingMutationError,
   ReadyFlipError,
   ReadyGateError,
   RuntimeSmokeFailedError,
@@ -479,6 +480,58 @@ describe("executeWorkflow completion publication", () => {
         survivingMutationSourceLine: 17,
         survivingMutationKillingTests: ["src/guard.test.ts"],
         survivingMutationKillingSetResult: "passed-confirmed",
+      });
+    });
+  });
+
+  test("settles non_terminating_mutation_failed as durable failed with resumable terminal details after completion boundary", async () => {
+    const step = createStep({
+      stepId: "publish-non-terminating-mutation",
+      role: "implement",
+      branchName: "publish-non-terminating-mutation",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new NonTerminatingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+        },
+      });
+      expect(result.kind).toBe("non_terminating_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(result.nonTerminatingMutation).toBe("operator-flip: === → !==");
+      expect(result.nonTerminatingMutationSourceFile).toBe("src/guard.ts");
+      expect(result.nonTerminatingMutationSourceLine).toBe(17);
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+      const terminalEvent = logSink.getEventsForRun(result.runId).at(-1);
+      expect(terminalEvent).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "non_terminating_mutation_failed",
+        resumable: true,
+        nonTerminatingMutation: "operator-flip: === → !==",
+        nonTerminatingMutationSourceFile: "src/guard.ts",
+        nonTerminatingMutationSourceLine: 17,
+      });
+      const run = store.loadRun(result.runId);
+      expect(
+        composeRunOperatorError(run ?? { status: "failed" }, {
+          runId: result.runId,
+          seq: 1,
+          ts: "",
+          event: terminalEvent as LoopFinishedEvent,
+        }),
+      ).toEqual({
+        reason: "non_terminating_mutation_failed",
+        retryable: true,
+        nextAction: "resume",
+        nonTerminatingMutation: "operator-flip: === → !==",
+        nonTerminatingMutationSourceFile: "src/guard.ts",
+        nonTerminatingMutationSourceLine: 17,
       });
     });
   });

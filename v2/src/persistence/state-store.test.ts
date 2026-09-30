@@ -3784,17 +3784,64 @@ describe("admitRunForResume", () => {
     resumeStore.close();
   });
 
-  test("refuses owner_alive and leaves owner_identity and status unchanged when a different owner is alive", async () => {
-    const runId = seedRun(seedStore, { branch: "live-owner", status: "failed" });
+  test("admits a terminal row and re-stamps owner_identity when a different owner is alive", async () => {
+    const runId = seedRun(seedStore, { branch: "live-owner-terminal", status: "failed" });
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET finished_at = ? WHERE id = ?").run(Date.now(), runId);
+    raw.close();
+
+    const resumeStore = openResumeStore(async (identity) => identity === PRIOR_IDENTITY);
+    await expectAdmitted(resumeStore, runId);
+    expect(resumeStore.loadRun(runId)?.finishedAt).toBeNull();
+    resumeStore.close();
+  });
+
+  test("refuses owner_alive for a non-terminal row when a different owner is alive", async () => {
+    const runId = seedRun(seedStore, { branch: "live-owner-paused", status: "paused" });
 
     const resumeStore = openResumeStore(async (identity) => identity === PRIOR_IDENTITY);
     const outcome = await resumeStore.admitRunForResume(runId);
 
     expect(outcome).toEqual({ kind: "refused", reason: "owner_alive" });
     const run = resumeStore.loadRun(runId);
-    expect(run?.status).toBe("failed");
+    expect(run?.status).toBe("paused");
     expect(run?.ownerIdentity).toBe(PRIOR_IDENTITY);
     resumeStore.close();
+  });
+
+  test("two store handles claiming one terminal peer-owned row admit exactly once", async () => {
+    const runId = seedRun(seedStore, { branch: "terminal-peer-claim", status: "failed" });
+    const holder = "33333:3000000";
+    let peerLivenessWaiters = 0;
+    let releasePeerLivenessWait!: () => void;
+    const peerLivenessGate = new Promise<void>((resolve) => {
+      releasePeerLivenessWait = () => {
+        peerLivenessWaiters += 1;
+        if (peerLivenessWaiters === 2) resolve();
+      };
+    });
+    const aliveProbe = async (identity: string) => {
+      if (identity !== PRIOR_IDENTITY) return false;
+      releasePeerLivenessWait();
+      await peerLivenessGate;
+      return true;
+    };
+    const storeA = openStateStore(TEST_DB_PATH, { currentIdentity: holder, isOwnerAlive: aliveProbe });
+    const storeB = openStateStore(TEST_DB_PATH, { currentIdentity: holder, isOwnerAlive: aliveProbe });
+    try {
+      const outcomes = await Promise.all([storeA.admitRunForResume(runId), storeB.admitRunForResume(runId)]);
+      // Mutation checkpoint: dropping the owner_identity CAS must turn this RED.
+      expect(outcomes.filter((outcome) => outcome.kind === "applied")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.kind === "refused")).toHaveLength(1);
+      const refused = outcomes.find((outcome) => outcome.kind === "refused");
+      expect(refused).toEqual({ kind: "refused", reason: "claim_lost" });
+      const run = storeA.loadRun(runId) ?? storeB.loadRun(runId);
+      expect(run?.status).toBe("in-progress");
+      expect(run?.ownerIdentity).toBe(holder);
+    } finally {
+      storeA.close();
+      storeB.close();
+    }
   });
 });
 

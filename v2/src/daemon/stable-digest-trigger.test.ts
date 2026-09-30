@@ -3,6 +3,7 @@ import {
   isBackingOff,
   type ScheduleDigestSampling,
   selfHandoffBackoffMs,
+  shouldRetiringSoleOwnerSelfHeal,
   shouldSampleNow,
   shouldTriggerHandoff,
   startStableDigestTrigger,
@@ -69,6 +70,44 @@ describe("stable digest predicates", () => {
   test("samples only while no handoff is in flight", () => {
     expect(shouldSampleNow({ handoffInFlight: false })).toBe(true);
     expect(shouldSampleNow({ handoffInFlight: true })).toBe(false);
+  });
+});
+
+describe("shouldRetiringSoleOwnerSelfHeal", () => {
+  const matching = {
+    retiring: true,
+    publicBound: true,
+    handoffPending: false,
+    blocksRollbackReopen: false,
+    retireCause: "handoff_origin" as const,
+  };
+
+  test("is true for the sole-owner stranded handoff-origin shape", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal(matching)).toBe(true);
+  });
+
+  test("is false when not retiring", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, retiring: false })).toBe(false);
+  });
+
+  test("is false when the public listener is released", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, publicBound: false })).toBe(false);
+  });
+
+  test("is false while a handoff transaction is pending", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, handoffPending: true })).toBe(false);
+  });
+
+  test("is false when rollback reopen is blocked", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, blocksRollbackReopen: true })).toBe(false);
+  });
+
+  test("is false when retireCause is terminal", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, retireCause: "terminal" })).toBe(false);
+  });
+
+  test("is false when retireCause was cleared", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, retireCause: null })).toBe(false);
   });
 });
 

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { DaemonSocketBindFailureError, DaemonSocketInUseError } from "../ipc/server.ts";
 import { createHandoffHandlers, createSupersedeHandler, isLiveSuccessorPublicBindRefusal } from "./daemon.ts";
+import type { RetireCause } from "./stable-digest-trigger.ts";
 
 function requestFrame(method: string, params?: unknown) {
   return { kind: "request" as const, id: "1", method, params };
@@ -32,8 +33,10 @@ async function pendingHandoffId(handlers: ReturnType<typeof createHandoffHandler
 function makeHandlers() {
   let retiring = true;
   const supersedeAdmissionState = { blocksRollbackReopen: false };
+  const retireCauseState = { cause: null as RetireCause };
   const handlers = createHandoffHandlers({
     ...baseDeps,
+    retireCauseState,
     setRetiring: () => {
       retiring = true;
     },
@@ -50,6 +53,7 @@ function makeHandlers() {
       retiring = true;
     },
     recordRetireTrigger: () => {},
+    retireCauseState,
   });
   // Drives the real `supersede` RPC handler with the frame a peer would send.
   const supersede = (handoffId?: string) =>
@@ -57,7 +61,7 @@ function makeHandlers() {
       requestFrame("supersede", handoffId === undefined ? undefined : { handoffId }),
       new AbortController().signal,
     );
-  return { handlers, supersede, isRetiring: () => retiring };
+  return { handlers, supersede, isRetiring: () => retiring, retireCauseState };
 }
 
 type FakeTimer = { callback: () => void; dueAt: number; cleared: boolean };
@@ -135,6 +139,7 @@ test("fallback rollback retries after EADDRINUSE then reopens admission", async 
   const probeResults = [false, false, false];
   const handlers = createHandoffHandlers({
     ...baseDeps,
+    retireCauseState: { cause: null },
     setRetiring: () => {
       retiring = true;
     },
@@ -171,6 +176,7 @@ test("fallback rollback defers competing rebind while a live successor holds the
   let settled: "committed" | "rolled_back" | undefined;
   const handlers = createHandoffHandlers({
     ...baseDeps,
+    retireCauseState: { cause: null },
     setRetiring: () => {},
     setAdmitting: () => {},
     rollbackBlocksReopenAdmission: () => false,

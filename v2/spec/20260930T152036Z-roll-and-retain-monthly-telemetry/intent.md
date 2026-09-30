@@ -18,10 +18,10 @@ All telemetry producers append the current UTC month to `telemetry.jsonl`. Befor
 
 ## Acceptance criteria
 
-- [ ] Telemetry-sink tests with an injected clock and `JARVIS_HOME` fail against the unbounded sink and pin same-month append, one-time boundary roll, restarted and skipped-month rolls named from the current file's UTC mtime, gzip contents, and both record kinds using the same rolling behavior.
-- [ ] Cleanup tests pin that closed telemetry archives are never deleted.
+- [ ] Telemetry-sink tests with an injected clock and `JARVIS_HOME` pin same-month append with clock-stamped mtime, one-time boundary roll, restarted and skipped-month rolls named from the current file's UTC mtime, gzip contents, and both record kinds using the same rolling behavior.
+- [ ] A cleanup regression test pins that closed telemetry archives survive cleanup apply.
 - [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass. (Manual)
+- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

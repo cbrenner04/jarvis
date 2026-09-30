@@ -94,6 +94,7 @@ function pipelineFixture(args: {
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     dismissedAt: null,
     stages: [
       {
@@ -134,6 +135,7 @@ function fanOutPipelineFixture(args: {
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     dismissedAt: null,
     stages: args.lanes.map((lane, index) => ({
       id: `stage-row-${index}`,

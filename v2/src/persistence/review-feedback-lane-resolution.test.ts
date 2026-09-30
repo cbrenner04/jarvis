@@ -86,6 +86,7 @@ function pipelineFixture(args: {
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     dismissedAt: null,
     stages: [
       {

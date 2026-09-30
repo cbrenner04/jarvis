@@ -197,6 +197,7 @@ function fakeStore(
     dismissedAt?: number | null;
     terminalPublicationFailure?: Pipeline["terminalPublicationFailure"];
     terminalPublicationSucceededAt?: Pipeline["terminalPublicationSucceededAt"];
+    supersedeFailures?: Pipeline["supersedeFailures"];
   } = {},
 ): { store: StateStore; stages: () => PipelineStageRecord[]; settleRun: (runId: string, status: RunStatus) => void } {
   const stages: PipelineStageRecord[] = definition.stages.map((stage, index) => ({
@@ -220,6 +221,7 @@ function fakeStore(
   const currentIdentity = options.currentIdentity ?? CURRENT_OWNER;
   let terminalPublicationFailure = options.terminalPublicationFailure ?? null;
   let terminalPublicationSucceededAt = options.terminalPublicationSucceededAt ?? null;
+  let supersedeFailures = options.supersedeFailures ?? null;
   const admissionRows = new Map<string, string>();
   const admissionKey = (args: { pipelineId: string; stageId: string; branchKey?: string }) =>
     `${args.pipelineId}:${args.stageId}:${args.branchKey ?? "default"}`;
@@ -243,6 +245,7 @@ function fakeStore(
             context: pipelineContext,
             terminalPublicationFailure,
             terminalPublicationSucceededAt,
+            supersedeFailures,
             dismissedAt: options.dismissedAt ?? null,
             stages: stages.map((s) => ({ ...s })),
           } as Pipeline & {
@@ -490,6 +493,15 @@ function fakeStore(
         return;
       }
       terminalPublicationSucceededAt = Date.now();
+    },
+    appendSupersedeFailures: (args: {
+      pipelineId: string;
+      failures: readonly { prNumber: number; message: string }[];
+    }) => {
+      if (args.pipelineId !== PIPELINE_ID || args.failures.length === 0) {
+        return;
+      }
+      supersedeFailures = [...(supersedeFailures ?? []), ...args.failures];
     },
     claimPipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
       const key = admissionKey(args);
@@ -2775,6 +2787,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
@@ -2829,6 +2842,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
@@ -2867,6 +2881,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
@@ -2904,6 +2919,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
@@ -2941,6 +2957,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
@@ -2991,6 +3008,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: [
         {
@@ -3059,6 +3077,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
@@ -3100,6 +3119,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
       dismissedAt: null,
       stages: [
         {
@@ -6153,6 +6173,7 @@ function fanOutSuffixRowSeedPipeline(
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     dismissedAt: null,
     stages,
   };

@@ -123,6 +123,10 @@ Failures throw `TerminalPublicationError` with normalized `PublicationFailure`; 
 
 Completion publication (per-stage push/draft/ready during implement) and terminal publication are separate boundaries — `skipReadyFinalization` on implement when `terminalAction` is `leave-draft`. Tests: `terminal-publication.test.ts`, `state-store.test.ts` — `terminal publication commits`, `pipeline-execution.test.ts` — `pipeline terminal publication settlement`.
 
+## Terminal supersede settlement
+
+After durable terminal publication success for `ready` or `merge` when admitted `supersede` is `close`, settlement may comment and close open PRs from earlier succeeded workflow stages. Nonfatal GitHub failures on individual PRs append to `supersedeFailures` via `appendSupersedeFailures` without clearing `terminalPublicationSucceededAt` or derived `succeeded`. Full ordering, exclusions, and daemon wiring: follow-on settlement work in `pipeline-execution.ts` (tests in `pipeline-execution.test.ts`).
+
 ## Daemon restart continuation
 
 Startup order (`daemon-host.md`): IPC listener → `recoverContinuablePipelines` → `reconcilePipelines` → reconciled run resume.
@@ -173,6 +177,7 @@ Terminal stage-run statuses (stamp `endedAt` via `stageLifecyclePatchWithTermina
 | `failureDetail` | Dispatch/settlement failures (`derivePipelineFailureDetail`, deferred marker) |
 | `decidedAt` | Approval decision commit |
 | `terminalPublicationSucceededAt`, `terminalPublicationFailure` | `commitTerminalPublicationSuccess` / `commitTerminalPublicationFailure` |
+| `supersedeFailures` | `appendSupersedeFailures` |
 
 Symbols: `approvalBoundaryAllowsStatus`, `approvalDecisionAllowsStatus`, `reopenPredecessorAllowsStatus`, `reopenSuffixAllowsStatus`, `analyzeFailedPipelineReopenShape` (`state-store.ts`). Tests: `state-store.test.ts` — `pipelines`, `failed pipeline reopen`.
 

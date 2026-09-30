@@ -69,14 +69,33 @@ export async function refreshPrReviewInputCapture(args: {
   return artifact;
 }
 
-function writePrReviewInputArtifactAtomically(path: string, artifact: PrReviewInputCaptureArtifact): void {
+/** Thrown when GitHub reports more review threads or thread comments than one 100-item page. */
+export class PrReviewInputTruncatedError extends Error {
+  constructor(what: string) {
+    super(`PR review input capture truncated: ${what} exceed one page of 100`);
+    this.name = "PrReviewInputTruncatedError";
+  }
+}
+
+type PrReviewInputArtifactFs = {
+  writeFileSync: (path: string, data: string, options: { flag: string }) => void;
+  renameSync: (from: string, to: string) => void;
+};
+
+const realArtifactFs: PrReviewInputArtifactFs = { writeFileSync, renameSync };
+
+export function writePrReviewInputArtifactAtomically(
+  path: string,
+  artifact: PrReviewInputCaptureArtifact,
+  fs: PrReviewInputArtifactFs = realArtifactFs,
+): void {
   const parent = dirname(path);
   mkdirSync(parent, { recursive: true });
   const temporaryPath = join(parent, `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
   const payload = `${JSON.stringify(artifact, null, 2)}\n`;
   try {
-    writeFileSync(temporaryPath, payload, { flag: "wx" });
-    renameSync(temporaryPath, path);
+    fs.writeFileSync(temporaryPath, payload, { flag: "wx" });
+    fs.renameSync(temporaryPath, path);
   } finally {
     if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
   }
@@ -86,11 +105,13 @@ const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $prNumber: 
   repository(owner: $owner, name: $name) {
     pullRequest(number: $prNumber) {
       reviewThreads(first: 100) {
+        pageInfo { hasNextPage }
         nodes {
           id
           isResolved
           isOutdated
           comments(first: 100) {
+            pageInfo { hasNextPage }
             nodes {
               id
               author { login }
@@ -112,6 +133,7 @@ type GraphqlReviewThreadNode = {
   isResolved?: boolean;
   isOutdated?: boolean;
   comments?: {
+    pageInfo?: { hasNextPage?: boolean } | null;
     nodes?: Array<{
       id?: string | null;
       author?: { login?: string | null } | null;
@@ -138,14 +160,23 @@ async function fetchReviewThreads(args: CaptureArgs): Promise<PrReviewInputCaptu
     "-F",
     `prNumber=${String(args.prNumber)}`,
   ]);
-  const nodes =
-    (
-      JSON.parse(stdout) as {
-        data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: GraphqlReviewThreadNode[] } } } };
-      }
-    ).data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  const reviewThreads = (
+    JSON.parse(stdout) as {
+      data?: {
+        repository?: {
+          pullRequest?: {
+            reviewThreads?: { pageInfo?: { hasNextPage?: boolean } | null; nodes?: GraphqlReviewThreadNode[] };
+          };
+        };
+      };
+    }
+  ).data?.repository?.pullRequest?.reviewThreads;
+  if (reviewThreads?.pageInfo?.hasNextPage === true) throw new PrReviewInputTruncatedError("review threads");
   const out: PrReviewInputCaptureThread[] = [];
-  for (const thread of nodes) {
+  for (const thread of reviewThreads?.nodes ?? []) {
+    if (thread.comments?.pageInfo?.hasNextPage === true) {
+      throw new PrReviewInputTruncatedError(`comments in thread ${thread.id ?? "?"}`);
+    }
     if (thread.isResolved === true) continue;
     const threadOutdated = thread.isOutdated === true;
     const comments = (thread.comments?.nodes ?? [])

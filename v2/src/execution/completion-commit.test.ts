@@ -456,6 +456,7 @@ describe("createCompletionCommitter", () => {
       ".",
       ":(exclude,literal)external-index.md",
       ":(exclude,glob)**/verdict-*.md",
+      ":(exclude,literal).jarvis-pr-review-input.json",
     ]);
   });
 
@@ -939,6 +940,25 @@ describe("createCompletionCommitter", () => {
       stdio: "pipe",
     });
     expect(committed).toBe("not a symlink\n");
+  });
+
+  test("completion commit omits the PR review input capture sidecar", async () => {
+    // No `.gitignore` rule here: the pathspec exclusion must keep the sidecar out of `add -A`.
+    const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
+    writeFileSync(join(worktreePath, ".jarvis-pr-review-input.json"), "{}\n");
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(tracked).not.toContain(".jarvis-pr-review-input.json");
+    expect(tracked).toContain("v2/spec/test/index.md");
   });
 
   test("completion commit omits an untracked review verdict", async () => {

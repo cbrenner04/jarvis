@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
   type PrReviewInputCaptureArtifact,
+  PrReviewInputTruncatedError,
   refreshPrReviewInputCapture,
   resolvePrReviewInputArtifactPath,
+  writePrReviewInputArtifactAtomically,
 } from "./pr-review-input-capture.ts";
 
 const FIXTURE = {
@@ -253,6 +256,195 @@ describe("refreshPrReviewInputCapture", () => {
       expect(artifact.topLevelComments.some((comment) => comment.commentId === FIXTURE.topOld)).toBe(false);
     } finally {
       rmSync(laneWorktreePath, { recursive: true, force: true });
+    }
+  });
+});
+
+type ThreadFixture = {
+  id: string;
+  isResolved?: boolean;
+  isOutdated?: boolean;
+  hasNextPage?: boolean;
+  comments: Array<{ id: string; login: string | null; createdAt: string }>;
+};
+
+function graphqlPayload(threads: ThreadFixture[], hasNextPage = false): string {
+  return JSON.stringify({
+    data: {
+      repository: {
+        pullRequest: {
+          reviewThreads: {
+            pageInfo: { hasNextPage },
+            nodes: threads.map((thread) => ({
+              id: thread.id,
+              isResolved: thread.isResolved ?? false,
+              isOutdated: thread.isOutdated ?? false,
+              comments: {
+                pageInfo: { hasNextPage: thread.hasNextPage ?? false },
+                nodes: thread.comments.map((comment) => ({
+                  id: comment.id,
+                  author: comment.login === null ? null : { login: comment.login },
+                  body: "b",
+                  createdAt: comment.createdAt,
+                  path: "f.ts",
+                  line: 1,
+                  diffHunk: "@@",
+                })),
+              },
+            })),
+          },
+        },
+      },
+    },
+  });
+}
+
+async function captureWith(graphql: string, prView: string): Promise<PrReviewInputCaptureArtifact> {
+  const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-case-");
+  const runner: AsyncSubprocessRunner = {
+    runAsync: async (cmd, args) => {
+      if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
+      if (args[0] === "repo") return "owner/repo\n";
+      if (args[0] === "api") return graphql;
+      if (args[0] === "pr") return prView;
+      throw new Error(`unexpected gh ${args.join(" ")}`);
+    },
+  };
+  try {
+    return await refreshPrReviewInputCapture({ laneWorktreePath, prNumber: 7, runner });
+  } finally {
+    rmSync(laneWorktreePath, { recursive: true, force: true });
+  }
+}
+
+const EMPTY_PR_VIEW = JSON.stringify({ reviews: [], comments: [] });
+
+describe("refreshPrReviewInputCapture edge cases", () => {
+  test("missing author is kept as unknown", async () => {
+    const artifact = await captureWith(
+      graphqlPayload([{ id: "T", comments: [{ id: "C", login: null, createdAt: "2026-01-01T00:00:00Z" }] }]),
+      JSON.stringify({
+        reviews: [],
+        comments: [{ id: "IC", author: null, body: "x", createdAt: "2026-01-01T00:00:00Z" }],
+      }),
+    );
+    expect(artifact.threads[0]?.comments[0]?.author).toBe("unknown");
+    expect(artifact.topLevelComments[0]?.author).toBe("unknown");
+  });
+
+  test("a thread whose only comments are bots is dropped", async () => {
+    const artifact = await captureWith(
+      graphqlPayload([
+        { id: "T_bot", comments: [{ id: "C1", login: "ci[bot]", createdAt: "2026-01-01T00:00:00Z" }] },
+        { id: "T_human", comments: [{ id: "C2", login: "human", createdAt: "2026-01-02T00:00:00Z" }] },
+      ]),
+      EMPTY_PR_VIEW,
+    );
+    expect(artifact.threads.map((thread) => thread.threadId)).toEqual(["T_human"]);
+  });
+
+  test("with no submitted review all non-bot top-level comments are kept", async () => {
+    const artifact = await captureWith(
+      graphqlPayload([]),
+      JSON.stringify({
+        reviews: [{ submittedAt: null }],
+        comments: [
+          { id: "A", author: { login: "a" }, body: "x", createdAt: "2026-01-01T00:00:00Z" },
+          { id: "B", author: { login: "b" }, body: "y", createdAt: "2026-01-02T00:00:00Z" },
+        ],
+      }),
+    );
+    expect(artifact.topLevelComments.map((comment) => comment.commentId)).toEqual(["A", "B"]);
+  });
+
+  test("out-of-order input sorts by createdAt at every level", async () => {
+    const artifact = await captureWith(
+      graphqlPayload([
+        {
+          id: "T_late",
+          comments: [
+            { id: "L2", login: "h", createdAt: "2026-01-05T00:00:00Z" },
+            { id: "L1", login: "h", createdAt: "2026-01-04T00:00:00Z" },
+          ],
+        },
+        { id: "T_early", comments: [{ id: "E1", login: "h", createdAt: "2026-01-01T00:00:00Z" }] },
+      ]),
+      JSON.stringify({
+        reviews: [],
+        comments: [
+          { id: "Z", author: { login: "a" }, body: "x", createdAt: "2026-01-03T00:00:00Z" },
+          { id: "Y", author: { login: "a" }, body: "x", createdAt: "2026-01-02T00:00:00Z" },
+        ],
+      }),
+    );
+    expect(artifact.threads.map((thread) => thread.threadId)).toEqual(["T_early", "T_late"]);
+    expect(artifact.threads[1]?.comments.map((comment) => comment.commentId)).toEqual(["L1", "L2"]);
+    expect(artifact.topLevelComments.map((comment) => comment.commentId)).toEqual(["Y", "Z"]);
+  });
+
+  test("more review threads than one page fails with PrReviewInputTruncatedError", async () => {
+    await expect(captureWith(graphqlPayload([], true), EMPTY_PR_VIEW)).rejects.toBeInstanceOf(
+      PrReviewInputTruncatedError,
+    );
+  });
+
+  test("more thread comments than one page fails with PrReviewInputTruncatedError", async () => {
+    const threads = [
+      { id: "T", hasNextPage: true, comments: [{ id: "C", login: "h", createdAt: "2026-01-01T00:00:00Z" }] },
+    ];
+    await expect(captureWith(graphqlPayload(threads), EMPTY_PR_VIEW)).rejects.toBeInstanceOf(
+      PrReviewInputTruncatedError,
+    );
+  });
+});
+
+describe("writePrReviewInputArtifactAtomically", () => {
+  const artifact: PrReviewInputCaptureArtifact = { captureVersion: 1, prNumber: 1, threads: [], topLevelComments: [] };
+
+  test("writes a sibling temp file then renames it onto the target", () => {
+    const dir = trackedMkdtempSync("pr-review-input-atomic-");
+    const target = resolvePrReviewInputArtifactPath(dir);
+    const ops: string[] = [];
+    try {
+      writePrReviewInputArtifactAtomically(target, artifact, {
+        writeFileSync: (path, data, options) => {
+          ops.push(`write:${path}`);
+          writeFileSync(path, data, options);
+        },
+        renameSync: (from, to) => {
+          ops.push(`rename:${from}->${to}`);
+          expect(existsSync(to)).toBe(false);
+          renameSync(from, to);
+        },
+      });
+      const temp = ops[0]?.slice("write:".length) ?? "";
+      expect(temp).not.toBe(target);
+      expect(dirname(temp)).toBe(dir);
+      expect(ops).toEqual([`write:${temp}`, `rename:${temp}->${target}`]);
+      expect(JSON.parse(readFileSync(target, "utf8"))).toEqual(artifact);
+      expect(readdirSync(dir)).toEqual([".jarvis-pr-review-input.json"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed rename leaves the prior artifact intact and removes the temp file", () => {
+    const dir = trackedMkdtempSync("pr-review-input-atomic-fail-");
+    const target = resolvePrReviewInputArtifactPath(dir);
+    writeFileSync(target, "prior\n");
+    try {
+      expect(() =>
+        writePrReviewInputArtifactAtomically(target, artifact, {
+          writeFileSync: (path, data, options) => writeFileSync(path, data, options),
+          renameSync: () => {
+            throw new Error("rename failed");
+          },
+        }),
+      ).toThrow("rename failed");
+      expect(readFileSync(target, "utf8")).toBe("prior\n");
+      expect(readdirSync(dir)).toEqual([".jarvis-pr-review-input.json"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

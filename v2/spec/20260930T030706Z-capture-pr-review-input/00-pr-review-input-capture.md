@@ -6,6 +6,8 @@ Open PR review threads and inline comments exist only on GitHub until something 
 
 ## Decisions
 
+- No pagination: `reviewThreads(first: 100)` / `comments(first: 100)` request `pageInfo.hasNextPage`; when set, capture throws `PrReviewInputTruncatedError` instead of writing a truncated artifact — rules out silent truncation and cursor-pagination complexity for a >100-thread PR.
+- The sidecar is never committed: `.gitignore` plus a literal `completionStageArgs` exclusion, mirroring `verdict-*.md`.
 - Durable artifact path is `<laneWorktree>/.jarvis-pr-review-input.json`, following the root `.jarvis-*` sidecar convention (like `.jarvis-plan-stage`) — rules out a `.jarvis/` subdir, paths inside the published spec tree, or completion commits (sidecar only, never agent landing output).
 - Capture input is the open PR only: inline review threads (GraphQL `reviewThreads`) plus top-level PR conversation comments (`gh pr view --json reviews,comments`) — rules out CI check-runs, operator verdict files, or subagent output.
 - Resolved threads (`isResolved: true`) are excluded — rules out capturing already-settled feedback.

@@ -839,7 +839,7 @@ describe("daemon handoff changeover (real sockets)", () => {
 
           // Ordinary self-handoff shape: the successor's own startup calls `supersede` on the outgoing
           // generation's private socket, matching `supersedePeerDaemon`'s production wiring — the
-          // rebind below must reopen admission unconditionally despite `wasSuperseded()` reading true.
+          // rebind below must reopen admission unconditionally despite handoff-origin supersede.
           const superseded = await request(incumbent.privateSocketPath, "supersede");
           expect(superseded.kind).toBe("response");
 

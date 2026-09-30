@@ -815,7 +815,7 @@ export function resolveWorkflowCompletionPublicationSpecPath(
 }
 
 /** Intent PR bullets are keyed by the entry intent invocation, not a review-feedback re-entry invocation. */
-export function resolveIntentBodySummaryInvocationId(store: StateStore, workflowSnapshot: WorkflowSnapshot): string {
+function resolveIntentBodySummaryInvocationId(store: StateStore, workflowSnapshot: WorkflowSnapshot): string {
   const lane = workflowSnapshot.reviewFeedbackLane;
   if (lane?.laneKind === "intent") {
     const entryInvocationId = store.loadRun(lane.entryRunId)?.workflowSnapshot?.invocationId;

@@ -297,6 +297,25 @@ test("a degraded listing refuses a prefix even when a same-prefix local id exist
   });
 });
 
+test("a degraded listing omits a pipeline but passes a hyphenated full uuid through to the verb rpc", async () => {
+  const omitted = "45f78585-1234-4000-8000-000000000001";
+  const deps = stableOnlyDeps([{ result: { pipelines: [pipelineSnapshot("aaaa1111locl")], degraded: true } }]);
+
+  expect(await resolvePipelineIdAcrossDaemons(omitted, deps, 20)).toEqual({
+    kind: "unmatched",
+    pipelineId: omitted,
+  });
+});
+
+test("a degraded listing still refuses a long non-uuid token absent from the merge", async () => {
+  const deps = stableOnlyDeps([{ result: { pipelines: [pipelineSnapshot("aaaa1111locl")], degraded: true } }]);
+
+  expect(await resolvePipelineIdAcrossDaemons("not-a-uuid-but-long-enough", deps, 20)).toEqual({
+    kind: "incomplete",
+    message: expect.stringContaining("pipeline_id_set_incomplete:"),
+  });
+});
+
 test("a degraded listing still resolves an exact id present in it", async () => {
   const deps = stableOnlyDeps([{ result: { pipelines: [pipelineSnapshot("aaaa1111locl")], degraded: true } }]);
 

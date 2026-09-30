@@ -3,8 +3,6 @@ import { basename, join } from "node:path";
 import { detectUnfalsifiablePremisesInMarkdown, formatUnfalsifiablePremisesSection } from "../premise-falsification.ts";
 import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { renderPromptForStep } from "./assemble.ts";
-import { loadPromptRegistry } from "./registry.ts";
-import { renderTemplateWithDeclarations } from "./render.ts";
 import { bindReviewPromptProfile, planReviewProfile } from "./review-profile.ts";
 
 export type PlanReviewPromptContext = { worktreePath: string; specPath: string };

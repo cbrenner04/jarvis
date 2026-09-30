@@ -236,6 +236,13 @@ function isBotLogin(login: string | null | undefined): boolean {
   return login != null && login.endsWith("[bot]");
 }
 
+export function hasSubmittedPrReview(reviews: Array<{ submittedAt?: string | null }>): boolean {
+  for (const review of reviews) {
+    if (review.submittedAt != null) return true;
+  }
+  return false;
+}
+
 function latestSubmittedAt(reviews: Array<{ submittedAt?: string | null }>): string | null {
   let latest: string | null = null;
   for (const review of reviews) {

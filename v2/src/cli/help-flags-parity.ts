@@ -2,6 +2,7 @@ import {
   IMPLEMENT_WORKFLOW_PARSE_OPTIONS,
   INTENT_WORKFLOW_PARSE_OPTIONS,
   PLAN_WORKFLOW_PARSE_OPTIONS,
+  REVIEW_FEEDBACK_WORKFLOW_PARSE_OPTIONS,
 } from "../commands/workflow-args.ts";
 import {
   CLEANUP_PARSE_ARG_OPTIONS,
@@ -62,6 +63,8 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parseOptionKeysToLongFlags(Object.keys(PLAN_WORKFLOW_PARSE_OPTIONS));
     case "run workflow implement":
       return parseOptionKeysToLongFlags(Object.keys(IMPLEMENT_WORKFLOW_PARSE_OPTIONS));
+    case "run workflow review-feedback":
+      return parseOptionKeysToLongFlags(Object.keys(REVIEW_FEEDBACK_WORKFLOW_PARSE_OPTIONS));
     default:
       throw new Error(`help-flags-parity: no parser surface for ${key}`);
   }

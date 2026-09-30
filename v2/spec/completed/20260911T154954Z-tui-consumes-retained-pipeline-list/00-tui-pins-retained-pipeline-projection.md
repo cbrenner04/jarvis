@@ -20,12 +20,16 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-entry.test.ts`'s existing `pipelineListRequests` assertions (dismissed-toggle on and off) stay green, pinning that the poll requests `pipeline_list` with only `includeDismissed` and no `sinceMs`/`state` key.
-- [ ] A work-tree model test proves the model renders every pipeline present in a given `pipeline_list` result — terminal and non-terminal alike — with no independent TUI-side cap or age filter beyond what it was given.
-- [ ] An attention-model test proves a terminal pipeline absent from a given result set contributes no gate, stage-failure, or publication-failure row, while pipelines present in the result keep their existing attention rows.
-- [ ] `v2/src/tui/tui-entry.test.ts`'s existing snapshot-replacement tests ("a selected pipeline that leaves the snapshot clears the selection", "when a refresh drops the selected id from the selectable list, selectedNodeId clears") stay green, and a new assertion in that suite shows a successful refresh returning a strictly smaller pipeline set also drops the removed pipelines' descendants, work counts, and attention rows.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/tui/tui-entry.test.ts`'s existing `pipelineListRequests` assertions (dismissed-toggle on and off) stay green, pinning that the poll requests `pipeline_list` with only `includeDismissed` and no `sinceMs`/`state` key.
+- [x] A work-tree model test proves the model renders every pipeline present in a given `pipeline_list` result — terminal and non-terminal alike — with no independent TUI-side cap or age filter beyond what it was given.
+- [x] An attention-model test proves a terminal pipeline absent from a given result set contributes no gate, stage-failure, or publication-failure row, while pipelines present in the result keep their existing attention rows.
+- [x] `v2/src/tui/tui-entry.test.ts`'s existing snapshot-replacement tests ("a selected pipeline that leaves the snapshot clears the selection", "when a refresh drops the selected id from the selectable list, selectedNodeId clears") stay green, and a new assertion in that suite shows a successful refresh returning a strictly smaller pipeline set also drops the removed pipelines' descendants, work counts, and attention rows.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+
+## Verification
+
+- `bun run test:v2` twice and the prescribed serial `bun test` recovery remain red on the unrelated baseline test `v2/src/commands/workflow.test.ts` ("run workflow plan emits no disposition line when a never-landed lane's stale reset is a no-op"); the changed `v2/src/tui/tui-entry.test.ts` passes 104 tests.
 
 ## Documentation updates
 

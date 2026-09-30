@@ -8,6 +8,7 @@ import {
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
   WORKFLOW_INTENT_HELP_FLAGS,
   WORKFLOW_PLAN_HELP_FLAGS,
+  WORKFLOW_REVIEW_FEEDBACK_HELP_FLAGS,
   WRITE_HELP_FLAGS,
 } from "./cli/command-help-flags.ts";
 import type { CommandNode } from "./cli/command-tree.ts";
@@ -29,6 +30,7 @@ import {
   WORKFLOW_IMPLEMENT_USAGE,
   WORKFLOW_INTENT_USAGE,
   WORKFLOW_PLAN_USAGE,
+  WORKFLOW_REVIEW_FEEDBACK_USAGE,
   WORKFLOW_USAGE,
 } from "./cli/usage.ts";
 import { enumerateCommands, findCommand, resolveHelpFlagAlias, main as runtimeMain } from "./cli.ts";
@@ -170,6 +172,7 @@ describe("v2 cli dispatch", () => {
     expect(output).toContain("intent\tCreate a spec seed.");
     expect(output).toContain("plan\tCreate an implementation plan.");
     expect(output).toContain("implement\tImplement a plan.");
+    expect(output).toContain("review-feedback\tAddress PR review feedback on a completed lane.");
   });
 
   test("help run pause prints ancestor usage (no subcommands)", async () => {
@@ -227,6 +230,12 @@ describe("v2 cli dispatch", () => {
       ["intent", ["help", "run", "workflow", "intent"], WORKFLOW_INTENT_USAGE, WORKFLOW_INTENT_HELP_FLAGS],
       ["plan", ["help", "run", "workflow", "plan"], WORKFLOW_PLAN_USAGE, WORKFLOW_PLAN_HELP_FLAGS],
       ["implement", ["help", "run", "workflow", "implement"], WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_IMPLEMENT_HELP_FLAGS],
+      [
+        "review-feedback",
+        ["help", "run", "workflow", "review-feedback"],
+        WORKFLOW_REVIEW_FEEDBACK_USAGE,
+        WORKFLOW_REVIEW_FEEDBACK_HELP_FLAGS,
+      ],
     ] as const;
 
     for (const [preset, argv, usage, flags] of cases) {

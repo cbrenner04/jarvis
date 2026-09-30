@@ -1,8 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { renderPromptForStep } from "./assemble.ts";
-import { loadPromptRegistry } from "./registry.ts";
-import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclarations } from "./render.ts";
+import { enforceDelimiterPolicy, PromptRenderingError } from "./render.ts";
 
 export const INTENT_SPLIT_PROMPT_ID = "intent.prompt.split";
 

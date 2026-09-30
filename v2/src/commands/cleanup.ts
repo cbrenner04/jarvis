@@ -3090,6 +3090,10 @@ export type ResetStaleWorkspaceOptions = {
   resetDespiteContinuable?: boolean;
   baseRef?: string;
   specPath?: string;
+  /** Evaluate pre-mutation gates only; never rebase, reset, or destroy artifacts. */
+  gatesOnly?: boolean;
+  /** Skip the workflow-start claim probe (resume admission excludes `worktree_claimed`). */
+  skipWorktreeClaimGate?: boolean;
 };
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the ordered preflight gate sequence (descendant → preserve-landed-criteria → dirty → retirement) is one boundary
@@ -3117,20 +3121,22 @@ export async function resetStaleWorkspace(
   const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
   if (prGate.status !== "ok") return { status: "refused", reason: prGate.reason };
 
-  const claimProbe = daemonClient.checkWorkflowStartClaim;
-  if (claimProbe === undefined) {
-    return { status: "refused", reason: "daemon client missing workflow start claim probe" };
-  }
-  try {
-    const claimResult = await claimProbe(project, branch);
-    if (claimResult.status === "claimed") {
-      return { status: "refused", code: "worktree_claimed", message: claimResult.message };
+  if (options.skipWorktreeClaimGate !== true) {
+    const claimProbe = daemonClient.checkWorkflowStartClaim;
+    if (claimProbe === undefined) {
+      return { status: "refused", reason: "daemon client missing workflow start claim probe" };
     }
-  } catch (error) {
-    return {
-      status: "refused",
-      reason: `daemon claim check failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    try {
+      const claimResult = await claimProbe(project, branch);
+      if (claimResult.status === "claimed") {
+        return { status: "refused", code: "worktree_claimed", message: claimResult.message };
+      }
+    } catch (error) {
+      return {
+        status: "refused",
+        reason: `daemon claim check failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   }
 
   const dirtyList = await listDirtyWorktreePathsForStaleReset(worktreePath, runner);
@@ -3254,6 +3260,14 @@ export async function resetStaleWorkspace(
 
   if (refusalParts.length > 0) {
     return { status: "refused", reason: combineStaleResetRefusalReasons(refusalParts) };
+  }
+
+  if (options.gatesOnly === true) {
+    return continuationEligible
+      ? preRebaseSha !== undefined
+        ? { status: "continue", preRebaseSha }
+        : { status: "continue" }
+      : { status: "no-op" };
   }
 
   // continuationEligible is only ever set inside the branch gated on `dirtyList.status === "clean"`

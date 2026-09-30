@@ -16,8 +16,14 @@ const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 const OWNER_PATH = "v2/src/commands/workflow-start-preparation.ts";
 const PIPELINE_ADAPTER_PATH = "v2/src/daemon/pipeline-workflow-preparation.ts";
 const CLI_ADAPTER_PATH = "v2/src/commands/workflow.ts";
+const REVIEW_FEEDBACK_ADMISSION_PATH = "v2/src/commands/review-feedback-workflow-admission.ts";
 const PREPARE_CALL_PATTERN = /prepareWorkflowStart(?:<[^>]*>)?\s*\(/;
-const PREPARE_CALL_ALLOWED_PATHS = [CLI_ADAPTER_PATH, OWNER_PATH, PIPELINE_ADAPTER_PATH];
+const PREPARE_CALL_ALLOWED_PATHS = [
+  CLI_ADAPTER_PATH,
+  OWNER_PATH,
+  PIPELINE_ADAPTER_PATH,
+  REVIEW_FEEDBACK_ADMISSION_PATH,
+];
 
 /** Pre-fix hardcoded registry pins; vacuous when registries grow without a matching edit. */
 const HAND_MAINTAINED_BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"];
@@ -133,7 +139,7 @@ describe("workflow-start preparation authority", () => {
     expect(
       symbolResolvedMoveGuard(modules, {
         ownerPath: OWNER_PATH,
-        adapterPaths: [CLI_ADAPTER_PATH, PIPELINE_ADAPTER_PATH],
+        adapterPaths: [CLI_ADAPTER_PATH, PIPELINE_ADAPTER_PATH, REVIEW_FEEDBACK_ADMISSION_PATH],
         callPattern: PREPARE_CALL_PATTERN,
         ownerSymbolStart: "export async function prepareWorkflowStart",
         ownerSymbolEnd: "return prepared;",

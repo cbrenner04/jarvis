@@ -1866,6 +1866,20 @@ describe("pipeline resume", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([expect.objectContaining({ params: { pipelineId } })]);
   });
 
+  test("pipeline resume prints stale-reset dispatch refusal on stderr and exits non-zero", async () => {
+    const refusal =
+      "Error: Cannot re-run incomplete spec: worktree has uncommitted changes (README.md); commit, discard local changes, pass --reset-despite-dirty on re-run, or run `jarvis cleanup --abandon <branch>` to retire the workspace, then re-run";
+    const cap = captureIo();
+
+    const code = await main(["pipeline", "resume", "pipe-dirty"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineErrorRpcClient("resume_dispatch_refused", refusal)),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `resume_dispatch_refused: ${refusal}\n` });
+  });
+
   test("pipeline resume forwards the branch positional as branchKey", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -2208,6 +2222,20 @@ describe("pipeline recover", () => {
     const frame = ipcFramesWithMethod(sent, "pipeline_recover")[0] as { params: Record<string, unknown> };
     if (!resetDespiteDirty) expect(frame.params).not.toHaveProperty("resetDespiteDirty");
     if (!resetDespiteLandedCriteria) expect(frame.params).not.toHaveProperty("resetDespiteLandedCriteria");
+  });
+
+  test("pipeline recover prints stale-reset dispatch refusal on stderr and exits non-zero", async () => {
+    const refusal =
+      "Error: Cannot re-run incomplete spec: worktree has uncommitted changes (README.md); commit, discard local changes, pass --reset-despite-dirty on re-run, or run `jarvis cleanup --abandon <branch>` to retire the workspace, then re-run";
+    const cap = captureIo();
+
+    const code = await main(["pipeline", "recover", "pipe-dirty", "alpha"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineErrorRpcClient("recover_dispatch_refused", refusal)),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `recover_dispatch_refused: ${refusal}\n` });
   });
 
   test("pipeline recover reports daemon refusals without admitting", async () => {

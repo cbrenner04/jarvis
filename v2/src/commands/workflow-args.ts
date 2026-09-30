@@ -200,3 +200,46 @@ export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliI
     ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
   };
 }
+
+export const REVIEW_FEEDBACK_WORKFLOW_PARSE_OPTIONS = {
+  branch: { type: "string" },
+  pipeline: { type: "string" },
+  stage: { type: "string" },
+  "branch-key": { type: "string" },
+} as const satisfies Record<string, { type: "string" }>;
+
+export type ReviewFeedbackWorkflowCliInput =
+  | {
+      ok: true;
+      branch: string;
+      pipelineId?: string;
+      stageId?: string;
+      branchKey?: string;
+    }
+  | { ok: false };
+
+export function parseReviewFeedbackWorkflowArgs(argv: readonly string[]): ReviewFeedbackWorkflowCliInput {
+  let values: Record<string, string | boolean | string[] | undefined>;
+  try {
+    values = parseArgs({
+      args: [...argv],
+      allowPositionals: false,
+      strict: true,
+      options: REVIEW_FEEDBACK_WORKFLOW_PARSE_OPTIONS,
+    }).values;
+  } catch {
+    return { ok: false };
+  }
+  const branch = typeof values.branch === "string" ? values.branch : undefined;
+  if (branch === undefined || branch.length === 0) return { ok: false };
+  const pipelineId = typeof values.pipeline === "string" ? values.pipeline : undefined;
+  const stageId = typeof values.stage === "string" ? values.stage : undefined;
+  const branchKey = typeof values["branch-key"] === "string" ? values["branch-key"] : undefined;
+  return {
+    ok: true,
+    branch,
+    ...(pipelineId !== undefined ? { pipelineId } : {}),
+    ...(stageId !== undefined ? { stageId } : {}),
+    ...(branchKey !== undefined ? { branchKey } : {}),
+  };
+}

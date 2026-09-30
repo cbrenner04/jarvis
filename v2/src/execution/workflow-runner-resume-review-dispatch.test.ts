@@ -1246,6 +1246,10 @@ describe("executeWorkflow review dispatch", () => {
             plan: async () => ({ ok: true, steps: [{ behavior: "write" } as never], identity: {} as never }),
             "plan-reviewed": async () => ({ ok: false as const, error: "unexpected" }),
             "plan-reviewed-light": async () => ({ ok: false as const, error: "unexpected" }),
+            "review-feedback": (async () => ({
+              ok: false as const,
+              error: "unexpected",
+            })) as typeof import("./workflow-presets.ts").WORKFLOW_PRESET_BUILDERS["review-feedback"],
           },
         },
       );

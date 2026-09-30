@@ -46,25 +46,74 @@ export function buildResetStaleWorkspaceOptions(args: {
   };
 }
 
-export async function maybeResetStaleWorkspace(
+type StaleResetWorkspaceProbeRefusal = { refused: true; message: string };
+
+type StaleResetRunResult = number | undefined | StaleResetWorkspaceProbeRefusal;
+
+/** Maps a shared run result to CLI exit semantics (probe refusals become exit 1). */
+export function staleResetRunResultToCliExit(result: StaleResetRunResult): number | undefined {
+  if (result !== undefined && typeof result === "object" && "refused" in result) return 1;
+  return result;
+}
+
+type StaleResetParsed =
+  | WorkflowStartResetFlags
+  | ImplementWorkflowCliInput
+  | IntentWorkflowCliInput
+  | PlanWorkflowCliInput;
+
+function staleResetGateFlags(parsed: StaleResetParsed): {
+  skipDirtyWorktreeGate: boolean;
+  skipLandedCriteriaGate: boolean;
+} {
+  return {
+    skipDirtyWorktreeGate:
+      "skipDirtyWorktreeGate" in parsed
+        ? parsed.skipDirtyWorktreeGate
+        : "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true,
+    skipLandedCriteriaGate:
+      "skipLandedCriteriaGate" in parsed
+        ? parsed.skipLandedCriteriaGate
+        : "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true,
+  };
+}
+
+function staleResetProbeRefusal(probe: boolean, line: string, io: Io): StaleResetWorkspaceProbeRefusal | undefined {
+  if (probe !== true) {
+    io.stderr(line);
+    return undefined;
+  }
+  return { refused: true, message: line };
+}
+
+function handleStaleResetRefused(
+  resetResult: Extract<Awaited<ReturnType<typeof resetStaleWorkspace>>, { status: "refused" }>,
+  probe: boolean,
+  io: Io,
+): StaleResetWorkspaceProbeRefusal | number {
+  if ("code" in resetResult && resetResult.code === "worktree_claimed") {
+    const refusal = staleResetProbeRefusal(probe, `worktree_claimed: ${resetResult.message}\n`, io);
+    if (refusal !== undefined) return refusal;
+  } else if ("reason" in resetResult) {
+    const refusal = staleResetProbeRefusal(probe, `Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`, io);
+    if (refusal !== undefined) return refusal;
+  }
+  return 1;
+}
+
+async function runStaleResetForWorkflow(
   canonicalName: string,
   built: SuccessfulWorkflowBuild,
   deps: CliDeps,
   io: Io,
-  parsed: WorkflowStartResetFlags | ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
+  parsed: StaleResetParsed,
   client: IpcClient,
+  probe: boolean,
   onDestroyed?: (destroyed: DestroyedArtifacts) => void,
   onOutcome?: (status: "reset" | "no-op" | "continue") => void,
-): Promise<number | undefined> {
+): Promise<number | undefined | StaleResetWorkspaceProbeRefusal> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
-  const skipDirtyWorktreeGate =
-    "skipDirtyWorktreeGate" in parsed
-      ? parsed.skipDirtyWorktreeGate
-      : "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true;
-  const skipLandedCriteriaGate =
-    "skipLandedCriteriaGate" in parsed
-      ? parsed.skipLandedCriteriaGate
-      : "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true;
+  const { skipDirtyWorktreeGate, skipLandedCriteriaGate } = staleResetGateFlags(parsed);
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
@@ -89,26 +138,62 @@ export async function maybeResetStaleWorkspace(
       deps.subprocessRunner ?? realAsyncSubprocessRunner,
       createStaleResetDaemonClient(client),
       io,
-      resetOptions,
+      probe === true ? { ...resetOptions, gatesOnly: true, skipWorktreeClaimGate: true } : resetOptions,
     );
   } catch (error) {
-    io.stderr(`Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    const refusal = staleResetProbeRefusal(
+      probe,
+      `Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      io,
+    );
+    if (refusal !== undefined) return refusal;
     return 1;
   }
   if ("destroyed" in resetResult && resetResult.destroyed !== undefined) onDestroyed?.(resetResult.destroyed);
-  if (resetResult.status === "refused") {
-    if ("code" in resetResult && resetResult.code === "worktree_claimed") {
-      io.stderr(`worktree_claimed: ${resetResult.message}\n`);
-    } else if ("reason" in resetResult) {
-      io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
-    }
-    return 1;
-  }
+  if (resetResult.status === "refused") return handleStaleResetRefused(resetResult, probe, io);
   // A continuation that rebased the lane records its pre-rebase tip on the write step, so the run's
   // snapshot carries the publisher's lease authorization across resume. Merge continuation omits it.
   if (resetResult.status === "continue" && resetResult.preRebaseSha !== undefined && writeStep?.behavior === "write") {
     writeStep.leaseFromSha = resetResult.preRebaseSha;
   }
   onOutcome?.(resetResult.status);
+  return undefined;
+}
+
+export async function maybeResetStaleWorkspace(
+  canonicalName: string,
+  built: SuccessfulWorkflowBuild,
+  deps: CliDeps,
+  io: Io,
+  parsed: StaleResetParsed,
+  client: IpcClient,
+  onDestroyed?: (destroyed: DestroyedArtifacts) => void,
+  onOutcome?: (status: "reset" | "no-op" | "continue") => void,
+): Promise<number | undefined> {
+  const result = await runStaleResetForWorkflow(
+    canonicalName,
+    built,
+    deps,
+    io,
+    parsed,
+    client,
+    false,
+    onDestroyed,
+    onOutcome,
+  );
+  return staleResetRunResultToCliExit(result);
+}
+
+/** Non-mutating stale-reset gate evaluation for pipeline resume admission. */
+export async function probeMaybeResetStaleWorkspace(
+  canonicalName: string,
+  built: SuccessfulWorkflowBuild,
+  deps: CliDeps,
+  io: Io,
+  parsed: StaleResetParsed,
+  client: IpcClient,
+): Promise<StaleResetWorkspaceProbeRefusal | undefined> {
+  const result = await runStaleResetForWorkflow(canonicalName, built, deps, io, parsed, client, true);
+  if (result !== undefined && typeof result === "object" && "refused" in result) return result;
   return undefined;
 }

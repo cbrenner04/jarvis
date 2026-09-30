@@ -14,6 +14,7 @@ import {
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
   WORKFLOW_INTENT_HELP_FLAGS,
   WORKFLOW_PLAN_HELP_FLAGS,
+  WORKFLOW_REVIEW_FEEDBACK_HELP_FLAGS,
   WRITE_HELP_FLAGS,
 } from "./command-help-flags.ts";
 import {
@@ -48,6 +49,7 @@ import {
   WORKFLOW_IMPLEMENT_USAGE,
   WORKFLOW_INTENT_USAGE,
   WORKFLOW_PLAN_USAGE,
+  WORKFLOW_REVIEW_FEEDBACK_USAGE,
   WORKFLOW_USAGE,
 } from "./usage.ts";
 
@@ -197,6 +199,12 @@ export const commandTree: CommandNode = {
               summary: "Implement a plan.",
               usage: WORKFLOW_IMPLEMENT_USAGE,
               flags: WORKFLOW_IMPLEMENT_HELP_FLAGS,
+            },
+            {
+              name: "review-feedback",
+              summary: "Address PR review feedback on a completed lane.",
+              usage: WORKFLOW_REVIEW_FEEDBACK_USAGE,
+              flags: WORKFLOW_REVIEW_FEEDBACK_HELP_FLAGS,
             },
           ],
         },

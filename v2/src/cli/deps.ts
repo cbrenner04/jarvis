@@ -8,6 +8,7 @@ import type { WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "../paths.ts";
+import type { ReviewFeedbackLaneResolutionStore } from "../persistence/review-feedback-lane-resolution.ts";
 import { runTuiEntry } from "../tui/tui-entry.tsx";
 import { runTuiLogFollow } from "../tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "../tui/tui-log-follow-types.ts";
@@ -26,6 +27,8 @@ export type CliDeps = {
   runTuiEntry: (deps: RunTuiEntryDeps) => Promise<number>;
   runTuiLogFollow: (runId: string, deps: RunTuiLogFollowDeps) => Promise<number>;
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
+  /** Injectable lane-resolution store for `run workflow review-feedback`; defaults to `openStateStore()`. */
+  reviewFeedbackLaneStore?: ReviewFeedbackLaneResolutionStore;
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   cwd: () => string;
   getExecutableDigest: () => Promise<string>;

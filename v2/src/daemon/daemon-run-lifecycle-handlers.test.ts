@@ -888,6 +888,39 @@ test("workflow entry wait reports non_terminating_mutation_failed owned by a dur
   }
 });
 
+test("workflow entry wait rolls up completed when an earlier same-lane invocation completed the missing durable successor", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  const steps = [
+    { stepId: "implement", role: "implement" },
+    { stepId: "implement-review", role: "", durable: true },
+  ];
+  const base = {
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "prior-lane-successor",
+    specPath: "/tmp/test-project/spec.md",
+  };
+  const priorSnapshot = workflowSnapshot("inv-prior-lane", steps);
+  stateStore.createRun({ ...base, stepId: "implement", status: "completed", workflowSnapshot: priorSnapshot });
+  stateStore.createRun({ ...base, stepId: "implement-review", status: "completed", workflowSnapshot: priorSnapshot });
+  await Bun.sleep(5);
+  const entryRunId = stateStore.createRun({
+    ...base,
+    stepId: "implement",
+    workflowSnapshot: workflowSnapshot("inv-current-lane", steps),
+  });
+  stateStore.commitTerminalRunSettlement({ runId: entryRunId, status: "completed", terminalCause: "complete" });
+
+  const waited = await handlers.wait(
+    { kind: "request", id: "w1", method: "wait", params: { runId: entryRunId } },
+    signal,
+  );
+  if (waited.kind !== "response") throw new Error("wait failed");
+  expect(waited.result).toMatchObject({ runStatus: "completed" });
+});
+
 test("pause and kill release write-loop ownership", async () => {
   const { ctx, handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;

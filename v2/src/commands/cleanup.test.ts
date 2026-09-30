@@ -38,10 +38,10 @@ import {
   DAEMON_UNREACHABLE_REASON,
   type DaemonClient,
   type DiscoveredWorktree,
-  evaluateImplementLandedElsewhereReport,
   discoverMaterializedWorktrees,
   discoverMergedBranchRefCandidates,
   discoverStrandedArtifacts,
+  evaluateImplementLandedElsewhereReport,
   exactOriginTrackingRefOid,
   gateOnOpenPrs,
   handLandedArtifactArchivability,
@@ -52,9 +52,9 @@ import {
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
   OPEN_PR_PROBE_UNREACHABLE_REASON,
-  planSubsumedPrGateAllows,
   parseCheckedOutBranchesFromWorktreePorcelain,
   performWorktreeRemovals,
+  planSubsumedPrGateAllows,
   pruneVerifiedMergedBranchRef,
   type ResetStaleWorkspaceOptions,
   resetStaleWorkspace,
@@ -861,7 +861,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
   test("planSubsumedPrGateAllows guard inversion: OPEN PR blocks retirement", async () => {
     const runner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
+      runAsync: async (cmd, _args) => {
         if (cmd === "gh") return JSON.stringify([{ state: "OPEN" }]);
         throw new Error(`unexpected ${cmd}`);
       },

@@ -240,6 +240,7 @@ type DaemonEntrypointAddress = {
   socketPath: string;
   privateSocketPath?: string;
   predecessorSocketPath?: string;
+  predecessorHandoffId?: string;
   testOwnerPid?: number;
 };
 
@@ -249,6 +250,7 @@ export function daemonEntrypointArgs(address: DaemonEntrypointAddress): string[]
     address.socketPath,
     ...(address.privateSocketPath === undefined ? [] : ["--private-socket", address.privateSocketPath]),
     ...(address.predecessorSocketPath === undefined ? [] : ["--predecessor-socket", address.predecessorSocketPath]),
+    ...(address.predecessorHandoffId === undefined ? [] : ["--predecessor-handoff-id", address.predecessorHandoffId]),
     ...(address.testOwnerPid === undefined ? [] : ["--test-owner-pid", String(address.testOwnerPid)]),
   ];
 }
@@ -340,7 +342,9 @@ export async function startDaemon(
         ...daemonEntrypointArgs({
           socketPath,
           ...(options?.privateSocketPath === undefined ? {} : { privateSocketPath: options.privateSocketPath }),
-          ...(handoff === undefined ? {} : { predecessorSocketPath: handoff.privateSocketPath }),
+          ...(handoff === undefined
+            ? {}
+            : { predecessorSocketPath: handoff.privateSocketPath, predecessorHandoffId: handoff.handoffId }),
           ...(options?.testOwnerPid === undefined ? {} : { testOwnerPid: options.testOwnerPid }),
         }),
       ],

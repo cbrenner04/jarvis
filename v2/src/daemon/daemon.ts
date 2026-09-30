@@ -962,16 +962,37 @@ type RollbackAdmissionSupersedeState = {
   blocksRollbackReopen: boolean;
 };
 
-/** Handoff-origin `supersede` during a pending transaction does not block rollback admission reopen. */
-export function recordSupersedeForRollbackAdmission(
+/**
+ * A `supersede` carrying the pending transaction's own `handoffId` (sent only by the successor
+ * spawned for it) does not block rollback admission reopen; any other supersede does.
+ */
+function recordSupersedeForRollbackAdmission(
   state: RollbackAdmissionSupersedeState,
-  input: { handoffPending: boolean; fromHandoffSuccessor?: boolean },
+  input: { pendingHandoffId: string | undefined; supersedeHandoffId: string | undefined },
 ): void {
-  const fromSuccessor = input.fromHandoffSuccessor ?? false;
-  if (input.handoffPending && fromSuccessor && !state.blocksRollbackReopen) {
+  const fromSuccessor = input.pendingHandoffId !== undefined && input.supersedeHandoffId === input.pendingHandoffId;
+  if (fromSuccessor && !state.blocksRollbackReopen) {
     return;
   }
   state.blocksRollbackReopen = true;
+}
+
+/** `supersede` RPC handler: cuts admission and records whether rollback may still reopen it. */
+export function createSupersedeHandler(deps: {
+  state: RollbackAdmissionSupersedeState;
+  pendingHandoffId: () => string | undefined;
+  setRetiring: () => void;
+  recordRetireTrigger: (trigger: "supersede") => void;
+}): RpcHandler {
+  return (frame) => {
+    recordSupersedeForRollbackAdmission(deps.state, {
+      pendingHandoffId: deps.pendingHandoffId(),
+      supersedeHandoffId: handoffIdentity(frame),
+    });
+    deps.setRetiring();
+    deps.recordRetireTrigger("supersede");
+    return { kind: "response", result: { ok: true } };
+  };
 }
 
 function handoffIdentity(frame: Parameters<RpcHandler>[0]): string | undefined {
@@ -1010,6 +1031,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
   handoff_commit: RpcHandler;
   handoff_rollback: RpcHandler;
   isPending: () => boolean;
+  pendingHandoffId: () => string | undefined;
   close: () => void;
 } {
   let transaction: HandoffTransaction | undefined;
@@ -1200,6 +1222,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     handoff_commit: settle("commit"),
     handoff_rollback: settle("rollback"),
     isPending: () => transaction?.state === "pending",
+    pendingHandoffId: () => (transaction?.state === "pending" ? transaction.id : undefined),
     close: () => {
       closed = true;
       if (transaction !== undefined) {
@@ -1280,6 +1303,8 @@ type DaemonStartupDeps = {
    * same way, without needing to be named here.
    */
   predecessorSocketPath?: string;
+  /** Accepted changeover's `handoffId`, sent on `supersede` to the predecessor so it recognizes its own successor. */
+  predecessorHandoffId?: string;
   observePredecessorDrain?: typeof observePredecessorDrain;
   /** Direct-predecessor-only ownership routing; never fed legacy peer sockets. Defaults to `observeRunOwnership`. */
   observeRunOwnership?: typeof observeRunOwnership;
@@ -1595,18 +1620,13 @@ export async function startDaemonRuntime(
   const setRetiring = setRetiringRaw;
 
   const supersedeAdmissionState: RollbackAdmissionSupersedeState = { blocksRollbackReopen: false };
-  let isHandoffPending: () => boolean = () => false;
-  const supersedeHandler =
-    (fromHandoffSuccessor: boolean): RpcHandler =>
-    () => {
-      recordSupersedeForRollbackAdmission(supersedeAdmissionState, {
-        handoffPending: isHandoffPending(),
-        fromHandoffSuccessor,
-      });
-      setRetiring();
-      recordRetireTrigger("supersede");
-      return { kind: "response", result: { ok: true } };
-    };
+  let pendingHandoffId: () => string | undefined = () => undefined;
+  const supersedeHandler = createSupersedeHandler({
+    state: supersedeAdmissionState,
+    pendingHandoffId: () => pendingHandoffId(),
+    setRetiring,
+    recordRetireTrigger,
+  });
 
   let server: IpcServer;
   // False while the public listener is released for a handoff; private-endpoint start/resume admit
@@ -1642,13 +1662,13 @@ export async function startDaemonRuntime(
     probePublicServer: () => daemonAnswersAt(socketPath),
     ...(startupDeps.handoffFallbackMs === undefined ? {} : { fallbackMs: startupDeps.handoffFallbackMs }),
   });
-  isHandoffPending = handoffHandlers.isPending;
+  pendingHandoffId = handoffHandlers.pendingHandoffId;
 
   handlers = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    supersede: supersedeHandler(false),
+    supersede: supersedeHandler,
     changeover: handoffHandlers.changeover,
     handoff_commit: handoffHandlers.handoff_commit,
     handoff_rollback: handoffHandlers.handoff_rollback,
@@ -1663,7 +1683,6 @@ export async function startDaemonRuntime(
   // must never recurse.
   const privateHandlers = {
     ...handlers,
-    supersede: supersedeHandler(true),
     wait: runControlHandlers.wait,
     pause: runControlHandlers.pause,
     kill: runControlHandlers.kill,
@@ -1696,7 +1715,10 @@ export async function startDaemonRuntime(
   const supersedePeer = startupDeps.supersedePeerDaemon ?? supersedePeerDaemon;
   (async () => {
     for (const peerSocketPath of legacyPeerSocketPaths) {
-      await supersedePeer(peerSocketPath);
+      await supersedePeer(
+        peerSocketPath,
+        peerSocketPath === startupDeps.predecessorSocketPath ? startupDeps.predecessorHandoffId : undefined,
+      );
     }
   })().catch(() => {
     // Ignore errors: the supersede pass is best-effort.

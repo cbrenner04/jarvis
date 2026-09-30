@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
 import { DaemonSocketBindFailureError, DaemonSocketInUseError } from "../ipc/server.ts";
-import {
-  createHandoffHandlers,
-  isLiveSuccessorPublicBindRefusal,
-  recordSupersedeForRollbackAdmission,
-} from "./daemon.ts";
+import { createHandoffHandlers, createSupersedeHandler, isLiveSuccessorPublicBindRefusal } from "./daemon.ts";
 
 function requestFrame(method: string, params?: unknown) {
   return { kind: "request" as const, id: "1", method, params };
@@ -47,13 +43,20 @@ function makeHandlers() {
     rollbackBlocksReopenAdmission: () => supersedeAdmissionState.blocksRollbackReopen,
     fallbackMs: 60_000,
   });
-  const supersede = (fromHandoffSuccessor?: boolean) => {
-    recordSupersedeForRollbackAdmission(supersedeAdmissionState, {
-      handoffPending: handlers.isPending(),
-      ...(fromHandoffSuccessor === undefined ? {} : { fromHandoffSuccessor }),
-    });
-    retiring = true;
-  };
+  const supersedeHandler = createSupersedeHandler({
+    state: supersedeAdmissionState,
+    pendingHandoffId: handlers.pendingHandoffId,
+    setRetiring: () => {
+      retiring = true;
+    },
+    recordRetireTrigger: () => {},
+  });
+  // Drives the real `supersede` RPC handler with the frame a peer would send.
+  const supersede = (handoffId?: string) =>
+    supersedeHandler(
+      requestFrame("supersede", handoffId === undefined ? undefined : { handoffId }),
+      new AbortController().signal,
+    );
   return { handlers, supersede, isRetiring: () => retiring };
 }
 
@@ -95,28 +98,10 @@ test("isLiveSuccessorPublicBindRefusal is true for EADDRINUSE and live-socket cl
   expect(isLiveSuccessorPublicBindRefusal(new DaemonSocketBindFailureError("/tmp/daemon.sock", "EACCES"))).toBe(false);
 });
 
-test("recordSupersedeForRollbackAdmission blocks rollback reopen for external supersede", () => {
-  const state = { blocksRollbackReopen: false };
-  recordSupersedeForRollbackAdmission(state, { handoffPending: false });
-  expect(state.blocksRollbackReopen).toBe(true);
-});
-
-test("recordSupersedeForRollbackAdmission does not block when pending and from the handoff successor", () => {
-  const state = { blocksRollbackReopen: false };
-  recordSupersedeForRollbackAdmission(state, { handoffPending: true, fromHandoffSuccessor: true });
-  expect(state.blocksRollbackReopen).toBe(false);
-});
-
-test("recordSupersedeForRollbackAdmission blocks when pending but not from the handoff successor", () => {
-  const state = { blocksRollbackReopen: false };
-  recordSupersedeForRollbackAdmission(state, { handoffPending: true, fromHandoffSuccessor: false });
-  expect(state.blocksRollbackReopen).toBe(true);
-});
-
-test("handoff rollback reopens admission after changeover and handoff-origin supersede", async () => {
+test("handoff rollback reopens admission after supersede carrying the pending handoff identity", async () => {
   const { handlers, supersede, isRetiring } = makeHandlers();
   const handoffId = await pendingHandoffId(handlers);
-  supersede(true);
+  supersede(handoffId);
   expect(isRetiring()).toBe(true);
   const rollback = await handlers.handoff_rollback(
     requestFrame("handoff_rollback", { handoffId }),
@@ -126,17 +111,22 @@ test("handoff rollback reopens admission after changeover and handoff-origin sup
   expect(isRetiring()).toBe(false);
 });
 
-test("handoff rollback stays non-admitting after supersede from a non-successor peer during pending", async () => {
-  const { handlers, supersede, isRetiring } = makeHandlers();
-  const handoffId = await pendingHandoffId(handlers);
-  supersede(false);
-  const rollback = await handlers.handoff_rollback(
-    requestFrame("handoff_rollback", { handoffId }),
-    new AbortController().signal,
-  );
-  expect(rollback).toEqual({ kind: "response", result: { ok: true, state: "rolled_back" } });
-  expect(isRetiring()).toBe(true);
-});
+for (const [label, peerHandoffId] of [
+  ["a mismatched handoff identity", "other-handoff"],
+  ["no handoff identity", undefined],
+] as const) {
+  test(`handoff rollback stays non-admitting after pending-window supersede with ${label}`, async () => {
+    const { handlers, supersede, isRetiring } = makeHandlers();
+    const handoffId = await pendingHandoffId(handlers);
+    supersede(peerHandoffId);
+    const rollback = await handlers.handoff_rollback(
+      requestFrame("handoff_rollback", { handoffId }),
+      new AbortController().signal,
+    );
+    expect(rollback).toEqual({ kind: "response", result: { ok: true, state: "rolled_back" } });
+    expect(isRetiring()).toBe(true);
+  });
+}
 
 test("fallback rollback retries after EADDRINUSE then reopens admission", async () => {
   const { scheduleAfter, advance } = makeFallbackClock();

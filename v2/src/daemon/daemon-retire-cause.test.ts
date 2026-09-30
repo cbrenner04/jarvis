@@ -147,6 +147,7 @@ test("fallback rollback after changeover does not set terminal before admission 
 });
 
 test("committed-handoff watch rebind clears retireCause; a later changeover restores handoff_origin for self-heal", async () => {
+  const { scheduleAfter, advance } = makeFallbackClock();
   const retireCauseState = { cause: null as RetireCause };
   let retiring = false;
   const handlers = createHandoffHandlers({
@@ -161,14 +162,12 @@ test("committed-handoff watch rebind clears retireCause; a later changeover rest
     },
     rollbackBlocksReopenAdmission: () => false,
     fallbackMs: 5,
+    scheduleAfter,
   });
   const handoffId = await pendingHandoffId(handlers);
   await handlers.handoff_commit(requestFrame("handoff_commit", { handoffId }), new AbortController().signal);
   expect(retireCauseState.cause).toBe("terminal");
-  const watchDeadline = Date.now() + 15;
-  while (Date.now() < watchDeadline) {
-    await flushMicrotasks();
-  }
+  await runFallbackTicks(advance, 1);
   expect(retireCauseState.cause).toBe(null);
   expect(retiring).toBe(false);
   await handlers.changeover(requestFrame("changeover"), new AbortController().signal);

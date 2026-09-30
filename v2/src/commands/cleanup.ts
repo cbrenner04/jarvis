@@ -2612,7 +2612,20 @@ async function mergeWorktreeWithBase(
   baseHead: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string[] | undefined> {
-  return abortableWorktreeGitRewrite(worktreePath, runner, ["merge", "--no-edit", baseHead], ["merge", "--abort"]);
+  const conflictPaths = await abortableWorktreeGitRewrite(
+    worktreePath,
+    runner,
+    ["merge", "--no-edit", baseHead],
+    ["merge", "--abort"],
+  );
+  if (conflictPaths === undefined) {
+    try {
+      await runner.runAsync("git", ["update-ref", "-d", "ORIG_HEAD"], worktreePath);
+    } catch {
+      // absent or already cleared
+    }
+  }
+  return conflictPaths;
 }
 
 /** `undefined` means no verdict — the caller falls through to the pre-continuation gates unchanged. */
@@ -2686,6 +2699,7 @@ async function applyPreContinuationGates(args: {
     }
   }
   if (
+    !skipLandedCriteriaGate &&
     !(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) &&
     !(await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner))
   ) {
@@ -2714,7 +2728,17 @@ async function evaluateCommittedLaneContinuation(args: {
   skipLandedCriteriaGate: boolean;
   runner: AsyncSubprocessRunner;
 }): Promise<CommittedLaneContinuationResult | undefined> {
-  const { projectRoot, worktreePath, baseRef, baseHead, worktreeHead, hasOpenPr, specPath, runner } = args;
+  const {
+    projectRoot,
+    worktreePath,
+    baseRef,
+    baseHead,
+    worktreeHead,
+    hasOpenPr,
+    specPath,
+    skipLandedCriteriaGate,
+    runner,
+  } = args;
   const trackableSpecPath =
     specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath) ? specPath : undefined;
   const continuationReadableSpecPath =
@@ -2744,6 +2768,8 @@ async function evaluateCommittedLaneContinuation(args: {
     const tickBacking = await evaluateContinuationTickBacking(tickBackingArgs);
     if (tickBacking?.status !== "continue") return tickBacking;
   }
+
+  if (skipLandedCriteriaGate) return undefined;
 
   const rewrite = hasOpenPr
     ? await mergeWorktreeWithBase(worktreePath, baseHead, runner)

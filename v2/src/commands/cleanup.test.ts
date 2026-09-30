@@ -27,7 +27,8 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
-import { makeIpcClient } from "../testing/cli-test-helpers.ts";
+import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
+import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   classifyNeverLandedLane,
@@ -5328,6 +5329,57 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
   }
 
+  async function expectOrigHeadAbsent(worktreePath: string): Promise<void> {
+    let failed = false;
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "ORIG_HEAD"], worktreePath);
+    } catch {
+      failed = true;
+    }
+    expect(failed).toBe(true);
+  }
+
+  async function runMaybeResetStaleWorkspace(args: { branch: string; specPath: string; prs: OpenPr[] }) {
+    const writeStep: {
+      behavior: "write";
+      specPath: string;
+      leaseFromSha?: string;
+      worktree: {
+        git: true;
+        projectRoot: string;
+        projectName: string;
+        branchName: string;
+        baseRef: string;
+      };
+    } = {
+      behavior: "write",
+      specPath: args.specPath,
+      worktree: {
+        git: true,
+        projectRoot,
+        projectName: "project",
+        branchName: args.branch,
+        baseRef: "HEAD",
+      },
+    };
+    const built = { ok: true as const, steps: [writeStep] };
+    const runner = ghPrListRunner(projectRoot, args.prs);
+    let outcome: "reset" | "no-op" | "continue" | undefined;
+    const exitCode = await maybeResetStaleWorkspace(
+      "implement",
+      built as never,
+      { jarvisRoot, subprocessRunner: runner } as never,
+      silentIo,
+      { workflow: "implement" } as never,
+      makeStaleResetIpcClient([]),
+      undefined,
+      (status) => {
+        outcome = status;
+      },
+    );
+    return { exitCode, writeStep, outcome };
+  }
+
   test("resetStaleWorkspace retires a clean lane whose HEAD is an older base commit", async () => {
     const branch = "impl/empty-lane-behind-base";
     const worktreePath = await setupWorktreeAndBranch(branch);
@@ -5870,16 +5922,14 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     await advanceBase("lease-rebase-advance.md");
     const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
 
-    const rebaseWriteStep: { behavior: "write"; leaseFromSha?: string } = { behavior: "write" };
-    const rebaseResult = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
-      baseRef: "HEAD",
+    const rebase = await runMaybeResetStaleWorkspace({
+      branch,
       specPath: outOfRootIndexPath,
+      prs: [],
     });
-    if (rebaseResult.status === "continue" && rebaseResult.preRebaseSha !== undefined) {
-      rebaseWriteStep.leaseFromSha = rebaseResult.preRebaseSha;
-    }
-    expect(rebaseResult.status).toBe("continue");
-    expect(rebaseWriteStep.leaseFromSha).toBe(preRebaseSha);
+    expect(rebase.exitCode).toBeUndefined();
+    expect(rebase.outcome).toBe("continue");
+    expect(rebase.writeStep.leaseFromSha).toBe(preRebaseSha);
 
     const mergeBranch = "impl/lease-merge";
     const mergeOutOfRoot = setupChainedOutOfRootSpec("lease-merge");
@@ -5887,22 +5937,14 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     await commitInWorktree(mergeWorktreePath, "lease-merge.txt");
     await advanceBase("lease-merge-advance.md");
 
-    const mergeWriteStep: { behavior: "write"; leaseFromSha?: string } = { behavior: "write" };
-    const mergeResult = await callReset(
-      mergeBranch,
-      ghPrListRunner(projectRoot, [{ number: 904, isDraft: true }]),
-      noLiveDaemon,
-      silentIo,
-      { baseRef: "HEAD", specPath: mergeOutOfRoot },
-    );
-    if (mergeResult.status === "continue" && mergeResult.preRebaseSha !== undefined) {
-      mergeWriteStep.leaseFromSha = mergeResult.preRebaseSha;
-    }
-    expect(mergeResult.status).toBe("continue");
-    if (mergeResult.status === "continue") {
-      expect(mergeResult.preRebaseSha).toBeUndefined();
-    }
-    expect(mergeWriteStep.leaseFromSha).toBeUndefined();
+    const merge = await runMaybeResetStaleWorkspace({
+      branch: mergeBranch,
+      specPath: mergeOutOfRoot,
+      prs: [{ number: 904, isDraft: true }],
+    });
+    expect(merge.exitCode).toBeUndefined();
+    expect(merge.outcome).toBe("continue");
+    expect(merge.writeStep.leaseFromSha).toBeUndefined();
   });
 
   test("resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base", async () => {
@@ -5930,6 +5972,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     }
     const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
     await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });
@@ -5967,8 +6010,29 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     }
     const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
     await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires instead of merging when reset-despite-landed-criteria is set on an out-of-root moved-base open-PR lane", async () => {
+    const branch = "impl/out-of-root-landed-override";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("landed-override-merge");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "override-lane.txt");
+    await advanceBase("landed-override-advance.md");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 905, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true },
+    );
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
   });
 
   test("resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane", async () => {

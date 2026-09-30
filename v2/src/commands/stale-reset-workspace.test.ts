@@ -77,6 +77,29 @@ describe("runStaleResetForWorkflow probe flag", () => {
   });
 });
 
+describe("resetDespiteDirty threads to skipDirtyWorktreeGate", () => {
+  for (const resetDespiteDirty of [true, false]) {
+    test(`resetDespiteDirty: ${resetDespiteDirty}`, async () => {
+      const captured: cleanup.ResetStaleWorkspaceOptions[] = [];
+      spyOn(cleanup, "resetStaleWorkspace").mockImplementation(async (_p, _b, _r, _j, _run, _d, _io, options) => {
+        captured.push(options ?? {});
+        return { status: "no-op" };
+      });
+
+      await maybeResetStaleWorkspace(
+        "implement",
+        stubWriteBuild as never,
+        stubDeps,
+        stubIo,
+        { resetDespiteDirty } as never,
+        stubClient,
+      );
+
+      expect(captured[0]?.skipDirtyWorktreeGate).toBe(resetDespiteDirty);
+    });
+  }
+});
+
 describe("buildResetStaleWorkspaceOptions: the real plan step shape", () => {
   /**
    * `buildPlanWorkflowSteps` names a freshly-timestamped durable spec directory

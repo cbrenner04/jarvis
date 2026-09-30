@@ -65,7 +65,11 @@ import {
   createCompletionCommitter,
   renderStepCommitTitle,
 } from "./completion-commit.ts";
-import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
+import {
+  bindHarnessReadyFlipEvidenceLookup,
+  type CompletionPublisher,
+  createCompletionPublisher,
+} from "./completion-publisher.ts";
 import {
   type DiffDerivedMutationVerifierInput,
   type VerificationResult,
@@ -4314,14 +4318,6 @@ async function runPublisher(
     ...(findHarnessReadyFlipEvidenceInLineage !== undefined ? { findHarnessReadyFlipEvidenceInLineage } : {}),
     ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
   });
-}
-
-function bindHarnessReadyFlipEvidenceLookup(store: StateStore, runId: string) {
-  const run = store.loadRun(runId);
-  if (run === null) return undefined;
-  const { project, specRef } = run;
-  return (args: { branch: string; baseRef: string; prNumber: number }) =>
-    store.findNewestHarnessReadyFlipEvidenceInLineage({ project, specRef, ...args }) !== null;
 }
 
 async function runReadyFinalizer(

@@ -168,14 +168,12 @@ async function runReadyGateOrFail(
  * runs and before `failTerminalPublication`'s close/delete cleanup, which would destroy the PR
  * evidence this refusal's recovery text points the operator back to.
  */
-type ReadyFlipTarget = { prNumber: number; flipAlreadySatisfied: boolean };
-
 async function resolveReadyFlipTarget(
   input: TerminalPublicationInput,
   prNumber: number,
   prUrl: string,
   deps: PublicationDeps,
-): Promise<ReadyFlipTarget> {
+): Promise<{ prNumber: number; flipAlreadySatisfied: boolean }> {
   let resolved: { number: number; url: string } | undefined;
   try {
     resolved = await resolveOpenDraftPr(deps.gh, input.worktreePath, input.branch, input.baseRef);

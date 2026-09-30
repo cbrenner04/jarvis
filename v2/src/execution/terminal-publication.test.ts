@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { bindHarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
 import {
@@ -425,20 +426,12 @@ describe("executeTerminalPublication harness ready-flip evidence", () => {
     });
   }
 
-  function lineageLookup(runId: string) {
-    const run = store.loadRun(runId);
-    if (run === null) return undefined;
-    const { project, specRef } = run;
-    return (args: { branch: string; baseRef: string; prNumber: number }) =>
-      store.findNewestHarnessReadyFlipEvidenceInLineage({ project, specRef, ...args }) !== null;
-  }
-
   function publicationInput(
     runId: string,
     terminalAction: PipelineTerminalAction,
     options?: { lineage?: boolean },
   ): TerminalPublicationInput & { terminalAction: PipelineTerminalAction } {
-    const lookup = options?.lineage === true ? lineageLookup(runId) : undefined;
+    const lookup = options?.lineage === true ? bindHarnessReadyFlipEvidenceLookup(store, runId) : undefined;
     return {
       ...baseInput,
       terminalAction,
@@ -512,40 +505,6 @@ describe("executeTerminalPublication harness ready-flip evidence", () => {
       flippedAt: 9_000,
     });
   });
-});
-
-describe("executeTerminalPublication evidenced harness-ready PR", () => {
-  let stateDbPath: string;
-  let store: StateStore;
-
-  beforeEach(() => {
-    stateDbPath = join(trackedMkdtempSync(join(tmpdir(), "terminal-publication-lineage-")), "state.db");
-    store = openStateStore(stateDbPath);
-  });
-
-  afterEach(() => {
-    setSystemTime();
-    store.close();
-    removeOrchestrationStore(stateDbPath);
-  });
-
-  function seedEntryRun(): string {
-    return store.createRun({
-      project: "test-project",
-      specRef: baseInput.baseRef,
-      worktreePath: baseInput.worktreePath,
-      branch: baseInput.branch,
-      specPath: "spec/implement.md",
-    });
-  }
-
-  function lineageLookup(runId: string) {
-    const run = store.loadRun(runId);
-    if (run === null) return undefined;
-    const { project, specRef } = run;
-    return (args: { branch: string; baseRef: string; prNumber: number }) =>
-      store.findNewestHarnessReadyFlipEvidenceInLineage({ project, specRef, ...args }) !== null;
-  }
 
   it("accepts a sole open non-draft PR when lineage evidence matches, without calling gh pr ready", async () => {
     const runId = seedEntryRun();
@@ -558,9 +517,6 @@ describe("executeTerminalPublication evidenced harness-ready PR", () => {
       baseRef: baseInput.baseRef,
     });
 
-    const lookup = lineageLookup(runId);
-    if (lookup === undefined) throw new Error("expected lineage lookup");
-
     const flipCalls: number[] = [];
     const execute = createExecuteTerminalPublication({
       runReadyGate: async () => {},
@@ -571,12 +527,7 @@ describe("executeTerminalPublication evidenced harness-ready PR", () => {
     });
 
     setSystemTime(new Date(16_000));
-    const result = await execute({
-      ...baseInput,
-      terminalAction: "ready",
-      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
-      findHarnessReadyFlipEvidenceInLineage: lookup,
-    });
+    const result = await execute(publicationInput(runId, "ready", { lineage: true }));
 
     expect(flipCalls).toHaveLength(0);
     expect(result).toEqual({ prNumber: baseInput.prNumber, prUrl: baseInput.prUrl });
@@ -623,9 +574,6 @@ describe("executeTerminalPublication evidenced harness-ready PR", () => {
       baseRef: baseInput.baseRef,
     });
 
-    const lookup = lineageLookup(runId);
-    if (lookup === undefined) throw new Error("expected lineage lookup");
-
     const flipCalls: number[] = [];
     const execute = createExecuteTerminalPublication({
       runReadyGate: async () => {},
@@ -635,14 +583,7 @@ describe("executeTerminalPublication evidenced harness-ready PR", () => {
       },
     });
 
-    await expect(
-      execute({
-        ...baseInput,
-        terminalAction: "ready",
-        recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
-        findHarnessReadyFlipEvidenceInLineage: lookup,
-      }),
-    ).rejects.toMatchObject({
+    await expect(execute(publicationInput(runId, "ready", { lineage: true }))).rejects.toMatchObject({
       failure: { operation: "gh pr ready" },
     });
 
@@ -660,9 +601,6 @@ describe("executeTerminalPublication evidenced harness-ready PR", () => {
       baseRef: baseInput.baseRef,
     });
 
-    const lookup = lineageLookup(runId);
-    if (lookup === undefined) throw new Error("expected lineage lookup");
-
     const flipCalls: number[] = [];
     const execute = createExecuteTerminalPublication({
       runReadyGate: async () => {},
@@ -672,14 +610,7 @@ describe("executeTerminalPublication evidenced harness-ready PR", () => {
       },
     });
 
-    await expect(
-      execute({
-        ...baseInput,
-        terminalAction: "ready",
-        recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
-        findHarnessReadyFlipEvidenceInLineage: lookup,
-      }),
-    ).rejects.toMatchObject({
+    await expect(execute(publicationInput(runId, "ready", { lineage: true }))).rejects.toMatchObject({
       failure: { operation: "gh pr ready" },
     });
 

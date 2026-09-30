@@ -17,10 +17,20 @@ import {
 } from "./publication-retry.ts";
 import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
+import type { StateStore } from "../persistence/state-store.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 
-/** Lineage lookup for harness ready-flip evidence; `baseRef` is the requested publication base, not retargeted effective base. */
 export type HarnessReadyFlipEvidenceLookup = (args: { branch: string; baseRef: string; prNumber: number }) => boolean;
+
+export function bindHarnessReadyFlipEvidenceLookup(
+  store: StateStore,
+  runId: string,
+): HarnessReadyFlipEvidenceLookup | undefined {
+  const run = store.loadRun(runId);
+  if (run === null) return undefined;
+  const { project, specRef } = run;
+  return (args) => store.findNewestHarnessReadyFlipEvidenceInLineage({ project, specRef, ...args }) !== null;
+}
 
 export type CompletionPublisherInput = ExternalSpecGitScope & {
   worktreePath: string;
@@ -223,16 +233,12 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       const prEvidence = await runPublicationWithRetry(
         "pr",
         () =>
-          findOrCreatePr(
-            gh,
-            input.worktreePath,
-            effectiveBaseRef,
+          findOrCreatePr(gh, input.worktreePath, effectiveBaseRef, input.branch, specPath, creationTitle, {
             requestedBaseRef,
-            input.branch,
-            specPath,
-            creationTitle,
-            input.findHarnessReadyFlipEvidenceInLineage,
-          ),
+            ...(input.findHarnessReadyFlipEvidenceInLineage !== undefined
+              ? { findHarnessReadyFlipEvidenceInLineage: input.findHarnessReadyFlipEvidenceInLineage }
+              : {}),
+          }),
         { delay, retryNotice },
       );
 
@@ -368,21 +374,6 @@ async function undoHarnessReadyFlip(gh: GhCommand, cwd: string, prNumber: number
   }
 }
 
-async function resolveOpenDraftPrAfterHarnessUndo(
-  gh: GhCommand,
-  cwd: string,
-  branch: string,
-  baseRef: string,
-  prNumber: number,
-): Promise<PrEvidence> {
-  const matches = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
-  const match = matches.length === 1 ? matches[0] : undefined;
-  if (match === undefined || match.number !== prNumber || match.isDraft === false) {
-    throw new OpenPrUnavailableAfterHarnessUndoError(prNumber, branch);
-  }
-  return confirmPr(gh, cwd, branch, baseRef, prNumber);
-}
-
 export async function resolveOpenDraftPr(
   gh: GhCommand,
   cwd: string,
@@ -413,7 +404,12 @@ export async function resolveOpenDraftPr(
       throw new OpenPrNotDraftError(match.number, branch);
     }
     await undoHarnessReadyFlip(gh, cwd, match.number);
-    return resolveOpenDraftPrAfterHarnessUndo(gh, cwd, branch, baseRef, match.number);
+    const afterUndo = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
+    const redrafted = afterUndo.length === 1 ? afterUndo[0] : undefined;
+    if (redrafted === undefined || redrafted.number !== match.number || redrafted.isDraft === false) {
+      throw new OpenPrUnavailableAfterHarnessUndoError(match.number, branch);
+    }
+    return confirmPr(gh, cwd, branch, baseRef, match.number);
   }
 
   return confirmPr(gh, cwd, branch, baseRef, match.number);
@@ -452,16 +448,12 @@ async function findOrCreatePr(
   gh: GhCommand,
   cwd: string,
   baseRef: string,
-  requestedBaseRef: string,
   branch: string,
   specPath: string,
   creationTitle: string,
-  findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup,
+  draftPrOptions?: ResolveOpenDraftPrOptions,
 ): Promise<PrEvidence> {
-  const existing = await resolveOpenDraftPr(gh, cwd, branch, baseRef, {
-    requestedBaseRef,
-    ...(findHarnessReadyFlipEvidenceInLineage !== undefined ? { findHarnessReadyFlipEvidenceInLineage } : {}),
-  });
+  const existing = await resolveOpenDraftPr(gh, cwd, branch, baseRef, draftPrOptions);
   if (existing !== undefined) return existing;
 
   await createDraftPr(gh, cwd, baseRef, branch, specPath, creationTitle);

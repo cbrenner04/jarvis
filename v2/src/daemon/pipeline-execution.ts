@@ -9,6 +9,7 @@ import type { WorkflowStartResetFlags } from "../commands/workflow-start-prepara
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publisher.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
 import {
   executeTerminalPublication,
@@ -953,14 +954,6 @@ export function isPipelineSettlementPending(pipeline: Pipeline & { stages: Pipel
 type ResolvedTerminalPublicationInput =
   | { ok: true; input: TerminalPublicationInput }
   | { ok: false; failure: PublicationFailure; prNumber?: number; prUrl?: string };
-
-function bindHarnessReadyFlipEvidenceLookup(store: StateStore, runId: string) {
-  const run = store.loadRun(runId);
-  if (run === null) return undefined;
-  const { project, specRef } = run;
-  return (args: { branch: string; baseRef: string; prNumber: number }) =>
-    store.findNewestHarnessReadyFlipEvidenceInLineage({ project, specRef, ...args }) !== null;
-}
 
 function resolveTerminalPublicationInput(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },

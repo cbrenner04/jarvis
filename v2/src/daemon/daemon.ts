@@ -21,6 +21,7 @@ import {
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
+import { isForeignProcessGroup } from "../execution/verifier-process-groups.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
@@ -219,7 +220,11 @@ export async function observeProcessGroupSurvivors(
 }
 
 /** Signal a recorded process group with SIGTERM then SIGKILL after the shared 50ms grace. */
-export function signalReadyGateProcessGroup(pgid: number): void {
+export function signalReadyGateProcessGroup(pgid: number, own?: ReadonlySet<number>): boolean {
+  if (!isForeignProcessGroup(pgid, own)) {
+    console.error(`signalReadyGateProcessGroup: skipped own/invalid process group ${pgid}`);
+    return false;
+  }
   try {
     process.kill(-pgid, "SIGTERM");
   } catch {
@@ -232,6 +237,7 @@ export function signalReadyGateProcessGroup(pgid: number): void {
       // already gone (ESRCH) or not permitted (EPERM); treat as already-dead.
     }
   }, 50).unref?.();
+  return true;
 }
 
 /**

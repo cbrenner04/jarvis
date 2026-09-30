@@ -1,6 +1,6 @@
 # Session 2026-09-29→30: structural recovery, self-handoff and republication wedges
 
-Operator session 2026-09-29→2026-09-30 (Opus 5.5), Jarvis-on-Jarvis, agent order led by cursor Composer 2.5. **45 PRs landed** (29 fixes/implements, 10 seeds, 6 config/spec/docs) plus 12 intent/plan PRs. Self-handoff wedges, harness-ready republication, false cursor quota, and draining-generation claims all closed; issue #3433 closed (by design, #4171). Pending at write time: [#4190](https://github.com/cbrenner04/jarvis/pull/4190), [#4234](https://github.com/cbrenner04/jarvis/pull/4234) (being merged); [#4172](https://github.com/cbrenner04/jarvis/pull/4172) parked (TUI, needs operator force-push).
+Operator session 2026-09-29→2026-09-30 (Opus 5.5), Jarvis-on-Jarvis, agent order led by cursor Composer 2.5. **48 PRs landed** (32 fixes/implements, 10 seeds, 6 config/spec/docs) plus 12 intent/plan PRs. Self-handoff wedges, harness-ready republication, false cursor quota, and draining-generation claims all closed; issue #3433 closed (by design, #4171). Late landings: [#4190](https://github.com/cbrenner04/jarvis/pull/4190) (pipeline-resume preflights, hand-finished), [#4234](https://github.com/cbrenner04/jarvis/pull/4234) (review-feedback lane admission, hand-finished), [#4172](https://github.com/cbrenner04/jarvis/pull/4172) (TUI retained pipeline list; operator force-push then fresh implement run).
 
 ## Fixes and implements
 
@@ -65,6 +65,9 @@ Operator session 2026-09-29→2026-09-30 (Opus 5.5), Jarvis-on-Jarvis, agent ord
 Intent/plan PRs: [#4157](https://github.com/cbrenner04/jarvis/pull/4157) [#4158](https://github.com/cbrenner04/jarvis/pull/4158) [#4160](https://github.com/cbrenner04/jarvis/pull/4160) [#4178](https://github.com/cbrenner04/jarvis/pull/4178) [#4181](https://github.com/cbrenner04/jarvis/pull/4181) [#4184](https://github.com/cbrenner04/jarvis/pull/4184) [#4196](https://github.com/cbrenner04/jarvis/pull/4196) [#4212](https://github.com/cbrenner04/jarvis/pull/4212) [#4218](https://github.com/cbrenner04/jarvis/pull/4218) [#4226](https://github.com/cbrenner04/jarvis/pull/4226) [#4238](https://github.com/cbrenner04/jarvis/pull/4238) [#4240](https://github.com/cbrenner04/jarvis/pull/4240).
 
 ## Friction
+
+- Harness republished two already-merged lanes as duplicate PRs (#4243 dup of #4191, #4244 dup of #4236; closed). Likely the restart-recovery zombie rows. Seed candidate.
+- Run c47fa220 (#4172) settled `killed` with `loopOutcomeKind: complete` — 4th false-killed rollup.
 
 - cursor tool-wrapper shells spun at ~90% CPU; operator killed them.
 - False cursor quota escalated to paid rungs (fixed #4197).

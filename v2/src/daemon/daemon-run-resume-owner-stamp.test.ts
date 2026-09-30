@@ -1,12 +1,21 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, reconcileOrphanedRuns, recoverReconciledRuns } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  reconcileOrphanedRuns,
+  recoverReconciledRuns,
+  type WriteLoopBindingSourceDeps,
+} from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 
@@ -46,9 +55,51 @@ function readOwnerIdentity(dbPath: string, runId: string): string | null {
   }
 }
 
+const WORKFLOW_AGENT_MODEL_CONFIG: AgentModelConfig = {
+  codex: { implement: { rungs: [{ adapterModel: "codex-fast", priceKey: "codex-fast" }] } },
+};
+
+function installResumeBindingProfile(): WriteLoopBindingSourceDeps {
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-owner-stamp-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const machineProfile = "resume-owner-stamp-profile";
+  writeFileSync(
+    join(machinesDir, `${machineProfile}.json`),
+    JSON.stringify({
+      models: {
+        codex: {
+          implement: { rungs: [{ adapterModel: "codex-fast", priceKey: "codex-fast" }] },
+          shrink: { rungs: [{ adapterModel: "shrink", priceKey: "shrink" }] },
+        },
+      },
+    }),
+  );
+  writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["codex"] }));
+  return { machineConfigPath: join(profileHome, "config.json"), machinesDir };
+}
+
+function loopFinishedLogReader(runId: string, event: Omit<LoopFinishedEvent, "kind">): LogReader {
+  return {
+    tail: (id) =>
+      id === runId
+        ? [
+            {
+              runId,
+              seq: 1,
+              ts: "2026-01-01T00:00:00.000Z",
+              event: { kind: "loop_finished", ...event } as LogEvent,
+            },
+          ]
+        : [],
+    async *follow() {},
+  };
+}
+
 function handlersFor(
   stateStore: ReturnType<typeof openStateStore>,
   executor: FakeWriteLoopExecutor,
+  overrides: Partial<Parameters<typeof createRunControlHandlers>[0]> = {},
 ): ReturnType<typeof createRunControlHandlers> {
   return createRunControlHandlers({
     stateStore,
@@ -56,6 +107,7 @@ function handlersFor(
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    ...overrides,
   });
 }
 
@@ -178,6 +230,69 @@ test("a finalization-tail resume whose tail fails restores the prior terminal st
   expect(response.kind).toBe("error");
   expect(storeB.loadRun(runId)?.status).toBe("failed");
   expect(storeB.loadRun(runId)?.terminalCause).toBe("invocation_failure");
+  expect(readOwnerIdentity(dbPath, runId)).toBe(IDENTITY_B);
+  storeB.close();
+});
+
+test("resume succeeds on a terminal peer-owned row when list already projects resumable", async () => {
+  const dbPath = trackedDbPath("terminal-peer-resume");
+  const storeA = openStateStore(dbPath, { currentIdentity: IDENTITY_A });
+  const runId = storeA.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/resume-owner-worktree-terminal-peer",
+    branch: "resume-owner-branch-terminal-peer",
+    specPath: "/tmp/resume-owner-spec-terminal-peer.md",
+    stepId: "step-1",
+    workflowSnapshot: {
+      invocationId: "terminal-peer-resume",
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "resume rules",
+          expectedArtifactPath: "/tmp/resume-owner/artifact",
+          agents: ["codex"],
+          agentModelConfig: WORKFLOW_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  storeA.setRunStatus(runId, "failed");
+  storeA.close();
+
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  const writeLoopBindingSourceDeps = installResumeBindingProfile();
+  const storeB = openStateStore(dbPath, {
+    currentIdentity: IDENTITY_B,
+    isOwnerAlive: async (identity) => identity === IDENTITY_A,
+  });
+  const handlersB = handlersFor(storeB, trackedExecutor(), {
+    logReader,
+    writeLoopBindingSourceDeps,
+    intentFinalizationResumeDeps: {
+      completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+      completionPublisher: async () => ({ pushSha: "push-1", prNumber: 1, prUrl: "https://example.test/pr/1" }),
+      readyFinalizer: async () => {},
+    },
+  });
+  const listFrame = await handlersB.list(
+    { kind: "request", id: "list-terminal-peer", method: "list" },
+    new AbortController().signal,
+  );
+  expect(listFrame).toMatchObject({ kind: "response" });
+  const row = (
+    listFrame as { kind: "response"; result: { runs: Array<{ runId: string; resumable?: boolean }> } }
+  ).result.runs.find((candidate) => candidate.runId === runId);
+  expect(row?.resumable).toBe(true);
+
+  const response = await resumeDirect(handlersB, runId);
+  expect(response).toMatchObject({ kind: "response", result: { ok: true } });
+  expect(storeB.loadRun(runId)?.status).toBe("completed");
   expect(readOwnerIdentity(dbPath, runId)).toBe(IDENTITY_B);
   storeB.close();
 });

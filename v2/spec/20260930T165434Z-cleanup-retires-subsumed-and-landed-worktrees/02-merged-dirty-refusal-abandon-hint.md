@@ -14,7 +14,7 @@
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` test `merged plan worktree with landed criteria-only dirt retires safely` (or a sibling assertion in that file) expects the dirty merged-worktree refusal line to name `jarvis cleanup --abandon` with `--discard-unlanded`; fails against the pre-fix baseline.
+- [x] `cleanup.test.ts` test `merged plan worktree with landed criteria-only dirt retires safely` (or a sibling assertion in that file) expects the dirty merged-worktree refusal line to name `jarvis cleanup --abandon` with `--discard-unlanded`; fails against the pre-fix baseline.
 
 ## Documentation updates
 

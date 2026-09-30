@@ -3040,6 +3040,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).toContain(criteriaWorktree);
     expect(stdout).toContain(`Skipped merged worktree retirement: ${unrelatedWorktree}`);
     expect(stdout).toContain(unrelatedRel);
+    expect(stdout).toContain(`jarvis cleanup --abandon ${unrelatedBranch} --discard-unlanded`);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(criteriaWorktree);
     expect(listOutput).toContain(unrelatedWorktree);

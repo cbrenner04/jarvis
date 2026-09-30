@@ -2590,9 +2590,13 @@ class MergedWorktreeRetirementRefusal extends Error {
   }
 }
 
-function mergedWorktreeRetirementRefusalLine(worktreePath: string, dirtyPaths: readonly string[]): string {
+function mergedWorktreeRetirementRefusalLine(
+  worktreePath: string,
+  branch: string,
+  dirtyPaths: readonly string[],
+): string {
   const pathDetail = dirtyPaths.length > 0 ? dirtyPaths.join(", ") : "unparseable git status output";
-  return `Skipped merged worktree retirement: ${worktreePath} — worktree has uncommitted changes (${pathDetail})\n`;
+  return `Skipped merged worktree retirement: ${worktreePath} — worktree has uncommitted changes (${pathDetail}); run jarvis cleanup --abandon ${branch} --discard-unlanded after verifying\n`;
 }
 
 function isReadableSpecIndexInWorktree(worktreePath: string, projectRoot: string, specIndexRel: string): boolean {
@@ -2755,7 +2759,7 @@ export async function performWorktreeRemovals(
     } catch (err) {
       failed = true;
       if (err instanceof MergedWorktreeRetirementRefusal) {
-        io.stdout(mergedWorktreeRetirementRefusalLine(worktree.path, err.dirtyPaths));
+        io.stdout(mergedWorktreeRetirementRefusalLine(worktree.path, worktree.branch, err.dirtyPaths));
       } else {
         io.stderr(`Failed to retire ${worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`);
       }

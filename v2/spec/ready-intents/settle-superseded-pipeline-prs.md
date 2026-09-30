@@ -10,7 +10,7 @@ Successful terminal `ready` or `merge` publication leaves earlier intent and pla
 
 ## Behavior
 
-After a single-lane `ready` or `merge` succeeds under `"close"`, comment `Superseded by #<n> (pipeline <id>, stage <stageId>)` on and close every open PR recorded by a preceding succeeded stage; a PR closes only after its comment succeeds. Failures append durable `supersedeFailures: [{ prNumber, message }]` without clearing terminal success. `leave-draft`, failed, rejected, `"keep"`, and fan-out pipelines perform no supersede calls. Never deletes branches.
+After a single-lane `ready` or `merge` succeeds under `"close"`, comment `Superseded by #<n> (pipeline <id>, stage <stageId>)` on and close every open PR recorded by a preceding succeeded workflow stage (approval stages have no PR artifact); a PR closes only after its comment succeeds. Failures append durable `supersedeFailures: [{ prNumber, message }]` without clearing terminal success. `leave-draft`, failed, rejected, `"keep"`, and fan-out pipelines perform no supersede calls. Never deletes branches.
 
 ## Acceptance criteria
 
@@ -18,9 +18,10 @@ After a single-lane `ready` or `merge` succeeds under `"close"`, comment `Supers
 
 ## Documentation updates
 
+- `v2/docs/pipeline-execution.md` — supersede ordering, exclusions, and nonfatal failure at terminal publication.
 - `v2/docs/first-workflow-walkthrough.md` — inter-stage PRs are review surfaces; terminal settlement closes them under `"close"`.
-- `v2/docs/daemon-host.md` — supersede ordering, exclusions, nonfatal failure detail.
-- `v2/docs/state-store.md` — durable `supersedeFailures`.
+- `v2/docs/daemon-host.md` — cross-link terminal supersede settlement (`pipeline-execution.md`).
+- `v2/docs/state-store.md` — durable `supersedeFailures` (cross-link `pipeline-execution.md`).
 - `v2/docs/v1-behaviors.md` — supersede settlement at terminal publication.
 
 ## Primary implementation surface

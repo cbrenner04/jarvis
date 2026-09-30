@@ -14,7 +14,8 @@ Cleanup accepts a closed PR as retirement authority only when it owns the candid
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` proves retirement of a materialized superseded branch and pruning of an eligible head-only branch under full proof; proves a merely closed PR and each broken proof component remain ineligible; existing merged-PR retirement tests stay green; fails against the baseline.
+- [ ] `cleanup.test.ts` proves retirement of a materialized superseded branch and pruning of an eligible head-only branch under full proof; proves a merely closed PR and each broken proof component remain ineligible; fails against the baseline.
+- [ ] `cleanup.test.ts` `merged plan worktree with landed criteria-only dirt retires safely`, `merged local head candidate requires matching merged PR head`, and `default merged-worktree retirement prunes origin tracking ref` stay green.
 
 ## Documentation updates
 
@@ -28,4 +29,4 @@ Cleanup accepts a closed PR as retirement authority only when it owns the candid
 ## Prerequisites
 
 - Project pipeline resolution admits `projects.<key>.pipeline.supersede` as `close` or `keep`, defaults `close`, copies the resolved value onto the immutable admitted pipeline definition, and rejects malformed values during resolution with a message naming the config path.
-- After successful single-lane `ready` or `merge` terminal publication under `close`, pipeline execution comments `Superseded by #<n> (pipeline <id>, stage <stageId>)` on each open PR from a preceding succeeded stage, closes each PR only after its comment succeeds, records nonfatal failures in durable `supersedeFailures`, performs no supersede for `leave-draft`, failed, rejected, `keep`, or fan-out pipelines, and never deletes branches.
+- After successful single-lane `ready` or `merge` terminal publication under `close`, pipeline execution comments `Superseded by #<n> (pipeline <id>, stage <stageId>)` on each open PR from a preceding succeeded workflow stage (approval stages have no PR artifact), closes each PR only after its comment succeeds, records nonfatal failures in durable `supersedeFailures`, performs no supersede for `leave-draft`, failed, rejected, `keep`, or fan-out pipelines, and never deletes branches.

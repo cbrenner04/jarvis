@@ -6,7 +6,6 @@ import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-suppor
 import {
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
-  readRetentionSessions,
   readCodexSandboxMode,
   readMachineConfigDocument,
   readNotificationSinkCommand,
@@ -14,6 +13,7 @@ import {
   readProjectImplementReviewPasses,
   readProjectReadyCommand,
   readProjectRegistry,
+  readRetentionSessions,
   readReviewRoleTimeoutMs,
   readRunTimeoutMs,
   resolveMachineProfile,

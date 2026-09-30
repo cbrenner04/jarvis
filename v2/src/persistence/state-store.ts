@@ -1005,9 +1005,9 @@ export interface StateStore {
 
   /**
    * Atomically persist attempt completion, its outcome classification, and the
-   * run checkpoint (attempt_count + status). Idempotent: re-committing an
-   * already-finished boundary is a no-op. `beforeRunUpdate` is a test seam to
-   * force a mid-transaction failure.
+   * run checkpoint (attempt_count + status; terminal checkpoints also stamp
+   * `finished_at`). Idempotent: re-committing an already-finished boundary is a
+   * no-op. `beforeRunUpdate` is a test seam to force a mid-transaction failure.
    */
   commitCompletionBoundary(args: CommitCompletionBoundaryInput): void;
 
@@ -3071,19 +3071,19 @@ class StateStoreImpl implements StateStore {
       const settlementEvidence = this.extractTerminalSettlementEvidence(args);
       if (isTerminalRunStatus(args.runStatus) && settlementEvidence !== undefined) {
         this.validateTerminalCause(settlementEvidence.terminalCause);
-        const finishedAt = Date.now();
-        this.db
-          .prepare(
-            "UPDATE runs SET attempt_count = attempt_count + 1, status = ?, finished_at = ?, status_changed_at = ? WHERE id = ?",
-          )
-          .run(args.runStatus, finishedAt, finishedAt, attempt.runId);
-        this.writeTerminalSettlementEvidence(attempt.runId, settlementEvidence);
-        return;
       }
 
+      const changedAt = Date.now();
+      const finishedAtBind = isTerminalRunStatus(args.runStatus) ? changedAt : null;
       this.db
-        .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ?, status_changed_at = ? WHERE id = ?")
-        .run(args.runStatus, Date.now(), attempt.runId);
+        .prepare(
+          "UPDATE runs SET attempt_count = attempt_count + 1, status = ?, status_changed_at = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?",
+        )
+        .run(args.runStatus, changedAt, finishedAtBind, attempt.runId);
+
+      if (isTerminalRunStatus(args.runStatus) && settlementEvidence !== undefined) {
+        this.writeTerminalSettlementEvidence(attempt.runId, settlementEvidence);
+      }
     })();
   }
 

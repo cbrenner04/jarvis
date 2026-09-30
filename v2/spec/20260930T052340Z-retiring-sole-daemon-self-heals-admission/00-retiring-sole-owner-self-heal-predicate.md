@@ -16,14 +16,14 @@
 
 ## Task checklist
 
-- [ ] Add `retireCause` recording at each retire trigger / supersede / handoff commit site.
-- [ ] Add the exported predicate and document the non-obvious rollback-block conjunct in a one-line doc-comment only if name + parameters are insufficient.
-- [ ] Extend `stable-digest-trigger.test.ts` with truth and falsity cases for each conjunct and one fully true case.
-- [ ] Unit-test `retireCause` transitions via handler fakes (`createSupersedeHandler`, handoff handlers, signal/shutdown recorders) with injected state only.
+- [x] Add `retireCause` recording at each retire trigger / supersede / handoff commit site.
+- [x] Add the exported predicate and document the non-obvious rollback-block conjunct in a one-line doc-comment only if name + parameters are insufficient.
+- [x] Extend `stable-digest-trigger.test.ts` with truth and falsity cases for each conjunct and one fully true case.
+- [x] Unit-test `retireCause` transitions via handler fakes (`createSupersedeHandler`, handoff handlers, signal/shutdown recorders) with injected state only.
 
 ## Acceptance criteria
 
-- [x] A test proves `retireCause` returns to `null` when admission reopens after a committed-handoff watch rebind, and a subsequent failed handoff then self-heals.
+- [x] `daemon-retire-cause.test.ts` proves committed-handoff watch rebind clears `retireCause` on admission reopen, a later `changeover` restores `handoff_origin`, and `shouldRetiringSoleOwnerSelfHeal` is true for that stranded shape (no sampling-tick self-heal; that is 01).
 - [x] `stable-digest-trigger.test.ts` exercises the exported self-heal predicate in both truth directions (at least one matching case and one case per blocking conjunct, including `retireCause` `terminal` and `null`).
 - [x] Tests with injected state show `retireCause` becomes `terminal` (sticky) after operator stop, non-successor `supersede`, and handoff commit, and stays `handoff_origin` after `changeover` followed by rollback/fallback.
 - [x] A test shows a `supersede` carrying a `handoffId` that matched a now-finished transaction (`pendingHandoffId` undefined) sets `blocksRollbackReopen` and the predicate is false.

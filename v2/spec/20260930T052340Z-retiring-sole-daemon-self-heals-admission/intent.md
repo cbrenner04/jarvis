@@ -16,9 +16,9 @@ After a failed self-handoff the incumbent can remain retiring with no pending ha
 
 ## Acceptance criteria
 
-- [ ] Unit tests cover the exported self-heal predicate in both truth directions.
-- [ ] A regression proves a retiring incumbent matching the predicate reopens admission and admits a subsequent start; it fails against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Unit tests cover the exported self-heal predicate in both truth directions.
+- [x] A regression proves a retiring incumbent matching the predicate reopens admission and admits a subsequent start; it fails against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

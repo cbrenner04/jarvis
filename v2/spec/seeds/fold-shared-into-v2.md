@@ -14,7 +14,7 @@ Consumers outside `v2/` today: 4 files under `scripts/`, 3 under root `test/`, 5
 
 - Move `shared/**` under `v2/src/` (one home for runtime code); update every import in `v2/`, `scripts/`, and root `test/`.
 - Frozen `v1/` imports are left stale: `v1` is not compiled, tested, or linted, and editing it is forbidden.
-- Retire `shared/tsconfig.json`, the `test:shared` / `test:integration:shared` scripts and their CI scope branch, and the `shared/**`-must-not-import-`v2/**` rule in `CLAUDE.md`; fold their tests into the `v2` slices.
+- Retire `shared/tsconfig.json`, the `test:shared` / `test:integration:shared` scripts and their CI scope branch, and the `shared/**`-must-not-import-`v2/**` rule in `AGENTS.md`; fold their tests into the `v2` slices.
 - Update `EXECUTABLE_TREE_PATHSPECS` so the daemon digest still covers the moved code.
 
 ## Acceptance criteria
@@ -26,5 +26,5 @@ Consumers outside `v2/` today: 4 files under `scripts/`, 3 under root `test/`, 5
 
 ## Documentation updates
 
-- `CLAUDE.md` — drop `shared/` from the layout and test-scope rules.
+- `AGENTS.md` — drop `shared/` from the layout and test-scope rules.
 - `v2/docs/**` references to `shared/` paths (e.g. `shared-invocation.md`, runbook), `v1-behaviors.md` entry.

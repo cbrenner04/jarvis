@@ -1,13 +1,12 @@
-import type { Run } from "./state-store.ts";
-
-export type FindWorkflowRunsOnLane = (lane: { project: string; branch: string; specRef: string }) => Run[];
+import type { Run, StateStore } from "./state-store.ts";
 
 /** Lazy rows of earlier same-lane invocations (entry row created before `entryRun`), for the rollup's missing-successor rule. */
 export function priorLaneRunsForWorkflowRollup(
   entryRun: Run,
   invocationId: string,
-  findWorkflowRunsOnLane: FindWorkflowRunsOnLane,
+  store: Pick<StateStore, "findWorkflowRunsOnLane">,
 ): () => Run[] {
+  const findWorkflowRunsOnLane = store.findWorkflowRunsOnLane.bind(store);
   return () => {
     const byInvocation = new Map<string, Run[]>();
     const lane = { project: entryRun.project, branch: entryRun.branch, specRef: entryRun.specRef };

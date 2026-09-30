@@ -882,9 +882,6 @@ export function createRunLifecycleHandlers(
     return { fullRuns, workflowRuns };
   };
 
-  const priorLaneRuns = (entryRun: Run, invocationId: string) =>
-    priorLaneRunsForWorkflowRollup(entryRun, invocationId, store.findWorkflowRunsOnLane.bind(store));
-
   const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     if (entrySnapshot === undefined) return run.status;
@@ -894,7 +891,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: entrySnapshot,
       siblingRuns: store.findRunsByInvocationId(entrySnapshot.invocationId),
       isLive: workflowStillLive,
-      priorLaneRuns: priorLaneRuns(run, entrySnapshot.invocationId),
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, entrySnapshot.invocationId, store),
     });
   };
 
@@ -917,7 +914,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: workflowStillLive,
-      priorLaneRuns: priorLaneRuns(entryFullRun, snapshot.invocationId),
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(entryFullRun, snapshot.invocationId, store),
     });
   };
 
@@ -1570,7 +1567,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: false,
-      priorLaneRuns: priorLaneRuns(run, snapshot.invocationId),
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, snapshot.invocationId, store),
     });
     return { kind: "response", result: workflowEntryResult(run, snapshot, rollupStatus) };
   };

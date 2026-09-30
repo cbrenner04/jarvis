@@ -248,11 +248,7 @@ export function settleLinkedStagesFromEntryRunWith(
     isLive: false,
     ...(workflowSnapshot !== null
       ? {
-          priorLaneRuns: priorLaneRunsForWorkflowRollup(
-            entryRun,
-            workflowSnapshot.invocationId,
-            store.findWorkflowRunsOnLane.bind(store),
-          ),
+          priorLaneRuns: priorLaneRunsForWorkflowRollup(entryRun, workflowSnapshot.invocationId, store),
         }
       : {}),
   });

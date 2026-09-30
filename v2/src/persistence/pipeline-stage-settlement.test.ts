@@ -516,7 +516,10 @@ describe("settleLinkedStagesFromEntryRunWith reopened implement", () => {
     ],
   };
 
-  function reopenedImplementStore(priorLaneRows: Run[]) {
+  function reopenedImplementStore(
+    priorLaneRows: Run[],
+    options: { entry?: Partial<Run>; laneReads?: { count: number } } = {},
+  ) {
     const entry = entryRun({
       id: "entry-implement",
       stepId: "implement",
@@ -526,6 +529,7 @@ describe("settleLinkedStagesFromEntryRunWith reopened implement", () => {
       prNumber: 42,
       prUrl: "https://example.test/pull/42",
       workflowSnapshot: implementSnapshot,
+      ...options.entry,
     });
     const row: Record<string, unknown> = {
       stageId: "implement-stage",
@@ -537,7 +541,10 @@ describe("settleLinkedStagesFromEntryRunWith reopened implement", () => {
     const store = {
       loadRun: (runId: string) => (runId === "entry-implement" ? entry : null),
       findRunsByInvocationId: () => [entry],
-      findWorkflowRunsOnLane: () => priorLaneRows,
+      findWorkflowRunsOnLane: () => {
+        if (options.laneReads) options.laneReads.count += 1;
+        return priorLaneRows;
+      },
       loadPipeline: () => pipeline,
       listPipelines: () => [pipeline],
       updateStage: (args: { patch: Record<string, unknown> }) => {
@@ -612,40 +619,15 @@ describe("settleLinkedStagesFromEntryRunWith reopened implement", () => {
   });
 
   test("does not read prior-lane rows when entry attemptCount blocks the missing-successor rule", () => {
-    const entry = entryRun({
-      id: "entry-implement",
-      stepId: "implement",
-      createdAt: 200,
-      terminalCause: "complete",
-      attemptCount: 1,
-      workflowSnapshot: implementSnapshot,
+    const laneReads = { count: 0 };
+    const { store, row } = reopenedImplementStore(priorInvocationRows("completed", 100), {
+      entry: { attemptCount: 1 },
+      laneReads,
     });
-    const row: Record<string, unknown> = {
-      stageId: "s1",
-      branchKey: "default",
-      status: "running",
-      workflowInvocationId: "entry-implement",
-    };
-    const pipeline = { id: "p1", definition: { name: "p", stages: [] }, stages: [row] };
-    let laneReads = 0;
-    const store = {
-      loadRun: () => entry,
-      findRunsByInvocationId: () => [entry],
-      findWorkflowRunsOnLane: () => {
-        laneReads++;
-        return priorInvocationRows("completed", 100);
-      },
-      loadPipeline: () => pipeline,
-      listPipelines: () => [pipeline],
-      updateStage: (args: { patch: Record<string, unknown> }) => {
-        Object.assign(row, args.patch);
-        return true;
-      },
-    } as unknown as LinkedStageSettlementStore;
 
     settleLinkedStagesFromEntryRunWith(store, "entry-implement");
 
-    expect(laneReads).toBe(0);
+    expect(laneReads.count).toBe(0);
     expect(row).toMatchObject({
       status: "failed",
       failureDetail: { entryRunStatus: "killed", reason: "resumable_kill" },

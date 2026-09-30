@@ -374,25 +374,7 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
       Object.entries(runsById)
         .filter(([, run]) => run.workflowSnapshot?.invocationId === invocationId)
         .map(([id, run]) => ({ id, attempts: [], ...run }) as unknown as Run),
-    findWorkflowRunsOnLane: (args: { project: string; branch: string; specRef: string }) =>
-      Object.entries(runsById)
-        .filter(([, run]) => run.workflowSnapshot != null)
-        .map(([id, run]) => {
-          const materialized = {
-            id,
-            attempts: [],
-            worktreePath: "/worktree",
-            specPath: "",
-            attemptCount: 0,
-            createdAt: 0,
-            ...run,
-            project: run.project ?? args.project,
-            branch: run.branch ?? args.branch,
-            specRef: run.specRef ?? args.specRef,
-          } as Run;
-          return materialized;
-        })
-        .filter((run) => run.project === args.project && run.branch === args.branch && run.specRef === args.specRef),
+    findWorkflowRunsOnLane: () => [],
     loadPipeline: (pipelineId: string) => {
       const stages = [...stageRows.values()].filter((stage) => stage.pipelineId === pipelineId);
       if (stages.length === 0) return null;

@@ -5862,14 +5862,48 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
-  async function stampLeaseFromStaleReset(
-    writeStep: { behavior: "write" },
-    resetResult: Awaited<ReturnType<typeof resetStaleWorkspace>>,
-  ): Promise<void> {
-    if (resetResult.status === "continue" && resetResult.preRebaseSha !== undefined && writeStep.behavior === "write") {
-      (writeStep as { leaseFromSha?: string }).leaseFromSha = resetResult.preRebaseSha;
+  test("maybeResetStaleWorkspace sets leaseFromSha on rebase-continue only", async () => {
+    const branch = "impl/lease-from-sha";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("lease-from-sha");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "lease-rebase.txt");
+    await advanceBase("lease-rebase-advance.md");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    const rebaseWriteStep: { behavior: "write"; leaseFromSha?: string } = { behavior: "write" };
+    const rebaseResult = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+    if (rebaseResult.status === "continue" && rebaseResult.preRebaseSha !== undefined) {
+      rebaseWriteStep.leaseFromSha = rebaseResult.preRebaseSha;
     }
-  }
+    expect(rebaseResult.status).toBe("continue");
+    expect(rebaseWriteStep.leaseFromSha).toBe(preRebaseSha);
+
+    const mergeBranch = "impl/lease-merge";
+    const mergeOutOfRoot = setupChainedOutOfRootSpec("lease-merge");
+    const mergeWorktreePath = await setupWorktreeAndBranch(mergeBranch);
+    await commitInWorktree(mergeWorktreePath, "lease-merge.txt");
+    await advanceBase("lease-merge-advance.md");
+
+    const mergeWriteStep: { behavior: "write"; leaseFromSha?: string } = { behavior: "write" };
+    const mergeResult = await callReset(
+      mergeBranch,
+      ghPrListRunner(projectRoot, [{ number: 904, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: mergeOutOfRoot },
+    );
+    if (mergeResult.status === "continue" && mergeResult.preRebaseSha !== undefined) {
+      mergeWriteStep.leaseFromSha = mergeResult.preRebaseSha;
+    }
+    expect(mergeResult.status).toBe("continue");
+    if (mergeResult.status === "continue") {
+      expect(mergeResult.preRebaseSha).toBeUndefined();
+    }
+    expect(mergeWriteStep.leaseFromSha).toBeUndefined();
+  });
 
   test("resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base", async () => {
     const branch = "impl/chained-out-of-root-merge";
@@ -5878,7 +5912,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const preMergeSha = await commitInWorktree(worktreePath, "chained-open-pr-impl.txt");
 
     await advanceBase("chained-open-pr-merge-advance.md");
-    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
 
     const result = await callReset(
       branch,
@@ -5899,7 +5932,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
-    expect(baseHead).toBeTruthy();
   });
 
   test("resetStaleWorkspace merges base into an open-PR in-root lane past a moved base", async () => {
@@ -5978,45 +6010,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(statusOutput.trim()).toBe("");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
-  });
-
-  test("maybeResetStaleWorkspace sets leaseFromSha on rebase-continue only", async () => {
-    const branch = "impl/lease-from-sha";
-    const outOfRootIndexPath = setupChainedOutOfRootSpec("lease-from-sha");
-    const worktreePath = await setupWorktreeAndBranch(branch);
-    await commitInWorktree(worktreePath, "lease-rebase.txt");
-    await advanceBase("lease-rebase-advance.md");
-    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
-
-    const rebaseWriteStep = { behavior: "write" as const };
-    const rebaseResult = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
-      baseRef: "HEAD",
-      specPath: outOfRootIndexPath,
-    });
-    await stampLeaseFromStaleReset(rebaseWriteStep, rebaseResult);
-    expect(rebaseResult.status).toBe("continue");
-    expect((rebaseWriteStep as { leaseFromSha?: string }).leaseFromSha).toBe(preRebaseSha);
-
-    const mergeBranch = "impl/lease-merge";
-    const mergeOutOfRoot = setupChainedOutOfRootSpec("lease-merge");
-    const mergeWorktreePath = await setupWorktreeAndBranch(mergeBranch);
-    await commitInWorktree(mergeWorktreePath, "lease-merge.txt");
-    await advanceBase("lease-merge-advance.md");
-
-    const mergeWriteStep = { behavior: "write" as const };
-    const mergeResult = await callReset(
-      mergeBranch,
-      ghPrListRunner(projectRoot, [{ number: 904, isDraft: true }]),
-      noLiveDaemon,
-      silentIo,
-      { baseRef: "HEAD", specPath: mergeOutOfRoot },
-    );
-    await stampLeaseFromStaleReset(mergeWriteStep, mergeResult);
-    expect(mergeResult.status).toBe("continue");
-    if (mergeResult.status === "continue") {
-      expect(mergeResult.preRebaseSha).toBeUndefined();
-    }
-    expect((mergeWriteStep as { leaseFromSha?: string }).leaseFromSha).toBeUndefined();
   });
 
   test("resetStaleWorkspace continues an external plan tree despite an unbacked tick, since the tick guard is out of root", async () => {
@@ -7399,41 +7392,25 @@ describe("hasBranchKeyedArtifactOwner", () => {
 });
 
 describe("stale-reset continuation-readable spec-path gate", () => {
-  test("includes a readable markdown file outside the project root", () => {
+  test("includes readable markdown paths outside the project root; excludes missing paths and index-less dirs", () => {
     const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
-    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-"));
-    const specPath = join(outside, "index.md");
-    writeFileSync(specPath, "# Spec\n\n- [ ] [00](./00-thing.md)\n");
-    try {
-      expect(isContinuationReadableSpecPath(root, specPath)).toBe(true);
-      expect(isStaleResetLandedCriteriaSpecPath(root, specPath)).toBe(false);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
-
-  test("includes a directory with index.md outside the project root", () => {
-    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
-    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-dir-"));
-    mkdirSync(outside, { recursive: true });
-    writeFileSync(join(outside, "index.md"), "# Spec\n\n- [ ] [00](./00-thing.md)\n");
-    try {
-      expect(isContinuationReadableSpecPath(root, outside)).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
-
-  test("excludes a missing path and a directory without index.md", () => {
-    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
+    const outsideFile = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-"));
+    const outsideDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-dir-"));
     const emptyDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-empty-dir-"));
+    const specFile = join(outsideFile, "index.md");
+    writeFileSync(specFile, "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, "index.md"), "# Spec\n\n- [ ] [00](./00-thing.md)\n");
     try {
+      expect(isContinuationReadableSpecPath(root, specFile)).toBe(true);
+      expect(isStaleResetLandedCriteriaSpecPath(root, specFile)).toBe(false);
+      expect(isContinuationReadableSpecPath(root, outsideDir)).toBe(true);
       expect(isContinuationReadableSpecPath(root, join(root, "missing.md"))).toBe(false);
       expect(isContinuationReadableSpecPath(root, emptyDir)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
+      rmSync(outsideFile, { recursive: true, force: true });
+      rmSync(outsideDir, { recursive: true, force: true });
       rmSync(emptyDir, { recursive: true, force: true });
     }
   });

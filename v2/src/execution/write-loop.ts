@@ -3779,7 +3779,10 @@ async function commitRepairAndRepublish(
     const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
     const recordHarnessReadyFlipEvidence = (args: { prNumber: number; branch: string; baseRef: string }) =>
       store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...args });
-    let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence);
+    let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence, {
+      runId: result.runId,
+      store,
+    });
     if (outcome.kind !== "success") {
       outcome = await classifyReadyGatePublishFailure(
         outcome,
@@ -4149,7 +4152,10 @@ export async function publishWithReadyRepair(
   const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
   const recordHarnessReadyFlipEvidence = (args: { prNumber: number; branch: string; baseRef: string }) =>
     store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...args });
-  let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence);
+  let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence, {
+    runId: result.runId,
+    store,
+  });
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(
       outcome,
@@ -4297,11 +4303,25 @@ async function runPublisher(
     requiredIntegrationScope?: string;
     leaseFromSha?: string;
   } & ExternalSpecGitScope,
+  publicationOwner?: { runId: string; store: StateStore },
 ): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
+  const findHarnessReadyFlipEvidenceInLineage =
+    publicationOwner === undefined
+      ? undefined
+      : bindHarnessReadyFlipEvidenceLookup(publicationOwner.store, publicationOwner.runId);
   return await (seams.completionPublisher ?? createCompletionPublisher())({
     ...input,
+    ...(findHarnessReadyFlipEvidenceInLineage !== undefined ? { findHarnessReadyFlipEvidenceInLineage } : {}),
     ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
   });
+}
+
+function bindHarnessReadyFlipEvidenceLookup(store: StateStore, runId: string) {
+  const run = store.loadRun(runId);
+  if (run === null) return undefined;
+  const { project, specRef } = run;
+  return (args: { branch: string; baseRef: string; prNumber: number }) =>
+    store.findNewestHarnessReadyFlipEvidenceInLineage({ project, specRef, ...args }) !== null;
 }
 
 async function runReadyFinalizer(
@@ -4454,11 +4474,12 @@ export async function publishCompletionArtifacts(
   } & ExternalSpecGitScope,
   verifierProcessGroups?: VerifierProcessGroupRecorder,
   recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void,
+  publicationOwner?: { runId: string; store: StateStore },
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   let runtimeSmokeOutcome: SmokePass | undefined;
   try {
-    publisherResult = await runPublisher(seams, input);
+    publisherResult = await runPublisher(seams, input, publicationOwner);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
     const retarget = publicationBaseRetarget(err);

@@ -11,6 +11,8 @@ import {
   createCompletionPublisher,
   ForeignRemoteTipError,
   LeaseRejectedError,
+  OpenPrNotDraftError,
+  OpenPrUnavailableAfterHarnessUndoError,
 } from "./completion-publisher.ts";
 import * as prBodyRefreshModule from "./pr-body-refresh.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
@@ -33,6 +35,35 @@ describe("createCompletionPublisher", () => {
     renderFooter: async () => "",
   };
   const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
+
+  const republicationGit = async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+    return "";
+  };
+
+  function republicationGhForPr(prNumber: number, options?: { afterUndo?: "draft" | "gone" | "closed" }) {
+    const ghCalls: string[] = [];
+    let isDraft = false;
+    const gh = async (_cwd: string, args: readonly string[]) => {
+      ghCalls.push(args.join(" "));
+      if (args[0] === "pr" && args[1] === "ready" && args[2] === "--undo") {
+        if (options?.afterUndo === "closed") throw new Error("PR is closed");
+        isDraft = true;
+        if (options?.afterUndo === "gone") isDraft = false;
+        return "";
+      }
+      if (args[0] === "pr" && args[1] === "list") {
+        if (options?.afterUndo === "gone" && isDraft) return JSON.stringify([]);
+        return JSON.stringify([{ number: prNumber, baseRefName: "main", isDraft }]);
+      }
+      if (args[0] === "pr" && args[1] === "view") {
+        return viewPr(prNumber, `https://github.com/user/repo/pull/${prNumber}`);
+      }
+      return "";
+    };
+    return { gh, ghCalls };
+  }
 
   afterEach(() => {
     mock.module("./pr-body-refresh.ts", () => ({ refreshPrBody: realRefreshPrBody }));
@@ -474,6 +505,155 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow(
       "PR #99 for branch feature-branch is open but not a draft (expected draft). Mark it draft again, or close/merge it, before publishing.",
     );
+  });
+
+  it("re-drafts and reuses a harness-ready PR when lineage evidence matches", async () => {
+    const prNumber = 55;
+    const { gh, ghCalls } = republicationGhForPr(prNumber);
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    const result = await publisher({
+      ...baseInput,
+      findHarnessReadyFlipEvidenceInLineage: (args) =>
+        args.branch === baseInput.branch && args.baseRef === baseInput.baseRef && args.prNumber === prNumber,
+    });
+    expect(result.prNumber).toBe(prNumber);
+    expect(ghCalls.some((call) => call === `pr ready --undo ${prNumber}`)).toBe(true);
+    expect(ghCalls.some((call) => call.startsWith("pr create"))).toBe(false);
+  });
+
+  it("refuses a non-draft PR without lineage evidence and skips undo", async () => {
+    const prNumber = 55;
+    const { gh, ghCalls } = republicationGhForPr(prNumber);
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    await expect(
+      publisher({
+        ...baseInput,
+        findHarnessReadyFlipEvidenceInLineage: () => false,
+      }),
+    ).rejects.toBeInstanceOf(OpenPrNotDraftError);
+    expect(ghCalls.some((call) => call.includes("--undo"))).toBe(false);
+  });
+
+  it("refuses when lineage evidence names a different PR number", async () => {
+    const prNumber = 55;
+    const { gh, ghCalls } = republicationGhForPr(prNumber);
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    await expect(
+      publisher({
+        ...baseInput,
+        findHarnessReadyFlipEvidenceInLineage: (args) => args.prNumber === prNumber + 1,
+      }),
+    ).rejects.toBeInstanceOf(OpenPrNotDraftError);
+    expect(ghCalls.some((call) => call.includes("--undo"))).toBe(false);
+  });
+
+  it("refuses when lineage evidence branch or base ref mismatches publication", async () => {
+    const prNumber = 55;
+    const { gh, ghCalls } = republicationGhForPr(prNumber);
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    await expect(
+      publisher({
+        ...baseInput,
+        findHarnessReadyFlipEvidenceInLineage: (args) =>
+          args.branch === "other-branch" && args.baseRef === baseInput.baseRef && args.prNumber === prNumber,
+      }),
+    ).rejects.toBeInstanceOf(OpenPrNotDraftError);
+    expect(ghCalls.some((call) => call.includes("--undo"))).toBe(false);
+  });
+
+  it("finds lineage evidence under the requested base when publication retargets effective base", async () => {
+    const requestedBase = "plan/merged-first";
+    const resolvedBase = "main";
+    const prNumber = 55;
+    let isDraft = false;
+    const ghCalls: string[] = [];
+    const publisher = createCompletionPublisher({
+      subprocessRunner: originPresenceRunner(new Set(), resolvedBase),
+      git: republicationGit,
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "ready" && args[2] === "--undo") {
+          isDraft = true;
+          return "";
+        }
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: prNumber, baseRefName: resolvedBase, isDraft }]);
+        }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(prNumber, `https://github.com/user/repo/pull/${prNumber}`, resolvedBase);
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    const result = await publisher({
+      ...baseInput,
+      baseRef: requestedBase,
+      findHarnessReadyFlipEvidenceInLineage: (args) =>
+        args.baseRef === requestedBase && args.branch === baseInput.branch && args.prNumber === prNumber,
+    });
+    expect(result.prNumber).toBe(prNumber);
+    expect(ghCalls.some((call) => call === `pr ready --undo ${prNumber}`)).toBe(true);
+  });
+
+  it("fails when the PR is gone after a successful harness undo", async () => {
+    const prNumber = 55;
+    const { gh } = republicationGhForPr(prNumber, { afterUndo: "gone" });
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    await expect(
+      publisher({
+        ...baseInput,
+        findHarnessReadyFlipEvidenceInLineage: (args) => args.prNumber === prNumber,
+      }),
+    ).rejects.toBeInstanceOf(OpenPrUnavailableAfterHarnessUndoError);
+  });
+
+  it("surfaces a permanent publication failure when harness undo fails", async () => {
+    const prNumber = 55;
+    const { gh } = republicationGhForPr(prNumber, { afterUndo: "closed" });
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+    const error = await publisher({
+      ...baseInput,
+      findHarnessReadyFlipEvidenceInLineage: (args) => args.prNumber === prNumber,
+    }).then(
+      () => {
+        throw new Error("expected undo failure");
+      },
+      (caught: unknown) => caught,
+    );
+    expect(publicationFailureFor(error)?.operation).toBe("gh pr ready --undo");
+    expect((error as { prNumber?: number }).prNumber).toBe(prNumber);
   });
 
   it("refuses when the branch carries more than one open PR matching the same base", async () => {

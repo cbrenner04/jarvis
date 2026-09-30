@@ -13,10 +13,14 @@ import {
   isTransientPublicationFailure,
   normalizePublicationFailure,
   runPublicationWithRetry,
+  stampPublicationFailure,
 } from "./publication-retry.ts";
 import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
+
+/** Lineage lookup for harness ready-flip evidence; `baseRef` is the requested publication base, not retargeted effective base. */
+export type HarnessReadyFlipEvidenceLookup = (args: { branch: string; baseRef: string; prNumber: number }) => boolean;
 
 export type CompletionPublisherInput = ExternalSpecGitScope & {
   worktreePath: string;
@@ -31,6 +35,7 @@ export type CompletionPublisherInput = ExternalSpecGitScope & {
   leaseFromSha?: string;
   /** Run abort signal: aborts in-flight push/PR calls (network-bounded regardless). */
   signal?: AbortSignal;
+  findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
 };
 
 type CompletionPublisherResult = {
@@ -217,7 +222,17 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
       const prEvidence = await runPublicationWithRetry(
         "pr",
-        () => findOrCreatePr(gh, input.worktreePath, effectiveBaseRef, input.branch, specPath, creationTitle),
+        () =>
+          findOrCreatePr(
+            gh,
+            input.worktreePath,
+            effectiveBaseRef,
+            requestedBaseRef,
+            input.branch,
+            specPath,
+            creationTitle,
+            input.findHarnessReadyFlipEvidenceInLineage,
+          ),
         { delay, retryNotice },
       );
 
@@ -294,6 +309,17 @@ export class OpenPrNotDraftError extends Error {
   }
 }
 
+/** Raised when a harness re-draft succeeded but the PR is no longer an open draft for reuse. */
+export class OpenPrUnavailableAfterHarnessUndoError extends Error {
+  readonly number: number;
+
+  constructor(number: number, branch: string) {
+    super(`PR #${number} for branch ${branch} is no longer an open draft after re-drafting for republication.`);
+    this.name = "OpenPrUnavailableAfterHarnessUndoError";
+    this.number = number;
+  }
+}
+
 /** Raised when `gh pr create` reports no diff between branch and base; a reused branch with no publishable commits. */
 class NoPublishableCommitsError extends Error {
   constructor(branch: string, baseRef: string) {
@@ -327,11 +353,42 @@ async function listMatchingOpenPrs(
  * when none matches. Refuses when more than one matches (no safe default) or when the sole match
  * has left draft state (reusing it would misrepresent it as still in progress).
  */
+type ResolveOpenDraftPrOptions = {
+  requestedBaseRef: string;
+  findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
+};
+
+async function undoHarnessReadyFlip(gh: GhCommand, cwd: string, prNumber: number): Promise<void> {
+  try {
+    await gh(cwd, ["pr", "ready", "--undo", String(prNumber)]);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    stampPublicationFailure(err, "gh pr ready --undo", error);
+    throw Object.assign(err, { prNumber });
+  }
+}
+
+async function resolveOpenDraftPrAfterHarnessUndo(
+  gh: GhCommand,
+  cwd: string,
+  branch: string,
+  baseRef: string,
+  prNumber: number,
+): Promise<PrEvidence> {
+  const matches = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (match === undefined || match.number !== prNumber || match.isDraft === false) {
+    throw new OpenPrUnavailableAfterHarnessUndoError(prNumber, branch);
+  }
+  return confirmPr(gh, cwd, branch, baseRef, prNumber);
+}
+
 export async function resolveOpenDraftPr(
   gh: GhCommand,
   cwd: string,
   branch: string,
   baseRef: string,
+  options?: ResolveOpenDraftPrOptions,
 ): Promise<PrEvidence | undefined> {
   const matches = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
   if (matches.length === 0) return undefined;
@@ -346,7 +403,17 @@ export async function resolveOpenDraftPr(
   const match = matches[0];
   if (match === undefined) return undefined;
   if (match.isDraft === false) {
-    throw new OpenPrNotDraftError(match.number, branch);
+    const requestedBaseRef = options?.requestedBaseRef ?? baseRef;
+    const hasEvidence = options?.findHarnessReadyFlipEvidenceInLineage?.({
+      branch,
+      baseRef: requestedBaseRef,
+      prNumber: match.number,
+    });
+    if (hasEvidence !== true) {
+      throw new OpenPrNotDraftError(match.number, branch);
+    }
+    await undoHarnessReadyFlip(gh, cwd, match.number);
+    return resolveOpenDraftPrAfterHarnessUndo(gh, cwd, branch, baseRef, match.number);
   }
 
   return confirmPr(gh, cwd, branch, baseRef, match.number);
@@ -385,11 +452,16 @@ async function findOrCreatePr(
   gh: GhCommand,
   cwd: string,
   baseRef: string,
+  requestedBaseRef: string,
   branch: string,
   specPath: string,
   creationTitle: string,
+  findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup,
 ): Promise<PrEvidence> {
-  const existing = await resolveOpenDraftPr(gh, cwd, branch, baseRef);
+  const existing = await resolveOpenDraftPr(gh, cwd, branch, baseRef, {
+    requestedBaseRef,
+    ...(findHarnessReadyFlipEvidenceInLineage !== undefined ? { findHarnessReadyFlipEvidenceInLineage } : {}),
+  });
   if (existing !== undefined) return existing;
 
   await createDraftPr(gh, cwd, baseRef, branch, specPath, creationTitle);

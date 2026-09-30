@@ -2287,11 +2287,18 @@ async function runShrinkAfterImplementComplete(
 
   touchedStepsInExecution.add(shrinkStep.stepId);
 
+  const worktreePath = getExternalWorktreePath(step.worktree);
+  const preShrinkHead = existsSync(join(worktreePath, ".git")) ? await getCurrentHeadAsync(worktreePath) : undefined;
+
   return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () =>
     executeWriteLoop(
       onStepRunCreated
-        ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-        : preparedStep.input,
+        ? {
+            ...preparedStep.input,
+            ...(preShrinkHead !== undefined ? { preShrinkHead } : {}),
+            onRunCreated: (runId) => onStepRunCreated(stepIndex, runId),
+          }
+        : { ...preparedStep.input, ...(preShrinkHead !== undefined ? { preShrinkHead } : {}) },
     ),
   );
 }

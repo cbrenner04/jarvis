@@ -450,6 +450,10 @@ export type WriteLoopInput = WriteExecuteInput & {
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
   /** Test seam overriding diff-derived mutation verification during implement complete. */
   verifyDiffDerivedMutations?: (input: DiffDerivedMutationVerifierInput) => Promise<VerificationResult>;
+  /** Implement-verified HEAD recorded when a shrink write loop starts; exhaustion reverts to this tree. */
+  preShrinkHead?: string;
+  /** Test seam for `resetWorktreeToPreShrinkHead`; production uses `git reset --hard` and `git clean -fd`. */
+  resetWorktreeToPreShrinkHead?: (worktreePath: string, preShrinkHead: string) => Promise<void>;
   /** Publication landing contract when invoked from workflow-runner write steps. */
   landing?: PublicationLanding;
   /** Per-project autofix override (`bun run fix` when unset). */
@@ -476,6 +480,35 @@ export type WriteLoopInput = WriteExecuteInput & {
  */
 export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
+}
+
+const IMPLEMENT_SHRINK_PROMPT_ID = "implement.prompt.shrink";
+
+export function runsInLoopDiffDerivedMutationVerification(
+  args: Pick<WriteLoopInput, "promptId" | "bindingResolution">,
+): boolean {
+  return (
+    args.promptId === "implement.prompt.body" ||
+    args.promptId === IMPLEMENT_SHRINK_PROMPT_ID ||
+    args.bindingResolution?.role === "shrink"
+  );
+}
+
+export function isShrinkWriteLoop(args: Pick<WriteLoopInput, "promptId" | "bindingResolution">): boolean {
+  return args.promptId === IMPLEMENT_SHRINK_PROMPT_ID || args.bindingResolution?.role === "shrink";
+}
+
+async function resetWorktreeToPreShrinkHead(
+  worktreePath: string,
+  preShrinkHead: string,
+  seam?: WriteLoopInput["resetWorktreeToPreShrinkHead"],
+): Promise<void> {
+  if (seam !== undefined) {
+    await seam(worktreePath, preShrinkHead);
+    return;
+  }
+  await runRepairFenceGit(worktreePath, ["reset", "--hard", preShrinkHead]);
+  await runRepairFenceGit(worktreePath, ["clean", "-fd"]);
 }
 
 /** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
@@ -1960,9 +1993,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
       }
 
+      let inLoopVerifierProcessGroups: ReturnType<typeof storeVerifierProcessGroupRecorder> | undefined;
+
       // Run coverage advisory for completing implement writes before terminal boundary
       if (result.kind === "complete" && args.promptId === "implement.prompt.body") {
-        const processGroups = storeVerifierProcessGroupRecorder(store, runId);
+        inLoopVerifierProcessGroups = storeVerifierProcessGroupRecorder(store, runId);
+        const processGroups = inLoopVerifierProcessGroups;
         const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal, processGroups);
         if (advisoryResult !== null && "skipReason" in advisoryResult) {
           args.logSink?.append(runId, {
@@ -1977,7 +2013,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             responseText: truncateLogText(advisoryResult.responseText),
           });
         }
+      }
 
+      if (result.kind === "complete" && runsInLoopDiffDerivedMutationVerification(args)) {
+        const processGroups = inLoopVerifierProcessGroups ?? storeVerifierProcessGroupRecorder(store, runId);
         const verify = args.verifyDiffDerivedMutations ?? verifyDiffDerivedMutations;
         const verificationResult = await verify({
           worktreePath,
@@ -1986,79 +2025,84 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
         appendInconclusiveMutationCandidates(args.logSink, runId, attemptId, verificationResult);
         if (verificationResult.kind === "surviving-mutation") {
-          try {
-            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
-          } catch (error) {
-            return iterationCommitFailed(
-              args,
-              store,
-              runId,
-              attemptId,
-              iterationsConsumed,
-              error instanceof Error ? error : new Error(String(error)),
+          if (iterationsConsumed >= maxIterations && isShrinkWriteLoop(args) && args.preShrinkHead !== undefined) {
+            await resetWorktreeToPreShrinkHead(worktreePath, args.preShrinkHead, args.resetWorktreeToPreShrinkHead);
+            pendingSurvivingMutationReprompt = undefined;
+          } else {
+            try {
+              await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+            } catch (error) {
+              return iterationCommitFailed(
+                args,
+                store,
+                runId,
+                attemptId,
+                iterationsConsumed,
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            }
+            const mutationError = new SurvivingMutationError(
+              verificationResult.mutation,
+              verificationResult.sourceSite.file,
+              verificationResult.sourceSite.line,
+              verificationResult.killingTests,
+              verificationResult.killingSetObservedResult,
+              verificationResult.dualConstraint,
             );
-          }
-          const mutationError = new SurvivingMutationError(
-            verificationResult.mutation,
-            verificationResult.sourceSite.file,
-            verificationResult.sourceSite.line,
-            verificationResult.killingTests,
-            verificationResult.killingSetObservedResult,
-            verificationResult.dualConstraint,
-          );
-          const mutationFields = survivingMutationLogFields(mutationError);
-          if (iterationsConsumed >= maxIterations) {
-            store.commitCompletionBoundary({
-              attemptId,
-              runStatus: "failed",
-              outcomeKind: "surviving_mutation_failed",
-              ...completionBoundarySettlementFields(
-                "surviving_mutation_failed",
-                terminalFailureDetailFromError(mutationError),
-              ),
-            });
+            const mutationFields = survivingMutationLogFields(mutationError);
+            if (iterationsConsumed >= maxIterations) {
+              store.commitCompletionBoundary({
+                attemptId,
+                runStatus: "failed",
+                outcomeKind: "surviving_mutation_failed",
+                ...completionBoundarySettlementFields(
+                  "surviving_mutation_failed",
+                  terminalFailureDetailFromError(mutationError),
+                ),
+              });
+              args.logSink?.append(runId, {
+                kind: "boundary_committed",
+                attemptId,
+                outcomeKind: "surviving_mutation_failed",
+                runStatus: "failed",
+              });
+              args.logSink?.append(runId, {
+                kind: "loop_finished",
+                loopOutcomeKind: "surviving_mutation_failed",
+                iterationsConsumed,
+                resumable: true,
+                ...mutationFields,
+              });
+              return {
+                kind: "surviving_mutation_failed",
+                runId,
+                iterationsConsumed,
+                resumable: true,
+                attemptId,
+                outcomeKind: "surviving_mutation_failed",
+                runStatus: "failed",
+                ...mutationFields,
+              };
+            }
+
+            store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
             args.logSink?.append(runId, {
               kind: "boundary_committed",
               attemptId,
-              outcomeKind: "surviving_mutation_failed",
-              runStatus: "failed",
+              outcomeKind: "progress",
+              runStatus: "in-progress",
             });
-            args.logSink?.append(runId, {
-              kind: "loop_finished",
-              loopOutcomeKind: "surviving_mutation_failed",
-              iterationsConsumed,
-              resumable: true,
-              ...mutationFields,
-            });
-            return {
-              kind: "surviving_mutation_failed",
-              runId,
-              iterationsConsumed,
-              resumable: true,
-              attemptId,
-              outcomeKind: "surviving_mutation_failed",
-              runStatus: "failed",
-              ...mutationFields,
-            };
+            args.logSink?.append(runId, survivingMutationRepromptEvent(attemptId, verificationResult));
+            pendingSurvivingMutationReprompt = survivingMutationRepromptContext(verificationResult);
+            if (args.signal?.aborted) {
+              return finishLoop(args, runId, "progress", iterationsConsumed, true);
+            }
+            if (args.pauseSignal?.aborted) {
+              store.setRunStatus(runId, "paused");
+              return finishLoop(args, runId, "paused", iterationsConsumed, true);
+            }
+            continue;
           }
-
-          store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
-          args.logSink?.append(runId, {
-            kind: "boundary_committed",
-            attemptId,
-            outcomeKind: "progress",
-            runStatus: "in-progress",
-          });
-          args.logSink?.append(runId, survivingMutationRepromptEvent(attemptId, verificationResult));
-          pendingSurvivingMutationReprompt = survivingMutationRepromptContext(verificationResult);
-          if (args.signal?.aborted) {
-            return finishLoop(args, runId, "progress", iterationsConsumed, true);
-          }
-          if (args.pauseSignal?.aborted) {
-            store.setRunStatus(runId, "paused");
-            return finishLoop(args, runId, "paused", iterationsConsumed, true);
-          }
-          continue;
         }
         if (verificationResult.kind === "non-terminating-mutation") {
           try {

@@ -21,6 +21,6 @@ The completion-boundary fallback `UPDATE` in `v2/src/persistence/state-store.ts`
 ## Documentation updates
 
 - `v2/docs/state-store.md` — terminal run rows always carry `finished_at`, including completion-boundary terminal writes without settlement evidence; remove the “null by design” finish-source exception.
-- `v2/docs/v1-behaviors.md` — parity note that completion-boundary terminal settlement stamps run `finished_at`.
+- `v2/docs/v1-behaviors.md` — revise the completion-boundary `finished_at` bullet: settlement already stamps; record that the no-settlement-evidence fallback now stamps `finished_at` too (drop “null by design”).
 
 ## Prerequisites

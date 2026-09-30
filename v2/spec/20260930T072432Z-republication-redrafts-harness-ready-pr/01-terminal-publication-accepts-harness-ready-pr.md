@@ -12,10 +12,10 @@
 
 ## Acceptance criteria
 
-- [ ] A `terminal-publication` test with a fake `gh` reporting one open non-draft #N and matching lineage evidence asserts no `gh pr ready` call, a fresh evidence record for #N, and success; fails against pre-fix code.
-- [ ] The same fake without evidence (human-flipped) fails with `operation: "gh pr ready"` and records no evidence.
-- [ ] Evidence for #M, or for a different branch/base than the target, still fails as above.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A `terminal-publication` test with a fake `gh` reporting one open non-draft #N and matching lineage evidence asserts no `gh pr ready` call, a fresh evidence record for #N, and success; fails against pre-fix code.
+- [x] The same fake without evidence (human-flipped) fails with `operation: "gh pr ready"` and records no evidence.
+- [x] Evidence for #M, or for a different branch/base than the target, still fails as above.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

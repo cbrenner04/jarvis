@@ -954,6 +954,14 @@ type ResolvedTerminalPublicationInput =
   | { ok: true; input: TerminalPublicationInput }
   | { ok: false; failure: PublicationFailure; prNumber?: number; prUrl?: string };
 
+function bindHarnessReadyFlipEvidenceLookup(store: StateStore, runId: string) {
+  const run = store.loadRun(runId);
+  if (run === null) return undefined;
+  const { project, specRef } = run;
+  return (args: { branch: string; baseRef: string; prNumber: number }) =>
+    store.findNewestHarnessReadyFlipEvidenceInLineage({ project, specRef, ...args }) !== null;
+}
+
 function resolveTerminalPublicationInput(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   store: StateStore,
@@ -1017,6 +1025,8 @@ function resolveTerminalPublicationInput(
     };
   }
 
+  const findHarnessReadyFlipEvidenceInLineage = bindHarnessReadyFlipEvidenceLookup(store, entryRun.id);
+
   return {
     ok: true,
     input: {
@@ -1026,6 +1036,7 @@ function resolveTerminalPublicationInput(
       baseRef: entryRun.specRef,
       verifierProcessGroups: storeVerifierProcessGroupRecorder(store, entryRun.id),
       recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId: entryRun.id, ...args }),
+      ...(findHarnessReadyFlipEvidenceInLineage !== undefined ? { findHarnessReadyFlipEvidenceInLineage } : {}),
       ...terminalReadyCommand(entryRun),
       ...(artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
       ...(artifact.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),

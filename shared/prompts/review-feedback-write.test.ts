@@ -3,6 +3,7 @@ import { DEFAULT_WRITE_STEP_RULES } from "./step-rules.ts";
 import {
   buildReviewFeedbackLaneContext,
   buildReviewFeedbackWritePrompt,
+  resolveReviewFeedbackStepRules,
   REVIEW_FEEDBACK_RULES_PROMPT_ID,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
 } from "./review-feedback-write.ts";
@@ -102,6 +103,20 @@ describe("buildReviewFeedbackWritePrompt", () => {
     expect(prompt).toContain("The final line of your response must be exactly one of:");
     expect(prompt).toContain(DEFAULT_WRITE_STEP_RULES);
     expect(prompt).toContain("# Review feedback write");
+  });
+
+  test("resolveReviewFeedbackStepRules uses trimmed custom rules when non-empty", () => {
+    expect(resolveReviewFeedbackStepRules("  lane-specific-only  ")).toBe("lane-specific-only");
+    expect(resolveReviewFeedbackStepRules("lane-specific-only")).not.toContain(DEFAULT_WRITE_STEP_RULES);
+  });
+
+  test("resolveReviewFeedbackStepRules falls back for undefined, empty, or whitespace-only stepRules", () => {
+    for (const stepRules of [undefined, "", "   ", "\n\t"] as const) {
+      const resolved = resolveReviewFeedbackStepRules(stepRules);
+      expect(resolved).toContain(DEFAULT_WRITE_STEP_RULES);
+      expect(resolved).toContain("# Review feedback write");
+      expect(resolved.length).toBeGreaterThan("lane-specific-only".length);
+    }
   });
 
   test("buildReviewFeedbackLaneContext matches lane kind shapes", () => {

@@ -11,7 +11,7 @@ Monthly roll adds long-lived `telemetry/<YYYY-MM>.jsonl.gz` artifacts under `JAR
 
 ## Task checklist
 
-- [ ] Extend `v2/src/commands/cleanup.test.ts` with one apply test via `runCleanupCommand` (same helper as `tiered session log retention hot cold gone`) that ages session logs past hot/cold cutoffs while old `telemetry/<YYYY-MM>.jsonl.gz` files sit under `JARVIS_HOME`.
+- [x] Extend `v2/src/commands/cleanup.test.ts` with one apply test via `runCleanupCommand` (same helper as `tiered session log retention hot cold gone`) that ages session logs past hot/cold cutoffs while old `telemetry/<YYYY-MM>.jsonl.gz` files sit under `JARVIS_HOME`.
 
 ## Acceptance criteria
 

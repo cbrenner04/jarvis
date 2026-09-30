@@ -1,0 +1,29 @@
+---
+name: retiring-sole-daemon-self-heals-admission
+---
+
+# A retiring sole daemon reopens admission when it still owns the public listener
+
+## Problem
+
+After a failed self-handoff the incumbent can remain retiring with no pending handoff, no committed successor on the public address, and the public listener bound as the only owner — admission stays closed and nothing clears `retiring` until operator intervention.
+
+## Decisions
+
+- Export a pure predicate for the self-heal condition and invoke it from the daemon runtime so that shape reopens admission without a full process restart.
+- Self-heal does not run while a handoff is pending or a live successor answers the public address.
+
+## Acceptance criteria
+
+- [ ] Unit tests cover the exported self-heal predicate in both truth directions.
+- [ ] A regression proves a retiring incumbent matching the predicate reopens admission and admits a subsequent start; it fails against the pre-fix code.
+- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+
+## Documentation updates
+
+- `v2/docs/daemon-host.md` — retiring sole-owner self-heal reopens admission.
+- `v2/docs/operator-runbook.md` — expected self-recovery from stranded `daemon_superseded` without operator `daemon start` when self-heal applies.
+
+## Prerequisites
+
+- Rollback on a pending handoff clears handoff-origin `supersede` and reopens admission when the public rebind succeeds.

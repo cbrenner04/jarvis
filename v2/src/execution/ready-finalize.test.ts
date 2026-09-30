@@ -3,8 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import {
   READY_STEP_COMPLETION_MARKER,
   READY_STEP_START_MARKER,
@@ -15,6 +13,8 @@ import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../script
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import {
   classifyReadyGateError,

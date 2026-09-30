@@ -70,6 +70,8 @@ const RENDER_OBSERVER_TESTS: Readonly<Record<string, readonly string[]>> = {
     "shared/prompts/review-plan-premise-falsification.test.ts",
     "shared/prompts/review-plan-hollow-pin.test.ts",
   ],
+  "prompts/review-feedback/write.md": ["shared/prompts/review-feedback-write.test.ts"],
+  "prompts/review-feedback/rules.md": ["shared/prompts/review-feedback-write.test.ts"],
   "prompts/write/execute.md": ["v2/src/execution/write-prompt.test.ts"],
   "prompts/write/draft-contract-reprompt.md": ["v2/src/execution/write-loop.test.ts"],
   "prompts/write/guard-checkpoint-reprompt.md": ["v2/src/execution/write-prompt.test.ts"],

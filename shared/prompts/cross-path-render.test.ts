@@ -102,6 +102,10 @@ describe("one assembler for every step prompt", () => {
       expect(registry.getById(`plan.prompt.review.${role}`).metadata.fragmentPolicy).toBe("behavior");
     }
     expect(registry.getById("plan.prompt.review-actuator").metadata.fragmentPolicy).toBe("behavior");
+    expect(registry.getById("review-feedback.prompt.write").metadata.fragmentPolicy).toBe("global");
+    const reviewFeedbackWrite = assembleStepTemplate(registry, "review-feedback.prompt.write");
+    expect(reviewFeedbackWrite).toBe(legacyGlobalsOnlyAssembly(registry, "review-feedback.prompt.write"));
+    expect(reviewFeedbackWrite).not.toContain(registry.getById("review-feedback.rules").body.trim());
   });
 
   test("renderPromptForStep is the assembled artifact rendered, trimmed", () => {

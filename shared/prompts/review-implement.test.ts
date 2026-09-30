@@ -183,6 +183,8 @@ test("implement review critic, adversary, and advocate renders include falsifiab
   const adversary = await renderReviewDebateRolePrompt("adversary", context, undefined, runner);
   const advocate = await renderReviewDebateRolePrompt("advocate", context, "(none)", runner);
   for (const rendered of [critic, adversary, advocate]) {
+    expect(rendered).toContain("## Review falsifiability");
+    expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
     expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.mandate);
     expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.passesBeforeAndAfter);
     expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.defectShape);

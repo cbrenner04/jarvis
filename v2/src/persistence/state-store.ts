@@ -2999,22 +2999,11 @@ class StateStoreImpl implements StateStore {
     } | null;
     const priorOwnerIdentity = row?.ownerIdentity ?? null;
     const status = row?.status;
-    if (
-      priorOwnerIdentity !== null &&
-      priorOwnerIdentity !== this.currentIdentity &&
-      status !== undefined &&
-      !isTerminalRunStatus(status) &&
-      (await this.isOwnerAliveProbe(priorOwnerIdentity))
-    ) {
-      return { kind: "refused", reason: "owner_alive" };
-    }
-    if (
-      priorOwnerIdentity !== null &&
-      priorOwnerIdentity !== this.currentIdentity &&
-      status !== undefined &&
-      isTerminalRunStatus(status)
-    ) {
-      await this.isOwnerAliveProbe(priorOwnerIdentity);
+    if (priorOwnerIdentity !== null && priorOwnerIdentity !== this.currentIdentity && status !== undefined) {
+      const priorOwnerAlive = await this.isOwnerAliveProbe(priorOwnerIdentity);
+      if (!isTerminalRunStatus(status) && priorOwnerAlive) {
+        return { kind: "refused", reason: "owner_alive" };
+      }
     }
 
     const changedAt = Date.now();

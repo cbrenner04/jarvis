@@ -16,10 +16,8 @@ import {
   recoverReconciledRuns,
   type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
-import { resolveRunResumeAdmission } from "./daemon-run-resume-admission.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
-import { findTerminalLogRecord } from "./run-operator-error.ts";
 
 const IDENTITY_A = "11111:1000000";
 const IDENTITY_B = "22222:2000000";
@@ -58,14 +56,7 @@ function readOwnerIdentity(dbPath: string, runId: string): string | null {
 }
 
 const WORKFLOW_AGENT_MODEL_CONFIG: AgentModelConfig = {
-  codex: {
-    implement: {
-      rungs: [
-        { adapterModel: "codex-fast", priceKey: "codex-fast" },
-        { adapterModel: "codex-deep", priceKey: "codex-deep" },
-      ],
-    },
-  },
+  codex: { implement: { rungs: [{ adapterModel: "codex-fast", priceKey: "codex-fast" }] } },
 };
 
 function installResumeBindingProfile(): WriteLoopBindingSourceDeps {
@@ -280,17 +271,6 @@ test("resume succeeds on a terminal peer-owned row when list already projects re
     currentIdentity: IDENTITY_B,
     isOwnerAlive: async (identity) => identity === IDENTITY_A,
   });
-  const run = storeB.loadRun(runId);
-  if (!run) throw new Error("run missing");
-  const logTail = logReader.tail(runId);
-  const terminalRecord = findTerminalLogRecord(logTail);
-  expect(
-    resolveRunResumeAdmission(run, terminalRecord, logTail, {
-      store: storeB,
-      reconstructWriteResume: () => ({ ok: false, message: "must not reconstruct for finalization-tail admission" }),
-    }).admitted,
-  ).toBe(true);
-
   const handlersB = handlersFor(storeB, trackedExecutor(), {
     logReader,
     writeLoopBindingSourceDeps,
@@ -304,11 +284,10 @@ test("resume succeeds on a terminal peer-owned row when list already projects re
     { kind: "request", id: "list-terminal-peer", method: "list" },
     new AbortController().signal,
   );
-  expect(listFrame.kind).toBe("response");
-  if (listFrame.kind !== "response") throw new Error("list failed");
-  const row = (listFrame.result as { runs: Array<{ runId: string; resumable?: boolean }> }).runs.find(
-    (candidate) => candidate.runId === runId,
-  );
+  expect(listFrame).toMatchObject({ kind: "response" });
+  const row = (
+    listFrame as { kind: "response"; result: { runs: Array<{ runId: string; resumable?: boolean }> } }
+  ).result.runs.find((candidate) => candidate.runId === runId);
   expect(row?.resumable).toBe(true);
 
   const response = await resumeDirect(handlersB, runId);

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
+  type PrReviewInputCaptureArtifact,
   refreshPrReviewInputCapture,
   resolvePrReviewInputArtifactPath,
-  type PrReviewInputCaptureArtifact,
 } from "./pr-review-input-capture.ts";
 
 const FIXTURE = {

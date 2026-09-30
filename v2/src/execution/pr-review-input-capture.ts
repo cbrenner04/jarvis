@@ -8,7 +8,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 
-export type PrReviewInputCaptureComment = {
+type PrReviewInputCaptureComment = {
   commentId: string;
   author: string;
   body: string;
@@ -19,13 +19,13 @@ export type PrReviewInputCaptureComment = {
   outdated: boolean;
 };
 
-export type PrReviewInputCaptureThread = {
+type PrReviewInputCaptureThread = {
   threadId: string;
   outdated: boolean;
   comments: PrReviewInputCaptureComment[];
 };
 
-export type PrReviewInputTopLevelComment = {
+type PrReviewInputTopLevelComment = {
   commentId: string;
   author: string;
   body: string;

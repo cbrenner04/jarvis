@@ -9,11 +9,10 @@ Terminal supersede settlement must record per-PR GitHub failures without clearin
 - Persist `supersedeFailures` as a JSON array column on `pipelines`, `null` when unset — rules out embedding failures inside `terminalPublicationFailure`, which would imply terminal publication failed.
 - Element shape `{ prNumber: number; message: string }` only — rules out storing `stageId` or `prUrl` in durable failures when the intent names only those fields.
 - Expose `appendSupersedeFailures({ pipelineId, failures })` that concatenates onto the loaded array (or starts from `[]` when `null`) in one transaction — rules out a separate failures table or per-PR rows.
-- Pre-migration / missing column reads as `null` — rules out treating absent column as empty array at the type boundary without an explicit load default in `mapPipelineRow`.
 
 ## Tasks
 
-- [ ] Extend `Pipeline` in `state-store.ts` with `supersedeFailures: PipelineSupersedeFailure[] | null`; add `supersede_failures_json` via `addColumnIfMissing`, include in `PIPELINE_COLUMNS` / `mapPipelineRow`.
+- [ ] Extend `Pipeline` in `state-store.ts` with `supersedeFailures: PipelineSupersedeFailure[] | null`; add `supersede_failures TEXT` to the baseline `CREATE TABLE pipelines` and via `addColumnIfMissing` (no new `_migrations` id), include in `PIPELINE_COLUMNS` / `mapPipelineRow`.
 - [ ] Implement `appendSupersedeFailures` on `StateStore` and wire through the store interface used by daemon tests.
 - [ ] Add `state-store.test.ts` coverage: append after terminal success leaves `terminalPublicationSucceededAt` intact; second append preserves prior entries; idempotent empty append is a no-op.
 

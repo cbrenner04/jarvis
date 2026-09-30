@@ -45,6 +45,7 @@ import {
   handLandedArtifactArchivability,
   hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
+  isContinuationReadableSpecPath,
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
@@ -5674,6 +5675,15 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return join("v2", "spec", specName, "index.md");
   }
 
+  /** Prior-stage spec tree under `tempRoot`, like a chained implement stage's out-of-root write-step spec. */
+  function setupChainedOutOfRootSpec(specName: string): string {
+    const priorWorktreeSpecDir = join(tempRoot, "prior-worktree", "v2", "spec", specName);
+    mkdirSync(priorWorktreeSpecDir, { recursive: true });
+    writeFileSync(join(priorWorktreeSpecDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(priorWorktreeSpecDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    return join(priorWorktreeSpecDir, "index.md");
+  }
+
   test("resetStaleWorkspace refuses a checked criterion with no backing commit, naming the subspec and fix", async () => {
     const branch = "impl/forged-tick";
     const subspecRel = "v2/spec/forged-spec/00-task.md";
@@ -5759,6 +5769,60 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(newTip).not.toBe(preRebaseSha);
     await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", baseHead, newTip], projectRoot);
     expect(readFileSync(join(worktreePath, subspecRel), "utf8")).toContain("- [x] done");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace continues a chained out-of-root spec lane past a moved base with no PR", async () => {
+    const branch = "impl/chained-out-of-root-rebase";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-stage");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "chained-impl.txt");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    await advanceBase("chained-out-of-root-advance.md");
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBe(preRebaseSha);
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(newTip).not.toBe(preRebaseSha);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", baseHead, newTip], projectRoot);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace still refuses a non-descendant out-of-root lane with no common ancestor", async () => {
+    const branch = "impl/chained-disjoint-history";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-disjoint");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "chained-disjoint-impl.txt");
+
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD (${baseHead})`);
+    expect(reason).toContain("stale reuse refused");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });
@@ -7174,6 +7238,47 @@ describe("hasBranchKeyedArtifactOwner", () => {
     expect(
       hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis, owning),
     ).toBe(true);
+  });
+});
+
+describe("stale-reset continuation-readable spec-path gate", () => {
+  test("includes a readable markdown file outside the project root", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-"));
+    const specPath = join(outside, "index.md");
+    writeFileSync(specPath, "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    try {
+      expect(isContinuationReadableSpecPath(root, specPath)).toBe(true);
+      expect(isStaleResetLandedCriteriaSpecPath(root, specPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("includes a directory with index.md outside the project root", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-dir-"));
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "index.md"), "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    try {
+      expect(isContinuationReadableSpecPath(root, outside)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("excludes a missing path and a directory without index.md", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
+    const emptyDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-empty-dir-"));
+    try {
+      expect(isContinuationReadableSpecPath(root, join(root, "missing.md"))).toBe(false);
+      expect(isContinuationReadableSpecPath(root, emptyDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 });
 

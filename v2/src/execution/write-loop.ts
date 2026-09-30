@@ -1439,7 +1439,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     const { runId, worktreePath } = prepared;
     args.onRunCreated?.(runId);
     const priorLogRecords = priorLogRecordsFromSink(args.logSink, runId);
-    let effectivePreShrinkHead = args.preShrinkHead ?? findPreShrinkHeadFromLog(priorLogRecords);
+    const effectivePreShrinkHead = args.preShrinkHead ?? findPreShrinkHeadFromLog(priorLogRecords);
     if (
       isShrinkWriteLoop(args) &&
       effectivePreShrinkHead !== undefined &&

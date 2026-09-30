@@ -32,7 +32,6 @@ import {
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
-import { SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 import {
   type CompletionCommitter,
   type CompletionStepMetadata,
@@ -105,6 +104,7 @@ import {
   wireWorkflowRunnerResumeDeps,
   workflowPublicationFailureTerminalDetail,
 } from "./workflow-runner-resume.ts";
+import { SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 export { isPostCommitReviewRetryableFailureKind };
 

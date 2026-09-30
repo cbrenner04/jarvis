@@ -23,8 +23,8 @@ import {
 import {
   findDraftContractRepromptStateFromLog,
   findLandingContractRepromptFromLog,
-  findStagedMarkdownLintRepromptFromLog,
   findPreShrinkHeadFromLog,
+  findStagedMarkdownLintRepromptFromLog,
   findSurvivingMutationRepromptFromLog,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";

@@ -958,7 +958,7 @@ export function isLiveSuccessorPublicBindRefusal(error: unknown): boolean {
 }
 
 /** Whether a `supersede` should keep pending rollback from reopening admission. */
-export type RollbackAdmissionSupersedeState = {
+type RollbackAdmissionSupersedeState = {
   blocksRollbackReopen: boolean;
 };
 

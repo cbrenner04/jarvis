@@ -20,9 +20,9 @@ import {
   captureIo,
   cliMain,
   makeStaleResetIpcClient,
+  withWorkflowUuids,
   workflowFrames,
   writeHomeMachineConfig,
-  withWorkflowUuids,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import {

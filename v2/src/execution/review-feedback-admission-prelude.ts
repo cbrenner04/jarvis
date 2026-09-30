@@ -3,8 +3,8 @@ import {
   type AsyncSubprocessRunner,
   networkSubprocessOptions,
 } from "../../../shared/subprocess.ts";
-import type { HarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
+import type { HarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
 import {
   hasSubmittedPrReview,
   type PrReviewInputCaptureArtifact,

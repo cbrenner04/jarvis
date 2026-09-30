@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
+import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
+import type { StateStore } from "../persistence/state-store.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
+import { withStateStore } from "../testing/write-fixtures.ts";
 import type { CompletionPublisherInput } from "./completion-publisher.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { buildReviewFeedbackWorkflowSteps, REVIEW_FEEDBACK_WRITE_SIDECAR } from "./review-feedback-workflow-steps.ts";
-import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
-import type { StateStore } from "../persistence/state-store.ts";
-import { withStateStore } from "../testing/write-fixtures.ts";
-import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import { externalWorktreeBinding, initGitWorkspace } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 

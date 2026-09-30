@@ -25,13 +25,13 @@ import {
   listIntentStageMarkdownFiles,
 } from "../../../shared/prompts/intent-split.ts";
 import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
+import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { PromptRenderingError } from "../../../shared/prompts/render.ts";
 import {
   buildReviewFeedbackWritePrompt,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
   type ReviewFeedbackLaneKind,
 } from "../../../shared/prompts/review-feedback-write.ts";
-import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { hasGenuineBlocker, parseSpec, RESERVED_HARNESS_BLOCKER_MARKER } from "../../../shared/spec-parser.ts";
 import {

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_WRITE_STEP_RULES } from "./step-rules.ts";
+import { loadPromptRegistry } from "./registry.ts";
 import {
   buildReviewFeedbackWritePrompt,
-  resolveReviewFeedbackStepRules,
   REVIEW_FEEDBACK_RULES_PROMPT_ID,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+  resolveReviewFeedbackStepRules,
 } from "./review-feedback-write.ts";
-import { loadPromptRegistry } from "./registry.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./step-rules.ts";
 
 const SCOPE_PHRASES = ["Do not tick", "Do not edit `index.md`", "captured PR feedback"] as const;
 

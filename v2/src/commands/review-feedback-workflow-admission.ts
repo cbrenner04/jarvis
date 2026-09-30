@@ -1,8 +1,8 @@
 import { findProjectMatch } from "../../../shared/project-registry.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
-import { formatRpcError, request } from "../cli/ipc.ts";
 import type { Io } from "../cli/io.ts";
+import { formatRpcError, request } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
@@ -10,9 +10,9 @@ import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publ
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { ReviewFeedbackAdmissionRefusalCode } from "../execution/review-feedback-admission-prelude.ts";
 import { runReviewFeedbackAdmissionPrelude } from "../execution/review-feedback-admission-prelude.ts";
+import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import {
   type ReviewFeedbackLaneBareRequest,
   type ReviewFeedbackLanePipelineRequest,

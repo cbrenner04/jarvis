@@ -1,6 +1,6 @@
 import { renderPromptForStep } from "./assemble.ts";
-import { enforceDelimiterPolicy } from "./render.ts";
 import { loadPromptRegistry } from "./registry.ts";
+import { enforceDelimiterPolicy } from "./render.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./step-rules.ts";
 
 export const REVIEW_FEEDBACK_WRITE_PROMPT_ID = "review-feedback.prompt.write";

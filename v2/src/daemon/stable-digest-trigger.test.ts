@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   isBackingOff,
-  type ScheduleDigestSampling,
   runSelfHandoffSamplingIntervalTick,
+  type ScheduleDigestSampling,
   selfHandoffBackoffMs,
   shouldRetiringSoleOwnerSelfHeal,
   shouldSampleNow,

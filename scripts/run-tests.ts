@@ -1,16 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
 import { aggregateExitCode, defaultSpawn, resolveConcurrency, runV2TestFiles, v2Tests } from "./run-v2-tests.ts";
-import { partitionTestFiles, planTestBatches, readTestIsolationClass, walkTestFiles } from "./test-slice.ts";
-
-function classOfTestFile(file: string) {
-  if (!file.replace(/\\/g, "/").replace(/^\.\//, "").startsWith("v2/")) {
-    return undefined;
-  }
-  if (!existsSync(file)) {
-    return undefined;
-  }
-  return readTestIsolationClass(file, readFileSync(file, "utf8"));
-}
+import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 
 /** Aggregate suite: agent and integration tests both run through the pooled per-file seam. */
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
@@ -19,10 +8,9 @@ export function aggregateTestFiles(): { agent: string[]; integration: string[] }
     ...walkTestFiles("test"),
     ...walkTestFiles("scripts"),
   ]);
-  const schedule = (files: string[]) => planTestBatches(files, classOfTestFile).flat();
   return {
-    agent: schedule([...v2Tests("agent"), ...sharedAndHarness.agent]),
-    integration: schedule([...v2Tests("integration"), ...sharedAndHarness.integration]),
+    agent: [...v2Tests("agent"), ...sharedAndHarness.agent],
+    integration: [...v2Tests("integration"), ...sharedAndHarness.integration],
   };
 }
 

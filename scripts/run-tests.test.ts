@@ -32,7 +32,6 @@ describe("runAggregateTests", () => {
   test("serial aggregate covers the aggregate roster in agent-then-integration order", async () => {
     muteRunnerOutput();
     const { agent, integration } = aggregateTestFiles();
-    const expected = [...agent, ...integration];
     const spawned: string[] = [];
     const spawn = async (_cmd: string, args: string[]) => {
       const file = args[1];
@@ -44,7 +43,10 @@ describe("runAggregateTests", () => {
 
     await runAggregateTests(1, spawn);
 
-    expect(spawned).toEqual(expected);
+    expect(spawned.length).toBe(agent.length + integration.length);
+    expect(new Set(spawned)).toEqual(new Set([...agent, ...integration]));
+    expect(new Set(spawned.slice(0, agent.length))).toEqual(new Set(agent));
+    expect(new Set(spawned.slice(agent.length))).toEqual(new Set(integration));
     expect(spawned.every((file) => !file.startsWith("v1/"))).toBe(true);
   });
 });

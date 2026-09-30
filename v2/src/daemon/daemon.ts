@@ -653,21 +653,6 @@ export function reviewFeedbackItemIdsProjection(
   };
 }
 
-export function reviewFeedbackItemIdsFromLoopFinished(
-  event: LoopFinishedEvent | undefined,
-): Pick<
-  WaitRunCompletionResult,
-  "reviewFeedbackAddressedItemIds" | "reviewFeedbackDeclinedItemIds" | "reviewFeedbackUnaddressedItemIds"
-> {
-  return event === undefined
-    ? {}
-    : reviewFeedbackItemIdsProjection(
-        event.reviewFeedbackAddressedItemIds,
-        event.reviewFeedbackDeclinedItemIds,
-        event.reviewFeedbackUnaddressedItemIds,
-      );
-}
-
 export type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 
 /** A workflow's step-0 row — the one whose reported status rolls up the whole workflow. */

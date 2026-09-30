@@ -1620,12 +1620,9 @@ test("list and wait report failed publication rows as failed and completed rows 
   }
 });
 
-test("reviewFeedbackItemIdsProjection omits fields when every bucket is empty", () => {
+test("reviewFeedbackItemIdsProjection omits empty buckets and includes all columns when any id is present", () => {
   expect(reviewFeedbackItemIdsProjection([], [], [])).toEqual({});
   expect(reviewFeedbackItemIdsProjection(undefined, undefined, undefined)).toEqual({});
-});
-
-test("reviewFeedbackItemIdsProjection includes all buckets when any id is present", () => {
   expect(reviewFeedbackItemIdsProjection(["thread-a"], [], [])).toEqual({
     reviewFeedbackAddressedItemIds: ["thread-a"],
     reviewFeedbackDeclinedItemIds: [],

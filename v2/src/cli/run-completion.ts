@@ -16,14 +16,12 @@ function buildWaitPayload(result: WaitRunCompletionResult, failureText: string |
   if (result.failure !== undefined) payload.failure = result.failure;
   if (failureText !== undefined) payload.failureText = failureText;
   if (result.worktreePath !== undefined) payload.worktreePath = result.worktreePath;
-  if (result.reviewFeedbackAddressedItemIds !== undefined) {
-    payload.reviewFeedbackAddressedItemIds = result.reviewFeedbackAddressedItemIds;
-  }
-  if (result.reviewFeedbackDeclinedItemIds !== undefined) {
-    payload.reviewFeedbackDeclinedItemIds = result.reviewFeedbackDeclinedItemIds;
-  }
-  if (result.reviewFeedbackUnaddressedItemIds !== undefined) {
-    payload.reviewFeedbackUnaddressedItemIds = result.reviewFeedbackUnaddressedItemIds;
+  for (const key of [
+    "reviewFeedbackAddressedItemIds",
+    "reviewFeedbackDeclinedItemIds",
+    "reviewFeedbackUnaddressedItemIds",
+  ] as const) {
+    if (result[key] !== undefined) payload[key] = result[key];
   }
   return payload;
 }

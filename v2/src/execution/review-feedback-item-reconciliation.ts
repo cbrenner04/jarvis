@@ -19,14 +19,10 @@ const ADDRESSED_LINE = /^- (.+): addressed\s*$/;
 const DECLINED_LINE = /^- (.+): declined:/;
 
 export function listCapturedReviewFeedbackItemIds(artifact: PrReviewInputCaptureArtifact): string[] {
-  const ids: string[] = [];
-  for (const thread of artifact.threads) {
-    ids.push(thread.threadId);
-  }
-  for (const comment of artifact.topLevelComments) {
-    ids.push(comment.commentId);
-  }
-  return ids;
+  return [
+    ...artifact.threads.map((thread) => thread.threadId),
+    ...artifact.topLevelComments.map((comment) => comment.commentId),
+  ];
 }
 
 export function parseReviewFeedbackResponseSidecar(content: string): Map<string, "addressed" | "declined"> {
@@ -52,8 +48,7 @@ export function reconcileReviewFeedbackItems(args: {
   const capturedIds = listCapturedReviewFeedbackItemIds(args.captureArtifact);
   if (args.sidecarContent === null) {
     return {
-      reviewFeedbackAddressedItemIds: [],
-      reviewFeedbackDeclinedItemIds: [],
+      ...EMPTY_RECONCILIATION,
       reviewFeedbackUnaddressedItemIds: [...capturedIds],
     };
   }

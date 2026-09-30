@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
-import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
@@ -11,7 +10,7 @@ import { withStateStore } from "../testing/write-fixtures.ts";
 import type { CompletionPublisherInput } from "./completion-publisher.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { buildReviewFeedbackWorkflowSteps } from "./review-feedback-workflow-steps.ts";
-import { externalWorktreeBinding, initGitWorkspace } from "./workflow-runner.test-support.ts";
+import { externalWorktreeBinding, initGitWorkspace, TestLogSink } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 
 const PROJECT = "demo";
@@ -142,20 +141,6 @@ function writeTwoThreadCapture(workspace: string): void {
   );
   execFileSync("git", ["add", artifactPath], { cwd: workspace });
   execFileSync("git", ["commit", "-qm", "review input two threads"], { cwd: workspace });
-}
-
-class TestLogSink implements LogSink {
-  events: Array<{ runId: string; event: LogEvent }> = [];
-
-  append(runId: string, event: LogEvent): void {
-    this.events.push({ runId, event });
-  }
-
-  close(): void {}
-
-  getEventsForRun(runId: string): LogEvent[] {
-    return this.events.filter((entry) => entry.runId === runId).map((entry) => entry.event);
-  }
 }
 
 async function runReviewFeedbackWrite(args: {
@@ -349,8 +334,6 @@ describe("executeWorkflow review-feedback write preset", () => {
       if (terminal?.kind !== "loop_finished") throw new Error("expected terminal loop_finished");
       expect(terminal.reviewFeedbackAddressedItemIds).toEqual(["capture-thread-one"]);
       expect(terminal.reviewFeedbackUnaddressedItemIds).toEqual(["capture-thread-two"]);
-      expect(terminal.reviewFeedbackAddressedItemIds?.length).toBeGreaterThan(0);
-      expect(terminal.reviewFeedbackUnaddressedItemIds?.length).toBeGreaterThan(0);
     });
   });
 });

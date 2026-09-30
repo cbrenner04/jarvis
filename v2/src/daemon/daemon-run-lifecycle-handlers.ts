@@ -62,7 +62,7 @@ import {
   promoteQueuedRunImpl,
   type ResolvedWriteLoopInput,
   resolveWriteLoopBindings,
-  reviewFeedbackItemIdsFromLoopFinished,
+  reviewFeedbackItemIdsProjection,
   runListTerminalFinishAtMs,
   settleGuardedKill,
   signalRecordedVerifierProcessGroups,
@@ -636,7 +636,11 @@ export function createRunLifecycleHandlers(
     const withError = error === undefined ? base : { ...base, error };
     const withReviewFeedback = {
       ...withError,
-      ...reviewFeedbackItemIdsFromLoopFinished(loopFinishedEvent),
+      ...reviewFeedbackItemIdsProjection(
+        loopFinishedEvent?.reviewFeedbackAddressedItemIds,
+        loopFinishedEvent?.reviewFeedbackDeclinedItemIds,
+        loopFinishedEvent?.reviewFeedbackUnaddressedItemIds,
+      ),
     };
     return runStatus === "blocked" && run
       ? { ...withReviewFeedback, worktreePath: run.worktreePath }
@@ -673,6 +677,11 @@ export function createRunLifecycleHandlers(
     const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord, ownerLogTail);
     const ownerLoopFinished =
       owner.terminalRecord.event.kind === "loop_finished" ? owner.terminalRecord.event : undefined;
+    const ownerReviewFeedbackIds = reviewFeedbackItemIdsProjection(
+      ownerLoopFinished?.reviewFeedbackAddressedItemIds,
+      ownerLoopFinished?.reviewFeedbackDeclinedItemIds,
+      ownerLoopFinished?.reviewFeedbackUnaddressedItemIds,
+    );
     const entryResult: WaitRunCompletionResult = {
       runStatus: rollupStatus,
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
@@ -680,7 +689,7 @@ export function createRunLifecycleHandlers(
       resumable: ownerAdmission.admitted,
       ...runFailureField(entryRun),
       ...(ownerError === undefined ? {} : { error: ownerError }),
-      ...reviewFeedbackItemIdsFromLoopFinished(ownerLoopFinished),
+      ...ownerReviewFeedbackIds,
     };
     const entryAdmission = resolveRunResumeAdmission(
       entryRun,

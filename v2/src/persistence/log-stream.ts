@@ -216,7 +216,7 @@ export type StagedMarkdownLintRepromptEvent = {
 };
 
 /** Implement-verified HEAD when a shrink write loop starts; resume uses this for optional-pass revert. */
-export type PreShrinkHeadEvent = {
+type PreShrinkHeadEvent = {
   kind: "pre_shrink_head";
   head: string;
 };

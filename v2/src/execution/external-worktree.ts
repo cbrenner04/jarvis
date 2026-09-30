@@ -83,7 +83,7 @@ export type WithExternalWorktreeResult<T> = {
 
 /** Resolve the external worktree path under `~/.jarvis/worktrees/<project>/<branch>/`. */
 export function getExternalWorktreePath(args: ExternalWorktreeInput): string {
-  if (args.git === false && args.localPath !== undefined) return args.localPath;
+  if (args.localPath !== undefined) return args.localPath;
   const jarvisRoot = args.jarvisRoot ?? jarvisHome();
   return managedWorktreePath(jarvisRoot, args.projectName, args.branchName);
 }

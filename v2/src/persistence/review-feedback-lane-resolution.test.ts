@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
   type ReviewFeedbackLaneResolutionStore,
@@ -131,6 +132,9 @@ describe("resolveReviewFeedbackLane bare", () => {
         worktreePath: WORKTREE,
         prNumber: 42,
         prUrl: "https://example.test/pull/42",
+        entryRunId: "intent-entry",
+        entrySpecPath: "spec.md",
+        baseRef: "main",
         provenance: { kind: "bare" },
       },
     });
@@ -245,6 +249,39 @@ describe("resolveReviewFeedbackLane bare", () => {
       branch: BRANCH,
     });
     expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_not_eligible" });
+  });
+
+  test("resolves implement lane when a completed review-feedback run shares the branch", () => {
+    const implementRun = baseRun({
+      id: "implement-entry",
+      stepId: "implement-step",
+      workflowSnapshot: workflowSnapshot("inv-implement", {
+        stepId: "implement-step",
+        role: "implement",
+        promptId: "implement.prompt.body",
+      }),
+      specPath: "v2/spec/lane/index.md",
+    });
+    const reviewFeedbackRun = baseRun({
+      id: "rf-entry",
+      stepId: "review-feedback",
+      createdAt: 2,
+      workflowSnapshot: workflowSnapshot("inv-rf", {
+        stepId: "review-feedback",
+        role: "implement",
+        promptId: REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+      }),
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [implementRun, reviewFeedbackRun] }), {
+      mode: "bare",
+      project: PROJECT,
+      branch: BRANCH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected success");
+    expect(result.target.laneKind).toBe("implement");
+    expect(result.target.entryRunId).toBe("implement-entry");
+    expect(result.target.entrySpecPath).toBe("v2/spec/lane/index.md");
   });
 
   test("refuses completed lane without publication evidence", () => {

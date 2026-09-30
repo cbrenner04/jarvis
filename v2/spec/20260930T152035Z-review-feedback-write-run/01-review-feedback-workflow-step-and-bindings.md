@@ -31,12 +31,12 @@
 
 ## Acceptance criteria
 
-- [ ] `review-feedback-workflow-steps.test.ts` (new) test `builds a write step for each lane kind with review-feedback.prompt.write` fails against the pre-fix stub and passes after implementation, asserting worktree branch/path, `worktree.baseRef` equal to the entry lane's `baseRef` (not the lane branch), `worktree.git: true`, snapshot `reviewFeedbackLane.prNumber`, and no pending prompt id.
-- [ ] A test in the same file proves implement-lane steps do not carry linked-index routing bindings in the loaded write payload; it fails against the pre-fix absence and passes after the write-loop wiring.
-- [ ] `review-feedback-lane-resolution.test.ts` case: an implement lane plus a completed review-feedback run on the same branch with PR evidence resolves to the implement lane (not `review_feedback_lane_ambiguous`); fails against pre-fix resolution.
-- [ ] `review-feedback-workflow-admission.test.ts` lane-resolution and prelude refusal cases stay green after subspec `01` prompt-id expectation updates; dispatch expectation changes are subspec `02` only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `review-feedback-workflow-steps.test.ts` (new) test `builds a write step for each lane kind with review-feedback.prompt.write` fails against the pre-fix stub and passes after implementation, asserting worktree branch/path, `worktree.baseRef` equal to the entry lane's `baseRef` (not the lane branch), `worktree.git: true`, snapshot `reviewFeedbackLane.prNumber`, and no pending prompt id.
+- [x] A test in the same file proves implement-lane steps do not carry linked-index routing bindings in the loaded write payload; it fails against the pre-fix absence and passes after the write-loop wiring.
+- [x] `review-feedback-lane-resolution.test.ts` case: an implement lane plus a completed review-feedback run on the same branch with PR evidence resolves to the implement lane (not `review_feedback_lane_ambiguous`); fails against pre-fix resolution.
+- [x] `review-feedback-workflow-admission.test.ts` lane-resolution and prelude refusal cases stay green after subspec `01` prompt-id expectation updates; dispatch expectation changes are subspec `02` only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

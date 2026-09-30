@@ -17,6 +17,9 @@ function sampleTarget(worktreePath: string): ReviewFeedbackLaneTarget {
     worktreePath,
     prNumber: PR_NUMBER,
     prUrl: "https://github.com/owner/repo/pull/42",
+    entryRunId: "intent-entry",
+    entrySpecPath: "ready-intents",
+    baseRef: "main",
     provenance: { kind: "bare" },
   };
 }

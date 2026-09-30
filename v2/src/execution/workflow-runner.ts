@@ -29,6 +29,7 @@ import {
   openStateStore,
   type RunStatus,
   type StateStore,
+  type ReviewFeedbackLaneSnapshot,
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
@@ -108,6 +109,7 @@ import {
 export { isPostCommitReviewRetryableFailureKind };
 
 import { errorMessage } from "../../../shared/error-message.ts";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
@@ -416,6 +418,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   externalPlanSpec?: true;
   /** Linked-index routing root when the spec tree lives outside the implement worktree. */
   specReadRoot?: string;
+  /** Entry lane metadata for review-feedback republication (subspec 03). */
+  reviewFeedbackLane?: ReviewFeedbackLaneSnapshot;
 };
 
 /** Per-role agent fallback orders for a `review-debate` step's four fixed debate roles. */
@@ -644,7 +648,7 @@ async function runWorkflowStep(
     );
   }
 
-  if (step.role === "implement" && step.linkedIndexRouting) {
+  if (step.role === "implement" && step.linkedIndexRouting && step.promptId !== REVIEW_FEEDBACK_WRITE_PROMPT_ID) {
     return runLinkedImplementStep(
       step,
       stepIndex,
@@ -1988,7 +1992,16 @@ function buildWorkflowSnapshot(
     ...workflowCreationTitleField(steps),
     ...implementReviewPassesField(steps),
     ...implementReviewBehaviorField(steps),
+    ...reviewFeedbackLaneField(steps),
   };
+}
+
+function reviewFeedbackLaneField(
+  steps: readonly AnyWorkflowStep[],
+): { reviewFeedbackLane: ReviewFeedbackLaneSnapshot } | Record<string, never> {
+  const writeStep = steps.find(isWriteStep);
+  const lane = writeStep?.reviewFeedbackLane;
+  return lane === undefined ? {} : { reviewFeedbackLane: lane };
 }
 
 function workflowCreationTitleField(

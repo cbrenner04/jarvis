@@ -195,7 +195,7 @@ Agent operators: `gh pr merge --admin` to the default branch can be denied by th
 - **CI does not run `lint:md`; `ready` does.** A green-CI markdown PR can carry lint-dirty prose that reddens every subsequent run's gate once merged. Run `bun run lint:md` locally before admin-merging any PR that touches `v2/docs/**`, `v2/spec/**`, `reports/**`, `README.md`, or `AGENTS.md`; repair soft wraps with `bun run reflow:md`.
 - **A spawned workflow CLI child failing at exactly 5000 ms is the old IPC connect bound, not the test timeout.** `connectIpcClient` now inherits 30000 ms and exhaustion reads `IPC connect timeout: … within <N>ms`; raising the Bun test timeout cannot fix it. Pinned by `spawned workflow CLI connect budget` in `v2/src/commands/workflow.test.ts`.
 - **When a gate goes red on a diff that cannot explain it**, verify path classification, then suspect machine load or a leaked process before suspecting the code.
-- **Confirming a red scoped or ready test step:** the ready gate reruns the identical pooled `test:*` step once before settling red — not hand confirmation and not replaced by `bun run test:confirm:live`. After that retry (or when a local scoped gate goes red), confirm with `bun run test:confirm:live` (aggregate live roster via `scripts/run-tests.ts --serial`, never frozen `v1/`). Bare `bun test` still discovers `v1/test/**`.
+- **Confirming a red scoped or ready test step:** `bun run test:confirm:live` — see [operator-runbook.md § The ready gate](./operator-runbook.md#the-ready-gate).
 
 ## Session start
 

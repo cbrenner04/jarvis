@@ -39,6 +39,37 @@ function expectValidationFailure(
 }
 
 describe("validatePipelineDefinition", () => {
+  test("standalone-only workflow preset is rejected with standalone-only-workflow", () => {
+    const result = validatePipelineDefinition(
+      { name: "bad", stages: [workflowStage("feedback-step", "review-feedback", "none")] },
+      { agentModelConfig: ALL_REVIEW_ROLES_CONFIG },
+    );
+    expectValidationFailure(result);
+    expect(result.errors[0]).toMatchObject({
+      code: "standalone-only-workflow",
+      stageId: "feedback-step",
+      field: "workflow",
+    });
+    expect(result.errors[0]?.message).toContain("feedback-step");
+    expect(result.errors[0]?.message).toContain("review-feedback");
+  });
+
+  test("base workflow names intent plan implement validate clean with full review roles", () => {
+    const cases: [string, string][] = [
+      ["intent", "none"],
+      ["plan", "none"],
+      ["implement", "light"],
+    ];
+    for (const [workflow, review] of cases) {
+      expect(
+        validatePipelineDefinition(
+          { name: "ok", stages: [workflowStage(`${workflow}-step`, workflow, review)] },
+          { agentModelConfig: ALL_REVIEW_ROLES_CONFIG },
+        ).ok,
+      ).toBe(true);
+    }
+  });
+
   test("unknown-workflow names stage ID and workflow field in the message", () => {
     const result = validatePipelineDefinition(
       { name: "bad", stages: [workflowStage("plan-step", "intent-reviewed", "none")] },

@@ -30,3 +30,22 @@ export const WORKFLOW_PRESET_BUILDERS = {
 } satisfies Record<string, WorkflowPresetBuilder>;
 
 export type CliWorkflowPresetName = keyof typeof WORKFLOW_PRESET_BUILDERS;
+
+type PipelineEligibilityPresetName = CliWorkflowPresetName | "review-feedback";
+
+export const PIPELINE_ELIGIBILITY = {
+  implement: { pipelineStageEligible: true },
+  intent: { pipelineStageEligible: true },
+  "intent-reviewed": { pipelineStageEligible: true },
+  plan: { pipelineStageEligible: true },
+  "plan-reviewed": { pipelineStageEligible: true },
+  "plan-reviewed-light": { pipelineStageEligible: true },
+  "review-feedback": { pipelineStageEligible: false },
+} satisfies Record<PipelineEligibilityPresetName, { pipelineStageEligible: boolean }>;
+
+export function isStandaloneOnlyPipelineWorkflow(workflow: string): boolean {
+  if (!(workflow in PIPELINE_ELIGIBILITY)) {
+    return false;
+  }
+  return PIPELINE_ELIGIBILITY[workflow as PipelineEligibilityPresetName].pipelineStageEligible === false;
+}

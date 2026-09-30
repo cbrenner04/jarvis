@@ -1,16 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LogReader } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { DEFAULT_DAEMON_READINESS_TIMEOUT_MS, DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS } from "./daemon-changeover.ts";
 import { startDaemonRuntime } from "./daemon.ts";
 import type { ProcessProber, SocketProber } from "./daemon-lifecycle.ts";
-
-function fakeReader(): LogReader {
-  return { tail: () => [], async *follow() {} };
-}
 
 function queueDigestSampler(): { sample: () => Promise<string>; push: (digest: string) => void } {
   const queue: string[] = [];
@@ -34,40 +29,43 @@ const CHANGEOVER_OUTCOME = {
   handoffId: "handoff-1",
 };
 
-describe("default self-handoff successor readiness", () => {
-  test(
-    "startDaemonRuntime default spawnSelfHandoffSuccessor tolerates readiness after the manual-start budget",
-    async () => {
-      const tmpDir = join(tmpdir(), `jarvis-self-handoff-readiness-${Date.now()}`);
-      mkdirSync(tmpDir, { recursive: true });
-      const publicSocketPath = join(tmpDir, "daemon.sock");
-      const store = openStateStore(join(tmpDir, "state.sqlite"));
-      const sampler = queueDigestSampler();
-      const observedDigest = "observed-self-handoff-readiness-digest";
+test(
+  "startDaemonRuntime default spawnSelfHandoffSuccessor tolerates readiness after the manual-start budget",
+  async () => {
+    const tmpDir = join(tmpdir(), `jarvis-self-handoff-readiness-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    const publicSocketPath = join(tmpDir, "daemon.sock");
+    const store = openStateStore(join(tmpDir, "state.sqlite"));
+    const sampler = queueDigestSampler();
+    const observedDigest = "observed-self-handoff-readiness-digest";
 
-      type ProbePhase = "occupancy" | "release" | "readiness";
-      let phase: ProbePhase = "occupancy";
-      let readinessStartMs = 0;
-      const socketProber: SocketProber = {
-        probe: async () => {
-          if (phase === "occupancy") {
-            phase = "release";
-            return true;
-          }
-          if (phase === "release") {
-            phase = "readiness";
-            readinessStartMs = Date.now();
-            return false;
-          }
-          return Date.now() - readinessStartMs > DEFAULT_DAEMON_READINESS_TIMEOUT_MS;
-        },
-      };
-      const processProber: ProcessProber = { isAlive: () => true };
+    type ProbePhase = "occupancy" | "release" | "readiness";
+    let phase: ProbePhase = "occupancy";
+    let readinessStartMs = 0;
+    const socketProber: SocketProber = {
+      probe: async () => {
+        if (phase === "occupancy") {
+          phase = "release";
+          return true;
+        }
+        if (phase === "release") {
+          phase = "readiness";
+          readinessStartMs = Date.now();
+          return false;
+        }
+        return Date.now() - readinessStartMs > DEFAULT_DAEMON_READINESS_TIMEOUT_MS;
+      },
+    };
+    const processProber: ProcessProber = { isAlive: () => true };
 
-      let handoffCommitted = false;
-      let readinessDelayMs = 0;
+    let handoffCommitted = false;
+    let readinessDelayMs = 0;
 
-      const runtime = await startDaemonRuntime(publicSocketPath, store, fakeReader(), {
+    const runtime = await startDaemonRuntime(
+      publicSocketPath,
+      store,
+      { tail: () => [], async *follow() {} },
+      {
         privateSocketPath: join(tmpDir, "incumbent-private.sock"),
         enableSelfHandoff: true,
         sampleExecutableDigest: sampler.sample,
@@ -90,23 +88,23 @@ describe("default self-handoff successor readiness", () => {
             return "rolled_back";
           },
         },
-      });
+      },
+    );
 
-      sampler.push(observedDigest);
-      sampler.push(observedDigest);
+    sampler.push(observedDigest);
+    sampler.push(observedDigest);
 
-      const deadline = Date.now() + DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS + 5_000;
-      while (Date.now() < deadline) {
-        if (handoffCommitted) break;
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
+    const deadline = Date.now() + DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS + 5_000;
+    while (Date.now() < deadline) {
+      if (handoffCommitted) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
 
-      expect(handoffCommitted).toBe(true);
-      expect(readinessDelayMs).toBeGreaterThan(DEFAULT_DAEMON_READINESS_TIMEOUT_MS);
+    expect(handoffCommitted).toBe(true);
+    expect(readinessDelayMs).toBeGreaterThan(DEFAULT_DAEMON_READINESS_TIMEOUT_MS);
 
-      await runtime.close();
-      rmSync(tmpDir, { recursive: true, force: true });
-    },
-    DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS + 10_000,
-  );
-});
+    await runtime.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  },
+  DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS + 10_000,
+);

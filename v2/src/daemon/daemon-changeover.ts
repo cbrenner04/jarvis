@@ -25,11 +25,7 @@ export function handoffFallbackMsForSuccessorReadiness(successorReadinessTimeout
   return DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS + successorReadinessTimeoutMs + HANDOFF_RESOLUTION_TIMEOUT_MS + 1_000;
 }
 
-/**
- * Default incumbent fallback deadline: beyond the successor's worst-case budget after the accepted
- * reply (release wait + readiness wait + settlement RPC) plus slack, so the fallback never rolls back
- * a successor still inside its own startup bound.
- */
+/** Manual `jarvis daemon start` incumbent fallback; self-handoff uses the same formula on the extended readiness budget. */
 export const DEFAULT_HANDOFF_FALLBACK_MS = handoffFallbackMsForSuccessorReadiness(DEFAULT_DAEMON_READINESS_TIMEOUT_MS);
 
 /**

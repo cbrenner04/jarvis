@@ -152,7 +152,7 @@ A self-handoff whose `startDaemon` throws logs `Self-handoff failed: <error>` to
 
 **Successor paths.** The default successor closure derives its pid, log, and digest-keyed private socket paths from the incumbent's own public socket directory, not module-level `~/.jarvis` constants.
 
-**Readiness and fallback.** The default successor closure passes `readinessTimeoutMs: DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS` into `startDaemon` — strictly above the default manual-start readiness budget (`DEFAULT_DAEMON_READINESS_TIMEOUT_MS`). Only the production entrypoint pairs that with incumbent `handoffFallbackMs` derived from the same self-handoff readiness constant via `handoffFallbackMsForSuccessorReadiness`. `enableSelfHandoff` outside `daemon-entrypoint.ts` is unsupported unless the caller sets matching incumbent fallback timing from the same successor readiness budget.
+**Readiness and fallback.** The default successor closure passes `readinessTimeoutMs: DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS` into `startDaemon` (above the manual-start budget). Production pairs that with incumbent `handoffFallbackMs` from the same constant; other `enableSelfHandoff` call sites must set matching fallback timing.
 
 **Logged cause.** The initiating generation logs one process-log line at trigger time naming the loaded and observed digests as the self-handoff cause.
 

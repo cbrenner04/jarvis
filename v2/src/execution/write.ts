@@ -26,7 +26,12 @@ import {
 } from "../../../shared/prompts/intent-split.ts";
 import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
+import { PromptRenderingError } from "../../../shared/prompts/render.ts";
+import {
+  buildReviewFeedbackWritePrompt,
+  REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+  type ReviewFeedbackLaneKind,
+} from "../../../shared/prompts/review-feedback-write.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { hasGenuineBlocker, parseSpec, RESERVED_HARNESS_BLOCKER_MARKER } from "../../../shared/spec-parser.ts";
 import {
@@ -40,6 +45,7 @@ import {
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
+import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
 
@@ -634,6 +640,62 @@ function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
     .map((criterion) => criterion.text);
 }
 
+function parseReviewFeedbackLaneKind(value: string | undefined): ReviewFeedbackLaneKind {
+  if (value === "intent" || value === "plan" || value === "implement") return value;
+  throw new Error(`review-feedback write prompt requires LANE_KIND intent|plan|implement; got ${value ?? "(missing)"}`);
+}
+
+async function executeReviewFeedbackWrite(
+  args: WriteExecuteInput,
+  worktreePath: string,
+  expectedArtifactPath: string,
+): Promise<StepRunResult> {
+  const artifactPath = resolvePrReviewInputArtifactPath(worktreePath);
+  if (!existsSync(artifactPath)) {
+    return {
+      kind: "invocation_failure",
+      failureKind: "error",
+      echoedInput: false,
+      invocation: { attempts: [], final: null, telemetryFailures: [] },
+    };
+  }
+  const reviewInput = readFileSync(artifactPath, "utf8");
+  const laneKind = parseReviewFeedbackLaneKind(args.promptPlaceholders?.LANE_KIND);
+  const entrySpecPath = args.promptPlaceholders?.ENTRY_SPEC_PATH ?? "";
+  if (entrySpecPath.length === 0) {
+    throw new Error("review-feedback write prompt requires ENTRY_SPEC_PATH");
+  }
+  let prompt: string;
+  try {
+    prompt = buildReviewFeedbackWritePrompt({
+      reviewInput,
+      laneKind,
+      entrySpecPath,
+      projectRoot: args.worktree.projectRoot,
+      stepRules: args.stepRules,
+    });
+  } catch (err) {
+    if (err instanceof PromptRenderingError) {
+      return {
+        kind: "invocation_failure",
+        failureKind: "model_config",
+        echoedInput: false,
+        invocation: { attempts: [], final: null, telemetryFailures: [] },
+      };
+    }
+    throw err;
+  }
+  return runWriteStep(args, worktreePath, {
+    prompt,
+    contracts: [
+      {
+        id: "artifact.exists",
+        check: () => existsSync(expectedArtifactPath),
+      },
+    ],
+  });
+}
+
 async function executeDefaultWrite(
   args: WriteExecuteInput,
   worktreePath: string,
@@ -751,6 +813,9 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
       }
       if (promptId === INTENT_SPLIT_PROMPT_ID) {
         return executeIntentSplitWrite(args, worktree.path, expectedArtifactPath);
+      }
+      if (promptId === REVIEW_FEEDBACK_WRITE_PROMPT_ID) {
+        return executeReviewFeedbackWrite(args, worktree.path, expectedArtifactPath);
       }
       return executeDefaultWrite(args, worktree.path, specPath, expectedArtifactPath, promptId);
     },

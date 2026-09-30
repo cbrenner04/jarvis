@@ -1,0 +1,65 @@
+import { renderPromptForStep } from "./assemble.ts";
+import { loadPromptRegistry } from "./registry.ts";
+import { enforceDelimiterPolicy } from "./render.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./step-rules.ts";
+
+export const REVIEW_FEEDBACK_WRITE_PROMPT_ID = "review-feedback.prompt.write";
+export const REVIEW_FEEDBACK_RULES_PROMPT_ID = "review-feedback.rules";
+/** Agent-authored per-item response sidecar at the lane worktree root; the write step's expected artifact, never committed. */
+export const REVIEW_FEEDBACK_RESPONSE_SIDECAR = ".jarvis-review-feedback-response.md";
+
+export type ReviewFeedbackLaneKind = "intent" | "plan" | "implement";
+
+function buildReviewFeedbackLaneContext(opts: {
+  laneKind: ReviewFeedbackLaneKind;
+  entrySpecPath: string;
+  projectRoot?: string;
+}): string {
+  switch (opts.laneKind) {
+    case "intent":
+      return `- Ready-intents root: \`${opts.entrySpecPath}\`\n- Seed-split intent files live under that directory.`;
+    case "plan":
+      return `- Admitted plan spec tree root: \`${opts.entrySpecPath}\``;
+    case "implement":
+      return `- Project root: \`${opts.projectRoot ?? opts.entrySpecPath}\`\n- Lane spec path (code context): \`${opts.entrySpecPath}\``;
+  }
+}
+
+export function resolveReviewFeedbackStepRules(stepRules?: string): string {
+  if (stepRules !== undefined && stepRules.trim().length > 0) {
+    return stepRules.trim();
+  }
+  const rulesBody = loadPromptRegistry().getById(REVIEW_FEEDBACK_RULES_PROMPT_ID).body.trim();
+  return `${rulesBody}\n\n${DEFAULT_WRITE_STEP_RULES}`;
+}
+
+export function buildReviewFeedbackWritePrompt(opts: {
+  reviewInput: string;
+  laneKind: ReviewFeedbackLaneKind;
+  entrySpecPath: string;
+  projectRoot?: string;
+  stepRules?: string;
+}): string {
+  enforceDelimiterPolicy({
+    value: opts.reviewInput,
+    begin: "<<<REVIEW_INPUT_BEGIN>>>",
+    end: "<<<REVIEW_INPUT_END>>>",
+    placeholderName: "REVIEW_INPUT",
+  });
+
+  const laneContext = buildReviewFeedbackLaneContext({
+    laneKind: opts.laneKind,
+    entrySpecPath: opts.entrySpecPath,
+    ...(opts.projectRoot !== undefined ? { projectRoot: opts.projectRoot } : {}),
+  });
+
+  return renderPromptForStep({
+    stepPromptId: REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+    placeholders: {
+      REVIEW_INPUT: opts.reviewInput,
+      LANE_KIND: opts.laneKind,
+      LANE_CONTEXT: laneContext,
+      STEP_RULES: resolveReviewFeedbackStepRules(opts.stepRules),
+    },
+  });
+}

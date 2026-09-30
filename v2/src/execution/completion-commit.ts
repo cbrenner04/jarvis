@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { getGitStatusInventory } from "../../../shared/git.ts";
+import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -241,8 +242,21 @@ const EXCLUDE_MATERIALIZED_NODE_MODULES = ["--", ".", `:(exclude)${NODE_MODULES_
 // completion commit stages the whole worktree. The `glob` magic word (not the default pathspec
 // matching) is required for `**/` to match both the root and nested depths.
 const EXCLUDE_REVIEW_VERDICTS = ":(exclude,glob)**/verdict-*.md";
-// Harness-refreshed PR review capture sidecar (pr-review-input-capture.ts); never durable output.
-const EXCLUDE_PR_REVIEW_INPUT = ":(exclude,literal).jarvis-pr-review-input.json";
+// Harness-owned root sidecars: PR review capture (pr-review-input-capture.ts) and the agent-authored
+// review-feedback response. Never durable output. Glob-classified via a bracketed final character
+// (like NODE_MODULES_GLOB): a literal exclusion of a gitignored path hard-fails `add -A`.
+const HARNESS_TRANSIENT_ROOT_SIDECARS: readonly string[] = [
+  ".jarvis-pr-review-input.json",
+  REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+];
+const EXCLUDE_HARNESS_TRANSIENT_SIDECARS = HARNESS_TRANSIENT_ROOT_SIDECARS.map(
+  (path) => `:(exclude)${path.slice(0, -1)}[${path.slice(-1)}]`,
+);
+
+/** True for a harness-owned root sidecar the dirty-worktree gate and completion commits ignore. */
+export function isHarnessTransientRootSidecar(path: string): boolean {
+  return HARNESS_TRANSIENT_ROOT_SIDECARS.includes(path);
+}
 
 /** `git add -A` pathspec for a completion commit; excludes the materialized node_modules
  * symlink when present, and review-verdict basenames unconditionally, so no harness completion
@@ -252,7 +266,7 @@ export function completionStageArgs(worktreePath: string, excludedPaths: readonl
   if (isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) {
     exclusions.push(EXCLUDE_MATERIALIZED_NODE_MODULES[2]);
   }
-  exclusions.push(EXCLUDE_REVIEW_VERDICTS, EXCLUDE_PR_REVIEW_INPUT);
+  exclusions.push(EXCLUDE_REVIEW_VERDICTS, ...EXCLUDE_HARNESS_TRANSIENT_SIDECARS);
   return [...ADD_ALL_ARGS, "--", ".", ...exclusions];
 }
 

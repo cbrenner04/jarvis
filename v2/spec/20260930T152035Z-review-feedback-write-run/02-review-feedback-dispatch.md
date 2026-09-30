@@ -23,10 +23,10 @@ CLI admission stops with `review_feedback_write_not_available` after successful 
 
 ## Acceptance criteria
 
-- [ ] `review-feedback-workflow-admission.test.ts` test that previously expected `review_feedback_write_not_available` after successful preparation instead asserts workflow dispatch without that code; fails against the pre-fix stub refusal in `runReviewFeedbackWorkflowCommand`.
-- [ ] `review-feedback-admission-prelude.test.ts` case: a non-draft lane PR without harness ready-flip evidence refuses `review_feedback_pr_not_draft`; a draft PR, or a non-draft PR with that evidence, admits. Fails against the pre-fix prelude.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `review-feedback-workflow-admission.test.ts` test that previously expected `review_feedback_write_not_available` after successful preparation instead asserts workflow dispatch without that code; fails against the pre-fix stub refusal in `runReviewFeedbackWorkflowCommand`.
+- [x] `review-feedback-admission-prelude.test.ts` case: a non-draft lane PR without harness ready-flip evidence refuses `review_feedback_pr_not_draft`; a draft PR, or a non-draft PR with that evidence, admits. Fails against the pre-fix prelude.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

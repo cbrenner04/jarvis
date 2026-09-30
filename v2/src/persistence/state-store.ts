@@ -103,6 +103,15 @@ export type WorkflowSnapshotStep = {
   landingInputs?: PublicationInputs;
 };
 
+/** Entry lane metadata stamped on review-feedback workflow snapshots for republication. */
+export type ReviewFeedbackLaneSnapshot = {
+  laneKind: "intent" | "plan" | "implement";
+  entryRunId: string;
+  entrySpecPath: string;
+  prNumber: number;
+  prUrl: string;
+};
+
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */
 export type WorkflowSnapshot = {
   invocationId: string;
@@ -113,6 +122,8 @@ export type WorkflowSnapshot = {
   reviewPasses?: number;
   /** Resolved implement review behavior; present only on implement workflow snapshots. */
   reviewBehavior?: "debate" | "light";
+  /** Resolved lane target for review-feedback presets. */
+  reviewFeedbackLane?: ReviewFeedbackLaneSnapshot;
 };
 
 type AttemptStatus = "in-progress" | "completed";

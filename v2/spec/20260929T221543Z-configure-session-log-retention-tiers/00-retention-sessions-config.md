@@ -31,7 +31,7 @@
 - [x] `v2/src/config/machine-config-loader.test.ts` stays green on the preserved behaviors carried over from the current `readCleanupSessionLogRetentionDays` cases (non-record top-level config throws naming "JSON object", unparseable JSON throws, a nonexistent config path resolves to defaults, an invalid unrelated key such as `agents: "invalid"` does not affect the retention result).
 - [x] `v2/src/commands/cleanup.test.ts` proves the session-log reaper's deletion cutoff comes from `retention.sessions.coldDays` (an override changes which logs are reaped) and that an invalid `retention.sessions` value skips session-log reaping only, with stderr naming the offending key and other cleanup slices proceeding; it fails against the pre-change wiring.
 - [x] `v2/src/commands/cleanup.test.ts` proves a non-record top-level machine config still hits the distinct "Failed to load machine config" stderr branch in `discoverExpiredSessionLogs` (not the retention-error branch) while other cleanup slices proceed.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

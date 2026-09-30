@@ -1102,9 +1102,10 @@ describe.serial("agent gate shell observability", () => {
       });
 
       expect(result.kind).toBe("budget-exhausted");
-      const sessionFile = readdirSync(sessionsDir)[0];
-      expect(sessionFile).toBeDefined();
-      const sessionContent = readFileSync(join(sessionsDir, sessionFile ?? ""), "utf8");
+      const shardDir = join(sessionsDir, "2026-09");
+      const sessionBasename = readdirSync(shardDir)[0];
+      expect(sessionBasename).toBeDefined();
+      const sessionContent = readFileSync(join(shardDir, sessionBasename ?? ""), "utf8");
       expect(sessionContent).toContain(
         `active_gate command=${gateCommand} startedAtMs=${Date.parse("2026-09-08T06:00:00.000Z")}`,
       );

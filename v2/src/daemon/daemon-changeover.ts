@@ -16,15 +16,17 @@ const DEFAULT_CHANGEOVER_TIMEOUT_MS = 2_000;
 /** Successor startup budget, shared by `startDaemon` and the incumbent's fallback deadline. */
 export const DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS = 5_000;
 export const DEFAULT_DAEMON_READINESS_TIMEOUT_MS = 5_000;
+/** Autonomous self-handoff successor `startDaemon` readiness budget; manual `daemon start` keeps the default above. */
+export const DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS = 30_000;
 export const HANDOFF_RESOLUTION_TIMEOUT_MS = 2_000;
 
-/**
- * Default incumbent fallback deadline: beyond the successor's worst-case budget after the accepted
- * reply (release wait + readiness wait + settlement RPC) plus slack, so the fallback never rolls back
- * a successor still inside its own startup bound.
- */
-export const DEFAULT_HANDOFF_FALLBACK_MS =
-  DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS + DEFAULT_DAEMON_READINESS_TIMEOUT_MS + HANDOFF_RESOLUTION_TIMEOUT_MS + 1_000;
+/** Incumbent fallback ms from a successor's release + readiness + settlement budgets plus slack. */
+export function handoffFallbackMsForSuccessorReadiness(successorReadinessTimeoutMs: number): number {
+  return DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS + successorReadinessTimeoutMs + HANDOFF_RESOLUTION_TIMEOUT_MS + 1_000;
+}
+
+/** Manual `jarvis daemon start` incumbent fallback; self-handoff uses the same formula on the extended readiness budget. */
+export const DEFAULT_HANDOFF_FALLBACK_MS = handoffFallbackMsForSuccessorReadiness(DEFAULT_DAEMON_READINESS_TIMEOUT_MS);
 
 /**
  * Requests changeover from whatever is answering `socketPath`. Called only after the caller has

@@ -21,6 +21,7 @@ import {
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
+import { isForeignProcessGroup } from "../execution/verifier-process-groups.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client.ts";
@@ -42,7 +43,7 @@ import {
   openLogSink,
 } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
+import { DEFAULT_HANDOFF_FALLBACK_MS, DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS } from "./daemon-changeover.ts";
 import {
   type DrainObserver,
   observePredecessorDrain,
@@ -219,7 +220,11 @@ export async function observeProcessGroupSurvivors(
 }
 
 /** Signal a recorded process group with SIGTERM then SIGKILL after the shared 50ms grace. */
-export function signalReadyGateProcessGroup(pgid: number): void {
+export function signalReadyGateProcessGroup(pgid: number, own?: ReadonlySet<number>): boolean {
+  if (!isForeignProcessGroup(pgid, own)) {
+    console.error(`signalReadyGateProcessGroup: skipped own/invalid process group ${pgid}`);
+    return false;
+  }
   try {
     process.kill(-pgid, "SIGTERM");
   } catch {
@@ -232,6 +237,7 @@ export function signalReadyGateProcessGroup(pgid: number): void {
       // already gone (ESRCH) or not permitted (EPERM); treat as already-dead.
     }
   }, 50).unref?.();
+  return true;
 }
 
 /**
@@ -783,6 +789,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipelineDispatch,
     pipelineWait,
     admitWorkflowStart,
+    attemptFailedImplementPipelineResume: lifecycle.attemptFailedImplementPipelineResume,
     ...(deps.resolveStage !== undefined ? { resolveStage: deps.resolveStage } : {}),
     ...(deps.recoveryAttempt !== undefined ? { recoveryAttempt: deps.recoveryAttempt } : {}),
     ...(deps.recoveryLogSinkFactory !== undefined ? { recoveryLogSinkFactory: deps.recoveryLogSinkFactory } : {}),
@@ -1334,6 +1341,20 @@ async function daemonAnswersAt(socketPath: string): Promise<boolean> {
   }
 }
 
+/** Pure: default self-handoff successor `startDaemon` options, keyed off the incumbent's public socket dir. */
+export function selfHandoffSuccessorStartOptions(
+  socketPath: string,
+  observed: string,
+): { pidPath: string; logPath: string; privateSocketPath: string; readinessTimeoutMs: number } {
+  const home = dirname(socketPath);
+  return {
+    pidPath: join(home, "daemon.pid"),
+    logPath: join(home, "daemon.log"),
+    privateSocketPath: daemonPathsByDigest(observed, home).socketPath,
+    readinessTimeoutMs: DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS,
+  };
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: startup wires handoff rollback, listeners, and recovery in one ordered sequence
 export async function startDaemonRuntime(
   socketPath: string,
@@ -1679,12 +1700,7 @@ export async function startDaemonRuntime(
     (async (_loaded: string, observed: string): Promise<"committed" | "rolled_back"> => {
       // Paths derive from this daemon's own public socket directory, not module-level jarvis-home
       // constants, so a daemon bound under another home hands off within that home.
-      const home = dirname(socketPath);
-      await startDaemon(socketPath, {
-        pidPath: join(home, "daemon.pid"),
-        logPath: join(home, "daemon.log"),
-        privateSocketPath: daemonPathsByDigest(observed, home).socketPath,
-      });
+      await startDaemon(socketPath, selfHandoffSuccessorStartOptions(socketPath, observed));
       return "committed";
     });
   if (startupDeps.enableSelfHandoff === true && loadedExecutableDigest !== "unknown") {

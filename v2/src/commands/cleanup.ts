@@ -31,7 +31,7 @@ import type { CliDeps } from "../cli/deps.ts";
 import { request } from "../cli/ipc.ts";
 import { readProjectConfigRecord, readRetentionSessions } from "../config/machine-config-loader.ts";
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
-import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
+import { isMaterializedNodeModulesPath, isNotGitRepositoryDiagnostic } from "../execution/external-worktree.ts";
 import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
@@ -2864,7 +2864,7 @@ function hasNotGitRepositoryDiagnostic(error: unknown): boolean {
     typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
       ? (error as { stderr: string }).stderr
       : "";
-  return `${message}\n${stderr}`.includes("not a git repository");
+  return isNotGitRepositoryDiagnostic(`${message}\n${stderr}`);
 }
 
 export function staleResetDirtyWorktreeGateReason(

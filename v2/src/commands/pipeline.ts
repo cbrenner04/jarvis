@@ -84,6 +84,7 @@ type PipelineMutationOutcome =
   | {
       kind: "refused";
       reason: string;
+      message?: string;
       branchKeys?: string[];
       candidates?: string[];
       stageId?: string;
@@ -114,6 +115,7 @@ function parsePipelineMutationOutcome(
   const record = value as {
     kind?: unknown;
     reason?: unknown;
+    message?: unknown;
     branchKeys?: unknown;
     candidates?: unknown;
     pipelineId?: unknown;
@@ -137,6 +139,7 @@ function parsePipelineMutationOutcome(
     return {
       kind: "refused",
       reason: record.reason,
+      ...(isNonEmptyString(record.message) ? { message: record.message } : {}),
       ...(branchKeys.length > 0 ? { branchKeys } : {}),
       ...(candidates.length > 0 ? { candidates } : {}),
       ...mutationOutcomeDetail(record),
@@ -148,23 +151,25 @@ function parsePipelineMutationOutcome(
 /** Resume refusals with actionable detail name it; anything else (or a missing field) renders the bare reason. */
 function formatMutationRefusal(outcome: {
   reason: string;
+  message?: string;
   stageId?: string;
   status?: string;
   state?: string;
   runId?: string;
 }): string {
-  const { reason, stageId, status, state, runId } = outcome;
+  const { reason, message, stageId, status, state, runId } = outcome;
+  let line: string;
   if (reason === "pipeline_interrupted_running_stage" && state !== undefined && stageId !== undefined) {
     const detail = `${reason}: pipeline is ${state}; stage ${stageId} is running`;
-    return runId === undefined ? detail : `${detail}; clear with run kill --force ${runId}`;
+    line = runId === undefined ? detail : `${detail}; clear with run kill --force ${runId}`;
+  } else if (reason === "branch_not_resumable" && status !== undefined) {
+    line = `${reason}: ${stageId === undefined ? "branch" : `stage ${stageId}`} is ${status}`;
+  } else if ((reason === "branch_awaiting_approval" || reason === "branch_rejected") && stageId !== undefined) {
+    line = `${reason}: stage ${stageId}`;
+  } else {
+    line = reason;
   }
-  if (reason === "branch_not_resumable" && status !== undefined) {
-    return `${reason}: ${stageId === undefined ? "branch" : `stage ${stageId}`} is ${status}`;
-  }
-  if ((reason === "branch_awaiting_approval" || reason === "branch_rejected") && stageId !== undefined) {
-    return `${reason}: stage ${stageId}`;
-  }
-  return reason;
+  return isNonEmptyString(message) ? `${line}: ${message}` : line;
 }
 
 /** Candidate ids named by a `pipeline_id_ambiguous` refusal; empty for every other reason. */

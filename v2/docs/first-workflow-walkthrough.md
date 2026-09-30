@@ -107,10 +107,10 @@ A harness failure mid-workflow (uncaught `executeWorkflow` rejection after a ste
 When a run stalls or fails before structured records accrue, read the on-disk invocation session log for the active iteration:
 
 ```bash
-ls -t ~/.jarvis/sessions/<run-id>-*.log | head -1 | xargs cat
+ls -t ~/.jarvis/sessions/<run-id>-*.log ~/.jarvis/sessions/*/<run-id>-*.log 2>/dev/null | head -1 | xargs cat
 ```
 
-Each write-loop iteration opens `~/.jarvis/sessions/<run-id>-<timestamp>.log` (millisecond, filesystem-safe timestamp). Lines use the same `[tag]` transcript format as v1 (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). The loop stamps run/spec/iteration before spawn and `outcome=…` at settle. A stalled invocation may have harness + outbound only — no `inbound_*` until the binding settles. Structured `jarvis run log` records remain the durable run timeline once they exist.
+Each write-loop iteration opens `~/.jarvis/sessions/<YYYY-MM>/<run-id>-<timestamp>.log` (UTC month shard; millisecond, filesystem-safe timestamp). Pre-shard flat logs under `~/.jarvis/sessions/` directly may still exist. Lines use the same `[tag]` transcript format as v1 (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). The loop stamps run/spec/iteration before spawn and `outcome=…` at settle. A stalled invocation may have harness + outbound only — no `inbound_*` until the binding settles. Structured `jarvis run log` records remain the durable run timeline once they exist.
 
 ### Nothing is happening
 

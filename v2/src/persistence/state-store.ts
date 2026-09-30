@@ -134,16 +134,15 @@ export type OutcomeKind =
   | "surviving_mutation_failed"
   | "non_terminating_mutation_failed";
 
-/** Durable ready-gate repair fence provenance persisted across process restart and resume. */
-/** Durable evidence that the harness successfully ran `gh pr ready` for one open PR on this run row. */
+/** Harness `gh pr ready` success evidence persisted on one run row. */
 export type HarnessReadyFlipEvidence = {
   prNumber: number;
   branch: string;
   baseRef: string;
-  /** Unix epoch ms stamped by the store at `recordHarnessReadyFlipEvidence` write time. */
   flippedAt: number;
 };
 
+/** Durable ready-gate repair fence provenance persisted across process restart and resume. */
 export type ReadyGateRepairFenceProvenance = {
   allowedPaths: readonly string[];
   /** True when the originating write step was intent/plan markdown-only. */
@@ -221,9 +220,7 @@ export type Run = {
   gateRefusalRecoveryStateCorrupt?: boolean;
   /** Daemon identity that owns this row (`this.currentIdentity` at write time); `null` on legacy rows. */
   ownerIdentity?: string | null;
-  /** Harness `gh pr ready` success evidence; `null` when unset, cleared, corrupt, or on legacy rows. */
   harnessReadyFlipEvidence?: HarnessReadyFlipEvidence | null;
-  /** True when a non-null `harness_ready_flip_evidence` column could not be parsed. */
   harnessReadyFlipEvidenceCorrupt?: boolean;
 };
 
@@ -805,16 +802,10 @@ export interface StateStore {
   /** Persist the publication-tail checkpoint for gate-only finalization resume. */
   setRetainedFinalizationCheckpoint(runId: string, checkpoint: RetainedFinalizationCheckpoint): void;
 
-  /**
-   * Record harness `gh pr ready` success on one run row; replaces any prior value. `flippedAt` is
-   * stamped at write time — callers must not supply it.
-   */
+  /** Record harness ready-flip success on one run row (`flippedAt` stamped at write time). */
   recordHarnessReadyFlipEvidence(args: { runId: string; prNumber: number; branch: string; baseRef: string }): void;
 
-  /**
-   * Newest matching harness ready-flip evidence across `(project, branch, spec_ref)` lineage
-   * (`created_at DESC, rowid DESC`); skips absent, null, or unparseable column values.
-   */
+  /** Newest matching ready-flip evidence in `(project, branch, spec_ref)` lineage, or `null`. */
   findNewestHarnessReadyFlipEvidenceInLineage(args: {
     project: string;
     specRef: string;
@@ -1877,13 +1868,6 @@ function parseHarnessReadyFlipEvidence(json: string | null): HarnessReadyFlipEvi
   }
 }
 
-function harnessReadyFlipEvidenceMatchesQuery(
-  evidence: HarnessReadyFlipEvidence,
-  query: { branch: string; baseRef: string; prNumber: number },
-): boolean {
-  return evidence.branch === query.branch && evidence.baseRef === query.baseRef && evidence.prNumber === query.prNumber;
-}
-
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
   if (json === null) return null;
   try {
@@ -2310,7 +2294,9 @@ class StateStoreImpl implements StateStore {
     for (const row of rows) {
       const parsed = parseHarnessReadyFlipEvidence(row.json);
       if (parsed === null || parsed === "invalid") continue;
-      if (harnessReadyFlipEvidenceMatchesQuery(parsed, args)) return parsed;
+      if (parsed.branch === args.branch && parsed.baseRef === args.baseRef && parsed.prNumber === args.prNumber) {
+        return parsed;
+      }
     }
     return null;
   }

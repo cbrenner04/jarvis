@@ -4,4 +4,4 @@ Durable run rows record successful harness `gh pr ready` outcomes so a later rep
 
 ## Subspecs
 
-- [ ] [00 — Harness ready-flip evidence on run rows](00-harness-ready-flip-evidence-on-run-row.md)
+- [x] [00 — Harness ready-flip evidence on run rows](00-harness-ready-flip-evidence-on-run-row.md)

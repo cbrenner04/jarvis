@@ -35,9 +35,12 @@ import {
   openLogSink,
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
+import type { LinkedStageTarget } from "../persistence/pipeline-stage-settlement.ts";
 import {
   type Attempt,
   isTerminalRunStatus,
+  type Pipeline,
+  type PipelineStageRecord,
   type ReopenedFailedStage,
   type Run,
   type RunStatus,
@@ -77,7 +80,12 @@ import {
   type RunResumeAdmission,
   resolveRunResumeAdmission,
 } from "./daemon-run-resume-admission.ts";
+import type { PipelineRunResumeRefusalReason, ResumePipelineOutcome } from "./pipeline-execution.ts";
 import { findStageRecord, skipSuffixOfSettledFailures } from "./pipeline-execution.ts";
+import {
+  type PipelineResumeRunOutcome,
+  resolveFailedImplementResumeTarget,
+} from "./pipeline-resume-resumable-implement.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import {
   KILL_SETTLEMENT_BOUND_MS,
@@ -135,6 +143,12 @@ export type RunLifecycleHandlers = {
     execute: (deps: IntentFinalizationResumeDeps) => Promise<{ ok: true } | { ok: false; message: string }>,
     failureAsResponse?: boolean,
   ) => Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
+  resumeRunForPipeline: (runId: string, reopenStage: LinkedStageTarget) => Promise<PipelineResumeRunOutcome>;
+  attemptFailedImplementPipelineResume: (
+    pipeline: Pipeline & { stages: PipelineStageRecord[] },
+    pipelineId: string,
+    branchScope: string | undefined,
+  ) => Promise<ResumePipelineOutcome | undefined>;
 };
 
 const LIST_TERMINAL_RUN_LIMIT = 50;
@@ -161,6 +175,7 @@ function runOwnerConflictError(runId: string): { kind: "error"; code: "run_owner
 async function admitRunForResumeOrRefusal(
   store: StateStore,
   runId: string,
+  reopenStage?: LinkedStageTarget,
 ): Promise<ReopenedFailedStage[] | { kind: "error"; code: string; message: string }> {
   const admission = await store.admitRunForResume(runId);
   if (admission.kind !== "applied") {
@@ -170,13 +185,18 @@ async function admitRunForResumeOrRefusal(
       message: `Run ${runId} resume admission refused: ${admission.reason}`,
     };
   }
-  return reopenFailedStagesAfterAdmission(store, runId);
+  return reopenFailedStagesAfterAdmission(store, runId, reopenStage);
 }
 
 /** Best-effort: an admitted resume reopens the `failed` stage linked to its invocation's entry run, so the resumed row settles it. */
-function reopenFailedStagesAfterAdmission(store: StateStore, runId: string): ReopenedFailedStage[] {
+function reopenFailedStagesAfterAdmission(
+  store: StateStore,
+  runId: string,
+  reopenStage?: LinkedStageTarget,
+): ReopenedFailedStage[] {
   try {
-    return store.reopenFailedStagesForResume(resolveInvocationEntryRunId(store, runId));
+    const entryRunId = resolveInvocationEntryRunId(store, runId);
+    return store.reopenFailedStagesForResume(entryRunId, reopenStage);
   } catch (reopenError) {
     console.error(`Failed-stage reopen for resumed run ${runId} failed:`, reopenError);
     return [];
@@ -1221,6 +1241,7 @@ export function createRunLifecycleHandlers(
     run: LoadedRun,
     key: OwnershipKey,
     runId: string,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const reconstructed = reconstructWriteResume(run, logReader?.tail(runId));
     if (!reconstructed.ok) {
@@ -1232,7 +1253,7 @@ export function createRunLifecycleHandlers(
     }
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admission = await admitRunForResumeOrRefusal(store, runId);
+    const admission = await admitRunForResumeOrRefusal(store, runId, reopenStage);
     if (!Array.isArray(admission)) return admission;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
@@ -1243,10 +1264,11 @@ export function createRunLifecycleHandlers(
     key: OwnershipKey,
     execute: (deps: IntentFinalizationResumeDeps) => Promise<{ ok: true } | { ok: false; message: string }>,
     failureAsResponse = false,
+    reopenStage?: LinkedStageTarget,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admission = await admitRunForResumeOrRefusal(store, run.id);
+    const admission = await admitRunForResumeOrRefusal(store, run.id, reopenStage);
     if (!Array.isArray(admission)) return admission;
     registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
@@ -1307,16 +1329,22 @@ export function createRunLifecycleHandlers(
   const resumeIntentFinalizationPublication = (
     run: LoadedRun,
     key: OwnershipKey,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> =>
-    resumeFinalizationOnly(run, key, (deps) => resumePopulatedIntentPublication(run, store, deps));
+    resumeFinalizationOnly(run, key, (deps) => resumePopulatedIntentPublication(run, store, deps), false, reopenStage);
 
   const resumeReviewMutationPublication = (
     run: LoadedRun,
     terminalRecord: TerminalLogRecord | undefined,
     key: OwnershipKey,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> =>
-    resumeFinalizationOnly(run, key, (resumeDeps) =>
-      resumeReviewMutationFinalization(run, store, terminalRecord, resumeDeps),
+    resumeFinalizationOnly(
+      run,
+      key,
+      (resumeDeps) => resumeReviewMutationFinalization(run, store, terminalRecord, resumeDeps),
+      false,
+      reopenStage,
     );
 
   const resumeRefusal = (
@@ -1342,7 +1370,10 @@ export function createRunLifecycleHandlers(
    * self-publishes. Returns `undefined` for a non-linked row so the caller falls through to the
    * existing paused/bare-resume branches.
    */
-  const resumeLinkedWorkflowRow = (run: LoadedRun): LifecycleStartResult | undefined => {
+  const resumeLinkedWorkflowRow = (
+    run: LoadedRun,
+    reopenStage: LinkedStageTarget | undefined,
+  ): LifecycleStartResult | undefined => {
     if (!deps.resumeLinkedWorkflowStart) return undefined;
     const snapshot = run.workflowSnapshot;
     const stepId = run.stepId;
@@ -1369,7 +1400,7 @@ export function createRunLifecycleHandlers(
       reconstructedSteps.steps,
       snapshot,
       async () => {
-        const admission = await admitRunForResumeOrRefusal(store, run.id);
+        const admission = await admitRunForResumeOrRefusal(store, run.id, reopenStage);
         if (!Array.isArray(admission)) return admission;
         reopened = admission;
         return undefined;
@@ -1386,6 +1417,7 @@ export function createRunLifecycleHandlers(
     run: LoadedRun,
     runId: string,
     logRecords: ReturnType<NonNullable<typeof logReader>["tail"]> | undefined,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const reconstructed = reconstructWriteResume(run, logRecords);
     if (!reconstructed.ok) {
@@ -1394,10 +1426,43 @@ export function createRunLifecycleHandlers(
     const key: OwnershipKey = { project: run.project, branch: run.branch };
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admission = await admitRunForResumeOrRefusal(store, runId);
+    const admission = await admitRunForResumeOrRefusal(store, runId, reopenStage);
     if (!Array.isArray(admission)) return admission;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
+  };
+
+  type ResumeLifecycleOutcome =
+    | { kind: "response"; result: unknown }
+    | { kind: "error"; code: string; message: string };
+
+  const resumeAdmittedRunLifecycle = async (
+    run: LoadedRun,
+    runId: string,
+    logRecords: ReturnType<NonNullable<typeof logReader>["tail"]> | undefined,
+    terminalRecord: ReturnType<typeof findTerminalLogRecord> | undefined,
+    reopenStage: LinkedStageTarget | undefined,
+  ): Promise<ResumeLifecycleOutcome> => {
+    if (isIntentFinalizationResumable(run, store)) {
+      return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch }, reopenStage);
+    }
+    if (isFinalizationTailResumable(run, store, terminalRecord)) {
+      return resumeReviewMutationPublication(
+        run,
+        terminalRecord,
+        { project: run.project, branch: run.branch },
+        reopenStage,
+      );
+    }
+    const exhausted = runTimeoutRefusal(run);
+    if (exhausted) return exhausted;
+    const linkedResume = resumeLinkedWorkflowRow(run, reopenStage);
+    if (linkedResume !== undefined) return linkedResume;
+    if (run.status === "paused") {
+      const key: OwnershipKey = { project: run.project, branch: run.branch };
+      return resumePausedRun(run, key, runId, reopenStage);
+    }
+    return resumeReconstructedRun(run, runId, logRecords, reopenStage);
   };
 
   const resumeHandler: RpcHandler = async (frame) => {
@@ -1421,26 +1486,48 @@ export function createRunLifecycleHandlers(
     if (!admission.admitted) {
       return resumeRefusal(run, terminalRecord, admission);
     }
-    if (isIntentFinalizationResumable(run, store)) {
-      return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch });
+    return resumeAdmittedRunLifecycle(run, runId, logRecords, terminalRecord, undefined);
+  };
+
+  const resumeRunForPipeline = async (
+    runId: string,
+    reopenStage: LinkedStageTarget,
+  ): Promise<PipelineResumeRunOutcome> => {
+    const run = store.loadRun(runId);
+    if (run === null) {
+      return { kind: "refused", reason: "unknown_run", message: `Run ${runId} not found` };
     }
-
-    if (isFinalizationTailResumable(run, store, terminalRecord)) {
-      return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
+    const logRecords = logReader?.tail(runId);
+    const terminalRecord = logReader === undefined ? undefined : findTerminalLogRecord(logRecords ?? []);
+    const admission = resolveRunResumeAdmission(run, terminalRecord, logRecords, resumeAdmissionDeps);
+    if (!admission.admitted) {
+      const refusal = resumeRefusal(run, terminalRecord, admission);
+      return { kind: "refused", reason: refusal.code, message: refusal.message };
     }
-
-    const exhausted = runTimeoutRefusal(run);
-    if (exhausted) return exhausted;
-
-    const linkedResume = resumeLinkedWorkflowRow(run);
-    if (linkedResume !== undefined) return linkedResume;
-
-    if (run.status === "paused") {
-      const key: OwnershipKey = { project: run.project, branch: run.branch };
-      return resumePausedRun(run, key, runId);
+    const outcome = await resumeAdmittedRunLifecycle(run, runId, logRecords, terminalRecord, reopenStage);
+    if (outcome.kind === "error") {
+      return { kind: "refused", reason: outcome.code, message: outcome.message };
     }
+    return { kind: "ok" };
+  };
 
-    return resumeReconstructedRun(run, runId, logRecords);
+  const loadLogRecords = logReader === undefined ? undefined : (runId: string) => logReader.tail(runId);
+
+  const attemptFailedImplementPipelineResume = async (
+    pipeline: Pipeline & { stages: PipelineStageRecord[] },
+    pipelineId: string,
+    branchScope: string | undefined,
+  ): Promise<ResumePipelineOutcome | undefined> => {
+    const target = resolveFailedImplementResumeTarget(store, pipeline, branchScope, loadLogRecords);
+    if (target === undefined) return undefined;
+    const outcome = await resumeRunForPipeline(target.causeRun.id, target.reopenStage);
+    if (outcome.kind === "ok") return { kind: "resumed", pipelineId };
+    return {
+      kind: "refused",
+      pipelineId,
+      reason: outcome.reason as PipelineRunResumeRefusalReason,
+      ...(outcome.message === undefined ? {} : { message: outcome.message }),
+    };
   };
 
   /** Why a retained slot-refused lane cannot resume (missing worktree, unreconstructable checkpoint); undefined when intact. */
@@ -1576,6 +1663,8 @@ export function createRunLifecycleHandlers(
     pipelineDispatch,
     pipelineWait,
     resumeFinalizationOnly,
+    resumeRunForPipeline,
+    attemptFailedImplementPipelineResume,
   };
 }
 

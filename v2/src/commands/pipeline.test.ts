@@ -2017,6 +2017,19 @@ describe("pipeline resume", () => {
     expect(await resumeBranchRefusal(response)).toEqual({ code: 1, stdout: "", stderr: `${response.reason}\n` });
   });
 
+  test("pipeline resume prints run-resume refusal message on stderr when the daemon returns one", async () => {
+    expect(
+      await resumeBranchRefusal({
+        reason: "resume_unsupported",
+        message: "run has no durable direct-write resume context",
+      }),
+    ).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "resume_unsupported: run has no durable direct-write resume context\n",
+    });
+  });
+
   test("pipeline resume lists resumable failed plan branch keys on stderr when branch key is omitted", async () => {
     const cap = captureIo();
     const branchKeys = ["resume-target", "resume-sibling-a"];

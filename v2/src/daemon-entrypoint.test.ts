@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import {
+  DEFAULT_HANDOFF_FALLBACK_MS,
+  DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS,
+  handoffFallbackMsForSuccessorReadiness,
+} from "./daemon/daemon-changeover.ts";
 import { daemonEntrypointArgs, withoutDaemonAddressEnv } from "./daemon/daemon-lifecycle";
 import {
+  buildEntrypointRuntimeOptions,
   parseEntrypointArgs,
   resolveHandoffOptions,
   resolveSelfHandoffOptions,
@@ -75,4 +81,13 @@ describe("entrypoint addressing", () => {
     });
     expect(env).toEqual({ PATH: "/usr/bin" });
   });
+});
+
+test("buildEntrypointRuntimeOptions sets handoffFallbackMs from the self-handoff readiness bound", () => {
+  const options = buildEntrypointRuntimeOptions({ socketPath: "/s.sock" });
+  expect(options.handoffFallbackMs).toBe(
+    handoffFallbackMsForSuccessorReadiness(DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS),
+  );
+  expect(options.handoffFallbackMs).toBeGreaterThan(DEFAULT_HANDOFF_FALLBACK_MS);
+  expect(options.enableSelfHandoff).toBe(true);
 });

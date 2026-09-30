@@ -20,12 +20,13 @@ Every other landed spec is archived under `completed/`.
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 
-## Seeds (21)
+## Seeds (28)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
+| `failed-self-handoff-leaves-daemon-refusing-work` | P0 | — | open; rollback after successor `supersede` never reopens admission, 5s readiness bound under load |
 | `capture-token-usage-on-failed-invocations` | P2 | — | open (#4080); usage fields live on `InvocationOk` only, so failed calls are unpriced |
 | `review-roles-check-falsifiability-not-plausibility` | P2 | — | open; no falsifiability mandate in `prompts/implement/review-*.md` |
 | `implement-respects-target-repo-doc-layout` | P2 | #3426 | open; leak 3 closed by #4029; `intent-split.test.ts` pins leak 1 |
@@ -36,7 +37,7 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `mutation-verifier-ignores-whitespace-only-line-changes` | P2 | — | open; no normalized base-line comparison |
 | `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | P2 | — | open; scope corrected to one file |
 | `completed-write-step-rows-stamp-finished-at` | P2 | — | rewritten; producer fixed incidentally by #3982, fallback UPDATE + backfill + test remain |
-| `serial-rerun-includes-frozen-v1` | P2 | — | open; `CLAUDE.md` still says bare `bun test` |
+| `serial-rerun-includes-frozen-v1` | P2 | — | open; `AGENTS.md` still says bare `bun test` |
 | `non-terminating-mutation-settlement-names-its-site` | P2 | — | open; one missing spread in `publicationLoopFinishedBase`; sequence after `repair-exhausted-error-names-site-and-killing-set` |
 | `superseded-pipeline-pr-hygiene` | P2 | — | unblocked by #3745; absorbs stacked-PR cleanup from the retired merge-at-gate seed |
 | `pipeline-fan-out-per-lane-terminal-settlement` | P2 | — | ready-flip half served by #3970; per-lane `merge` + spurious `failed` remain; doc target moved to `pipeline-execution.md` |
@@ -45,6 +46,12 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
+| `apply-pr-review-feedback-to-a-lane` | P1 | — | new 2026-09-30; scope = any completed intent/plan/implement workflow or stage with an open reviewed PR; dispatch as one seed, intent must split one ready-intent per slice |
+| `pipeline-stage-addresses-review-feedback` | P1 | — | new 2026-09-30; `pipeline resume --address-review <stage>`; after the review-feedback preset chain lands |
+| `cursor-quota-classified-from-stream-json-content` | P1 | — | new 2026-09-29; 6/52 cursor calls false-`quota`, escalating to paid rungs |
+| `harness-exposes-agent-toolset` | — | — | new 2026-09-29; **not dispatchable until owner sign-off** (near a new engine generation) |
+| `fold-shared-into-v2` | P3 | — | new 2026-09-29; prerequisite of `retire-v2-nomenclature` |
+| `retire-v2-nomenclature` | P3 | — | new 2026-09-29; `v2/` → top level; after `fold-shared-into-v2`; fold in at low priority |
 | `reopened-implement-rolls-up-killed-without-review-row` | P1 | — | new 2026-09-29; stranded shard lane (`f13b29a3`) at false `resumable_kill` over a ready PR |
 | `run-resume-refused-while-draining-generation-owns-terminal-row` | P1 | — | new 2026-09-29; terminal rows owned by a draining generation refuse `owner_alive` while `run list` advertises resume |
 

@@ -54,6 +54,25 @@ describe("daemon command", () => {
     expect(seenPrivateSocketPath).toBe("/my/private.sock");
   });
 
+  test("daemon start omits readinessTimeoutMs when injected", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+    let sawKey = true;
+    const deps = createRuntimeDeps({
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      startDaemon: async (socketPath, options) => {
+        sawKey = options !== undefined && "readinessTimeoutMs" in options;
+        return { pid: 42, socketPath };
+      },
+    });
+
+    const code = await runDaemonCommand(["start"], cap.io, deps);
+
+    expect(code).toBe(0);
+    expect(sawKey).toBe(false);
+  });
+
   test("daemon start omits privateSocketPath when absent", async () => {
     const cap = captureIo();
     const paths = tempPaths();

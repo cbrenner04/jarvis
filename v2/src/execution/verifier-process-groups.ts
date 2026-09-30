@@ -19,6 +19,19 @@ export function storeVerifierProcessGroupRecorder(store: StateStore, runId: stri
   };
 }
 
+/**
+ * The current process's own ids. The daemon runs detached (pid == pgid), so `process.pid` also
+ * names its group; Bun has no `getpgid` and sync `ps` spawns are guarded out.
+ */
+export function ownProcessGroupIds(): ReadonlySet<number> {
+  return new Set([process.pid]);
+}
+
+/** True when signalling/recording `pgid` is safe: a positive id that is not our own pid or group. */
+export function isForeignProcessGroup(pgid: number, own: ReadonlySet<number> = ownProcessGroupIds()): boolean {
+  return Number.isInteger(pgid) && pgid > 1 && !own.has(pgid);
+}
+
 type TrackedProcessGroup = {
   /** Pass as the subprocess `processGroup` option: detaches the child and records its group id. */
   processGroup: { onGroupId: (pgid: number) => void };
@@ -36,6 +49,7 @@ export function trackProcessGroup(recorder: VerifierProcessGroupRecorder | undef
   return {
     processGroup: {
       onGroupId: (pgid) => {
+        if (!isForeignProcessGroup(pgid)) return; // child shares our group: never record it
         recorded = pgid;
         try {
           recorder?.record(pgid);

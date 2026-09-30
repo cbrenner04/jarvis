@@ -12,6 +12,8 @@
 - A `supersede` whose `handoffId` matched a now-finished transaction (`pendingHandoffId` undefined) is blocking: `recordSupersedeForRollbackAdmission` already sets `blocksRollbackReopen`, and cause becomes `terminal` — rules out reopening on a stale successor id.
 - Predicate inputs are plain values passed from wiring — rules out hiding IPC or probe calls inside the predicate.
 
+- `retireCause` resets to `null` wherever admission reopens (`setAdmitting` after a successful rebind, rollback, or self-heal), so a daemon that reopened after a committed-handoff watch rebind can self-heal a later failed handoff — rules out a sticky `terminal` permanently barring future self-heal.
+
 ## Task checklist
 
 - [ ] Add `retireCause` recording at each retire trigger / supersede / handoff commit site.
@@ -21,6 +23,7 @@
 
 ## Acceptance criteria
 
+- [ ] A test proves `retireCause` returns to `null` when admission reopens after a committed-handoff watch rebind, and a subsequent failed handoff then self-heals.
 - [ ] `stable-digest-trigger.test.ts` exercises the exported self-heal predicate in both truth directions (at least one matching case and one case per blocking conjunct, including `retireCause` `terminal` and `null`).
 - [ ] Tests with injected state show `retireCause` becomes `terminal` (sticky) after operator stop, non-successor `supersede`, and handoff commit, and stays `handoff_origin` after `changeover` followed by rollback/fallback.
 - [ ] A test shows a `supersede` carrying a `handoffId` that matched a now-finished transaction (`pendingHandoffId` undefined) sets `blocksRollbackReopen` and the predicate is false.

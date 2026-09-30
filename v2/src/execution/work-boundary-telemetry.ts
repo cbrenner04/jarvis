@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { jarvisHome } from "../paths.ts";
 import type { Attempt, OutcomeKind, Run, RunStatus } from "../persistence/state-store.ts";
-import { appendTelemetryJsonlLine, type TelemetryJsonlAppendOptions } from "./telemetry-sink.ts";
+import { appendTelemetryJsonlLine } from "./telemetry-sink.ts";
 
 export type WorkBoundaryRecordedRecord = {
   schema_version: 1;
@@ -37,9 +37,9 @@ export type BoundaryStamp = {
 function appendWorkBoundaryRecorded(
   sinkPath: string,
   record: Omit<WorkBoundaryRecordedRecord, "schema_version" | "record_kind" | "ts">,
-  options?: TelemetryJsonlAppendOptions,
+  injectableClock?: () => Date,
 ): void {
-  const clock = options?.clock ?? (() => new Date());
+  const clock = injectableClock ?? (() => new Date());
   appendTelemetryJsonlLine(
     sinkPath,
     JSON.stringify({
@@ -92,7 +92,7 @@ export function emitWorkBoundaryRecorded(
         commit_sha: commit.commitSha,
         files_changed: commit.filesChanged,
       },
-      telemetry.clock === undefined ? undefined : { clock: telemetry.clock },
+      telemetry.clock,
     );
     return undefined;
   } catch (error) {

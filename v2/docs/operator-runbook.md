@@ -183,7 +183,7 @@ jarvis run workflow review-feedback --branch <lane-branch> --pipeline <id> --sta
 
 ### Review-feedback workflow
 
-`jarvis run workflow review-feedback` targets a **completed** intent, plan, or implement lane that already published an open PR with at least one submitted review. Bare lanes: `--branch <lane-branch>` only. Pipeline stages: `--pipeline`, `--stage`, and `--branch` together; add `--branch-key` when the stage fans out. Admission resolves the lane worktree and PR, refreshes `.jarvis-pr-review-input.json` via `gh`, dispatches a single write step on that lane, and on terminal `done` or `no-work` republishes to the same lane PR (ready gate, mutation verification, then push/PR refresh using the entry lane's publication paths).
+`jarvis run workflow review-feedback` targets a **completed** intent, plan, or implement lane that already published an open PR with at least one submitted review. Bare lanes: `--branch <lane-branch>` only. Pipeline stages: `--pipeline`, `--stage`, and `--branch` together; add `--branch-key` when the stage fans out. Admission resolves the lane worktree and PR, refreshes `.jarvis-pr-review-input.json` via `gh`, dispatches a single write step on that lane (the agent must leave a per-item `.jarvis-review-feedback-response.md` response sidecar, never committed; missing → `contract_miss`), and on terminal `done` or `no-work` republishes to the same lane PR (ready gate, mutation verification, then push/PR refresh using the entry lane's publication paths).
 
 | Code | Meaning |
 | --- | --- |

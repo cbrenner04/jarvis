@@ -63,6 +63,7 @@ import {
   type CompletionCommitter,
   completionStageArgs,
   createCompletionCommitter,
+  isHarnessTransientRootSidecar,
   renderStepCommitTitle,
 } from "./completion-commit.ts";
 import {
@@ -748,12 +749,12 @@ export function shouldFailTerminalCompletionForDirtyWorktree(
   return commitSha === undefined && uncommittedPaths.length > 0;
 }
 
-/** Lossless uncommitted paths from shared inventory, minus materialized node_modules; fail-soft to []. */
+/** Lossless uncommitted paths from shared inventory, minus materialized node_modules and harness root sidecars; fail-soft to []. */
 export async function getUncommittedPaths(worktreePath: string, scope: ExternalSpecGitScope = {}): Promise<string[]> {
   try {
     const paths = (await getGitStatusInventory(worktreePath))
       .map((entry) => entry.currentPath)
-      .filter((path) => !isMaterializedNodeModulesPath(worktreePath, path));
+      .filter((path) => !isMaterializedNodeModulesPath(worktreePath, path) && !isHarnessTransientRootSidecar(path));
     return excludeExternalSpecGitPaths(worktreePath, paths, scope);
   } catch {
     return [];

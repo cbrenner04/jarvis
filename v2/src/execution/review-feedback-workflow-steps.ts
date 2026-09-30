@@ -1,5 +1,6 @@
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
+  REVIEW_FEEDBACK_RESPONSE_SIDECAR,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
   resolveReviewFeedbackStepRules,
 } from "../../../shared/prompts/review-feedback-write.ts";
@@ -9,8 +10,6 @@ import type {
 } from "../persistence/review-feedback-lane-resolution.ts";
 import { loadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
 import type { WriteWorkflowStep } from "./workflow-runner.ts";
-
-export const REVIEW_FEEDBACK_WRITE_SIDECAR = ".jarvis/review-feedback-write";
 
 export type ReviewFeedbackWorkflowInput = {
   target: ReviewFeedbackLaneTarget;
@@ -42,8 +41,8 @@ export function buildReviewFeedbackWorkflowSteps(input: ReviewFeedbackWorkflowIn
       git: true,
       localPath: target.worktreePath,
     },
-    specPath: REVIEW_FEEDBACK_WRITE_SIDECAR,
-    expectedArtifactPath: REVIEW_FEEDBACK_WRITE_SIDECAR,
+    specPath: REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+    expectedArtifactPath: REVIEW_FEEDBACK_RESPONSE_SIDECAR,
     promptPlaceholders: {
       LANE_KIND: target.laneKind,
       ENTRY_SPEC_PATH: target.entrySpecPath,

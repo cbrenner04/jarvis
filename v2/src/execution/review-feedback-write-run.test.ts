@@ -2,13 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import type { CompletionPublisherInput } from "./completion-publisher.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
-import { buildReviewFeedbackWorkflowSteps, REVIEW_FEEDBACK_WRITE_SIDECAR } from "./review-feedback-workflow-steps.ts";
+import { buildReviewFeedbackWorkflowSteps } from "./review-feedback-workflow-steps.ts";
 import { externalWorktreeBinding, initGitWorkspace } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 
@@ -122,6 +123,7 @@ function writeReviewArtifact(workspace: string, marker: string): void {
 async function runReviewFeedbackWrite(args: {
   fixture: LaneFixture;
   stdout: string;
+  skipResponseSidecar?: boolean;
   onPrompt?: (prompt: string) => void;
   onPublication?: () => void;
 }): Promise<{ publication?: CompletionPublisherInput; headBranch: string; prompts: string[] }> {
@@ -138,11 +140,10 @@ async function runReviewFeedbackWrite(args: {
       if (prompt?.includes("Post-completion Shrink")) {
         return { kind: "ok", stdout: "done", stderr: "" } as const;
       }
-      mkdirSync(join(cwd, ".jarvis"), { recursive: true });
-      writeFileSync(join(cwd, REVIEW_FEEDBACK_WRITE_SIDECAR), "sidecar\n", "utf8");
-      if (args.stdout === "no-work") {
-        execFileSync("git", ["add", REVIEW_FEEDBACK_WRITE_SIDECAR], { cwd });
-        execFileSync("git", ["commit", "-qm", "review-feedback sidecar"], { cwd });
+      // Prompt contract: one response line per captured item, left uncommitted for the harness.
+      const response = args.stdout === "no-work" ? "" : "- capture-marker-unique: addressed\n";
+      if (args.skipResponseSidecar !== true) {
+        writeFileSync(join(cwd, REVIEW_FEEDBACK_RESPONSE_SIDECAR), response, "utf8");
       }
       return { kind: "ok", stdout: args.stdout, stderr: "" } as const;
     },
@@ -164,6 +165,11 @@ async function runReviewFeedbackWrite(args: {
       },
       readyFinalizer: async () => {},
     });
+    if (args.skipResponseSidecar === true) {
+      expect(result.kind).toBe("contract_miss");
+      expect(publication).toBeUndefined();
+      return;
+    }
     expect(result.kind).toBe("complete");
     const headBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: workspace,
@@ -230,6 +236,24 @@ describe("executeWorkflow review-feedback write preset", () => {
     });
     expect(prompts.join("\n")).not.toContain("ACTIVE_SUBSPEC");
   });
+
+  for (const stdout of ["done", "no-work"]) {
+    test(`${stdout} without the response sidecar fails closed as contract_miss`, async () => {
+      await runReviewFeedbackWrite({
+        fixture: {
+          laneKind: "plan",
+          entrySpecPath: "v2/spec/plan-tree/index.md",
+          branchName: `rf-missing-response-${stdout}`,
+          seed: (workspace, entrySpecPath) => {
+            mkdirSync(dirname(join(workspace, entrySpecPath)), { recursive: true });
+            writeFileSync(join(workspace, entrySpecPath), "# Plan\n", "utf8");
+          },
+        },
+        stdout,
+        skipResponseSidecar: true,
+      });
+    });
+  }
 
   test("no-work after empty actionable capture still runs completion publication", async () => {
     let publicationCalls = 0;

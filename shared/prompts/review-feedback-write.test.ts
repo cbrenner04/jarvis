@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { loadPromptRegistry } from "./registry.ts";
 import {
   buildReviewFeedbackWritePrompt,
+  REVIEW_FEEDBACK_RESPONSE_SIDECAR,
   REVIEW_FEEDBACK_RULES_PROMPT_ID,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
   resolveReviewFeedbackStepRules,
@@ -22,6 +23,20 @@ describe("buildReviewFeedbackWritePrompt", () => {
     expect(prompt).toContain("# Review feedback");
     expect(prompt).toContain("Apply fixes for the captured PR review on this lane");
     expect(prompt).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+  });
+
+  test("instructs writing the per-item response sidecar the write step expects", () => {
+    const prompt = buildReviewFeedbackWritePrompt({
+      reviewInput: SAMPLE_REVIEW_INPUT,
+      laneKind: "implement",
+      entrySpecPath: "v2/spec/impl/index.md",
+    });
+    expect(REVIEW_FEEDBACK_RESPONSE_SIDECAR).toBe(".jarvis-review-feedback-response.md");
+    expect(prompt.split(`\`${REVIEW_FEEDBACK_RESPONSE_SIDECAR}\``).length - 1).toBe(1);
+    expect(prompt).toContain("## Response sidecar");
+    expect(prompt).toContain("including `no-work`");
+    expect(prompt).toContain("`- <id>: addressed` or `- <id>: declined: <reason>`");
+    expect(prompt).toContain("a missing file fails the step");
   });
 
   test("registers stable prompt ids", () => {

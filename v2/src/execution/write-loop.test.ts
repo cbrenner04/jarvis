@@ -11019,6 +11019,26 @@ index 1234567..abcdefg 100644
       expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, withLeftover)).toBe(true);
     });
 
+    test("uncommitted paths omit harness root sidecars and keep other untracked work", async () => {
+      const worktreePath = trackedMkdtempSync(join(tmpdir(), "uncommitted-paths-sidecars-"));
+      roots.push(worktreePath);
+      execFileSync("git", ["init"], { cwd: worktreePath, stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktreePath, "tracked.txt"), "keep\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+
+      writeFileSync(join(worktreePath, ".jarvis-review-feedback-response.md"), "- t1: addressed\n", "utf8");
+      writeFileSync(join(worktreePath, ".jarvis-pr-review-input.json"), "{}\n", "utf8");
+      const sidecarsOnly = await getUncommittedPaths(worktreePath);
+      expect(sidecarsOnly).toEqual([]);
+      expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, sidecarsOnly)).toBe(false);
+
+      writeFileSync(join(worktreePath, "leftover.txt"), "real work\n", "utf8");
+      expect(await getUncommittedPaths(worktreePath)).toEqual(["leftover.txt"]);
+    });
+
     test("terminal completion reports the nested untracked file", async () => {
       const nestedPath = "untracked-dir/only-dirt.txt";
       const { jarvisRoot, stateDbPath } = createJarvisHome();

@@ -3,7 +3,7 @@ import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import { buildReviewFeedbackWorkflowSteps, REVIEW_FEEDBACK_WRITE_SIDECAR } from "./review-feedback-workflow-steps.ts";
+import { buildReviewFeedbackWorkflowSteps } from "./review-feedback-workflow-steps.ts";
 import type { WriteWorkflowStep } from "./workflow-runner.ts";
 
 const PROJECT = "demo";
@@ -51,8 +51,8 @@ describe("buildReviewFeedbackWorkflowSteps", () => {
       expect(step.promptId).toBe(REVIEW_FEEDBACK_WRITE_PROMPT_ID);
       expect(step.promptId).not.toBe("review-feedback.prompt.pending");
       expect(step.role).toBe(role);
-      expect(step.specPath).toBe(REVIEW_FEEDBACK_WRITE_SIDECAR);
-      expect(step.expectedArtifactPath).toBe(REVIEW_FEEDBACK_WRITE_SIDECAR);
+      expect(step.specPath).toBe(".jarvis-review-feedback-response.md");
+      expect(step.expectedArtifactPath).toBe(".jarvis-review-feedback-response.md");
       expect(step.worktree.git).toBe(true);
       expect(step.worktree.baseRef).toBe(BASE_REF);
       expect(step.worktree.baseRef).not.toBe(BRANCH);

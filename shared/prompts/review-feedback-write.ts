@@ -5,6 +5,8 @@ import { DEFAULT_WRITE_STEP_RULES } from "./step-rules.ts";
 
 export const REVIEW_FEEDBACK_WRITE_PROMPT_ID = "review-feedback.prompt.write";
 export const REVIEW_FEEDBACK_RULES_PROMPT_ID = "review-feedback.rules";
+/** Agent-authored per-item response sidecar at the lane worktree root; the write step's expected artifact, never committed. */
+export const REVIEW_FEEDBACK_RESPONSE_SIDECAR = ".jarvis-review-feedback-response.md";
 
 export type ReviewFeedbackLaneKind = "intent" | "plan" | "implement";
 

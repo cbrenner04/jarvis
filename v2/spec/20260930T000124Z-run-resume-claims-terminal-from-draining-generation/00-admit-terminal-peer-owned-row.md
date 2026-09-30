@@ -18,10 +18,10 @@
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/persistence/state-store.test.ts` proves `admitRunForResume` admits a terminal row whose different owner is alive, re-stamping `owner_identity` and clearing terminal fields; it fails against the pre-fix unconditional `owner_alive` refusal (including the prior `failed` + live-peer pin).
-- [ ] A regression test in `v2/src/persistence/state-store.test.ts` proves `admitRunForResume` still refuses `owner_alive` for a non-terminal row (`paused` or `in-progress`) whose different owner is alive, leaving `owner_identity` and status unchanged; it fails if non-terminal peer-owned rows stop refusing.
-- [ ] A regression test in `v2/src/persistence/state-store.test.ts` proves concurrent claims of the same terminal peer-owned row admit exactly one caller and return `claim_lost` to the other; it fails against the pre-fix refusal path.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A regression test in `v2/src/persistence/state-store.test.ts` proves `admitRunForResume` admits a terminal row whose different owner is alive, re-stamping `owner_identity` and clearing terminal fields; it fails against the pre-fix unconditional `owner_alive` refusal (including the prior `failed` + live-peer pin).
+- [x] A regression test in `v2/src/persistence/state-store.test.ts` proves `admitRunForResume` still refuses `owner_alive` for a non-terminal row (`paused` or `in-progress`) whose different owner is alive, leaving `owner_identity` and status unchanged; it fails if non-terminal peer-owned rows stop refusing.
+- [x] A regression test in `v2/src/persistence/state-store.test.ts` proves concurrent claims of the same terminal peer-owned row admit exactly one caller and return `claim_lost` to the other; it fails against the pre-fix refusal path.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

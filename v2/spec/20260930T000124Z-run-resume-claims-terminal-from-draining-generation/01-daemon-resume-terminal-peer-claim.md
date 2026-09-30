@@ -16,8 +16,8 @@ After [00-admit-terminal-peer-owned-row.md](00-admit-terminal-peer-owned-row.md)
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/daemon/daemon-run-resume-owner-stamp.test.ts` proves `run resume` succeeds when `run list` shows `resumable: true` for a terminal peer-owned row; it fails against the pre-fix store `owner_alive` refusal after list already advertised resume.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A regression test in `v2/src/daemon/daemon-run-resume-owner-stamp.test.ts` proves `run resume` succeeds when `run list` shows `resumable: true` for a terminal peer-owned row; it fails against the pre-fix store `owner_alive` refusal after list already advertised resume.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

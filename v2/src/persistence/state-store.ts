@@ -3008,6 +3008,14 @@ class StateStoreImpl implements StateStore {
     ) {
       return { kind: "refused", reason: "owner_alive" };
     }
+    if (
+      priorOwnerIdentity !== null &&
+      priorOwnerIdentity !== this.currentIdentity &&
+      status !== undefined &&
+      isTerminalRunStatus(status)
+    ) {
+      await this.isOwnerAliveProbe(priorOwnerIdentity);
+    }
 
     const changedAt = Date.now();
     const result = this.db

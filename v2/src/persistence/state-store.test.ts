@@ -3812,20 +3812,32 @@ describe("admitRunForResume", () => {
   test("two store handles claiming one terminal peer-owned row admit exactly once", async () => {
     const runId = seedRun(seedStore, { branch: "terminal-peer-claim", status: "failed" });
     const holder = "33333:3000000";
-    const aliveProbe = async (identity: string) => identity === PRIOR_IDENTITY;
+    let peerLivenessWaiters = 0;
+    let releasePeerLivenessWait!: () => void;
+    const peerLivenessGate = new Promise<void>((resolve) => {
+      releasePeerLivenessWait = () => {
+        peerLivenessWaiters += 1;
+        if (peerLivenessWaiters === 2) resolve();
+      };
+    });
+    const aliveProbe = async (identity: string) => {
+      if (identity !== PRIOR_IDENTITY) return false;
+      releasePeerLivenessWait();
+      await peerLivenessGate;
+      return true;
+    };
     const storeA = openStateStore(TEST_DB_PATH, { currentIdentity: holder, isOwnerAlive: aliveProbe });
     const storeB = openStateStore(TEST_DB_PATH, { currentIdentity: holder, isOwnerAlive: aliveProbe });
     try {
-      const [first, second] = await Promise.all([storeA.admitRunForResume(runId), storeB.admitRunForResume(runId)]);
-      const outcomes = [first, second];
+      const outcomes = await Promise.all([storeA.admitRunForResume(runId), storeB.admitRunForResume(runId)]);
+      // Mutation checkpoint: dropping the owner_identity CAS must turn this RED.
       expect(outcomes.filter((outcome) => outcome.kind === "applied")).toHaveLength(1);
       expect(outcomes.filter((outcome) => outcome.kind === "refused")).toHaveLength(1);
       const refused = outcomes.find((outcome) => outcome.kind === "refused");
       expect(refused).toEqual({ kind: "refused", reason: "claim_lost" });
       const run = storeA.loadRun(runId) ?? storeB.loadRun(runId);
       expect(run?.status).toBe("in-progress");
-      const ownerIdentity = run?.ownerIdentity;
-      expect(ownerIdentity).toBe(holder);
+      expect(run?.ownerIdentity).toBe(holder);
     } finally {
       storeA.close();
       storeB.close();

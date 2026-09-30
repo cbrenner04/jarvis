@@ -3777,8 +3777,8 @@ async function commitRepairAndRepublish(
       });
     }
     const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
-    const recordHarnessReadyFlipEvidence = (evidence: { prNumber: number; branch: string; baseRef: string }) =>
-      store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...evidence });
+    const recordHarnessReadyFlipEvidence = (args: { prNumber: number; branch: string; baseRef: string }) =>
+      store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...args });
     let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence);
     if (outcome.kind !== "success") {
       outcome = await classifyReadyGatePublishFailure(
@@ -4147,8 +4147,8 @@ export async function publishWithReadyRepair(
   input: CompletionPublishInput,
 ): Promise<ReadyRepairPublishResult> {
   const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
-  const recordHarnessReadyFlipEvidence = (evidence: { prNumber: number; branch: string; baseRef: string }) =>
-    store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...evidence });
+  const recordHarnessReadyFlipEvidence = (args: { prNumber: number; branch: string; baseRef: string }) =>
+    store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...args });
   let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence);
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(

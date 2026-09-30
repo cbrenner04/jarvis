@@ -436,44 +436,28 @@ describe("executeTerminalPublication harness ready-flip evidence", () => {
     };
   }
 
-  it("persists ready-flip evidence on the run row after a successful ready flip", async () => {
-    const runId = seedEntryRun();
-    const execute = createExecuteTerminalPublication({
-      runReadyGate: async () => {},
-      gh: ghResolvesOpenDraft(42, baseInput.prUrl),
-      ghReadyFlip: async () => {},
+  for (const terminalAction of ["ready", "merge"] as const) {
+    it(`persists ready-flip evidence after successful ${terminalAction}`, async () => {
+      const runId = seedEntryRun();
+      const flippedAt = terminalAction === "ready" ? 12_000 : 13_000;
+      const execute = createExecuteTerminalPublication({
+        runReadyGate: async () => {},
+        gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+        ghReadyFlip: async () => {},
+        ...(terminalAction === "merge" ? { ghMerge: async () => {} } : {}),
+      });
+
+      setSystemTime(new Date(flippedAt));
+      await execute(publicationInput(runId, terminalAction));
+
+      expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+        prNumber: 42,
+        branch: baseInput.branch,
+        baseRef: baseInput.baseRef,
+        flippedAt,
+      });
     });
-
-    setSystemTime(new Date(12_000));
-    await execute(publicationInput(runId, "ready"));
-
-    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
-      prNumber: 42,
-      branch: baseInput.branch,
-      baseRef: baseInput.baseRef,
-      flippedAt: 12_000,
-    });
-  });
-
-  it("persists ready-flip evidence on the run row after a successful merge flip", async () => {
-    const runId = seedEntryRun();
-    const execute = createExecuteTerminalPublication({
-      runReadyGate: async () => {},
-      gh: ghResolvesOpenDraft(42, baseInput.prUrl),
-      ghReadyFlip: async () => {},
-      ghMerge: async () => {},
-    });
-
-    setSystemTime(new Date(13_000));
-    await execute(publicationInput(runId, "merge"));
-
-    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
-      prNumber: 42,
-      branch: baseInput.branch,
-      baseRef: baseInput.baseRef,
-      flippedAt: 13_000,
-    });
-  });
+  }
 
   it("persists resolved PR number, not stale persisted evidence, after re-resolution", async () => {
     const runId = seedEntryRun();

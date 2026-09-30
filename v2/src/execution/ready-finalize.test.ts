@@ -2315,11 +2315,6 @@ describe("createReadyFinalizer harness ready-flip evidence", () => {
     });
   }
 
-  function evidenceCallback(runId: string) {
-    return (args: { prNumber: number; branch: string; baseRef: string }) =>
-      store.recordHarnessReadyFlipEvidence({ runId, ...args });
-  }
-
   it("persists ready-flip evidence on the run row after a successful flip", async () => {
     const runId = seedRun();
     const finalizer = createReadyFinalizer({
@@ -2328,7 +2323,10 @@ describe("createReadyFinalizer harness ready-flip evidence", () => {
     });
 
     setSystemTime(new Date(12_000));
-    await finalizer({ ...finalizeInput, recordHarnessReadyFlipEvidence: evidenceCallback(runId) });
+    await finalizer({
+      ...finalizeInput,
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+    });
 
     expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
       prNumber: 42,
@@ -2358,7 +2356,10 @@ describe("createReadyFinalizer harness ready-flip evidence", () => {
 
     setSystemTime(new Date(15_000));
     await expect(
-      finalizer({ ...finalizeInput, recordHarnessReadyFlipEvidence: evidenceCallback(runId) }),
+      finalizer({
+        ...finalizeInput,
+        recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+      }),
     ).rejects.toThrow("Resource not accessible by integration");
 
     expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
@@ -2412,7 +2413,7 @@ describe("createReadyFinalizer harness ready-flip evidence", () => {
       ...finalizeInput,
       recordHarnessReadyFlipEvidence: (args) => {
         evidenceWrites += 1;
-        evidenceCallback(runId)(args);
+        store.recordHarnessReadyFlipEvidence({ runId, ...args });
       },
     });
 

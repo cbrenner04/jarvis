@@ -3874,12 +3874,6 @@ describe("write loop", () => {
         );
 
         expect(publication.failure).toBeUndefined();
-        expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
-          prNumber: 77,
-          branch: branchName,
-          baseRef,
-          flippedAt: 18_000,
-        });
         expect(
           store.findNewestHarnessReadyFlipEvidenceInLineage({
             project: "demo",

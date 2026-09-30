@@ -1591,6 +1591,30 @@ function repairCompletedPublicationFailureRows(db: Database): void {
   }
 }
 
+const TERMINAL_NULL_FINISHED_AT_MIGRATION_ID = "033-terminal-null-finished-at-backfill";
+
+/** Backfills `finished_at` on terminal rows left null before `commitCompletionBoundary` stamped it. */
+function repairTerminalNullFinishedAt(db: Database): void {
+  const applied = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(TERMINAL_NULL_FINISHED_AT_MIGRATION_ID);
+  if (applied) return;
+  const terminalStatusesSql = [...TERMINAL_RUN_STATUSES].map((status) => `'${status}'`).join(", ");
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      UPDATE runs SET finished_at = COALESCE(status_changed_at, created_at)
+      WHERE status IN (${terminalStatusesSql}) AND finished_at IS NULL
+    `);
+    db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(
+      TERMINAL_NULL_FINISHED_AT_MIGRATION_ID,
+      Date.now(),
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
 /**
@@ -2051,6 +2075,7 @@ class StateStoreImpl implements StateStore {
     this.db.exec("PRAGMA foreign_keys=ON");
     applySchemaMigrations(this.db);
     repairCompletedPublicationFailureRows(this.db);
+    repairTerminalNullFinishedAt(this.db);
     backfillVerifierProcessGroupsFromReadyGatePgid(this.db);
     addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
     // Stores stamped `031-baseline-squash` before these columns existed skip `upgradeFromLegacyEra`;

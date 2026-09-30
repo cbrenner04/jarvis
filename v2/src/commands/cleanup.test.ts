@@ -28,7 +28,7 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
-import { makeIpcClient } from "../testing/cli-test-helpers.ts";
+import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   classifyNeverLandedLane,
@@ -46,6 +46,7 @@ import {
   handLandedArtifactArchivability,
   hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
+  isContinuationReadableSpecPath,
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
@@ -66,6 +67,7 @@ import {
 } from "./cleanup.ts";
 import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
 import type { LegacyDaemonArtifactDeps } from "./daemon.ts";
+import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 
 const GH_PR_LIST_PROBE_ERROR = new AsyncSubprocessError("gh unreachable", 1, "", "network error", undefined);
 type OpenPr = { number: number; isDraft: boolean };
@@ -5328,6 +5330,57 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
   }
 
+  async function expectOrigHeadAbsent(worktreePath: string): Promise<void> {
+    let failed = false;
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "ORIG_HEAD"], worktreePath);
+    } catch {
+      failed = true;
+    }
+    expect(failed).toBe(true);
+  }
+
+  async function runMaybeResetStaleWorkspace(args: { branch: string; specPath: string; prs: OpenPr[] }) {
+    const writeStep: {
+      behavior: "write";
+      specPath: string;
+      leaseFromSha?: string;
+      worktree: {
+        git: true;
+        projectRoot: string;
+        projectName: string;
+        branchName: string;
+        baseRef: string;
+      };
+    } = {
+      behavior: "write",
+      specPath: args.specPath,
+      worktree: {
+        git: true,
+        projectRoot,
+        projectName: "project",
+        branchName: args.branch,
+        baseRef: "HEAD",
+      },
+    };
+    const built = { ok: true as const, steps: [writeStep] };
+    const runner = ghPrListRunner(projectRoot, args.prs);
+    let outcome: "reset" | "no-op" | "continue" | undefined;
+    const exitCode = await maybeResetStaleWorkspace(
+      "implement",
+      built as never,
+      { jarvisRoot, subprocessRunner: runner } as never,
+      silentIo,
+      { workflow: "implement" } as never,
+      makeStaleResetIpcClient([]),
+      undefined,
+      (status) => {
+        outcome = status;
+      },
+    );
+    return { exitCode, writeStep, outcome };
+  }
+
   test("resetStaleWorkspace retires a clean lane whose HEAD is an older base commit", async () => {
     const branch = "impl/empty-lane-behind-base";
     const worktreePath = await setupWorktreeAndBranch(branch);
@@ -5675,6 +5728,15 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return join("v2", "spec", specName, "index.md");
   }
 
+  /** Prior-stage spec tree under `tempRoot`, like a chained implement stage's out-of-root write-step spec. */
+  function setupChainedOutOfRootSpec(specName: string): string {
+    const priorWorktreeSpecDir = join(tempRoot, "prior-worktree", "v2", "spec", specName);
+    mkdirSync(priorWorktreeSpecDir, { recursive: true });
+    writeFileSync(join(priorWorktreeSpecDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(priorWorktreeSpecDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    return join(priorWorktreeSpecDir, "index.md");
+  }
+
   test("resetStaleWorkspace refuses a checked criterion with no backing commit, naming the subspec and fix", async () => {
     const branch = "impl/forged-tick";
     const subspecRel = "v2/spec/forged-spec/00-task.md";
@@ -5764,6 +5826,60 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  test("resetStaleWorkspace continues a chained out-of-root spec lane past a moved base with no PR", async () => {
+    const branch = "impl/chained-out-of-root-rebase";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-stage");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "chained-impl.txt");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    await advanceBase("chained-out-of-root-advance.md");
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBe(preRebaseSha);
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(newTip).not.toBe(preRebaseSha);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", baseHead, newTip], projectRoot);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace still refuses a non-descendant out-of-root lane with no common ancestor", async () => {
+    const branch = "impl/chained-disjoint-history";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-disjoint");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "chained-disjoint-impl.txt");
+
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD (${baseHead})`);
+    expect(reason).toContain("stale reuse refused");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
   test("resetStaleWorkspace aborts a conflicting rebase and refuses, leaving the lane unchanged", async () => {
     const branch = "impl/rebase-conflict";
     const subspecRel = "v2/spec/rebase-conflict-lane/00-task.md";
@@ -5793,6 +5909,199 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(reason).toContain("worktree unchanged");
     const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
     expect(tipAfter).toBe(preRebaseSha);
+    const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
+    expect(statusOutput.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("maybeResetStaleWorkspace sets leaseFromSha on rebase-continue only", async () => {
+    const branch = "impl/lease-from-sha";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("lease-from-sha");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "lease-rebase.txt");
+    await advanceBase("lease-rebase-advance.md");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    const rebase = await runMaybeResetStaleWorkspace({
+      branch,
+      specPath: outOfRootIndexPath,
+      prs: [],
+    });
+    expect(rebase.exitCode).toBeUndefined();
+    expect(rebase.outcome).toBe("continue");
+    expect(rebase.writeStep.leaseFromSha).toBe(preRebaseSha);
+
+    const mergeBranch = "impl/lease-merge";
+    const mergeOutOfRoot = setupChainedOutOfRootSpec("lease-merge");
+    const mergeWorktreePath = await setupWorktreeAndBranch(mergeBranch);
+    await commitInWorktree(mergeWorktreePath, "lease-merge.txt");
+    await advanceBase("lease-merge-advance.md");
+
+    const merge = await runMaybeResetStaleWorkspace({
+      branch: mergeBranch,
+      specPath: mergeOutOfRoot,
+      prs: [{ number: 904, isDraft: true }],
+    });
+    expect(merge.exitCode).toBeUndefined();
+    expect(merge.outcome).toBe("continue");
+    expect(merge.writeStep.leaseFromSha).toBeUndefined();
+  });
+
+  test("resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base", async () => {
+    const branch = "impl/chained-out-of-root-merge";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const preMergeSha = await commitInWorktree(worktreePath, "chained-open-pr-impl.txt");
+
+    await advanceBase("chained-open-pr-merge-advance.md");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 901, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace merges base into an open-PR in-root lane past a moved base", async () => {
+    const branch = "impl/in-root-open-pr-merge";
+    const subspecRel = "v2/spec/open-pr-merge-lane/00-task.md";
+    const indexRel = await setupSpecTree("open-pr-merge-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, "unrelated-open-pr-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 902, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace refuses rather than merging or retiring when reset-despite-landed-criteria is set on an out-of-root moved-base open-PR lane", async () => {
+    const branch = "impl/out-of-root-landed-override";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("out-of-root-landed-override");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "out-of-root-landed-override.txt");
+    await advanceBase("landed-override-advance.md");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 905, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace keeps the descendant gate under reset-despite-landed-criteria on a dirty non-descendant open-PR lane", async () => {
+    const branch = "impl/landed-override-dirty";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("landed-override-dirty");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "landed-override-dirty.txt");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 907, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true, skipDirtyWorktreeGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane", async () => {
+    const branch = "impl/chained-open-pr-merge-conflict";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge-conflict");
+    const conflictRel = "chained-open-pr-merge-conflict.txt";
+    writeFileSync(join(projectRoot, conflictRel), "start\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add conflict file"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, conflictRel), "lane\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane edit"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, conflictRel), "base\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "base edit"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 903, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(conflictRel);
+    expect(reason).toContain("conflicted");
+    expect(reason).toContain("worktree unchanged");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(preMergeSha);
     const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
     expect(statusOutput.trim()).toBe("");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
@@ -7165,6 +7474,31 @@ describe("hasBranchKeyedArtifactOwner", () => {
     expect(
       hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis, owning),
     ).toBe(true);
+  });
+});
+
+describe("stale-reset continuation-readable spec-path gate", () => {
+  test("includes readable markdown paths outside the project root; excludes missing paths and index-less dirs", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
+    const outsideFile = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-"));
+    const outsideDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-dir-"));
+    const emptyDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-empty-dir-"));
+    const specFile = join(outsideFile, "index.md");
+    writeFileSync(specFile, "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, "index.md"), "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    try {
+      expect(isContinuationReadableSpecPath(root, specFile)).toBe(true);
+      expect(isStaleResetLandedCriteriaSpecPath(root, specFile)).toBe(false);
+      expect(isContinuationReadableSpecPath(root, outsideDir)).toBe(true);
+      expect(isContinuationReadableSpecPath(root, join(root, "missing.md"))).toBe(false);
+      expect(isContinuationReadableSpecPath(root, emptyDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outsideFile, { recursive: true, force: true });
+      rmSync(outsideDir, { recursive: true, force: true });
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 });
 

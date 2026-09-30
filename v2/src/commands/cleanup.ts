@@ -2707,23 +2707,53 @@ async function listRebaseConflictPaths(worktreePath: string, runner: AsyncSubpro
  * Rebase the worktree's checked-out branch onto `baseHead`; a conflict is aborted, leaving the
  * worktree unchanged. Returns `undefined` on a clean rebase, or the conflicting paths otherwise.
  */
-async function rebaseWorktreeOntoBase(
+async function abortableWorktreeGitRewrite(
   worktreePath: string,
-  baseHead: string,
   runner: AsyncSubprocessRunner,
+  runArgs: string[],
+  abortArgs: string[],
 ): Promise<string[] | undefined> {
   try {
-    await runner.runAsync("git", ["rebase", baseHead], worktreePath);
+    await runner.runAsync("git", runArgs, worktreePath);
     return undefined;
   } catch {
     const conflictPaths = await listRebaseConflictPaths(worktreePath, runner);
     try {
-      await runner.runAsync("git", ["rebase", "--abort"], worktreePath);
+      await runner.runAsync("git", abortArgs, worktreePath);
     } catch {
       // best effort — conflictPaths were already captured before the abort attempt
     }
     return conflictPaths;
   }
+}
+
+async function rebaseWorktreeOntoBase(
+  worktreePath: string,
+  baseHead: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string[] | undefined> {
+  return abortableWorktreeGitRewrite(worktreePath, runner, ["rebase", baseHead], ["rebase", "--abort"]);
+}
+
+async function mergeWorktreeWithBase(
+  worktreePath: string,
+  baseHead: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string[] | undefined> {
+  const conflictPaths = await abortableWorktreeGitRewrite(
+    worktreePath,
+    runner,
+    ["merge", "--no-edit", baseHead],
+    ["merge", "--abort"],
+  );
+  if (conflictPaths === undefined) {
+    try {
+      await runner.runAsync("git", ["update-ref", "-d", "ORIG_HEAD"], worktreePath);
+    } catch {
+      // absent or already cleared
+    }
+  }
+  return conflictPaths;
 }
 
 /** `undefined` means no verdict — the caller falls through to the pre-continuation gates unchanged. */
@@ -2812,12 +2842,7 @@ async function applyPreContinuationGates(args: {
   return parts;
 }
 
-/**
- * Committed-lane continuation for the non-disposable, commits-ahead-of-base case: a descendant lane
- * continues subject to tick-backing; a lane behind a moved base rebases first (only when a trackable
- * spec makes continuation meaningful) and continues on a clean rebase, or refuses naming conflicts;
- * one with no shared history, or no trackable spec to rebase for, refuses as a plain non-descendant.
- */
+/** Committed-lane continuation: descendant tick-backing, or merge/rebase onto a moved base when continuation-readable. */
 async function evaluateCommittedLaneContinuation(args: {
   projectRoot: string;
   worktreePath: string;
@@ -2825,35 +2850,61 @@ async function evaluateCommittedLaneContinuation(args: {
   baseRef: string;
   baseHead: string;
   worktreeHead: string;
-  trackableSpecPath: string | undefined;
+  hasOpenPr: boolean;
+  specPath: string | undefined;
   skipLandedCriteriaGate: boolean;
   runner: AsyncSubprocessRunner;
 }): Promise<CommittedLaneContinuationResult | undefined> {
-  const { projectRoot, worktreePath, baseRef, baseHead, worktreeHead, trackableSpecPath, runner } = args;
+  const {
+    projectRoot,
+    worktreePath,
+    baseRef,
+    baseHead,
+    worktreeHead,
+    hasOpenPr,
+    specPath,
+    skipLandedCriteriaGate,
+    runner,
+  } = args;
+  const trackableSpecPath =
+    specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath) ? specPath : undefined;
+  const continuationReadableSpecPath =
+    specPath !== undefined && isContinuationReadableSpecPath(projectRoot, specPath) ? specPath : undefined;
+  const tickBackingArgs = { ...args, trackableSpecPath };
 
   if (await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) {
-    return evaluateContinuationTickBacking(args);
+    return evaluateContinuationTickBacking(tickBackingArgs);
   }
 
   if (await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner)) {
     return undefined;
   }
 
-  if (trackableSpecPath === undefined || !(await hasCommonAncestor(worktreeHead, baseHead, projectRoot, runner))) {
+  if (
+    continuationReadableSpecPath === undefined ||
+    !(await hasCommonAncestor(worktreeHead, baseHead, projectRoot, runner))
+  ) {
     return { status: "refused", reason: staleResetDescendantGateReason(baseRef, baseHead, worktreeHead) };
   }
 
   // Tick backing is evaluated against the pre-rebase `base..branch` range before the rebase mutates
   // the branch: a clean rebase replays the same commit content under new SHAs, so the verdict doesn't
-  // change, and a refusal here never lands on a branch this call already rewrote.
-  const tickBacking = await evaluateContinuationTickBacking(args);
-  if (tickBacking?.status !== "continue") return tickBacking;
-
-  const conflictPaths = await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
-  if (conflictPaths !== undefined) {
-    return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, conflictPaths) };
+  // change, and a refusal here never lands on a branch this call already rewrote. Out-of-root chained
+  // specs skip tick-backing — lane `git log` cannot validate ticks against a prior-worktree tree.
+  if (trackableSpecPath !== undefined) {
+    const tickBacking = await evaluateContinuationTickBacking(tickBackingArgs);
+    if (tickBacking?.status !== "continue") return tickBacking;
   }
-  return { status: "continue", preRebaseSha: worktreeHead };
+
+  if (skipLandedCriteriaGate) return undefined;
+
+  const rewrite = hasOpenPr
+    ? await mergeWorktreeWithBase(worktreePath, baseHead, runner)
+    : await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
+  if (rewrite !== undefined) {
+    return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, rewrite) };
+  }
+  return hasOpenPr ? { status: "continue" } : { status: "continue", preRebaseSha: worktreeHead };
 }
 
 function staleResetDescendantGateReason(baseRef: string, baseHead: string, worktreeHead: string): string {
@@ -2946,8 +2997,30 @@ function isPathInside(root: string, absPath: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
+function resolveWriteStepSpecPath(projectRoot: string, specPath: string): string {
+  return isAbsolute(specPath) ? specPath : resolve(projectRoot, specPath);
+}
+
+/** True when the write-step spec path is readable at its own location (markdown file or `index.md` directory). */
+export function isContinuationReadableSpecPath(projectRoot: string, specPath: string): boolean {
+  const absoluteSpecPath = resolveWriteStepSpecPath(projectRoot, specPath);
+  if (!existsSync(absoluteSpecPath)) return false;
+  try {
+    if (statSync(absoluteSpecPath).isDirectory()) {
+      const indexPath = join(absoluteSpecPath, "index.md");
+      if (!existsSync(indexPath)) return false;
+      readFileSync(indexPath, "utf8");
+      return true;
+    }
+    readFileSync(absoluteSpecPath, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isStaleResetLandedCriteriaSpecPath(projectRoot: string, specPath: string): boolean {
-  const absoluteSpecPath = isAbsolute(specPath) ? specPath : resolve(projectRoot, specPath);
+  const absoluteSpecPath = resolveWriteStepSpecPath(projectRoot, specPath);
   // The comparison reads each spec file at `join(worktreePath, relative(projectRoot, absPath))`,
   // which is only meaningful for a tree inside the project root. A chained fan-out lane's spec
   // lives in the prior stage's worktree under `~/.jarvis/worktrees/...`, so that relative path
@@ -3142,7 +3215,8 @@ export async function resetStaleWorkspace(
                 baseRef,
                 baseHead,
                 worktreeHead,
-                trackableSpecPath,
+                hasOpenPr: prGate.pr !== undefined,
+                specPath,
                 skipLandedCriteriaGate,
                 runner,
               });

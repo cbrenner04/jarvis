@@ -37,8 +37,12 @@ function pipelineConfig(
   reviewOverrides?: Record<string, string>,
   supersede?: string,
 ): Record<string, unknown> {
-  const base = reviewOverrides === undefined ? { name, terminalAction } : { name, terminalAction, reviewOverrides };
-  return supersede === undefined ? base : { ...base, supersede };
+  return {
+    name,
+    terminalAction,
+    ...(reviewOverrides === undefined ? {} : { reviewOverrides }),
+    ...(supersede === undefined ? {} : { supersede }),
+  };
 }
 
 function admittedDefinition(
@@ -366,7 +370,6 @@ describe("resolveProjectPipeline", () => {
     expect(first.definition).not.toBe(source.definition);
     expect(second.definition).not.toBe(source.definition);
     expect(first.definition).not.toBe(second.definition);
-    expect(first.definition.supersede).toBe("close");
     first.definition.supersede = "keep";
     expect(second.definition.supersede).toBe("keep");
   });

@@ -4,7 +4,7 @@ Canonical cross-file contract for pipeline definition, admission, stage lifecycl
 
 ## Definitions and registry
 
-A pipeline definition (`PipelineDefinition` in `pipeline-definition.ts`) is a `name`, optional `terminalAction` (`leave-draft` | `ready` | `merge` from `PIPELINE_TERMINAL_ACTIONS`), optional `supersede` (`close` | `keep` from `PIPELINE_SUPERSEDE_POLICIES`; source-registry rows omit it; admitted definitions always carry the resolved value), and ordered `stages`:
+A pipeline definition (`PipelineDefinition` in `pipeline-definition.ts`) is a `name`, optional `terminalAction` (`leave-draft` | `ready` | `merge` from `PIPELINE_TERMINAL_ACTIONS`), optional `supersede` (`close` | `keep` from `PIPELINE_SUPERSEDE_POLICIES`), and ordered `stages`:
 
 - **Workflow stage** — `{ stageId, kind: "workflow", workflow, review }` where admitted `workflow` values are `intent`, `plan`, and `implement` only (`BASE_WORKFLOW_NAMES`); a name registered as standalone-only in `PIPELINE_ELIGIBILITY` (e.g. `review-feedback`) is not a valid stage workflow and fails with `standalone-only-workflow`, not `unknown-workflow` for being outside `BASE_WORKFLOW_NAMES`. `review` ∈ `none` | `light` | `debate`.
 - **Approval stage** — `{ stageId, kind: "approval" }`.

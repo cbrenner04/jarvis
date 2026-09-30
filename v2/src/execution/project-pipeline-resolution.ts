@@ -41,6 +41,23 @@ function invalid(key: string, message: string): { ok: false; error: InvalidProje
   return { ok: false, error: { code: "invalid-project-pipeline-config", key, message } };
 }
 
+function parseNonEmptyEnumString<T extends string>(
+  key: string,
+  raw: unknown,
+  allowed: readonly T[],
+): { ok: true; value: T } | { ok: false; error: InvalidProjectPipelineConfigError } {
+  if (typeof raw !== "string") {
+    return invalid(key, `${key} must be a string`);
+  }
+  if (raw.length === 0) {
+    return invalid(key, `${key} must be a non-empty string`);
+  }
+  if (!(allowed as readonly string[]).includes(raw)) {
+    return invalid(key, `${key} has unknown value "${raw}"`);
+  }
+  return { ok: true, value: raw as T };
+}
+
 function parseProjectPipeline(
   config: ProjectPipelineConfig,
 ): { ok: true; pipeline: ParsedProjectPipeline } | { ok: false; error: InvalidProjectPipelineConfigError } {
@@ -66,30 +83,16 @@ function parseProjectPipeline(
   if (rawTerminalAction === undefined) {
     return invalid(terminalActionKey, `${terminalActionKey} is required`);
   }
-  if (typeof rawTerminalAction !== "string") {
-    return invalid(terminalActionKey, `${terminalActionKey} must be a string`);
-  }
-  if (rawTerminalAction.length === 0) {
-    return invalid(terminalActionKey, `${terminalActionKey} must be a non-empty string`);
-  }
-  if (!(PIPELINE_TERMINAL_ACTIONS as readonly string[]).includes(rawTerminalAction)) {
-    return invalid(terminalActionKey, `${terminalActionKey} has unknown value "${rawTerminalAction}"`);
-  }
+  const parsedTerminalAction = parseNonEmptyEnumString(terminalActionKey, rawTerminalAction, PIPELINE_TERMINAL_ACTIONS);
+  if (!parsedTerminalAction.ok) return parsedTerminalAction;
 
   const supersedeKey = `${pipelineKey}.supersede`;
   const rawSupersede = config.pipeline.supersede;
   let supersede: PipelineSupersedePolicy = "close";
   if (rawSupersede !== undefined) {
-    if (typeof rawSupersede !== "string") {
-      return invalid(supersedeKey, `${supersedeKey} must be a string`);
-    }
-    if (rawSupersede.length === 0) {
-      return invalid(supersedeKey, `${supersedeKey} must be a non-empty string`);
-    }
-    if (!(PIPELINE_SUPERSEDE_POLICIES as readonly string[]).includes(rawSupersede)) {
-      return invalid(supersedeKey, `${supersedeKey} has unknown value "${rawSupersede}"`);
-    }
-    supersede = rawSupersede as PipelineSupersedePolicy;
+    const parsedSupersede = parseNonEmptyEnumString(supersedeKey, rawSupersede, PIPELINE_SUPERSEDE_POLICIES);
+    if (!parsedSupersede.ok) return parsedSupersede;
+    supersede = parsedSupersede.value;
   }
 
   const reviewOverridesKey = `${pipelineKey}.reviewOverrides`;
@@ -111,7 +114,7 @@ function parseProjectPipeline(
     ok: true,
     pipeline: {
       name: config.pipeline.name,
-      terminalAction: rawTerminalAction as PipelineTerminalAction,
+      terminalAction: parsedTerminalAction.value,
       supersede,
       reviewOverrides,
     },

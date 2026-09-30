@@ -9,6 +9,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "./state-store.ts";
+import { priorLaneRunsForWorkflowRollup } from "./prior-lane-runs-for-workflow-rollup.ts";
 import { resolveWorkflowRunRollup } from "./workflow-run-status-rollup.ts";
 
 export type PipelineStageArtifact = {
@@ -162,7 +163,7 @@ export function stageFailureDetailFromEntryRun(entryRun: DurableRunWithAttempts)
 
 export type LinkedStageSettlementStore = Pick<
   StateStore,
-  "loadRun" | "findRunsByInvocationId" | "loadPipeline" | "listPipelines" | "updateStage"
+  "loadRun" | "findRunsByInvocationId" | "findWorkflowRunsOnLane" | "loadPipeline" | "listPipelines" | "updateStage"
 >;
 
 export type LinkedStageTarget = { pipelineId: string; stageId: string; branchKey: string };
@@ -245,6 +246,15 @@ export function settleLinkedStagesFromEntryRunWith(
     workflowSnapshot,
     siblingRuns,
     isLive: false,
+    ...(workflowSnapshot !== null
+      ? {
+          priorLaneRuns: priorLaneRunsForWorkflowRollup(
+            entryRun,
+            workflowSnapshot.invocationId,
+            store.findWorkflowRunsOnLane.bind(store),
+          ),
+        }
+      : {}),
   });
   if (!isTerminalRunStatus(rollupStatus)) return { kind: "not-terminal", rollupStatus };
 

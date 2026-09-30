@@ -383,6 +383,7 @@ describe("settleLinkedStagesFromEntryRunWith", () => {
       loadRun: (runId: string) =>
         runId === "entry-1" ? entryRun({ id: "entry-1", status: "completed", specPath: "spec/s1.md" }) : null,
       findRunsByInvocationId: () => [],
+      findWorkflowRunsOnLane: () => [],
       loadPipeline: () => pipeline,
       listPipelines: () => [pipeline],
       updateStage: (args: { patch: Record<string, unknown>; requiredStatus?: string }) => {
@@ -452,6 +453,7 @@ describe("settleLinkedStagesFromEntryRunWith failure cause", () => {
     const store = {
       loadRun: (runId: string) => runs.find((run) => run.id === runId) ?? null,
       findRunsByInvocationId: () => runs,
+      findWorkflowRunsOnLane: () => [],
       loadPipeline: () => pipeline,
       listPipelines: () => [pipeline],
       updateStage: (args: { patch: Record<string, unknown> }) => {
@@ -488,6 +490,7 @@ describe("settleLinkedStagesFromEntryRunWith failure cause", () => {
     const store = {
       loadRun: (runId: string) => (runId === "plan-run" ? run : null),
       findRunsByInvocationId: () => [run],
+      findWorkflowRunsOnLane: () => [],
       loadPipeline: () => pipeline,
       listPipelines: () => [pipeline],
       updateStage: (args: { patch: Record<string, unknown> }) => Object.assign(row, args.patch) && true,
@@ -497,6 +500,152 @@ describe("settleLinkedStagesFromEntryRunWith failure cause", () => {
       failureDetailForRun: () => ({ reason: "harness_failure" }),
     });
 
+    expect(row).toMatchObject({
+      status: "failed",
+      failureDetail: { entryRunStatus: "killed", reason: "resumable_kill" },
+    });
+  });
+});
+
+describe("settleLinkedStagesFromEntryRunWith reopened implement", () => {
+  const implementSnapshot = {
+    invocationId: "inv-current",
+    steps: [
+      { stepId: "implement", role: "implement" as const, durable: true },
+      { stepId: "implement-review", role: "review" as const, behavior: "review" as const, durable: true },
+    ],
+  };
+
+  function reopenedImplementStore(priorLaneRows: Run[]) {
+    const entry = entryRun({
+      id: "entry-implement",
+      stepId: "implement",
+      createdAt: 200,
+      terminalCause: "complete",
+      attemptCount: 0,
+      prNumber: 42,
+      prUrl: "https://example.test/pull/42",
+      workflowSnapshot: implementSnapshot,
+    });
+    const row: Record<string, unknown> = {
+      stageId: "implement-stage",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: "entry-implement",
+    };
+    const pipeline = { id: "p-reopen", definition: { name: "p", stages: [] }, stages: [row] };
+    const store = {
+      loadRun: (runId: string) => (runId === "entry-implement" ? entry : null),
+      findRunsByInvocationId: () => [entry],
+      findWorkflowRunsOnLane: () => priorLaneRows,
+      loadPipeline: () => pipeline,
+      listPipelines: () => [pipeline],
+      updateStage: (args: { patch: Record<string, unknown> }) => {
+        Object.assign(row, args.patch);
+        return true;
+      },
+    };
+    return { store: store as unknown as LinkedStageSettlementStore, row };
+  }
+
+  const priorInvocationRows = (reviewStatus: Run["status"], reviewCreatedAt: number) => {
+    const priorSnapshot = { ...implementSnapshot, invocationId: "inv-prior" };
+    return [
+      entryRun({
+        id: "prior-entry",
+        stepId: "implement",
+        createdAt: 50,
+        workflowSnapshot: priorSnapshot,
+      }),
+      entryRun({
+        id: "prior-review",
+        stepId: "implement-review",
+        status: reviewStatus,
+        createdAt: reviewCreatedAt,
+        workflowSnapshot: priorSnapshot,
+      }),
+    ];
+  };
+
+  test("settles succeeded with entry PR evidence when a prior same-lane review completed", () => {
+    const { store, row } = reopenedImplementStore(priorInvocationRows("completed", 100));
+
+    const outcome = settleLinkedStagesFromEntryRunWith(store, "entry-implement");
+
+    expect(outcome).toMatchObject({ kind: "settled", rollupStatus: "completed" });
+    expect(row).toMatchObject({
+      status: "succeeded",
+      artifact: {
+        entryRunId: "entry-implement",
+        prNumber: 42,
+        prUrl: "https://example.test/pull/42",
+      },
+    });
+  });
+
+  test("settles failed when the latest prior same-lane review row is killed", () => {
+    const priorRows = [
+      ...priorInvocationRows("completed", 80),
+      entryRun({
+        id: "prior-entry-b",
+        stepId: "implement",
+        createdAt: 90,
+        workflowSnapshot: { ...implementSnapshot, invocationId: "inv-prior-b" },
+      }),
+      entryRun({
+        id: "prior-review-b",
+        stepId: "implement-review",
+        status: "killed",
+        createdAt: 150,
+        workflowSnapshot: { ...implementSnapshot, invocationId: "inv-prior-b" },
+      }),
+    ];
+    const { store, row } = reopenedImplementStore(priorRows);
+
+    const outcome = settleLinkedStagesFromEntryRunWith(store, "entry-implement");
+
+    expect(outcome).toMatchObject({ kind: "settled", rollupStatus: "killed" });
+    expect(row).toMatchObject({
+      status: "failed",
+      failureDetail: { entryRunStatus: "killed", reason: "resumable_kill" },
+    });
+  });
+
+  test("does not read prior-lane rows when entry attemptCount blocks the missing-successor rule", () => {
+    const entry = entryRun({
+      id: "entry-implement",
+      stepId: "implement",
+      createdAt: 200,
+      terminalCause: "complete",
+      attemptCount: 1,
+      workflowSnapshot: implementSnapshot,
+    });
+    const row: Record<string, unknown> = {
+      stageId: "s1",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: "entry-implement",
+    };
+    const pipeline = { id: "p1", definition: { name: "p", stages: [] }, stages: [row] };
+    let laneReads = 0;
+    const store = {
+      loadRun: () => entry,
+      findRunsByInvocationId: () => [entry],
+      findWorkflowRunsOnLane: () => {
+        laneReads++;
+        return priorInvocationRows("completed", 100);
+      },
+      loadPipeline: () => pipeline,
+      listPipelines: () => [pipeline],
+      updateStage: (args: { patch: Record<string, unknown> }) => {
+        Object.assign(row, args.patch);
+        return true;
+      },
+    } as unknown as LinkedStageSettlementStore;
+
+    settleLinkedStagesFromEntryRunWith(store, "entry-implement");
+
+    expect(laneReads).toBe(0);
     expect(row).toMatchObject({
       status: "failed",
       failureDetail: { entryRunStatus: "killed", reason: "resumable_kill" },

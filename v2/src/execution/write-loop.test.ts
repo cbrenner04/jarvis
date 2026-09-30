@@ -8482,6 +8482,64 @@ export function isLoadSensitive(file: string): boolean {
       });
     });
 
+    test("shrink complete non-terminating mutation reverts to pre-shrink HEAD and completes", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "shrink-non-terminating-revert";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktreePath, ".gitignore"), "\n", "utf8");
+      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+      writeFileSync(join(worktreePath, "proof.txt"), "verified\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "verified"], { stdio: "pipe" });
+      const preShrinkHead = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+        encoding: "utf8",
+      }).trim();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        promptId: "implement.prompt.shrink",
+        preShrinkHead,
+        promptPlaceholders: SHRINK_LOOP_TEST_PLACEHOLDERS,
+        maxIterations: 1,
+        logSink,
+        bindings: [
+          {
+            id: "shrink",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              writeFileSync(join(cwd, "proof.txt"), "shrunk\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => ({
+          kind: "non-terminating-mutation",
+          mutation: "hang-mutant",
+          sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
+        }),
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()).toBe(
+        preShrinkHead,
+      );
+      expect(result.kind).toBe("complete");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("non_terminating_mutation_failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+      });
+    });
+
     test("implement complete surviving mutation reprompts before publication", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();

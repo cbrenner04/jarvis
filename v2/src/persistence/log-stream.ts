@@ -215,6 +215,12 @@ export type StagedMarkdownLintRepromptEvent = {
   offendingFile: string;
 };
 
+/** Implement-verified HEAD when a shrink write loop starts; resume uses this for optional-pass revert. */
+export type PreShrinkHeadEvent = {
+  kind: "pre_shrink_head";
+  head: string;
+};
+
 /** Emitted when implement mutation verification finds a surviving mutation and schedules a reprompt. */
 export type SurvivingMutationRepromptEvent = {
   kind: "surviving_mutation_reprompt";
@@ -348,6 +354,7 @@ type LogEventWithoutLoopFinished =
   | DraftContractRepromptEvent
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
+  | PreShrinkHeadEvent
   | SurvivingMutationRepromptEvent
   | MutationVerificationInconclusiveEvent
   | MissingBlockerDetailEvent

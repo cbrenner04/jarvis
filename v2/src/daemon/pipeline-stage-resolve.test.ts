@@ -111,6 +111,37 @@ function initGitRepo(root: string): void {
   execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
 }
 
+function repoGit(cwd: string, args: string[]): string {
+  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+}
+
+async function withLocalMainStrictlyBehindOrigin<T>(
+  repoRoot: string,
+  tmpPrefix: string,
+  run: (ctx: { expectedHead: string; git: typeof repoGit }) => Promise<T> | T,
+): Promise<T> {
+  const remoteHome = trackedMkdtempSync(join(tmpdir(), tmpPrefix));
+  const remote = join(remoteHome, "origin.git");
+  const publisher = join(remoteHome, "publisher");
+  try {
+    repoGit(repoRoot, ["clone", "-q", "--bare", repoRoot, remote]);
+    repoGit(repoRoot, ["remote", "add", "origin", remote]);
+    repoGit(repoRoot, ["fetch", "-q", "origin"]);
+    repoGit(repoRoot, ["branch", "--set-upstream-to=origin/main", "main"]);
+    repoGit(repoRoot, ["clone", "-q", "--branch", "main", remote, publisher]);
+    repoGit(publisher, ["config", "user.email", "test@example.com"]);
+    repoGit(publisher, ["config", "user.name", "Test"]);
+    writeFileSync(join(publisher, "merged.txt"), "merged while pipeline waits\n");
+    repoGit(publisher, ["add", "merged.txt"]);
+    repoGit(publisher, ["commit", "-qm", "merge another lane"]);
+    repoGit(publisher, ["push", "-q", "origin", "main"]);
+    const expectedHead = repoGit(publisher, ["rev-parse", "HEAD"]);
+    return await run({ expectedHead, git: repoGit });
+  } finally {
+    rmSync(remoteHome, { recursive: true, force: true });
+  }
+}
+
 function loadRunAt(worktreePath: string, branch = "main"): NonNullable<PipelineStageResolveDeps["loadRun"]> {
   return () => ({ worktreePath, branch });
 }
@@ -1189,25 +1220,9 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("chained plan stage resolves write-step baseRef to repository default branch, not prior branch", async () => {
     const { repoRoot, configPath, intentBranch, intentWorktree, readyIntentRel } = createChainedHandoffRepo();
-    const remoteHome = trackedMkdtempSync(join(tmpdir(), "pipeline-plan-upstream-"));
-    const remote = join(remoteHome, "origin.git");
-    const publisher = join(remoteHome, "publisher");
-    const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-    try {
+    await withLocalMainStrictlyBehindOrigin(repoRoot, "pipeline-upstream-", async ({ expectedHead, git }) => {
       expect(existsSync(join(repoRoot, readyIntentRel))).toBe(false);
       expect(intentBranch).not.toBe("main");
-      git(repoRoot, ["clone", "-q", "--bare", repoRoot, remote]);
-      git(repoRoot, ["remote", "add", "origin", remote]);
-      git(repoRoot, ["fetch", "-q", "origin"]);
-      git(repoRoot, ["branch", "--set-upstream-to=origin/main", "main"]);
-      git(repoRoot, ["clone", "-q", "--branch", "main", remote, publisher]);
-      git(publisher, ["config", "user.email", "test@example.com"]);
-      git(publisher, ["config", "user.name", "Test"]);
-      writeFileSync(join(publisher, "merged.txt"), "merged while pipeline waits\n");
-      git(publisher, ["add", "merged.txt"]);
-      git(publisher, ["commit", "-qm", "merge another lane"]);
-      git(publisher, ["push", "-q", "origin", "main"]);
-      const expectedHead = git(publisher, ["rev-parse", "HEAD"]);
 
       const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
       const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", readyIntentRel)]]);
@@ -1222,30 +1237,12 @@ describe("resolveStageWorkflowSteps", () => {
       expect(writeStep.worktree.baseRef).toBe("origin/main");
       expect(git(repoRoot, ["rev-parse", writeStep.worktree.baseRef])).toBe(expectedHead);
       expect(writeStep.worktree.baseRef).not.toBe(intentBranch);
-    } finally {
-      rmSync(remoteHome, { recursive: true, force: true });
-    }
+    });
   });
 
   test("chained implement uses fetched upstream without changing the operator checkout", async () => {
     const { repoRoot, configPath, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
-    const remoteHome = trackedMkdtempSync(join(tmpdir(), "pipeline-upstream-"));
-    const remote = join(remoteHome, "origin.git");
-    const publisher = join(remoteHome, "publisher");
-    const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-    try {
-      git(repoRoot, ["clone", "-q", "--bare", repoRoot, remote]);
-      git(repoRoot, ["remote", "add", "origin", remote]);
-      git(repoRoot, ["fetch", "-q", "origin"]);
-      git(repoRoot, ["branch", "--set-upstream-to=origin/main", "main"]);
-      git(repoRoot, ["clone", "-q", "--branch", "main", remote, publisher]);
-      git(publisher, ["config", "user.email", "test@example.com"]);
-      git(publisher, ["config", "user.name", "Test"]);
-      writeFileSync(join(publisher, "merged.txt"), "merged while pipeline waits\n");
-      git(publisher, ["add", "merged.txt"]);
-      git(publisher, ["commit", "-qm", "merge another lane"]);
-      git(publisher, ["push", "-q", "origin", "main"]);
-      const expectedHead = git(publisher, ["rev-parse", "HEAD"]);
+    await withLocalMainStrictlyBehindOrigin(repoRoot, "pipeline-upstream-", async ({ expectedHead, git }) => {
       const originalHead = git(repoRoot, ["rev-parse", "HEAD"]);
       const originalStatus = git(repoRoot, ["status", "--porcelain"]);
       const context = { cwd: repoRoot, baseRef: "main", configPath };
@@ -1264,9 +1261,7 @@ describe("resolveStageWorkflowSteps", () => {
       expect(git(repoRoot, ["rev-parse", "HEAD"])).toBe(originalHead);
       expect(git(repoRoot, ["status", "--porcelain"])).toBe(originalStatus);
       expect(existsSync(join(repoRoot, "merged.txt"))).toBe(false);
-    } finally {
-      rmSync(remoteHome, { recursive: true, force: true });
-    }
+    });
   });
 
   test("implement stage resolves through real preset builders when plan spec exists only on plan worktree branch", async () => {

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
@@ -1371,7 +1372,7 @@ async function expectAttachedWorkflowMissesEntryTerminalContract(overrides: Part
 describe("spawned workflow CLI connect budget", () => {
   const SPAWNED_CONNECT_HOLD_MS = 5001;
 
-  async function runHeldConnectChild(opts: { connectBudgetMs?: number; releaseAfterMs?: number }) {
+  async function runHeldConnectChild(opts: { releaseAfterMs: number }) {
     const runId = "run-connect-budget";
     const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, {
       entryTerminal: false,
@@ -1389,15 +1390,12 @@ describe("spawned workflow CLI connect budget", () => {
         argv: [...IMPLEMENT_ARGS, "--detach"],
         steps: fx.fakeImplementSteps,
         machineConfigPath,
-        connectBudgetMs: opts.connectBudgetMs,
         connectGateFile: gateFile,
         connectCalledFile: calledFile,
       });
-      if (opts.releaseAfterMs !== undefined) {
-        while (!existsSync(calledFile) && proc.exitCode === null) await Bun.sleep(5);
-        await Bun.sleep(opts.releaseAfterMs);
-        writeFileSync(gateFile, "");
-      }
+      while (!existsSync(calledFile) && proc.exitCode === null) await Bun.sleep(5);
+      await Bun.sleep(opts.releaseAfterMs);
+      writeFileSync(gateFile, "");
       const exitCode = await proc.exited;
       const connectCalls = existsSync(calledFile) ? readFileSync(calledFile, "utf8").split("\n").length - 1 : 0;
       return { exitCode, stderr: await new Response(proc.stderr).text(), connectCalls };
@@ -1422,11 +1420,49 @@ describe("spawned workflow CLI connect budget", () => {
   test.skipIf(!canUseUnixSockets())(
     "a held connection past an explicit 10 ms budget fails with IPC connect timeout naming the budget",
     async () => {
-      const { exitCode, stderr } = await runHeldConnectChild({ connectBudgetMs: 10 });
-      expect(exitCode).not.toBe(0);
-      expect(stderr).toContain("IPC connect timeout");
-      expect(stderr).toContain("10ms");
+      // In-process (no child bun cold start) with a fake clock for the 5000 ms auto-start retry
+      // deadline; every connect is held so only the real 10 ms budget can settle it.
+      const { server, socketPath } = await startDetachContinuationWorkflowServer("run-connect-budget", {
+        entryTerminal: false,
+        releaseEntryTerminal: () => {},
+      });
+      const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+      const realConnect = Socket.prototype.connect;
+      const held: Socket[] = [];
+      Socket.prototype.connect = function (this: Socket) {
+        held.push(this);
+        return this;
+      } as typeof Socket.prototype.connect;
+      let budgetError: Error | undefined;
+      let fakeNow = 0;
+      const cap = captureIo();
+      try {
+        const code = await main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+          ...attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps),
+          getDaemonStatus: async () => ({ state: "running" as const, loadedRevision: "test" }),
+          now: () => fakeNow,
+          sleep: async (ms: number) => {
+            fakeNow += ms;
+          },
+          connectIpcClient: (sp: string, defaultTimeoutMs?: number) =>
+            connectIpcClient(sp, defaultTimeoutMs, 10).catch((error: Error) => {
+              budgetError = error;
+              throw error;
+            }),
+        } as NonNullable<Parameters<typeof main>[2]>);
+        expect(held.length).toBeGreaterThan(0);
+        expect(code).not.toBe(0);
+        expect(budgetError?.message).toContain("IPC connect timeout");
+        expect(budgetError?.message).toContain("10ms");
+        expect(cap.read().stderr).toContain("deadline exceeded");
+      } finally {
+        Socket.prototype.connect = realConnect;
+        for (const socket of held) socket.destroy();
+        await server.close();
+        rmSync(socketPath, { force: true });
+      }
     },
+    2_000,
   );
 });
 

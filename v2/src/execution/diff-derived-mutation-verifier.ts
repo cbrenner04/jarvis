@@ -1015,7 +1015,8 @@ function deriveFromLine(
   return deduplicateCandidates([...guardCandidates, ...operatorCandidates, ...destructiveCandidates]);
 }
 
-function resolveCoLocatedKillingTest(productionPath: string): string | null {
+/** Exact-stem co-located killing test (`<dir>/<stem>.test.ts`) for a production code path; `null` for non-code or test paths. */
+export function resolveCoLocatedKillingTest(productionPath: string): string | null {
   if (!isCodePath(productionPath)) return null;
   const basename = productionPath.split("/").pop() ?? "";
   if (basename.includes(".test.")) return null;

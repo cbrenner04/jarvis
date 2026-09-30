@@ -74,6 +74,8 @@ import {
 import {
   type DiffDerivedMutationVerifierInput,
   mutationCoverageFixDetail,
+  resolveCoLocatedKillingTest,
+  resolveSiblingKillingTests,
   type VerificationResult,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
@@ -3571,6 +3573,24 @@ function appendFenceDerivationFailedLog(
   args.logSink?.append(runId, { kind: "ready_gate_fence_derivation_failed", reason, site });
 }
 
+/** Repair allowset plus the co-located killing tests (exact-stem and existing `<stem>-*` siblings) of each allowed production path. */
+export function admitCoLocatedTestsOfAllowedPaths(
+  allowed: ReadonlySet<string>,
+  worktreePath: string,
+  listDir?: (dir: string) => string[],
+): Set<string> {
+  const admitted = new Set(allowed);
+  for (const path of allowed) {
+    const exactStem = resolveCoLocatedKillingTest(path);
+    if (exactStem === null) continue;
+    admitted.add(exactStem);
+    for (const sibling of resolveSiblingKillingTests(path, worktreePath, listDir)) {
+      admitted.add(sibling);
+    }
+  }
+  return admitted;
+}
+
 async function initializeFrozenRepairAllowset(
   store: StateStore,
   runId: string,
@@ -3611,7 +3631,10 @@ async function initializeFrozenRepairAllowset(
   if (markdownOnly && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
     return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
   }
-  persistReadyGateRepairFence(store, runId, derived.allowed, undefined, markdownOutputRoots, markdownOnly);
+  const allowset = markdownOnly
+    ? derived.allowed
+    : admitCoLocatedTestsOfAllowedPaths(derived.allowed, input.worktreePath);
+  persistReadyGateRepairFence(store, runId, allowset, undefined, markdownOutputRoots, markdownOnly);
   const persistedFence = readyGateRepairFencePersisted(store, runId);
   if (persistedFence === undefined) {
     return { failure: readyGateRepairProvenanceFailure(iterationsConsumed) };
@@ -3622,7 +3645,7 @@ async function initializeFrozenRepairAllowset(
   ) {
     return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
   }
-  return { allowset: derived.allowed };
+  return { allowset };
 }
 
 function repairFenceFailureMessage(frozen: Set<string>, error: ReadyGateError): string {

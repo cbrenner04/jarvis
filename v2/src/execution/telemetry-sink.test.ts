@@ -1,7 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import type { InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
 import { appendTelemetryJsonlLine, buildJsonlSink } from "./telemetry-sink.ts";
@@ -156,6 +165,69 @@ describe("telemetry-sink monthly roll", () => {
     const row = JSON.parse(current.trim()) as { record_kind: string; ts: string };
     expect(row.record_kind).toBe("work_boundary_recorded");
     expect(row.ts).toBe(new Date(june).toISOString());
+  });
+
+  function seedCurrentFile(content: string, mtimeMs: number): void {
+    mkdirSync(jarvisRoot, { recursive: true });
+    writeFileSync(sinkPath, content, "utf8");
+    utimesSync(sinkPath, mtimeMs / 1000, mtimeMs / 1000);
+  }
+
+  function gunzipText(path: string): string {
+    return gunzipSync(readFileSync(path)).toString("utf8");
+  }
+
+  test("interleaved rollers: a loser whose staging rename hits ENOENT keeps the closed month intact", () => {
+    isolateSink();
+    const mayRows = `${JSON.stringify({ month: "may" })}\n`;
+    seedCurrentFile(mayRows, utcMs(2026, 5, 20));
+    const { clock } = mutableClock(utcMs(2026, 6, 2));
+    let interleaved = false;
+    // B passed its month check; A rolls and appends in between; B's staging rename then loses.
+    const loserRename = (from: string, to: string): void => {
+      if (!interleaved && from === sinkPath) {
+        interleaved = true;
+        appendTelemetryJsonlLine(sinkPath, '{"writer":"A"}', { clock });
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      }
+      renameSync(from, to);
+    };
+    appendTelemetryJsonlLine(sinkPath, '{"writer":"B"}', { clock, renameSync: loserRename });
+    expect(interleaved).toBe(true);
+    expect(gunzipText(join(jarvisRoot, "telemetry", "2026-05.jsonl.gz"))).toBe(mayRows);
+    expect(readdirSync(join(jarvisRoot, "telemetry")).filter((n) => !n.startsWith("."))).toEqual(["2026-05.jsonl.gz"]);
+    expect(readFileSync(sinkPath, "utf8")).toBe('{"writer":"A"}\n{"writer":"B"}\n');
+  });
+
+  test("a roll never overwrites an existing month archive", () => {
+    isolateSink();
+    const telemetryDir = join(jarvisRoot, "telemetry");
+    mkdirSync(telemetryDir, { recursive: true });
+    const existing = `${JSON.stringify({ earlier: true })}\n`;
+    writeFileSync(join(telemetryDir, "2026-05.jsonl.gz"), gzipSync(existing));
+    const later = `${JSON.stringify({ later: true })}\n`;
+    seedCurrentFile(later, utcMs(2026, 5, 30));
+    const { clock } = mutableClock(utcMs(2026, 6, 1));
+    appendTelemetryJsonlLine(sinkPath, '{"june":1}', { clock });
+    expect(gunzipText(join(telemetryDir, "2026-05.jsonl.gz"))).toBe(existing);
+    expect(gunzipText(join(telemetryDir, "2026-05.1.jsonl.gz"))).toBe(later);
+    expect(readFileSync(sinkPath, "utf8")).toBe('{"june":1}\n');
+  });
+
+  test("a staging file orphaned by a crashed roller is recovered into the archive", () => {
+    isolateSink();
+    mkdirSync(jarvisRoot, { recursive: true });
+    const orphan = `${sinkPath}.rolling-999999999-deadbeef`;
+    const aprilRows = `${JSON.stringify({ month: "april" })}\n`;
+    writeFileSync(orphan, aprilRows, "utf8");
+    const april = utcMs(2026, 4, 28);
+    utimesSync(orphan, april / 1000, april / 1000);
+    const { clock } = mutableClock(utcMs(2026, 6, 3));
+    appendTelemetryJsonlLine(sinkPath, '{"june":1}', { clock });
+    expect(existsSync(orphan)).toBe(false);
+    expect(gunzipText(join(jarvisRoot, "telemetry", "2026-04.jsonl.gz"))).toBe(aprilRows);
+    expect(readdirSync(jarvisRoot).filter((n) => n.includes(".rolling-"))).toEqual([]);
+    expect(readFileSync(sinkPath, "utf8")).toBe('{"june":1}\n');
   });
 
   test("appendTelemetryJsonlLine keeps a caller-supplied trailing newline single", () => {

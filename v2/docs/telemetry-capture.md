@@ -34,7 +34,7 @@ telemetry/YYYY-MM.jsonl.gz →  closed UTC months (retained)
 
 **Current file:** injectable path (default `join(jarvisHome(), "telemetry.jsonl")`). All producers append the active UTC month here as plain JSONL.
 
-**Closed months:** when the current file exists and its UTC `mtime` month differs from the injectable clock's UTC month, the harness synchronously gzip-compresses the entire current file, writes `join(dirname(currentPath), "telemetry", "<YYYY-MM>.jsonl.gz")` via a temp sibling and atomic rename, removes the plain current file, then appends create a fresh current file. Archive `<YYYY-MM>` is the current file's UTC calendar month from `mtime` at roll time (not the clock month when they differ). After each append, `utimesSync` sets the current file's `atime`/`mtime` to the injected clock so roll bucketing matches tests and injected clocks.
+**Closed months:** when the current file exists and its UTC `mtime` month differs from the injectable clock's UTC month, the harness first atomically renames it to a per-process staging file `<currentPath>.rolling-<pid>-<random>` (a concurrent roller whose rename hits `ENOENT` skips rolling and just appends to the fresh current file), then gzip-compresses the staged file into `join(dirname(currentPath), "telemetry", "<YYYY-MM>.jsonl.gz")` via a temp file and a no-clobber hard link, and removes the staged file; appends then create a fresh current file. An archive is never overwritten: if `<YYYY-MM>.jsonl.gz` exists the roll writes `<YYYY-MM>.<n>.jsonl.gz` (first free `n`), so read a month as `<YYYY-MM>*.jsonl.gz`. Staging files whose pid is no longer alive (a roller crashed mid-roll) are swept into the archive the same way on the next append. Archive `<YYYY-MM>` is the staged file's UTC calendar month from `mtime` (rename preserves it; not the clock month when they differ). After each append, `utimesSync` sets the current file's `atime`/`mtime` to the injected clock so roll bucketing matches tests and injected clocks.
 
 **Skipped UTC months** produce no archive — there is no placeholder gzip for months with no writes.
 
@@ -44,7 +44,7 @@ telemetry/YYYY-MM.jsonl.gz →  closed UTC months (retained)
 
 **Retention:** closed-month gzip archives are not deleted by `jarvis cleanup` ([operator-runbook.md § Reading telemetry](./operator-runbook.md#reading-telemetry)).
 
-**Injectable contract:** sink path and `clock` (`() => Date`, default real time) are passed into the shared roll-then-append helper used by `buildJsonlSink` and `emitWorkBoundaryRecorded`.
+**Injectable contract:** sink path, `clock` (`() => Date`, default real time), and an optional `renameSync` test seam are passed into the shared roll-then-append helper used by `buildJsonlSink` and `emitWorkBoundaryRecorded`.
 
 ## Event grains and join keys
 

@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { InvocationTelemetrySink } from "../../../shared/invocation/execute.ts";
 
-export type TelemetryJsonlAppendOptions = {
+type TelemetryJsonlAppendOptions = {
   clock?: () => Date;
 };
 

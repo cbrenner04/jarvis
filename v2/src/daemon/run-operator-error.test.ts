@@ -1015,6 +1015,40 @@ test("composeRunOperatorError maps ready gate, surviving mutation, and flip fail
   expect(composeRunOperatorError(runWith("failed"), loopFinished("mutation_repair_exhausted"))).toEqual(
     err("mutation_repair_exhausted", "inspect_spec", false),
   );
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("mutation_repair_exhausted", { resumable: false, ...survivingMutation }),
+    ),
+  ).toEqual({
+    reason: "mutation_repair_exhausted",
+    retryable: false,
+    nextAction: "inspect_spec",
+    ...survivingMutation,
+  });
+});
+
+test("composeRunOperatorError omits killing-set fields for mutation_repair_exhausted when result is unknown", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("mutation_repair_exhausted", {
+        resumable: false,
+        survivingMutation: "legacy",
+        survivingMutationSourceFile: "src/legacy.ts",
+        survivingMutationSourceLine: 1,
+        survivingMutationKillingTests: [],
+        survivingMutationKillingSetResult: "unknown",
+      }),
+    ),
+  ).toEqual({
+    reason: "mutation_repair_exhausted",
+    retryable: false,
+    nextAction: "inspect_spec",
+    survivingMutation: "legacy",
+    survivingMutationSourceFile: "src/legacy.ts",
+    survivingMutationSourceLine: 1,
+  });
 });
 
 test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {

@@ -2993,13 +2993,17 @@ class StateStoreImpl implements StateStore {
   }
 
   async admitRunForResume(runId: string): Promise<RunAdmissionOutcome> {
-    const row = this.db.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+    const row = this.db.prepare("SELECT owner_identity AS ownerIdentity, status FROM runs WHERE id = ?").get(runId) as {
       ownerIdentity: string | null;
+      status: RunStatus;
     } | null;
     const priorOwnerIdentity = row?.ownerIdentity ?? null;
+    const status = row?.status;
     if (
       priorOwnerIdentity !== null &&
       priorOwnerIdentity !== this.currentIdentity &&
+      status !== undefined &&
+      !isTerminalRunStatus(status) &&
       (await this.isOwnerAliveProbe(priorOwnerIdentity))
     ) {
       return { kind: "refused", reason: "owner_alive" };

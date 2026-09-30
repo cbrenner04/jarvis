@@ -6953,7 +6953,7 @@ describe("cleanup: session log retention", () => {
     }
     expect(existsSync(unknownPath)).toBe(true);
 
-    writeFileSync(configPath, JSON.stringify({ retention: { sessions: { hotDays: 1, coldDays: 30 } } }));
+    writeRetentionConfig(1, 30);
     const configuredDir = join(jarvisRoot, "configured-sessions");
     const configuredOld = runRow(runId(9), "blocked", now.getTime() - 31 * dayMs);
     const configuredRecent = runRow(runId(10), "interrupted", now.getTime() - 20 * dayMs);

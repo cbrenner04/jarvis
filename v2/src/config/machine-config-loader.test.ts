@@ -117,6 +117,7 @@ describe("resolveMachineProfile", () => {
 
 describe("readRetentionSessions", () => {
   const defaults = { ok: true as const, hotDays: 14, coldDays: 90 };
+  const ok = (hotDays: number, coldDays: number) => ({ ok: true as const, hotDays, coldDays });
 
   test.each([
     ["retention", { agents: ["claude"] }],
@@ -125,25 +126,14 @@ describe("readRetentionSessions", () => {
     expect(readRetentionSessions(writeConfig(config))).toEqual(defaults);
   });
 
-  test("defaults the absent field when only one sessions field is set", () => {
-    expect(readRetentionSessions(writeConfig({ retention: { sessions: { coldDays: 30 } } }))).toEqual({
-      ok: true,
-      hotDays: 14,
-      coldDays: 30,
-    });
-    expect(readRetentionSessions(writeConfig({ retention: { sessions: { hotDays: 7 } } }))).toEqual({
-      ok: true,
-      hotDays: 7,
-      coldDays: 90,
-    });
-  });
-
-  test("returns configured positive integers unchanged", () => {
-    expect(readRetentionSessions(writeConfig({ retention: { sessions: { hotDays: 7, coldDays: 30 } } }))).toEqual({
-      ok: true,
-      hotDays: 7,
-      coldDays: 30,
-    });
+  test.each([
+    [{ coldDays: 30 }, 14, 30],
+    [{ hotDays: 7 }, 7, 90],
+    [{ hotDays: 7, coldDays: 30 }, 7, 30],
+  ] as Array<
+    [Record<string, number>, number, number]
+  >)("merges overrides with defaults (%#)", (sessions, hotDays, coldDays) => {
+    expect(readRetentionSessions(writeConfig({ retention: { sessions } }))).toEqual(ok(hotDays, coldDays));
   });
 
   test.each([
@@ -190,7 +180,7 @@ describe("readRetentionSessions", () => {
   test("reads retention without validating unrelated agents", () => {
     expect(
       readRetentionSessions(writeConfig({ agents: "invalid", retention: { sessions: { hotDays: 7, coldDays: 30 } } })),
-    ).toEqual({ ok: true, hotDays: 7, coldDays: 30 });
+    ).toEqual(ok(7, 30));
   });
 
   test("nonexistent config path resolves to defaults", () => {

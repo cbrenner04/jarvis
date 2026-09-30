@@ -140,35 +140,30 @@ export function readRetentionSessions(
   }
 
   const retention = parsed.retention;
-  if (retention === undefined) {
-    return { ok: true, hotDays: DEFAULT_SESSION_HOT_DAYS, coldDays: DEFAULT_SESSION_COLD_DAYS };
-  }
-  if (!isRecord(retention)) {
+  if (retention !== undefined && !isRecord(retention)) {
     return { ok: false, error: RETENTION_SESSIONS_BLOCK_ERROR };
   }
 
-  const sessions = retention.sessions;
-  if (sessions === undefined) {
-    return { ok: true, hotDays: DEFAULT_SESSION_HOT_DAYS, coldDays: DEFAULT_SESSION_COLD_DAYS };
-  }
-  if (!isRecord(sessions)) {
+  const sessions = retention !== undefined ? retention.sessions : undefined;
+  if (sessions !== undefined && !isRecord(sessions)) {
     return { ok: false, error: RETENTION_SESSIONS_BLOCK_ERROR };
   }
 
   let hotDays = DEFAULT_SESSION_HOT_DAYS;
   let coldDays = DEFAULT_SESSION_COLD_DAYS;
-
-  if (sessions.hotDays !== undefined) {
-    if (!isPositiveInteger(sessions.hotDays)) {
-      return { ok: false, error: "retention.sessions.hotDays must be a positive integer" };
+  if (isRecord(sessions)) {
+    if (sessions.hotDays !== undefined) {
+      if (!isPositiveInteger(sessions.hotDays)) {
+        return { ok: false, error: "retention.sessions.hotDays must be a positive integer" };
+      }
+      hotDays = sessions.hotDays;
     }
-    hotDays = sessions.hotDays;
-  }
-  if (sessions.coldDays !== undefined) {
-    if (!isPositiveInteger(sessions.coldDays)) {
-      return { ok: false, error: "retention.sessions.coldDays must be a positive integer" };
+    if (sessions.coldDays !== undefined) {
+      if (!isPositiveInteger(sessions.coldDays)) {
+        return { ok: false, error: "retention.sessions.coldDays must be a positive integer" };
+      }
+      coldDays = sessions.coldDays;
     }
-    coldDays = sessions.coldDays;
   }
   if (coldDays <= hotDays) {
     return { ok: false, error: "retention.sessions.coldDays must be greater than retention.sessions.hotDays" };

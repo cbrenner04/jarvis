@@ -111,7 +111,8 @@ describe("telemetry-sink monthly roll", () => {
     const april = utcMs(2026, 4, 10);
     utimesSync(sinkPath, april / 1000, april / 1000);
     const june = utcMs(2026, 6, 1);
-    const sink = buildJsonlSink(sinkPath, { clock: fixedClock(june) });
+    const { clock } = mutableClock(june);
+    const sink = buildJsonlSink(sinkPath, { clock });
     sink.append(stubInvocationRow("after-restart"));
     expect(existsSync(join(jarvisRoot, "telemetry", "2026-04.jsonl.gz"))).toBe(true);
     expect(readFileSync(sinkPath, "utf8").includes("after-restart")).toBe(true);
@@ -152,10 +153,8 @@ describe("telemetry-sink monthly roll", () => {
     expect(existsSync(join(jarvisRoot, "telemetry", "2026-05.jsonl.gz"))).toBe(true);
     const current = readFileSync(sinkPath, "utf8");
     expect(current.includes("invocation-may")).toBe(false);
-    expect(current.includes("work_boundary_recorded")).toBe(true);
+    const row = JSON.parse(current.trim()) as { record_kind: string; ts: string };
+    expect(row.record_kind).toBe("work_boundary_recorded");
+    expect(row.ts).toBe(new Date(june).toISOString());
   });
 });
-
-function fixedClock(ms: number): () => Date {
-  return () => new Date(ms);
-}

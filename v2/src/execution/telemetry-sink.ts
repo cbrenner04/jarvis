@@ -13,25 +13,20 @@ import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { InvocationTelemetrySink } from "../../../shared/invocation/execute.ts";
 
-export type TelemetrySinkClock = () => Date;
-
 export type TelemetryJsonlAppendOptions = {
-  clock?: TelemetrySinkClock;
+  clock?: () => Date;
 };
 
-function resolveClock(clock: TelemetrySinkClock | undefined): TelemetrySinkClock {
-  return clock ?? (() => new Date());
+function utcMonthLabel(ms: number): string {
+  const d = new Date(ms);
+  const month = d.getUTCMonth() + 1;
+  return `${d.getUTCFullYear()}-${String(month).padStart(2, "0")}`;
 }
 
-function utcMonthLabel(date: Date): string {
-  const month = date.getUTCMonth() + 1;
-  return `${date.getUTCFullYear()}-${String(month).padStart(2, "0")}`;
-}
-
-function rollTelemetryCurrentFileIfNeeded(sinkPath: string, clock: TelemetrySinkClock): void {
+function rollTelemetryCurrentFileIfNeeded(sinkPath: string, clock: () => Date): void {
   if (!existsSync(sinkPath)) return;
-  const fileMonth = utcMonthLabel(new Date(statSync(sinkPath).mtimeMs));
-  const clockMonth = utcMonthLabel(clock());
+  const fileMonth = utcMonthLabel(statSync(sinkPath).mtimeMs);
+  const clockMonth = utcMonthLabel(clock().getTime());
   if (fileMonth === clockMonth) return;
 
   const telemetryDir = join(dirname(sinkPath), "telemetry");
@@ -43,15 +38,12 @@ function rollTelemetryCurrentFileIfNeeded(sinkPath: string, clock: TelemetrySink
   rmSync(sinkPath, { force: true });
 }
 
-/** Roll the current sink file when its UTC mtime month differs from `clock`, then append one JSONL line and stamp mtime from `clock`. */
 export function appendTelemetryJsonlLine(sinkPath: string, line: string, options?: TelemetryJsonlAppendOptions): void {
-  const clock = resolveClock(options?.clock);
+  const clock = options?.clock ?? (() => new Date());
   mkdirSync(dirname(sinkPath), { recursive: true });
   rollTelemetryCurrentFileIfNeeded(sinkPath, clock);
-  const payload = line.endsWith("\n") ? line : `${line}\n`;
-  appendFileSync(sinkPath, payload, "utf8");
-  const stampMs = clock().getTime();
-  const stampSec = stampMs / 1000;
+  appendFileSync(sinkPath, line.endsWith("\n") ? line : `${line}\n`, "utf8");
+  const stampSec = clock().getTime() / 1000;
   utimesSync(sinkPath, stampSec, stampSec);
 }
 

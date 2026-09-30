@@ -23,7 +23,7 @@ export function defaultTelemetrySinkPath(): string {
 
 type BoundaryTelemetryContext = {
   sinkPath?: string;
-  clock?: TelemetryJsonlAppendOptions["clock"];
+  clock?: () => Date;
 };
 
 export type BoundaryStamp = {
@@ -40,13 +40,16 @@ function appendWorkBoundaryRecorded(
   options?: TelemetryJsonlAppendOptions,
 ): void {
   const clock = options?.clock ?? (() => new Date());
-  const line: WorkBoundaryRecordedRecord = {
-    schema_version: 1,
-    record_kind: "work_boundary_recorded",
-    ts: clock().toISOString(),
-    ...record,
-  };
-  appendTelemetryJsonlLine(sinkPath, JSON.stringify(line), options);
+  appendTelemetryJsonlLine(
+    sinkPath,
+    JSON.stringify({
+      schema_version: 1,
+      record_kind: "work_boundary_recorded",
+      ts: clock().toISOString(),
+      ...record,
+    } satisfies WorkBoundaryRecordedRecord),
+    { clock },
+  );
 }
 
 function resolveTelemetrySinkPath(sinkPath?: string): string {
@@ -79,8 +82,6 @@ export function emitWorkBoundaryRecorded(
 ): string | undefined {
   if (telemetry === undefined) return undefined;
   try {
-    const appendOptions: TelemetryJsonlAppendOptions | undefined =
-      telemetry.clock !== undefined ? { clock: telemetry.clock } : undefined;
     appendWorkBoundaryRecorded(
       resolveTelemetrySinkPath(telemetry.sinkPath),
       {
@@ -91,7 +92,7 @@ export function emitWorkBoundaryRecorded(
         commit_sha: commit.commitSha,
         files_changed: commit.filesChanged,
       },
-      appendOptions,
+      telemetry.clock === undefined ? undefined : { clock: telemetry.clock },
     );
     return undefined;
   } catch (error) {

@@ -4,4 +4,4 @@ Monthly UTC roll closes the current `telemetry.jsonl` into retained gzip archive
 
 - [x] [00-monthly-rolling-telemetry-sink.md](./00-monthly-rolling-telemetry-sink.md)
 - [x] [01-cleanup-preserve-closed-telemetry-archives.md](./01-cleanup-preserve-closed-telemetry-archives.md)
-- [ ] [02-document-monthly-telemetry-roll-and-retention.md](./02-document-monthly-telemetry-roll-and-retention.md)
+- [x] [02-document-monthly-telemetry-roll-and-retention.md](./02-document-monthly-telemetry-roll-and-retention.md)

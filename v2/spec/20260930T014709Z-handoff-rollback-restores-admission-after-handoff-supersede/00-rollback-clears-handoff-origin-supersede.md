@@ -4,7 +4,7 @@
 
 ## Decisions
 
-- Rollback on a pending handoff may clear only `supersede` that arrived after this transaction's `changeover` and before rollback settles — covers the handoff successor and any non-successor peer during that same pending window — rules out clearing every `supersede` on any pending rollback (would erase a pre-`changeover` external retire) and rules out never clearing a non-successor peer supersede during the pending window (would leave the incumbent non-admitting after rollback when only that peer set the flag).
+- Rollback on a pending handoff may clear only a `supersede` whose caller identity matches this transaction's own successor (received after `changeover`, before rollback settles) — rules out clearing a genuine external `supersede` arriving in the same pending window (incumbent stays retiring) and rules out clearing every `supersede` on any pending rollback (would erase a pre-`changeover` external retire).
 - `supersede` received while no handoff is pending still blocks rollback from reopening admission — rules out clearing an external retire with no active transaction.
 - `supersede` received before this transaction's `changeover` still blocks rollback from reopening admission even if a handoff is pending when rollback runs — rules out treating a pre-handoff retire as handoff-origin.
 - `tickWatch` on committed handoffs keeps reopening admission unconditionally and does not use `wasSuperseded()` — rules out reintroducing the rollback guard on the committed-watch path fixed in the committed-successor-watch spec.
@@ -12,7 +12,7 @@
 
 ## Task checklist
 
-- [ ] Scope supersede clearing to handoff-origin supersede during the active pending transaction in `startDaemonRuntime` / `createHandoffHandlers` wiring.
+- [ ] Scope supersede clearing to a `supersede` from the pending transaction's own successor (identity match) in `startDaemonRuntime` / `createHandoffHandlers` wiring.
 - [ ] Export `createHandoffHandlers` or add a `createChangeoverHandler`-parity focused seam for fake-driven rollback coverage.
 - [ ] Add a focused handoff-handler unit test with fakes: `changeover` → `supersede` → `handoff_rollback` → assert admission reopens and a subsequent admitted call succeeds.
 - [ ] Update `rollback` / `tickWatch` inline comments and docblocks in `v2/src/daemon/daemon.ts` to match post-fix admission policy (no pre-fix-only `wasSuperseded()` gating on pending rollback).
@@ -22,6 +22,7 @@
 
 - [ ] Exported `createHandoffHandlers` or a `createChangeoverHandler`-parity focused seam exists so the regression below can run without sandbox sockets (structure is the contract).
 - [ ] A focused handoff-handler regression with fakes drives changeover → `supersede` → rollback and asserts `retiring` is false and a subsequent start is admitted; it fails against the pre-fix code.
+- [ ] A focused fake-driven regression drives changeover → `supersede` from a non-successor peer → rollback and asserts `retiring` stays true and new work answers `daemon_superseded`.
 - [ ] `rollback` / `tickWatch` comments and docblocks in `v2/src/daemon/daemon.ts` describe post-fix admission policy, not pre-fix `wasSuperseded()` skip-on-rollback behavior.
 - [ ] `v2/src/daemon/daemon-changeover.sandbox-unrunnable.test.ts` "rollback after supersede rebinds the public listener but leaves the incumbent non-admitting" stays green (supersede before the pending handoff still blocks rollback admission reopen).
 - [ ] `bun run typecheck` passes.

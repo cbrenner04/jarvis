@@ -1,0 +1,202 @@
+import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import type { CompletionPublisherInput } from "./completion-publisher.ts";
+import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
+import { buildReviewFeedbackWorkflowSteps, REVIEW_FEEDBACK_WRITE_SIDECAR } from "./review-feedback-workflow-steps.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
+import { withStateStore } from "../testing/write-fixtures.ts";
+import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
+import { externalWorktreeBinding, initGitWorkspace } from "./workflow-runner.test-support.ts";
+import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
+
+const PROJECT = "demo";
+const PR_NUMBER = 99;
+
+type LaneFixture = {
+  laneKind: ReviewFeedbackLaneTarget["laneKind"];
+  entrySpecPath: string;
+  branchName: string;
+  seed: (workspace: string, entrySpecPath: string) => void;
+};
+
+function laneWorkspace(fixture: LaneFixture): { workspace: string; baseRef: string; step: WriteWorkflowStep } {
+  const workspace = initGitWorkspace(`review-feedback-write-${fixture.branchName}-`);
+  writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+  execFileSync("git", ["add", "base.txt"], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+  const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+  execFileSync("git", ["checkout", "-b", fixture.branchName], { cwd: workspace });
+  fixture.seed(workspace, fixture.entrySpecPath);
+  writeFileSync(join(workspace, "lane-tip.txt"), "lane\n", "utf8");
+  execFileSync("git", ["add", "lane-tip.txt"], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "lane tip"], { cwd: workspace });
+
+  const built = buildReviewFeedbackWorkflowSteps({
+    target: {
+      laneKind: fixture.laneKind,
+      project: PROJECT,
+      branch: fixture.branchName,
+      worktreePath: workspace,
+      prNumber: PR_NUMBER,
+      prUrl: "https://example.test/pull/99",
+      entryRunId: `${fixture.laneKind}-entry`,
+      entrySpecPath: fixture.entrySpecPath,
+      baseRef,
+      provenance: { kind: "bare" },
+    },
+    projectRoot: workspace,
+    configPath: writeHomeMachineConfig(),
+  });
+  expect(built.ok).toBe(true);
+  if (!built.ok) throw new Error(built.error);
+  const step = built.steps[0];
+  if (step === undefined) throw new Error("expected write step");
+  step.worktree = {
+    ...step.worktree,
+    projectRoot: workspace,
+    git: true,
+    localPath: workspace,
+    baseRef,
+  };
+  step.withExternalWorktree = externalWorktreeBinding(workspace);
+  return { workspace, baseRef, step };
+}
+
+function writeReviewArtifact(workspace: string, marker: string): void {
+  const artifactPath = resolvePrReviewInputArtifactPath(workspace);
+  writeFileSync(
+    artifactPath,
+    `${JSON.stringify({ captureVersion: 1, prNumber: PR_NUMBER, threads: [{ marker }], topLevelComments: [] }, null, 2)}\n`,
+    "utf8",
+  );
+  execFileSync("git", ["add", artifactPath], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "review input"], { cwd: workspace });
+}
+
+async function runReviewFeedbackWrite(args: {
+  fixture: LaneFixture;
+  stdout: string;
+  onPrompt?: (prompt: string) => void;
+  onPublication?: () => void;
+}): Promise<{ publication?: CompletionPublisherInput; headBranch: string; prompts: string[] }> {
+  const { workspace, baseRef, step } = laneWorkspace(args.fixture);
+  writeReviewArtifact(workspace, "capture-marker-unique");
+  const prompts: string[] = [];
+  let publication: CompletionPublisherInput | undefined;
+  step.createBinding = ({ agentId, adapterModel }) => ({
+    id: `${agentId}/${adapterModel}`,
+    metadata: { agent: agentId, model: adapterModel },
+    invoke: async ({ cwd, prompt }) => {
+      prompts.push(prompt ?? "");
+      args.onPrompt?.(prompt ?? "");
+      if (prompt?.includes("Post-completion Shrink")) {
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }
+      mkdirSync(join(cwd, ".jarvis"), { recursive: true });
+      writeFileSync(join(cwd, REVIEW_FEEDBACK_WRITE_SIDECAR), "sidecar\n", "utf8");
+      if (args.stdout === "no-work") {
+        execFileSync("git", ["add", REVIEW_FEEDBACK_WRITE_SIDECAR], { cwd });
+        execFileSync("git", ["commit", "-qm", "review-feedback sidecar"], { cwd });
+      }
+      return { kind: "ok", stdout: args.stdout, stderr: "" } as const;
+    },
+  });
+
+  await withStateStore(async (store) => {
+    const result = await executeWorkflow({
+      steps: [step],
+      stateStore: store,
+      completionCommitter: async () => ({ commitSha: "publication-commit" }),
+      completionPublisher: async (input) => {
+        publication = input;
+        args.onPublication?.();
+        return { prNumber: PR_NUMBER };
+      },
+      readyFinalizer: async () => {},
+    });
+    expect(result.kind).toBe("complete");
+    const headBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: workspace,
+      encoding: "utf8",
+    }).trim();
+    expect(headBranch).toBe(args.fixture.branchName);
+    expect(publication?.branch).toBe(args.fixture.branchName);
+    expect(publication?.baseRef).toBe(baseRef);
+    expect(publication?.specPath).toBe(args.fixture.entrySpecPath);
+  });
+
+  return { ...(publication !== undefined ? { publication } : {}), headBranch: args.fixture.branchName, prompts };
+}
+
+describe("executeWorkflow review-feedback write preset", () => {
+  test("intent lane republishes on the lane branch with review input and entry ready-intents path", async () => {
+    const { prompts } = await runReviewFeedbackWrite({
+      fixture: {
+        laneKind: "intent",
+        entrySpecPath: "ready-intents",
+        branchName: "rf-intent-lane",
+        seed: (workspace, entrySpecPath) => {
+          mkdirSync(join(workspace, entrySpecPath), { recursive: true });
+          writeFileSync(join(workspace, entrySpecPath, "index.md"), "# Intent lane\n", "utf8");
+        },
+      },
+      stdout: "done",
+    });
+    const rendered = prompts.join("\n");
+    expect(rendered).toContain("capture-marker-unique");
+    expect(rendered).not.toContain("ACTIVE_SUBSPEC");
+  });
+
+  test("plan lane republishes with plan entry spec path", async () => {
+    await runReviewFeedbackWrite({
+      fixture: {
+        laneKind: "plan",
+        entrySpecPath: "v2/spec/plan-tree/index.md",
+        branchName: "rf-plan-lane",
+        seed: (workspace, entrySpecPath) => {
+          mkdirSync(dirname(join(workspace, entrySpecPath)), { recursive: true });
+          writeFileSync(join(workspace, entrySpecPath), "# Plan\n", "utf8");
+        },
+      },
+      stdout: "done",
+    });
+  });
+
+  test("implement lane republishes with implement entry spec path", async () => {
+    const { prompts } = await runReviewFeedbackWrite({
+      fixture: {
+        laneKind: "implement",
+        entrySpecPath: "v2/spec/implement/index.md",
+        branchName: "rf-implement-lane",
+        seed: (workspace, entrySpecPath) => {
+          mkdirSync(dirname(join(workspace, entrySpecPath)), { recursive: true });
+          writeFileSync(join(workspace, entrySpecPath), "# Implement\n\n- [ ] task\n", "utf8");
+        },
+      },
+      stdout: "done",
+    });
+    expect(prompts.join("\n")).not.toContain("ACTIVE_SUBSPEC");
+  });
+
+  test("no-work after empty actionable capture still runs completion publication", async () => {
+    let publicationCalls = 0;
+    await runReviewFeedbackWrite({
+      fixture: {
+        laneKind: "intent",
+        entrySpecPath: "ready-intents",
+        branchName: "rf-no-work-lane",
+        seed: (workspace, entrySpecPath) => {
+          mkdirSync(join(workspace, entrySpecPath), { recursive: true });
+          writeFileSync(join(workspace, entrySpecPath, "index.md"), "# Intent lane\n", "utf8");
+        },
+      },
+      stdout: "no-work",
+      onPublication: () => {
+        publicationCalls += 1;
+      },
+    });
+    expect(publicationCalls).toBe(1);
+  });
+});

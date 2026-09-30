@@ -795,6 +795,26 @@ function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktre
   return landed.specPath;
 }
 
+export type WorkflowCompletionPublicationSpecPathInput = {
+  publicationSpecPath?: string;
+  landedSpecPath?: string;
+  writeStepRunSpecPath?: string;
+  completionStepSpecPath: string;
+  reviewFeedbackLane?: ReviewFeedbackLaneSnapshot;
+};
+
+/** Completion publication spec path for the workflow tail; review-feedback uses the entry lane path, not the write sidecar. */
+export function resolveWorkflowCompletionPublicationSpecPath(
+  input: WorkflowCompletionPublicationSpecPathInput,
+): string {
+  if (input.reviewFeedbackLane !== undefined) {
+    return input.publicationSpecPath ?? input.reviewFeedbackLane.entrySpecPath;
+  }
+  return (
+    input.publicationSpecPath ?? input.landedSpecPath ?? input.writeStepRunSpecPath ?? input.completionStepSpecPath
+  );
+}
+
 interface LinkedRoutingRowContext {
   store: StateStore;
   step: WriteWorkflowStep;
@@ -1429,8 +1449,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         if (landedSpecPath !== undefined) {
           completionStep.specPath = landedSpecPath;
         }
-        const publicationPath =
-          publicationSpecPath ?? landedSpecPath ?? writeStepRun?.specPath ?? completionStep.specPath;
+        const publicationPath = resolveWorkflowCompletionPublicationSpecPath({
+          completionStepSpecPath: completionStep.specPath,
+          ...(publicationSpecPath !== undefined ? { publicationSpecPath } : {}),
+          ...(landedSpecPath !== undefined ? { landedSpecPath } : {}),
+          ...(writeStepRun?.specPath !== undefined ? { writeStepRunSpecPath: writeStepRun.specPath } : {}),
+          ...(workflowSnapshot.reviewFeedbackLane !== undefined
+            ? { reviewFeedbackLane: workflowSnapshot.reviewFeedbackLane }
+            : {}),
+        });
         try {
           const creationTitle = resolvePublicationTitle(worktreePath, publicationPath, workflowSnapshot.creationTitle);
           store.setCreationTitle(lastResult.runId, creationTitle);
@@ -1548,12 +1575,20 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             }
             let bodySummary: string | undefined;
             let specTemplate = false;
-            if (completionStep.landing?.kind === "intent-stage") {
+            const reviewFeedbackLane = workflowSnapshot.reviewFeedbackLane;
+            if (reviewFeedbackLane?.laneKind === "intent") {
+              bodySummary = deriveIntentRunBodySummary({
+                creationTitle: workflowSnapshot.creationTitle,
+                intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
+              });
+            } else if (completionStep.landing?.kind === "intent-stage") {
               bodySummary = deriveIntentRunBodySummary({
                 creationTitle: workflowSnapshot.creationTitle,
                 intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
               });
             } else if (
+              reviewFeedbackLane?.laneKind === "plan" ||
+              reviewFeedbackLane?.laneKind === "implement" ||
               completionStep.landing?.kind === "plan-tree" ||
               completionStep.promptId === "plan.prompt.draft" ||
               completionStep.role === "implement"
@@ -1561,7 +1596,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               specTemplate = true;
               bodySummary = await deriveSpecRunBodySummary({
                 worktreePath,
-                specPath: publicationSpecPath ?? completionStep.specPath,
+                specPath:
+                  reviewFeedbackLane !== undefined ? publicationPath : (publicationSpecPath ?? completionStep.specPath),
                 baseRef: worktree.baseRef,
                 ...externalSpecGitScope(completionStep),
               });

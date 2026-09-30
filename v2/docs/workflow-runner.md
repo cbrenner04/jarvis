@@ -139,6 +139,7 @@ Current primary preset surface:
 - `implement`: one or two steps, with `role`/`promptId` fixed by the preset on both positions
 - `intent`: split write step plus one light review by default (`--review-passes 0` opts out)
 - `plan`: validated draft write step plus one debate review by default (`--review-passes 0` opts out)
+- `review-feedback`: one write step with `review-feedback.prompt.write` and sidecar artifact `.jarvis/review-feedback-write`; the workflow snapshot stamps `reviewFeedbackLane` (lane kind, entry run id, entry spec path, PR number, PR url). Terminal `done` and `no-work` run the configured ready gate, diff-derived mutation verification, and completion publication to the lane's existing open draft PR (`findOrCreatePr` on branch + entry `baseRef`); publication `specPath` and PR body narrative follow the entry lane kind (ready-intents, plan tree, or implement spec), not the write sidecar.
 - pipeline stage presets (not CLI names): `intent-reviewed` → `intent` builder, `plan-reviewed` → `plan` builder (debate default), `plan-reviewed-light` → `plan` builder with light `reviewBehavior` default; see the posture table below
 
 Validation stays synchronous:

@@ -3,8 +3,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStateStore } from "../persistence/state-store.ts";
-import { DEFAULT_DAEMON_READINESS_TIMEOUT_MS, DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS } from "./daemon-changeover.ts";
 import { startDaemonRuntime } from "./daemon.ts";
+import { DEFAULT_DAEMON_READINESS_TIMEOUT_MS, DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS } from "./daemon-changeover.ts";
 import type { ProcessProber, SocketProber } from "./daemon-lifecycle.ts";
 
 function queueDigestSampler(): { sample: () => Promise<string>; push: (digest: string) => void } {

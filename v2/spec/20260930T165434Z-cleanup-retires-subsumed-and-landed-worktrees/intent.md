@@ -40,4 +40,4 @@ Bulk cleanup retires a worktree only when its branch PR merged. Subsumed pipelin
 ## Prerequisites
 
 - Bulk cleanup retires merged-PR worktrees when durable-run and daemon-live guards pass.
-- `unlandedNonStagingPaths` compares `base..head` and treats spec-dir, ready-intent, and harness staging paths as in-scope for abandon guards.
+- `unlandedNonStagingPaths` compares `base..head` and exempts harness staging paths only; this spec extends allowance to the lane spec dir and consumed ready-intent.

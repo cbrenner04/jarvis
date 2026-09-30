@@ -433,8 +433,6 @@ export function createRunLifecycleHandlers(
   ctx: RunControlHandlerContext,
   deps: RunLifecycleHandlerDeps,
 ): RunLifecycleHandlers {
-  let pipelineResumeReopenStage: LinkedStageTarget | undefined;
-  const reopenStageForAdmission = (): LinkedStageTarget | undefined => pipelineResumeReopenStage;
   const {
     registry,
     activeRuns,
@@ -1243,6 +1241,7 @@ export function createRunLifecycleHandlers(
     run: LoadedRun,
     key: OwnershipKey,
     runId: string,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const reconstructed = reconstructWriteResume(run, logReader?.tail(runId));
     if (!reconstructed.ok) {
@@ -1254,7 +1253,7 @@ export function createRunLifecycleHandlers(
     }
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admission = await admitRunForResumeOrRefusal(store, runId, reopenStageForAdmission());
+    const admission = await admitRunForResumeOrRefusal(store, runId, reopenStage);
     if (!Array.isArray(admission)) return admission;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
@@ -1265,10 +1264,11 @@ export function createRunLifecycleHandlers(
     key: OwnershipKey,
     execute: (deps: IntentFinalizationResumeDeps) => Promise<{ ok: true } | { ok: false; message: string }>,
     failureAsResponse = false,
+    reopenStage?: LinkedStageTarget,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admission = await admitRunForResumeOrRefusal(store, run.id, reopenStageForAdmission());
+    const admission = await admitRunForResumeOrRefusal(store, run.id, reopenStage);
     if (!Array.isArray(admission)) return admission;
     registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
@@ -1329,16 +1329,22 @@ export function createRunLifecycleHandlers(
   const resumeIntentFinalizationPublication = (
     run: LoadedRun,
     key: OwnershipKey,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> =>
-    resumeFinalizationOnly(run, key, (deps) => resumePopulatedIntentPublication(run, store, deps));
+    resumeFinalizationOnly(run, key, (deps) => resumePopulatedIntentPublication(run, store, deps), false, reopenStage);
 
   const resumeReviewMutationPublication = (
     run: LoadedRun,
     terminalRecord: TerminalLogRecord | undefined,
     key: OwnershipKey,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> =>
-    resumeFinalizationOnly(run, key, (resumeDeps) =>
-      resumeReviewMutationFinalization(run, store, terminalRecord, resumeDeps),
+    resumeFinalizationOnly(
+      run,
+      key,
+      (resumeDeps) => resumeReviewMutationFinalization(run, store, terminalRecord, resumeDeps),
+      false,
+      reopenStage,
     );
 
   const resumeRefusal = (
@@ -1364,7 +1370,10 @@ export function createRunLifecycleHandlers(
    * self-publishes. Returns `undefined` for a non-linked row so the caller falls through to the
    * existing paused/bare-resume branches.
    */
-  const resumeLinkedWorkflowRow = (run: LoadedRun): LifecycleStartResult | undefined => {
+  const resumeLinkedWorkflowRow = (
+    run: LoadedRun,
+    reopenStage: LinkedStageTarget | undefined,
+  ): LifecycleStartResult | undefined => {
     if (!deps.resumeLinkedWorkflowStart) return undefined;
     const snapshot = run.workflowSnapshot;
     const stepId = run.stepId;
@@ -1391,7 +1400,7 @@ export function createRunLifecycleHandlers(
       reconstructedSteps.steps,
       snapshot,
       async () => {
-        const admission = await admitRunForResumeOrRefusal(store, run.id, reopenStageForAdmission());
+        const admission = await admitRunForResumeOrRefusal(store, run.id, reopenStage);
         if (!Array.isArray(admission)) return admission;
         reopened = admission;
         return undefined;
@@ -1408,6 +1417,7 @@ export function createRunLifecycleHandlers(
     run: LoadedRun,
     runId: string,
     logRecords: ReturnType<NonNullable<typeof logReader>["tail"]> | undefined,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const reconstructed = reconstructWriteResume(run, logRecords);
     if (!reconstructed.ok) {
@@ -1416,7 +1426,7 @@ export function createRunLifecycleHandlers(
     const key: OwnershipKey = { project: run.project, branch: run.branch };
     const claimError = checkWorktreeClaimed(registry, key);
     if (claimError) return claimError;
-    const admission = await admitRunForResumeOrRefusal(store, runId, reopenStageForAdmission());
+    const admission = await admitRunForResumeOrRefusal(store, runId, reopenStage);
     if (!Array.isArray(admission)) return admission;
     spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
     return { kind: "response", result: { ok: true } };
@@ -1431,22 +1441,28 @@ export function createRunLifecycleHandlers(
     runId: string,
     logRecords: ReturnType<NonNullable<typeof logReader>["tail"]> | undefined,
     terminalRecord: ReturnType<typeof findTerminalLogRecord> | undefined,
+    reopenStage: LinkedStageTarget | undefined,
   ): Promise<ResumeLifecycleOutcome> => {
     if (isIntentFinalizationResumable(run, store)) {
-      return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch });
+      return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch }, reopenStage);
     }
     if (isFinalizationTailResumable(run, store, terminalRecord)) {
-      return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
+      return resumeReviewMutationPublication(
+        run,
+        terminalRecord,
+        { project: run.project, branch: run.branch },
+        reopenStage,
+      );
     }
     const exhausted = runTimeoutRefusal(run);
     if (exhausted) return exhausted;
-    const linkedResume = resumeLinkedWorkflowRow(run);
+    const linkedResume = resumeLinkedWorkflowRow(run, reopenStage);
     if (linkedResume !== undefined) return linkedResume;
     if (run.status === "paused") {
       const key: OwnershipKey = { project: run.project, branch: run.branch };
-      return resumePausedRun(run, key, runId);
+      return resumePausedRun(run, key, runId, reopenStage);
     }
-    return resumeReconstructedRun(run, runId, logRecords);
+    return resumeReconstructedRun(run, runId, logRecords, reopenStage);
   };
 
   const resumeHandler: RpcHandler = async (frame) => {
@@ -1470,7 +1486,7 @@ export function createRunLifecycleHandlers(
     if (!admission.admitted) {
       return resumeRefusal(run, terminalRecord, admission);
     }
-    return resumeAdmittedRunLifecycle(run, runId, logRecords, terminalRecord);
+    return resumeAdmittedRunLifecycle(run, runId, logRecords, terminalRecord, undefined);
   };
 
   const resumeRunForPipeline = async (
@@ -1488,16 +1504,11 @@ export function createRunLifecycleHandlers(
       const refusal = resumeRefusal(run, terminalRecord, admission);
       return { kind: "refused", reason: refusal.code, message: refusal.message };
     }
-    pipelineResumeReopenStage = reopenStage;
-    try {
-      const outcome = await resumeAdmittedRunLifecycle(run, runId, logRecords, terminalRecord);
-      if (outcome.kind === "error") {
-        return { kind: "refused", reason: outcome.code, message: outcome.message };
-      }
-      return { kind: "ok" };
-    } finally {
-      pipelineResumeReopenStage = undefined;
+    const outcome = await resumeAdmittedRunLifecycle(run, runId, logRecords, terminalRecord, reopenStage);
+    if (outcome.kind === "error") {
+      return { kind: "refused", reason: outcome.code, message: outcome.message };
     }
+    return { kind: "ok" };
   };
 
   const loadLogRecords = logReader === undefined ? undefined : (runId: string) => logReader.tail(runId);

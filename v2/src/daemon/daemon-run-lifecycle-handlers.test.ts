@@ -1172,6 +1172,78 @@ test("wait projects a completed row's stale publication cause as complete unless
   }
 });
 
+test("run resume admitted while a pipeline-scoped resume awaits admission reopens without the pipeline scope", async () => {
+  const pausedRun = (branch: string): string =>
+    stateStore.createRun({
+      project: branch,
+      specRef: "main",
+      worktreePath: `/tmp/${branch}`,
+      branch,
+      specPath: "/tmp/spec.md",
+      status: "paused",
+      queuedInput: mockWriteLoopInput({ projectName: branch, branchName: branch }),
+    });
+  const pipelineRunId = pausedRun("pipeline-scoped-resume");
+  const plainRunId = pausedRun("plain-run-resume");
+  let releasePipelineAdmission = (): void => {};
+  const pipelineAdmissionGate = new Promise<void>((resolve) => {
+    releasePipelineAdmission = resolve;
+  });
+  let signalPipelineAdmissionEntered = (): void => {};
+  const pipelineAdmissionEntered = new Promise<void>((resolve) => {
+    signalPipelineAdmissionEntered = resolve;
+  });
+  const reopenScopes = new Map<string, unknown>();
+  const target = stateStore;
+  const gatedStore = new Proxy(target, {
+    get(obj, prop) {
+      if (prop === "admitRunForResume") {
+        return async (runId: string) => {
+          if (runId === pipelineRunId) {
+            signalPipelineAdmissionEntered();
+            await pipelineAdmissionGate;
+          }
+          return obj.admitRunForResume(runId);
+        };
+      }
+      if (prop === "reopenFailedStagesForResume") {
+        return (entryRunId: string, reopenStage?: unknown) => {
+          reopenScopes.set(entryRunId, reopenStage);
+          return obj.reopenFailedStagesForResume(entryRunId, reopenStage as never);
+        };
+      }
+      const value = Reflect.get(obj, prop, obj);
+      return typeof value === "function" ? value.bind(obj) : value;
+    },
+  });
+  const ctx = createRunControlHandlerContext({
+    stateStore: gatedStore,
+    logReader: { tail: () => [], async *follow() {} },
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+  });
+  const pipelineScope = { pipelineId: "pipeline-1", stageId: "implement", branchKey: "default" };
+  const pipelineResume = handlers.resumeRunForPipeline(pipelineRunId, pipelineScope);
+  await pipelineAdmissionEntered;
+
+  const plain = await handlers.resume(
+    { kind: "request", id: "r1", method: "resume", params: { runId: plainRunId } },
+    new AbortController().signal,
+  );
+  expect(plain).toEqual({ kind: "response", result: { ok: true } });
+  expect(reopenScopes.has(plainRunId)).toBe(true);
+  expect(reopenScopes.get(plainRunId)).toBeUndefined();
+
+  releasePipelineAdmission();
+  expect(await pipelineResume).toEqual({ kind: "ok" });
+  expect(reopenScopes.get(pipelineRunId)).toEqual(pipelineScope);
+});
+
 test("resumeRunForPipeline refuses an unknown run id", async () => {
   const { handlers } = lifecycleHandlers();
   const outcome = await handlers.resumeRunForPipeline("missing-run-id", {

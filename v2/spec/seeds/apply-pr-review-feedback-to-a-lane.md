@@ -14,12 +14,12 @@ Evidence (2026-09-29/30 session, all hand-applied): plan PR #4163 (`ResumePipeli
 
 ## Direction
 
-A standalone preset that runs only against a **completed pipeline stage** (plan or implement) whose PR is still open, and does exactly one thing: address the review feedback on that PR, committing to the same branch and PR through the normal gate. Merged or closed PRs, non-pipeline lanes, and in-flight stages are refused with a named reason.
+A standalone preset that runs only against a **completed plan or implement lane** — bare workflow or pipeline stage alike — whose PR is still open, and does exactly one thing: address the review feedback on that PR, committing to the same branch and PR through the normal gate. Merged or closed PRs and lanes still in flight are refused with a named reason.
 
 ## Slices (each its own seed)
 
 1. **Review input capture** — read the PR's review threads/comments (`gh`) into one durable review artifact for the stage. The PR is the only feedback source.
-2. **Admission** — resolve a completed plan/implement pipeline stage to its branch, worktree, and open PR; refuse everything else by name.
+2. **Admission** — resolve a completed plan/implement lane (bare workflow or pipeline stage) to its branch, worktree, and open PR; refuse everything else by name.
 3. **Feedback run** — the preset's write step addresses the captured items on the same branch, then gate and publication to the same PR.
 4. **Traceability** — the run records which review items it addressed; items it could not address are reported by name, not silently dropped.
 
@@ -28,7 +28,7 @@ A standalone preset that runs only against a **completed pipeline stage** (plan 
 - **A new workflow preset, not a flag on `plan`/`implement`** (owner, 2026-09-30).
 - **Strictly PR feedback.** The agent addresses the PR's review feedback and nothing else: no acceptance-criteria ticking, no subspec routing, no index edits, no new scope. It reuses only the plan/implement rules needed to understand what the PR is (spec layout, what the lane built).
 - **Its prompts are its own and need care.** A dedicated `prompts/<preset>/` set that embeds only that context from plan/implement; follow the plan-prompt coherence rules (no numbers in prompts, no restated mechanics) and give every registered prompt render-observer coverage.
-- **Runs only on a completed pipeline stage** (owner, 2026-09-30).
+- **Runs only on a completed lane**, whether a bare workflow or a pipeline stage (owner, 2026-09-30).
 - **Standalone only, never a pipeline stage** (owner, 2026-09-30). Every workflow preset today is pipeline-composable, so this is a new paradigm: if it lands as a preset, the preset registry needs a way to mark a preset not pipeline-eligible, and pipeline definitions must refuse it. Rules out a review-feedback pipeline stage.
 
 ## Documentation updates

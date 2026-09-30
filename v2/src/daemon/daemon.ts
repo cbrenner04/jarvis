@@ -89,7 +89,12 @@ import {
 import { continuePipeline } from "./pipeline-execution.ts";
 import type { KillSurvivor } from "./run-kill-outcome.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
-import { startStableDigestTrigger } from "./stable-digest-trigger.ts";
+import {
+  type RetiringSoleOwnerSelfHealInput,
+  runRetiringSoleOwnerSelfHealOnSamplingTick,
+  type ScheduleDigestSampling,
+  startStableDigestTrigger,
+} from "./stable-digest-trigger.ts";
 
 export { reconcileOrphanedRuns };
 
@@ -1354,6 +1359,10 @@ type DaemonStartupDeps = {
   startSelfHandoffSuccessor?: (loaded: string, observed: string) => Promise<"committed" | "rolled_back">;
   /** Self-handoff sampling interval; defaults to 30s. Same injection seam as `startDrainExitLoop`'s `intervalMs`. */
   selfHandoffSamplingIntervalMs?: number;
+  /** Receives each production self-handoff sampling-interval body for manual firing in tests. */
+  captureSelfHandoffSamplingIntervalTick?: (tick: () => void) => void;
+  /** When set, overrides predicate inputs for self-heal on each sampling tick (tests only). */
+  selfHandoffSelfHealPredicateInputs?: () => RetiringSoleOwnerSelfHealInput;
 };
 
 export async function recoverReconciledRuns(
@@ -1647,10 +1656,11 @@ export async function startDaemonRuntime(
     },
   );
 
-  // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
-  // it fires on any admission cut, client-initiated or self-triggered, without permanently
-  // stopping the interval, so a rollback that reopens admission lets sampling resume and retry.
-  // `close()` is the only place that permanently stops it, at real teardown.
+  // Self-handoff sampling runs self-heal before its per-tick `isRetiring()` cutoff (below): a
+  // stranded handoff-origin sole owner can reopen admission on the same cadence as digest sampling,
+  // then sampling and backoff retry proceed on later ticks. The cutoff still fires on any admission
+  // cut that self-heal did not clear, without permanently stopping the interval; `close()` alone
+  // stops it at teardown.
   let selfHandoffTrigger: { stop(): void } | undefined;
   const setRetiring = setRetiringRaw;
 
@@ -1829,14 +1839,24 @@ export async function startDaemonRuntime(
           throw error;
         }
       },
-      scheduleSampling: (onTick) => {
-        const timer = setInterval(() => {
+      scheduleSampling: ((onTick) => {
+        const intervalBody = (): void => {
+          const selfHealInput = startupDeps.selfHandoffSelfHealPredicateInputs?.() ?? {
+            retiring: isRetiring(),
+            publicBound,
+            handoffPending: handoffHandlers.isPending(),
+            blocksRollbackReopen: supersedeAdmissionState.blocksRollbackReopen,
+            retireCause: retireCauseState.cause,
+          };
+          runRetiringSoleOwnerSelfHealOnSamplingTick(selfHealInput, reopenAdmission);
           if (isRetiring()) return;
           void onTick();
-        }, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);
+        };
+        startupDeps.captureSelfHandoffSamplingIntervalTick?.(intervalBody);
+        const timer = setInterval(intervalBody, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);
         timer.unref?.();
         return { stop: () => clearInterval(timer) };
-      },
+      }) satisfies ScheduleDigestSampling,
     });
   }
 

@@ -37,13 +37,15 @@ export function shouldSampleNow(state: Readonly<StableDigestTriggerState>): bool
 export type RetireCause = "handoff_origin" | "terminal" | null;
 
 /** Sole-owner stranded incumbent may reopen admission on the self-handoff sampling tick (see subspec 00). */
-export function shouldRetiringSoleOwnerSelfHeal(input: {
+export type RetiringSoleOwnerSelfHealInput = {
   retiring: boolean;
   publicBound: boolean;
   handoffPending: boolean;
   blocksRollbackReopen: boolean;
   retireCause: RetireCause;
-}): boolean {
+};
+
+export function shouldRetiringSoleOwnerSelfHeal(input: RetiringSoleOwnerSelfHealInput): boolean {
   return (
     input.retiring &&
     input.publicBound &&
@@ -51,6 +53,14 @@ export function shouldRetiringSoleOwnerSelfHeal(input: {
     !input.blocksRollbackReopen &&
     input.retireCause === "handoff_origin"
   );
+}
+
+/** Sampling-interval hook: reopen admission before the retiring skip when the sole-owner predicate matches. */
+export function runRetiringSoleOwnerSelfHealOnSamplingTick(
+  input: RetiringSoleOwnerSelfHealInput,
+  reopenAdmission: () => void,
+): void {
+  if (shouldRetiringSoleOwnerSelfHeal(input)) reopenAdmission();
 }
 
 export function startStableDigestTrigger(

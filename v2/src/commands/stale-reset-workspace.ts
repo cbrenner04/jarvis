@@ -48,6 +48,14 @@ export function buildResetStaleWorkspaceOptions(args: {
 
 type StaleResetWorkspaceProbeRefusal = { refused: true; message: string };
 
+type StaleResetRunResult = number | undefined | StaleResetWorkspaceProbeRefusal;
+
+/** Maps a shared run result to CLI exit semantics (probe refusals become exit 1). */
+export function staleResetRunResultToCliExit(result: StaleResetRunResult): number | undefined {
+  if (result !== undefined && typeof result === "object" && "refused" in result) return 1;
+  return result;
+}
+
 type StaleResetParsed =
   | WorkflowStartResetFlags
   | ImplementWorkflowCliInput
@@ -173,8 +181,7 @@ export async function maybeResetStaleWorkspace(
     onDestroyed,
     onOutcome,
   );
-  if (result !== undefined && typeof result === "object" && "refused" in result) return 1;
-  return result;
+  return staleResetRunResultToCliExit(result);
 }
 
 /** Non-mutating stale-reset gate evaluation for pipeline resume admission. */

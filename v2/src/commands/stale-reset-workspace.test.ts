@@ -5,6 +5,7 @@ import {
   buildResetStaleWorkspaceOptions,
   maybeResetStaleWorkspace,
   probeMaybeResetStaleWorkspace,
+  staleResetRunResultToCliExit,
   STALE_RESET_WORKFLOWS,
 } from "./stale-reset-workspace.ts";
 
@@ -37,6 +38,17 @@ describe("stale-reset-workspace exports", () => {
   test("maybeResetStaleWorkspace and STALE_RESET_WORKFLOWS are importable", () => {
     expect(typeof maybeResetStaleWorkspace).toBe("function");
     expect(STALE_RESET_WORKFLOWS.has("intent")).toBe(true);
+  });
+});
+
+describe("staleResetRunResultToCliExit", () => {
+  test("maps probe refusal objects to exit code 1", () => {
+    expect(staleResetRunResultToCliExit({ refused: true, message: "worktree_claimed: lane held\n" })).toBe(1);
+  });
+
+  test("passes through undefined and numeric exit codes", () => {
+    expect(staleResetRunResultToCliExit(undefined)).toBeUndefined();
+    expect(staleResetRunResultToCliExit(1)).toBe(1);
   });
 });
 

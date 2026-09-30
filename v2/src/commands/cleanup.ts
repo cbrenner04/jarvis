@@ -11,8 +11,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { gzipSync } from "node:zlib";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import {
   getBaseBranch,
   getCurrentBranchAsync,
@@ -1577,11 +1577,6 @@ const SESSION_LOG_NAME_PATTERN =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.log$/i;
 const SESSION_LOG_MONTH_SHARD_PATTERN = /^\d{4}-\d{2}$/;
 
-function sessionLogClassifyName(fileName: string): string {
-  if (fileName.endsWith(".log.gz")) return fileName.slice(0, -".gz".length);
-  return fileName;
-}
-
 function collectSessionLogScanDirs(sessionsDir: string): string[] {
   const dirs = [sessionsDir];
   if (!existsSync(sessionsDir)) return dirs;
@@ -1601,6 +1596,87 @@ function collectSessionLogScanDirs(sessionsDir: string): string[] {
     }
   }
   return dirs;
+}
+
+function planSessionLogGzEntry(
+  dir: string,
+  path: string,
+  gzName: string,
+  gzipBytes: number,
+  mtimeMs: number,
+  coldCutoffMs: number,
+  runsById: ReadonlyMap<string, Run>,
+  plan: NonNullable<SessionLogReapPlan>,
+): void {
+  const plainName = gzName.slice(0, -".gz".length);
+  if (existsSync(join(dir, plainName))) return;
+  const tier = classifySessionLog(plainName, mtimeMs, coldCutoffMs, runsById);
+  if (tier === null) return;
+  plan.coldToGone.push({ path, gzipBytes, orphan: tier });
+}
+
+function planSessionLogPlainEntry(
+  path: string,
+  name: string,
+  stat: { size: number; mtimeMs: number },
+  hotCutoffMs: number,
+  coldCutoffMs: number,
+  runsById: ReadonlyMap<string, Run>,
+  plan: NonNullable<SessionLogReapPlan>,
+): void {
+  const hotTier = classifySessionLog(name, stat.mtimeMs, hotCutoffMs, runsById);
+  if (hotTier === null) return;
+  plan.hotToCold.push({ path, plainBytes: stat.size, orphan: hotTier });
+  const coldTier = classifySessionLog(name, stat.mtimeMs, coldCutoffMs, runsById);
+  if (coldTier === null || existsSync(`${path}.gz`)) return;
+  plan.coldToGone.push({
+    path: `${path}.gz`,
+    gzipBytes: gzipSync(readFileSync(path)).length,
+    orphan: coldTier,
+  });
+}
+
+function scanSessionLogDir(
+  dir: string,
+  hotCutoffMs: number,
+  coldCutoffMs: number,
+  runsById: ReadonlyMap<string, Run>,
+  plan: NonNullable<SessionLogReapPlan>,
+): void {
+  if (!existsSync(dir)) return;
+  let handle: Dir;
+  try {
+    handle = opendirSync(dir);
+  } catch {
+    return;
+  }
+  try {
+    for (let entry = handle.readSync(); entry !== null; entry = handle.readSync()) {
+      if (!entry.isFile()) continue;
+      const path = join(dir, entry.name);
+      if (entry.name.endsWith(".log.gz.tmp")) {
+        plan.tmpToRemove.push(path);
+        continue;
+      }
+      if (entry.name.endsWith(".log.gz")) {
+        try {
+          const stat = statSync(path);
+          planSessionLogGzEntry(dir, path, entry.name, stat.size, stat.mtimeMs, coldCutoffMs, runsById, plan);
+        } catch {
+          // A file that disappears during discovery is no longer reclaimable.
+        }
+        continue;
+      }
+      if (!entry.name.endsWith(".log")) continue;
+      try {
+        planSessionLogPlainEntry(path, entry.name, statSync(path), hotCutoffMs, coldCutoffMs, runsById, plan);
+      } catch {
+        // A file that disappears during discovery is no longer reclaimable.
+      }
+    }
+  } finally {
+    handle.closeSync();
+  }
 }
 
 function discoverExpiredSessionLogs(
@@ -1629,62 +1705,9 @@ function discoverExpiredSessionLogs(
   const hotCutoffMs = nowMs - retention.hotDays * dayMs;
   const coldCutoffMs = nowMs - retention.coldDays * dayMs;
   const plan: NonNullable<SessionLogReapPlan> = { hotToCold: [], coldToGone: [], tmpToRemove: [] };
-
   const runsById = new Map(store.listRuns().map((run) => [run.id, run]));
-
   for (const dir of collectSessionLogScanDirs(sessionsDir)) {
-    if (!existsSync(dir)) continue;
-    let handle: Dir;
-    try {
-      handle = opendirSync(dir);
-    } catch {
-      continue;
-    }
-    try {
-      for (let entry = handle.readSync(); entry !== null; entry = handle.readSync()) {
-        if (!entry.isFile()) continue;
-        const path = join(dir, entry.name);
-        if (entry.name.endsWith(".log.gz.tmp")) {
-          plan.tmpToRemove.push(path);
-          continue;
-        }
-        if (entry.name.endsWith(".log.gz")) {
-          try {
-            const stat = statSync(path);
-            const classifyName = sessionLogClassifyName(entry.name);
-            const plainPath = join(dir, classifyName);
-            if (existsSync(plainPath)) continue;
-            const orphan = classifySessionLog(classifyName, stat.mtimeMs, coldCutoffMs, runsById);
-            if (orphan !== null) plan.coldToGone.push({ path, gzipBytes: stat.size, orphan });
-          } catch {
-            // A file that disappears during discovery is no longer reclaimable.
-          }
-          continue;
-        }
-        if (!entry.name.endsWith(".log") || entry.name.endsWith(".log.gz")) continue;
-        try {
-          const stat = statSync(path);
-          const orphan = classifySessionLog(entry.name, stat.mtimeMs, hotCutoffMs, runsById);
-          if (orphan === null) continue;
-          plan.hotToCold.push({ path, plainBytes: stat.size, orphan });
-          const coldOrphan = classifySessionLog(entry.name, stat.mtimeMs, coldCutoffMs, runsById);
-          if (coldOrphan !== null) {
-            const gzPath = `${path}.gz`;
-            if (!existsSync(gzPath)) {
-              plan.coldToGone.push({
-                path: gzPath,
-                gzipBytes: gzipSync(readFileSync(path)).length,
-                orphan: coldOrphan,
-              });
-            }
-          }
-        } catch {
-          // A file that disappears during discovery is no longer reclaimable.
-        }
-      }
-    } finally {
-      handle.closeSync();
-    }
+    scanSessionLogDir(dir, hotCutoffMs, coldCutoffMs, runsById, plan);
   }
   return plan;
 }
@@ -1715,27 +1738,25 @@ function classifySessionLog(
   return expired ? false : null;
 }
 
-function sessionLogOrphanSuffix(orphans: number): string {
-  return orphans > 0 ? ` (${orphans} by mtime, no run row)` : "";
-}
-
 function printSessionLogSummary(
   verb: "Found" | "Reaped",
-  plan: NonNullable<SessionLogReapPlan>,
+  plan: Pick<NonNullable<SessionLogReapPlan>, "hotToCold" | "coldToGone">,
   io: { stdout: (s: string) => void },
 ): void {
   if (plan.hotToCold.length > 0) {
     const bytes = plan.hotToCold.reduce((total, log) => total + log.plainBytes, 0);
     const orphans = plan.hotToCold.filter((log) => log.orphan).length;
+    const orphanSuffix = orphans > 0 ? ` (${orphans} by mtime, no run row)` : "";
     io.stdout(
-      `${verb} ${plan.hotToCold.length} session log(s) for hot-to-cold compression${sessionLogOrphanSuffix(orphans)}: ${bytes} plain bytes.\n`,
+      `${verb} ${plan.hotToCold.length} session log(s) for hot-to-cold compression${orphanSuffix}: ${bytes} plain bytes.\n`,
     );
   }
   if (plan.coldToGone.length > 0) {
     const bytes = plan.coldToGone.reduce((total, log) => total + log.gzipBytes, 0);
     const orphans = plan.coldToGone.filter((log) => log.orphan).length;
+    const orphanSuffix = orphans > 0 ? ` (${orphans} by mtime, no run row)` : "";
     io.stdout(
-      `${verb} ${plan.coldToGone.length} session log(s) for cold-to-gone deletion${sessionLogOrphanSuffix(orphans)}: ${bytes} gzip bytes.\n`,
+      `${verb} ${plan.coldToGone.length} session log(s) for cold-to-gone deletion${orphanSuffix}: ${bytes} gzip bytes.\n`,
     );
   }
 }
@@ -2024,12 +2045,14 @@ async function executeConfirmedCleanup(
   );
   let sessionLogExit = 0;
   if (ctx.sessionLogPlan !== null) {
-    const applied: NonNullable<SessionLogReapPlan> = { hotToCold: [], coldToGone: [], tmpToRemove: [] };
+    const applied: Pick<NonNullable<SessionLogReapPlan>, "hotToCold" | "coldToGone"> = {
+      hotToCold: [],
+      coldToGone: [],
+    };
     let failures = 0;
     for (const path of ctx.sessionLogPlan.tmpToRemove) {
       try {
         rmSync(path, { force: true });
-        applied.tmpToRemove.push(path);
       } catch {
         failures += 1;
       }

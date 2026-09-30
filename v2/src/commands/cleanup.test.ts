@@ -6922,12 +6922,8 @@ describe("cleanup: session log retention", () => {
     utimesSync(path, when, when);
   }
 
-  function sessionLogGzPath(logPath: string): string {
-    return `${logPath}.gz`;
-  }
-
   function writeColdGzip(logPath: string, plain: string): string {
-    const gzPath = sessionLogGzPath(logPath);
+    const gzPath = `${logPath}.gz`;
     writeFileSync(gzPath, gzipSync(plain));
     return gzPath;
   }
@@ -6967,15 +6963,15 @@ describe("cleanup: session log retention", () => {
 
     expect(existsSync(hotPath)).toBe(true);
     expect(existsSync(warmPath)).toBe(false);
-    expect(existsSync(sessionLogGzPath(warmPath))).toBe(true);
-    expect(gunzipSync(readFileSync(sessionLogGzPath(warmPath))).toString()).toBe("warm-plain");
+    expect(existsSync(`${warmPath}.gz`)).toBe(true);
+    expect(gunzipSync(readFileSync(`${warmPath}.gz`)).toString()).toBe("warm-plain");
     expect(existsSync(coldPlainPath)).toBe(false);
-    expect(existsSync(sessionLogGzPath(coldPlainPath))).toBe(false);
+    expect(existsSync(`${coldPlainPath}.gz`)).toBe(false);
     expect(existsSync(coldGzipPath)).toBe(false);
     expect(existsSync(livePath)).toBe(true);
     expect(existsSync(unsettledPath)).toBe(true);
     expect(existsSync(oldOrphanPath)).toBe(false);
-    expect(existsSync(sessionLogGzPath(oldOrphanPath))).toBe(false);
+    expect(existsSync(`${oldOrphanPath}.gz`)).toBe(false);
     expect(existsSync(youngOrphanPath)).toBe(true);
 
     const second = await runSessionCleanup(sessionsDir, runs);
@@ -6990,7 +6986,7 @@ describe("cleanup: session log retention", () => {
     const run = runRow(runId(9), "completed", now.getTime() - 20 * dayMs);
     const plainPath = writeSessionLog(sessionsDir, run.id, "recover-me");
     const staleGz = writeColdGzip(plainPath, "stale");
-    const tmpPath = `${sessionLogGzPath(plainPath)}.tmp`;
+    const tmpPath = `${plainPath}.gz.tmp`;
     writeFileSync(tmpPath, "partial");
 
     const result = await runSessionCleanup(sessionsDir, [run]);
@@ -7031,7 +7027,7 @@ describe("cleanup: session log retention", () => {
 
     await runSessionCleanup(dirname(defaultPath), [defaultRun]);
     expect(existsSync(defaultPath)).toBe(false);
-    expect(existsSync(sessionLogGzPath(defaultPath))).toBe(false);
+    expect(existsSync(`${defaultPath}.gz`)).toBe(false);
 
     const invalidConfigs: unknown[] = [
       { retention: "invalid" },
@@ -7094,7 +7090,7 @@ describe("cleanup: session log retention", () => {
     await runSessionCleanup(sessionsDir, [run]);
 
     expect(existsSync(expiredPath)).toBe(false);
-    expect(existsSync(sessionLogGzPath(expiredPath))).toBe(false);
+    expect(existsSync(`${expiredPath}.gz`)).toBe(false);
     for (const path of [telemetryPath, statePath, nestedLogPath, malformedLogPath, outsidePath]) {
       expect(existsSync(path)).toBe(true);
     }

@@ -6,4 +6,4 @@ Chained subspecs (intent PR #4249 / seed `serial-rerun-includes-frozen-v1`).
 
 - [x] [00 — Live serial confirmation runner](./00-confirm-live-test-runner.md)
 - [x] [01 — Agent guidance and guidance pin test](./01-agents-serial-confirmation-guidance.md)
-- [ ] [02 — Operator and catalog documentation](./02-serial-confirmation-docs.md)
+- [x] [02 — Operator and catalog documentation](./02-serial-confirmation-docs.md)

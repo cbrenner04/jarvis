@@ -3,10 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { aggregateTestFiles, runAggregateTests } from "./run-tests.ts";
 
+function muteRunnerOutput(): void {
+  spyOn(process.stdout, "write").mockImplementation(() => true);
+  spyOn(process.stderr, "write").mockImplementation(() => true);
+}
+
 describe("runAggregateTests", () => {
   test("serial aggregate runs one file at a time", async () => {
-    spyOn(process.stdout, "write").mockImplementation(() => true);
-    spyOn(process.stderr, "write").mockImplementation(() => true);
+    muteRunnerOutput();
     let inFlight = 0;
     let maxInFlight = 0;
     const spawn = async (cmd: string, args: string[]) => {
@@ -26,8 +30,7 @@ describe("runAggregateTests", () => {
   });
 
   test("serial aggregate covers the aggregate roster in agent-then-integration order", async () => {
-    spyOn(process.stdout, "write").mockImplementation(() => true);
-    spyOn(process.stderr, "write").mockImplementation(() => true);
+    muteRunnerOutput();
     const { agent, integration } = aggregateTestFiles();
     const expected = [...agent, ...integration];
     const spawned: string[] = [];
@@ -42,9 +45,7 @@ describe("runAggregateTests", () => {
     await runAggregateTests(1, spawn);
 
     expect(spawned).toEqual(expected);
-    for (const file of spawned) {
-      expect(file.startsWith("v1/")).toBe(false);
-    }
+    expect(spawned.every((file) => !file.startsWith("v1/"))).toBe(true);
   });
 });
 

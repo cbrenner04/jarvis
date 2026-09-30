@@ -12,10 +12,6 @@ function classOfTestFile(file: string) {
   return readTestIsolationClass(file, readFileSync(file, "utf8"));
 }
 
-function scheduleAggregateSlice(files: string[]): string[] {
-  return planTestBatches(files, classOfTestFile).flat();
-}
-
 /** Aggregate suite: agent and integration tests both run through the pooled per-file seam. */
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
   const sharedAndHarness = partitionTestFiles([
@@ -23,9 +19,11 @@ export function aggregateTestFiles(): { agent: string[]; integration: string[] }
     ...walkTestFiles("test"),
     ...walkTestFiles("scripts"),
   ]);
-  const agent = scheduleAggregateSlice([...v2Tests("agent"), ...sharedAndHarness.agent]);
-  const integration = scheduleAggregateSlice([...v2Tests("integration"), ...sharedAndHarness.integration]);
-  return { agent, integration };
+  const schedule = (files: string[]) => planTestBatches(files, classOfTestFile).flat();
+  return {
+    agent: schedule([...v2Tests("agent"), ...sharedAndHarness.agent]),
+    integration: schedule([...v2Tests("integration"), ...sharedAndHarness.integration]),
+  };
 }
 
 export async function runAggregateTests(
@@ -37,16 +35,12 @@ export async function runAggregateTests(
 
   if (agent.length > 0) {
     const code = aggregateExitCode(await runV2TestFiles("agent", agent, spawn, "", conc));
-    if (code !== 0) {
-      return code;
-    }
+    if (code !== 0) return code;
   }
 
   if (integration.length > 0) {
     const code = aggregateExitCode(await runV2TestFiles("integration", integration, spawn, "", conc));
-    if (code !== 0) {
-      return code;
-    }
+    if (code !== 0) return code;
   }
 
   return 0;

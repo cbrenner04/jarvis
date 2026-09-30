@@ -54,6 +54,20 @@ export function shouldRetiringSoleOwnerSelfHeal(input: RetiringSoleOwnerSelfHeal
   );
 }
 
+/** Production self-handoff sampling interval body (`daemon.ts` `scheduleSampling`). */
+export function runSelfHandoffSamplingIntervalTick(
+  input: RetiringSoleOwnerSelfHealInput,
+  reopenAdmission: () => void,
+  isRetiring: () => boolean,
+  retireCause: () => RetireCause,
+  onTick: () => void | Promise<void>,
+): void {
+  if (shouldRetiringSoleOwnerSelfHeal(input)) reopenAdmission();
+  if (input.handoffPending) return;
+  if (isRetiring() && retireCause() !== "handoff_origin") return;
+  void Promise.resolve(onTick());
+}
+
 export function startStableDigestTrigger(
   loadedDigest: string,
   deps: {

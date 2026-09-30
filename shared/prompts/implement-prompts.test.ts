@@ -70,7 +70,7 @@ describe("implement-owned prompt artifacts", () => {
 
   test("the migrated jarvis-specific rules live in this repo's injected guidance", async () => {
     const guidance = await Bun.file(new URL("../../AGENTS.md", import.meta.url)).text();
-    expect(guidance).toContain("re-run once serially as `bun test`");
+    expect(guidance).toContain("re-run once serially as `bun run test:confirm:live`");
     expect(guidance).toContain("never read the ambient machine config");
     expect(guidance).toContain("`setTimeout` or `setInterval` callback");
   });

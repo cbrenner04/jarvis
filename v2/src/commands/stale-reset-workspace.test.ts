@@ -5,8 +5,8 @@ import {
   buildResetStaleWorkspaceOptions,
   maybeResetStaleWorkspace,
   probeMaybeResetStaleWorkspace,
-  staleResetRunResultToCliExit,
   STALE_RESET_WORKFLOWS,
+  staleResetRunResultToCliExit,
 } from "./stale-reset-workspace.ts";
 
 const stubWriteBuild = {

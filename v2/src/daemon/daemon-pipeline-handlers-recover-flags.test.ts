@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";

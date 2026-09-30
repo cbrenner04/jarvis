@@ -1250,11 +1250,13 @@ function seedTerminalRejectedPipeline(store: StateStore): string {
 function seedOwnedByOldestOfThree(
   label: string,
   seed: (store: StateStore) => string = seedAwaitingGatePipeline,
+  afterSeed?: (dbPath: string, pipelineId: string) => void,
 ): { store: StateStore; pipelineId: string } {
   const dbPath = tempDbPath(label);
   const seedStore = openStateStore(dbPath, { currentIdentity: OLDEST_IDENTITY });
   const pipelineId = seed(seedStore);
   seedStore.close();
+  afterSeed?.(dbPath, pipelineId);
   const store = openStateStore(dbPath, {
     currentIdentity: SUCCESSOR_IDENTITY,
     isOwnerAlive: async (identity) => identity === OLDEST_IDENTITY || identity === PREDECESSOR_IDENTITY,
@@ -1262,8 +1264,22 @@ function seedOwnedByOldestOfThree(
   return { store, pipelineId };
 }
 
-function durableStateOwnerReply(state: string): Reply {
-  return { kind: "response", result: { kind: "durable_state", state, ownerIdentity: OLDEST_IDENTITY } };
+function durableStateOwnerReply(state: string, ownerIdentity = OLDEST_IDENTITY): Reply {
+  return { kind: "response", result: { kind: "durable_state", state, ownerIdentity } };
+}
+
+function wrapWithOldestPeer(
+  store: PipelineOwnershipStore,
+  handlers: ReturnType<typeof createRunControlHandlers>,
+  reply: Reply,
+) {
+  const oldest = ownerClient(reply);
+  const wrapped = wrapDecisionHandlers(handlers, {
+    store,
+    discoverPeerSocketPaths: () => [OLDEST_SOCKET_PATH],
+    connectOwnerClient: async () => oldest.client,
+  });
+  return { wrapped, oldest };
 }
 
 function noStageHandlers(store: StateStore) {
@@ -1452,16 +1468,7 @@ describe("stable pipeline decision-verb claim across older generations", () => {
     ] as const;
     for (const { label, seed, state, reason } of cases) {
       const { store, pipelineId } = seedOwnedByOldestOfThree(`durable-terminal-${label}`, seed);
-      const successorHandlers = noStageHandlers(store);
-      const oldest = ownerClient(durableStateOwnerReply(state));
-      const wrapped = wrapDecisionHandlers(successorHandlers, {
-        store,
-        discoverPeerSocketPaths: () => [OLDEST_SOCKET_PATH],
-        connectOwnerClient: async (path) => {
-          if (path === OLDEST_SOCKET_PATH) return oldest.client;
-          throw new Error(`unexpected socket ${path}`);
-        },
-      });
+      const { wrapped, oldest } = wrapWithOldestPeer(store, noStageHandlers(store), durableStateOwnerReply(state));
 
       const response = await wrapped.pipeline_resume(
         decisionFrame("resume", "pipeline_resume", { pipelineId }),
@@ -1477,19 +1484,7 @@ describe("stable pipeline decision-verb claim across older generations", () => {
 
   test("pipeline_resume claims through durable_state when derived execution is already terminal", async () => {
     const { store, pipelineId } = seedOwnedByOldestOfThree("durable-derived-failed", seedBlockedRecoverablePipeline);
-    const successorHandlers = createRunControlHandlers({
-      stateStore: store,
-      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      resolveStage: async () => ({ ok: true, steps: [] }),
-    });
-    const oldest = ownerClient(durableStateOwnerReply("failed"));
-    const wrapped = wrapDecisionHandlers(successorHandlers, {
-      store,
-      discoverPeerSocketPaths: () => [OLDEST_SOCKET_PATH],
-      connectOwnerClient: async () => oldest.client,
-    });
+    const { wrapped, oldest } = wrapWithOldestPeer(store, noStageHandlers(store), durableStateOwnerReply("failed"));
 
     const response = await wrapped.pipeline_resume(
       decisionFrame("resume", "pipeline_resume", { pipelineId }),
@@ -1504,22 +1499,12 @@ describe("stable pipeline decision-verb claim across older generations", () => {
   });
 
   test("claims through durable_state peer witness when durable status is interrupted", async () => {
-    const dbPath = tempDbPath("durable-interrupted");
-    const seedStore = openStateStore(dbPath, { currentIdentity: OLDEST_IDENTITY });
-    const pipelineId = seedAwaitingGatePipeline(seedStore);
-    seedStore.close();
-    setPipelineStatus(dbPath, pipelineId, "interrupted");
-    const store = openStateStore(dbPath, {
-      currentIdentity: SUCCESSOR_IDENTITY,
-      isOwnerAlive: async (identity) => identity === OLDEST_IDENTITY || identity === PREDECESSOR_IDENTITY,
-    });
-    const successorHandlers = noStageHandlers(store);
-    const oldest = ownerClient(durableStateOwnerReply("pending"));
-    const wrapped = wrapDecisionHandlers(successorHandlers, {
-      store,
-      discoverPeerSocketPaths: () => [OLDEST_SOCKET_PATH],
-      connectOwnerClient: async () => oldest.client,
-    });
+    const { store, pipelineId } = seedOwnedByOldestOfThree(
+      "durable-interrupted",
+      seedAwaitingGatePipeline,
+      (dbPath, id) => setPipelineStatus(dbPath, id, "interrupted"),
+    );
+    const { wrapped, oldest } = wrapWithOldestPeer(store, noStageHandlers(store), durableStateOwnerReply("pending"));
 
     const response = await wrapped.pipeline_resume(
       decisionFrame("resume", "pipeline_resume", { pipelineId }),
@@ -1534,13 +1519,7 @@ describe("stable pipeline decision-verb claim across older generations", () => {
 
   test("durable_state witness does not confirm when the loaded row is still live-owned", async () => {
     const { store, pipelineId } = seedOwnedByOldestOfThree("durable-non-qualifying-row");
-    const successorHandlers = noStageHandlers(store);
-    const oldest = ownerClient(durableStateOwnerReply("failed"));
-    const wrapped = wrapDecisionHandlers(successorHandlers, {
-      store,
-      discoverPeerSocketPaths: () => [OLDEST_SOCKET_PATH],
-      connectOwnerClient: async () => oldest.client,
-    });
+    const { wrapped } = wrapWithOldestPeer(store, noStageHandlers(store), durableStateOwnerReply("failed"));
 
     const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
 
@@ -1551,16 +1530,11 @@ describe("stable pipeline decision-verb claim across older generations", () => {
 
   test("durable_state witness does not confirm when ownerIdentity mismatches the row", async () => {
     const { store, pipelineId } = seedOwnedByOldestOfThree("durable-wrong-identity", seedBlockedRecoverablePipeline);
-    const successorHandlers = noStageHandlers(store);
-    const oldest = ownerClient({
-      kind: "response",
-      result: { kind: "durable_state", state: "failed", ownerIdentity: "wrong-owner" },
-    });
-    const wrapped = wrapDecisionHandlers(successorHandlers, {
+    const { wrapped } = wrapWithOldestPeer(
       store,
-      discoverPeerSocketPaths: () => [OLDEST_SOCKET_PATH],
-      connectOwnerClient: async () => oldest.client,
-    });
+      noStageHandlers(store),
+      durableStateOwnerReply("failed", "wrong-owner"),
+    );
 
     const response = await wrapped.pipeline_approve(approveFrame(pipelineId), new AbortController().signal);
 

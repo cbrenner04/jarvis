@@ -187,13 +187,6 @@ function pipelineNoLiveOwnerRefusal(pipelineId: string): { kind: "error"; code: 
   };
 }
 
-function parsePeerOwnerWitness(result: unknown, acceptDurableStateWitness: boolean): string | undefined {
-  if (!isRecord(result) || typeof result.ownerIdentity !== "string") return undefined;
-  if (result.kind === "owner") return result.ownerIdentity;
-  if (acceptDurableStateWitness && result.kind === "durable_state") return result.ownerIdentity;
-  return undefined;
-}
-
 /** Asks one peer generation whether it recognizes itself as the pipeline's owner; returns its
  * `ownerIdentity`, or `undefined` when unreachable or answering no confirming witness. */
 async function queryPeerPipelineOwner(
@@ -215,7 +208,10 @@ async function queryPeerPipelineOwner(
       { pipelineId },
       { timeoutMs: deps.predecessorOwnerQueryTimeoutMs ?? PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS },
     );
-    return parsePeerOwnerWitness(result, acceptDurableStateWitness);
+    if (!isRecord(result) || typeof result.ownerIdentity !== "string") return undefined;
+    if (result.kind === "owner") return result.ownerIdentity;
+    if (acceptDurableStateWitness && result.kind === "durable_state") return result.ownerIdentity;
+    return undefined;
   } catch {
     return undefined;
   } finally {

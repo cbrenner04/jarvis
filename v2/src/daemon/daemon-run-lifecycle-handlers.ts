@@ -881,6 +881,30 @@ export function createRunLifecycleHandlers(
     return { fullRuns, workflowRuns };
   };
 
+  const priorLaneRunsForWorkflowRollup = (entryRun: Run, invocationId: string): Run[] => {
+    const prior: Run[] = [];
+    for (const candidate of store.listRuns()) {
+      const snapshot = candidate.workflowSnapshot;
+      if (snapshot === null || snapshot === undefined) continue;
+      if (snapshot.invocationId === invocationId) continue;
+      if (
+        candidate.project !== entryRun.project ||
+        candidate.branch !== entryRun.branch ||
+        candidate.specRef !== entryRun.specRef
+      ) {
+        continue;
+      }
+      const priorEntryStepId = snapshot.steps[0]?.stepId;
+      if (priorEntryStepId === undefined) continue;
+      const priorEntry = store
+        .findRunsByInvocationId(snapshot.invocationId)
+        .find((row) => row.stepId === priorEntryStepId);
+      if (priorEntry === undefined || priorEntry.createdAt >= entryRun.createdAt) continue;
+      prior.push(candidate);
+    }
+    return prior;
+  };
+
   const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     if (entrySnapshot === undefined) return run.status;
@@ -890,6 +914,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: entrySnapshot,
       siblingRuns: store.findRunsByInvocationId(entrySnapshot.invocationId),
       isLive: workflowStillLive,
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, entrySnapshot.invocationId),
     });
   };
 
@@ -912,6 +937,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: workflowStillLive,
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(entryFullRun, snapshot.invocationId),
     });
   };
 
@@ -1564,6 +1590,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: false,
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, snapshot.invocationId),
     });
     return { kind: "response", result: workflowEntryResult(run, snapshot, rollupStatus) };
   };

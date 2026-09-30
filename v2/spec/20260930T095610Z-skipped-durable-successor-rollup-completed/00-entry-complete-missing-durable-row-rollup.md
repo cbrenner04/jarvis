@@ -16,19 +16,19 @@
 
 ## Tasks
 
-- [ ] Add optional prior-lane runs to `RollupArgs`; in the step loop, treat a missing durable row as satisfied only under (a)+(b)+(c), else return `killed`.
-- [ ] Supply prior-lane runs (same project, branch, `specRef`, earlier invocations) from the daemon `list`/`wait` rollup callers in `daemon-run-lifecycle-handlers.ts`.
-- [ ] Add unit tests in `workflow-run-status-rollup.test.ts` per acceptance criteria.
-- [ ] Update the `resolveWorkflowRunRollup` doc-comment.
+- [x] Add optional prior-lane runs to `RollupArgs`; in the step loop, treat a missing durable row as satisfied only under (a)+(b)+(c), else return `killed`.
+- [x] Supply prior-lane runs (same project, branch, `specRef`, earlier invocations) from the daemon `list`/`wait` rollup callers in `daemon-run-lifecycle-handlers.ts`.
+- [x] Add unit tests in `workflow-run-status-rollup.test.ts` per acceptance criteria.
+- [x] Update the `resolveWorkflowRunRollup` doc-comment.
 
 ## Acceptance criteria
 
-- [ ] Test: entry `completed`, `terminalCause: "complete"`, `attemptCount: 0`, no successor row, prior same-lane invocation has a `completed` successor row → rollup `completed`; fails against pre-fix `killed`.
-- [ ] Test: entry `completed`, `terminalCause: "complete"`, `attemptCount` ≥ 1, no successor row, no prior successor → `killed`.
-- [ ] Test: entry `completed`, `terminalCause: "complete"`, `attemptCount: 0`, no successor row, no prior successor → `killed`.
-- [ ] Test: entry with null or non-complete `terminalCause` and a missing successor stays `killed`.
-- [ ] Linked-implement describe block stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Test: entry `completed`, `terminalCause: "complete"`, `attemptCount: 0`, no successor row, prior same-lane invocation has a `completed` successor row → rollup `completed`; fails against pre-fix `killed`.
+- [x] Test: entry `completed`, `terminalCause: "complete"`, `attemptCount` ≥ 1, no successor row, no prior successor → `killed`.
+- [x] Test: entry `completed`, `terminalCause: "complete"`, `attemptCount: 0`, no successor row, no prior successor → `killed`.
+- [x] Test: entry with null or non-complete `terminalCause` and a missing successor stays `killed`.
+- [x] Linked-implement describe block stays green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

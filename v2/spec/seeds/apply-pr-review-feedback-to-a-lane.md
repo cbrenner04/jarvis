@@ -26,11 +26,12 @@ A jarvis entry point takes a lane's open PR plus review input and re-enters that
 
 ## Open questions for the owner
 
-- New preset (`jarvis run workflow review-feedback …`) vs a flag on existing `plan`/`implement`?
 - Is slice 1 useful alone (e.g. to feed a hand-driven run)?
 
 ## Decided
 
+- **A new workflow preset, not a flag on `plan`/`implement`** (owner, 2026-09-30).
+- **Its prompts are its own and need care.** A dedicated `prompts/<preset>/` set, not the implement or plan rules reused wholesale: the agent's job is to address the listed review items on an existing branch, so scope is the review items (not the spec's unchecked criteria), and routing/ticking/terminal-token mechanics differ from a fresh implement. Follow the plan-prompt coherence rules (no numbers in prompts, no restated mechanics) and give every registered prompt render-observer coverage.
 - **Standalone only, never a pipeline stage** (owner, 2026-09-30). Every workflow preset today is pipeline-composable, so this is a new paradigm: if it lands as a preset, the preset registry needs a way to mark a preset not pipeline-eligible, and pipeline definitions must refuse it. Rules out a review-feedback pipeline stage.
 
 ## Documentation updates

@@ -24,10 +24,10 @@ The diff-derived verifier derives mutation candidates from every added/changed p
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` drives a diff where a pre-existing operator/guard expression line is only reflowed (e.g. `x !== undefined || (a && b)` wrapped on one changed `+` line with a new clause added on another changed line) and proves the reflowed line yields no operator-flip candidate while the genuinely new clause still does; it fails against the pre-fix derivation that flags the reflowed line. Guard-flip is asserted only when the scenario keeps `!` on a single changed physical line (existing admission rule).
-- [ ] A regression in `diff-derived-mutation-verifier.test.ts` proves a real token change on a reflowed line (e.g. `!==` edited to `===`, or a renamed identifier) still derives its candidate; whitespace normalization does not mask a semantic change.
-- [ ] A regression in `diff-derived-mutation-verifier.test.ts` proves indentation-only and trailing-whitespace changes derive no new candidates.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `diff-derived-mutation-verifier.test.ts` drives a diff where a pre-existing operator/guard expression line is only reflowed (e.g. `x !== undefined || (a && b)` wrapped on one changed `+` line with a new clause added on another changed line) and proves the reflowed line yields no operator-flip candidate while the genuinely new clause still does; it fails against the pre-fix derivation that flags the reflowed line. Guard-flip is asserted only when the scenario keeps `!` on a single changed physical line (existing admission rule).
+- [x] A regression in `diff-derived-mutation-verifier.test.ts` proves a real token change on a reflowed line (e.g. `!==` edited to `===`, or a renamed identifier) still derives its candidate; whitespace normalization does not mask a semantic change.
+- [x] A regression in `diff-derived-mutation-verifier.test.ts` proves indentation-only and trailing-whitespace changes derive no new candidates.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

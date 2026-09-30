@@ -3,8 +3,9 @@ id: plan.prompt.review.advocate
 behavior: plan
 kind: step
 fragmentPolicy: behavior
-revision: 5
+revision: 6
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, ADVERSARY_FINDINGS:string!, REVIEW_PASS_CONTEXT:string!]
+add: [implement.review.falsifiability]
 remove: [global.naming]
 ---
 # Plan Mode — Review: Advocate

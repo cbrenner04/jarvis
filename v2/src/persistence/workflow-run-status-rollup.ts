@@ -11,7 +11,6 @@ type RollupArgs = {
   workflowSnapshot?: WorkflowSnapshot | null;
   siblingRuns: Run[];
   isLive: boolean;
-  /** Same-lane runs from earlier invocations; absent means no prior-step evidence. */
   priorLaneRuns?: readonly Run[];
 };
 
@@ -53,12 +52,14 @@ function missingDurableStepSatisfiedByPriorLane(
   authoredStepId: string,
   priorLaneRuns: readonly Run[] | undefined,
 ): boolean {
-  if (priorLaneRuns === undefined) return false;
-  if (entryRun.status !== "completed" || entryRun.terminalCause !== "complete" || entryRun.attemptCount !== 0) {
-    return false;
-  }
-  return priorLaneRuns.some(
-    (run) => run.status === "completed" && run.stepId != null && resolveAuthoredStepId(run.stepId) === authoredStepId,
+  return (
+    entryRun.status === "completed" &&
+    entryRun.terminalCause === "complete" &&
+    entryRun.attemptCount === 0 &&
+    (priorLaneRuns?.some(
+      (run) => run.status === "completed" && run.stepId != null && resolveAuthoredStepId(run.stepId) === authoredStepId,
+    ) ??
+      false)
   );
 }
 

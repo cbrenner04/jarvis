@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Entry-complete missing durable row rollup](./00-entry-complete-missing-durable-row-rollup.md)
+- [x] [00 - Entry-complete missing durable row rollup](./00-entry-complete-missing-durable-row-rollup.md)

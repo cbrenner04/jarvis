@@ -882,11 +882,11 @@ export function createRunLifecycleHandlers(
   };
 
   const priorLaneRunsForWorkflowRollup = (entryRun: Run, invocationId: string): Run[] => {
-    const prior: Run[] = [];
+    const priorInvocationIds = new Set<string>();
     for (const candidate of store.listRuns()) {
       const snapshot = candidate.workflowSnapshot;
-      if (snapshot === null || snapshot === undefined) continue;
-      if (snapshot.invocationId === invocationId) continue;
+      if (snapshot == null || snapshot.invocationId === invocationId) continue;
+      if (priorInvocationIds.has(snapshot.invocationId)) continue;
       if (
         candidate.project !== entryRun.project ||
         candidate.branch !== entryRun.branch ||
@@ -900,9 +900,9 @@ export function createRunLifecycleHandlers(
         .findRunsByInvocationId(snapshot.invocationId)
         .find((row) => row.stepId === priorEntryStepId);
       if (priorEntry === undefined || priorEntry.createdAt >= entryRun.createdAt) continue;
-      prior.push(candidate);
+      priorInvocationIds.add(snapshot.invocationId);
     }
-    return prior;
+    return [...priorInvocationIds].flatMap((id) => store.findRunsByInvocationId(id));
   };
 
   const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {

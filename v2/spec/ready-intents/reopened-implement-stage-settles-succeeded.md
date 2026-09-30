@@ -6,11 +6,11 @@ name: reopened-implement-stage-settles-succeeded
 
 ## Problem
 
-Linked pipeline stage settlement follows workflow rollup. When rollup reads `killed` for a completed entry invocation with no successor row, `settleLinkedStagesFromEntryRunWith` fails the stage `resumable_kill` despite PR evidence on the completed entry row.
+Linked pipeline stage settlement follows workflow rollup. When rollup reads `killed` for a completed entry invocation with no successor row, `settleLinkedStagesFromEntryRunWith` fails the stage `resumable_kill` despite PR evidence on the completed entry row. When rollup is already `completed`, settlement already succeeds with that PR evidence; the bug is rollup misreporting `killed`.
 
 ## Decisions
 
-- A stage whose entry row completed with PR evidence settles `succeeded` when rollup is `completed`.
+- Scope is the prerequisite rollup intent, a settlement-layer regression test with rollup `completed`, and operator docs — not new settlement projection when rollup matches a completed entry row with PR evidence.
 
 ## Acceptance criteria
 
@@ -19,6 +19,7 @@ Linked pipeline stage settlement follows workflow rollup. When rollup reads `kil
 ## Documentation updates
 
 - `v2/docs/pipeline-execution.md` — reopened implement that finishes without new work settles `succeeded`.
+- `v2/docs/v1-behaviors.md` — operator-visible linked stage outcome for that path.
 
 ## Prerequisites
 

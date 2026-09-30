@@ -26,11 +26,7 @@ Admission prepares a write step with placeholder prompt `review-feedback.prompt.
 - [x] `shared/prompts/review-feedback-write.test.ts` fails against the pre-fix registry and passes after registration; it asserts single-occurrence coherence pins for `Do not tick`, ``Do not edit `index.md` ``, and `captured PR feedback`, and renders intent, plan, and implement `LANE_CONTEXT` shapes without implement index-routing bindings.
 - [x] Every path under `prompts/review-feedback/` that the registry exposes has a non-empty entry in `shared/prompts/render-observer-tests.ts` naming `shared/prompts/review-feedback-write.test.ts`.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-
-## Blocker
-
-`bun run test:shared` fails on `shared/subprocess.test.ts` `group-mode termination lifecycle` cases (`timeoutMs: 80` before detached `node -e` writes the ready file; measured ~156ms). Out of this subspec’s file list (#4214). `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass on re-run; review-feedback tests pass.
+- [x] `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

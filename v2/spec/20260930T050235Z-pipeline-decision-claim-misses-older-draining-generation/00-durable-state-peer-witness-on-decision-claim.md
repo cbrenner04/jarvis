@@ -19,6 +19,7 @@
 
 ## Acceptance criteria
 
+- [ ] A test proves a `succeeded` and a `rejected` pipeline owned by a live draining peer answering `durable_state` with matching identity is claimed but the decision verb still refuses with that pipeline's own terminal reason (`pipeline_terminal_succeeded` / `pipeline_terminal_rejected`), not a dispatch.
 - [ ] `daemon-stable-run-routing.test.ts` proves stable `pipeline_resume` claims (owner rewritten to current) and runs the local handler when the row is a held `active` pipeline whose derived execution is already terminal (same failed-stage / blocked-recoverable fixture patterns as elsewhere in the file) and a fake peer answers `{ kind: "durable_state", state: "failed", ownerIdentity }` matching the row owner; it fails against the pre-fix owner-only witness check.
 - [ ] The same file proves stable decision claim accepts a matching `durable_state` witness when durable `status` is `interrupted` and `ownerIdentity` matches the row; it fails against the pre-fix owner-only witness check.
 - [ ] The same file post-fix refuses claim when a peer returns qualifying-looking `durable_state` with matching `ownerIdentity` but the loaded row does not qualify (non-terminal derived state, not reconciled `interrupted`); reachable as over-acceptance on the new `durable_state` branch (pre-fix may already refuse via owner-only parsing).

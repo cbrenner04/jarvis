@@ -22,6 +22,7 @@ import {
   REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
   runReviewFeedbackWorkflowCommand,
 } from "./review-feedback-workflow-admission.ts";
+import type { ReviewFeedbackWorkflowCliInput } from "./workflow-args.ts";
 
 const PROJECT = "demo";
 const BRANCH = "lane-branch";
@@ -180,6 +181,27 @@ function admissionDeps(store: ReviewFeedbackLaneResolutionStore, runner: AsyncSu
   };
 }
 
+function runtimeDepsForStore(store: ReviewFeedbackLaneResolutionStore, runner: AsyncSubprocessRunner) {
+  return createRuntimeDeps({
+    cwd: () => fixtureRoot,
+    readProjectRegistry: () => ({ [PROJECT]: { root: fixtureRoot } }),
+    machineConfigPath,
+    reviewFeedbackLaneStore: store,
+    subprocessRunner: runner,
+  });
+}
+
+async function expectWriteNotAvailableAfterAdmission(
+  store: ReviewFeedbackLaneResolutionStore,
+  runner: AsyncSubprocessRunner,
+  parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
+) {
+  const cap = captureIo();
+  const code = await runReviewFeedbackWorkflowCommand([], parsed, cap.io, runtimeDepsForStore(store, runner));
+  expect(code).toBe(1);
+  expect(cap.read().stderr).toContain(REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE);
+}
+
 async function prepareOk(run: Run, runner: AsyncSubprocessRunner) {
   const outcome = await prepareReviewFeedbackWorkflowAdmission(
     { ok: true, branch: BRANCH },
@@ -208,21 +230,10 @@ describe("review-feedback workflow admission", () => {
     expect(writeStep?.behavior).toBe("write");
     expect(writeStep?.behavior === "write" && writeStep.role).toBe("plan");
 
-    const cap = captureIo();
-    const code = await runReviewFeedbackWorkflowCommand(
-      ["--branch", BRANCH],
-      { ok: true, branch: BRANCH },
-      cap.io,
-      createRuntimeDeps({
-        cwd: () => fixtureRoot,
-        readProjectRegistry: () => ({ [PROJECT]: { root: fixtureRoot } }),
-        machineConfigPath,
-        reviewFeedbackLaneStore: memoryStore({ runs: [run] }),
-        subprocessRunner: runner,
-      }),
-    );
-    expect(code).toBe(1);
-    expect(cap.read().stderr).toContain(REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE);
+    await expectWriteNotAvailableAfterAdmission(memoryStore({ runs: [run] }), runner, {
+      ok: true,
+      branch: BRANCH,
+    });
   });
 
   test("prepares a completed bare plan lane", async () => {
@@ -236,9 +247,11 @@ describe("review-feedback workflow admission", () => {
         promptId: "plan.prompt.draft",
       }),
     });
-    const preparation = await prepareOk(run, createGhRunner({ admissionView: openReviewedAdmissionView() }));
+    const runner = createGhRunner({ admissionView: openReviewedAdmissionView() });
+    const preparation = await prepareOk(run, runner);
     const writeStep = preparation.steps[0];
     expect(writeStep?.behavior === "write" && writeStep.role).toBe("plan");
+    await expectWriteNotAvailableAfterAdmission(memoryStore({ runs: [run] }), runner, { ok: true, branch: BRANCH });
   });
 
   test("prepares a completed bare implement lane", async () => {
@@ -252,9 +265,11 @@ describe("review-feedback workflow admission", () => {
         promptId: "implement.prompt.body",
       }),
     });
-    const preparation = await prepareOk(run, createGhRunner({ admissionView: openReviewedAdmissionView() }));
+    const runner = createGhRunner({ admissionView: openReviewedAdmissionView() });
+    const preparation = await prepareOk(run, runner);
     const writeStep = preparation.steps[0];
     expect(writeStep?.behavior === "write" && writeStep.role).toBe("implement");
+    await expectWriteNotAvailableAfterAdmission(memoryStore({ runs: [run] }), runner, { ok: true, branch: BRANCH });
   });
 
   test("prepares a completed pipeline stage with disambiguators", async () => {
@@ -275,20 +290,18 @@ describe("review-feedback workflow admission", () => {
       entryRun,
       branchKey: "feature-a",
     });
-    const outcome = await prepareReviewFeedbackWorkflowAdmission(
-      {
-        ok: true,
-        branch: BRANCH,
-        pipelineId: "pipe-1",
-        stageId: "intent-stage",
-        branchKey: "feature-a",
-      },
-      admissionDeps(
-        memoryStore({ runs: [entryRun], pipelines: [pipeline] }),
-        createGhRunner({ admissionView: openReviewedAdmissionView() }),
-      ),
-    );
+    const runner = createGhRunner({ admissionView: openReviewedAdmissionView() });
+    const store = memoryStore({ runs: [entryRun], pipelines: [pipeline] });
+    const parsed = {
+      ok: true as const,
+      branch: BRANCH,
+      pipelineId: "pipe-1",
+      stageId: "intent-stage",
+      branchKey: "feature-a",
+    };
+    const outcome = await prepareReviewFeedbackWorkflowAdmission(parsed, admissionDeps(store, runner));
     expect(outcome.ok).toBe(true);
+    await expectWriteNotAvailableAfterAdmission(store, runner, parsed);
   });
 
   test("prepares using the resolved lane worktree path and branch", async () => {
@@ -320,6 +333,11 @@ describe("review-feedback workflow admission", () => {
     if (writeStep?.behavior !== "write") throw new Error("expected write step");
     expect(writeStep.worktree.branchName).toBe("resolved-branch");
     expect(getExternalWorktreePath(writeStep.worktree)).toBe(laneWorktree);
+    await expectWriteNotAvailableAfterAdmission(
+      memoryStore({ runs: [run] }),
+      createGhRunner({ admissionView: openReviewedAdmissionView({ headRefName: "resolved-branch" }) }),
+      { ok: true, branch: "resolved-branch" },
+    );
   });
 
   test("refuses in-flight lane", async () => {

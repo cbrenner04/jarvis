@@ -32,15 +32,15 @@ Operators have no `jarvis run workflow review-feedback` path that runs lane reso
 
 ## Acceptance criteria
 
-- [ ] `review-feedback-workflow-admission.test.ts` test `prepares a completed bare intent lane with an open reviewed PR` fails against the pre-fix code and passes after implementation.
-- [ ] The same file's tests `prepares a completed bare plan lane`, `prepares a completed bare implement lane`, and `prepares a completed pipeline stage with disambiguators` pass.
-- [ ] `review-feedback-workflow-admission.test.ts` test `prepares using the resolved lane worktree path and branch` fails against the pre-fix code and passes after implementation.
-- [ ] Tests `refuses in-flight lane`, `refuses open PR with no review`, `refuses merged PR`, `refuses closed PR`, `refuses non intent-plan-implement target`, `refuses unmatched lane`, `refuses ambiguous bare lane`, and `refuses capture prelude failure` each assert the stable refusal code from subspecs `00`–`01` and fail against the pre-fix code.
-- [ ] Each `prepares …` test asserts the prepared/validated steps and that admission then refuses with `review_feedback_write_not_available` (non-zero exit, no run row, no agent spawned).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
-- [ ] `v2/src/cli.test.ts` workflow help regression for `review-feedback` lists every parser-accepted disambiguator flag; it fails against the pre-fix tree and passes after registration.
+- [x] `review-feedback-workflow-admission.test.ts` test `prepares a completed bare intent lane with an open reviewed PR` fails against the pre-fix code and passes after implementation.
+- [x] The same file's tests `prepares a completed bare plan lane`, `prepares a completed bare implement lane`, and `prepares a completed pipeline stage with disambiguators` pass.
+- [x] `review-feedback-workflow-admission.test.ts` test `prepares using the resolved lane worktree path and branch` fails against the pre-fix code and passes after implementation.
+- [x] Tests `refuses in-flight lane`, `refuses open PR with no review`, `refuses merged PR`, `refuses closed PR`, `refuses non intent-plan-implement target`, `refuses unmatched lane`, `refuses ambiguous bare lane`, and `refuses capture prelude failure` each assert the stable refusal code from subspecs `00`–`01` and fail against the pre-fix code.
+- [x] Each `prepares …` test asserts the prepared/validated steps and that admission then refuses with `review_feedback_write_not_available` (non-zero exit, no run row, no agent spawned).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
+- [x] `v2/src/cli.test.ts` workflow help regression for `review-feedback` lists every parser-accepted disambiguator flag; it fails against the pre-fix tree and passes after registration.
 
 ## Documentation updates
 

@@ -28,6 +28,7 @@ const AGENT_MODEL_CONFIG: AgentModelConfig = {
 const RESOLVED_PIPELINE_DEFINITION = {
   name: "fast",
   terminalAction: "leave-draft",
+  supersede: "close",
   stages: [
     { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
     { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },

@@ -276,7 +276,7 @@ Standalone `jarvis run workflow plan --ready-intent <path>` re-dispatch onto an 
 
 ### Pipeline start
 
-A chained implement stage fetches the default branch’s upstream and uses that remote ref when the local base is strictly behind. It does not advance or rewrite the operator checkout. Standalone `implement --base main` retains its `base_behind_origin` refusal. Ahead, diverged, untracked, or unfetchable bases retain the existing freshness policy.
+Chained plan and implement stages fetch the default branch’s upstream and use that remote ref when the local base is strictly behind. They do not advance or rewrite the operator checkout. Standalone `jarvis run workflow plan` and `implement --base` retain their `base_behind_origin` refusal. Ahead, diverged, untracked, or unfetchable bases retain the existing freshness policy.
 
 Chained in-repo implement copies its spec into the implement worktree before any run row or agent invocation, then uses that copy for routing, criteria checks, review, and publication. Re-entry preserves existing criteria; the plan worktree is unchanged. A missing source spec refuses before dispatch. External no-commit plans keep their existing external spec home.
 

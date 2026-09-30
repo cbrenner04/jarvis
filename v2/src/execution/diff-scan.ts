@@ -32,6 +32,22 @@ export interface ChangedLine {
   lineNumber: number;
   content: string;
   file: string;
+  /** Present on `add` lines when parsed via `parseDiffWithFlipSkip`. */
+  hunkKey?: string;
+}
+
+/** Hunk-scoped removed `-` line contents and add-line → hunk mapping for flip-candidate whitespace skip. */
+export type DiffFlipSkipContext = {
+  hunkKeyByAddLine: Map<string, string>;
+  removedLineContentsByHunkKey: Map<string, string[]>;
+};
+
+export function addLineFlipSkipKey(file: string, lineNumber: number): string {
+  return `${file}\u0000${lineNumber}`;
+}
+
+export function diffHunkFlipSkipKey(file: string, hunkIndex: number): string {
+  return `${file}\u0000${hunkIndex}`;
 }
 
 function extractLineNumberFromHunk(line: string): number {
@@ -41,20 +57,26 @@ function extractLineNumberFromHunk(line: string): number {
 
 function processDiffLine(
   line: string,
-  currentFile: string | null,
+  currentFile: string,
   currentNewLineNum: number,
+  currentHunkKey: string,
   lines: ChangedLine[],
+  removedLineContentsByHunkKey: Map<string, string[]>,
 ): number {
   if (line.startsWith("+") && !line.startsWith("+++")) {
     lines.push({
       type: "add",
       lineNumber: currentNewLineNum,
       content: line.slice(1),
-      file: currentFile as string,
+      file: currentFile,
+      hunkKey: currentHunkKey,
     });
     return currentNewLineNum + 1;
   }
   if (line.startsWith("-") && !line.startsWith("---")) {
+    const removed = removedLineContentsByHunkKey.get(currentHunkKey) ?? [];
+    removed.push(line.slice(1));
+    removedLineContentsByHunkKey.set(currentHunkKey, removed);
     return currentNewLineNum;
   }
   if (line.startsWith(" ")) {
@@ -63,22 +85,45 @@ function processDiffLine(
   return currentNewLineNum;
 }
 
-export function parseDiff(diffOutput: string): ChangedLine[] {
-  const lines: ChangedLine[] = [];
+export function parseDiffWithFlipSkip(diffOutput: string): {
+  changedLines: ChangedLine[];
+  flipSkip: DiffFlipSkipContext;
+} {
+  const changedLines: ChangedLine[] = [];
+  const hunkKeyByAddLine = new Map<string, string>();
+  const removedLineContentsByHunkKey = new Map<string, string[]>();
   const diffLines = diffOutput.split("\n");
 
   let currentFile: string | null = null;
   let currentNewLineNum = 0;
   let inHunk = false;
+  let hunkIndex = -1;
+  let currentHunkKey = "";
 
   for (const line of diffLines) {
     if (line.startsWith("diff --git")) {
       currentFile = extractFileFromDiffLine(line);
+      hunkIndex = -1;
     } else if (line.startsWith("@@")) {
       inHunk = true;
       currentNewLineNum = extractLineNumberFromHunk(line);
+      if (currentFile !== null) {
+        hunkIndex += 1;
+        currentHunkKey = diffHunkFlipSkipKey(currentFile, hunkIndex);
+      }
     } else if (inHunk && currentFile) {
-      currentNewLineNum = processDiffLine(line, currentFile, currentNewLineNum, lines);
+      const priorLineNum = currentNewLineNum;
+      currentNewLineNum = processDiffLine(
+        line,
+        currentFile,
+        currentNewLineNum,
+        currentHunkKey,
+        changedLines,
+        removedLineContentsByHunkKey,
+      );
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        hunkKeyByAddLine.set(addLineFlipSkipKey(currentFile, priorLineNum), currentHunkKey);
+      }
       if (!line.startsWith("\\") && line.length > 0 && !line.startsWith("diff") && !line.startsWith("index")) {
         if (!line.startsWith("+") && !line.startsWith("-") && !line.startsWith(" ")) {
           inHunk = false;
@@ -87,7 +132,14 @@ export function parseDiff(diffOutput: string): ChangedLine[] {
     }
   }
 
-  return lines;
+  return {
+    changedLines,
+    flipSkip: { hunkKeyByAddLine, removedLineContentsByHunkKey },
+  };
+}
+
+export function parseDiff(diffOutput: string): ChangedLine[] {
+  return parseDiffWithFlipSkip(diffOutput).changedLines;
 }
 
 export function changedPathsFromDiff(diffOutput: string): string[] {

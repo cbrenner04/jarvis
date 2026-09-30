@@ -1966,6 +1966,103 @@ index 1234567..abcdefg 100644
   });
 });
 
+describe("hunk-paired whitespace skip for flip candidates", () => {
+  it("skips operator-flip on a reflowed expression but keeps a genuinely new clause", async () => {
+    const diff = `diff --git a/src/reflow.ts b/src/reflow.ts
+index 1234567..abcdefg 100644
+--- a/src/reflow.ts
++++ b/src/reflow.ts
+@@ -1,3 +1,5 @@
+ export function pick(x: unknown, extra: boolean) {
+-  if (x !== undefined || (a && b)) return extra;
++  if (
++    x !== undefined || (a && b)
++    && extra === true
++  ) return extra;
+   return false;
+ }`;
+    const source = `export function pick(x: unknown, extra: boolean) {
+  if (
+    x !== undefined || (a && b)
+    && extra === true
+  ) return extra;
+  return false;
+}`;
+    const mutations: string[] = [];
+    const result = await verifyDiffSource("src/reflow.ts", diff, source, mutations, async () => false);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations).toHaveLength(1);
+    expect(mutations[0]).toBe(source.replace("extra === true", "extra !== true"));
+  });
+
+  it("skips guard-flip when negation is whitespace-only reflow on one changed line", async () => {
+    const diff = `diff --git a/src/guard-reflow.ts b/src/guard-reflow.ts
+index 1234567..abcdefg 100644
+--- a/src/guard-reflow.ts
++++ b/src/guard-reflow.ts
+@@ -1,2 +1,3 @@
+ export function gate(ready: boolean) {
+-  if (!ready) return false;
++  if (
++    !ready) return false;
+   return true;
+ }`;
+    const source = `export function gate(ready: boolean) {
+  if (
+    !ready) return false;
+  return true;
+}`;
+    const result = await verifyDiffSource("src/guard-reflow.ts", diff, source, undefined, async () => true);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("still derives operator-flip when a reflowed line has a real token change", async () => {
+    const diff = `diff --git a/src/semantic.ts b/src/semantic.ts
+index 1234567..abcdefg 100644
+--- a/src/semantic.ts
++++ b/src/semantic.ts
+@@ -1,2 +1,3 @@
+ export function check(x: unknown) {
+-  return x !== undefined;
++  return x === undefined;
+ }`;
+    const source = `export function check(x: unknown) {
+  return x === undefined;
+}`;
+    const mutations: string[] = [];
+    const result = await verifyDiffSource("src/semantic.ts", diff, source, mutations, async () => false);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations[0]).toBe(source.replace("===", "!=="));
+  });
+
+  it("derives no operator-flip or guard-flip for indentation-only and trailing-whitespace edits", async () => {
+    const diff = `diff --git a/src/whitespace.ts b/src/whitespace.ts
+index 1234567..abcdefg 100644
+--- a/src/whitespace.ts
++++ b/src/whitespace.ts
+@@ -1,3 +1,3 @@
+ export function both(a: boolean, b: number, c: number) {
+-  if (!a && b < c) return b;
++    if (!a && b < c) return b;   
+   return c;
+ }`;
+    const source = `export function both(a: boolean, b: number, c: number) {
+    if (!a && b < c) return b;   
+  return c;
+}`;
+    const result = await verifyDiffSource("src/whitespace.ts", diff, source, undefined, async () => true);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+});
+
 describe("TypeScript guard candidate classification", () => {
   it("derives guard-flip for a negated member-call chain", async () => {
     const diff = `diff --git a/src/consumer.ts b/src/consumer.ts

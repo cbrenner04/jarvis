@@ -10,14 +10,16 @@ import {
 } from "../../../shared/prompts/registry.ts";
 import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import {
+  addLineFlipSkipKey,
   type ChangedLine,
   changedPathsFromDiff,
+  type DiffFlipSkipContext,
   defaultGitDiff,
   defaultReadFile,
   defaultUntrackedFiles,
   isCodePath,
   isProductionFile,
-  parseDiff,
+  parseDiffWithFlipSkip,
 } from "./diff-scan.ts";
 import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
 import { type KillingTestPaths, killingTestPaths } from "./test-scope.ts";
@@ -700,11 +702,69 @@ const COMPARISON_OPERATOR_KINDS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.GreaterThanEqualsToken,
 ]);
 
+const FLIP_SKIP_TOKEN_PATTERN =
+  />>>|>>|<<|===|!==|==|!=|<=|>=|&&|\|\||[+\-*/%&|^~!<>=?:;,.\[\]{}()]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[a-zA-Z_$][\w$]*/g;
+
+export function collapseFlipSkipWhitespace(line: string): string {
+  return line.trim().replace(/\s+/g, " ");
+}
+
+export function whitespaceNormalizedFlipSkipTokens(text: string): string[] {
+  const normalized = collapseFlipSkipWhitespace(text);
+  if (normalized.length === 0) return [];
+  return normalized.match(FLIP_SKIP_TOKEN_PATTERN) ?? [];
+}
+
+function countTokenMultiset(tokens: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const token of tokens) {
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function flipSkipTokensSubsumedByRemoved(
+  candidateTokens: readonly string[],
+  removedTokens: readonly string[],
+): boolean {
+  if (removedTokens.length === 0) return false;
+  const removedCounts = countTokenMultiset(removedTokens);
+  const candidateCounts = countTokenMultiset(candidateTokens);
+  for (const [token, count] of candidateCounts) {
+    if ((removedCounts.get(token) ?? 0) < count) return false;
+  }
+  return true;
+}
+
+function removedTokensForHunk(flipSkip: DiffFlipSkipContext, hunkKey: string): string[] {
+  const removedLines = flipSkip.removedLineContentsByHunkKey.get(hunkKey) ?? [];
+  if (removedLines.length === 0) return [];
+  const tokens: string[] = [];
+  for (const line of removedLines) {
+    tokens.push(...whitespaceNormalizedFlipSkipTokens(line));
+  }
+  return tokens;
+}
+
+function operatorFlipCandidateTokens(node: ts.BinaryExpression, sourceFile: ts.SourceFile): string[] {
+  const operator = node.operatorToken.getText(sourceFile);
+  return [
+    ...whitespaceNormalizedFlipSkipTokens(node.left.getText(sourceFile)),
+    ...whitespaceNormalizedFlipSkipTokens(operator),
+    ...whitespaceNormalizedFlipSkipTokens(node.right.getText(sourceFile)),
+  ];
+}
+
+function guardFlipCandidateTokens(node: ts.PrefixUnaryExpression, sourceFile: ts.SourceFile): string[] {
+  return whitespaceNormalizedFlipSkipTokens(node.getText(sourceFile));
+}
+
 function deriveOperatorMutations(
   file: string,
   source: string,
   changedLineNumbers: ReadonlySet<number>,
   candidates: Candidate[],
+  shouldSkipFlip: (line: number, candidateTokens: readonly string[]) => boolean,
 ): void {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
@@ -714,6 +774,10 @@ function deriveOperatorMutations(
       const position = sourceFile.getLineAndCharacterOfPosition(start);
       const line = position.line + 1;
       if (!changedLineNumbers.has(line)) {
+        ts.forEachChild(node, visit);
+        return;
+      }
+      if (shouldSkipFlip(line, operatorFlipCandidateTokens(node, sourceFile))) {
         ts.forEachChild(node, visit);
         return;
       }
@@ -749,6 +813,7 @@ function deriveGuardMutations(
   source: string,
   changedLineNumbers: ReadonlySet<number>,
   candidates: Candidate[],
+  shouldSkipFlip: (line: number, candidateTokens: readonly string[]) => boolean,
 ): void {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
@@ -762,6 +827,10 @@ function deriveGuardMutations(
       let admitted = false;
       if (changedLineNumbers.has(line) && startPos.line === endPos.line) {
         admitted = true;
+        if (shouldSkipFlip(line, guardFlipCandidateTokens(node, sourceFile))) {
+          ts.forEachChild(node, visit);
+          return;
+        }
         const original = node.getText(sourceFile);
         const mutated = original.slice(1).trimStart();
         candidates.push({
@@ -1473,10 +1542,40 @@ function groupCandidatesByLine(candidates: readonly Candidate[]): Map<number, Ca
   return byLine;
 }
 
+function flipSkipForFile(
+  file: string,
+  lines: readonly ChangedLine[],
+  flipSkip: DiffFlipSkipContext,
+): (line: number, candidateTokens: readonly string[]) => boolean {
+  const removedTokensByHunkKey = new Map<string, string[]>();
+  const hunkKeyByLine = new Map<number, string>();
+  const lineContentByNumber = new Map<number, string>();
+  for (const line of lines) {
+    lineContentByNumber.set(line.lineNumber, line.content);
+    const hunkKey = line.hunkKey ?? flipSkip.hunkKeyByAddLine.get(addLineFlipSkipKey(file, line.lineNumber));
+    if (hunkKey === undefined) continue;
+    hunkKeyByLine.set(line.lineNumber, hunkKey);
+    if (!removedTokensByHunkKey.has(hunkKey)) {
+      removedTokensByHunkKey.set(hunkKey, removedTokensForHunk(flipSkip, hunkKey));
+    }
+  }
+  return (line, candidateTokens) => {
+    const hunkKey = hunkKeyByLine.get(line);
+    if (hunkKey === undefined) return false;
+    const removedTokens = removedTokensByHunkKey.get(hunkKey) ?? [];
+    const lineContent = lineContentByNumber.get(line);
+    if (lineContent === undefined) return false;
+    const lineTokens = whitespaceNormalizedFlipSkipTokens(lineContent);
+    if (!flipSkipTokensSubsumedByRemoved(lineTokens, removedTokens)) return false;
+    return flipSkipTokensSubsumedByRemoved(candidateTokens, removedTokens);
+  };
+}
+
 async function deriveCandidates(
   changedLinesByFile: Map<string, ChangedLine[]>,
   worktreePath: string,
   readFile: ReadFile,
+  flipSkip: DiffFlipSkipContext,
 ): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
   for (const [file, lines] of changedLinesByFile) {
@@ -1486,11 +1585,12 @@ async function deriveCandidates(
       try {
         const source = sourceWithChangedLines(await readFile(`${worktreePath}/${file}`), lines);
         const changedLineNumbers = new Set(lines.map((line) => line.lineNumber));
+        const shouldSkipFlip = flipSkipForFile(file, lines, flipSkip);
         const operatorCandidates: Candidate[] = [];
-        deriveOperatorMutations(file, source, changedLineNumbers, operatorCandidates);
+        deriveOperatorMutations(file, source, changedLineNumbers, operatorCandidates, shouldSkipFlip);
         operatorCandidatesByLine = groupCandidatesByLine(operatorCandidates);
         const guardCandidates: Candidate[] = [];
-        deriveGuardMutations(file, source, changedLineNumbers, guardCandidates);
+        deriveGuardMutations(file, source, changedLineNumbers, guardCandidates, shouldSkipFlip);
         guardCandidatesByLine = groupCandidatesByLine(guardCandidates);
       } catch {
         // The later verifier read will report an untestable production file; omit guards/operators here rather than parsing a changed line without lexical context.
@@ -1822,7 +1922,7 @@ export async function verifyDiffDerivedMutations(
     seams?.writeFile === undefined ? defaultMutationRecordStore : { record() {}, remove() {} };
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
-  const changedLines = parseDiff(diffOutput);
+  const { changedLines, flipSkip } = parseDiffWithFlipSkip(diffOutput);
 
   const { changedFiles, changedLinesByFile, diffPaths } = await buildChangedFiles(
     diffOutput,
@@ -1860,7 +1960,7 @@ export async function verifyDiffDerivedMutations(
   );
   if (promptFailure) return promptFailure;
 
-  const candidates = await deriveCandidates(changedLinesByFile, input.worktreePath, readFile);
+  const candidates = await deriveCandidates(changedLinesByFile, input.worktreePath, readFile, flipSkip);
 
   if (candidates.length === 0) {
     return {

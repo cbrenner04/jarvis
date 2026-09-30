@@ -10,13 +10,14 @@ When a lane re-publishes after the harness already flipped its PR ready, `resolv
 
 ## Behavior
 
-Completion publication consults lane ready-flip evidence before refusing a sole open non-draft PR for the branch and base. When evidence records a harness flip of that PR number, publication runs `gh pr ready --undo` once, reuses the PR as an open draft, and continues normally; the terminal step flips ready again after the gate. No matching evidence, or evidence for a different PR number, keeps `OpenPrNotDraftError` and the existing message. A failed `--undo` fails publication naming operation `gh pr ready --undo` and the PR number, with no retry loop. Ambiguous-PR and no-commits paths stay unchanged.
+Completion publication consults lane ready-flip evidence before refusing a sole open non-draft PR for the branch and base. When lineage evidence matches the publication branch, base ref, and that PR number, publication runs `gh pr ready --undo` once, reuses the PR as an open draft, and continues normally; the terminal step flips ready again after the gate. No matching evidence, a different PR number, or evidence whose branch or base ref differs from the publication target keeps `OpenPrNotDraftError` and the existing message. A failed `--undo` fails publication naming operation `gh pr ready --undo` and the PR number, with no retry loop. Ambiguous-PR and no-commits paths stay unchanged.
 
 ## Acceptance criteria
 
-- [ ] `completion-publisher.test.ts` fails against the pre-fix resolver and, with a fake `gh` reporting one open non-draft PR #N and lane evidence for #N, asserts `gh pr ready --undo N`, reuse of #N, and no throw.
+- [ ] `completion-publisher.test.ts` fails against the pre-fix resolver and, with a fake `gh` reporting one open non-draft PR #N for the publication branch and base and matching lane evidence for that triple, asserts `gh pr ready --undo N`, reuse of #N, and no throw.
 - [ ] The same fake with no recorded flip evidence throws `OpenPrNotDraftError` and issues no `--undo`.
 - [ ] Evidence recording a flip of #M while #N is open throws `OpenPrNotDraftError` and issues no `--undo`.
+- [ ] Evidence for #N on a different branch or base ref than the publication target throws `OpenPrNotDraftError` and issues no `--undo`.
 - [ ] A failing `--undo` surfaces a publication failure naming `gh pr ready --undo` and #N.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

@@ -14,7 +14,7 @@ After a successful harness ready flip, the state store records on the flipping r
 
 ## Acceptance criteria
 
-- [ ] State-store tests fail against the pre-fix schema and pin write-after-success, no write on absent evidence, lineage hit across an older row on the same lane, and miss when branch, base, number, or lineage differ.
+- [ ] `state-store.test.ts` fails against the pre-fix schema and pins write-after-success, no write when `gh pr ready` does not succeed, lineage hit across an older row on the same lane, and miss when branch, base, number, or lineage differ.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -31,6 +31,7 @@ export type TerminalPublicationInput = {
   verifierProcessGroups?: VerifierProcessGroupRecorder;
   /** Project `readyCommand` override; absent runs the default `bun run ready`. */
   readyCommand?: string;
+  recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void;
 };
 
 export type TerminalPublicationResult = {
@@ -215,6 +216,11 @@ async function runReadyFlipOrFail(
       deps.ghDelete,
     );
   }
+  input.recordHarnessReadyFlipEvidence?.({
+    prNumber: resolvedPrNumber,
+    branch: input.branch,
+    baseRef: input.baseRef,
+  });
 }
 
 async function runMergeOrFail(

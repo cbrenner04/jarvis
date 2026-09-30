@@ -1025,6 +1025,7 @@ function resolveTerminalPublicationInput(
       branch: entryRun.branch,
       baseRef: entryRun.specRef,
       verifierProcessGroups: storeVerifierProcessGroupRecorder(store, entryRun.id),
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId: entryRun.id, ...args }),
       ...terminalReadyCommand(entryRun),
       ...(artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
       ...(artifact.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),

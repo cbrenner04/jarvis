@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
 import {
@@ -392,6 +397,109 @@ describe("executeTerminalPublication", () => {
 
     expect(closeCalls).toHaveLength(0);
     expect(deleteCalls).toHaveLength(0);
+  });
+});
+
+describe("executeTerminalPublication harness ready-flip evidence", () => {
+  let stateDbPath: string;
+  let store: StateStore;
+
+  beforeEach(() => {
+    stateDbPath = join(trackedMkdtempSync(join(tmpdir(), "terminal-publication-store-")), "state.db");
+    store = openStateStore(stateDbPath);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+    store.close();
+    removeOrchestrationStore(stateDbPath);
+  });
+
+  function seedEntryRun(): string {
+    return store.createRun({
+      project: "test-project",
+      specRef: baseInput.baseRef,
+      worktreePath: baseInput.worktreePath,
+      branch: baseInput.branch,
+      specPath: "spec/implement.md",
+    });
+  }
+
+  function publicationInput(
+    runId: string,
+    terminalAction: PipelineTerminalAction,
+  ): TerminalPublicationInput & { terminalAction: PipelineTerminalAction } {
+    return {
+      ...baseInput,
+      terminalAction,
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+    };
+  }
+
+  for (const terminalAction of ["ready", "merge"] as const) {
+    it(`persists ready-flip evidence after successful ${terminalAction}`, async () => {
+      const runId = seedEntryRun();
+      const flippedAt = terminalAction === "ready" ? 12_000 : 13_000;
+      const execute = createExecuteTerminalPublication({
+        runReadyGate: async () => {},
+        gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+        ghReadyFlip: async () => {},
+        ...(terminalAction === "merge" ? { ghMerge: async () => {} } : {}),
+      });
+
+      setSystemTime(new Date(flippedAt));
+      await execute(publicationInput(runId, terminalAction));
+
+      expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+        prNumber: 42,
+        branch: baseInput.branch,
+        baseRef: baseInput.baseRef,
+        flippedAt,
+      });
+    });
+  }
+
+  it("persists resolved PR number, not stale persisted evidence, after re-resolution", async () => {
+    const runId = seedEntryRun();
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenDraft(99, "https://github.com/user/repo/pull/99"),
+      ghReadyFlip: async () => {},
+    });
+
+    setSystemTime(new Date(14_000));
+    await execute(publicationInput(runId, "ready"));
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toMatchObject({ prNumber: 99, flippedAt: 14_000 });
+  });
+
+  it("leaves prior ready-flip evidence unchanged when ghReadyFlip rejects", async () => {
+    const runId = seedEntryRun();
+    setSystemTime(new Date(9_000));
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber: 1,
+      branch: baseInput.branch,
+      baseRef: baseInput.baseRef,
+    });
+
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+      ghReadyFlip: async () => {
+        throw ghCommandError("flip failed", "not a draft");
+      },
+    });
+
+    setSystemTime(new Date(15_000));
+    await expect(execute(publicationInput(runId, "ready"))).rejects.toBeInstanceOf(TerminalPublicationError);
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+      prNumber: 1,
+      branch: baseInput.branch,
+      baseRef: baseInput.baseRef,
+      flippedAt: 9_000,
+    });
   });
 });
 

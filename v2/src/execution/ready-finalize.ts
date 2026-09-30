@@ -51,6 +51,7 @@ export type ReadyFinalizeInput = {
   readyCommand?: string;
   /** Skip only the project ready gate; the remaining finalization checks still run. */
   skipReadyGate?: boolean;
+  recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void;
 };
 
 const DEFAULT_READY_COMMAND = "bun run ready";
@@ -1473,6 +1474,13 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     }
     try {
       await flipWithRetry(() => ghReadyFlip(input.prNumber, input.worktreePath, input.signal), delay, retryNotice);
+      if (input.prNumber !== undefined) {
+        input.recordHarnessReadyFlipEvidence?.({
+          prNumber: input.prNumber,
+          branch: input.branch,
+          baseRef: input.baseRef,
+        });
+      }
     } catch (error) {
       if (runtimeSmokeOutcome !== undefined) {
         throw new ReadyFlipError(error instanceof Error ? error : new Error(String(error)), runtimeSmokeOutcome);

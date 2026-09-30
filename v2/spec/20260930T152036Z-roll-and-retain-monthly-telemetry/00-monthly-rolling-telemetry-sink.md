@@ -23,21 +23,21 @@
 
 ## Task checklist
 
-- [ ] Add monthly roll-then-append in `v2/src/execution/telemetry-sink.ts` with injectable `clock` and export the helper used by both producers.
-- [ ] Route `emitWorkBoundaryRecorded` through the shared helper instead of direct `appendFileSync` on the sink path.
-- [ ] Add `v2/src/execution/telemetry-sink.test.ts` with `JARVIS_HOME` isolation and injected clock covering same-month append without re-roll, one-time month-boundary roll, restarted writer roll from existing file `mtime`, skipped-month roll naming, gzip round-trip readability, and both `buildJsonlSink` and work-boundary append paths.
-- [ ] Update `v2/docs/telemetry-capture.md` for current vs closed-month layout, roll boundary, indefinite closed-month retention, legacy multi-month first archive, synchronous gzip, and injectable sink/clock contract.
+- [x] Add monthly roll-then-append in `v2/src/execution/telemetry-sink.ts` with injectable `clock` and export the helper used by both producers.
+- [x] Route `emitWorkBoundaryRecorded` through the shared helper instead of direct `appendFileSync` on the sink path.
+- [x] Add `v2/src/execution/telemetry-sink.test.ts` with `JARVIS_HOME` isolation and injected clock covering same-month append without re-roll, one-time month-boundary roll, restarted writer roll from existing file `mtime`, skipped-month roll naming, gzip round-trip readability, and both `buildJsonlSink` and work-boundary append paths.
+- [x] Update `v2/docs/telemetry-capture.md` for current vs closed-month layout, roll boundary, indefinite closed-month retention, legacy multi-month first archive, synchronous gzip, and injectable sink/clock contract.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry same UTC month appends without re-roll` pins, with an injected clock in a month other than the real one, that multiple appends in one injected UTC month leave one current file whose `mtime` equals the injected clock, no `telemetry/<YYYY-MM>.jsonl.gz`, and no roll; fails against a roll that buckets by real filesystem `mtime` without the `utimesSync` stamp.
-- [ ] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry roll on UTC boundary` fails against the unbounded `buildJsonlSink` and pins one gzip archive named from the prior file's UTC `mtime` month, a new empty-boundary current file receiving the post-roll append, and gzip contents matching the pre-roll lines.
-- [ ] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry roll after writer restart` fails against the unbounded sink and pins roll from an on-disk current file whose UTC `mtime` month lags the injected clock without requiring a prior in-test append in the same process.
-- [ ] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry skipped months produce no archive` fails against roll-on-clock-month naming and pins no `telemetry/<YYYY-MM>.jsonl.gz` for months with no rows when the clock jumps multiple UTC months.
-- [ ] `v2/src/execution/telemetry-sink.test.ts` test `work boundary and invocation sinks share monthly roll` fails while work-boundary bypasses the shared helper and pins identical roll behavior for `buildJsonlSink` and `emitWorkBoundaryRecorded` against the same sink path and clock.
-- [ ] `v2/docs/telemetry-capture.md` documents `telemetry.jsonl`, `telemetry/<YYYY-MM>.jsonl.gz`, UTC `mtime` month naming, legacy multi-month first archive, synchronous gzip, skipped months, injectable path/clock, and that closed months are not cleanup-deleted (cross-link operator runbook).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry same UTC month appends without re-roll` pins, with an injected clock in a month other than the real one, that multiple appends in one injected UTC month leave one current file whose `mtime` equals the injected clock, no `telemetry/<YYYY-MM>.jsonl.gz`, and no roll; fails against a roll that buckets by real filesystem `mtime` without the `utimesSync` stamp.
+- [x] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry roll on UTC boundary` fails against the unbounded `buildJsonlSink` and pins one gzip archive named from the prior file's UTC `mtime` month, a new empty-boundary current file receiving the post-roll append, and gzip contents matching the pre-roll lines.
+- [x] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry roll after writer restart` fails against the unbounded sink and pins roll from an on-disk current file whose UTC `mtime` month lags the injected clock without requiring a prior in-test append in the same process.
+- [x] `v2/src/execution/telemetry-sink.test.ts` test `monthly telemetry skipped months produce no archive` fails against roll-on-clock-month naming and pins no `telemetry/<YYYY-MM>.jsonl.gz` for months with no rows when the clock jumps multiple UTC months.
+- [x] `v2/src/execution/telemetry-sink.test.ts` test `work boundary and invocation sinks share monthly roll` fails while work-boundary bypasses the shared helper and pins identical roll behavior for `buildJsonlSink` and `emitWorkBoundaryRecorded` against the same sink path and clock.
+- [x] `v2/docs/telemetry-capture.md` documents `telemetry.jsonl`, `telemetry/<YYYY-MM>.jsonl.gz`, UTC `mtime` month naming, legacy multi-month first archive, synchronous gzip, skipped months, injectable path/clock, and that closed months are not cleanup-deleted (cross-link operator runbook).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

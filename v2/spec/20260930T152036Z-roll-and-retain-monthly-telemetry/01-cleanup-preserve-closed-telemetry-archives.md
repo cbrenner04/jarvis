@@ -11,14 +11,14 @@ Monthly roll adds long-lived `telemetry/<YYYY-MM>.jsonl.gz` artifacts under `JAR
 
 ## Task checklist
 
-- [ ] Extend `v2/src/commands/cleanup.test.ts` with one apply test via `runCleanupCommand` (same helper as `tiered session log retention hot cold gone`) that ages session logs past hot/cold cutoffs while old `telemetry/<YYYY-MM>.jsonl.gz` files sit under `JARVIS_HOME`.
+- [x] Extend `v2/src/commands/cleanup.test.ts` with one apply test via `runCleanupCommand` (same helper as `tiered session log retention hot cold gone`) that ages session logs past hot/cold cutoffs while old `telemetry/<YYYY-MM>.jsonl.gz` files sit under `JARVIS_HOME`.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `cleanup preserves closed telemetry archives through session log retention apply` (regression guard; passes on main) exercises `runCleanupCommand` with injected clock, retention config, and `JARVIS_HOME`, applies hot/cold session-log retention, and pins aged `telemetry/<YYYY-MM>.jsonl.gz` files survive byte-identical.
-- [ ] `v2/src/commands/cleanup.test.ts` tests `tiered session log retention hot cold gone` and `session retention guard preserves excluded paths` stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `v2/src/commands/cleanup.test.ts` test `cleanup preserves closed telemetry archives through session log retention apply` (regression guard; passes on main) exercises `runCleanupCommand` with injected clock, retention config, and `JARVIS_HOME`, applies hot/cold session-log retention, and pins aged `telemetry/<YYYY-MM>.jsonl.gz` files survive byte-identical.
+- [x] `v2/src/commands/cleanup.test.ts` tests `tiered session log retention hot cold gone` and `session retention guard preserves excluded paths` stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -1594,6 +1594,29 @@ function repairCompletedPublicationFailureRows(db: Database): void {
   }
 }
 
+const TERMINAL_NULL_FINISHED_AT_MIGRATION_ID = "033-terminal-null-finished-at-backfill";
+
+function repairTerminalNullFinishedAt(db: Database): void {
+  const applied = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(TERMINAL_NULL_FINISHED_AT_MIGRATION_ID);
+  if (applied) return;
+  if (!tableHasColumn(db, "runs", "finished_at") || !tableHasColumn(db, "runs", "status_changed_at")) return;
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      UPDATE runs SET finished_at = COALESCE(status_changed_at, created_at)
+      WHERE status IN (${TERMINAL_RUN_STATUSES_SQL}) AND finished_at IS NULL
+    `);
+    db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(
+      TERMINAL_NULL_FINISHED_AT_MIGRATION_ID,
+      Date.now(),
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
 /**
@@ -2061,6 +2084,7 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
     addColumnIfMissing(this.db, "runs", "gate_refusal_recovery_state", "TEXT");
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
+    repairTerminalNullFinishedAt(this.db);
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
     addColumnIfMissing(this.db, "runs", "harness_ready_flip_evidence", "TEXT");

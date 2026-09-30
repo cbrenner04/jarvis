@@ -43,6 +43,8 @@ The store enables `PRAGMA foreign_keys=ON` on its connection, so `pipeline_stage
 
 **Stamped-baseline data repair:** after `applySchemaMigrations`, migration `032-completed-publication-failure-rows-to-failed` runs once (stamped in `_migrations`, so a pre-squash store is upgraded and repaired in one open). It rewrites `runs.status` from `completed` to `failed` where `terminal_cause` is `completion_commit_failed` or `ready_flip_failed` — rows written before publication-tail failures settled `failed`. All other columns (`terminal_cause`, `terminal_failure_detail`, `finished_at`, `status_changed_at`) are unchanged; other causes (e.g. a stale `ready_gate_failed` on a resumed run that completed) and `pipeline_stages` rows are not touched. Repaired rows older than the attention recency window derive no incident.
 
+Migration `033-terminal-null-finished-at-backfill` runs once on the same open after `032` and after stamped-baseline column repair has ensured `runs.status_changed_at` exists (same stamped one-open contract for pre-squash stores). It sets `runs.finished_at` to `COALESCE(status_changed_at, created_at)` where `status` is terminal and `finished_at` is null — rows left by pre-fix `commitCompletionBoundary`. Nonterminal rows and terminal rows that already have `finished_at` are unchanged; other columns are untouched. A second open is a no-op even if new matching rows appear later.
+
 ## API
 
 Repository-style named ops keyed by durable IDs — no public SQL surface. Signatures: the `StateStore` interface in [`state-store.ts`](../src/persistence/state-store.ts).

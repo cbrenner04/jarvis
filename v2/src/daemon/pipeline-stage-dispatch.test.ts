@@ -498,7 +498,7 @@ function entryOnlySnapshot(invocationId: string): WorkflowSnapshot {
   } as unknown as WorkflowSnapshot;
 }
 
-function unsettledRollupWedgeRuns(
+function _unsettledRollupWedgeRuns(
   entryRunId: string,
   reviewRunId: string,
   invocationId: string,

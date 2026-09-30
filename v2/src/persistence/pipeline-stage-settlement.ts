@@ -1,5 +1,6 @@
 import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import { priorLaneRunsForWorkflowRollup } from "./prior-lane-runs-for-workflow-rollup.ts";
 import {
   type Attempt,
   isTerminalRunStatus,
@@ -9,7 +10,6 @@ import {
   type RunStatus,
   type StateStore,
 } from "./state-store.ts";
-import { priorLaneRunsForWorkflowRollup } from "./prior-lane-runs-for-workflow-rollup.ts";
 import { resolveWorkflowRunRollup } from "./workflow-run-status-rollup.ts";
 
 export type PipelineStageArtifact = {

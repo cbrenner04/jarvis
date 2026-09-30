@@ -36,6 +36,7 @@ import {
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
 import type { LinkedStageTarget } from "../persistence/pipeline-stage-settlement.ts";
+import { priorLaneRunsForWorkflowRollup } from "../persistence/prior-lane-runs-for-workflow-rollup.ts";
 import {
   type Attempt,
   isTerminalRunStatus,
@@ -47,7 +48,6 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { priorLaneRunsForWorkflowRollup } from "../persistence/prior-lane-runs-for-workflow-rollup.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import {
   type ActiveRun,

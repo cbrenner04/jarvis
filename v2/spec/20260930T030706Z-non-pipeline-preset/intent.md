@@ -14,8 +14,8 @@ The preset registry records whether each registered CLI workflow may be used as 
 
 ## Acceptance criteria
 
-- [ ] A regression test fails against the pre-fix validator and proves a pipeline definition whose stage `workflow` is a registered standalone-only preset is rejected with a named error while `intent`, `plan`, and `implement` stages remain valid.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A regression test fails against the pre-fix validator and proves a pipeline definition whose stage `workflow` is a registered standalone-only preset is rejected with a named error while `intent`, `plan`, and `implement` stages remain valid.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

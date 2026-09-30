@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isStandaloneOnlyPipelineWorkflow, WORKFLOW_PRESET_BUILDERS } from "./workflow-presets";
+import { isStandaloneOnlyPipelineWorkflow, WORKFLOW_PRESET_BUILDERS } from "./workflow-presets.ts";
 
 describe("isStandaloneOnlyPipelineWorkflow", () => {
   test("every builder preset is pipeline-eligible", () => {

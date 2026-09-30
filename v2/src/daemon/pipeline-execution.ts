@@ -587,7 +587,7 @@ function buildReopenedStageReset(
   };
 }
 
-function buildPrefixStageArtifactsForResumeProbe(
+export function buildPrefixStageArtifactsForResumeProbe(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   targetIndex: number,
   branchKey: string,

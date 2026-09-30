@@ -69,6 +69,7 @@ import {
   approvalOutcomeBlocksActivation,
   approvalOutcomePermitsActivation,
   branchKeyFromDownstreamInput,
+  buildPrefixStageArtifactsForResumeProbe,
   commitPipelineApprovalDecision,
   continuePipeline,
   derivePipelineFailureDetail,
@@ -10010,5 +10011,27 @@ describe("pipeline plan stage ready-intent consumption", () => {
     expect(execFileSync("git", ["diff", "--name-only"], { cwd: planWorktree, encoding: "utf8" })).toContain(
       readyIntentRel,
     );
+  });
+});
+
+describe("buildPrefixStageArtifactsForResumeProbe", () => {
+  test("reads only stages before the target index, bounded", () => {
+    let reads = 0;
+    const stages = new Proxy([] as unknown[], {
+      get(target, prop, receiver) {
+        if (typeof prop === "string" && /^\d+$/.test(prop)) {
+          reads += 1;
+          if (reads > 5) throw new Error("unbounded prefix scan");
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const pipeline = { definition: { stages }, stages: [] } as unknown as Parameters<
+      typeof buildPrefixStageArtifactsForResumeProbe
+    >[0];
+    expect(buildPrefixStageArtifactsForResumeProbe(pipeline, 0, "main").size).toBe(0);
+    expect(reads).toBe(0);
+    expect(buildPrefixStageArtifactsForResumeProbe(pipeline, 2, "main").size).toBe(0);
+    expect(reads).toBe(2);
   });
 });

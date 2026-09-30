@@ -16,8 +16,10 @@ import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
 import {
+  createDefaultSupersedeGh,
   executeTerminalPublication,
   TerminalPublicationError,
+  type SupersedeGh,
   type TerminalPublicationInput,
   type TerminalPublicationResult,
 } from "../execution/terminal-publication.ts";
@@ -35,6 +37,7 @@ import {
   type Pipeline,
   type PipelineContext,
   type PipelineReopenRefusalReason,
+  type PipelineSupersedeFailure,
   type PipelineStageRecord,
   type Run,
   type StateStore,
@@ -95,6 +98,7 @@ export type PipelineExecutionDeps = {
   /** True while this daemon still drives the entry run's invocation; stage settlement never judges a live run from its rows. */
   isEntryRunLive?: (entryRunId: string) => boolean;
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
+  supersedeGh?: SupersedeGh;
   /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
   peerClaimTimeoutMs?: number;
   /**
@@ -1415,22 +1419,128 @@ function commitTerminalPublicationSuccessSafely(
   store: StateStore,
   pipelineId: string,
   terminalAction: PipelineTerminalAction,
-): void {
+): boolean {
   try {
     store.commitTerminalPublicationSuccess({ pipelineId });
+    return true;
   } catch (error) {
     commitTerminalPublicationFailureSafely(store, {
       pipelineId,
       terminalAction,
       failure: normalizePublicationFailure(terminalAction, error),
     });
+    return false;
+  }
+}
+
+function terminalWorkflowStagePosition(pipeline: Pipeline & { stages: PipelineStageRecord[] }): number | undefined {
+  let position: number | undefined;
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
+    if (stage.kind !== "workflow") continue;
+    if (record.status === "succeeded") position = record.position;
+  }
+  return position;
+}
+
+function supersedeCandidatePrNumber(record: PipelineStageRecord): number | undefined {
+  const raw = record.artifact;
+  if (raw === null || typeof raw !== "object") return undefined;
+  const prNumber = (raw as PipelineStageArtifact).prNumber;
+  return typeof prNumber === "number" ? prNumber : undefined;
+}
+
+function precedingSupersedeCandidates(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  terminalPosition: number,
+  terminalPrNumber: number,
+): Array<{ stageId: string; prNumber: number }> {
+  const seen = new Set<number>();
+  const candidates: Array<{ stageId: string; prNumber: number }> = [];
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
+    if (stage.kind !== "workflow") continue;
+    if (record.position >= terminalPosition) continue;
+    if (record.status !== "succeeded") continue;
+    const prNumber = supersedeCandidatePrNumber(record);
+    if (prNumber === undefined || prNumber === terminalPrNumber) continue;
+    if (seen.has(prNumber)) continue;
+    seen.add(prNumber);
+    candidates.push({ stageId: stage.stageId, prNumber });
+  }
+  return candidates;
+}
+
+async function settleSupersededPrecedingStagePrs(
+  args: {
+    pipelineId: string;
+    pipeline: Pipeline & { stages: PipelineStageRecord[] };
+    terminalAction: PipelineTerminalAction;
+    worktreePath: string;
+    publicationResult: TerminalPublicationResult;
+    resolvedInput: TerminalPublicationInput;
+  },
+  deps: Pick<PipelineExecutionDeps, "store" | "supersedeGh">,
+): Promise<void> {
+  if (findFanOutSplit(args.pipeline) !== null) return;
+  if (args.pipeline.definition.supersede !== "close") return;
+  if (args.terminalAction !== "ready" && args.terminalAction !== "merge") return;
+
+  const terminalPrNumber = args.publicationResult.prNumber ?? args.resolvedInput.prNumber;
+  if (terminalPrNumber === undefined) return;
+
+  const terminalPosition = terminalWorkflowStagePosition(args.pipeline);
+  if (terminalPosition === undefined) return;
+
+  const candidates = precedingSupersedeCandidates(args.pipeline, terminalPosition, terminalPrNumber);
+  if (candidates.length === 0) return;
+
+  const supersedeGh = deps.supersedeGh ?? createDefaultSupersedeGh();
+  const failures: PipelineSupersedeFailure[] = [];
+
+  for (const candidate of candidates) {
+    const body = `Superseded by #${terminalPrNumber} (pipeline ${args.pipelineId}, stage ${candidate.stageId})`;
+    let state: string;
+    try {
+      ({ state } = await supersedeGh.prState(args.worktreePath, candidate.prNumber));
+    } catch (error) {
+      failures.push({
+        prNumber: candidate.prNumber,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    if (state !== "OPEN") continue;
+
+    try {
+      await supersedeGh.comment(args.worktreePath, candidate.prNumber, body);
+    } catch (error) {
+      failures.push({
+        prNumber: candidate.prNumber,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+
+    try {
+      await supersedeGh.close(args.worktreePath, candidate.prNumber);
+    } catch (error) {
+      failures.push({
+        prNumber: candidate.prNumber,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (failures.length > 0) {
+    deps.store.appendSupersedeFailures({ pipelineId: args.pipelineId, failures });
   }
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal-publication settlement fans over terminalAction, PR evidence, and retarget cases
 async function settlePipelineTerminalPublication(
   pipelineId: string,
-  deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication">,
+  deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication" | "supersedeGh">,
 ): Promise<void> {
   const { store } = deps;
   const pipeline = store.loadPipeline(pipelineId);
@@ -1470,8 +1580,21 @@ async function settlePipelineTerminalPublication(
 
   const execute = deps.executeTerminalPublication ?? executeTerminalPublication;
   try {
-    await execute(resolved.input);
-    commitTerminalPublicationSuccessSafely(store, pipelineId, terminalAction);
+    const publicationResult = await execute(resolved.input);
+    const committed = commitTerminalPublicationSuccessSafely(store, pipelineId, terminalAction);
+    if (committed) {
+      await settleSupersededPrecedingStagePrs(
+        {
+          pipelineId,
+          pipeline,
+          terminalAction,
+          worktreePath: resolved.input.worktreePath,
+          publicationResult,
+          resolvedInput: resolved.input,
+        },
+        deps,
+      );
+    }
   } catch (error) {
     if (error instanceof TerminalPublicationError) {
       commitTerminalPublicationFailureSafely(store, {

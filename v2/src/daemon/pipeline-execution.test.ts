@@ -13,7 +13,11 @@ import { getExternalWorktreePath, withExternalWorktree } from "../execution/exte
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import { ReadyGateError } from "../execution/ready-finalize.ts";
-import { TerminalPublicationError, type TerminalPublicationInput } from "../execution/terminal-publication.ts";
+import {
+  TerminalPublicationError,
+  type SupersedeGh,
+  type TerminalPublicationInput,
+} from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { createBindingFactory, DEBATE_AGENT_MODEL_CONFIG } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
@@ -5545,6 +5549,7 @@ function terminalPipelineDefinition(action: PipelineTerminalAction): PipelineDef
 function terminalRunDeps(
   store: StateStore,
   executeTerminalPublication: NonNullable<PipelineExecutionDeps["executeTerminalPublication"]>,
+  supersedeGh?: SupersedeGh,
 ): PipelineExecutionDeps {
   return {
     store,
@@ -5553,7 +5558,75 @@ function terminalRunDeps(
     context: baseContext,
     resolveStage: resolveStageStub(),
     executeTerminalPublication,
+    ...(supersedeGh !== undefined ? { supersedeGh } : {}),
   };
+}
+
+const SUPERSEDE_PIPELINE_DEFINITION: PipelineDefinition = {
+  name: "supersede-p",
+  terminalAction: "ready",
+  supersede: "close",
+  stages: [
+    { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+    { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+  ],
+};
+
+function supersedeStageRun(prNumber: number, specPath: string): Partial<Run> {
+  return {
+    specPath,
+    worktreePath: "/repo/worktree",
+    branch: "feature-branch",
+    specRef: "main",
+    prNumber,
+    prUrl: `https://example.com/pr/${prNumber}`,
+  };
+}
+
+function supersedePipelineDeps(
+  store: StateStore,
+  executeTerminalPublication: NonNullable<PipelineExecutionDeps["executeTerminalPublication"]>,
+  supersedeGh: SupersedeGh,
+): PipelineExecutionDeps {
+  const dispatch: PipelineWorkflowDispatch = async (steps) => ({
+    ok: true,
+    entryRunId: `run-${stageIndexOf(steps)}`,
+    invocationId: `inv-${stageIndexOf(steps)}`,
+  });
+  return {
+    store,
+    dispatch,
+    wait: async () => "completed",
+    context: baseContext,
+    resolveStage: resolveStageStub(),
+    executeTerminalPublication,
+    supersedeGh,
+  };
+}
+
+function trackingSupersedeGh(options?: { prStates?: ReadonlyMap<number, string>; commentErrorFor?: number }): {
+  gh: SupersedeGh;
+  calls: Array<{ op: "prState" | "comment" | "close"; prNumber: number; body?: string }>;
+} {
+  const calls: Array<{ op: "prState" | "comment" | "close"; prNumber: number; body?: string }> = [];
+  const prStates = options?.prStates ?? new Map<number, string>();
+  const gh: SupersedeGh = {
+    prState: async (_cwd, prNumber) => {
+      calls.push({ op: "prState", prNumber });
+      return { state: prStates.get(prNumber) ?? "OPEN" };
+    },
+    comment: async (_cwd, prNumber, body) => {
+      calls.push({ op: "comment", prNumber, body });
+      if (options?.commentErrorFor === prNumber) {
+        throw new Error("comment failed");
+      }
+    },
+    close: async (_cwd, prNumber) => {
+      calls.push({ op: "close", prNumber });
+    },
+  };
+  return { gh, calls };
 }
 
 describe("pipeline terminal publication settlement", () => {
@@ -5868,6 +5941,174 @@ describe("pipeline terminal publication settlement", () => {
     expect(pipeline.terminalPublicationSucceededAt).toBeNull();
     expect(stages().every((stage) => stage.status === "succeeded")).toBe(true);
     expect(derivePipelineState(pipeline)).toBe("failed");
+  });
+
+  test("supersedes preceding open stage PRs after ready terminal success with comment before close", async () => {
+    const { gh, calls } = trackingSupersedeGh();
+    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
+      "run-0": supersedeStageRun(10, "spec/intent.md"),
+      "run-1": supersedeStageRun(20, "spec/plan.md"),
+      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
+    });
+
+    await runPipeline(
+      PIPELINE_ID,
+      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+    );
+
+    expect(calls.filter((c) => c.op === "prState").map((c) => c.prNumber)).toEqual([10, 20]);
+    expect(calls.some((c) => c.op === "comment" && c.prNumber === TERMINAL_PR.prNumber)).toBe(false);
+    expect(calls.some((c) => c.op === "close" && c.prNumber === TERMINAL_PR.prNumber)).toBe(false);
+    for (const prNumber of [10, 20]) {
+      const commentIndex = calls.findIndex((c) => c.op === "comment" && c.prNumber === prNumber);
+      const closeIndex = calls.findIndex((c) => c.op === "close" && c.prNumber === prNumber);
+      expect(commentIndex).toBeGreaterThanOrEqual(0);
+      expect(closeIndex).toBeGreaterThan(commentIndex);
+      expect(calls[commentIndex]?.body).toBe(
+        `Superseded by #${TERMINAL_PR.prNumber} (pipeline ${PIPELINE_ID}, stage ${prNumber === 10 ? "intent" : "plan"})`,
+      );
+    }
+
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(pipeline.terminalPublicationSucceededAt).not.toBeNull();
+    expect(derivePipelineState(pipeline)).toBe("succeeded");
+  });
+
+  test("skips supersede for non-open preceding PRs", async () => {
+    const { gh, calls } = trackingSupersedeGh({
+      prStates: new Map([
+        [10, "MERGED"],
+        [20, "OPEN"],
+      ]),
+    });
+    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
+      "run-0": supersedeStageRun(10, "spec/intent.md"),
+      "run-1": supersedeStageRun(20, "spec/plan.md"),
+      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
+    });
+
+    await runPipeline(
+      PIPELINE_ID,
+      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+    );
+
+    expect(calls.filter((c) => c.op === "prState").map((c) => c.prNumber)).toEqual([10, 20]);
+    expect(calls.some((c) => c.op === "comment" && c.prNumber === 10)).toBe(false);
+    expect(calls.some((c) => c.op === "close" && c.prNumber === 10)).toBe(false);
+    expect(calls.some((c) => c.op === "comment" && c.prNumber === 20)).toBe(true);
+    expect(calls.some((c) => c.op === "close" && c.prNumber === 20)).toBe(true);
+  });
+
+  test("does not supersede when policy is keep, terminal action is leave-draft, or fan-out refuses terminal success", async () => {
+    const { gh, calls } = trackingSupersedeGh();
+    const keepDefinition: PipelineDefinition = { ...SUPERSEDE_PIPELINE_DEFINITION, supersede: "keep" };
+    const { store: keepStore } = fakeStore(keepDefinition, {
+      "run-0": supersedeStageRun(10, "spec/intent.md"),
+      "run-1": supersedeStageRun(20, "spec/plan.md"),
+      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
+    });
+    await runPipeline(
+      PIPELINE_ID,
+      supersedePipelineDeps(keepStore, async () => TERMINAL_PR, gh),
+    );
+    expect(calls).toEqual([]);
+
+    calls.length = 0;
+    const leaveDefinition: PipelineDefinition = { ...SUPERSEDE_PIPELINE_DEFINITION, terminalAction: "leave-draft" };
+    const { store: leaveStore } = fakeStore(leaveDefinition, {
+      "run-0": supersedeStageRun(10, "spec/intent.md"),
+      "run-1": supersedeStageRun(20, "spec/plan.md"),
+      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
+    });
+    await runPipeline(
+      PIPELINE_ID,
+      supersedePipelineDeps(leaveStore, async () => TERMINAL_PR, gh),
+    );
+    expect(calls).toEqual([]);
+
+    calls.length = 0;
+    const fanOutDefinition: PipelineDefinition = {
+      ...FAN_OUT_LINEAR_DEFINITION,
+      terminalAction: "ready",
+      supersede: "close",
+    };
+    const { store: fanOutStore, stages } = fakeStore(fanOutDefinition, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+      "run-alpha-1-1": supersedeStageRun(10, "spec/alpha/plan.md"),
+      "run-beta-1-2": supersedeStageRun(20, "spec/beta/plan.md"),
+      "run-alpha-2-3": {
+        specRef: "main",
+        worktreePath: "/alpha",
+        branch: "alpha-branch",
+        specPath: "spec/alpha/implement.md",
+        prNumber: 1,
+        prUrl: "https://example/pr/1",
+      },
+      "run-beta-2-4": {
+        specRef: "main",
+        worktreePath: "/beta",
+        branch: "beta-branch",
+        specPath: "spec/beta/implement.md",
+        prNumber: 2,
+        prUrl: "https://example/pr/2",
+      },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    await runPipeline(PIPELINE_ID, {
+      ...fanOutPipelineDeps(fanOutStore, dispatchLog),
+      context: baseContext,
+      executeTerminalPublication: async () => TERMINAL_PR,
+      supersedeGh: gh,
+    });
+    expect(fanOutStore.loadPipeline(PIPELINE_ID)?.terminalPublicationSucceededAt).toBeNull();
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
+    expect(calls).toEqual([]);
+  });
+
+  test("records supersedeFailures and still succeeds when comment fails on one candidate", async () => {
+    const { gh, calls } = trackingSupersedeGh({ commentErrorFor: 10 });
+    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
+      "run-0": supersedeStageRun(10, "spec/intent.md"),
+      "run-1": supersedeStageRun(20, "spec/plan.md"),
+      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
+    });
+
+    await runPipeline(
+      PIPELINE_ID,
+      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+    );
+
+    expect(store.loadPipeline(PIPELINE_ID)?.supersedeFailures).toEqual([{ prNumber: 10, message: "comment failed" }]);
+    expect(calls.some((c) => c.op === "close" && c.prNumber === 10)).toBe(false);
+    expect(calls.some((c) => c.op === "comment" && c.prNumber === 20)).toBe(true);
+    expect(calls.some((c) => c.op === "close" && c.prNumber === 20)).toBe(true);
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(pipeline.terminalPublicationSucceededAt).not.toBeNull();
+    expect(derivePipelineState(pipeline)).toBe("succeeded");
+  });
+
+  test("does not supersede when terminal success commit fails", async () => {
+    const { gh, calls } = trackingSupersedeGh();
+    const { store: inner } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
+      "run-0": supersedeStageRun(10, "spec/intent.md"),
+      "run-1": supersedeStageRun(20, "spec/plan.md"),
+      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
+    });
+    const store = {
+      ...inner,
+      commitTerminalPublicationSuccess: () => {
+        throw new Error("success commit failed");
+      },
+    } as StateStore;
+
+    await runPipeline(
+      PIPELINE_ID,
+      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+    );
+
+    expect(calls).toEqual([]);
   });
 });
 

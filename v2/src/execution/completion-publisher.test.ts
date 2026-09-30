@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { StateStore } from "../persistence/state-store.ts";
 import {
   AmbiguousOpenPrError,
+  bindHarnessReadyFlipEvidenceLookup,
   type CompletionPublisherInput,
   createCompletionPublisher,
   ForeignRemoteTipError,
@@ -1918,5 +1920,20 @@ describe("createCompletionPublisher lease-forced push", () => {
     expect(error).toBeInstanceOf(LeaseRejectedError);
     expect((error as Error).message).toContain("expected remote cafe1234");
     expect((error as Error).message).toContain("actual beef5678");
+  });
+});
+
+describe("bindHarnessReadyFlipEvidenceLookup", () => {
+  it("returns true only when the store finds lineage evidence", () => {
+    let evidence: object | null = null;
+    const store = {
+      loadRun: () => ({ project: "p", specRef: "s" }),
+      findNewestHarnessReadyFlipEvidenceInLineage: () => evidence,
+    } as unknown as StateStore;
+    const lookup = bindHarnessReadyFlipEvidenceLookup(store, "r");
+    const args = { branch: "b", baseRef: "main", prNumber: 1 };
+    expect(lookup?.(args)).toBe(false);
+    evidence = { prNumber: 1 };
+    expect(lookup?.(args)).toBe(true);
   });
 });

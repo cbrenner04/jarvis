@@ -34,6 +34,40 @@ export function shouldSampleNow(state: Readonly<StableDigestTriggerState>): bool
   return !state.handoffInFlight;
 }
 
+export type RetireCause = "handoff_origin" | "terminal" | null;
+
+export type RetiringSoleOwnerSelfHealInput = {
+  retiring: boolean;
+  publicBound: boolean;
+  handoffPending: boolean;
+  blocksRollbackReopen: boolean;
+  retireCause: RetireCause;
+};
+
+export function shouldRetiringSoleOwnerSelfHeal(input: RetiringSoleOwnerSelfHealInput): boolean {
+  return (
+    input.retiring &&
+    input.publicBound &&
+    !input.handoffPending &&
+    !input.blocksRollbackReopen &&
+    input.retireCause === "handoff_origin"
+  );
+}
+
+/** Production self-handoff sampling interval body (`daemon.ts` `scheduleSampling`). */
+export function runSelfHandoffSamplingIntervalTick(
+  input: RetiringSoleOwnerSelfHealInput,
+  reopenAdmission: () => void,
+  isRetiring: () => boolean,
+  retireCause: () => RetireCause,
+  onTick: () => void | Promise<void>,
+): void {
+  if (shouldRetiringSoleOwnerSelfHeal(input)) reopenAdmission();
+  if (input.handoffPending) return;
+  if (isRetiring() && retireCause() !== "handoff_origin") return;
+  void Promise.resolve(onTick());
+}
+
 export function startStableDigestTrigger(
   loadedDigest: string,
   deps: {

@@ -14,6 +14,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
@@ -27,7 +28,7 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
-import { makeIpcClient } from "../testing/cli-test-helpers.ts";
+import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   classifyNeverLandedLane,
@@ -45,6 +46,7 @@ import {
   handLandedArtifactArchivability,
   hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
+  isContinuationReadableSpecPath,
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
@@ -65,6 +67,7 @@ import {
 } from "./cleanup.ts";
 import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
 import type { LegacyDaemonArtifactDeps } from "./daemon.ts";
+import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 
 const GH_PR_LIST_PROBE_ERROR = new AsyncSubprocessError("gh unreachable", 1, "", "network error", undefined);
 type OpenPr = { number: number; isDraft: boolean };
@@ -5327,6 +5330,57 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
   }
 
+  async function expectOrigHeadAbsent(worktreePath: string): Promise<void> {
+    let failed = false;
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "ORIG_HEAD"], worktreePath);
+    } catch {
+      failed = true;
+    }
+    expect(failed).toBe(true);
+  }
+
+  async function runMaybeResetStaleWorkspace(args: { branch: string; specPath: string; prs: OpenPr[] }) {
+    const writeStep: {
+      behavior: "write";
+      specPath: string;
+      leaseFromSha?: string;
+      worktree: {
+        git: true;
+        projectRoot: string;
+        projectName: string;
+        branchName: string;
+        baseRef: string;
+      };
+    } = {
+      behavior: "write",
+      specPath: args.specPath,
+      worktree: {
+        git: true,
+        projectRoot,
+        projectName: "project",
+        branchName: args.branch,
+        baseRef: "HEAD",
+      },
+    };
+    const built = { ok: true as const, steps: [writeStep] };
+    const runner = ghPrListRunner(projectRoot, args.prs);
+    let outcome: "reset" | "no-op" | "continue" | undefined;
+    const exitCode = await maybeResetStaleWorkspace(
+      "implement",
+      built as never,
+      { jarvisRoot, subprocessRunner: runner } as never,
+      silentIo,
+      { workflow: "implement" } as never,
+      makeStaleResetIpcClient([]),
+      undefined,
+      (status) => {
+        outcome = status;
+      },
+    );
+    return { exitCode, writeStep, outcome };
+  }
+
   test("resetStaleWorkspace retires a clean lane whose HEAD is an older base commit", async () => {
     const branch = "impl/empty-lane-behind-base";
     const worktreePath = await setupWorktreeAndBranch(branch);
@@ -5674,6 +5728,15 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return join("v2", "spec", specName, "index.md");
   }
 
+  /** Prior-stage spec tree under `tempRoot`, like a chained implement stage's out-of-root write-step spec. */
+  function setupChainedOutOfRootSpec(specName: string): string {
+    const priorWorktreeSpecDir = join(tempRoot, "prior-worktree", "v2", "spec", specName);
+    mkdirSync(priorWorktreeSpecDir, { recursive: true });
+    writeFileSync(join(priorWorktreeSpecDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(priorWorktreeSpecDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    return join(priorWorktreeSpecDir, "index.md");
+  }
+
   test("resetStaleWorkspace refuses a checked criterion with no backing commit, naming the subspec and fix", async () => {
     const branch = "impl/forged-tick";
     const subspecRel = "v2/spec/forged-spec/00-task.md";
@@ -5763,6 +5826,60 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  test("resetStaleWorkspace continues a chained out-of-root spec lane past a moved base with no PR", async () => {
+    const branch = "impl/chained-out-of-root-rebase";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-stage");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "chained-impl.txt");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    await advanceBase("chained-out-of-root-advance.md");
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBe(preRebaseSha);
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(newTip).not.toBe(preRebaseSha);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", baseHead, newTip], projectRoot);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace still refuses a non-descendant out-of-root lane with no common ancestor", async () => {
+    const branch = "impl/chained-disjoint-history";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-disjoint");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "chained-disjoint-impl.txt");
+
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD (${baseHead})`);
+    expect(reason).toContain("stale reuse refused");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
   test("resetStaleWorkspace aborts a conflicting rebase and refuses, leaving the lane unchanged", async () => {
     const branch = "impl/rebase-conflict";
     const subspecRel = "v2/spec/rebase-conflict-lane/00-task.md";
@@ -5792,6 +5909,199 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(reason).toContain("worktree unchanged");
     const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
     expect(tipAfter).toBe(preRebaseSha);
+    const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
+    expect(statusOutput.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("maybeResetStaleWorkspace sets leaseFromSha on rebase-continue only", async () => {
+    const branch = "impl/lease-from-sha";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("lease-from-sha");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "lease-rebase.txt");
+    await advanceBase("lease-rebase-advance.md");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    const rebase = await runMaybeResetStaleWorkspace({
+      branch,
+      specPath: outOfRootIndexPath,
+      prs: [],
+    });
+    expect(rebase.exitCode).toBeUndefined();
+    expect(rebase.outcome).toBe("continue");
+    expect(rebase.writeStep.leaseFromSha).toBe(preRebaseSha);
+
+    const mergeBranch = "impl/lease-merge";
+    const mergeOutOfRoot = setupChainedOutOfRootSpec("lease-merge");
+    const mergeWorktreePath = await setupWorktreeAndBranch(mergeBranch);
+    await commitInWorktree(mergeWorktreePath, "lease-merge.txt");
+    await advanceBase("lease-merge-advance.md");
+
+    const merge = await runMaybeResetStaleWorkspace({
+      branch: mergeBranch,
+      specPath: mergeOutOfRoot,
+      prs: [{ number: 904, isDraft: true }],
+    });
+    expect(merge.exitCode).toBeUndefined();
+    expect(merge.outcome).toBe("continue");
+    expect(merge.writeStep.leaseFromSha).toBeUndefined();
+  });
+
+  test("resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base", async () => {
+    const branch = "impl/chained-out-of-root-merge";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const preMergeSha = await commitInWorktree(worktreePath, "chained-open-pr-impl.txt");
+
+    await advanceBase("chained-open-pr-merge-advance.md");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 901, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace merges base into an open-PR in-root lane past a moved base", async () => {
+    const branch = "impl/in-root-open-pr-merge";
+    const subspecRel = "v2/spec/open-pr-merge-lane/00-task.md";
+    const indexRel = await setupSpecTree("open-pr-merge-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, "unrelated-open-pr-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 902, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace refuses rather than merging or retiring when reset-despite-landed-criteria is set on an out-of-root moved-base open-PR lane", async () => {
+    const branch = "impl/out-of-root-landed-override";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("out-of-root-landed-override");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "out-of-root-landed-override.txt");
+    await advanceBase("landed-override-advance.md");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 905, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace keeps the descendant gate under reset-despite-landed-criteria on a dirty non-descendant open-PR lane", async () => {
+    const branch = "impl/landed-override-dirty";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("landed-override-dirty");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "landed-override-dirty.txt");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 907, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true, skipDirtyWorktreeGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane", async () => {
+    const branch = "impl/chained-open-pr-merge-conflict";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge-conflict");
+    const conflictRel = "chained-open-pr-merge-conflict.txt";
+    writeFileSync(join(projectRoot, conflictRel), "start\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add conflict file"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, conflictRel), "lane\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane edit"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, conflictRel), "base\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "base edit"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 903, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(conflictRel);
+    expect(reason).toContain("conflicted");
+    expect(reason).toContain("worktree unchanged");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(preMergeSha);
     const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
     expect(statusOutput.trim()).toBe("");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
@@ -6887,6 +7197,10 @@ describe("cleanup: session log retention", () => {
     return path;
   }
 
+  function writeRetentionConfig(hotDays: number, coldDays: number): void {
+    writeFileSync(configPath, JSON.stringify({ retention: { sessions: { hotDays, coldDays } } }));
+  }
+
   async function runSessionCleanup(
     sessionsDir: string,
     runs: Run[],
@@ -6923,70 +7237,124 @@ describe("cleanup: session log retention", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  test("session retention reaps only old terminal run logs", async () => {
-    const defaultDir = join(jarvisRoot, "default-sessions");
-    const old = runRow(runId(1), "completed", now.getTime() - 15 * dayMs);
-    const recent = runRow(runId(2), "completed", now.getTime() - 13 * dayMs);
-    const live = runRow(runId(3), "in-progress", now.getTime() - 30 * dayMs);
-    const paused = runRow(runId(4), "paused", now.getTime() - 30 * dayMs);
-    const unsettled = runRow(runId(5), "failed", null);
-    const nonfinite = runRow(runId(6), "failed", Number.NaN);
-    const atCutoff = runRow(runId(7), "killed", now.getTime() - 14 * dayMs);
-    const unknownId = runId(8);
-    const paths = new Map(
-      [old, recent, live, paused, unsettled, nonfinite, atCutoff].map((run) => [
-        run.id,
-        writeSessionLog(defaultDir, run.id),
-      ]),
+  function ageLog(path: string, ageDays: number): void {
+    const when = new Date(now.getTime() - ageDays * dayMs);
+    utimesSync(path, when, when);
+  }
+
+  function writeColdGzip(logPath: string, plain: string): string {
+    const gzPath = `${logPath}.gz`;
+    writeFileSync(gzPath, gzipSync(plain));
+    return gzPath;
+  }
+
+  test("tiered session log retention hot cold gone", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const shardDir = join(sessionsDir, "2026-08");
+    mkdirSync(shardDir, { recursive: true });
+
+    const hot = runRow(runId(1), "completed", now.getTime() - 5 * dayMs);
+    const warm = runRow(runId(2), "completed", now.getTime() - 20 * dayMs);
+    const coldPlain = runRow(runId(3), "completed", now.getTime() - 40 * dayMs);
+    const coldGzip = runRow(runId(4), "killed", now.getTime() - 45 * dayMs);
+    const live = runRow(runId(5), "in-progress", now.getTime() - 60 * dayMs);
+    const unsettled = runRow(runId(6), "failed", null);
+
+    const hotPath = writeSessionLog(sessionsDir, hot.id, "hot-plain");
+    const warmPath = writeSessionLog(sessionsDir, warm.id, "warm-plain");
+    const coldPlainPath = writeSessionLog(shardDir, coldPlain.id, "cold-plain");
+    const coldGzipLogPath = writeSessionLog(shardDir, coldGzip.id, "gone-plain");
+    const coldGzipPath = writeColdGzip(coldGzipLogPath, "gone-plain");
+    rmSync(coldGzipLogPath, { force: true });
+    const livePath = writeSessionLog(sessionsDir, live.id, "live");
+    const unsettledPath = writeSessionLog(sessionsDir, unsettled.id, "unsettled");
+
+    const oldOrphanPath = writeSessionLog(sessionsDir, runId(7));
+    const youngOrphanPath = writeSessionLog(shardDir, runId(8));
+    ageLog(oldOrphanPath, 40);
+    ageLog(youngOrphanPath, 5);
+
+    const runs = [hot, warm, coldPlain, coldGzip, live, unsettled];
+    const first = await runSessionCleanup(sessionsDir, runs);
+    expect(first.code).toBe(0);
+    expect(first.stdout).toContain("Reaped 3 session log(s) for cold-to-gone deletion (1 by mtime, no run row)");
+    expect(first.stdout).toContain("Reaped 3 session log(s) for hot-to-cold compression (1 by mtime, no run row)");
+
+    expect(existsSync(hotPath)).toBe(true);
+    expect(existsSync(warmPath)).toBe(false);
+    expect(existsSync(`${warmPath}.gz`)).toBe(true);
+    expect(gunzipSync(readFileSync(`${warmPath}.gz`)).toString()).toBe("warm-plain");
+    expect(existsSync(coldPlainPath)).toBe(false);
+    expect(existsSync(`${coldPlainPath}.gz`)).toBe(false);
+    expect(existsSync(coldGzipPath)).toBe(false);
+    expect(existsSync(livePath)).toBe(true);
+    expect(existsSync(unsettledPath)).toBe(true);
+    expect(existsSync(oldOrphanPath)).toBe(false);
+    expect(existsSync(`${oldOrphanPath}.gz`)).toBe(false);
+    expect(existsSync(youngOrphanPath)).toBe(true);
+
+    const second = await runSessionCleanup(sessionsDir, runs);
+    expect(second.code).toBe(0);
+    expect(second.stdout).not.toContain("hot-to-cold");
+    expect(second.stdout).not.toContain("cold-to-gone");
+  });
+
+  test("tiered session log retention recovers interrupted compression", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const run = runRow(runId(9), "completed", now.getTime() - 20 * dayMs);
+    const plainPath = writeSessionLog(sessionsDir, run.id, "recover-me");
+    const staleGz = writeColdGzip(plainPath, "stale");
+    const tmpPath = `${plainPath}.gz.tmp`;
+    writeFileSync(tmpPath, "partial");
+
+    const result = await runSessionCleanup(sessionsDir, [run]);
+    expect(result.code).toBe(0);
+    expect(existsSync(plainPath)).toBe(false);
+    expect(existsSync(tmpPath)).toBe(false);
+    expect(existsSync(staleGz)).toBe(true);
+    expect(gunzipSync(readFileSync(staleGz)).toString()).toBe("recover-me");
+    expect(result.stdout).toContain("Reaped 1 session log(s) for hot-to-cold compression");
+  });
+
+  test("tiered session log retention dry-run per-tier summary", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const compress = runRow(runId(10), "completed", now.getTime() - 20 * dayMs);
+    const deleteGzip = runRow(runId(11), "failed", now.getTime() - 40 * dayMs);
+    const compressPath = writeSessionLog(sessionsDir, compress.id, "abcd");
+    const deletePlainPath = writeSessionLog(sessionsDir, deleteGzip.id, "gone");
+    const deleteGzipPath = writeColdGzip(deletePlainPath, "gone");
+    rmSync(deletePlainPath, { force: true });
+
+    const result = await runSessionCleanup(sessionsDir, [compress, deleteGzip], { dryRun: true });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Found 1 session log(s) for hot-to-cold compression: 4 plain bytes.");
+    expect(result.stdout).toContain(
+      `Found 1 session log(s) for cold-to-gone deletion: ${readFileSync(deleteGzipPath).length} gzip bytes.`,
     );
-    const unknownPath = writeSessionLog(defaultDir, unknownId);
-
-    const defaultResult = await runSessionCleanup(defaultDir, [
-      old,
-      recent,
-      live,
-      paused,
-      unsettled,
-      nonfinite,
-      atCutoff,
-    ]);
-
-    expect(defaultResult.code).toBe(0);
-    expect(defaultResult.stdout).toContain("Reaped 1 expired session log(s)");
-    expect(existsSync(paths.get(old.id) ?? "")).toBe(false);
-    for (const run of [recent, live, paused, unsettled, nonfinite, atCutoff]) {
-      expect(existsSync(paths.get(run.id) ?? "")).toBe(true);
-    }
-    expect(existsSync(unknownPath)).toBe(true);
-
-    writeFileSync(configPath, JSON.stringify({ cleanup: { sessionLogRetentionDays: 30 } }));
-    const configuredDir = join(jarvisRoot, "configured-sessions");
-    const configuredOld = runRow(runId(9), "blocked", now.getTime() - 31 * dayMs);
-    const configuredRecent = runRow(runId(10), "interrupted", now.getTime() - 20 * dayMs);
-    const configuredOldPath = writeSessionLog(configuredDir, configuredOld.id, "old");
-    const configuredRecentPath = writeSessionLog(configuredDir, configuredRecent.id, "recent");
-
-    const configuredResult = await runSessionCleanup(configuredDir, [configuredOld, configuredRecent]);
-
-    expect(configuredResult.code).toBe(0);
-    expect(configuredResult.stdout).toContain("oldest kept date: 2026-08-08");
-    expect(existsSync(configuredOldPath)).toBe(false);
-    expect(existsSync(configuredRecentPath)).toBe(true);
+    expect(result.stdout).not.toContain(basename(compressPath));
+    expect(result.stdout).not.toContain(basename(deleteGzipPath));
+    expect(result.stdout).toContain("dry-run: no changes made");
+    expect(existsSync(compressPath)).toBe(true);
+    expect(existsSync(deleteGzipPath)).toBe(true);
   });
 
   test("session retention config default and invalid values refuse reaping", async () => {
-    const defaultRun = runRow(runId(11), "completed", now.getTime() - 15 * dayMs);
+    const defaultRun = runRow(runId(11), "completed", now.getTime() - 91 * dayMs);
     const defaultPath = writeSessionLog(join(jarvisRoot, "default-config-sessions"), defaultRun.id);
 
     await runSessionCleanup(dirname(defaultPath), [defaultRun]);
     expect(existsSync(defaultPath)).toBe(false);
+    expect(existsSync(`${defaultPath}.gz`)).toBe(false);
 
     const invalidConfigs: unknown[] = [
-      { cleanup: "invalid" },
-      { cleanup: { sessionLogRetentionDays: 1.5 } },
-      { cleanup: { sessionLogRetentionDays: 0 } },
-      { cleanup: { sessionLogRetentionDays: -1 } },
-      { cleanup: { sessionLogRetentionDays: "30" } },
+      { retention: "invalid" },
+      { retention: { sessions: { hotDays: 1, coldDays: 1.5 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: 0 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: -1 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: "30" } } },
     ];
     for (const [index, config] of invalidConfigs.entries()) {
       writeFileSync(configPath, JSON.stringify(config));
@@ -6998,13 +7366,30 @@ describe("cleanup: session log retention", () => {
       const result = await runSessionCleanup(dirname(path), [run]);
 
       expect(result.code).toBe(0);
-      expect(result.stderr).toContain("cleanup.sessionLogRetentionDays");
+      expect(result.stderr).toMatch(/retention\.sessions\.(hotDays|coldDays)/);
       expect(existsSync(path)).toBe(true);
       if (index === 0) expect(existsSync(otherSlicePath)).toBe(false);
     }
   });
 
+  test("session retention skips reaping when top-level machine config is not an object", async () => {
+    writeFileSync(configPath, JSON.stringify(["not", "config"]));
+    const otherSlicePath = join(jarvisRoot, "daemon-0000000000000098.pid");
+    writeFileSync(otherSlicePath, "999999");
+    const run = runRow(runId(99), "completed", now.getTime() - 60 * dayMs);
+    const path = writeSessionLog(join(jarvisRoot, "bad-root-config"), run.id);
+
+    const result = await runSessionCleanup(dirname(path), [run]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("Failed to load machine config");
+    expect(result.stderr).not.toContain("retention.sessions");
+    expect(existsSync(path)).toBe(true);
+    expect(existsSync(otherSlicePath)).toBe(false);
+  });
+
   test("session retention guard preserves excluded paths", async () => {
+    writeRetentionConfig(1, 14);
     const sessionsDir = join(jarvisRoot, "sessions");
     const run = runRow(runId(30), "completed", now.getTime() - 20 * dayMs);
     const expiredPath = writeSessionLog(sessionsDir, run.id);
@@ -7025,61 +7410,11 @@ describe("cleanup: session log retention", () => {
     await runSessionCleanup(sessionsDir, [run]);
 
     expect(existsSync(expiredPath)).toBe(false);
+    expect(existsSync(`${expiredPath}.gz`)).toBe(false);
     for (const path of [telemetryPath, statePath, nestedLogPath, malformedLogPath, outsidePath]) {
       expect(existsSync(path)).toBe(true);
     }
     expect(existsSync(join(sessionsDir, "decoy.log"))).toBe(true);
-  });
-
-  test("session retention dry-run reports aggregate summary without filenames", async () => {
-    const sessionsDir = join(jarvisRoot, "sessions");
-    const first = runRow(runId(40), "completed", now.getTime() - 20 * dayMs);
-    const second = runRow(runId(41), "failed", now.getTime() - 30 * dayMs);
-    const firstPath = writeSessionLog(sessionsDir, first.id, "abc");
-    const secondPath = writeSessionLog(sessionsDir, second.id, "12345");
-
-    const result = await runSessionCleanup(sessionsDir, [first, second], { dryRun: true });
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain(
-      "Found 2 expired session log(s): 8 reclaimable bytes; oldest kept date: 2026-08-24.",
-    );
-    expect(result.stdout).not.toContain(basename(firstPath));
-    expect(result.stdout).not.toContain(basename(secondPath));
-    expect(result.stdout).toContain("dry-run: no changes made");
-    expect(existsSync(firstPath)).toBe(true);
-    expect(existsSync(secondPath)).toBe(true);
-  });
-
-  function ageLog(path: string, ageDays: number): void {
-    const when = new Date(now.getTime() - ageDays * dayMs);
-    utimesSync(path, when, when);
-  }
-
-  test("orphan logs age by mtime; live rows and young orphans are kept", async () => {
-    const sessionsDir = join(jarvisRoot, "sessions");
-    const owner = runRow(runId(50), "completed", now.getTime() - 15 * dayMs);
-    const live = runRow(runId(51), "in-progress", null);
-    const ownerPath = writeSessionLog(sessionsDir, owner.id);
-    const livePath = writeSessionLog(sessionsDir, live.id);
-    const oldOrphan = writeSessionLog(sessionsDir, runId(52));
-    const youngOrphan = writeSessionLog(sessionsDir, runId(53));
-    const oldUnparseable = join(sessionsDir, "stray.log");
-    writeFileSync(oldUnparseable, "stray");
-    for (const path of [livePath, oldOrphan, oldUnparseable]) ageLog(path, 90);
-    ageLog(youngOrphan, 13);
-
-    const result = await runSessionCleanup(sessionsDir, [owner, live], { dryRun: true });
-    expect(result.stdout).toContain("Found 3 expired session log(s) (2 by mtime, no run row):");
-
-    const applied = await runSessionCleanup(sessionsDir, [owner, live]);
-
-    expect(applied.stdout).toContain("Reaped 3 expired session log(s) (2 by mtime, no run row):");
-    expect(existsSync(ownerPath)).toBe(false);
-    expect(existsSync(oldOrphan)).toBe(false);
-    expect(existsSync(oldUnparseable)).toBe(false);
-    expect(existsSync(livePath)).toBe(true);
-    expect(existsSync(youngOrphan)).toBe(true);
   });
 
   test("zero run rows suppress the orphan mtime fallback", async () => {
@@ -7090,19 +7425,9 @@ describe("cleanup: session log retention", () => {
     const result = await runSessionCleanup(sessionsDir, []);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).not.toContain("expired session log(s)");
+    expect(result.stdout).not.toContain("session log(s) for hot-to-cold");
+    expect(result.stdout).not.toContain("session log(s) for cold-to-gone");
     expect(existsSync(path)).toBe(true);
-  });
-
-  test("summary has no orphan suffix without orphans", async () => {
-    const sessionsDir = join(jarvisRoot, "sessions");
-    const run = runRow(runId(70), "completed", now.getTime() - 20 * dayMs);
-    writeSessionLog(sessionsDir, run.id, "abc");
-
-    const result = await runSessionCleanup(sessionsDir, [run], { dryRun: true });
-
-    expect(result.stdout).toContain("Found 1 expired session log(s): 3 reclaimable bytes;");
-    expect(result.stdout).not.toContain("by mtime");
   });
 });
 
@@ -7160,6 +7485,31 @@ describe("hasBranchKeyedArtifactOwner", () => {
     expect(
       hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis, owning),
     ).toBe(true);
+  });
+});
+
+describe("stale-reset continuation-readable spec-path gate", () => {
+  test("includes readable markdown paths outside the project root; excludes missing paths and index-less dirs", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
+    const outsideFile = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-"));
+    const outsideDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-dir-"));
+    const emptyDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-empty-dir-"));
+    const specFile = join(outsideFile, "index.md");
+    writeFileSync(specFile, "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, "index.md"), "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    try {
+      expect(isContinuationReadableSpecPath(root, specFile)).toBe(true);
+      expect(isStaleResetLandedCriteriaSpecPath(root, specFile)).toBe(false);
+      expect(isContinuationReadableSpecPath(root, outsideDir)).toBe(true);
+      expect(isContinuationReadableSpecPath(root, join(root, "missing.md"))).toBe(false);
+      expect(isContinuationReadableSpecPath(root, emptyDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outsideFile, { recursive: true, force: true });
+      rmSync(outsideDir, { recursive: true, force: true });
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 });
 

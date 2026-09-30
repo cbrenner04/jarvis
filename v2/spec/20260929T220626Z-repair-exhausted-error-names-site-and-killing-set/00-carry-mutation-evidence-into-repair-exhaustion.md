@@ -21,14 +21,14 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` proves each `mutation_repair_exhausted` exit — budget exhaustion, blocked, and unsettled — records the latest available survivor's mutation, source file and line, resolved killing tests, and observed killing-set result on terminal `loop_finished`, including a case where a later repair attempt's survivor differs from attempt 1's; it fails against the pre-fix evidence-dropping settlement reachable on main.
-- [ ] `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` proves a budget-exhaustion case with a non-empty resolved killing set and a `passed-confirmed` observed result projects that killing set and result unchanged on `loop_finished`, not `[]` or `not-run`; it fails against the pre-fix evidence-dropping settlement reachable on main.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves `composeRunOperatorError` returns the persisted mutation, source file/line, non-empty resolved killing set, and `passed-confirmed` result for `mutation_repair_exhausted` while preserving its non-retryable `inspect_spec` classification and existing recovery guidance; it fails against the pre-fix mapper reachable on main.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves that when the current survivor's killing-set result is `unknown` — reconstructed from a legacy `surviving_mutation_failed` record — the composed operator error keeps the mutation and site but omits the killing-set fields rather than presenting them as observed.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves a legacy `mutation_repair_exhausted` record with no persisted survivor fields still composes without invented evidence.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` proves each `mutation_repair_exhausted` exit — budget exhaustion, blocked, and unsettled — records the latest available survivor's mutation, source file and line, resolved killing tests, and observed killing-set result on terminal `loop_finished`, including a case where a later repair attempt's survivor differs from attempt 1's; it fails against the pre-fix evidence-dropping settlement reachable on main.
+- [x] `v2/src/execution/workflow-runner-resume-review-dispatch.test.ts` proves a budget-exhaustion case with a non-empty resolved killing set and a `passed-confirmed` observed result projects that killing set and result unchanged on `loop_finished`, not `[]` or `not-run`; it fails against the pre-fix evidence-dropping settlement reachable on main.
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves `composeRunOperatorError` returns the persisted mutation, source file/line, non-empty resolved killing set, and `passed-confirmed` result for `mutation_repair_exhausted` while preserving its non-retryable `inspect_spec` classification and existing recovery guidance; it fails against the pre-fix mapper reachable on main.
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves that when the current survivor's killing-set result is `unknown` — reconstructed from a legacy `surviving_mutation_failed` record — the composed operator error keeps the mutation and site but omits the killing-set fields rather than presenting them as observed.
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves a legacy `mutation_repair_exhausted` record with no persisted survivor fields still composes without invented evidence.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

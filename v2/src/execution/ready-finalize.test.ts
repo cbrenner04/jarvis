@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, setSystemTime } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,8 @@ import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../script
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import {
   classifyReadyGateError,
@@ -2278,6 +2280,146 @@ index 1234567..abcdefg 100644
 
     const single = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3, [], "not-run");
     expect(single.message).toBe("Surviving mutation in v2/src/execution/test.ts:3: guard-flip: !x → x");
+  });
+});
+
+describe("createReadyFinalizer harness ready-flip evidence", () => {
+  const finalizeInput = {
+    worktreePath: "/tmp/worktree",
+    branch: "feature-branch",
+    baseRef: "main",
+    prNumber: 42,
+  };
+  const noopDelay = async () => {};
+  let stateDbPath: string;
+  let store: StateStore;
+
+  beforeEach(() => {
+    stateDbPath = join(trackedMkdtempSync(join(tmpdir(), "ready-finalize-evidence-")), "state.db");
+    store = openStateStore(stateDbPath);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+    store.close();
+    removeOrchestrationStore(stateDbPath);
+  });
+
+  function seedRun(): string {
+    return store.createRun({
+      project: "test-project",
+      specRef: finalizeInput.baseRef,
+      worktreePath: finalizeInput.worktreePath,
+      branch: finalizeInput.branch,
+      specPath: "spec/implement.md",
+    });
+  }
+
+  it("persists ready-flip evidence on the run row after a successful flip", async () => {
+    const runId = seedRun();
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {},
+    });
+
+    setSystemTime(new Date(12_000));
+    await finalizer({
+      ...finalizeInput,
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+    });
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+      prNumber: 42,
+      branch: finalizeInput.branch,
+      baseRef: finalizeInput.baseRef,
+      flippedAt: 12_000,
+    });
+  });
+
+  it("leaves prior ready-flip evidence unchanged when ghReadyFlip rejects non-transiently", async () => {
+    const runId = seedRun();
+    setSystemTime(new Date(9_000));
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber: 1,
+      branch: finalizeInput.branch,
+      baseRef: finalizeInput.baseRef,
+    });
+
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        throw new Error("Resource not accessible by integration");
+      },
+      delay: noopDelay,
+    });
+
+    setSystemTime(new Date(15_000));
+    await expect(
+      finalizer({
+        ...finalizeInput,
+        recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+      }),
+    ).rejects.toThrow("Resource not accessible by integration");
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+      prNumber: 1,
+      branch: finalizeInput.branch,
+      baseRef: finalizeInput.baseRef,
+      flippedAt: 9_000,
+    });
+  });
+
+  it("writes no evidence when the ready gate fails before the flip", async () => {
+    const runId = seedRun();
+    let evidenceWrites = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {
+        throw new Error("ready gate failed (exit 1): tests failed");
+      },
+      ghReadyFlip: async () => {},
+    });
+
+    await expect(
+      finalizer({
+        ...finalizeInput,
+        recordHarnessReadyFlipEvidence: () => {
+          evidenceWrites += 1;
+        },
+      }),
+    ).rejects.toThrow("ready gate failed");
+
+    expect(evidenceWrites).toBe(0);
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence ?? null).toBeNull();
+  });
+
+  it("records exactly one write when ghReadyFlip fails transiently then succeeds", async () => {
+    const runId = seedRun();
+    let attempts = 0;
+    let evidenceWrites = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        attempts += 1;
+        if (attempts < 2) {
+          throw new Error("Connection reset by peer");
+        }
+      },
+      delay: noopDelay,
+    });
+
+    setSystemTime(new Date(16_000));
+    await finalizer({
+      ...finalizeInput,
+      recordHarnessReadyFlipEvidence: (args) => {
+        evidenceWrites += 1;
+        store.recordHarnessReadyFlipEvidence({ runId, ...args });
+      },
+    });
+
+    expect(attempts).toBe(2);
+    expect(evidenceWrites).toBe(1);
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toMatchObject({ prNumber: 42, flippedAt: 16_000 });
   });
 });
 

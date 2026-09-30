@@ -182,6 +182,8 @@ gh pr ready <n> && gh pr merge <n> --admin --squash
 3. `gh pr checks <n>` green, as its own command.
 4. `gh pr ready <n> && gh pr merge <n> --admin --squash`.
 
+**Draft until done.** Open every PR with `--draft` and keep it draft while commits are still coming. Non-draft signals mergeable: a concurrent operator or process may review and land it as-is, and anything pushed after that merge misses `main` (and re-creates the deleted head branch). Push the last commit before `gh pr ready`; for further changes after ready, flip back with `gh pr ready --undo <n>` first.
+
 Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. `mergeStateStatus` `BLOCKED` is usually branch protection (admin overrides); `DIRTY` is a real conflict to resolve first; `BEHIND` is admin-mergeable.
 
 Agent operators: `gh pr merge --admin` to the default branch can be denied by the agent harness's own safety classifier even when `gh pr merge` is allow-listed (Claude Code auto-mode `autoMode.allow`). That is session-harness config the agent must not self-edit — the owner adds the entry or runs the merges via `!`; do not retry the denied merge verbatim.

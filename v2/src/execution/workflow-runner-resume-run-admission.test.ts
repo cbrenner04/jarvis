@@ -25,7 +25,7 @@ function readOwnerIdentity(dbPath: string, runId: string): string | null {
 }
 
 describe("resume run admission", () => {
-  test("review-mutation resume refuses when a different owner is still alive, never invoking the completion committer", async () => {
+  test("review-mutation resume admits a terminal peer-owned row when the prior owner is still alive", async () => {
     const PRIOR_IDENTITY = "11111:1000000";
     const CURRENT_IDENTITY = "22222:2000000";
     const workspace = initGitWorkspace("review-mutation-resume-admission-");
@@ -78,8 +78,7 @@ describe("resume run admission", () => {
       seedSink.close();
       priorStore.close();
 
-      // A different, still-live owner: admitRunForResume must refuse before either sub-path
-      // (mutation repair or commit-and-publish) invokes the completion committer.
+      // Terminal peer-owned rows admit at the store layer, then finalization replay runs.
       const store = openStateStore(dbPath, {
         currentIdentity: CURRENT_IDENTITY,
         isOwnerAlive: async (identity) => identity === PRIOR_IDENTITY,
@@ -90,31 +89,25 @@ describe("resume run admission", () => {
       const attemptsBefore = run.attempts.length;
 
       let commitCalls = 0;
-      let caught: unknown;
-      try {
-        await resumeReviewMutationFinalization(run, store, terminalRecord, {
-          completionCommitter: async () => {
-            commitCalls += 1;
-            return { commitSha: "deadbeef", filesChanged: 1 };
-          },
-          completionPublisher: async () => ({
-            pushSha: "deadbeef",
-            prNumber: 3,
-            prUrl: "https://example.test/pr/3",
-          }),
-          readyFinalizer: async () => {},
-        });
-      } catch (error) {
-        caught = error;
-      }
+      const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+        completionCommitter: async () => {
+          commitCalls += 1;
+          return { commitSha: "deadbeef", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({
+          pushSha: "deadbeef",
+          prNumber: 3,
+          prUrl: "https://example.test/pr/3",
+        }),
+        readyFinalizer: async () => {},
+      });
 
-      expect(caught).toBeInstanceOf(Error);
-      expect((caught as Error).message).toBe(`Run ${reviewRunId} resume admission refused: owner_alive`);
-      expect(commitCalls).toBe(0);
+      expect(outcome.ok).toBe(true);
+      expect(commitCalls).toBe(1);
       const settled = store.loadRun(reviewRunId);
-      expect(settled?.status).toBe("failed");
-      expect(readOwnerIdentity(dbPath, reviewRunId)).toBe(PRIOR_IDENTITY);
-      expect(settled?.attempts.length).toBe(attemptsBefore);
+      expect(settled?.status).toBe("completed");
+      expect(readOwnerIdentity(dbPath, reviewRunId)).toBe(CURRENT_IDENTITY);
+      expect(settled?.attempts.length).toBe(attemptsBefore + 1);
       store.close();
     } finally {
       rmSync(workspace, { recursive: true, force: true });

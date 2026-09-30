@@ -106,6 +106,13 @@
       "source_url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
       "as_of": "2026-09-29"
     },
+    "gpt-6-luna": {
+      "input_per_mtok": 0.1,
+      "output_per_mtok": 0.5,
+      "cache_read_per_mtok": 0.01,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "as_of": "2026-09-29"
+    },
     "Composer 2": {
       "input_per_mtok": 0.5,
       "output_per_mtok": 2.5,

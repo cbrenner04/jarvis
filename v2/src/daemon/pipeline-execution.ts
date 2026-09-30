@@ -11,6 +11,7 @@ import {
 } from "../commands/stale-reset-workspace.ts";
 import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
+import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publisher.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
@@ -103,6 +104,11 @@ export type PipelineExecutionDeps = {
    */
   staleResetPreflight?: { cliDeps: CliDeps; io: Io; connectClient: () => Promise<IpcClient> };
   reopenedStageReset?: ReopenedStageReset;
+  attemptFailedImplementPipelineResume?: (
+    pipeline: Pipeline & { stages: PipelineStageRecord[] },
+    pipelineId: string,
+    branchScope: string | undefined,
+  ) => Promise<ResumePipelineOutcome | undefined>;
 };
 
 type ReopenedStageReset = {
@@ -186,6 +192,16 @@ export type PipelineResumeRefusalReason =
   | "branch_resume_required"
   | PipelineBranchResumeRefusalReason;
 
+/** Run-resume admission refusal surfaced through `pipeline resume` without mapping to pipeline reasons. */
+export type PipelineRunResumeRefusalReason =
+  | "terminal_run"
+  | "resume_unsupported"
+  | "owner_alive"
+  | "claim_lost"
+  | "worktree_claimed"
+  | "run_owner_conflict"
+  | "unknown_run";
+
 export type ResumePipelineOutcome =
   | { kind: "resumed"; pipelineId: string }
   | { kind: "dispatch_refused"; pipelineId: string; message: string }
@@ -213,6 +229,12 @@ export type ResumePipelineOutcome =
       branchKey: string;
       stageId?: string;
       status?: string;
+    }
+  | {
+      kind: "refused";
+      pipelineId: string;
+      reason: PipelineRunResumeRefusalReason;
+      message?: string;
     };
 
 /** True when a pipeline row carries complete admission context for restart continuation. `null` is absent; incomplete JSON is distinguishable via `loadPipelineContext`. */
@@ -1009,6 +1031,10 @@ export async function resumePipeline(
         ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope, resetStatus), options)
         : undefined;
     if (resetStatus !== undefined) {
+      if (resetStatus === "failed") {
+        const inPlace = await deps.attemptFailedImplementPipelineResume?.(pipeline, pipelineId, branchScope);
+        if (inPlace !== undefined) return inPlace;
+      }
       const reopen =
         resetStatus === "failed"
           ? store.reopenFailedPipeline({ pipelineId, branchKey: branchScope })
@@ -1114,6 +1140,8 @@ export async function resumePipeline(
   }
 
   if (resumeFailedRequiresReopen(derivedState)) {
+    const inPlace = await deps.attemptFailedImplementPipelineResume?.(current, pipelineId, undefined);
+    if (inPlace !== undefined) return inPlace;
     const reopenedStageReset = buildReopenedStageReset(current, findFailedStageForReopen(current, undefined), options);
     const reopen = store.reopenFailedPipeline({ pipelineId });
     if (reopen.kind === "refused") {
@@ -1339,6 +1367,8 @@ function resolveTerminalPublicationInput(
     };
   }
 
+  const findHarnessReadyFlipEvidenceInLineage = bindHarnessReadyFlipEvidenceLookup(store, entryRun.id);
+
   return {
     ok: true,
     input: {
@@ -1347,6 +1377,8 @@ function resolveTerminalPublicationInput(
       branch: entryRun.branch,
       baseRef: entryRun.specRef,
       verifierProcessGroups: storeVerifierProcessGroupRecorder(store, entryRun.id),
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId: entryRun.id, ...args }),
+      ...(findHarnessReadyFlipEvidenceInLineage !== undefined ? { findHarnessReadyFlipEvidenceInLineage } : {}),
       ...terminalReadyCommand(entryRun),
       ...(artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
       ...(artifact.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),

@@ -504,6 +504,9 @@ export type WorkflowResult = {
   survivingMutationSourceLine?: number;
   survivingMutationKillingTests?: string[];
   survivingMutationKillingSetResult?: SurvivingMutationKillingSetResult;
+  nonTerminatingMutation?: string;
+  nonTerminatingMutationSourceFile?: string;
+  nonTerminatingMutationSourceLine?: number;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
   invocationFailureMessage?: string;
@@ -1620,6 +1623,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: publicationResumable,
                 ...survivingMutationLogFields(publication.failure.error),
+                ...nonTerminatingMutationLogFields(publication.failure.error),
                 ...gateOutOfScopeFields,
                 ...readyGateFailureLogFields(publication.failure.kind, publication.failure.error),
                 ...exhaustedRedTerminalLogFields(publication.readyGateOrigin),

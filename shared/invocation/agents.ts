@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { computeCost, type Usage } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
-import { parseCursorJsonOutput } from "./cursor-json.ts";
+import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
 import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
 import { parseOpencodeJsonOutput } from "./opencode-json.ts";
 
@@ -621,14 +621,14 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       idleTimer.unref?.();
     };
 
-    // When `classifierDiagnostics` scopes the classified `stderr` down (opencode, whose JSON
-    // result envelope lands on stdout), the excluded stdout stream is retained here as
-    // observability-only `diagnostics` so an `error`/`quota`/`model_config` result is not left with
-    // nothing to show when stderr is empty. Never routed back into classification; the classified
-    // `stderr` still wins any diagnostic surface whenever it is non-empty.
+    // Excluded stdout (opencode/cursor scoping) stays on `diagnostics` only; never reclassified.
     const retainedDiagnosticsSpread = (): { diagnostics?: string } => {
-      if (config.classifier !== "opencode" || outBuf.length === 0) return {};
-      return { diagnostics: outBuf };
+      if (outBuf.length === 0) return {};
+      if (config.classifier === "opencode") return { diagnostics: outBuf };
+      if (config.classifier === "cursor" && cursorClassifierStdoutText(outBuf) !== outBuf) {
+        return { diagnostics: outBuf };
+      }
+      return {};
     };
 
     const settleZeroExit = () => {
@@ -798,6 +798,9 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     }
 
     if (config.writeStdin && stdin) {
+      // A child that exits before reading its prompt closes the pipe (EPIPE); its exit settles the run,
+      // so swallow the stdin error instead of letting it escape as an unhandled 'error' event.
+      stdin.on("error", () => {});
       config.writeStdin(stdin, prompt);
     }
   });
@@ -1425,17 +1428,21 @@ function quotaPatternsFor(name: AgentName) {
 /**
  * Text the exit classifiers scan and that non-ok results carry as diagnostics.
  *
- * opencode runs with `--format json`, so its **stdout** is a structured event stream that embeds
- * the full contents of every file the agent read or grepped. Genuine provider/transport failures
- * instead surface on **stderr** with a non-zero exit. Folding stdout into the classified text let
- * content the agent merely *read* — e.g. jarvis's own quota-handling source, or a grep hit like
- * `Line 429:` sitting next to the word `Error` — false-trip the quota/transient classifiers and
- * mislabel a healthy run as `quota`. Restrict opencode to stderr; every other adapter keeps the
- * combined stream its envelopes rely on (claude's zero-exit stdout quota envelope is handled
- * separately, before this path).
+ * opencode runs with `--format json`, so its stdout is a structured event stream that embeds file
+ * contents the agent read or grepped — classify stderr only. cursor runs with stream-json stdout
+ * where assistant/thinking/tool frames must not false-trip quota patterns; classify stderr, the
+ * terminal `result` frame's `result` string when that frame is not a success envelope, and plain
+ * non-JSON stdout lines when no `result` frame was emitted. claude's zero-exit stdout quota
+ * envelope is handled separately, before this path. codex keeps the combined stream.
  */
 function classifierDiagnostics(name: AgentName, errBuf: string, outBuf: string): string {
-  return name === "opencode" ? errBuf : `${errBuf}${outBuf}`;
+  if (name === "opencode") {
+    return errBuf;
+  }
+  if (name === "cursor") {
+    return `${errBuf}${cursorClassifierStdoutText(outBuf)}`;
+  }
+  return `${errBuf}${outBuf}`;
 }
 
 function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {

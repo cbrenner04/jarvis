@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, setSystemTime, spyOn, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -11,6 +11,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -746,6 +747,8 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+    recordHarnessReadyFlipEvidence: (args) => inner.recordHarnessReadyFlipEvidence(args),
+    findNewestHarnessReadyFlipEvidenceInLineage: (args) => inner.findNewestHarnessReadyFlipEvidenceInLineage(args),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
@@ -865,6 +868,8 @@ function storeObservingCompletedWrites(inner: StateStore): {
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+    recordHarnessReadyFlipEvidence: (args) => inner.recordHarnessReadyFlipEvidence(args),
+    findNewestHarnessReadyFlipEvidenceInLineage: (args) => inner.findNewestHarnessReadyFlipEvidenceInLineage(args),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
@@ -1102,9 +1107,10 @@ describe.serial("agent gate shell observability", () => {
       });
 
       expect(result.kind).toBe("budget-exhausted");
-      const sessionFile = readdirSync(sessionsDir)[0];
-      expect(sessionFile).toBeDefined();
-      const sessionContent = readFileSync(join(sessionsDir, sessionFile ?? ""), "utf8");
+      const shardDir = join(sessionsDir, "2026-09");
+      const sessionBasename = readdirSync(shardDir)[0];
+      expect(sessionBasename).toBeDefined();
+      const sessionContent = readFileSync(join(shardDir, sessionBasename ?? ""), "utf8");
       expect(sessionContent).toContain(
         `active_gate command=${gateCommand} startedAtMs=${Date.parse("2026-09-08T06:00:00.000Z")}`,
       );
@@ -3812,6 +3818,172 @@ describe("write loop", () => {
 
       expect(result.kind).toBe("complete");
       expect(observedPrNumber).toBe(99);
+    });
+
+    test("publishWithReadyRepair records harness ready-flip evidence on the write-loop run row", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "ready-flip-evidence";
+      const baseRef = "main";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      const runId = store.createRun({
+        project: "demo",
+        specRef: baseRef,
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      const readyFinalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        ghReadyFlip: async () => {},
+      });
+
+      try {
+        setSystemTime(new Date(18_000));
+        const publication = await publishWithReadyRepair(
+          {
+            worktree: {
+              projectRoot: "/fake",
+              projectName: "demo",
+              branchName,
+              baseRef,
+              jarvisRoot,
+            },
+            specPath: "spec.md",
+            promptId: "plan.prompt.draft",
+            stepRules: "rules",
+            expectedArtifactPath: "proof.txt",
+            bindings: [],
+            stateStore: store,
+            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+            sessionsDir: join(jarvisRoot, "sessions"),
+            maxIterations: 0,
+            completionPublisher: async () => ({ prNumber: 77 }),
+            readyFinalizer,
+          },
+          store,
+          { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+          0,
+          {
+            worktreePath,
+            baseRef,
+            specPath: "spec.md",
+            branch: branchName,
+          },
+        );
+
+        expect(publication.failure).toBeUndefined();
+        expect(
+          store.findNewestHarnessReadyFlipEvidenceInLineage({
+            project: "demo",
+            branch: branchName,
+            specRef: baseRef,
+            baseRef,
+            prNumber: 77,
+          }),
+        ).toEqual({
+          prNumber: 77,
+          branch: branchName,
+          baseRef,
+          flippedAt: 18_000,
+        });
+      } finally {
+        setSystemTime();
+        store.close();
+      }
+    });
+
+    test("publishCompletionArtifacts wires lineage lookup to undo harness-ready non-draft PRs", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "harness-republication-undo";
+      const baseRef = "main";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      const prNumber = 88;
+      const runId = store.createRun({
+        project: "demo",
+        specRef: baseRef,
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      store.recordHarnessReadyFlipEvidence({ runId, prNumber, branch: branchName, baseRef });
+      let isDraft = false;
+      const ghCalls: string[] = [];
+      const readyFinalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        ghReadyFlip: async () => {},
+      });
+      try {
+        setSystemTime(new Date(19_000));
+        const outcome = await publishCompletionArtifacts(
+          {
+            promptId: "plan.prompt.draft",
+            readyFinalizer,
+            completionPublisher: createCompletionPublisher({
+              git: async (_cwd, args) => {
+                if (args[0] === "rev-parse" && args.includes(`${branchName}@{u}`)) throw new Error("no upstream");
+                if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+                return "";
+              },
+              gh: async (_cwd, args) => {
+                ghCalls.push(args.join(" "));
+                if (args[0] === "pr" && args[1] === "ready" && args[2] === "--undo") {
+                  isDraft = true;
+                  return "";
+                }
+                if (args[0] === "pr" && args[1] === "list") {
+                  return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft }]);
+                }
+                if (args[0] === "pr" && args[1] === "view") {
+                  return JSON.stringify({
+                    number: prNumber,
+                    url: `https://github.com/user/repo/pull/${prNumber}`,
+                    baseRefName: baseRef,
+                  });
+                }
+                return "";
+              },
+              delay: async () => {},
+              fetchPrBody: async () => "",
+              writePrBody: async () => {},
+              renderFooter: async () => "",
+            }),
+          },
+          {
+            worktreePath,
+            baseRef,
+            specPath: "spec.md",
+            branch: branchName,
+          },
+          undefined,
+          (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+          { runId, store },
+        );
+        expect(outcome.kind).toBe("success");
+        expect(ghCalls.some((call) => call === `pr ready --undo ${prNumber}`)).toBe(true);
+        expect(
+          store.findNewestHarnessReadyFlipEvidenceInLineage({
+            project: "demo",
+            branch: branchName,
+            specRef: baseRef,
+            baseRef,
+            prNumber,
+          }),
+        ).toEqual({
+          prNumber,
+          branch: branchName,
+          baseRef,
+          flippedAt: 19_000,
+        });
+      } finally {
+        setSystemTime();
+        store.close();
+      }
     });
 
     test("routes markdown-only workflow prompts around the ready gate", async () => {
@@ -7815,6 +7987,9 @@ export function isLoadSensitive(file: string): boolean {
           setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
           setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
             inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+          recordHarnessReadyFlipEvidence: (args) => inner.recordHarnessReadyFlipEvidence(args),
+          findNewestHarnessReadyFlipEvidenceInLineage: (args) =>
+            inner.findNewestHarnessReadyFlipEvidenceInLineage(args),
           loadRun: (runId) => inner.loadRun(runId),
           findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
           findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
@@ -10408,7 +10583,11 @@ index 1234567..abcdefg 100644
     const biomeRepoRoot = join(import.meta.dir, "../../..");
     const complexityDirtyRel = "v2/src/complexity-dirty.ts";
 
-    function initRealGitWorktree(jarvisRoot: string, branchName: string): string {
+    function initRealGitWorktree(
+      jarvisRoot: string,
+      branchName: string,
+      options?: { gitignore?: "node_modules-only" },
+    ): string {
       const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
       mkdirSync(worktreePath, { recursive: true });
       execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
@@ -10416,17 +10595,29 @@ index 1234567..abcdefg 100644
       execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "config", "commit.gpgsign", "false"], { stdio: "pipe" });
       copyFileSync(join(biomeRepoRoot, "biome.json"), join(worktreePath, "biome.json"));
-      copyFileSync(join(biomeRepoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
-      try {
-        symlinkSync(join(biomeRepoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
-      } catch {
-        /* reuse existing symlink */
+      if (options?.gitignore === "node_modules-only") {
+        writeFileSync(join(worktreePath, ".gitignore"), "node_modules/\n", "utf8");
+      } else {
+        copyFileSync(join(biomeRepoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
+      }
+      const materializeNodeModulesSymlink = (): void => {
+        try {
+          symlinkSync(join(biomeRepoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+        } catch {
+          /* reuse existing symlink */
+        }
+      };
+      if (options?.gitignore !== "node_modules-only") {
+        materializeNodeModulesSymlink();
       }
       writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
       mkdirSync(join(worktreePath, "v2/src"), { recursive: true });
       writeFileSync(join(worktreePath, "v2/src/example.ts"), "export const seeded = true;\n");
       execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+      if (options?.gitignore === "node_modules-only") {
+        materializeNodeModulesSymlink();
+      }
       return worktreePath;
     }
 
@@ -11106,6 +11297,56 @@ index 1234567..abcdefg 100644
         expect(commitEvents).toHaveLength(2);
         expect(commitEvents[0]?.kind === "iteration_commit" && "commitSha" in commitEvents[0]).toBe(true);
         expect(commitEvents[1]).toMatchObject({ kind: "iteration_commit", skipReason: "no_file_changes" });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("settled iteration checkpoint omits harness-materialized node_modules symlink", async () => {
+      // Mutation checkpoint: narrowing `completionStageArgs` in `v2/src/execution/completion-commit.ts` to bare
+      // `git add -A` must turn this RED.
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-checkpoint-node-modules-exclusion";
+      const worktreePath = initRealGitWorktree(jarvisRoot, branchName, { gitignore: "node_modules-only" });
+      const seedHead = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const authoredRel = "authored-change.txt";
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, authoredRel), "authored\n", "utf8");
+          return progressWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const nodeModulesPath = join(worktreePath, "node_modules");
+        const expectedNodeModulesTarget = join(biomeRepoRoot, "node_modules");
+        expect(lstatSync(nodeModulesPath).isSymbolicLink()).toBe(true);
+        expect(readlinkSync(nodeModulesPath)).toBe(expectedNodeModulesTarget);
+        expect(gitIn(worktreePath, ["ls-files", "node_modules"]).trim()).toBe("");
+
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, { maxIterations: 1, logSink: sink }),
+        );
+
+        expect(result.kind).toBe("budget-exhausted");
+        const commitEvents = sink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_commit");
+        expect(commitEvents).toHaveLength(1);
+        const commitEvent = commitEvents[0];
+        expect(commitEvent?.kind === "iteration_commit" && "commitSha" in commitEvent).toBe(true);
+        const commitSha =
+          commitEvent?.kind === "iteration_commit" && "commitSha" in commitEvent ? commitEvent.commitSha : undefined;
+        expect(commitSha).toBeDefined();
+        expect(commitSha).not.toBe(seedHead);
+        expect(commitSha).toBe(gitIn(worktreePath, ["rev-parse", "HEAD"]));
+
+        const topLevel = gitIn(worktreePath, ["ls-tree", "--name-only", "HEAD"]).split("\n").filter(Boolean);
+        expect(topLevel).not.toContain("node_modules");
+        expect(topLevel).toContain(authoredRel);
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

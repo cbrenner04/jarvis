@@ -146,6 +146,7 @@ test("createSignalHandler on SIGINT requests shutdown and records sigint", () =>
       shutdownRequested = true;
     },
     recordRetireTrigger: (trigger) => recorded.push(trigger),
+    retireCauseState: { cause: null },
   });
   handler("SIGINT");
   expect(shutdownRequested).toBe(true);
@@ -160,6 +161,7 @@ test("createSignalHandler on SIGTERM requests shutdown and records sigterm", () 
       shutdownRequested = true;
     },
     recordRetireTrigger: (trigger) => recorded.push(trigger),
+    retireCauseState: { cause: null },
   });
   handler("SIGTERM");
   expect(shutdownRequested).toBe(true);

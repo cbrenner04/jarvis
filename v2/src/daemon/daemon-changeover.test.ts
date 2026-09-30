@@ -1,7 +1,21 @@
 import { expect, test } from "bun:test";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
-import { requestChangeoverFromPublicPeer } from "./daemon-changeover.ts";
+import {
+  DEFAULT_DAEMON_READINESS_TIMEOUT_MS,
+  DEFAULT_HANDOFF_FALLBACK_MS,
+  DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS,
+  handoffFallbackMsForSuccessorReadiness,
+  requestChangeoverFromPublicPeer,
+} from "./daemon-changeover.ts";
+
+test("handoff fallback ms tracks successor readiness budget", () => {
+  expect(DEFAULT_HANDOFF_FALLBACK_MS).toBe(handoffFallbackMsForSuccessorReadiness(DEFAULT_DAEMON_READINESS_TIMEOUT_MS));
+  expect(DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS).toBeGreaterThan(DEFAULT_DAEMON_READINESS_TIMEOUT_MS);
+  const selfHandoffFallback = handoffFallbackMsForSuccessorReadiness(DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS);
+  expect(selfHandoffFallback).toBeGreaterThan(DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS);
+  expect(selfHandoffFallback).toBeGreaterThan(DEFAULT_HANDOFF_FALLBACK_MS);
+});
 
 test("requestChangeoverFromPublicPeer returns the peer's private endpoint on success", async () => {
   await withFixedUuid("req-1", async () => {

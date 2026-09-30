@@ -155,6 +155,32 @@ describe("createCompletionCommitter", () => {
     expect(message).toContain("Jarvis-Agent: claude");
   });
 
+  test("opt-in empty agent falls back to newest branch trailer; no opt-in or no trailer throws", async () => {
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const calls: GitCall[] = [];
+    let log = `a1\x1fwrite\x1fcodex\x1fwrite\x1fSpec: x\x1eb2\x1freview\x1fcursor\x1freview 1\x1fSpec: x\x1e`;
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "log") return log;
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "rev-parse" && args[1] === "base-head^{tree}") return "base-tree";
+      if (args[0] === "symbolic-ref") return "refs/heads/feature";
+      if (args[0] === "commit-tree") return "new-commit";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+    const base = { worktreePath, baseRef: "main", specPath: "v2/spec/test/index.md", agent: " ", title: "T" };
+    await expect(createCompletionCommitter(runGit)(base)).rejects.toThrow("completion attribution is missing");
+    const input = { ...base, allowBranchTrailerFallback: true };
+    await createCompletionCommitter(runGit)(input);
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    expect(commitCall?.args[commitCall.args.indexOf("-m") + 1]).toContain("Jarvis-Agent: cursor");
+    log = "";
+    await expect(createCompletionCommitter(runGit)(input)).rejects.toThrow("completion attribution is missing");
+  });
+
   test("commit-body Spec trailer keeps the full absolute path for an external spec, unlike the PR-body formatter", async () => {
     const { worktreePath, gitDir } = setupWorktree();
     const calls: GitCall[] = [];
@@ -456,6 +482,7 @@ describe("createCompletionCommitter", () => {
       ".",
       ":(exclude,literal)external-index.md",
       ":(exclude,glob)**/verdict-*.md",
+      ":(exclude,literal).jarvis-pr-review-input.json",
     ]);
   });
 
@@ -939,6 +966,25 @@ describe("createCompletionCommitter", () => {
       stdio: "pipe",
     });
     expect(committed).toBe("not a symlink\n");
+  });
+
+  test("completion commit omits the PR review input capture sidecar", async () => {
+    // No `.gitignore` rule here: the pathspec exclusion must keep the sidecar out of `add -A`.
+    const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
+    writeFileSync(join(worktreePath, ".jarvis-pr-review-input.json"), "{}\n");
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(tracked).not.toContain(".jarvis-pr-review-input.json");
+    expect(tracked).toContain("v2/spec/test/index.md");
   });
 
   test("completion commit omits an untracked review verdict", async () => {

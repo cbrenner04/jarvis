@@ -133,6 +133,18 @@ test("signalReadyGateProcessGroup escalates SIGTERM to SIGKILL", async () => {
   ]);
 });
 
+test("signalReadyGateProcessGroup never signals the daemon's own pid or group", () => {
+  const kills: number[] = [];
+  process.kill = ((pid) => {
+    kills.push(pid as number);
+    return true;
+  }) as typeof process.kill;
+
+  expect(signalReadyGateProcessGroup(process.pid)).toBe(false);
+  expect(signalReadyGateProcessGroup(4242, new Set([4242]))).toBe(false);
+  expect(kills).toEqual([]);
+});
+
 test("leaves a ready-gate pgid alone when the owning run owner is live", async () => {
   const runId = createRun(seedStore);
   const pgid = 535353;

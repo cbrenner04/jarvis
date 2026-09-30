@@ -3,7 +3,11 @@ import {
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
-import { OpenPrNotDraftError, resolveOpenDraftPr } from "./completion-publisher.ts";
+import {
+  type HarnessReadyFlipEvidenceLookup,
+  OpenPrNotDraftError,
+  resolveOpenDraftPr,
+} from "./completion-publisher.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
 import {
@@ -31,6 +35,8 @@ export type TerminalPublicationInput = {
   verifierProcessGroups?: VerifierProcessGroupRecorder;
   /** Project `readyCommand` override; absent runs the default `bun run ready`. */
   readyCommand?: string;
+  recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void;
+  findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
 };
 
 export type TerminalPublicationResult = {
@@ -167,12 +173,21 @@ async function resolveReadyFlipTarget(
   prNumber: number,
   prUrl: string,
   deps: PublicationDeps,
-): Promise<number> {
+): Promise<{ prNumber: number; flipAlreadySatisfied: boolean }> {
   let resolved: { number: number; url: string } | undefined;
   try {
     resolved = await resolveOpenDraftPr(deps.gh, input.worktreePath, input.branch, input.baseRef);
   } catch (error) {
     if (error instanceof OpenPrNotDraftError) {
+      const hasEvidence =
+        input.findHarnessReadyFlipEvidenceInLineage?.({
+          branch: input.branch,
+          baseRef: input.baseRef,
+          prNumber: error.number,
+        }) === true;
+      if (hasEvidence) {
+        return { prNumber: error.number, flipAlreadySatisfied: true };
+      }
       throw new TerminalPublicationError(
         input.terminalAction,
         { operation: "gh pr ready", message: error.message },
@@ -193,7 +208,7 @@ async function resolveReadyFlipTarget(
       prUrl,
     );
   }
-  return resolved.number;
+  return { prNumber: resolved.number, flipAlreadySatisfied: false };
 }
 
 async function runReadyFlipOrFail(
@@ -202,19 +217,31 @@ async function runReadyFlipOrFail(
   prUrl: string,
   deps: PublicationDeps,
 ): Promise<void> {
-  const resolvedPrNumber = await resolveReadyFlipTarget(input, prNumber, prUrl, deps);
-  try {
-    await deps.ghReadyFlip(resolvedPrNumber, input.worktreePath);
-  } catch (error) {
-    await failTerminalPublication(
-      input,
-      normalizePublicationFailure("gh pr ready", error),
-      prNumber,
-      prUrl,
-      deps.ghClose,
-      deps.ghDelete,
-    );
+  const { prNumber: resolvedPrNumber, flipAlreadySatisfied } = await resolveReadyFlipTarget(
+    input,
+    prNumber,
+    prUrl,
+    deps,
+  );
+  if (!flipAlreadySatisfied) {
+    try {
+      await deps.ghReadyFlip(resolvedPrNumber, input.worktreePath);
+    } catch (error) {
+      await failTerminalPublication(
+        input,
+        normalizePublicationFailure("gh pr ready", error),
+        prNumber,
+        prUrl,
+        deps.ghClose,
+        deps.ghDelete,
+      );
+    }
   }
+  input.recordHarnessReadyFlipEvidence?.({
+    prNumber: resolvedPrNumber,
+    branch: input.branch,
+    baseRef: input.baseRef,
+  });
 }
 
 async function runMergeOrFail(

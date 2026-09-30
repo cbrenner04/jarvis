@@ -74,7 +74,7 @@ Bindings:
   `usage_source: "agent"` and settles `cost_source: "no-usage"` (not `no-price`).
   When usage is absent, `usage_source: "unavailable"`, `cost_usd: null`,
   `cost_source: "no-usage"`, no warning. It settles into `ok | quota |
-  model_config | error` before fallback continues. Resolved `opencode` bindings spawn `opencode run
+  model_config | error` before fallback continues. Quota/model-config/transient classification uses scoped diagnostics (`classifierDiagnostics`): stderr, the terminal `result` frame's `result` string when that frame is not a success envelope, and plain non-JSON stdout when no `result` frame was emitted — not assistant/thinking/tool stream-json frames. When scoped stdout is a strict subset of the raw stdout buffer, the full stdout stream is retained on observability-only `diagnostics` for non-ok settles (same retention shape as opencode; never reclassified). Resolved `opencode` bindings spawn `opencode run
   --dir <cwd> --model <adapterModel> --format json <prompt>` (prompt last),
   ignore stdin, classify quota/model-config/transient with their own opencode
   signals (quota phrasing plus a guarded 429; `no provider configured for` as
@@ -112,7 +112,7 @@ Bindings:
 
 ## Session log writer
 
-`shared/invocation/session-log.ts`'s `openSessionLog(namespace, timestamp, opts?)` opens a file-backed, unbuffered writer at `<sessionsDir>/<namespace>-<timestamp>.log` (sessions dir and clock are injectable; default sessions dir is `~/.jarvis/sessions/`, default clock is the system clock), mirroring v1's `<ISO ts> [<tag>] <line>` transcript format and tag set (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). Multi-line text is split into one stamped line per source line. Appends are synchronous write-through, so a line is readable from another handle immediately after `append` returns. Appends after `close()` are dropped silently; `close()` is idempotent. Open, mkdir, and append failures are swallowed — the writer degrades to a no-op sink rather than blocking the invocation it observes. `v2/src/execution/write-loop.ts` is the caller: it opens a session log per iteration. See `v2/docs/daemon-host.md` for the write-loop-level contract.
+`shared/invocation/session-log.ts`'s `openSessionLog(namespace, timestamp, opts?)` opens a file-backed, unbuffered writer at `<sessionsDir>/<YYYY-MM>/<namespace>-<timestamp>.log`, where `<YYYY-MM>` is the UTC year-month from the injectable clock at open time (sessions dir and clock are injectable; default sessions dir is `~/.jarvis/sessions/`, default clock is the system clock), mirroring v1's `<ISO ts> [<tag>] <line>` transcript format and tag set (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). Multi-line text is split into one stamped line per source line. Appends are synchronous write-through, so a line is readable from another handle immediately after `append` returns. Appends after `close()` are dropped silently; `close()` is idempotent. Open, mkdir, and append failures are swallowed — the writer degrades to a no-op sink rather than blocking the invocation it observes. `v2/src/execution/write-loop.ts` is the caller: it opens a session log per iteration. See `v2/docs/daemon-host.md` for the write-loop-level contract.
 
 ## Terminal `failureKind` (binding-chain stop)
 

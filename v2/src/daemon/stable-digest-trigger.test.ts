@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   isBackingOff,
+  runSelfHandoffSamplingIntervalTick,
   type ScheduleDigestSampling,
   selfHandoffBackoffMs,
+  shouldRetiringSoleOwnerSelfHeal,
   shouldSampleNow,
   shouldTriggerHandoff,
   startStableDigestTrigger,
@@ -69,6 +71,44 @@ describe("stable digest predicates", () => {
   test("samples only while no handoff is in flight", () => {
     expect(shouldSampleNow({ handoffInFlight: false })).toBe(true);
     expect(shouldSampleNow({ handoffInFlight: true })).toBe(false);
+  });
+});
+
+describe("shouldRetiringSoleOwnerSelfHeal", () => {
+  const matching = {
+    retiring: true,
+    publicBound: true,
+    handoffPending: false,
+    blocksRollbackReopen: false,
+    retireCause: "handoff_origin" as const,
+  };
+
+  test("is true for the sole-owner stranded handoff-origin shape", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal(matching)).toBe(true);
+  });
+
+  test("is false when not retiring", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, retiring: false })).toBe(false);
+  });
+
+  test("is false when the public listener is released", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, publicBound: false })).toBe(false);
+  });
+
+  test("is false while a handoff transaction is pending", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, handoffPending: true })).toBe(false);
+  });
+
+  test("is false when rollback reopen is blocked", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, blocksRollbackReopen: true })).toBe(false);
+  });
+
+  test("is false when retireCause is terminal", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, retireCause: "terminal" })).toBe(false);
+  });
+
+  test("is false when retireCause was cleared", () => {
+    expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, retireCause: null })).toBe(false);
   });
 });
 
@@ -262,6 +302,53 @@ describe("startStableDigestTrigger", () => {
     clock = 60_000 + 120_000;
     await loop.tick();
     expect(calls).toBe(3);
+  });
+
+  test("daemon sampling tick order retries through stranded retiring after rolled_back", async () => {
+    let retiring = true;
+    let clock = 0;
+    let calls = 0;
+    const loop = manualSamplingLoop();
+    const fireSamplingTick = async () => {
+      let tickPromise: void | Promise<void> | undefined;
+      runSelfHandoffSamplingIntervalTick(
+        {
+          retiring,
+          publicBound: false,
+          handoffPending: false,
+          blocksRollbackReopen: false,
+          retireCause: "handoff_origin",
+        },
+        () => {
+          retiring = false;
+        },
+        () => retiring,
+        () => "handoff_origin",
+        () => {
+          tickPromise = loop.tick();
+        },
+      );
+      await tickPromise;
+    };
+    startStableDigestTrigger("loaded", {
+      now: () => clock,
+      sample: async () => "changed",
+      startHandoff: async () => {
+        calls += 1;
+        return "rolled_back";
+      },
+      scheduleSampling: loop.scheduleSampling,
+    });
+
+    await fireSamplingTick();
+    await fireSamplingTick();
+    expect(calls).toBe(1);
+
+    clock = selfHandoffBackoffMs(1);
+    await fireSamplingTick();
+    expect(calls).toBe(1);
+    await fireSamplingTick();
+    expect(calls).toBe(2);
   });
 
   test("a different divergent digest is not held by another digest's backoff", async () => {

@@ -15,11 +15,11 @@ After daemon self-handoff, `pipeline list` can stay `degraded` while predecessor
 
 ## Tasks
 
-- [ ] Add a hyphenated-UUID predicate and an early pass-through in `resolvePipelineIdAcrossDaemons` after exact listing membership and sub-prefix-length checks, before the incomplete-listing branch.
-- [ ] Add `pipeline-daemon-resolution.test.ts` coverage: degraded listing omits the target id; a hyphenated full UUID argument is returned as `unmatched` with the same `pipelineId` for the verb RPC.
-- [ ] Extend `pipeline.test.ts` only when the resolver case does not exercise the same admission seam as `withStablePipelineClient`.
-- [ ] Align the `resolvePipelineIdAcrossDaemons` doc-comment with the bypass.
-- [ ] Update operator and parity docs per ## Documentation updates.
+- [x] Add a hyphenated-UUID predicate and an early pass-through in `resolvePipelineIdAcrossDaemons` after exact listing membership and sub-prefix-length checks, before the incomplete-listing branch.
+- [x] Add `pipeline-daemon-resolution.test.ts` coverage: degraded listing omits the target id; a hyphenated full UUID argument is returned as `unmatched` with the same `pipelineId` for the verb RPC.
+- [x] Extend `pipeline.test.ts` only when the resolver case does not exercise the same admission seam as `withStablePipelineClient`.
+- [x] Align the `resolvePipelineIdAcrossDaemons` doc-comment with the bypass.
+- [x] Update operator and parity docs per ## Documentation updates.
 
 ## Acceptance criteria
 

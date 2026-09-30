@@ -16,13 +16,15 @@ When a pending handoff's successor calls `supersede` and the handoff then rolls 
 ## Acceptance criteria
 
 - [ ] A focused `createHandoffHandlers` regression with fakes drives changeover → `supersede` → rollback and asserts `retiring` is false and a subsequent start is admitted; it fails against the pre-fix code.
-- [ ] The same harness with `supersede` and no pending handoff asserts rollback-less incumbent stays retiring (existing guard preserved).
+- [ ] `daemon-changeover.sandbox-unrunnable.test.ts` "rollback after supersede rebinds the public listener but leaves the incumbent non-admitting" stays green (supersede before the pending handoff still blocks rollback admission reopen).
 - [ ] A focused fallback regression asserts first `bindPublicServer` rejects `EADDRINUSE`, a rescheduled attempt succeeds, admission reopens, and the transaction is `rolled_back`; it fails against the pre-fix code.
+- [ ] A focused fallback regression with a live successor holding the public address asserts rollback defers without rescheduling a competing rebind until that successor settles commit or rollback; it fails against the pre-fix code.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — autonomous self-handoff rollback reopens admission even after the handoff successor's `supersede`.
 - `v2/docs/operator-runbook.md` — sole-daemon `daemon_superseded` after `Self-handoff failed` when rollback should have restored admission; `jarvis daemon start` as manual fallback.
+- `v2/docs/v1-behaviors.md` — `[v2-only]` handoff-transaction bullet: rollback reopens admission after handoff-origin `supersede`; fallback defers when a live successor holds the public address.
 
 ## Prerequisites

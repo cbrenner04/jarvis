@@ -10,7 +10,7 @@ Self-handoff spawns a successor through `startDaemon` with the default 5s readin
 
 ## Decisions
 
-- Self-handoff passes a readiness bound larger than `DEFAULT_DAEMON_READINESS_TIMEOUT_MS`, or extends the bound while the successor process is alive and making progress; manual `daemon start` keeps the default unless separately decided.
+- Self-handoff passes an explicit readiness bound larger than `DEFAULT_DAEMON_READINESS_TIMEOUT_MS`; manual `daemon start` keeps the default.
 - The handoff fallback timer stays longer than the self-handoff readiness bound so slow-but-live successors are not rolled back first.
 
 ## Acceptance criteria
@@ -21,5 +21,6 @@ Self-handoff spawns a successor through `startDaemon` with the default 5s readin
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — autonomous self-handoff readiness bound under load.
+- `v2/docs/v1-behaviors.md` — `[v2-only]` autonomous self-handoff bullet: explicit readiness bound above the default `startDaemon` budget.
 
 ## Prerequisites

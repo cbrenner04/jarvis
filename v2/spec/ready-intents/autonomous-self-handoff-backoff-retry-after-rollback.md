@@ -21,6 +21,7 @@ name: autonomous-self-handoff-backoff-retry-after-rollback
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — autonomous self-handoff backoff retry is reachable after rollback restores admission or self-heal.
+- `v2/docs/v1-behaviors.md` — `[v2-only]` autonomous self-handoff bullet: sampling continues through stranded retiring so backoff retry can fire.
 
 ## Prerequisites
 

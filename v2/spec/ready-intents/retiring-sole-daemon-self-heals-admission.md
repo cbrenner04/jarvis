@@ -10,7 +10,7 @@ After a failed self-handoff the incumbent can remain retiring with no pending ha
 
 ## Decisions
 
-- Export a pure predicate for the self-heal condition and invoke it from the daemon runtime so that shape reopens admission without a full process restart.
+- Export a pure predicate for the self-heal condition and evaluate it on each stable-digest sampling tick before the retiring skip would block handoff sampling, so a matching sole owner reopens admission without a process restart.
 - Self-heal does not run while a handoff is pending or a live successor answers the public address.
 
 ## Acceptance criteria
@@ -23,6 +23,7 @@ After a failed self-handoff the incumbent can remain retiring with no pending ha
 
 - `v2/docs/daemon-host.md` — retiring sole-owner self-heal reopens admission.
 - `v2/docs/operator-runbook.md` — expected self-recovery from stranded `daemon_superseded` without operator `daemon start` when self-heal applies.
+- `v2/docs/v1-behaviors.md` — `[v2-only]` autonomous self-handoff / handoff bullets: sole-owner self-heal on the stable-digest sampling tick.
 
 ## Prerequisites
 

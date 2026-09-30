@@ -46,13 +46,52 @@ export function buildResetStaleWorkspaceOptions(args: {
   };
 }
 
-export type StaleResetWorkspaceProbeRefusal = { refused: true; message: string };
+type StaleResetWorkspaceProbeRefusal = { refused: true; message: string };
 
 type StaleResetParsed =
   | WorkflowStartResetFlags
   | ImplementWorkflowCliInput
   | IntentWorkflowCliInput
   | PlanWorkflowCliInput;
+
+function staleResetGateFlags(parsed: StaleResetParsed): {
+  skipDirtyWorktreeGate: boolean;
+  skipLandedCriteriaGate: boolean;
+} {
+  return {
+    skipDirtyWorktreeGate:
+      "skipDirtyWorktreeGate" in parsed
+        ? parsed.skipDirtyWorktreeGate
+        : "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true,
+    skipLandedCriteriaGate:
+      "skipLandedCriteriaGate" in parsed
+        ? parsed.skipLandedCriteriaGate
+        : "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true,
+  };
+}
+
+function staleResetProbeRefusal(probe: boolean, line: string, io: Io): StaleResetWorkspaceProbeRefusal | undefined {
+  if (probe !== true) {
+    io.stderr(line);
+    return undefined;
+  }
+  return { refused: true, message: line };
+}
+
+function handleStaleResetRefused(
+  resetResult: Extract<Awaited<ReturnType<typeof resetStaleWorkspace>>, { status: "refused" }>,
+  probe: boolean,
+  io: Io,
+): StaleResetWorkspaceProbeRefusal | number {
+  if ("code" in resetResult && resetResult.code === "worktree_claimed") {
+    const refusal = staleResetProbeRefusal(probe, `worktree_claimed: ${resetResult.message}\n`, io);
+    if (refusal !== undefined) return refusal;
+  } else if ("reason" in resetResult) {
+    const refusal = staleResetProbeRefusal(probe, `Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`, io);
+    if (refusal !== undefined) return refusal;
+  }
+  return 1;
+}
 
 async function runStaleResetForWorkflow(
   canonicalName: string,
@@ -66,14 +105,7 @@ async function runStaleResetForWorkflow(
   onOutcome?: (status: "reset" | "no-op" | "continue") => void,
 ): Promise<number | undefined | StaleResetWorkspaceProbeRefusal> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
-  const skipDirtyWorktreeGate =
-    "skipDirtyWorktreeGate" in parsed
-      ? parsed.skipDirtyWorktreeGate
-      : "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true;
-  const skipLandedCriteriaGate =
-    "skipLandedCriteriaGate" in parsed
-      ? parsed.skipLandedCriteriaGate
-      : "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true;
+  const { skipDirtyWorktreeGate, skipLandedCriteriaGate } = staleResetGateFlags(parsed);
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
@@ -101,24 +133,16 @@ async function runStaleResetForWorkflow(
       probe === true ? { ...resetOptions, gatesOnly: true, skipWorktreeClaimGate: true } : resetOptions,
     );
   } catch (error) {
-    const line = `Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`;
-    if (probe === true) return { refused: true, message: line };
-    io.stderr(line);
+    const refusal = staleResetProbeRefusal(
+      probe,
+      `Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      io,
+    );
+    if (refusal !== undefined) return refusal;
     return 1;
   }
   if ("destroyed" in resetResult && resetResult.destroyed !== undefined) onDestroyed?.(resetResult.destroyed);
-  if (resetResult.status === "refused") {
-    if ("code" in resetResult && resetResult.code === "worktree_claimed") {
-      const line = `worktree_claimed: ${resetResult.message}\n`;
-      if (probe === true) return { refused: true, message: line };
-      io.stderr(line);
-    } else if ("reason" in resetResult) {
-      const line = `Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`;
-      if (probe === true) return { refused: true, message: line };
-      io.stderr(line);
-    }
-    return 1;
-  }
+  if (resetResult.status === "refused") return handleStaleResetRefused(resetResult, probe, io);
   // A continuation that rebased the lane records its pre-rebase tip on the write step, so the run's
   // snapshot carries the publisher's lease authorization across resume.
   if (resetResult.status === "continue" && resetResult.preRebaseSha !== undefined && writeStep?.behavior === "write") {

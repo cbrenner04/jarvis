@@ -611,31 +611,38 @@ function buildPrefixStageArtifactsForResumeProbe(
   return artifacts;
 }
 
-function findResumeRedispatchWorkflowTarget(
+type ResumeRedispatchWorkflowTarget = {
+  stage: Extract<PipelineStage, { kind: "workflow" }>;
+  index: number;
+  branchKey: string;
+};
+
+function findResumeRedispatchInBranchSuffix(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  continuationBranchKey?: string,
-): { stage: Extract<PipelineStage, { kind: "workflow" }>; index: number; branchKey: string } | undefined {
+  split: NonNullable<ReturnType<typeof findFanOutSplit>>,
+  branchKey: string,
+): ResumeRedispatchWorkflowTarget | undefined {
   const definition = pipeline.definition;
-  const split = findFanOutSplit(pipeline);
-  const normalizedBranch = continuationBranchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
-
-  if (split !== null && continuationBranchKey !== undefined) {
-    const lastIndex = definition.stages.length - 1;
-    for (let index = split.splitPosition + 1; index <= lastIndex; index += 1) {
-      const stage = definition.stages[index];
-      if (stage === undefined) continue;
-      const record = findStageRecord(pipeline.stages, stage.stageId, normalizedBranch);
-      if (record === undefined) continue;
-      if (record.status === "failed" || record.status === "skipped") return undefined;
-      if (isAuthoredStageSatisfied(stage, record)) continue;
-      if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) return undefined;
-      if (stage.kind !== "workflow" || record.status !== "pending") return undefined;
-      return { stage, index, branchKey: normalizedBranch };
-    }
-    return undefined;
+  const lastIndex = definition.stages.length - 1;
+  for (let index = split.splitPosition + 1; index <= lastIndex; index += 1) {
+    const stage = definition.stages[index];
+    if (stage === undefined) continue;
+    const record = findStageRecord(pipeline.stages, stage.stageId, branchKey);
+    if (record === undefined) continue;
+    if (record.status === "failed" || record.status === "skipped") return undefined;
+    if (isAuthoredStageSatisfied(stage, record)) continue;
+    if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) return undefined;
+    if (stage.kind !== "workflow" || record.status !== "pending") return undefined;
+    return { stage, index, branchKey };
   }
+  return undefined;
+}
 
-  const toIndex = split?.splitPosition ?? definition.stages.length - 1;
+function findResumeRedispatchBeforeSplit(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  toIndex: number,
+): ResumeRedispatchWorkflowTarget | undefined {
+  const definition = pipeline.definition;
   for (let index = 0; index <= toIndex; index += 1) {
     const stage = definition.stages[index];
     if (stage === undefined) continue;
@@ -648,6 +655,67 @@ function findResumeRedispatchWorkflowTarget(
   return undefined;
 }
 
+function findResumeRedispatchWorkflowTarget(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  continuationBranchKey?: string,
+): ResumeRedispatchWorkflowTarget | undefined {
+  const definition = pipeline.definition;
+  const split = findFanOutSplit(pipeline);
+  const normalizedBranch = continuationBranchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+
+  if (split !== null && continuationBranchKey !== undefined) {
+    return findResumeRedispatchInBranchSuffix(pipeline, split, normalizedBranch);
+  }
+
+  const toIndex = split?.splitPosition ?? definition.stages.length - 1;
+  return findResumeRedispatchBeforeSplit(pipeline, toIndex);
+}
+
+function preflightRefusalMessage(message: string): string {
+  return message.endsWith("\n") ? message : `${message}\n`;
+}
+
+async function probePlanWorkflowStaleReset(
+  injection: NonNullable<AdvanceWorkflowStageArgs["staleResetPreflight"]>,
+  resolvedSteps: readonly AnyWorkflowStep[],
+  resetFlags: WorkflowStartResetFlags,
+  captureIo: Io,
+  client: IpcClient,
+): Promise<{ refused: true; message: string } | undefined> {
+  const runner = injection.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner;
+  const dirtyGate = await resolveFailedPlanDirtyGate(resolvedSteps, resetFlags, runner);
+  if (!dirtyGate.ok) return { refused: true, message: preflightRefusalMessage(dirtyGate.message) };
+  let planResetFlags = dirtyGate.flags;
+  const writeStep = resolvedSteps.find((step) => step.behavior === "write");
+  const worktreePath = writeStepWorktreePath(resolvedSteps);
+  const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
+  if (
+    worktreePath !== undefined &&
+    existsSync(worktreePath) &&
+    worktree?.projectRoot !== undefined &&
+    worktree.branchName !== undefined &&
+    worktree.baseRef !== undefined
+  ) {
+    const classification = await classifyNeverLandedLane(
+      worktree.projectRoot,
+      worktree.branchName,
+      worktree.baseRef,
+      runner,
+    );
+    if (classification.kind === "never-landed") {
+      planResetFlags = { ...dirtyGate.flags, disposableLane: true };
+    }
+  }
+  return await probeMaybeResetStaleWorkspace(
+    "plan",
+    { ok: true, steps: [...resolvedSteps] },
+    injection.cliDeps,
+    captureIo,
+    planResetFlags,
+    client,
+  );
+}
+
 async function probeWorkflowStageRedispatchPreflight(
   args: AdvanceWorkflowStageArgs,
   resolvedSteps: readonly AnyWorkflowStep[],
@@ -658,10 +726,7 @@ async function probeWorkflowStageRedispatchPreflight(
   const blocker = planOperatorBlockerNeedsGitChecks(args, resolvedSteps, branchKey)
     ? await refuseReopenedPlanOperatorBlockerWithGit(args, resolvedSteps, preflightCapture, branchKey, true)
     : refuseReopenedPlanOperatorBlockerLocal(args, resolvedSteps, preflightCapture, branchKey, true);
-  if (!blocker.ok) {
-    const message = blocker.message.endsWith("\n") ? blocker.message : `${blocker.message}\n`;
-    return { refused: true, message };
-  }
+  if (!blocker.ok) return { refused: true, message: preflightRefusalMessage(blocker.message) };
 
   const injection = args.staleResetPreflight;
   if (injection === undefined || !STALE_RESET_WORKFLOWS.has(args.stage.workflow)) return undefined;
@@ -686,40 +751,7 @@ async function probeWorkflowStageRedispatchPreflight(
       },
     };
     if (args.stage.workflow === "plan" && resetFlags !== undefined) {
-      const runner = injection.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner;
-      const dirtyGate = await resolveFailedPlanDirtyGate(resolvedSteps, resetFlags, runner);
-      if (!dirtyGate.ok) {
-        const message = dirtyGate.message.endsWith("\n") ? dirtyGate.message : `${dirtyGate.message}\n`;
-        return { refused: true, message };
-      }
-      let planResetFlags = dirtyGate.flags;
-      const worktreePath = writeStepWorktreePath(resolvedSteps);
-      const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
-      if (
-        worktreePath !== undefined &&
-        existsSync(worktreePath) &&
-        worktree?.projectRoot !== undefined &&
-        worktree.branchName !== undefined &&
-        worktree.baseRef !== undefined
-      ) {
-        const classification = await classifyNeverLandedLane(
-          worktree.projectRoot,
-          worktree.branchName,
-          worktree.baseRef,
-          runner,
-        );
-        if (classification.kind === "never-landed") {
-          planResetFlags = { ...dirtyGate.flags, disposableLane: true };
-        }
-      }
-      return await probeMaybeResetStaleWorkspace(
-        "plan",
-        { ok: true, steps: [...resolvedSteps] },
-        injection.cliDeps,
-        captureIo,
-        planResetFlags,
-        client,
-      );
+      return await probePlanWorkflowStaleReset(injection, resolvedSteps, resetFlags, captureIo, client);
     }
     const parsedFlags: WorkflowStartResetFlags = resetFlags ?? {
       skipDirtyWorktreeGate: false,

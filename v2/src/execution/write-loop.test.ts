@@ -746,6 +746,8 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+    recordHarnessReadyFlipEvidence: (args) => inner.recordHarnessReadyFlipEvidence(args),
+    findNewestHarnessReadyFlipEvidenceInLineage: (args) => inner.findNewestHarnessReadyFlipEvidenceInLineage(args),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
@@ -865,6 +867,8 @@ function storeObservingCompletedWrites(inner: StateStore): {
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+    recordHarnessReadyFlipEvidence: (args) => inner.recordHarnessReadyFlipEvidence(args),
+    findNewestHarnessReadyFlipEvidenceInLineage: (args) => inner.findNewestHarnessReadyFlipEvidenceInLineage(args),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
@@ -7816,6 +7820,9 @@ export function isLoadSensitive(file: string): boolean {
           setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
           setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
             inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+          recordHarnessReadyFlipEvidence: (args) => inner.recordHarnessReadyFlipEvidence(args),
+          findNewestHarnessReadyFlipEvidenceInLineage: (args) =>
+            inner.findNewestHarnessReadyFlipEvidenceInLineage(args),
           loadRun: (runId) => inner.loadRun(runId),
           findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
           findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),

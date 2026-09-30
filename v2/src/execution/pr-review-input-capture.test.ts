@@ -114,7 +114,7 @@ function reviewThreadsGraphqlPayload(): string {
 
 function prViewPayload(): string {
   return JSON.stringify({
-    reviews: [{ submittedAt: "2026-05-10T00:00:00Z" }],
+    reviews: [{ submittedAt: "2026-05-01T00:00:00Z" }, { submittedAt: "2026-05-10T00:00:00Z" }],
     comments: [
       {
         id: FIXTURE.topOld,

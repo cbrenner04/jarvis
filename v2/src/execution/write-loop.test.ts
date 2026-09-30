@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, setSystemTime, spyOn, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -3817,6 +3817,87 @@ describe("write loop", () => {
 
       expect(result.kind).toBe("complete");
       expect(observedPrNumber).toBe(99);
+    });
+
+    test("publishWithReadyRepair records harness ready-flip evidence on the write-loop run row", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "ready-flip-evidence";
+      const baseRef = "main";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      const runId = store.createRun({
+        project: "demo",
+        specRef: baseRef,
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      const readyFinalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        ghReadyFlip: async () => {},
+      });
+
+      try {
+        setSystemTime(new Date(18_000));
+        const publication = await publishWithReadyRepair(
+          {
+            worktree: {
+              projectRoot: "/fake",
+              projectName: "demo",
+              branchName,
+              baseRef,
+              jarvisRoot,
+            },
+            specPath: "spec.md",
+            promptId: "plan.prompt.draft",
+            stepRules: "rules",
+            expectedArtifactPath: "proof.txt",
+            bindings: [],
+            stateStore: store,
+            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+            sessionsDir: join(jarvisRoot, "sessions"),
+            maxIterations: 0,
+            completionPublisher: async () => ({ prNumber: 77 }),
+            readyFinalizer,
+          },
+          store,
+          { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+          0,
+          {
+            worktreePath,
+            baseRef,
+            specPath: "spec.md",
+            branch: branchName,
+          },
+        );
+
+        expect(publication.failure).toBeUndefined();
+        expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+          prNumber: 77,
+          branch: branchName,
+          baseRef,
+          flippedAt: 18_000,
+        });
+        expect(
+          store.findNewestHarnessReadyFlipEvidenceInLineage({
+            project: "demo",
+            branch: branchName,
+            specRef: baseRef,
+            baseRef,
+            prNumber: 77,
+          }),
+        ).toEqual({
+          prNumber: 77,
+          branch: branchName,
+          baseRef,
+          flippedAt: 18_000,
+        });
+      } finally {
+        setSystemTime();
+        store.close();
+      }
     });
 
     test("routes markdown-only workflow prompts around the ready gate", async () => {

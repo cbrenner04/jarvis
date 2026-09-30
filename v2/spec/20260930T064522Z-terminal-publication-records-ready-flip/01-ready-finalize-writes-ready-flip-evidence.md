@@ -21,14 +21,14 @@ Observed harness-flipped PRs (#4216, #4191, #4227) were flipped by implement com
 
 ## Acceptance criteria
 
-- [ ] `ready-finalize.test.ts` fails against the pre-fix path and pins evidence on the run row after a successful flip.
-- [ ] `ready-finalize.test.ts` pins no write when fake `ghReadyFlip` rejects non-transiently (prior row evidence unchanged) and when the gate fails before the flip.
-- [ ] `ready-finalize.test.ts` pins exactly one write when fake `ghReadyFlip` fails transiently then succeeds.
-- [ ] Write-loop test pins the callback bound to `result.runId`, and the written row is found by `findNewestHarnessReadyFlipEvidenceInLineage` for the same project/branch/spec_ref/baseRef/PR.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `ready-finalize.test.ts` fails against the pre-fix path and pins evidence on the run row after a successful flip.
+- [x] `ready-finalize.test.ts` pins no write when fake `ghReadyFlip` rejects non-transiently (prior row evidence unchanged) and when the gate fails before the flip.
+- [x] `ready-finalize.test.ts` pins exactly one write when fake `ghReadyFlip` fails transiently then succeeds.
+- [x] Write-loop test pins the callback bound to `result.runId`, and the written row is found by `findNewestHarnessReadyFlipEvidenceInLineage` for the same project/branch/spec_ref/baseRef/PR.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/write-behavior.md` — Ready finalization paragraph: a successful flip records ready-flip evidence on the write-loop run row; failures record none.
-- [ ] `v2/docs/v1-behaviors.md` — ready finalization records harness ready-flip evidence after a successful flip.
-- [ ] `v2/docs/state-store.md` — list ready finalization as a production writer of `recordHarnessReadyFlipEvidence`.
+- [x] `v2/docs/write-behavior.md` — Ready finalization paragraph: a successful flip records ready-flip evidence on the write-loop run row; failures record none.
+- [x] `v2/docs/v1-behaviors.md` — ready finalization records harness ready-flip evidence after a successful flip.
+- [x] `v2/docs/state-store.md` — list ready finalization as a production writer of `recordHarnessReadyFlipEvidence`.

@@ -3777,7 +3777,9 @@ async function commitRepairAndRepublish(
       });
     }
     const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
-    let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups);
+    const recordHarnessReadyFlipEvidence = (evidence: { prNumber: number; branch: string; baseRef: string }) =>
+      store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...evidence });
+    let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence);
     if (outcome.kind !== "success") {
       outcome = await classifyReadyGatePublishFailure(
         outcome,
@@ -4145,7 +4147,9 @@ export async function publishWithReadyRepair(
   input: CompletionPublishInput,
 ): Promise<ReadyRepairPublishResult> {
   const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
-  let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups);
+  const recordHarnessReadyFlipEvidence = (evidence: { prNumber: number; branch: string; baseRef: string }) =>
+    store.recordHarnessReadyFlipEvidence({ runId: result.runId, ...evidence });
+  let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups, recordHarnessReadyFlipEvidence);
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(
       outcome,
@@ -4310,6 +4314,7 @@ async function runReadyFinalizer(
     requiredIntegrationScope?: string;
   },
   verifierProcessGroups?: VerifierProcessGroupRecorder,
+  recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void,
 ): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
@@ -4357,6 +4362,7 @@ async function runReadyFinalizer(
     ...(verifierProcessGroups !== undefined ? { verifierProcessGroups } : {}),
     ...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {}),
     skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined,
+    ...(recordHarnessReadyFlipEvidence !== undefined ? { recordHarnessReadyFlipEvidence } : {}),
   };
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }
@@ -4447,6 +4453,7 @@ export async function publishCompletionArtifacts(
     leaseFromSha?: string;
   } & ExternalSpecGitScope,
   verifierProcessGroups?: VerifierProcessGroupRecorder,
+  recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void,
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   let runtimeSmokeOutcome: SmokePass | undefined;
@@ -4480,6 +4487,7 @@ export async function publishCompletionArtifacts(
           ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
         },
         verifierProcessGroups,
+        recordHarnessReadyFlipEvidence,
       );
     }
   } catch (finalizeError) {

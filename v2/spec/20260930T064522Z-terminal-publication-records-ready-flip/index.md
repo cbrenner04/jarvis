@@ -4,5 +4,5 @@ Both harness flip sites — pipeline terminal publication and implement ready fi
 
 ## Subspecs
 
-- [ ] [00 — Terminal publication writes ready-flip evidence after flip success](./00-terminal-publication-writes-ready-flip-evidence.md)
+- [x] [00 — Terminal publication writes ready-flip evidence after flip success](./00-terminal-publication-writes-ready-flip-evidence.md)
 - [ ] [01 — Ready finalization writes ready-flip evidence after flip success](./01-ready-finalize-writes-ready-flip-evidence.md)

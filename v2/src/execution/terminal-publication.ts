@@ -346,3 +346,29 @@ export function createExecuteTerminalPublication(seams?: TerminalPublicationSeam
 }
 
 export const executeTerminalPublication = createExecuteTerminalPublication();
+
+export type SupersedeGh = {
+  prState: (cwd: string, prNumber: number) => Promise<{ state: string }>;
+  comment: (cwd: string, prNumber: number, body: string) => Promise<void>;
+  close: (cwd: string, prNumber: number) => Promise<void>;
+};
+
+export function createDefaultSupersedeGh(options?: { signal?: AbortSignal; gh?: GhCommand }): SupersedeGh {
+  const gh = options?.gh ?? ((cwd, args) => defaultGhCommand(cwd, args, options?.signal));
+  return {
+    async prState(cwd, prNumber) {
+      const raw = await gh(cwd, ["pr", "view", String(prNumber), "--json", "state"]);
+      const parsed = JSON.parse(raw) as { state?: unknown };
+      if (typeof parsed.state !== "string") {
+        throw new Error(`unexpected gh pr view state for #${prNumber}`);
+      }
+      return { state: parsed.state };
+    },
+    async comment(cwd, prNumber, body) {
+      await gh(cwd, ["pr", "comment", String(prNumber), "--body", body]);
+    },
+    async close(cwd, prNumber) {
+      await gh(cwd, ["pr", "close", String(prNumber)]);
+    },
+  };
+}

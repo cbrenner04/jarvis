@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
   type ReviewFeedbackLaneResolutionStore,
+  resolveReviewFeedbackEntrySpecPath,
   resolveReviewFeedbackLane,
 } from "./review-feedback-lane-resolution.ts";
 import {
@@ -18,7 +20,12 @@ const WORKTREE = "/worktrees/lane";
 
 function workflowSnapshot(
   invocationId: string,
-  firstStep: { stepId: string; role: string; promptId?: string },
+  firstStep: {
+    stepId: string;
+    role: string;
+    promptId?: string;
+    landingInputs?: NonNullable<Run["workflowSnapshot"]>["steps"][number]["landingInputs"];
+  },
   extraSteps: Array<{ stepId: string; role: string; promptId?: string }> = [],
 ): NonNullable<Run["workflowSnapshot"]> {
   return {
@@ -86,6 +93,7 @@ function pipelineFixture(args: {
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     dismissedAt: null,
     stages: [
       {
@@ -131,6 +139,9 @@ describe("resolveReviewFeedbackLane bare", () => {
         worktreePath: WORKTREE,
         prNumber: 42,
         prUrl: "https://example.test/pull/42",
+        entryRunId: "intent-entry",
+        entrySpecPath: "spec.md",
+        baseRef: "main",
         provenance: { kind: "bare" },
       },
     });
@@ -245,6 +256,39 @@ describe("resolveReviewFeedbackLane bare", () => {
       branch: BRANCH,
     });
     expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_not_eligible" });
+  });
+
+  test("resolves implement lane when a completed review-feedback run shares the branch", () => {
+    const implementRun = baseRun({
+      id: "implement-entry",
+      stepId: "implement-step",
+      workflowSnapshot: workflowSnapshot("inv-implement", {
+        stepId: "implement-step",
+        role: "implement",
+        promptId: "implement.prompt.body",
+      }),
+      specPath: "v2/spec/lane/index.md",
+    });
+    const reviewFeedbackRun = baseRun({
+      id: "rf-entry",
+      stepId: "review-feedback",
+      createdAt: 2,
+      workflowSnapshot: workflowSnapshot("inv-rf", {
+        stepId: "review-feedback",
+        role: "implement",
+        promptId: REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+      }),
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [implementRun, reviewFeedbackRun] }), {
+      mode: "bare",
+      project: PROJECT,
+      branch: BRANCH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected success");
+    expect(result.target.laneKind).toBe("implement");
+    expect(result.target.entryRunId).toBe("implement-entry");
+    expect(result.target.entrySpecPath).toBe("v2/spec/lane/index.md");
   });
 
   test("refuses completed lane without publication evidence", () => {
@@ -379,5 +423,43 @@ describe("resolveReviewFeedbackLane pipeline", () => {
       stageId: "debate-stage",
     });
     expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_not_eligible" });
+  });
+});
+
+describe("resolveReviewFeedbackEntrySpecPath", () => {
+  test("intent lane maps ready-intents landing path to ready-intents entry spec path", () => {
+    const run = baseRun({
+      specPath: "v2/spec/other.md",
+      workflowSnapshot: workflowSnapshot("inv-intent", {
+        stepId: "step-1",
+        role: "author",
+        promptId: "intent.prompt.split",
+        landingInputs: {
+          sourceRoot: "/home/.jarvis/specs/jarvis/ready-intents",
+          paths: ["/home/.jarvis/specs/jarvis/ready-intents/seed.md"],
+          consumeFrom: "source",
+        },
+      }),
+    });
+    expect(resolveReviewFeedbackEntrySpecPath("intent", run)).toBe("ready-intents");
+  });
+
+  test("non-intent lane keeps stored spec path when landing paths mention ready-intents", () => {
+    const landingInputs = {
+      sourceRoot: "/home/.jarvis/specs/jarvis/ready-intents",
+      paths: ["/home/.jarvis/specs/jarvis/ready-intents/seed.md"],
+      consumeFrom: "source" as const,
+    };
+    const run = baseRun({
+      specPath: "v2/spec/plan/index.md",
+      workflowSnapshot: workflowSnapshot("inv-plan", {
+        stepId: "step-1",
+        role: "author",
+        promptId: "plan.prompt.draft",
+        landingInputs,
+      }),
+    });
+    expect(resolveReviewFeedbackEntrySpecPath("plan", run)).toBe("v2/spec/plan/index.md");
+    expect(resolveReviewFeedbackEntrySpecPath("implement", run)).toBe("v2/spec/plan/index.md");
   });
 });

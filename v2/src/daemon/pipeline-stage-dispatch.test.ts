@@ -374,6 +374,7 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
       Object.entries(runsById)
         .filter(([, run]) => run.workflowSnapshot?.invocationId === invocationId)
         .map(([id, run]) => ({ id, attempts: [], ...run }) as unknown as Run),
+    findWorkflowRunsOnLane: () => [],
     loadPipeline: (pipelineId: string) => {
       const stages = [...stageRows.values()].filter((stage) => stage.pipelineId === pipelineId);
       if (stages.length === 0) return null;
@@ -497,7 +498,7 @@ function entryOnlySnapshot(invocationId: string): WorkflowSnapshot {
   } as unknown as WorkflowSnapshot;
 }
 
-function unsettledRollupWedgeRuns(
+function _unsettledRollupWedgeRuns(
   entryRunId: string,
   reviewRunId: string,
   invocationId: string,

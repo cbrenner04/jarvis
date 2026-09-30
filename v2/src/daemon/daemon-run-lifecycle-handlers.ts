@@ -36,6 +36,7 @@ import {
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
 import type { LinkedStageTarget } from "../persistence/pipeline-stage-settlement.ts";
+import { priorLaneRunsForWorkflowRollup } from "../persistence/prior-lane-runs-for-workflow-rollup.ts";
 import {
   type Attempt,
   isTerminalRunStatus,
@@ -890,6 +891,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: entrySnapshot,
       siblingRuns: store.findRunsByInvocationId(entrySnapshot.invocationId),
       isLive: workflowStillLive,
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, entrySnapshot.invocationId, store),
     });
   };
 
@@ -912,6 +914,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: workflowStillLive,
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(entryFullRun, snapshot.invocationId, store),
     });
   };
 
@@ -1564,6 +1567,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: false,
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, snapshot.invocationId, store),
     });
     return { kind: "response", result: workflowEntryResult(run, snapshot, rollupStatus) };
   };

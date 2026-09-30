@@ -35,3 +35,5 @@ intent/review-actuator.md
 intent/review-adversary.md
 intent/review-advocate.md
 intent/review-adjudicator.md
+review-feedback/write.md
+review-feedback/rules.md

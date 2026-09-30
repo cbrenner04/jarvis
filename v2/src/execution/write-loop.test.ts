@@ -73,6 +73,7 @@ import { resolveCompletionCommitFailedResumeContext } from "./workflow-runner-re
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
   acquireGateInvocationLease,
+  admitCoLocatedTestsOfAllowedPaths,
   appendRuntimeSmokeOutcome,
   applyOperatorSessionId,
   buildSubspecCompletionInventory,
@@ -754,6 +755,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
     findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
     findRunsByInvocationIds: (invocationIds) => inner.findRunsByInvocationIds(invocationIds),
+    findWorkflowRunsOnLane: (args) => inner.findWorkflowRunsOnLane(args),
     loadRunsByIds: (runIds) => inner.loadRunsByIds(runIds),
     createPipeline: (args) => inner.createPipeline(args),
     createPipelineStageBranch: (args) => inner.createPipelineStageBranch(args),
@@ -778,6 +780,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     restoreReopenedFailedStages: (reopened) => inner.restoreReopenedFailedStages(reopened),
     commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
     commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+    appendSupersedeFailures: (args) => inner.appendSupersedeFailures(args),
     dismissPipeline: (args) => inner.dismissPipeline(args),
     undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
@@ -875,6 +878,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
     findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
     findRunsByInvocationIds: (invocationIds) => inner.findRunsByInvocationIds(invocationIds),
+    findWorkflowRunsOnLane: (args) => inner.findWorkflowRunsOnLane(args),
     loadRunsByIds: (runIds) => inner.loadRunsByIds(runIds),
     createPipeline: (args) => inner.createPipeline(args),
     createPipelineStageBranch: (args) => inner.createPipelineStageBranch(args),
@@ -899,6 +903,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     restoreReopenedFailedStages: (reopened) => inner.restoreReopenedFailedStages(reopened),
     commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
     commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+    appendSupersedeFailures: (args) => inner.appendSupersedeFailures(args),
     dismissPipeline: (args) => inner.dismissPipeline(args),
     undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
@@ -6490,6 +6495,58 @@ export function isLoadSensitive(file: string): boolean {
         expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
       });
 
+      test("admits a new co-located test of an in-diff production file", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-colocated-test";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          expectedArtifactPath: "v2/src/widget.ts",
+          repairEdit: (cwd) => writeFileSync(join(cwd, "v2/src/widget.test.ts"), "export {}\n", "utf8"),
+        });
+
+        expect(fenced.result.kind).not.toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toBeUndefined();
+        expect(readFileSync(join(worktreePath, "v2/src/widget.test.ts"), "utf8")).toBe("export {}\n");
+      });
+
+      describe("admitCoLocatedTestsOfAllowedPaths", () => {
+        const noSiblings = () => [];
+
+        test("admits the exact-stem and existing sibling tests of an allowed production path", () => {
+          const admitted = admitCoLocatedTestsOfAllowedPaths(new Set(["v2/src/widget.ts"]), "/wt", (dir) =>
+            dir === "/wt/v2/src" ? ["widget-render.test.ts", "widget.ts", "other-x.test.ts"] : [],
+          );
+          expect(findFirstRepairFenceViolation(["v2/src/widget.test.ts"], admitted)).toBeUndefined();
+          expect(findFirstRepairFenceViolation(["v2/src/widget-render.test.ts"], admitted)).toBeUndefined();
+        });
+
+        test("still refuses an unrelated out-of-diff test", () => {
+          const admitted = admitCoLocatedTestsOfAllowedPaths(new Set(["v2/src/widget.ts"]), "/wt", noSiblings);
+          expect(findFirstRepairFenceViolation(["v2/src/untouched.test.ts"], admitted)).toBe(
+            "v2/src/untouched.test.ts",
+          );
+        });
+
+        test("still refuses the co-located test of an out-of-diff production file", () => {
+          const admitted = admitCoLocatedTestsOfAllowedPaths(new Set(["v2/src/widget.ts"]), "/wt", noSiblings);
+          expect(findFirstRepairFenceViolation(["v2/src/other.test.ts"], admitted)).toBe("v2/src/other.test.ts");
+          expect(findFirstRepairFenceViolation(["v2/src/other.ts"], admitted)).toBe("v2/src/other.ts");
+        });
+
+        test("adds nothing for non-code or test paths", () => {
+          const allowed = new Set(["spec.md", "v2/src/widget.test.ts"]);
+          expect([...admitCoLocatedTestsOfAllowedPaths(allowed, "/wt", noSiblings)].sort()).toEqual([
+            "spec.md",
+            "v2/src/widget.test.ts",
+          ]);
+        });
+      });
+
       test("mixed refusal commits the in-diff edit, reverts the out-of-diff path, and stays resumable", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-mixed-refusal";
@@ -7995,6 +8052,7 @@ export function isLoadSensitive(file: string): boolean {
           findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
           findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
           findRunsByInvocationIds: (invocationIds) => inner.findRunsByInvocationIds(invocationIds),
+          findWorkflowRunsOnLane: (args) => inner.findWorkflowRunsOnLane(args),
           loadRunsByIds: (runIds) => inner.loadRunsByIds(runIds),
           createPipeline: (args) => inner.createPipeline(args),
           createPipelineStageBranch: (args) => inner.createPipelineStageBranch(args),
@@ -8019,6 +8077,7 @@ export function isLoadSensitive(file: string): boolean {
           restoreReopenedFailedStages: (reopened) => inner.restoreReopenedFailedStages(reopened),
           commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
           commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+          appendSupersedeFailures: (args) => inner.appendSupersedeFailures(args),
           dismissPipeline: (args) => inner.dismissPipeline(args),
           undismissPipeline: (args) => inner.undismissPipeline(args),
           recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
@@ -11014,6 +11073,26 @@ index 1234567..abcdefg 100644
       expect(withLeftover).toContain("leftover.txt");
       expect(withLeftover).not.toContain("node_modules");
       expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, withLeftover)).toBe(true);
+    });
+
+    test("uncommitted paths omit harness root sidecars and keep other untracked work", async () => {
+      const worktreePath = trackedMkdtempSync(join(tmpdir(), "uncommitted-paths-sidecars-"));
+      roots.push(worktreePath);
+      execFileSync("git", ["init"], { cwd: worktreePath, stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktreePath, "tracked.txt"), "keep\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+
+      writeFileSync(join(worktreePath, ".jarvis-review-feedback-response.md"), "- t1: addressed\n", "utf8");
+      writeFileSync(join(worktreePath, ".jarvis-pr-review-input.json"), "{}\n", "utf8");
+      const sidecarsOnly = await getUncommittedPaths(worktreePath);
+      expect(sidecarsOnly).toEqual([]);
+      expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, sidecarsOnly)).toBe(false);
+
+      writeFileSync(join(worktreePath, "leftover.txt"), "real work\n", "utf8");
+      expect(await getUncommittedPaths(worktreePath)).toEqual(["leftover.txt"]);
     });
 
     test("terminal completion reports the nested untracked file", async () => {

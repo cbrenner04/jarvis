@@ -16,6 +16,9 @@ running-thoughts.md
 # Harness PR review capture sidecar (never committed; completion commits also exclude it)
 .jarvis-pr-review-input.json
 
+# Agent-authored review-feedback response sidecar (never committed; completion commits also exclude it)
+.jarvis-review-feedback-response.md
+
 # Review-verdict scratch output (transient; completion commits also exclude it — see
 # v2/docs/write-behavior.md)
 verdict-*.md

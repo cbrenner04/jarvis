@@ -519,6 +519,7 @@ describe("write behavior", () => {
         SOURCE_FILE: "v2/src/example.ts",
         SOURCE_LINE: "1",
         DUAL_CONSTRAINT_DETAIL: "Preserve the passing behavior.",
+        MUTATION_COVERAGE_FIX_DETAIL: "",
       },
       IMPLEMENT_WRITE_STEP_RULES,
     ],

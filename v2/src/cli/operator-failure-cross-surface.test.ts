@@ -106,6 +106,7 @@ function completeSnapshot(pipeline: Record<string, unknown>): Record<string, unk
   }));
   return {
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     terminalPublicationFailure: null,
     finishedAtMs: null,
     dismissedAt: null,

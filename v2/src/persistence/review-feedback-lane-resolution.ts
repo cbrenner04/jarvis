@@ -1,3 +1,4 @@
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import type { WorkflowPipelineStage } from "../execution/pipeline-definition.ts";
 import { resolvePrEvidenceAcrossInvocation } from "./pipeline-stage-settlement.ts";
 import {
@@ -23,6 +24,9 @@ export type ReviewFeedbackLaneTarget = {
   worktreePath: string;
   prNumber: number;
   prUrl: string;
+  entryRunId: string;
+  entrySpecPath: string;
+  baseRef: string;
   provenance: ReviewFeedbackLaneProvenance;
 };
 
@@ -70,10 +74,28 @@ function isEntryRunRow(run: Run): boolean {
 
 function bareLaneKindFromFirstStep(step: WorkflowSnapshotStep | undefined): ReviewFeedbackLaneKind | null {
   if (step == null) return null;
+  if (step.promptId === REVIEW_FEEDBACK_WRITE_PROMPT_ID) return null;
   if (step.role === "implement") return "implement";
   if (step.promptId === "intent.prompt.split") return "intent";
   if (step.promptId === "plan.prompt.draft") return "plan";
   return null;
+}
+
+export function resolveReviewFeedbackEntrySpecPath(laneKind: ReviewFeedbackLaneKind, entryRun: Run): string {
+  if (laneKind === "intent") {
+    const landingPaths = entryRun.workflowSnapshot?.steps[0]?.landingInputs?.paths;
+    const first = landingPaths?.[0];
+    if (first !== undefined) {
+      const normalized = first.replace(/\\/g, "/");
+      if (normalized.includes("/ready-intents/") || normalized.endsWith("/ready-intents")) {
+        return "ready-intents";
+      }
+    }
+    if (entryRun.specPath === "ready-intents" || entryRun.specPath.endsWith("/ready-intents")) {
+      return "ready-intents";
+    }
+  }
+  return entryRun.specPath;
 }
 
 function pipelineLaneKindFromWorkflow(workflow: string): ReviewFeedbackLaneKind | null {
@@ -119,13 +141,17 @@ function targetFromMatch(
   match: CompletedLaneMatch,
   provenance: ReviewFeedbackLaneProvenance,
 ): ReviewFeedbackLaneTarget {
+  const { entryRun, laneKind, prNumber, prUrl } = match;
   return {
-    laneKind: match.laneKind,
-    project: match.entryRun.project,
-    branch: match.entryRun.branch,
-    worktreePath: match.entryRun.worktreePath,
-    prNumber: match.prNumber,
-    prUrl: match.prUrl,
+    laneKind,
+    project: entryRun.project,
+    branch: entryRun.branch,
+    worktreePath: entryRun.worktreePath,
+    prNumber,
+    prUrl,
+    entryRunId: entryRun.id,
+    entrySpecPath: resolveReviewFeedbackEntrySpecPath(laneKind, entryRun),
+    baseRef: entryRun.specRef,
     provenance,
   };
 }

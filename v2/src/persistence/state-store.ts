@@ -103,6 +103,15 @@ export type WorkflowSnapshotStep = {
   landingInputs?: PublicationInputs;
 };
 
+/** Entry lane metadata stamped on review-feedback workflow snapshots for republication. */
+export type ReviewFeedbackLaneSnapshot = {
+  laneKind: "intent" | "plan" | "implement";
+  entryRunId: string;
+  entrySpecPath: string;
+  prNumber: number;
+  prUrl: string;
+};
+
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */
 export type WorkflowSnapshot = {
   invocationId: string;
@@ -113,6 +122,8 @@ export type WorkflowSnapshot = {
   reviewPasses?: number;
   /** Resolved implement review behavior; present only on implement workflow snapshots. */
   reviewBehavior?: "debate" | "light";
+  /** Resolved lane target for review-feedback presets. */
+  reviewFeedbackLane?: ReviewFeedbackLaneSnapshot;
 };
 
 type AttemptStatus = "in-progress" | "completed";
@@ -287,6 +298,11 @@ type PipelineTerminalPublicationFailure = {
   prUrl?: string;
 };
 
+export type PipelineSupersedeFailure = {
+  prNumber: number;
+  message: string;
+};
+
 /** A durable admitted pipeline record: identity, source name, ownership, and immutable admitted-definition snapshot. */
 export type Pipeline = {
   id: string;
@@ -301,6 +317,8 @@ export type Pipeline = {
   terminalPublicationFailure: PipelineTerminalPublicationFailure | null;
   /** Unix epoch ms when terminal publication succeeded; `null` until settled. */
   terminalPublicationSucceededAt: number | null;
+  /** Nullable JSON array of nonfatal supersede failures; `null` when unset. */
+  supersedeFailures: PipelineSupersedeFailure[] | null;
   /** Unix epoch ms when an operator dismissed this pipeline from display; `null` when not dismissed. */
   dismissedAt: number | null;
 };
@@ -839,6 +857,9 @@ export interface StateStore {
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
 
+  /** Workflow-snapshot runs on one project/branch/spec_ref lane, creation order. */
+  findWorkflowRunsOnLane(args: { project: string; branch: string; specRef: string }): Run[];
+
   /** All runs whose `workflowSnapshot.invocationId` is in the given set; creation order per invocation. */
   findRunsByInvocationIds(invocationIds: readonly string[]): Run[];
 
@@ -987,6 +1008,9 @@ export interface StateStore {
 
   /** Atomically record terminal-publication success on the pipeline row. Idempotent when already set. */
   commitTerminalPublicationSuccess(args: { pipelineId: string }): void;
+
+  /** Concatenate supersede failures onto the pipeline row; no-op when `failures` is empty. */
+  appendSupersedeFailures(args: { pipelineId: string; failures: readonly PipelineSupersedeFailure[] }): void;
 
   /**
    * Mark a pipeline dismissed from display. Preserves the first dismissal timestamp on
@@ -1301,6 +1325,7 @@ const SCHEMA = `
     context TEXT,
     terminal_publication_failure TEXT,
     terminal_publication_succeeded_at INTEGER,
+    supersede_failures TEXT,
     dismissed_at INTEGER
   );
   CREATE TABLE IF NOT EXISTS pipeline_stages (
@@ -1376,7 +1401,7 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent, completion_review_pass AS completionReviewPass`;
 
-const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt, dismissed_at AS dismissedAt`;
+const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt, supersede_failures AS supersedeFailuresJson, dismissed_at AS dismissedAt`;
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
   skip_provenance AS skipProvenance,
@@ -1496,6 +1521,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "pipelines", "context", "TEXT");
   addColumnIfMissing(db, "pipelines", "terminal_publication_failure", "TEXT");
   addColumnIfMissing(db, "pipelines", "terminal_publication_succeeded_at", "INTEGER");
+  addColumnIfMissing(db, "pipelines", "supersede_failures", "TEXT");
   addColumnIfMissing(db, "pipelines", "dismissed_at", "INTEGER");
   upgradePipelineStagesBranchKey(db);
   addColumnIfMissing(db, "pipeline_stages", "decided_at", "INTEGER");
@@ -1582,6 +1608,29 @@ function repairCompletedPublicationFailureRows(db: Database): void {
     }
     db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(
       PUBLICATION_FAILURE_ROWS_MIGRATION_ID,
+      Date.now(),
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+const TERMINAL_NULL_FINISHED_AT_MIGRATION_ID = "033-terminal-null-finished-at-backfill";
+
+function repairTerminalNullFinishedAt(db: Database): void {
+  const applied = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(TERMINAL_NULL_FINISHED_AT_MIGRATION_ID);
+  if (applied) return;
+  if (!tableHasColumn(db, "runs", "finished_at") || !tableHasColumn(db, "runs", "status_changed_at")) return;
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      UPDATE runs SET finished_at = COALESCE(status_changed_at, created_at)
+      WHERE status IN (${TERMINAL_RUN_STATUSES_SQL}) AND finished_at IS NULL
+    `);
+    db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(
+      TERMINAL_NULL_FINISHED_AT_MIGRATION_ID,
       Date.now(),
     );
     db.exec("COMMIT");
@@ -1995,14 +2044,15 @@ function mapRunRow(row: RunRow): Run {
   };
 }
 
-type PipelineRow = Omit<Pipeline, "definition" | "context" | "terminalPublicationFailure"> & {
+type PipelineRow = Omit<Pipeline, "definition" | "context" | "terminalPublicationFailure" | "supersedeFailures"> & {
   definitionJson: string;
   contextJson: string | null;
   terminalPublicationFailureJson: string | null;
+  supersedeFailuresJson: string | null;
 };
 
 function mapPipelineRow(row: PipelineRow): Pipeline {
-  const { definitionJson, contextJson, terminalPublicationFailureJson, ...pipeline } = row;
+  const { definitionJson, contextJson, terminalPublicationFailureJson, supersedeFailuresJson, ...pipeline } = row;
   return {
     ...pipeline,
     definition: JSON.parse(definitionJson) as PipelineDefinition,
@@ -2012,6 +2062,8 @@ function mapPipelineRow(row: PipelineRow): Pipeline {
         ? null
         : (JSON.parse(terminalPublicationFailureJson) as PipelineTerminalPublicationFailure),
     terminalPublicationSucceededAt: pipeline.terminalPublicationSucceededAt ?? null,
+    supersedeFailures:
+      supersedeFailuresJson === null ? null : (JSON.parse(supersedeFailuresJson) as PipelineSupersedeFailure[]),
     dismissedAt: pipeline.dismissedAt ?? null,
   };
 }
@@ -2058,9 +2110,11 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
     addColumnIfMissing(this.db, "runs", "gate_refusal_recovery_state", "TEXT");
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
+    repairTerminalNullFinishedAt(this.db);
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
     addColumnIfMissing(this.db, "runs", "harness_ready_flip_evidence", "TEXT");
+    addColumnIfMissing(this.db, "pipelines", "supersede_failures", "TEXT");
     // Guarded: fixture and pre-migration stores can open without a `workflow_snapshot` column.
     if (tableHasColumn(this.db, "runs", "workflow_snapshot")) {
       this.db.exec(`
@@ -2069,6 +2123,7 @@ class StateStoreImpl implements StateStore {
           WHERE workflow_snapshot IS NOT NULL
       `);
     }
+    this.db.exec("CREATE INDEX IF NOT EXISTS runs_project_branch ON runs (project, branch)");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
@@ -2389,6 +2444,16 @@ class StateStoreImpl implements StateStore {
           `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') = ? ORDER BY created_at ASC`,
         )
         .all(invocationId) as RunRow[]
+    ).map(mapRunRow);
+  }
+
+  findWorkflowRunsOnLane(args: { project: string; branch: string; specRef: string }): Run[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? AND spec_ref = ? AND workflow_snapshot IS NOT NULL ORDER BY created_at ASC, rowid ASC`,
+        )
+        .all(args.project, args.branch, args.specRef) as RunRow[]
     ).map(mapRunRow);
   }
 
@@ -2840,6 +2905,25 @@ class StateStoreImpl implements StateStore {
            AND terminal_publication_failure IS NULL`,
       )
       .run(Date.now(), args.pipelineId);
+  }
+
+  appendSupersedeFailures(args: { pipelineId: string; failures: readonly PipelineSupersedeFailure[] }): void {
+    if (args.failures.length === 0) {
+      return;
+    }
+    this.db.transaction(() => {
+      const row = this.db.prepare("SELECT supersede_failures FROM pipelines WHERE id = ?").get(args.pipelineId) as
+        | { supersede_failures: string | null }
+        | undefined;
+      if (row === undefined) {
+        return;
+      }
+      const existing =
+        row.supersede_failures === null ? [] : (JSON.parse(row.supersede_failures) as PipelineSupersedeFailure[]);
+      this.db
+        .prepare("UPDATE pipelines SET supersede_failures = ? WHERE id = ?")
+        .run(JSON.stringify([...existing, ...args.failures]), args.pipelineId);
+    })();
   }
 
   private pipelineRowExists(pipelineId: string): boolean {

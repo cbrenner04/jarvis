@@ -1581,6 +1581,7 @@ describe("pipelines", () => {
             context: pipeline.context === null ? null : (JSON.parse(pipeline.context) as PipelineContext),
             terminalPublicationFailure: null,
             terminalPublicationSucceededAt: null,
+            supersedeFailures: null,
             dismissedAt: null,
             stages: expectedStages
               .filter((stage) => stage.pipelineId === pipeline.id)
@@ -5408,6 +5409,55 @@ describe("terminal publication commits", () => {
     const afterSuccess = loadPipelineOrThrow(store, freshId);
     expect(afterSuccess.terminalPublicationFailure).toBeNull();
     expect(afterSuccess.terminalPublicationSucceededAt).not.toBeNull();
+  });
+
+  test("appendSupersedeFailures after terminal success preserves terminalPublicationSucceededAt", () => {
+    const pipelineId = seedSettledPipeline();
+    store.commitTerminalPublicationSuccess({ pipelineId });
+    const succeededAt = loadPipelineOrThrow(store, pipelineId).terminalPublicationSucceededAt;
+    expect(succeededAt).not.toBeNull();
+
+    store.appendSupersedeFailures({
+      pipelineId,
+      failures: [{ prNumber: 10, message: "comment failed" }],
+    });
+    const after = loadPipelineOrThrow(store, pipelineId);
+    expect(after.terminalPublicationSucceededAt).toBe(succeededAt);
+    expect(after.supersedeFailures).toEqual([{ prNumber: 10, message: "comment failed" }]);
+  });
+
+  test("appendSupersedeFailures concatenates onto prior entries", () => {
+    const pipelineId = seedSettledPipeline();
+    store.commitTerminalPublicationSuccess({ pipelineId });
+    store.appendSupersedeFailures({ pipelineId, failures: [{ prNumber: 1, message: "first" }] });
+    store.appendSupersedeFailures({ pipelineId, failures: [{ prNumber: 2, message: "second" }] });
+
+    expect(loadPipelineOrThrow(store, pipelineId).supersedeFailures).toEqual([
+      { prNumber: 1, message: "first" },
+      { prNumber: 2, message: "second" },
+    ]);
+  });
+
+  test("appendSupersedeFailures with empty failures is a no-op", () => {
+    const pipelineId = seedSettledPipeline();
+    store.commitTerminalPublicationSuccess({ pipelineId });
+    store.appendSupersedeFailures({ pipelineId, failures: [] });
+
+    expect(loadPipelineOrThrow(store, pipelineId).supersedeFailures).toBeNull();
+  });
+});
+
+describe("pipeline stage admission", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
   });
 
   test("pipeline_stage_admission claim, load, release, and duplicate claim refusal for the current holder", () => {

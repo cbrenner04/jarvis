@@ -28,6 +28,7 @@ function seededPipelines(count: number, nameBytes: number) {
     state: "running",
     seedPath: "seeds/intent.md",
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     terminalPublicationFailure: null,
     createdAt: 1_700_000_000_000 - index,
     finishedAtMs: null,

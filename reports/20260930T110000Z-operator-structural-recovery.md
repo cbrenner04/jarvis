@@ -66,6 +66,8 @@ Intent/plan PRs: [#4157](https://github.com/cbrenner04/jarvis/pull/4157) [#4158]
 
 ## Friction
 
+- `jarvis cleanup` never retires plan-stage worktrees: `checkEligibility` (`v2/src/commands/cleanup.ts:283`) requires the branch's own PR `MERGED`, but pipeline plan PRs are closed as subsumed by the implement PR; merged implement lanes also stayed (likely non-terminal run-row gate). 22 landed worktrees left for manual `--abandon`. Seed candidate.
+
 - Harness republished two already-merged lanes as duplicate PRs (#4243 dup of #4191, #4244 dup of #4236; closed). Likely the restart-recovery zombie rows. Seed candidate.
 - Run c47fa220 (#4172) settled `killed` with `loopOutcomeKind: complete` — 4th false-killed rollup.
 
@@ -101,6 +103,6 @@ Intent/plan PRs: [#4157](https://github.com/cbrenner04/jarvis/pull/4157) [#4158]
 
 | | Cost | Notes |
 | --- | --- | --- |
-| Operator (`/cost`) | TBD | claude-opus-5-5 |
+| Operator (`/cost`) | $157.54 | claude-opus-5-5 (3h12m API, 16h59m wall) |
 | Agents (telemetry) | $79.39 | 433 invocations; cursor Composer 2.5 $31.03/284, codex gpt-5.6-sol $14.94/36, claude-opus-5 $12.39/18, claude-sonnet-5 $10.22/12, claude-opus-5-5 $5.75/15, claude-sonnet-5-5 $4.70/20, codex gpt-5.6-terra $0.36/24, gpt-6.1-sol/gpt-6-luna $0 (unpriced)/24 |
-| **Total** | TBD | 29 fixes/implements → agent $2.74 per landed fix |
+| **Total** | $236.93 | 32 fixes/implements → $7.40 per landed fix |

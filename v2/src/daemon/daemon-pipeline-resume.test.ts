@@ -1,16 +1,16 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import {
   openStateStore,
   type PipelineContext,
@@ -1210,7 +1210,7 @@ test.each([
   {
     label: "lane not descended from base",
     needle: "Cannot re-run incomplete spec",
-    prepare: async (planWorktree: string, intentWorktree: string, intentBranch: string) => {
+    prepare: async (_planWorktree: string, intentWorktree: string, _intentBranch: string) => {
       writeFileSync(join(intentWorktree, "advance.md"), "advance\n", "utf8");
       await realAsyncSubprocessRunner.runAsync("git", ["add", "."], intentWorktree);
       await realAsyncSubprocessRunner.runAsync("git", ["commit", "-qm", "advance"], intentWorktree);

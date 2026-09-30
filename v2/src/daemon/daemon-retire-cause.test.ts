@@ -165,8 +165,10 @@ test("committed-handoff watch rebind clears retireCause; a later changeover rest
   const handoffId = await pendingHandoffId(handlers);
   await handlers.handoff_commit(requestFrame("handoff_commit", { handoffId }), new AbortController().signal);
   expect(retireCauseState.cause).toBe("terminal");
-  await new Promise((resolve) => setTimeout(resolve, 15));
-  await flushMicrotasks();
+  const watchDeadline = Date.now() + 15;
+  while (Date.now() < watchDeadline) {
+    await flushMicrotasks();
+  }
   expect(retireCauseState.cause).toBe(null);
   expect(retiring).toBe(false);
   await handlers.changeover(requestFrame("changeover"), new AbortController().signal);

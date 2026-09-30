@@ -16,20 +16,22 @@ For `importer-discovery-cap-exceeded` and `missing-killing-test`, `write.survivi
 
 ## Tasks
 
-- Export `resolveCoLocatedKillingTest` from `diff-derived-mutation-verifier.ts` (or move it to a shared module both verifier and write path import) and add a small pure helper that maps `(mutation, sourceFile)` → fix-detail string per the ledger.
+- Export `resolveCoLocatedKillingTest` and a new pure `mutationCoverageFixDetail(mutation, sourceFile)` from `diff-derived-mutation-verifier.ts`; the helper calls `resolveCoLocatedKillingTest` (no second stem derivation) and returns the fix-detail string per the ledger.
 - Add `MUTATION_COVERAGE_FIX_DETAIL` to both mutation prompt frontmatter `placeholders` lists; insert the placeholder in each template body where operators read coverage guidance; bump `revision` on both prompts.
-- Pass `MUTATION_COVERAGE_FIX_DETAIL` from surviving-mutation reprompt assembly (`write.ts`) and mutation-repair `promptPlaceholders` (`write-loop.ts`); include the key (empty string when not applicable) in every render path for those prompts, including the operator-flip preservation test fixture.
-- Extend `v2/src/execution/write-prompt.test.ts` with focused render tests for both prompt ids, both structured mutation kinds, and null co-located resolution (see acceptance criteria); update `write.surviving-mutation-reprompt renders the mutation site, both remedies, and injected rules` to pass `MUTATION_COVERAGE_FIX_DETAIL: ""`.
+- Pass `MUTATION_COVERAGE_FIX_DETAIL: mutationCoverageFixDetail(...)` from surviving-mutation reprompt assembly (`write.ts`) and `runMutationRepairIteration` `promptPlaceholders` (`write-loop.ts`); include the key (empty string when not applicable) in every render path for those prompts, including the operator-flip preservation test fixture.
+- Map `prompts/write/mutation-repair.md` → `v2/src/execution/write-prompt.test.ts` in `shared/prompts/render-observer-tests.ts` (ready fails `missing-render-coverage` otherwise).
+- Extend `v2/src/execution/write-prompt.test.ts` with focused render tests (placeholder built via `mutationCoverageFixDetail`, not a literal) for both prompt ids, both structured mutation kinds, and null co-located resolution (see acceptance criteria); update `write.surviving-mutation-reprompt renders the mutation site, both remedies, and injected rules` to pass `MUTATION_COVERAGE_FIX_DETAIL: ""`.
 - Update `v2/docs/write-behavior.md`, `v2/docs/prompts.md`, and `v2/docs/v1-behaviors.md` per documentation updates.
 
 ## Acceptance criteria
 
 - [ ] `write-prompt.test.ts` asserts rendered `write.surviving-mutation-reprompt` and `write.mutation-repair` for `importer-discovery-cap-exceeded` with `SOURCE_FILE` `v2/src/execution/foo.ts` contain `v2/src/execution/foo.test.ts` and reprompt-scoped steering that non-co-located importer/direct-importer tests did not satisfy this failure (not a global verifier ban on qualifying importers); fails against the pre-fix templates.
 - [ ] `write-prompt.test.ts` asserts the same exact-stem path and scoped non-co-located steering for `missing-killing-test` on both prompt ids; fails against the pre-fix templates.
-- [ ] `write-prompt.test.ts` asserts `MUTATION_COVERAGE_FIX_DETAIL` renders empty on both prompt ids for `missing-killing-test` when `SOURCE_FILE` yields null from `resolveCoLocatedKillingTest` (constructible on main before importer discovery); fails against the pre-fix assembly.
+- [ ] `write-prompt.test.ts` asserts `mutationCoverageFixDetail` returns `""` for `missing-killing-test` when `SOURCE_FILE` yields null from `resolveCoLocatedKillingTest` (e.g. `v2/src/execution/foo.test.ts`) and for `surviving-mutation`, and both prompt ids render no fix line then; fails against pre-fix (helper absent).
+- [ ] `shared/prompts/render-observer-tests.ts` maps `prompts/write/mutation-repair.md` to `v2/src/execution/write-prompt.test.ts`.
 - [ ] `write-prompt.test.ts` test `write.surviving-mutation-reprompt renders the mutation site, both remedies, and injected rules` stays green with `MUTATION_COVERAGE_FIX_DETAIL: ""` in its placeholder map (operator-flip `SURVIVING_MUTATION` copy unchanged).
 - [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [ ] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

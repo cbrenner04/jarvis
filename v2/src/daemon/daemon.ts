@@ -28,6 +28,7 @@ import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import {
   DaemonSocketBindFailureError,
+  DaemonSocketInUseError,
   formatDaemonBindFailureLogLine,
   type IpcServer,
   type RpcHandler,
@@ -891,6 +892,8 @@ type HandoffTransaction = {
   rollbackPromise?: Promise<RpcHandlerResult>;
   /** Set by `scheduleFallback` once the transaction exists; a failed fallback rollback reschedules it. */
   fallbackTimer?: ReturnType<typeof setTimeout>;
+  /** After reclaim refuses a live successor, defer fallback rollback on a not-live probe until commit or the address frees. */
+  fallbackDeferRollbackForLiveSuccessor?: boolean;
   /** Set by `scheduleWatch` once committed; a failed rebind attempt reschedules it. */
   watchTimer?: ReturnType<typeof setTimeout>;
 };
@@ -898,17 +901,18 @@ type HandoffTransaction = {
 type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
 
 type HandoffHandlersDeps = ChangeoverHandlerDeps & {
-  /** Reopens admission just before the public listener rebinds (restored on failure); skipped when superseded. */
+  /** Reopens admission just before the public listener rebinds (restored on failure). */
   setAdmitting: () => void;
-  /** True once this generation has been superseded (via `supersede` or `changeover`), before or
-   * during the pending handoff — rollback must not reopen admission for it. */
-  wasSuperseded: () => boolean;
+  /** True when a non-handoff-origin `supersede` must keep rollback from reopening admission. */
+  rollbackBlocksReopenAdmission: () => boolean;
   /** Rebinds the stable public listener. */
   bindPublicServer: () => Promise<void>;
   /** True only when a daemon answers at the stable public address. */
   probePublicServer: () => Promise<boolean>;
   /** Bounds an unanswered handoff. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   fallbackMs?: number;
+  /** Test seam: defaults to `setTimeout`. */
+  scheduleAfter?: (callback: () => void, delayMs: number) => unknown;
   /** Records this generation's retire trigger; called with "changeover" once this handoff actually begins. */
   recordRetireTrigger: (trigger: "changeover") => void;
 };
@@ -936,6 +940,59 @@ export function isHandoffStillPending(
  */
 export function fallbackVerdict(publicDaemonLive: boolean): "commit" | "rollback" {
   return publicDaemonLive ? "commit" : "rollback";
+}
+
+/** True when reclaim lost the stable public address to a still-listening successor. */
+export function isLiveSuccessorPublicBindRefusal(error: unknown): boolean {
+  if (error instanceof DaemonSocketInUseError) return true;
+  if (error instanceof DaemonSocketBindFailureError && error.errno === "EADDRINUSE") return true;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: unknown }).code === "EADDRINUSE"
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Whether a `supersede` should keep pending rollback from reopening admission. */
+type RollbackAdmissionSupersedeState = {
+  blocksRollbackReopen: boolean;
+};
+
+/**
+ * A `supersede` carrying the pending transaction's own `handoffId` (sent only by the successor
+ * spawned for it) does not block rollback admission reopen; any other supersede does.
+ */
+function recordSupersedeForRollbackAdmission(
+  state: RollbackAdmissionSupersedeState,
+  input: { pendingHandoffId: string | undefined; supersedeHandoffId: string | undefined },
+): void {
+  const fromSuccessor = input.pendingHandoffId !== undefined && input.supersedeHandoffId === input.pendingHandoffId;
+  if (fromSuccessor && !state.blocksRollbackReopen) {
+    return;
+  }
+  state.blocksRollbackReopen = true;
+}
+
+/** `supersede` RPC handler: cuts admission and records whether rollback may still reopen it. */
+export function createSupersedeHandler(deps: {
+  state: RollbackAdmissionSupersedeState;
+  pendingHandoffId: () => string | undefined;
+  setRetiring: () => void;
+  recordRetireTrigger: (trigger: "supersede") => void;
+}): RpcHandler {
+  return (frame) => {
+    recordSupersedeForRollbackAdmission(deps.state, {
+      pendingHandoffId: deps.pendingHandoffId(),
+      supersedeHandoffId: handoffIdentity(frame),
+    });
+    deps.setRetiring();
+    deps.recordRetireTrigger("supersede");
+    return { kind: "response", result: { ok: true } };
+  };
 }
 
 function handoffIdentity(frame: Parameters<RpcHandler>[0]): string | undefined {
@@ -969,11 +1026,12 @@ function gatePrivateAdmission(isPublicBound: () => boolean, handler: RpcHandler)
 }
 
 /** Owns the reversible interval between accepted changeover and successor readiness. */
-function createHandoffHandlers(deps: HandoffHandlersDeps): {
+export function createHandoffHandlers(deps: HandoffHandlersDeps): {
   changeover: RpcHandler;
   handoff_commit: RpcHandler;
   handoff_rollback: RpcHandler;
   isPending: () => boolean;
+  pendingHandoffId: () => string | undefined;
   close: () => void;
 } {
   let transaction: HandoffTransaction | undefined;
@@ -994,14 +1052,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS);
   };
 
-  /**
-   * Runs on the committed watch's cadence once a handoff commits: probes the public address and,
-   * when nothing answers, rebinds and reopens admission unconditionally — the same reclaim
-   * `rollback` performs, but never gated by `wasSuperseded()` (the ordinary successor-side
-   * `supersede` call already set it true for exactly the shape this recovers). A rebind that fails
-   * (e.g. a still-listening successor that only answers slowly) reschedules rather than giving up,
-   * and never logs or marks the transaction settled — only a successful rebind does either.
-   */
+  /** Committed watch: rebind when the public address is not live; never gated by rollback supersede state. */
   const tickWatch = async (handoffId: string): Promise<void> => {
     const active = transaction;
     if (closed || active === undefined || !isHandoffStillPending(active.id, active.state, handoffId, "committed")) {
@@ -1046,13 +1097,17 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.rollbackPromise !== undefined) return active.rollbackPromise;
     const rollbackPromise = (async (): Promise<RpcHandlerResult> => {
       await active.releasePromise;
-      // Opened before the rebind for the same reason as `tickWatch`; restored on failure.
-      const reopen = !deps.wasSuperseded();
+      // Opened before the rebind for the same reason as `tickWatch`; restored on failure. Skipped
+      // only for a non-handoff-origin `supersede` (before or outside this pending transaction).
+      const reopen = !deps.rollbackBlocksReopenAdmission();
       if (reopen) deps.setAdmitting();
       try {
         await deps.bindPublicServer();
       } catch (error) {
         if (reopen) deps.setRetiring();
+        if (isLiveSuccessorPublicBindRefusal(error)) {
+          active.fallbackDeferRollbackForLiveSuccessor = true;
+        }
         delete active.rollbackPromise;
         const message = error instanceof Error ? error.message : String(error);
         return { kind: "error", code: "handoff_rollback_failed", message };
@@ -1075,11 +1130,14 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     return handoffResponse("committed");
   };
 
+  const scheduleAfter =
+    deps.scheduleAfter ?? ((callback: () => void, delayMs: number) => setTimeout(callback, delayMs));
+
   const scheduleFallback = (active: HandoffTransaction, handoffId: string): void => {
     if (closed) return;
-    active.fallbackTimer = setTimeout(() => {
+    active.fallbackTimer = scheduleAfter(() => {
       void resolveFallback(handoffId);
-    }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS);
+    }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS) as ReturnType<typeof setTimeout>;
   };
 
   const resolveFallback = async (handoffId: string): Promise<void> => {
@@ -1094,9 +1152,19 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (closed || transaction !== active || !isHandoffStillPending(transaction.id, transaction.state, handoffId)) {
       return;
     }
-    const verdict = fallbackVerdict(publicDaemonLive);
-    console.error(formatHandoffSettlementLogLine("handoff_fallback", verdict));
-    const result = verdict === "commit" ? await commit(active) : await rollback(active);
+    if (publicDaemonLive) {
+      active.fallbackDeferRollbackForLiveSuccessor = false;
+      console.error(formatHandoffSettlementLogLine("handoff_fallback", "commit"));
+      await commit(active);
+      return;
+    }
+    if (active.fallbackDeferRollbackForLiveSuccessor) {
+      active.fallbackDeferRollbackForLiveSuccessor = false;
+      scheduleFallback(active, handoffId);
+      return;
+    }
+    console.error(formatHandoffSettlementLogLine("handoff_fallback", "rollback"));
+    const result = await rollback(active);
     if (result.kind === "error") {
       console.error(`Daemon handoff fallback failed: ${result.message}`);
       // A failed rollback (rebind still failing) must not strand the transaction pending forever:
@@ -1154,6 +1222,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     handoff_commit: settle("commit"),
     handoff_rollback: settle("rollback"),
     isPending: () => transaction?.state === "pending",
+    pendingHandoffId: () => (transaction?.state === "pending" ? transaction.id : undefined),
     close: () => {
       closed = true;
       if (transaction !== undefined) {
@@ -1234,6 +1303,8 @@ type DaemonStartupDeps = {
    * same way, without needing to be named here.
    */
   predecessorSocketPath?: string;
+  /** Accepted changeover's `handoffId`, sent on `supersede` to the predecessor so it recognizes its own successor. */
+  predecessorHandoffId?: string;
   observePredecessorDrain?: typeof observePredecessorDrain;
   /** Direct-predecessor-only ownership routing; never fed legacy peer sockets. Defaults to `observeRunOwnership`. */
   observeRunOwnership?: typeof observeRunOwnership;
@@ -1548,15 +1619,14 @@ export async function startDaemonRuntime(
   let selfHandoffTrigger: { stop(): void } | undefined;
   const setRetiring = setRetiringRaw;
 
-  // Recorded separately from `retiring`: a handoff's own `changeover` sets `retiring` too, but only
-  // a real `supersede` must stop rollback from reopening admission (see `wasSuperseded` below).
-  let superseded = false;
-  const supersedHandler: RpcHandler = () => {
-    superseded = true;
-    setRetiring();
-    recordRetireTrigger("supersede");
-    return { kind: "response", result: { ok: true } };
-  };
+  const supersedeAdmissionState: RollbackAdmissionSupersedeState = { blocksRollbackReopen: false };
+  let pendingHandoffId: () => string | undefined = () => undefined;
+  const supersedeHandler = createSupersedeHandler({
+    state: supersedeAdmissionState,
+    pendingHandoffId: () => pendingHandoffId(),
+    setRetiring,
+    recordRetireTrigger,
+  });
 
   let server: IpcServer;
   // False while the public listener is released for a handoff; private-endpoint start/resume admit
@@ -1576,7 +1646,7 @@ export async function startDaemonRuntime(
     setAdmitting: () => {
       runControlContext.retiring = false;
     },
-    wasSuperseded: () => superseded,
+    rollbackBlocksReopenAdmission: () => supersedeAdmissionState.blocksRollbackReopen,
     recordRetireTrigger,
     bindPublicServer: async () => {
       try {
@@ -1592,12 +1662,13 @@ export async function startDaemonRuntime(
     probePublicServer: () => daemonAnswersAt(socketPath),
     ...(startupDeps.handoffFallbackMs === undefined ? {} : { fallbackMs: startupDeps.handoffFallbackMs }),
   });
+  pendingHandoffId = handoffHandlers.pendingHandoffId;
 
   handlers = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    supersede: supersedHandler,
+    supersede: supersedeHandler,
     changeover: handoffHandlers.changeover,
     handoff_commit: handoffHandlers.handoff_commit,
     handoff_rollback: handoffHandlers.handoff_rollback,
@@ -1644,7 +1715,10 @@ export async function startDaemonRuntime(
   const supersedePeer = startupDeps.supersedePeerDaemon ?? supersedePeerDaemon;
   (async () => {
     for (const peerSocketPath of legacyPeerSocketPaths) {
-      await supersedePeer(peerSocketPath);
+      await supersedePeer(
+        peerSocketPath,
+        peerSocketPath === startupDeps.predecessorSocketPath ? startupDeps.predecessorHandoffId : undefined,
+      );
     }
   })().catch(() => {
     // Ignore errors: the supersede pass is best-effort.

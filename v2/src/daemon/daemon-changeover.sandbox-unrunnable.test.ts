@@ -801,7 +801,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         const rollback = await request(incumbent.privateSocketPath, "handoff_rollback", { handoffId });
         expect((rollback as ResponseFrame).result).toEqual({ ok: true, state: "rolled_back" });
 
-        // The pre-fix code always reopens admission on rollback, ignoring an earlier supersede.
+        // Pre-fix skipped reopen when wasSuperseded(); post-fix still blocks when supersede predates this pending handoff.
         expect(await health(incumbent.publicSocketPath)).toEqual({ ok: true });
         const refused = await request(incumbent.publicSocketPath, "start", {
           input: mockWriteLoopInput({ projectName: "refused-after-superseded-rollback" }),
@@ -839,7 +839,7 @@ describe("daemon handoff changeover (real sockets)", () => {
 
           // Ordinary self-handoff shape: the successor's own startup calls `supersede` on the outgoing
           // generation's private socket, matching `supersedePeerDaemon`'s production wiring — the
-          // rebind below must reopen admission unconditionally despite `wasSuperseded()` reading true.
+          // rebind below must reopen admission unconditionally despite handoff-origin supersede.
           const superseded = await request(incumbent.privateSocketPath, "supersede");
           expect(superseded.kind).toBe("response");
 

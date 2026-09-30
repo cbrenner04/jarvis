@@ -710,23 +710,33 @@ function whitespaceNormalizedFlipSkipTokens(text: string): string[] {
   return normalized.match(FLIP_SKIP_TOKEN_PATTERN) ?? [];
 }
 
-function flipSkipTokensSubsumedByRemoved(
-  candidateTokens: readonly string[],
-  removedTokens: readonly string[],
-): boolean {
-  if (removedTokens.length === 0) return false;
-  const removedCounts = new Map<string, number>();
-  for (const token of removedTokens) {
-    removedCounts.set(token, (removedCounts.get(token) ?? 0) + 1);
-  }
-  const candidateCounts = new Map<string, number>();
-  for (const token of candidateTokens) {
-    candidateCounts.set(token, (candidateCounts.get(token) ?? 0) + 1);
-  }
-  for (const [token, count] of candidateCounts) {
-    if ((removedCounts.get(token) ?? 0) < count) return false;
+function spanIsUnconsumed(start: number, length: number, consumed: readonly boolean[] | undefined): boolean {
+  if (consumed === undefined) return true;
+  for (let offset = 0; offset < length; offset += 1) {
+    if (consumed[start + offset] === true) return false;
   }
   return true;
+}
+
+/**
+ * Index where `needle` occurs in order and contiguously in `haystack` (skipping spans that touch a
+ * `consumed` position), or -1. Order matters: `a > b` never matches `b > a`.
+ */
+function contiguousTokenMatchStart(
+  needle: readonly string[],
+  haystack: readonly string[],
+  consumed?: readonly boolean[],
+): number {
+  if (needle.length === 0) return -1;
+  for (let start = 0; start + needle.length <= haystack.length; start += 1) {
+    if (
+      needle.every((token, offset) => haystack[start + offset] === token) &&
+      spanIsUnconsumed(start, needle.length, consumed)
+    ) {
+      return start;
+    }
+  }
+  return -1;
 }
 
 function removedTokensForHunk(flipSkip: DiffFlipSkipContext, hunkKey: string): string[] {
@@ -1563,33 +1573,38 @@ function groupCandidatesByLine(candidates: readonly Candidate[]): Map<number, Ca
   return byLine;
 }
 
+/**
+ * A changed line is reflow-only when its normalized tokens appear in order and contiguously in the
+ * hunk's joined removed-token stream. Lines claim matches in diff order and consume them, so a guard
+ * copied onto two `+` lines against one `-` line still derives for the second copy.
+ */
 function flipSkipForFile(
   lines: readonly ChangedLine[],
   flipSkip: DiffFlipSkipContext,
 ): (line: number, candidateTokens: readonly string[]) => boolean {
   const removedTokensByHunkKey = new Map<string, string[]>();
-  const hunkKeyByLine = new Map<number, string>();
-  const lineContentByNumber = new Map<number, string>();
+  const consumedByHunkKey = new Map<string, boolean[]>();
+  const reflowHunkKeyByLine = new Map<number, string>();
   for (const line of lines) {
-    lineContentByNumber.set(line.lineNumber, line.content);
     const hunkKey = line.hunkKey;
     if (hunkKey === undefined) continue;
-    hunkKeyByLine.set(line.lineNumber, hunkKey);
-    if (!removedTokensByHunkKey.has(hunkKey)) {
-      removedTokensByHunkKey.set(hunkKey, removedTokensForHunk(flipSkip, hunkKey));
+    let removedTokens = removedTokensByHunkKey.get(hunkKey);
+    if (removedTokens === undefined) {
+      removedTokens = removedTokensForHunk(flipSkip, hunkKey);
+      removedTokensByHunkKey.set(hunkKey, removedTokens);
     }
+    const consumed = consumedByHunkKey.get(hunkKey) ?? [];
+    consumedByHunkKey.set(hunkKey, consumed);
+    const lineTokens = whitespaceNormalizedFlipSkipTokens(line.content);
+    const start = contiguousTokenMatchStart(lineTokens, removedTokens, consumed);
+    if (start < 0) continue;
+    for (let offset = 0; offset < lineTokens.length; offset += 1) consumed[start + offset] = true;
+    reflowHunkKeyByLine.set(line.lineNumber, hunkKey);
   }
   return (line, candidateTokens) => {
-    const hunkKey = hunkKeyByLine.get(line);
+    const hunkKey = reflowHunkKeyByLine.get(line);
     if (hunkKey === undefined) return false;
-    const removedTokens = removedTokensByHunkKey.get(hunkKey) ?? [];
-    const lineContent = lineContentByNumber.get(line);
-    if (lineContent === undefined) return false;
-    const lineTokens = whitespaceNormalizedFlipSkipTokens(lineContent);
-    return (
-      flipSkipTokensSubsumedByRemoved(lineTokens, removedTokens) &&
-      flipSkipTokensSubsumedByRemoved(candidateTokens, removedTokens)
-    );
+    return contiguousTokenMatchStart(candidateTokens, removedTokensByHunkKey.get(hunkKey) ?? []) >= 0;
   };
 }
 

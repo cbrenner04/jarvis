@@ -2041,6 +2041,78 @@ index 1234567..abcdefg 100644
     expect(mutations[0]).toBe(source.replace("===", "!=="));
   });
 
+  it("derives operator-flip when operands swap sides (same tokens, different order)", async () => {
+    const diff = `diff --git a/src/swap.ts b/src/swap.ts
+index 1234567..abcdefg 100644
+--- a/src/swap.ts
++++ b/src/swap.ts
+@@ -1,3 +1,3 @@
+ export function max(a: number, b: number) {
+-  if (a > b) return a;
++  if (b > a) return a;
+   return b;
+ }`;
+    const source = `export function max(a: number, b: number) {
+  if (b > a) return a;
+  return b;
+}`;
+    const mutations: string[] = [];
+    const result = await verifyDiffSource("src/swap.ts", diff, source, mutations, async () => false);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations[0]).toBe(source.replace("b > a", "b <= a"));
+  });
+
+  it("derives operator-flips when comparison operators swap between clauses", async () => {
+    const diff = `diff --git a/src/cross.ts b/src/cross.ts
+index 1234567..abcdefg 100644
+--- a/src/cross.ts
++++ b/src/cross.ts
+@@ -1,3 +1,3 @@
+ export function cross(a: number, b: number, c: number, d: number) {
+-  if (a < b && c > d) return true;
++  if (a > b && c < d) return true;
+   return false;
+ }`;
+    const source = `export function cross(a: number, b: number, c: number, d: number) {
+  if (a > b && c < d) return true;
+  return false;
+}`;
+    const mutations: string[] = [];
+    const result = await verifyDiffSource("src/cross.ts", diff, source, mutations, async () => false);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(2);
+  });
+
+  it("derives guard-flip for a second copy of a guard matched against one removed line", async () => {
+    const diff = `diff --git a/src/copy.ts b/src/copy.ts
+index 1234567..abcdefg 100644
+--- a/src/copy.ts
++++ b/src/copy.ts
+@@ -1,3 +1,4 @@
+ export function gate(ready: boolean) {
+-  if (!ready) return false;
++  if (!ready) return false;
++  if (!ready) return false;
+   return true;
+ }`;
+    const source = `export function gate(ready: boolean) {
+  if (!ready) return false;
+  if (!ready) return false;
+  return true;
+}`;
+    const mutations: string[] = [];
+    const result = await verifyDiffSource("src/copy.ts", diff, source, mutations, async () => false);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations[0]).toBe(
+      source.replace("  if (!ready) return false;\n  return true;", "  if (ready) return false;\n  return true;"),
+    );
+  });
+
   it("derives no operator-flip or guard-flip for indentation-only and trailing-whitespace edits", async () => {
     const diff = `diff --git a/src/whitespace.ts b/src/whitespace.ts
 index 1234567..abcdefg 100644

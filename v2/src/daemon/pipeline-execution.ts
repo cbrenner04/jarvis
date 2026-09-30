@@ -593,9 +593,7 @@ export function buildPrefixStageArtifactsForResumeProbe(
   branchKey: string,
 ): Map<string, PipelineStageArtifact> {
   const artifacts = new Map<string, PipelineStageArtifact>();
-  for (let index = 0; index < targetIndex; index += 1) {
-    const stage = pipeline.definition.stages[index];
-    if (stage === undefined) continue;
+  for (const stage of pipeline.definition.stages.slice(0, Math.max(0, targetIndex))) {
     const record = findStageRecord(pipeline.stages, stage.stageId, branchKey);
     const rawArtifact = record?.artifact;
     if (

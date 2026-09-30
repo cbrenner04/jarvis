@@ -210,10 +210,6 @@ type PipelineIdCrossDaemonResolution =
 
 const HYPHENATED_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function isHyphenatedUuid(argument: string): boolean {
-  return HYPHENATED_UUID_RE.test(argument);
-}
-
 /** Queries only the stable address's merged `pipeline_list`; `degraded` mirrors the stable daemon's predecessor-merge flag. */
 export async function queryStablePipelineList(
   deps: Pick<QueryDaemonListsDeps, "connectIpcClient" | "socketPath">,
@@ -242,9 +238,8 @@ export async function queryStablePipelineList(
  * Resolves a CLI pipeline id argument (exact id or unique ≥8-char prefix, dismissed pipelines
  * included) against the stable address's merged listing only, the same listing `pipeline list`
  * queries. A malformed/unavailable or `degraded` listing refuses prefix resolution; an exact id
- * present in the listing still resolves. A hyphenated full UUID absent from the listing passes
- * through verbatim (unmatched) so the verb RPC can refuse `unknown_pipeline` when omitted from a
- * degraded merge. Never starts a daemon.
+ * present in the listing still resolves. Hyphenated full UUIDs absent from the listing pass through
+ * as unmatched. Never starts a daemon.
  */
 export async function resolvePipelineIdAcrossDaemons(
   argument: string,
@@ -258,7 +253,7 @@ export async function resolvePipelineIdAcrossDaemons(
   const ids = (listing.snapshots ?? []).map((snapshot) => snapshot.pipelineId);
   if (ids.includes(argument)) return { kind: "resolved", pipelineId: argument };
   if (argument.length < PIPELINE_ID_PREFIX_MIN_LENGTH) return { kind: "unmatched", pipelineId: argument };
-  if (isHyphenatedUuid(argument)) return { kind: "unmatched", pipelineId: argument };
+  if (HYPHENATED_UUID_RE.test(argument)) return { kind: "unmatched", pipelineId: argument };
   if (listing.snapshots === undefined || listing.degraded) {
     return {
       kind: "incomplete",

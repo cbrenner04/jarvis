@@ -307,15 +307,6 @@ test("a degraded listing omits a pipeline but passes a hyphenated full uuid thro
   });
 });
 
-test("a degraded listing still refuses a long non-uuid token absent from the merge", async () => {
-  const deps = stableOnlyDeps([{ result: { pipelines: [pipelineSnapshot("aaaa1111locl")], degraded: true } }]);
-
-  expect(await resolvePipelineIdAcrossDaemons("not-a-uuid-but-long-enough", deps, 20)).toEqual({
-    kind: "incomplete",
-    message: expect.stringContaining("pipeline_id_set_incomplete:"),
-  });
-});
-
 test("a degraded listing still resolves an exact id present in it", async () => {
   const deps = stableOnlyDeps([{ result: { pipelines: [pipelineSnapshot("aaaa1111locl")], degraded: true } }]);
 

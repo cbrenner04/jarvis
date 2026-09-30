@@ -135,6 +135,15 @@ export type OutcomeKind =
   | "non_terminating_mutation_failed";
 
 /** Durable ready-gate repair fence provenance persisted across process restart and resume. */
+/** Durable evidence that the harness successfully ran `gh pr ready` for one open PR on this run row. */
+export type HarnessReadyFlipEvidence = {
+  prNumber: number;
+  branch: string;
+  baseRef: string;
+  /** Unix epoch ms stamped by the store at `recordHarnessReadyFlipEvidence` write time. */
+  flippedAt: number;
+};
+
 export type ReadyGateRepairFenceProvenance = {
   allowedPaths: readonly string[];
   /** True when the originating write step was intent/plan markdown-only. */
@@ -212,6 +221,10 @@ export type Run = {
   gateRefusalRecoveryStateCorrupt?: boolean;
   /** Daemon identity that owns this row (`this.currentIdentity` at write time); `null` on legacy rows. */
   ownerIdentity?: string | null;
+  /** Harness `gh pr ready` success evidence; `null` when unset, cleared, corrupt, or on legacy rows. */
+  harnessReadyFlipEvidence?: HarnessReadyFlipEvidence | null;
+  /** True when a non-null `harness_ready_flip_evidence` column could not be parsed. */
+  harnessReadyFlipEvidenceCorrupt?: boolean;
 };
 
 type PipelineStatus = "active" | "interrupted";
@@ -792,6 +805,24 @@ export interface StateStore {
   /** Persist the publication-tail checkpoint for gate-only finalization resume. */
   setRetainedFinalizationCheckpoint(runId: string, checkpoint: RetainedFinalizationCheckpoint): void;
 
+  /**
+   * Record harness `gh pr ready` success on one run row; replaces any prior value. `flippedAt` is
+   * stamped at write time — callers must not supply it.
+   */
+  recordHarnessReadyFlipEvidence(args: { runId: string; prNumber: number; branch: string; baseRef: string }): void;
+
+  /**
+   * Newest matching harness ready-flip evidence across `(project, branch, spec_ref)` lineage
+   * (`created_at DESC, rowid DESC`); skips absent, null, or unparseable column values.
+   */
+  findNewestHarnessReadyFlipEvidenceInLineage(args: {
+    project: string;
+    specRef: string;
+    branch: string;
+    baseRef: string;
+    prNumber: number;
+  }): HarnessReadyFlipEvidence | null;
+
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
@@ -1253,7 +1284,8 @@ const SCHEMA = `
     terminal_failure_detail TEXT,
     operator_failure_record TEXT,
     gate_refusal_recovery_state TEXT,
-    status_changed_at INTEGER
+    status_changed_at INTEGER,
+    harness_ready_flip_evidence TEXT
   );
   CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -1346,6 +1378,7 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   operator_failure_record AS operatorFailureRecordJson,
   gate_refusal_recovery_state AS gateRefusalRecoveryStateJson,
   status_changed_at AS statusChangedAt,
+  harness_ready_flip_evidence AS harnessReadyFlipEvidenceJson,
   owner_identity AS ownerIdentity`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
@@ -1442,6 +1475,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "runs", "operator_failure_record", "TEXT");
   addColumnIfMissing(db, "runs", "gate_refusal_recovery_state", "TEXT");
   addColumnIfMissing(db, "runs", "status_changed_at", "INTEGER");
+  addColumnIfMissing(db, "runs", "harness_ready_flip_evidence", "TEXT");
   if (!tableExists(db, "pipelines")) {
     db.exec(`
       CREATE TABLE pipelines (
@@ -1811,6 +1845,8 @@ type RunRow = Omit<
   | "operatorFailureRecordCorrupt"
   | "gateRefusalRecoveryState"
   | "gateRefusalRecoveryStateCorrupt"
+  | "harnessReadyFlipEvidence"
+  | "harnessReadyFlipEvidenceCorrupt"
 > & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
@@ -1820,7 +1856,33 @@ type RunRow = Omit<
   terminalFailureDetailJson: string | null;
   operatorFailureRecordJson: string | null;
   gateRefusalRecoveryStateJson: string | null;
+  harnessReadyFlipEvidenceJson: string | null;
 };
+
+function parseHarnessReadyFlipEvidence(json: string | null): HarnessReadyFlipEvidence | null | "invalid" {
+  if (json === null) return null;
+  try {
+    const parsed = JSON.parse(json) as HarnessReadyFlipEvidence;
+    if (
+      typeof parsed.prNumber !== "number" ||
+      typeof parsed.branch !== "string" ||
+      typeof parsed.baseRef !== "string" ||
+      typeof parsed.flippedAt !== "number"
+    ) {
+      return "invalid";
+    }
+    return parsed;
+  } catch {
+    return "invalid";
+  }
+}
+
+function harnessReadyFlipEvidenceMatchesQuery(
+  evidence: HarnessReadyFlipEvidence,
+  query: { branch: string; baseRef: string; prNumber: number },
+): boolean {
+  return evidence.branch === query.branch && evidence.baseRef === query.baseRef && evidence.prNumber === query.prNumber;
+}
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
   if (json === null) return null;
@@ -1902,12 +1964,14 @@ function mapRunRow(row: RunRow): Run {
     terminalFailureDetailJson,
     operatorFailureRecordJson,
     gateRefusalRecoveryStateJson,
+    harnessReadyFlipEvidenceJson,
     ...run
   } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
   const parsedTerminalFailureDetail = parseTerminalFailureDetail(terminalFailureDetailJson);
   const parsedOperatorFailureRecord = parseOperatorFailureRecord(operatorFailureRecordJson);
+  const parsedHarnessReadyFlipEvidence = parseHarnessReadyFlipEvidence(harnessReadyFlipEvidenceJson);
   const gateRefusalRecoveryProjection = gateRefusalRecoveryProjectionFromRow(
     run.terminalCause,
     gateRefusalRecoveryStateJson,
@@ -1938,6 +2002,11 @@ function mapRunRow(row: RunRow): Run {
     ...(parsedTerminalFailureDetail === "invalid" ? { terminalFailureDetailCorrupt: true } : {}),
     operatorFailureRecord: parsedOperatorFailureRecord.kind === "valid" ? parsedOperatorFailureRecord.record : null,
     ...(parsedOperatorFailureRecord.kind === "invalid" ? { operatorFailureRecordCorrupt: true } : {}),
+    harnessReadyFlipEvidence:
+      parsedHarnessReadyFlipEvidence === "invalid" || parsedHarnessReadyFlipEvidence === null
+        ? null
+        : parsedHarnessReadyFlipEvidence,
+    ...(parsedHarnessReadyFlipEvidence === "invalid" ? { harnessReadyFlipEvidenceCorrupt: true } : {}),
     ...gateRefusalRecoveryProjection,
   };
 }
@@ -2007,6 +2076,7 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
+    addColumnIfMissing(this.db, "runs", "harness_ready_flip_evidence", "TEXT");
     // Guarded: fixture and pre-migration stores can open without a `workflow_snapshot` column.
     if (tableHasColumn(this.db, "runs", "workflow_snapshot")) {
       this.db.exec(`
@@ -2210,6 +2280,39 @@ class StateStoreImpl implements StateStore {
     this.db
       .prepare("UPDATE runs SET retained_finalization_checkpoint = ? WHERE id = ?")
       .run(JSON.stringify(checkpoint), runId);
+  }
+
+  recordHarnessReadyFlipEvidence(args: { runId: string; prNumber: number; branch: string; baseRef: string }): void {
+    const evidence: HarnessReadyFlipEvidence = {
+      prNumber: args.prNumber,
+      branch: args.branch,
+      baseRef: args.baseRef,
+      flippedAt: Date.now(),
+    };
+    this.db
+      .prepare("UPDATE runs SET harness_ready_flip_evidence = ? WHERE id = ?")
+      .run(JSON.stringify(evidence), args.runId);
+  }
+
+  findNewestHarnessReadyFlipEvidenceInLineage(args: {
+    project: string;
+    specRef: string;
+    branch: string;
+    baseRef: string;
+    prNumber: number;
+  }): HarnessReadyFlipEvidence | null {
+    const rows = this.db
+      .prepare(
+        `SELECT harness_ready_flip_evidence AS json FROM runs WHERE project = ? AND branch = ? AND spec_ref = ? ORDER BY created_at DESC, rowid DESC`,
+      )
+      .all(args.project, args.branch, args.specRef) as Array<{ json: string | null }>;
+
+    for (const row of rows) {
+      const parsed = parseHarnessReadyFlipEvidence(row.json);
+      if (parsed === null || parsed === "invalid") continue;
+      if (harnessReadyFlipEvidenceMatchesQuery(parsed, args)) return parsed;
+    }
+    return null;
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

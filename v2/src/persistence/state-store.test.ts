@@ -6400,6 +6400,145 @@ describe("gate refusal recovery state", () => {
   });
 });
 
+describe("harness ready-flip evidence", () => {
+  let store: StateStore;
+
+  const LANE = {
+    project: "test-project",
+    specRef: "main",
+    branch: "feat/ready-flip",
+    baseRef: "main",
+    prNumber: 42,
+  };
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function recordOnRun(runId: string, overrides: Partial<typeof LANE> = {}): void {
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber: overrides.prNumber ?? LANE.prNumber,
+      branch: overrides.branch ?? LANE.branch,
+      baseRef: overrides.baseRef ?? LANE.baseRef,
+    });
+  }
+
+  function lineageLookup(overrides: Partial<typeof LANE> = {}) {
+    return store.findNewestHarnessReadyFlipEvidenceInLineage({
+      project: overrides.project ?? LANE.project,
+      specRef: overrides.specRef ?? LANE.specRef,
+      branch: overrides.branch ?? LANE.branch,
+      baseRef: overrides.baseRef ?? LANE.baseRef,
+      prNumber: overrides.prNumber ?? LANE.prNumber,
+    });
+  }
+
+  test("recordHarnessReadyFlipEvidence persists flippedAt and round-trips on loadRun", () => {
+    const runId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    expect(loadRunOrThrow(store, runId).harnessReadyFlipEvidence ?? null).toBeNull();
+
+    setSystemTime(new Date(8_000));
+    recordOnRun(runId);
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.harnessReadyFlipEvidence).toEqual({
+      prNumber: LANE.prNumber,
+      branch: LANE.branch,
+      baseRef: LANE.baseRef,
+      flippedAt: 8_000,
+    });
+    expect(loaded.harnessReadyFlipEvidenceCorrupt).not.toBe(true);
+  });
+
+  test("commitTerminalRunSettlement without recordHarnessReadyFlipEvidence leaves evidence absent", () => {
+    const runId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "completed",
+      prNumber: LANE.prNumber,
+      prUrl: "https://github.com/example/repo/pull/42",
+    });
+    expect(loadRunOrThrow(store, runId).harnessReadyFlipEvidence ?? null).toBeNull();
+    expect(lineageLookup()).toBeNull();
+  });
+
+  test("findNewestHarnessReadyFlipEvidenceInLineage returns the newest matching row across lineage", () => {
+    setSystemTime(new Date(1_000));
+    const olderRunId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    recordOnRun(olderRunId);
+
+    setSystemTime(new Date(2_000));
+    seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+
+    setSystemTime(new Date(3_000));
+    const newestRunId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    recordOnRun(newestRunId);
+
+    expect(lineageLookup()?.flippedAt).toBe(3_000);
+  });
+
+  test("findNewestHarnessReadyFlipEvidenceInLineage matches an older row when newer lineage rows have no evidence", () => {
+    setSystemTime(new Date(1_000));
+    const evidenceRunId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    recordOnRun(evidenceRunId);
+
+    setSystemTime(new Date(2_000));
+    seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+
+    expect(lineageLookup()?.flippedAt).toBe(1_000);
+  });
+
+  test("findNewestHarnessReadyFlipEvidenceInLineage misses when branch baseRef prNumber or lineage keys differ", () => {
+    const runId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    recordOnRun(runId);
+
+    expect(lineageLookup({ branch: "other-branch" })).toBeNull();
+    expect(lineageLookup({ baseRef: "develop" })).toBeNull();
+    expect(lineageLookup({ prNumber: 99 })).toBeNull();
+    expect(lineageLookup({ project: "other-project" })).toBeNull();
+    expect(lineageLookup({ specRef: "other-spec" })).toBeNull();
+  });
+
+  test("recordHarnessReadyFlipEvidence replaces prior value on the same row", () => {
+    const runId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    setSystemTime(new Date(4_000));
+    recordOnRun(runId, { prNumber: 1 });
+    setSystemTime(new Date(5_000));
+    recordOnRun(runId, { prNumber: 2 });
+
+    expect(loadRunOrThrow(store, runId).harnessReadyFlipEvidence).toMatchObject({
+      prNumber: 2,
+      flippedAt: 5_000,
+    });
+    expect(lineageLookup({ prNumber: 1 })).toBeNull();
+    expect(lineageLookup({ prNumber: 2 })?.flippedAt).toBe(5_000);
+  });
+
+  test("findNewestHarnessReadyFlipEvidenceInLineage skips corrupt legacy rows without throwing", () => {
+    const corruptRunId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    const goodRunId = seedRun(store, { branch: LANE.branch, specRef: LANE.specRef });
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET harness_ready_flip_evidence = ? WHERE id = ?").run("{not-json", corruptRunId);
+    raw.close();
+
+    setSystemTime(new Date(6_000));
+    recordOnRun(goodRunId);
+
+    expect(loadRunOrThrow(store, corruptRunId).harnessReadyFlipEvidenceCorrupt).toBe(true);
+    expect(lineageLookup()?.flippedAt).toBe(6_000);
+  });
+});
+
 describe("approval awaiting_since", () => {
   let store: StateStore;
 

@@ -3081,9 +3081,18 @@ class StateStoreImpl implements StateStore {
         return;
       }
 
-      this.db
-        .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ?, status_changed_at = ? WHERE id = ?")
-        .run(args.runStatus, Date.now(), attempt.runId);
+      const changedAt = Date.now();
+      if (isTerminalRunStatus(args.runStatus)) {
+        this.db
+          .prepare(
+            "UPDATE runs SET attempt_count = attempt_count + 1, status = ?, finished_at = ?, status_changed_at = ? WHERE id = ?",
+          )
+          .run(args.runStatus, changedAt, changedAt, attempt.runId);
+      } else {
+        this.db
+          .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ?, status_changed_at = ? WHERE id = ?")
+          .run(args.runStatus, changedAt, attempt.runId);
+      }
     })();
   }
 

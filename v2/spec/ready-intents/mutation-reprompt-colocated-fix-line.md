@@ -15,7 +15,8 @@ For `importer-discovery-cap-exceeded` and `missing-killing-test`, `write.survivi
 
 ## Acceptance criteria
 
-- [ ] `write-prompt.test.ts` (or sibling template render tests) assert rendered `write.surviving-mutation-reprompt` and `write.mutation-repair` for `importer-discovery-cap-exceeded` on production path `v2/src/execution/foo.ts` contain `v2/src/execution/foo.test.ts` and state non-co-located importer tests do not count; fails against the pre-fix templates.
+- [ ] `write-prompt.test.ts` asserts rendered `write.surviving-mutation-reprompt` and `write.mutation-repair` for `importer-discovery-cap-exceeded` on production path `v2/src/execution/foo.ts` contain `v2/src/execution/foo.test.ts` and state non-co-located importer tests do not count; fails against the pre-fix templates.
+- [ ] `write-prompt.test.ts` asserts the same co-located path and non-co-located importer rule for `missing-killing-test` on both prompt ids; fails against the pre-fix templates.
 
 ## Documentation updates
 

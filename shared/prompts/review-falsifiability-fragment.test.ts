@@ -4,6 +4,7 @@ import { loadPromptRegistry } from "./registry.ts";
 const FALSIFIABILITY_FRAGMENT_ID = "implement.review.falsifiability";
 
 export const FALSIFIABILITY_GUIDANCE_MARKERS = [
+  "the branch diff context when reviewing against a completed spec's branch",
   "proposed in a draft spec (unchecked included)",
   "the repository base when reviewing a draft spec",
   "would pass before and after the change as a finding in itself",

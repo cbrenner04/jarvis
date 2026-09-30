@@ -18,6 +18,7 @@ Counts after the 2026-09-21 closeout: 1 open spec dir and 8 queued ready-intents
 
 | P | Item | Why |
 | --- | --- | --- |
+| **P0** | [[failed-self-handoff-leaves-daemon-refusing-work]] | Failed self-handoff leaves the sole daemon refusing all new work (`daemon_superseded`) until manual `daemon start`; hit twice 2026-09-30 |
 | **P1** | Chain D tail: [[repair-exhausted-error-names-site-and-killing-set]] (dispatchable, unblocked by #4138); then [[non-terminating-mutation-settlement-names-its-site]] (one-line spread, same sites) | `mutation_repair_exhausted` op spreads no site fields |
 | **P1** | Pipeline resume: [[pipeline-resume-resumes-resumable-implement-row]] (dispatchable, unblocked by #4149) | A stage never reflects a lane recovered by `run resume`; follow-up: `reopenFailedStagesForResume` full-scans `listPipelines()` per admission |
 | **P1** | Resume surfaces: [[pipeline-resume-preflights-dispatch-refusals]] (dispatchable; the three `run resume` intents retired 2026-09-29, false premise) | `pipeline resume` exits 0, then detached re-dispatch refuses into a `stage-failed` incident |

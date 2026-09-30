@@ -950,7 +950,7 @@ Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sess
 
 **Codex red-gates v2 implements on mechanical lint (2026-07-17).** On `gpt-5.6-terra`/`-sol`, 4 of 4 implement PRs red-gated on `noNonNullAssertion` (`foo!` in tests) and biome formatting — the logic was correct (3 landed mutation-verified), but the models ignore this repo's strict biome contract, so every run needs gate-repair churn or a hand-finalize, and the retries burn codex quota fast (33 invocations for ~5 specs). The gate can auto-fix formatting but not `noNonNullAssertion` (`fix: "none"`; the `!`→`?.` rewrite fails typecheck). Don't lead with codex as the v2 actuator for this repo; keep it behind claude/cursor.
 
-**Cursor can report a false `quota` at ~24s (2026-07-26, not seeded — cost only).** Three cursor invocations across three days settled `exit_kind: "quota"` at 24.2–24.6s; in one case cursor ran the *next* role successfully 46s later. Real quota exhaustion fails fast and stays failed; this tight a duration cluster is a timeout or stream-disconnect matching the quota stderr heuristic ([`quota-signals.md`](./quota-signals.md)). Consequence is spend, not correctness: the spurious signal escalates to the next rung (one instance cost $1.48 of `claude-opus-5` for work cursor would have done on subscription) and quietly undermines a cursor-first order. Check telemetry before believing a quota escalation.
+**Cursor quota classification is scoped** — see [quota-signals.md § Cursor](./quota-signals.md#cursor): stderr, terminal non-success `result` strings, and plain stdout when no `result` frame; stream-json assistant/tool text is excluded so healthy runs do not false-trip `quota`.
 
 ### Agent order lives in the top-level `agents` array
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseCursorJsonOutput } from "./cursor-json.ts";
+import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
 
 describe("parseCursorJsonOutput", () => {
   test("parses terminal result event with result field", () => {
@@ -252,5 +252,33 @@ describe("parseCursorJsonOutput", () => {
 
     expect(result.displayText).toBe("done");
     expect(result.usage).toEqual(expected);
+  });
+});
+
+describe("cursorClassifierStdoutText", () => {
+  test("omits scoped text for terminal success result envelopes", () => {
+    const stdout = [
+      JSON.stringify({ type: "assistant", text: "you've hit your usage limit" }),
+      JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "done" }),
+    ].join("\n");
+
+    expect(cursorClassifierStdoutText(stdout)).toBe("");
+    // Guard inversion: scanning assistant frames or success result strings turns quota tests RED.
+  });
+
+  test("classifies only the terminal non-success result string", () => {
+    const stdout = JSON.stringify({
+      type: "result",
+      is_error: true,
+      result: "monthly cursor usage limit reached",
+    });
+
+    expect(cursorClassifierStdoutText(stdout)).toBe("monthly cursor usage limit reached");
+  });
+
+  test("collects plain non-JSON stdout when no result frame was emitted", () => {
+    const stdout = [JSON.stringify({ type: "text_delta", text: "ignored" }), "plain quota exceeded line"].join("\n");
+
+    expect(cursorClassifierStdoutText(stdout)).toBe("plain quota exceeded line");
   });
 });

@@ -73,8 +73,8 @@ Bindings:
   When `usage` is present but all token fields are null, finalize keeps
   `usage_source: "agent"` and settles `cost_source: "no-usage"` (not `no-price`).
   When usage is absent, `usage_source: "unavailable"`, `cost_usd: null`,
-  `cost_source: "no-usage"`, no warning. It settles into `ok | quota |
-  model_config | error` before fallback continues. Resolved `opencode` bindings spawn `opencode run
+  `cost_source: "no-usage"`, no warning.   It settles into `ok | quota |
+  model_config | error` before fallback continues. Quota/model-config/transient classification uses scoped diagnostics (`classifierDiagnostics`): stderr, the terminal `result` frame's `result` string when that frame is not a success envelope, and plain non-JSON stdout when no `result` frame was emitted — not assistant/thinking/tool stream-json frames. When scoped stdout is a strict subset of the raw stdout buffer, the full stdout stream is retained on observability-only `diagnostics` for non-ok settles (same retention shape as opencode; never reclassified). Resolved `opencode` bindings spawn `opencode run
   --dir <cwd> --model <adapterModel> --format json <prompt>` (prompt last),
   ignore stdin, classify quota/model-config/transient with their own opencode
   signals (quota phrasing plus a guarded 429; `no provider configured for` as

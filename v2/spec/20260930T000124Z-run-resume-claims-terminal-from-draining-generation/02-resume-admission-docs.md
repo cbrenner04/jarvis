@@ -18,11 +18,11 @@ Operator docs currently conflate `run list` / `wait` `resumable` ( `resolveRunRe
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` states terminal run resume may claim rows from draining generations via `admitRunForResume` and does not conflate `resumable` projection with owner-stamp refusal.
-- [ ] `v2/docs/operator-runbook.md` distinguishes list/wait projection from owner-stamp admission and matches terminal peer claim plus non-terminal `owner_alive` refusal.
-- [ ] `v2/docs/state-store.md` documents the `isTerminalRunStatus` gate on live-peer refusal in `admitRunForResume`.
-- [ ] `v2/docs/v1-behaviors.md` run re-admission entry records terminal peer claim behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` states terminal run resume may claim rows from draining generations via `admitRunForResume` and does not conflate `resumable` projection with owner-stamp refusal.
+- [x] `v2/docs/operator-runbook.md` distinguishes list/wait projection from owner-stamp admission and matches terminal peer claim plus non-terminal `owner_alive` refusal.
+- [x] `v2/docs/state-store.md` documents the `isTerminalRunStatus` gate on live-peer refusal in `admitRunForResume`.
+- [x] `v2/docs/v1-behaviors.md` run re-admission entry records terminal peer claim behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

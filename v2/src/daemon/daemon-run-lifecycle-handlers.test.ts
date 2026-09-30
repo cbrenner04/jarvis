@@ -1457,7 +1457,12 @@ test("attemptFailedImplementPipelineResume does not tail logs when logReader is 
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
   });
   const outcome = await handlers.attemptFailedImplementPipelineResume(pipeline, pipelineId, undefined);
-  expect(outcome).toMatchObject({ kind: "refused", pipelineId, reason: "resume_unsupported" });
+  expect(outcome).toMatchObject({
+    kind: "refused",
+    pipelineId,
+    reason: "resume_unsupported",
+    message: expect.stringMatching(/.+/),
+  });
 });
 
 test("attemptFailedImplementPipelineResume tails cause-run logs through logReader when configured", async () => {

@@ -17,9 +17,9 @@ Operator docs and the v1-behavior baseline still describe single-window plain-lo
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` § Session-log retention documents hot plain logs, cold `.log.gz`, gone deletion, month-shard plus legacy flat discovery, tiered dry-run counts and byte totals, and `.log.gz` reading — consistent with subspec 00 behavior.
-- [ ] `v2/docs/v1-behaviors.md` cleanup session-log retention entry documents tiered retention and supersedes the single-window reaper contract described on main before subspec 00.
-- [ ] `v2/docs/install-and-config.md` § Cleanup documents `hotDays` as the plain-to-gzip boundary and `coldDays` as the gzip deletion boundary with shard-aware reaper scope.
+- [x] `v2/docs/operator-runbook.md` § Session-log retention documents hot plain logs, cold `.log.gz`, gone deletion, month-shard plus legacy flat discovery, tiered dry-run counts and byte totals, and `.log.gz` reading — consistent with subspec 00 behavior.
+- [x] `v2/docs/v1-behaviors.md` cleanup session-log retention entry documents tiered retention and supersedes the single-window reaper contract described on main before subspec 00.
+- [x] `v2/docs/install-and-config.md` § Cleanup documents `hotDays` as the plain-to-gzip boundary and `coldDays` as the gzip deletion boundary with shard-aware reaper scope.
 
 ## Documentation updates
 

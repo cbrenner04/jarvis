@@ -103,6 +103,7 @@ test("prefix resolution succeeds over a real stable socket whose predecessor has
     name: "full-review",
     state: "running",
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     terminalPublicationFailure: null,
     createdAt: 1,
     finishedAtMs: null,

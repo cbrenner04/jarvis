@@ -9,7 +9,7 @@ import {
   readyStepCompletionRecord,
   readyStepStartRecord,
 } from "../../../scripts/ready.ts";
-import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../scripts/run-v2-tests.ts";
+import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "../../../scripts/run-v2-tests.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
@@ -1121,6 +1121,47 @@ describe("hasFailingTestEvidence", () => {
 });
 
 describe("base-ref probe conclusive reproduction", () => {
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("does not emit ready gate failing-file markers while reproducing at base ref", async (terminalCommand) => {
+    const previousAttempt = process.env[READY_ATTEMPT_ENV];
+    process.env[READY_ATTEMPT_ENV] = "3.1";
+    const stderrChunks: string[] = [];
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const stderrSpy = (chunk: string | Uint8Array, ...args: unknown[]) => {
+      stderrChunks.push(String(chunk));
+      return stderrWrite(chunk, ...(args as []));
+    };
+    process.stderr.write = stderrSpy as typeof process.stderr.write;
+    try {
+      await withBaseRefProbeFixture(
+        "no-marker-leak",
+        {
+          baseTestBody: PROBE_FIXTURE_TEST_PASSING,
+          branchTestBody: PROBE_FIXTURE_TEST_FAILING,
+          dependencyPresent: true,
+        },
+        async ({ scope: probeScope, testPath }) => {
+          await classifyReadyGateFailure(
+            probeFixtureGateFailure(testPath, terminalCommand),
+            [testPath],
+            new Set<string>(),
+            probeScope,
+            {},
+          );
+        },
+      );
+    } finally {
+      process.stderr.write = stderrWrite;
+      if (previousAttempt === undefined) {
+        delete process.env[READY_ATTEMPT_ENV];
+      } else {
+        process.env[READY_ATTEMPT_ENV] = previousAttempt;
+      }
+    }
+    expect(stderrChunks.some((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
+  });
+
   it.each(
     PROBE_FIXTURE_TERMINAL_COMMANDS,
   )("reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed", async (terminalCommand) => {

@@ -1801,6 +1801,7 @@ describe("pipeline activation after restart", () => {
         terminalAction: "ready",
         worktreePath: "/repo/worktree",
         verifierProcessGroups: expect.any(Object),
+        recordHarnessReadyFlipEvidence: expect.any(Function),
         branch: "feature-branch",
         baseRef: "main",
         ...DEFERRED_FINAL_PR,
@@ -4033,6 +4034,7 @@ describe("resumePipeline", () => {
         terminalAction: "ready",
         worktreePath: "/repo/worktree",
         verifierProcessGroups: expect.any(Object),
+        recordHarnessReadyFlipEvidence: expect.any(Function),
         branch: "feature-branch",
         baseRef: "main",
         ...DEFERRED_FINAL_PR,
@@ -5564,6 +5566,7 @@ describe("pipeline terminal publication settlement", () => {
           branch: "feature-branch",
           baseRef: "main",
           verifierProcessGroups: expect.any(Object),
+          recordHarnessReadyFlipEvidence: expect.any(Function),
           ...TERMINAL_PR,
         },
       ]);
@@ -5609,6 +5612,33 @@ describe("pipeline terminal publication settlement", () => {
       captured[0]?.verifierProcessGroups?.record(4242);
       expect(recorded).toEqual(["run-implement:4242"]);
     }
+  });
+
+  test("resolveTerminalPublicationInput supplies recordHarnessReadyFlipEvidence closed over the entry run", async () => {
+    const definition = terminalPipelineDefinition("ready");
+    const { store } = fakeStore(definition, { "run-implement": terminalImplementRun() });
+    const evidenceCalls: Array<{ runId: string; prNumber: number; branch: string; baseRef: string }> = [];
+    Object.assign(store, {
+      recordHarnessReadyFlipEvidence: (args: { runId: string; prNumber: number; branch: string; baseRef: string }) => {
+        evidenceCalls.push(args);
+      },
+    });
+    const captured: TerminalPublicationInput[] = [];
+    await runPipeline(
+      PIPELINE_ID,
+      terminalRunDeps(store, async (input) => {
+        captured.push(input);
+        return TERMINAL_PR;
+      }),
+    );
+
+    expect(captured).toHaveLength(1);
+    const recordEvidence = captured[0]?.recordHarnessReadyFlipEvidence;
+    expect(recordEvidence).toBeFunction();
+    recordEvidence?.({ prNumber: 99, branch: "feature-branch", baseRef: "main" });
+    expect(evidenceCalls).toEqual([
+      { runId: "run-implement", prNumber: 99, branch: "feature-branch", baseRef: "main" },
+    ]);
   });
 
   test("continues pending terminal publication after restart", async () => {

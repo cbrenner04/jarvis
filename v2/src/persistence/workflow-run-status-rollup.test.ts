@@ -48,9 +48,18 @@ function rollupMissingDurableSuccessor(
     workflowSnapshot: createSnapshot({ steps: [...durableImplementAndReviewSteps] }),
     siblingRuns: [createRun({ id: "run-0", stepId: "step-0", status: "completed" })],
     isLive: false,
-    priorLaneRuns,
+    priorLaneRuns: () => priorLaneRuns,
   });
 }
+
+const priorLaneReview = (invocationId: string, status: Run["status"], createdAt: number): Run =>
+  createRun({
+    id: `${invocationId}-review`,
+    stepId: "step-1",
+    status,
+    createdAt,
+    workflowSnapshot: createSnapshot({ invocationId }),
+  });
 
 const priorCompletedSuccessor = () => createRun({ id: "prior-review", stepId: "step-1", status: "completed" });
 
@@ -185,9 +194,44 @@ describe("rollupWorkflowRunStatus", () => {
         workflowSnapshot: createSnapshot({ steps: [...durableImplementAndReviewSteps] }),
         siblingRuns: [createRun({ id: "run-0", stepId: "step-0", status: "completed" })],
         isLive: false,
-        priorLaneRuns: [priorCompletedSuccessor()],
+        priorLaneRuns: () => [priorCompletedSuccessor()],
       }),
     ).toBe("killed");
+  });
+
+  test("returns killed when the latest prior same-lane invocation's successor row is not completed", () => {
+    const priorLaneRuns = [priorLaneReview("inv-a", "completed", 100), priorLaneReview("inv-b", "killed", 150)];
+    expect(rollupMissingDurableSuccessor({ createdAt: 200 }, priorLaneRuns)).toBe("killed");
+    expect(rollupMissingDurableSuccessor({ createdAt: 200 }, priorLaneRuns.toReversed())).toBe("killed");
+  });
+
+  test("reads prior-lane rows only when the entry completed cleanly and a durable successor row is missing", () => {
+    let reads = 0;
+    const priorLaneRuns = () => {
+      reads++;
+      return [priorLaneReview("inv-a", "completed", 100)];
+    };
+    const entryRun = createRun({ stepId: "step-0", status: "completed", terminalCause: "complete", attemptCount: 0 });
+    const workflowSnapshot = createSnapshot({ steps: [...durableImplementAndReviewSteps] });
+    const entrySibling = createRun({ id: "run-0", stepId: "step-0", status: "completed" });
+    const reviewSibling = createRun({ id: "run-1", stepId: "step-1", status: "completed" });
+    rollupWorkflowRunStatus({
+      entryRun,
+      workflowSnapshot,
+      siblingRuns: [entrySibling, reviewSibling],
+      isLive: false,
+      priorLaneRuns,
+    });
+    rollupWorkflowRunStatus({
+      entryRun: { ...entryRun, attemptCount: 1 },
+      workflowSnapshot,
+      siblingRuns: [entrySibling],
+      isLive: false,
+      priorLaneRuns,
+    });
+    expect(reads).toBe(0);
+    rollupWorkflowRunStatus({ entryRun, workflowSnapshot, siblingRuns: [entrySibling], isLive: false, priorLaneRuns });
+    expect(reads).toBe(1);
   });
 
   test("treats a legacy snapshot without durability metadata as durable", () => {

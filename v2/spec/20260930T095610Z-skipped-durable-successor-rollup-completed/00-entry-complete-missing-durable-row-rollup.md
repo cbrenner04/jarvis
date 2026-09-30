@@ -6,8 +6,8 @@
 
 ## Decisions
 
-- A missing durable successor row in a non-live invocation counts as satisfied only when all hold: (a) entry `status: "completed"` with strict `terminalCause === "complete"`; (b) entry `attemptCount === 0`; (c) an earlier invocation of the same lane (same project, branch, `specRef`) has a `completed` row for that successor `stepId`. Otherwise it stays `killed` — rules out relief on (a) alone, which masks a daemon death after the entry settled complete but before the successor row existed.
-- Evidence (c) arrives as a new optional `RollupArgs` field of prior-lane runs, supplied by callers; absent field means no prior evidence (`killed`) — rules out the rollup querying the store itself.
+- A missing durable successor row in a non-live invocation counts as satisfied only when all hold: (a) entry `status: "completed"` with strict `terminalCause === "complete"`; (b) entry `attemptCount === 0`; (c) the latest earlier invocation of the same lane (same project, branch, `specRef`; entry row created before this entry) that has a row for that successor `stepId` has it `completed`. Otherwise it stays `killed` — rules out relief on (a) alone, which masks a daemon death after the entry settled complete but before the successor row existed.
+- Evidence (c) arrives as a new optional `RollupArgs` thunk of prior-lane runs, supplied by callers and invoked only after (a)+(b) hold and the row is missing; callers read it via an indexed project/branch/`specRef` store query; absent field means no prior evidence (`killed`) — rules out the rollup querying the store itself and eager per-row lane scans on `list`.
 - Null/unset or non-complete `terminalCause` never qualifies (pre-migration rows keep `killed`).
 - Live invocations return `in-progress` before the step loop (`workflow-run-status-rollup.ts` ~67), unchanged.
 - Not step-id-specific: reopened implement without `implement-review` (rows e7b5a8ed, a53eed3c, 89763876) is the motivating instance — rules out a carve-out.

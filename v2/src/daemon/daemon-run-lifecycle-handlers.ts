@@ -881,28 +881,20 @@ export function createRunLifecycleHandlers(
     return { fullRuns, workflowRuns };
   };
 
-  const priorLaneRunsForWorkflowRollup = (entryRun: Run, invocationId: string): Run[] => {
-    const priorInvocationIds = new Set<string>();
-    for (const candidate of store.listRuns()) {
-      const snapshot = candidate.workflowSnapshot;
-      if (snapshot == null || snapshot.invocationId === invocationId) continue;
-      if (priorInvocationIds.has(snapshot.invocationId)) continue;
-      if (
-        candidate.project !== entryRun.project ||
-        candidate.branch !== entryRun.branch ||
-        candidate.specRef !== entryRun.specRef
-      ) {
-        continue;
-      }
-      const priorEntryStepId = snapshot.steps[0]?.stepId;
-      if (priorEntryStepId === undefined) continue;
-      const priorEntry = store
-        .findRunsByInvocationId(snapshot.invocationId)
-        .find((row) => row.stepId === priorEntryStepId);
-      if (priorEntry === undefined || priorEntry.createdAt >= entryRun.createdAt) continue;
-      priorInvocationIds.add(snapshot.invocationId);
+  /** Lazy rows of earlier same-lane invocations (entry row created before `entryRun`), for the rollup's missing-successor rule. */
+  const priorLaneRunsForWorkflowRollup = (entryRun: Run, invocationId: string) => (): Run[] => {
+    const byInvocation = new Map<string, Run[]>();
+    const lane = { project: entryRun.project, branch: entryRun.branch, specRef: entryRun.specRef };
+    for (const run of store.findWorkflowRunsOnLane(lane)) {
+      const id = run.workflowSnapshot?.invocationId;
+      if (id === undefined || id === invocationId) continue;
+      byInvocation.set(id, [...(byInvocation.get(id) ?? []), run]);
     }
-    return [...priorInvocationIds].flatMap((id) => store.findRunsByInvocationId(id));
+    return [...byInvocation.values()].flatMap((rows) => {
+      const entryStepId = rows[0]?.workflowSnapshot?.steps[0]?.stepId;
+      const priorEntry = rows.find((row) => row.stepId === entryStepId);
+      return priorEntry !== undefined && priorEntry.createdAt < entryRun.createdAt ? rows : [];
+    });
   };
 
   const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {

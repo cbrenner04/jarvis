@@ -839,6 +839,9 @@ export interface StateStore {
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
 
+  /** Workflow-snapshot runs on one project/branch/spec_ref lane, creation order. */
+  findWorkflowRunsOnLane(args: { project: string; branch: string; specRef: string }): Run[];
+
   /** All runs whose `workflowSnapshot.invocationId` is in the given set; creation order per invocation. */
   findRunsByInvocationIds(invocationIds: readonly string[]): Run[];
 
@@ -2069,6 +2072,7 @@ class StateStoreImpl implements StateStore {
           WHERE workflow_snapshot IS NOT NULL
       `);
     }
+    this.db.exec("CREATE INDEX IF NOT EXISTS runs_project_branch ON runs (project, branch)");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
@@ -2389,6 +2393,16 @@ class StateStoreImpl implements StateStore {
           `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') = ? ORDER BY created_at ASC`,
         )
         .all(invocationId) as RunRow[]
+    ).map(mapRunRow);
+  }
+
+  findWorkflowRunsOnLane(args: { project: string; branch: string; specRef: string }): Run[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? AND spec_ref = ? AND workflow_snapshot IS NOT NULL ORDER BY created_at ASC, rowid ASC`,
+        )
+        .all(args.project, args.branch, args.specRef) as RunRow[]
     ).map(mapRunRow);
   }
 

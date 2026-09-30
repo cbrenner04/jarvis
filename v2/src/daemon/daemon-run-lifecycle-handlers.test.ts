@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import { openStateStore, type RunStatus, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput, workflowSnapshot } from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
@@ -888,37 +888,77 @@ test("workflow entry wait reports non_terminating_mutation_failed owned by a dur
   }
 });
 
-test("workflow entry wait rolls up completed when an earlier same-lane invocation completed the missing durable successor", async () => {
-  const { handlers } = lifecycleHandlers();
-  const signal = new AbortController().signal;
-  const steps = [
-    { stepId: "implement", role: "implement" },
-    { stepId: "implement-review", role: "", durable: true },
-  ];
-  const base = {
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "prior-lane-successor",
-    specPath: "/tmp/test-project/spec.md",
-  };
-  const priorSnapshot = workflowSnapshot("inv-prior-lane", steps);
-  stateStore.createRun({ ...base, stepId: "implement", status: "completed", workflowSnapshot: priorSnapshot });
-  stateStore.createRun({ ...base, stepId: "implement-review", status: "completed", workflowSnapshot: priorSnapshot });
-  await Bun.sleep(5);
+const priorLaneSteps = [
+  { stepId: "implement", role: "implement" },
+  { stepId: "implement-review", role: "", durable: true },
+];
+const priorLaneBase = {
+  project: "test-project",
+  specRef: "main",
+  worktreePath: "/tmp/test-project",
+  branch: "prior-lane-successor",
+  specPath: "/tmp/test-project/spec.md",
+};
+
+/** One prior invocation: a completed entry row plus a review row with `reviewStatus`, on `branch`. */
+function createPriorLaneInvocation(invocationId: string, reviewStatus: RunStatus, branch = priorLaneBase.branch): void {
+  const snapshot = workflowSnapshot(invocationId, priorLaneSteps);
+  const base = { ...priorLaneBase, branch, workflowSnapshot: snapshot };
+  stateStore.createRun({ ...base, stepId: "implement", status: "completed" });
+  stateStore.createRun({ ...base, stepId: "implement-review", status: reviewStatus });
+}
+
+/** Current invocation: entry settled complete with zero attempts and no review row. */
+function createCleanEntryMissingReview(): string {
   const entryRunId = stateStore.createRun({
-    ...base,
+    ...priorLaneBase,
     stepId: "implement",
-    workflowSnapshot: workflowSnapshot("inv-current-lane", steps),
+    workflowSnapshot: workflowSnapshot("inv-current-lane", priorLaneSteps),
   });
   stateStore.commitTerminalRunSettlement({ runId: entryRunId, status: "completed", terminalCause: "complete" });
+  return entryRunId;
+}
 
+/** Runs `create` with `Date.now()` pinned to `ms`, so row `createdAt` order is deterministic. */
+function createdAtMs<T>(ms: number, create: () => T): T {
+  setSystemTime(new Date(ms));
+  try {
+    return create();
+  } finally {
+    setSystemTime();
+  }
+}
+
+async function waitedEntryRunStatus(entryRunId: string): Promise<unknown> {
+  const { handlers } = lifecycleHandlers();
   const waited = await handlers.wait(
     { kind: "request", id: "w1", method: "wait", params: { runId: entryRunId } },
-    signal,
+    new AbortController().signal,
   );
   if (waited.kind !== "response") throw new Error("wait failed");
-  expect(waited.result).toMatchObject({ runStatus: "completed" });
+  return (waited.result as { runStatus: unknown }).runStatus;
+}
+
+test("workflow entry wait rolls up completed when an earlier same-lane invocation completed the missing durable successor", async () => {
+  createdAtMs(1_000, () => createPriorLaneInvocation("inv-prior-lane", "completed"));
+  expect(await waitedEntryRunStatus(createdAtMs(3_000, createCleanEntryMissingReview))).toBe("completed");
+});
+
+test("workflow entry wait rolls up killed when the latest prior same-lane successor row was killed", async () => {
+  createdAtMs(1_000, () => createPriorLaneInvocation("inv-prior-a", "completed"));
+  createdAtMs(2_000, () => createPriorLaneInvocation("inv-prior-b", "killed"));
+  expect(await waitedEntryRunStatus(createdAtMs(3_000, createCleanEntryMissingReview))).toBe("killed");
+});
+
+test("workflow entry wait ignores a completed successor on a different branch", async () => {
+  createdAtMs(1_000, () => createPriorLaneInvocation("inv-other-branch", "completed", "other-branch"));
+  expect(await waitedEntryRunStatus(createdAtMs(3_000, createCleanEntryMissingReview))).toBe("killed");
+});
+
+test("workflow entry wait ignores a same-lane invocation created after the entry", async () => {
+  const entryRunId = createdAtMs(1_000, createCleanEntryMissingReview);
+  createdAtMs(3_000, () => createPriorLaneInvocation("inv-later-lane", "completed"));
+  expect(await waitedEntryRunStatus(entryRunId)).toBe("killed");
 });
 
 test("pause and kill release write-loop ownership", async () => {

@@ -25,6 +25,12 @@ const COGNITIVE_COMPLEXITY_RULE =
 
 export const IMPLEMENT_WRITE_STEP_RULES = `${DEFAULT_WRITE_STEP_RULES}\n${KILLING_TEST_RULE}\n${COGNITIVE_COMPLEXITY_RULE}`;
 
+/** Shrink-only: agents may delete production code but must not strip guard killing tests. */
+export const SHRINK_FORBID_GUARD_TEST_DELETION_RULE =
+  "Do not delete or empty co-located killing tests (`<stem>.test.ts`, `<stem>-*.test.ts`) that cover changed guards.";
+
+export const SHRINK_WRITE_STEP_RULES = `${DEFAULT_WRITE_STEP_RULES}\n${SHRINK_FORBID_GUARD_TEST_DELETION_RULE}`;
+
 /** Default agent list when config has no `agents` override. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;
 

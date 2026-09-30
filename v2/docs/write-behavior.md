@@ -145,7 +145,7 @@ Default write steps (`executeDefaultWrite`) resolve placeholders from the regist
 | Placeholder | Source |
 | --- | --- |
 | `SPEC_PATH` | Active `expectedArtifactPath`, worktree-resolved unless it is an admitted absolute external path |
-| `STEP_RULES` | Step `stepRules` (`implement.prompt.body`, `implement.prompt.shrink`, `write.execute`, `write.ready-repair`, `write.mutation-repair`, `write.surviving-mutation-reprompt`) |
+| `STEP_RULES` | Step `stepRules` (`implement.prompt.body`, `implement.prompt.shrink` — `DEFAULT_WRITE_STEP_RULES` plus shrink-only guard-test deletion constraint — `write.execute`, `write.ready-repair`, `write.mutation-repair`, `write.surviving-mutation-reprompt`) |
 | `PRINCIPLES` | `write.principles` registry body |
 | `REPO_GUIDANCE` | `AGENTS.md` and `CLAUDE.md` at the worktree root, deduplicated by real path so a symlinked pair is injected once |
 | `ACTIVE_SUBSPEC_PATH` | `expectedArtifactPath`, worktree-resolved unless it is an admitted absolute external path, with trailing newline when non-empty |
@@ -506,7 +506,7 @@ For `jarvis run workflow implement`, `complete` means the authored implement wri
 
 **Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.
 
-**Implement write-step rules:** `implement.prompt.body` injects `DEFAULT_WRITE_STEP_RULES`, whose source contains only human-only markers, the invert-hook prohibition, and terminal tokens, then appends the live diff-derived killing-test rule. No checkpoint-authoring filter is needed.
+**Implement write-step rules:** `implement.prompt.body` injects `DEFAULT_WRITE_STEP_RULES`, whose source contains only human-only markers, the invert-hook prohibition, and terminal tokens, then appends the live diff-derived killing-test rule. No checkpoint-authoring filter is needed. Post-implement shrink injects `DEFAULT_WRITE_STEP_RULES` plus a shrink-only prohibition on deleting or emptying co-located killing tests for changed guards (`SHRINK_WRITE_STEP_RULES` in `write-loop-input.ts`).
 
 ## Loop outcomes
 

@@ -32,6 +32,7 @@ import {
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
+import { SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 import {
   type CompletionCommitter,
   type CompletionStepMetadata,
@@ -2258,6 +2259,7 @@ async function runShrinkAfterImplementComplete(
     stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
     role: SHRINK_ROLE,
     promptId: SHRINK_PROMPT_ID,
+    stepRules: SHRINK_WRITE_STEP_RULES,
     ...(step.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
     promptPlaceholders: await shrinkPromptPlaceholders(step),
   };

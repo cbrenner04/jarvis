@@ -956,7 +956,7 @@ Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sess
 
 **Codex red-gates v2 implements on mechanical lint (2026-07-17).** On `gpt-5.6-terra`/`-sol`, 4 of 4 implement PRs red-gated on `noNonNullAssertion` (`foo!` in tests) and biome formatting — the logic was correct (3 landed mutation-verified), but the models ignore this repo's strict biome contract, so every run needs gate-repair churn or a hand-finalize, and the retries burn codex quota fast (33 invocations for ~5 specs). The gate can auto-fix formatting but not `noNonNullAssertion` (`fix: "none"`; the `!`→`?.` rewrite fails typecheck). Don't lead with codex as the v2 actuator for this repo; keep it behind claude/cursor.
 
-**Cursor can report a false `quota` at ~24s (2026-07-26, not seeded — cost only).** Three cursor invocations across three days settled `exit_kind: "quota"` at 24.2–24.6s; in one case cursor ran the *next* role successfully 46s later. Real quota exhaustion fails fast and stays failed; this tight a duration cluster is a timeout or stream-disconnect matching the quota stderr heuristic ([`quota-signals.md`](./quota-signals.md)). Consequence is spend, not correctness: the spurious signal escalates to the next rung (one instance cost $1.48 of `claude-opus-5` for work cursor would have done on subscription) and quietly undermines a cursor-first order. Check telemetry before believing a quota escalation.
+**Cursor quota classification is scoped** — see [quota-signals.md § Cursor](./quota-signals.md#cursor): stderr, terminal non-success `result` strings, and plain stdout when no `result` frame; stream-json assistant/tool text is excluded so healthy runs do not false-trip `quota`.
 
 ### Agent order lives in the top-level `agents` array
 
@@ -1015,7 +1015,7 @@ Operators add bullets here; delete when fixed. Durable lessons that are behavior
   " | grep -o '"rate_limit_info":{[^}]*}[^}]*}'
   ```
 
-  `five_hour` rejected with `seven_day` headroom means pause until `resetsAt` and re-dispatch the same lanes unchanged; both re-dispatched implements and a fresh plan lane admitted normally afterwards. Only a rejected `seven_day` window is the session-ending shape. A `quota` rung consumed mid-invocation is also not fatal on its own — see [Choosing an actuator](#choosing-an-actuator) for the false-`quota` shape on cursor.
+  `five_hour` rejected with `seven_day` headroom means pause until `resetsAt` and re-dispatch the same lanes unchanged; both re-dispatched implements and a fresh plan lane admitted normally afterwards. Only a rejected `seven_day` window is the session-ending shape. A `quota` rung consumed mid-invocation is also not fatal on its own — cursor classification is scoped per [quota-signals.md § Cursor](./quota-signals.md#cursor).
 
   Cleanup: delete this bullet when that seed ships.
 - **`bun run test:v2` false-reds inside the agent sandbox (2026-09-09).** Four tests in `v2/src/ipc/server.test.ts` fail `EPERM` binding unix sockets under `$TMPDIR` when the suite runs from a sandboxed agent session; the same file is 16/16 with the sandbox disabled. Any hand-finish gate run from an agent session will show this, and it is never the diff under review. Re-run the named file outside the sandbox before treating it as a failure.

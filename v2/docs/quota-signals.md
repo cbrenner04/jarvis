@@ -6,7 +6,7 @@ The shared invocation layer (`shared/invocation/agents.ts`) classifies each agen
 
 Non-zero exit, first match wins: **credential/auth → quota → transient → model configuration → error**. Auth and quota outrank a transient marker because an exhausted or de-authenticated agent never recovers on retry; a stray transport phrase elsewhere in the tail (the codex `shell_snapshot` noise line in the sample below) must not mask the banner and burn the retry cap with no fallback (#3372). Zero exit: Claude's verified stdout quota envelope, then Codex credential/auth phrasing on stderr (`authFailure: true`), then the agent's quota patterns over the classifier diagnostics, else `ok`.
 
-The classifier diagnostics are `stderr + stdout` for every adapter **except opencode, which is scoped to stderr only** (`classifierDiagnostics` in `shared/invocation/agents.ts`). opencode runs with `--format json`, so its stdout is a structured event stream that embeds the full contents of every file the agent read or grepped; genuine provider/transport failures surface on stderr with a non-zero exit. Folding stdout in let content the agent merely *read* — jarvis's own quota-handling source, or a grep hit like `Line 429:` next to the word `Error` — false-trip the quota/transient classifiers and mislabel a healthy run as `quota` (observed dogfooding a jarvis intent draft, 2026-09-15). The scoped diagnostics are also what the non-ok result carries as `stderr`, so the transient-retry re-scan and the session transcript stay content-free too.
+The classifier diagnostics are `stderr + stdout` for claude and codex. **opencode** is scoped to **stderr only** (`classifierDiagnostics`): its `--format json` stdout is the agent event stream embedding file contents it read or grepped, so folding stdout in false-tripped quota/transient classifiers (observed dogfooding a jarvis intent draft, 2026-09-15). **cursor** is scoped to **stderr**, the terminal stream-json `result` frame's `result` string when that frame is not a success envelope (`subtype: success` and `is_error: false`), and plain non-JSON stdout lines when no `result` frame was emitted — assistant/thinking/tool-output frames are never scanned. When scoped stdout is a strict subset of the raw stdout buffer, the full stdout stream is retained on observability-only `diagnostics` for `quota`/`model_config`/`error` settles (never reclassified). The scoped text is also what non-ok results carry as `stderr`, so the transient-retry re-scan and session transcript stay content-free where stdout was excluded.
 
 ## Transient transport errors
 
@@ -98,7 +98,7 @@ Codex quota detection covers non-zero and zero exits: on zero exit the runner ch
 
 ## Cursor
 
-Cursor quota detection covers non-zero and zero exits against `cursorQuotaPatterns` the same way as Codex. Cursor has reported a false `quota` at ~24s on a stream disconnect (2026-07-26); a tight duration cluster is a transport blip wearing quota phrasing, and the cost is spend (escalation to the next rung), not correctness.
+Cursor quota detection covers non-zero and zero exits against `cursorQuotaPatterns` over the scoped classifier diagnostics above (stderr, scanned `result` string, or plain stdout when no terminal `result` frame). Quota phrasing in stream-json assistant/thinking/tool frames does not classify when a terminal success `result` frame is present.
 
 ### Observed quota stderr (real samples)
 

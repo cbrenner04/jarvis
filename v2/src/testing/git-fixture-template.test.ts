@@ -49,3 +49,9 @@ test("uncommitted-mode copy has an initialized .git with identity configured and
   expect(localConfig(copy, "user.name")).toBe("Test");
   expect(() => execFileSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: copy, stdio: "pipe" })).toThrow();
 });
+
+test("template disables git background maintenance so no detached process mutates .git during a copy", () => {
+  const copy = createCommittedGitFixtureTemplate().copy();
+  expect(localConfig(copy, "maintenance.auto")).toBe("false");
+  expect(localConfig(copy, "gc.auto")).toBe("0");
+});

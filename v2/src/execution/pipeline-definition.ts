@@ -4,6 +4,7 @@ import {
   isWorkflowReviewPosture,
 } from "../commands/workflow-start-preparation.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { isStandaloneOnlyPipelineWorkflow } from "./workflow-presets.ts";
 
 export const PIPELINE_TERMINAL_ACTIONS = ["leave-draft", "ready", "merge"] as const;
 export type PipelineTerminalAction = (typeof PIPELINE_TERMINAL_ACTIONS)[number];
@@ -25,6 +26,7 @@ function isRoleBoundInConfig(agentModelConfig: AgentModelConfig, role: string): 
 export type PipelineValidationError = {
   code:
     | "unknown-workflow"
+    | "standalone-only-workflow"
     | "invalid-review-posture"
     | "unrealizable-review-posture"
     | "missing-role-binding"
@@ -80,6 +82,17 @@ function validateWorkflowStage(
   errors: PipelineValidationError[],
 ): void {
   const { stageId, workflow, review } = stage;
+
+  if (isStandaloneOnlyPipelineWorkflow(workflow)) {
+    errors.push({
+      code: "standalone-only-workflow",
+      stageId,
+      field: "workflow",
+      message: `stage "${stageId}": workflow "${workflow}" is standalone-only and cannot be used as a pipeline stage`,
+    });
+    return;
+  }
+
   const workflowKnown = isBaseWorkflowName(workflow);
 
   if (!workflowKnown) {

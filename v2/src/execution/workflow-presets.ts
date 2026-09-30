@@ -30,3 +30,22 @@ export const WORKFLOW_PRESET_BUILDERS = {
 } satisfies Record<string, WorkflowPresetBuilder>;
 
 export type CliWorkflowPresetName = keyof typeof WORKFLOW_PRESET_BUILDERS;
+
+type PipelineEligibilityPresetName = CliWorkflowPresetName | "review-feedback";
+
+const builderPipelineEligibility = Object.fromEntries(
+  (Object.keys(WORKFLOW_PRESET_BUILDERS) as CliWorkflowPresetName[]).map((name) => [
+    name,
+    { pipelineStageEligible: true },
+  ]),
+) as Record<CliWorkflowPresetName, { pipelineStageEligible: boolean }>;
+
+const PIPELINE_ELIGIBILITY = {
+  ...builderPipelineEligibility,
+  "review-feedback": { pipelineStageEligible: false },
+} satisfies Record<PipelineEligibilityPresetName, { pipelineStageEligible: boolean }>;
+
+export function isStandaloneOnlyPipelineWorkflow(workflow: string): boolean {
+  const entry = PIPELINE_ELIGIBILITY[workflow as PipelineEligibilityPresetName];
+  return entry?.pipelineStageEligible === false;
+}

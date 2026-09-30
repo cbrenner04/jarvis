@@ -1,11 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { startDaemonRuntime } from "./daemon/daemon";
+import {
+  DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS,
+  handoffFallbackMsForSuccessorReadiness,
+} from "./daemon/daemon-changeover.ts";
 import { resolveRunTimeoutBudgetMs } from "./daemon/run-time-budget";
 
 type EntrypointArgs = {
   socketPath?: string;
   privateSocketPath?: string;
   predecessorSocketPath?: string;
+  predecessorHandoffId?: string;
   testOwnerPid?: number;
   testSelfHandoffDigestFile?: string;
   testSelfHandoffIntervalMs?: number;
@@ -15,6 +20,7 @@ const FLAG_KEYS: Record<string, keyof EntrypointArgs> = {
   "--socket": "socketPath",
   "--private-socket": "privateSocketPath",
   "--predecessor-socket": "predecessorSocketPath",
+  "--predecessor-handoff-id": "predecessorHandoffId",
   "--test-owner-pid": "testOwnerPid",
   "--test-self-handoff-digest-file": "testSelfHandoffDigestFile",
   "--test-self-handoff-interval-ms": "testSelfHandoffIntervalMs",
@@ -44,10 +50,12 @@ export function parseEntrypointArgs(argv: readonly string[]): EntrypointArgs {
 export function resolveHandoffOptions(args: EntrypointArgs): {
   privateSocketPath?: string;
   predecessorSocketPath?: string;
+  predecessorHandoffId?: string;
 } {
   return {
     ...(args.privateSocketPath === undefined ? {} : { privateSocketPath: args.privateSocketPath }),
     ...(args.predecessorSocketPath === undefined ? {} : { predecessorSocketPath: args.predecessorSocketPath }),
+    ...(args.predecessorHandoffId === undefined ? {} : { predecessorHandoffId: args.predecessorHandoffId }),
   };
 }
 
@@ -69,6 +77,17 @@ export function resolveSelfHandoffOptions(args: EntrypointArgs): {
     ...(intervalMs === undefined || !Number.isFinite(intervalMs) || intervalMs <= 0
       ? {}
       : { selfHandoffSamplingIntervalMs: intervalMs }),
+  };
+}
+
+// Pure: the production `startDaemonRuntime` options. Incumbent fallback tracks the self-handoff readiness bound.
+export function buildEntrypointRuntimeOptions(args: EntrypointArgs) {
+  return {
+    ...resolveHandoffOptions(args),
+    ...resolveSelfHandoffOptions(args),
+    handoffFallbackMs: handoffFallbackMsForSuccessorReadiness(DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS),
+    // Only production wire for the config-backed whole-run timeout; without it no run timeout is armed.
+    runTimeout: { budgetMs: (project: string) => resolveRunTimeoutBudgetMs(project, undefined) },
   };
 }
 
@@ -102,12 +121,7 @@ if (import.meta.main) {
     }, 100).unref();
   }
 
-  startDaemonRuntime(args.socketPath, undefined, undefined, {
-    ...resolveHandoffOptions(args),
-    ...resolveSelfHandoffOptions(args),
-    // Only production wire for the config-backed whole-run timeout; without it no run timeout is armed.
-    runTimeout: { budgetMs: (project) => resolveRunTimeoutBudgetMs(project, undefined) },
-  }).catch((err) => {
+  startDaemonRuntime(args.socketPath, undefined, undefined, buildEntrypointRuntimeOptions(args)).catch((err) => {
     console.error("Fatal daemon error:", err);
     process.exit(1);
   });

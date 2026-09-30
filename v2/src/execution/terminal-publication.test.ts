@@ -1,4 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { bindHarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
 import {
@@ -392,6 +398,223 @@ describe("executeTerminalPublication", () => {
 
     expect(closeCalls).toHaveLength(0);
     expect(deleteCalls).toHaveLength(0);
+  });
+});
+
+describe("executeTerminalPublication harness ready-flip evidence", () => {
+  let stateDbPath: string;
+  let store: StateStore;
+
+  beforeEach(() => {
+    stateDbPath = join(trackedMkdtempSync(join(tmpdir(), "terminal-publication-store-")), "state.db");
+    store = openStateStore(stateDbPath);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+    store.close();
+    removeOrchestrationStore(stateDbPath);
+  });
+
+  function seedEntryRun(): string {
+    return store.createRun({
+      project: "test-project",
+      specRef: baseInput.baseRef,
+      worktreePath: baseInput.worktreePath,
+      branch: baseInput.branch,
+      specPath: "spec/implement.md",
+    });
+  }
+
+  function publicationInput(
+    runId: string,
+    terminalAction: PipelineTerminalAction,
+    options?: { lineage?: boolean },
+  ): TerminalPublicationInput & { terminalAction: PipelineTerminalAction } {
+    const lookup = options?.lineage === true ? bindHarnessReadyFlipEvidenceLookup(store, runId) : undefined;
+    return {
+      ...baseInput,
+      terminalAction,
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+      ...(lookup !== undefined ? { findHarnessReadyFlipEvidenceInLineage: lookup } : {}),
+    };
+  }
+
+  for (const terminalAction of ["ready", "merge"] as const) {
+    it(`persists ready-flip evidence after successful ${terminalAction}`, async () => {
+      const runId = seedEntryRun();
+      const flippedAt = terminalAction === "ready" ? 12_000 : 13_000;
+      const execute = createExecuteTerminalPublication({
+        runReadyGate: async () => {},
+        gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+        ghReadyFlip: async () => {},
+        ...(terminalAction === "merge" ? { ghMerge: async () => {} } : {}),
+      });
+
+      setSystemTime(new Date(flippedAt));
+      await execute(publicationInput(runId, terminalAction));
+
+      expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+        prNumber: 42,
+        branch: baseInput.branch,
+        baseRef: baseInput.baseRef,
+        flippedAt,
+      });
+    });
+  }
+
+  it("persists resolved PR number, not stale persisted evidence, after re-resolution", async () => {
+    const runId = seedEntryRun();
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenDraft(99, "https://github.com/user/repo/pull/99"),
+      ghReadyFlip: async () => {},
+    });
+
+    setSystemTime(new Date(14_000));
+    await execute(publicationInput(runId, "ready"));
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toMatchObject({ prNumber: 99, flippedAt: 14_000 });
+  });
+
+  it("leaves prior ready-flip evidence unchanged when ghReadyFlip rejects", async () => {
+    const runId = seedEntryRun();
+    setSystemTime(new Date(9_000));
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber: 1,
+      branch: baseInput.branch,
+      baseRef: baseInput.baseRef,
+    });
+
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+      ghReadyFlip: async () => {
+        throw ghCommandError("flip failed", "not a draft");
+      },
+    });
+
+    setSystemTime(new Date(15_000));
+    await expect(execute(publicationInput(runId, "ready"))).rejects.toBeInstanceOf(TerminalPublicationError);
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+      prNumber: 1,
+      branch: baseInput.branch,
+      baseRef: baseInput.baseRef,
+      flippedAt: 9_000,
+    });
+  });
+
+  it("accepts a sole open non-draft PR when lineage evidence matches, without calling gh pr ready", async () => {
+    const runId = seedEntryRun();
+    const prNumber = 42;
+    setSystemTime(new Date(8_000));
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber,
+      branch: baseInput.branch,
+      baseRef: baseInput.baseRef,
+    });
+
+    const flipCalls: number[] = [];
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenNonDraft(prNumber),
+      ghReadyFlip: async (n) => {
+        if (n !== undefined) flipCalls.push(n);
+      },
+    });
+
+    setSystemTime(new Date(16_000));
+    const result = await execute(publicationInput(runId, "ready", { lineage: true }));
+
+    expect(flipCalls).toHaveLength(0);
+    expect(result).toEqual({ prNumber: baseInput.prNumber, prUrl: baseInput.prUrl });
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+      prNumber,
+      branch: baseInput.branch,
+      baseRef: baseInput.baseRef,
+      flippedAt: 16_000,
+    });
+  });
+
+  it("refuses a human-flipped non-draft PR without recording evidence", async () => {
+    const runId = seedEntryRun();
+    const flipCalls: number[] = [];
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenNonDraft(42),
+      ghReadyFlip: async (n) => {
+        if (n !== undefined) flipCalls.push(n);
+      },
+    });
+
+    await expect(
+      execute({
+        ...baseInput,
+        terminalAction: "ready",
+        recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+        findHarnessReadyFlipEvidenceInLineage: () => false,
+      }),
+    ).rejects.toMatchObject({
+      failure: { operation: "gh pr ready" },
+    });
+
+    expect(flipCalls).toHaveLength(0);
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toBeNull();
+  });
+
+  it("refuses when lineage evidence names a different PR number", async () => {
+    const runId = seedEntryRun();
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber: 99,
+      branch: baseInput.branch,
+      baseRef: baseInput.baseRef,
+    });
+
+    const flipCalls: number[] = [];
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenNonDraft(42),
+      ghReadyFlip: async (n) => {
+        if (n !== undefined) flipCalls.push(n);
+      },
+    });
+
+    await expect(execute(publicationInput(runId, "ready", { lineage: true }))).rejects.toMatchObject({
+      failure: { operation: "gh pr ready" },
+    });
+
+    expect(flipCalls).toHaveLength(0);
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence?.prNumber).toBe(99);
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence?.flippedAt).toBeDefined();
+  });
+
+  it("refuses when lineage evidence branch or base ref mismatches publication", async () => {
+    const runId = seedEntryRun();
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber: 42,
+      branch: "other-branch",
+      baseRef: baseInput.baseRef,
+    });
+
+    const flipCalls: number[] = [];
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenNonDraft(42),
+      ghReadyFlip: async (n) => {
+        if (n !== undefined) flipCalls.push(n);
+      },
+    });
+
+    await expect(execute(publicationInput(runId, "ready", { lineage: true }))).rejects.toMatchObject({
+      failure: { operation: "gh pr ready" },
+    });
+
+    expect(flipCalls).toHaveLength(0);
   });
 });
 

@@ -12,6 +12,7 @@ import {
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
+import { readBranchCommits } from "./pr-attribution.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 /** Workflow purpose classification rendered as the `Jarvis-Step` trailer. Defaults to `write`
@@ -29,6 +30,9 @@ type CompletionCommitInput = ExternalSpecGitScope & {
   baseRef: string;
   specPath: string;
   agent: string;
+  /** Agent-free resume/repair tails only: an empty `agent` falls back to the branch's newest
+   * `Jarvis-Agent` trailer. Every other caller fails closed on empty attribution. */
+  allowBranchTrailerFallback?: boolean;
   /** Authoritative commit subject, resolved by the caller that owns workflow context. */
   title: string;
   /** Ready-gate attribution trailer when autofix commits in-scope repair output. */
@@ -237,6 +241,8 @@ const EXCLUDE_MATERIALIZED_NODE_MODULES = ["--", ".", `:(exclude)${NODE_MODULES_
 // completion commit stages the whole worktree. The `glob` magic word (not the default pathspec
 // matching) is required for `**/` to match both the root and nested depths.
 const EXCLUDE_REVIEW_VERDICTS = ":(exclude,glob)**/verdict-*.md";
+// Harness-refreshed PR review capture sidecar (pr-review-input-capture.ts); never durable output.
+const EXCLUDE_PR_REVIEW_INPUT = ":(exclude,literal).jarvis-pr-review-input.json";
 
 /** `git add -A` pathspec for a completion commit; excludes the materialized node_modules
  * symlink when present, and review-verdict basenames unconditionally, so no harness completion
@@ -246,7 +252,7 @@ export function completionStageArgs(worktreePath: string, excludedPaths: readonl
   if (isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) {
     exclusions.push(EXCLUDE_MATERIALIZED_NODE_MODULES[2]);
   }
-  exclusions.push(EXCLUDE_REVIEW_VERDICTS);
+  exclusions.push(EXCLUDE_REVIEW_VERDICTS, EXCLUDE_PR_REVIEW_INPUT);
   return [...ADD_ALL_ARGS, "--", ".", ...exclusions];
 }
 
@@ -350,6 +356,19 @@ async function restagePendingTreeAfterStrictFormat(
   return upgraded;
 }
 
+async function newestBranchTrailerAgent(runGit: Git, cwd: string, base: string): Promise<string | undefined> {
+  if (!existsSync(join(cwd, ".git"))) return undefined;
+  try {
+    const commits = await readBranchCommits({ cwd, base, git: runGit });
+    return [...commits]
+      .reverse()
+      .flatMap((c) => c.jarvisAgentTrailers)
+      .find((agent) => agent.length > 0);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
 export function createCompletionCommitter(
   runGit: Git = git,
@@ -357,7 +376,12 @@ export function createCompletionCommitter(
 ): CompletionCommitter {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one committer closure coordinates snapshot capture, checkpoint-vs-strict format-mode selection, staging, and the compare-and-swap commit; off-by-one (25) after adding the durability best-effort-format branch, and splitting it would fragment the atomic commit sequence.
   return async (input) => {
-    const agent = input.agent.trim();
+    // Opted-in agent-free tails fall back to the branch's newest `Jarvis-Agent` trailer, the agent that authored the work.
+    const agent =
+      input.agent.trim() ||
+      (input.allowBranchTrailerFallback === true
+        ? await newestBranchTrailerAgent(runGit, input.worktreePath, input.baseRef)
+        : undefined);
     if (!agent) throw new Error("completion attribution is missing");
     const subject = input.title.trim();
     if (!subject) throw new Error("completion title is missing");

@@ -4,7 +4,7 @@ Behavioral contract for **stall** (process up, no useful progress toward the ste
 
 Related: [`shared-invocation.md`](./shared-invocation.md), [`role-resolution.md`](./role-resolution.md), [`v1-behaviors.md`](./v1-behaviors.md).
 
-When a run hangs before structured log records accrue, read the invocation session log first: `~/.jarvis/sessions/<run-id>-<timestamp>.log` (one file per write-loop iteration; see [`daemon-host.md`](./daemon-host.md#invocation-session-logs)).
+When a run hangs before structured log records accrue, read the invocation session log first: `~/.jarvis/sessions/<YYYY-MM>/<run-id>-<timestamp>.log` (one file per write-loop iteration; legacy flat `~/.jarvis/sessions/<run-id>-<timestamp>.log` may still exist — see [`operator-runbook.md` § Session-log retention](./operator-runbook.md#session-log-retention) for lookup across layouts; see [`daemon-host.md`](./daemon-host.md#invocation-session-logs)).
 
 ## Terminology
 

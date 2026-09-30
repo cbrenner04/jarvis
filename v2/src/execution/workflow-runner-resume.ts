@@ -2265,6 +2265,7 @@ function settleMutationRepairExhausted(
   message: string,
   iterationsConsumed: number,
   deps: ReviewMutationResumeDeps,
+  mutationError?: SurvivingMutationError,
 ): ReviewMutationResumeOutcome {
   const attemptId = store.recordAttemptStart(context.runId);
   store.commitCompletionBoundary({
@@ -2282,6 +2283,7 @@ function settleMutationRepairExhausted(
     loopOutcomeKind: "mutation_repair_exhausted",
     iterationsConsumed,
     resumable: false,
+    ...survivingMutationLogFields(mutationError),
   });
   return { ok: false, message };
 }
@@ -2328,6 +2330,7 @@ async function runMutationRepairContinuation(
     "Mutation survived every repair attempt",
     MAX_MUTATION_REPAIR_ATTEMPTS,
     deps,
+    mutationError,
   );
 }
 
@@ -2364,6 +2367,7 @@ async function runMutationRepairAttempt(
         "Mutation repair agent reported blocked",
         attempt,
         deps,
+        mutationError,
       ),
     };
   }
@@ -2376,6 +2380,7 @@ async function runMutationRepairAttempt(
         "Mutation repair agent did not settle",
         attempt,
         deps,
+        mutationError,
       ),
     };
   }
@@ -2389,6 +2394,7 @@ async function runMutationRepairAttempt(
       baseRef: context.baseRef,
       specPath: context.specPath,
       agent: context.completionAgent ?? "",
+      allowBranchTrailerFallback: true,
       title: renderStepCommitTitle(mutationRepairStep, creationTitle),
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
       step: mutationRepairStep,
@@ -2425,6 +2431,9 @@ async function runMutationRepairAttempt(
       ...externalSpecGitScope(context),
       ...leaseFromShaField(context),
     },
+    undefined,
+    undefined,
+    { runId: context.runId, store },
   );
   throwIfAborted(deps.signal);
   if (pushOnly.kind !== "success") {

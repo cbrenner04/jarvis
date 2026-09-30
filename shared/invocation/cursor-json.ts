@@ -89,3 +89,30 @@ export function parseCursorJsonOutput(stdout: string): CursorParseResult {
 
   return lastResultUsage === undefined ? { displayText } : { displayText, usage: lastResultUsage };
 }
+
+/** Stdout text cursor quota/transient/model-config classifiers may scan (not the full NDJSON stream). */
+export function cursorClassifierStdoutText(stdout: string): string {
+  const lines = stdout.split(/\r?\n/);
+  let lastResult: Record<string, unknown> | null = null;
+  const plain: string[] = [];
+  for (const line of lines) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const frame = parseFrameLine(line);
+    if (frame?.type === "result") {
+      lastResult = frame;
+      continue;
+    }
+    if (frame === null) {
+      plain.push(line);
+    }
+  }
+  if (lastResult !== null) {
+    if (lastResult.subtype === "success" && lastResult.is_error === false) {
+      return "";
+    }
+    return typeof lastResult.result === "string" ? lastResult.result : "";
+  }
+  return plain.join("\n");
+}

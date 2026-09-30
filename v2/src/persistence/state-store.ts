@@ -134,6 +134,14 @@ export type OutcomeKind =
   | "surviving_mutation_failed"
   | "non_terminating_mutation_failed";
 
+/** Harness `gh pr ready` success evidence persisted on one run row. */
+type HarnessReadyFlipEvidence = {
+  prNumber: number;
+  branch: string;
+  baseRef: string;
+  flippedAt: number;
+};
+
 /** Durable ready-gate repair fence provenance persisted across process restart and resume. */
 export type ReadyGateRepairFenceProvenance = {
   allowedPaths: readonly string[];
@@ -212,6 +220,8 @@ export type Run = {
   gateRefusalRecoveryStateCorrupt?: boolean;
   /** Daemon identity that owns this row (`this.currentIdentity` at write time); `null` on legacy rows. */
   ownerIdentity?: string | null;
+  harnessReadyFlipEvidence?: HarnessReadyFlipEvidence | null;
+  harnessReadyFlipEvidenceCorrupt?: boolean;
 };
 
 type PipelineStatus = "active" | "interrupted";
@@ -792,6 +802,18 @@ export interface StateStore {
   /** Persist the publication-tail checkpoint for gate-only finalization resume. */
   setRetainedFinalizationCheckpoint(runId: string, checkpoint: RetainedFinalizationCheckpoint): void;
 
+  /** Record harness ready-flip success on one run row (`flippedAt` stamped at write time). */
+  recordHarnessReadyFlipEvidence(args: { runId: string; prNumber: number; branch: string; baseRef: string }): void;
+
+  /** Newest matching ready-flip evidence in `(project, branch, spec_ref)` lineage, or `null`. */
+  findNewestHarnessReadyFlipEvidenceInLineage(args: {
+    project: string;
+    specRef: string;
+    branch: string;
+    baseRef: string;
+    prNumber: number;
+  }): HarnessReadyFlipEvidence | null;
+
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
@@ -938,7 +960,10 @@ export interface StateStore {
    * continuation shape is malformed is left alone. Returns the reopened stages for
    * {@link StateStore.restoreReopenedFailedStages}.
    */
-  reopenFailedStagesForResume(entryRunId: string): ReopenedFailedStage[];
+  reopenFailedStagesForResume(
+    entryRunId: string,
+    scope?: { pipelineId: string; stageId: string; branchKey: string },
+  ): ReopenedFailedStage[];
 
   /** Undo {@link StateStore.reopenFailedStagesForResume}: each stage still `running` on its link returns to its pre-reopen `failed` row and suffix. */
   restoreReopenedFailedStages(reopened: readonly ReopenedFailedStage[]): void;
@@ -1250,7 +1275,8 @@ const SCHEMA = `
     terminal_failure_detail TEXT,
     operator_failure_record TEXT,
     gate_refusal_recovery_state TEXT,
-    status_changed_at INTEGER
+    status_changed_at INTEGER,
+    harness_ready_flip_evidence TEXT
   );
   CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -1343,6 +1369,7 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   operator_failure_record AS operatorFailureRecordJson,
   gate_refusal_recovery_state AS gateRefusalRecoveryStateJson,
   status_changed_at AS statusChangedAt,
+  harness_ready_flip_evidence AS harnessReadyFlipEvidenceJson,
   owner_identity AS ownerIdentity`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
@@ -1439,6 +1466,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "runs", "operator_failure_record", "TEXT");
   addColumnIfMissing(db, "runs", "gate_refusal_recovery_state", "TEXT");
   addColumnIfMissing(db, "runs", "status_changed_at", "INTEGER");
+  addColumnIfMissing(db, "runs", "harness_ready_flip_evidence", "TEXT");
   if (!tableExists(db, "pipelines")) {
     db.exec(`
       CREATE TABLE pipelines (
@@ -1808,6 +1836,8 @@ type RunRow = Omit<
   | "operatorFailureRecordCorrupt"
   | "gateRefusalRecoveryState"
   | "gateRefusalRecoveryStateCorrupt"
+  | "harnessReadyFlipEvidence"
+  | "harnessReadyFlipEvidenceCorrupt"
 > & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
@@ -1817,7 +1847,26 @@ type RunRow = Omit<
   terminalFailureDetailJson: string | null;
   operatorFailureRecordJson: string | null;
   gateRefusalRecoveryStateJson: string | null;
+  harnessReadyFlipEvidenceJson: string | null;
 };
+
+function parseHarnessReadyFlipEvidence(json: string | null): HarnessReadyFlipEvidence | null | "invalid" {
+  if (json === null) return null;
+  try {
+    const parsed = JSON.parse(json) as HarnessReadyFlipEvidence;
+    if (
+      typeof parsed.prNumber !== "number" ||
+      typeof parsed.branch !== "string" ||
+      typeof parsed.baseRef !== "string" ||
+      typeof parsed.flippedAt !== "number"
+    ) {
+      return "invalid";
+    }
+    return parsed;
+  } catch {
+    return "invalid";
+  }
+}
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
   if (json === null) return null;
@@ -1899,12 +1948,14 @@ function mapRunRow(row: RunRow): Run {
     terminalFailureDetailJson,
     operatorFailureRecordJson,
     gateRefusalRecoveryStateJson,
+    harnessReadyFlipEvidenceJson,
     ...run
   } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
   const parsedTerminalFailureDetail = parseTerminalFailureDetail(terminalFailureDetailJson);
   const parsedOperatorFailureRecord = parseOperatorFailureRecord(operatorFailureRecordJson);
+  const parsedHarnessReadyFlipEvidence = parseHarnessReadyFlipEvidence(harnessReadyFlipEvidenceJson);
   const gateRefusalRecoveryProjection = gateRefusalRecoveryProjectionFromRow(
     run.terminalCause,
     gateRefusalRecoveryStateJson,
@@ -1935,6 +1986,11 @@ function mapRunRow(row: RunRow): Run {
     ...(parsedTerminalFailureDetail === "invalid" ? { terminalFailureDetailCorrupt: true } : {}),
     operatorFailureRecord: parsedOperatorFailureRecord.kind === "valid" ? parsedOperatorFailureRecord.record : null,
     ...(parsedOperatorFailureRecord.kind === "invalid" ? { operatorFailureRecordCorrupt: true } : {}),
+    harnessReadyFlipEvidence:
+      parsedHarnessReadyFlipEvidence === "invalid" || parsedHarnessReadyFlipEvidence === null
+        ? null
+        : parsedHarnessReadyFlipEvidence,
+    ...(parsedHarnessReadyFlipEvidence === "invalid" ? { harnessReadyFlipEvidenceCorrupt: true } : {}),
     ...gateRefusalRecoveryProjection,
   };
 }
@@ -2004,6 +2060,7 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
+    addColumnIfMissing(this.db, "runs", "harness_ready_flip_evidence", "TEXT");
     // Guarded: fixture and pre-migration stores can open without a `workflow_snapshot` column.
     if (tableHasColumn(this.db, "runs", "workflow_snapshot")) {
       this.db.exec(`
@@ -2207,6 +2264,41 @@ class StateStoreImpl implements StateStore {
     this.db
       .prepare("UPDATE runs SET retained_finalization_checkpoint = ? WHERE id = ?")
       .run(JSON.stringify(checkpoint), runId);
+  }
+
+  recordHarnessReadyFlipEvidence(args: { runId: string; prNumber: number; branch: string; baseRef: string }): void {
+    const evidence: HarnessReadyFlipEvidence = {
+      prNumber: args.prNumber,
+      branch: args.branch,
+      baseRef: args.baseRef,
+      flippedAt: Date.now(),
+    };
+    this.db
+      .prepare("UPDATE runs SET harness_ready_flip_evidence = ? WHERE id = ?")
+      .run(JSON.stringify(evidence), args.runId);
+  }
+
+  findNewestHarnessReadyFlipEvidenceInLineage(args: {
+    project: string;
+    specRef: string;
+    branch: string;
+    baseRef: string;
+    prNumber: number;
+  }): HarnessReadyFlipEvidence | null {
+    const rows = this.db
+      .prepare(
+        `SELECT harness_ready_flip_evidence AS json FROM runs WHERE project = ? AND branch = ? AND spec_ref = ? ORDER BY created_at DESC, rowid DESC`,
+      )
+      .all(args.project, args.branch, args.specRef) as Array<{ json: string | null }>;
+
+    for (const row of rows) {
+      const parsed = parseHarnessReadyFlipEvidence(row.json);
+      if (parsed === null || parsed === "invalid") continue;
+      if (parsed.branch === args.branch && parsed.baseRef === args.baseRef && parsed.prNumber === args.prNumber) {
+        return parsed;
+      }
+    }
+    return null;
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {
@@ -2580,13 +2672,24 @@ class StateStoreImpl implements StateStore {
     }
   }
 
-  reopenFailedStagesForResume(entryRunId: string): ReopenedFailedStage[] {
+  reopenFailedStagesForResume(
+    entryRunId: string,
+    scope?: { pipelineId: string; stageId: string; branchKey: string },
+  ): ReopenedFailedStage[] {
     try {
       return this.db.transaction((): ReopenedFailedStage[] => {
         const reopened: ReopenedFailedStage[] = [];
         for (const pipeline of this.listPipelines()) {
-          if (pipeline.dismissedAt !== null) continue;
+          if (pipeline.dismissedAt !== null && (scope === undefined || scope.pipelineId !== pipeline.id)) continue;
           for (const stage of pipeline.stages) {
+            if (
+              scope !== undefined &&
+              (pipeline.id !== scope.pipelineId ||
+                stage.stageId !== scope.stageId ||
+                stage.branchKey !== scope.branchKey)
+            ) {
+              continue;
+            }
             const entry = this.reopenLinkedFailedStage(pipeline.stages, stage, entryRunId);
             if (entry !== null) reopened.push(entry);
           }
@@ -2993,16 +3096,17 @@ class StateStoreImpl implements StateStore {
   }
 
   async admitRunForResume(runId: string): Promise<RunAdmissionOutcome> {
-    const row = this.db.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+    const row = this.db.prepare("SELECT owner_identity AS ownerIdentity, status FROM runs WHERE id = ?").get(runId) as {
       ownerIdentity: string | null;
+      status: RunStatus;
     } | null;
     const priorOwnerIdentity = row?.ownerIdentity ?? null;
-    if (
-      priorOwnerIdentity !== null &&
-      priorOwnerIdentity !== this.currentIdentity &&
-      (await this.isOwnerAliveProbe(priorOwnerIdentity))
-    ) {
-      return { kind: "refused", reason: "owner_alive" };
+    const status = row?.status;
+    if (priorOwnerIdentity !== null && priorOwnerIdentity !== this.currentIdentity && status !== undefined) {
+      const priorOwnerAlive = await this.isOwnerAliveProbe(priorOwnerIdentity);
+      if (!isTerminalRunStatus(status) && priorOwnerAlive) {
+        return { kind: "refused", reason: "owner_alive" };
+      }
     }
 
     const changedAt = Date.now();

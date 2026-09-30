@@ -141,6 +141,22 @@ function cursorOkNoUsage(stdout: string, stderr = "") {
   };
 }
 
+function cursorResultLine(result: string, success: boolean): string {
+  return success
+    ? JSON.stringify({ type: "result", subtype: "success", is_error: false, result })
+    : JSON.stringify({ type: "result", is_error: true, result });
+}
+
+function cursorStdoutWithSuccess(frames: Record<string, unknown>[], result: string): string {
+  return [...frames.map((frame) => JSON.stringify(frame)), cursorResultLine(result, true)].join("\n");
+}
+
+async function invokeComposerCursor(
+  spawn: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess,
+) {
+  return createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn }).invoke({ prompt: "p", cwd: "/repo" });
+}
+
 function telemetryForRows(rows: InvocationCompletedRecord[]) {
   return {
     sink: {
@@ -524,6 +540,27 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.opts.detached).toBe(true);
     expect(fake.calls[0]?.opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
     expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("implement it");
+  });
+
+  test("claude binding settles on exit when the child's stdin pipe errors (EPIPE)", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n', stderr: "" }]);
+    const spawn = (binary: string, argv: readonly string[], opts: SpawnOptions): ChildProcess => {
+      const child = fake.spawn(binary, argv, opts);
+      const stdin = child.stdin as PassThrough;
+      stdin.write = () => {
+        queueMicrotask(() => stdin.emit("error", Object.assign(new Error("EPIPE: broken pipe"), { code: "EPIPE" })));
+        return false;
+      };
+      return child;
+    };
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
+      { spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "implement it", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
   });
 
   test("claude binding appends --add-dir for each additionalReadDirs entry", async () => {
@@ -1770,17 +1807,31 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("cursor binding classifies zero-exit quota patterns", async () => {
-    const quotaZeroExit = fakeSpawn([
-      { kind: "settle", code: 0, stdout: "monthly cursor usage limit reached", stderr: "" },
+    const quotaZeroExitStderr = fakeSpawn([
+      { kind: "settle", code: 0, stdout: "", stderr: "monthly cursor usage limit reached" },
     ]);
-    const normalZeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "completed successfully", stderr: "" }]);
+    const quotaResultStdout = cursorResultLine("monthly cursor usage limit reached", false);
+    const quotaZeroExitResult = fakeSpawn([{ kind: "settle", code: 0, stdout: quotaResultStdout, stderr: "" }]);
+    const normalZeroExit = fakeSpawn([
+      { kind: "settle", code: 0, stdout: cursorResultLine("completed successfully", true), stderr: "" },
+    ]);
 
     await expect(
       createResolvedAgentBinding(
         { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
-        { spawn: quotaZeroExit.spawn },
+        { spawn: quotaZeroExitStderr.spawn },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "quota", stderr: "monthly cursor usage limit reached" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: quotaZeroExitResult.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({
+      kind: "quota",
+      stderr: "monthly cursor usage limit reached",
+      diagnostics: quotaResultStdout,
+    });
 
     await expect(
       createResolvedAgentBinding(
@@ -2033,15 +2084,115 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("cursor binding classifies quota phrases in stream-json frames", async () => {
-    const frameWithQuota = JSON.stringify({ type: "text_delta", text: "you've hit your usage limit" });
-    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: frameWithQuota, stderr: "" }]);
+    const stdout = cursorStdoutWithSuccess([{ type: "text_delta", text: "you've hit your usage limit" }], "done");
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout, stderr: "" }]);
+    expect(await invokeComposerCursor(fake.spawn)).toEqual(cursorOkNoUsage("done"));
+  });
 
-    const result = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn }).invoke({
-      prompt: "p",
-      cwd: "/repo",
+  test("cursor classifier diagnostics scope stream-json assistant text and retain excluded stdout", async () => {
+    const cursorQuotaPhrases = [
+      "you've hit your usage limit",
+      "You're out of usage",
+      "increase your limit",
+      "you've hit your free requests limit",
+      "total usage limit reached",
+      "monthly cursor usage limit reached",
+      "on-demand spending limit",
+      "spend limit",
+      "resource_exhausted",
+      "insufficient_quota",
+      "quota exceeded",
+    ];
+    for (const phrase of cursorQuotaPhrases) {
+      const stdout = cursorStdoutWithSuccess([{ type: "assistant", text: phrase }], "implementation complete");
+      const fake = fakeSpawn([{ kind: "settle", code: 0, stdout, stderr: "" }]);
+      expect(await invokeComposerCursor(fake.spawn)).toEqual(cursorOkNoUsage("implementation complete"));
+    }
+
+    const noResultStdout = fakeSpawn([
+      { kind: "settle", code: 0, stdout: JSON.stringify({ type: "text_delta", text: "quota exceeded" }), stderr: "" },
+    ]);
+    await expect(invokeComposerCursor(noResultStdout.spawn)).resolves.toEqual(cursorOkNoUsage("quota exceeded"));
+
+    const plainStdoutQuota = fakeSpawn([{ kind: "settle", code: 0, stdout: "quota exceeded\n", stderr: "" }]);
+    await expect(invokeComposerCursor(plainStdoutQuota.spawn)).resolves.toEqual({
+      kind: "quota",
+      stderr: "quota exceeded",
+      diagnostics: "quota exceeded\n",
     });
 
-    expect(result.kind).toBe("quota");
+    const stderrQuotaWithSuccess = cursorResultLine("done", true);
+    const stderrQuota = fakeSpawn([
+      { kind: "settle", code: 0, stdout: stderrQuotaWithSuccess, stderr: "you've hit your usage limit" },
+    ]);
+    await expect(invokeComposerCursor(stderrQuota.spawn)).resolves.toEqual({
+      kind: "quota",
+      stderr: "you've hit your usage limit",
+      diagnostics: stderrQuotaWithSuccess,
+    });
+
+    const quotaResultStdout = cursorResultLine("you've hit your usage limit", false);
+    const errorResultQuota = fakeSpawn([{ kind: "settle", code: 0, stdout: quotaResultStdout, stderr: "" }]);
+    await expect(invokeComposerCursor(errorResultQuota.spawn)).resolves.toEqual({
+      kind: "quota",
+      stderr: "you've hit your usage limit",
+      diagnostics: quotaResultStdout,
+    });
+
+    const errorStdout = cursorResultLine("boom", false);
+    const errorResultGeneric = fakeSpawn([{ kind: "settle", code: 1, stdout: errorStdout, stderr: "" }]);
+    expect(await invokeComposerCursor(errorResultGeneric.spawn)).toEqual({
+      kind: "error",
+      exitCode: 1,
+      stderr: "boom",
+      diagnostics: errorStdout,
+    });
+
+    const stderrModel = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope", stdout: "" }]);
+    await expect(
+      createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: stderrModel.spawn }).invoke({
+        prompt: "p",
+        cwd: "/repo",
+      }),
+    ).resolves.toEqual({ kind: "model_config", stderr: "unknown model: nope" });
+
+    const resultModel = fakeSpawn([
+      { kind: "settle", code: 1, stdout: cursorResultLine("unknown model: nope", false), stderr: "" },
+    ]);
+    expect(await invokeComposerCursor(resultModel.spawn)).toMatchObject({
+      kind: "model_config",
+      stderr: "unknown model: nope",
+    });
+
+    const transientRetries = Array.from({ length: 4 }, () => ({
+      kind: "settle" as const,
+      code: 1,
+      stderr: "connection reset",
+      stdout: "",
+    }));
+    const stderrTransient = fakeSpawn(transientRetries);
+    await expect(
+      createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: stderrTransient.spawn }).invoke({
+        prompt: "p",
+        cwd: "/repo",
+      }),
+    ).resolves.toMatchObject({ kind: "error", exitCode: 1, stderr: "connection reset" });
+
+    const resultTransientStdout = cursorResultLine("connection reset", false);
+    const resultTransient = fakeSpawn(
+      Array.from({ length: 4 }, () => ({
+        kind: "settle" as const,
+        code: 1,
+        stdout: resultTransientStdout,
+        stderr: "",
+      })),
+    );
+    await expect(invokeComposerCursor(resultTransient.spawn)).resolves.toMatchObject({
+      kind: "error",
+      exitCode: 1,
+      stderr: "connection reset",
+      diagnostics: resultTransientStdout,
+    });
   });
 
   test("cursor binding passes non-ok results through unnormalized", async () => {

@@ -19,7 +19,7 @@ describe("unbounded subprocess guard", () => {
     ["Bun.$", "await Bun.$`git fetch`;"],
     ["signal: undefined", 'import { spawn } from "node:child_process";\nspawn("git", [], { signal: undefined });'],
     ["bound token only in a comment", 'import { spawn } from "node:child_process";\nspawn("git", [] /* timeout */);'],
-    ["template interpolation", 'import { exec } from "node:child_process";\nexec(`sleep ${timeoutMs}`, cb);'],
+    ["template interpolation", `import { exec } from "node:child_process";\nexec(\`sleep \${timeoutMs}\`, cb);`],
   ])("rejects an unbounded %s", (_name, source) => {
     expect(violations(source)).toHaveLength(1);
   });

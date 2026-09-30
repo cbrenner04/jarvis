@@ -9,7 +9,7 @@ import {
   readProjectPipelineConfig,
   readProjectRegistry,
 } from "../config/machine-config-loader.ts";
-import type { PipelineDefinition } from "./pipeline-definition.ts";
+import type { PipelineDefinition, PipelineSupersedePolicy, PipelineTerminalAction } from "./pipeline-definition.ts";
 import { validatePipelineDefinition } from "./pipeline-definition.ts";
 import { getPipelineDefinition } from "./pipeline-registry.ts";
 import { resolveProjectPipeline } from "./project-pipeline-resolution.ts";
@@ -25,6 +25,7 @@ const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
 };
 
 const DEFAULT_TERMINAL_ACTION = "leave-draft";
+const DEFAULT_SUPERSEDE = "close";
 
 function config(projectKey: string, pipeline: unknown): ProjectPipelineConfig {
   return { projectKey, pipeline };
@@ -34,8 +35,18 @@ function pipelineConfig(
   name: string,
   terminalAction = DEFAULT_TERMINAL_ACTION,
   reviewOverrides?: Record<string, string>,
+  supersede?: string,
 ): Record<string, unknown> {
-  return reviewOverrides === undefined ? { name, terminalAction } : { name, terminalAction, reviewOverrides };
+  const base = reviewOverrides === undefined ? { name, terminalAction } : { name, terminalAction, reviewOverrides };
+  return supersede === undefined ? base : { ...base, supersede };
+}
+
+function admittedDefinition(
+  source: PipelineDefinition,
+  terminalAction: PipelineTerminalAction,
+  supersede: PipelineSupersedePolicy = DEFAULT_SUPERSEDE,
+): PipelineDefinition {
+  return { ...source, terminalAction, supersede };
 }
 
 const NO_IMPLEMENT_PIPELINE: PipelineDefinition = {
@@ -109,7 +120,7 @@ describe("resolveProjectPipeline", () => {
     if (!selected.ok) throw new Error("expected source definition");
     expect(resolved).toEqual({
       ok: true,
-      definition: { ...selected.definition, terminalAction: DEFAULT_TERMINAL_ACTION },
+      definition: admittedDefinition(selected.definition, DEFAULT_TERMINAL_ACTION),
     });
     expect(resolved.ok && resolved.definition).not.toBe(selected.definition);
 
@@ -142,6 +153,31 @@ describe("resolveProjectPipeline", () => {
     ["null terminalAction", { name: "fast", terminalAction: null }, "projects.demo.pipeline.terminalAction"],
     ["non-string terminalAction", { name: "fast", terminalAction: 1 }, "projects.demo.pipeline.terminalAction"],
     ["unknown terminalAction", { name: "fast", terminalAction: "publish" }, "projects.demo.pipeline.terminalAction"],
+    [
+      "empty supersede",
+      { name: "fast", terminalAction: "leave-draft", supersede: "" },
+      "projects.demo.pipeline.supersede",
+    ],
+    [
+      "null supersede",
+      { name: "fast", terminalAction: "leave-draft", supersede: null },
+      "projects.demo.pipeline.supersede",
+    ],
+    [
+      "non-string supersede",
+      { name: "fast", terminalAction: "leave-draft", supersede: 1 },
+      "projects.demo.pipeline.supersede",
+    ],
+    [
+      "unknown supersede",
+      { name: "fast", terminalAction: "leave-draft", supersede: "discard" },
+      "projects.demo.pipeline.supersede",
+    ],
+    [
+      "whitespace-only supersede",
+      { name: "fast", terminalAction: "leave-draft", supersede: "   " },
+      "projects.demo.pipeline.supersede",
+    ],
     [
       "null overrides",
       pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, null as unknown as Record<string, string>),
@@ -242,7 +278,7 @@ describe("resolveProjectPipeline", () => {
       { stageId: "implement-step", kind: "workflow", workflow: "implement", review: "light" },
     ]);
     expect(second.definition.stages).toEqual(source.stages);
-    expect(second.definition).toEqual({ ...source, terminalAction: "ready" });
+    expect(second.definition).toEqual(admittedDefinition(source, "ready"));
     expect(first.definition).not.toBe(source);
     expect(second.definition).not.toBe(source);
     expect(first.definition).not.toBe(second.definition);
@@ -295,14 +331,64 @@ describe("resolveProjectPipeline", () => {
     const source = getPipelineDefinition(pipelineName);
     if (!source.ok) throw new Error("expected source definition");
 
-    expect(first.definition).toEqual({ ...source.definition, terminalAction });
-    expect(second.definition).toEqual({ ...source.definition, terminalAction });
+    expect(first.definition).toEqual(admittedDefinition(source.definition, terminalAction));
+    expect(second.definition).toEqual(admittedDefinition(source.definition, terminalAction));
     expect(first.definition).not.toBe(source.definition);
     expect(second.definition).not.toBe(source.definition);
     expect(first.definition).not.toBe(second.definition);
     expect(first.definition.terminalAction).toBe(terminalAction);
     first.definition.terminalAction = "merge";
     expect(second.definition.terminalAction).toBe(terminalAction);
+  });
+
+  test("resolves supersede into isolated admitted definitions with registry copy isolation", () => {
+    const first = resolveProjectPipeline(
+      config("first", pipelineConfig("fast")),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    const second = resolveProjectPipeline(
+      config("second", pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, undefined, "keep")),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) throw new Error("expected successful resolutions");
+
+    const source = getPipelineDefinition("fast");
+    if (!source.ok) throw new Error("expected source definition");
+
+    expect(first.definition).toEqual(admittedDefinition(source.definition, DEFAULT_TERMINAL_ACTION, "close"));
+    expect(second.definition).toEqual(admittedDefinition(source.definition, DEFAULT_TERMINAL_ACTION, "keep"));
+    expect(source.definition.supersede).toBeUndefined();
+    expect(first.definition).not.toBe(source.definition);
+    expect(second.definition).not.toBe(source.definition);
+    expect(first.definition).not.toBe(second.definition);
+    expect(first.definition.supersede).toBe("close");
+    first.definition.supersede = "keep";
+    expect(second.definition.supersede).toBe("keep");
+  });
+
+  test("rejects unknown supersede values before lookup with terminalAction message parity", () => {
+    let lookupCalls = 0;
+    const result = resolveProjectPipeline(
+      config("demo", { name: "fast", terminalAction: "leave-draft", supersede: "discard" }),
+      (name) => {
+        lookupCalls += 1;
+        return getPipelineDefinition(name);
+      },
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+
+    expectFailure(result);
+    expect(result.error).toEqual({
+      code: "invalid-project-pipeline-config",
+      key: "projects.demo.pipeline.supersede",
+      message: 'projects.demo.pipeline.supersede has unknown value "discard"',
+    });
+    expect(lookupCalls).toBe(0);
   });
 
   test("rejects unknown terminal actions and approval conflicts before admission", () => {
@@ -375,6 +461,7 @@ describe("resolveProjectPipeline", () => {
     const composed: PipelineDefinition = {
       ...source,
       terminalAction: DEFAULT_TERMINAL_ACTION,
+      supersede: DEFAULT_SUPERSEDE,
       stages: [
         { stageId: "plan-a", kind: "workflow", workflow: "plan", review: "heavy" },
         { stageId: "plan-b", kind: "workflow", workflow: "plan", review: "massive" },

@@ -4,7 +4,7 @@ Canonical cross-file contract for pipeline definition, admission, stage lifecycl
 
 ## Definitions and registry
 
-A pipeline definition (`PipelineDefinition` in `pipeline-definition.ts`) is a `name`, optional `terminalAction` (`leave-draft` | `ready` | `merge` from `PIPELINE_TERMINAL_ACTIONS`), and ordered `stages`:
+A pipeline definition (`PipelineDefinition` in `pipeline-definition.ts`) is a `name`, optional `terminalAction` (`leave-draft` | `ready` | `merge` from `PIPELINE_TERMINAL_ACTIONS`), optional `supersede` (`close` | `keep` from `PIPELINE_SUPERSEDE_POLICIES`; source-registry rows omit it; admitted definitions always carry the resolved value), and ordered `stages`:
 
 - **Workflow stage** — `{ stageId, kind: "workflow", workflow, review }` where admitted `workflow` values are `intent`, `plan`, and `implement` only (`BASE_WORKFLOW_NAMES`); a name registered as standalone-only in `PIPELINE_ELIGIBILITY` (e.g. `review-feedback`) is not a valid stage workflow and fails with `standalone-only-workflow`, not `unknown-workflow` for being outside `BASE_WORKFLOW_NAMES`. `review` ∈ `none` | `light` | `debate`.
 - **Approval stage** — `{ stageId, kind: "approval" }`.
@@ -13,7 +13,7 @@ Workflow/review realizability and posture → preset realization live in `workfl
 
 `getPipelineDefinition` (`pipeline-registry.ts`) is a total lookup: `{ ok: true, definition }` or `{ ok: false, error: { code: "unknown-pipeline" } }`. Shipped definitions: `full-review`, `full-light-review` (the same gated shape with `light` review on plan and implement), `fast`. Tests: `pipeline-registry.test.ts`.
 
-`resolveProjectPipeline` (`project-pipeline-resolution.ts`) merges registry rows with per-project `terminalAction` and `reviewOverrides`; refuses `invalid-project-pipeline-config`, `unknown-pipeline`, `invalid-pipeline-definition`, and terminal-action without an implement stage. Tests: `project-pipeline-resolution.test.ts`.
+`resolveProjectPipeline` (`project-pipeline-resolution.ts`) merges registry rows with per-project `terminalAction`, `supersede` (default `close`), and `reviewOverrides`; refuses `invalid-project-pipeline-config`, `unknown-pipeline`, `invalid-pipeline-definition`, and terminal-action without an implement stage. Tests: `project-pipeline-resolution.test.ts`.
 
 `pipeline-stage-resolve.ts` routes stage resolution through `preparePipelineStageWorkflow`. Shared stale-reset preflight from preparation runs for every git-enabled workflow stage (`intent`, `plan`, `implement`), including fan-out branch dispatch, before `dispatchPipelineStage`; refusal fails the stage without dispatch.
 

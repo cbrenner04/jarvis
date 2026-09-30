@@ -2,8 +2,10 @@ import { isRecord } from "../../../shared/is-record.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { ProjectPipelineConfig } from "../config/machine-config-loader.ts";
 import {
+  PIPELINE_SUPERSEDE_POLICIES,
   PIPELINE_TERMINAL_ACTIONS,
   type PipelineDefinition,
+  type PipelineSupersedePolicy,
   type PipelineTerminalAction,
   type PipelineValidationError,
   validatePipelineDefinition,
@@ -31,6 +33,7 @@ type ProjectPipelineResolutionResult =
 type ParsedProjectPipeline = {
   name: string;
   terminalAction: PipelineTerminalAction;
+  supersede: PipelineSupersedePolicy;
   reviewOverrides: Array<[stageId: string, posture: string]>;
 };
 
@@ -47,7 +50,7 @@ function parseProjectPipeline(
   }
 
   for (const key of Object.keys(config.pipeline)) {
-    if (key !== "name" && key !== "terminalAction" && key !== "reviewOverrides") {
+    if (key !== "name" && key !== "terminalAction" && key !== "supersede" && key !== "reviewOverrides") {
       const offendingKey = `${pipelineKey}.${key}`;
       return invalid(offendingKey, `${offendingKey} is not allowed`);
     }
@@ -73,6 +76,22 @@ function parseProjectPipeline(
     return invalid(terminalActionKey, `${terminalActionKey} has unknown value "${rawTerminalAction}"`);
   }
 
+  const supersedeKey = `${pipelineKey}.supersede`;
+  const rawSupersede = config.pipeline.supersede;
+  let supersede: PipelineSupersedePolicy = "close";
+  if (rawSupersede !== undefined) {
+    if (typeof rawSupersede !== "string") {
+      return invalid(supersedeKey, `${supersedeKey} must be a string`);
+    }
+    if (rawSupersede.length === 0) {
+      return invalid(supersedeKey, `${supersedeKey} must be a non-empty string`);
+    }
+    if (!(PIPELINE_SUPERSEDE_POLICIES as readonly string[]).includes(rawSupersede)) {
+      return invalid(supersedeKey, `${supersedeKey} has unknown value "${rawSupersede}"`);
+    }
+    supersede = rawSupersede as PipelineSupersedePolicy;
+  }
+
   const reviewOverridesKey = `${pipelineKey}.reviewOverrides`;
   const rawOverrides = config.pipeline.reviewOverrides;
   if (rawOverrides !== undefined && !isRecord(rawOverrides)) {
@@ -93,6 +112,7 @@ function parseProjectPipeline(
     pipeline: {
       name: config.pipeline.name,
       terminalAction: rawTerminalAction as PipelineTerminalAction,
+      supersede,
       reviewOverrides,
     },
   };
@@ -130,6 +150,7 @@ export function resolveProjectPipeline(
   }
 
   definition.terminalAction = parsed.pipeline.terminalAction;
+  definition.supersede = parsed.pipeline.supersede;
 
   const pipelineKey = `projects.${config.projectKey}.pipeline`;
   const terminalActionKey = `${pipelineKey}.terminalAction`;

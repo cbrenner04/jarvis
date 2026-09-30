@@ -9,6 +9,9 @@ import { isStandaloneOnlyPipelineWorkflow } from "./workflow-presets.ts";
 export const PIPELINE_TERMINAL_ACTIONS = ["leave-draft", "ready", "merge"] as const;
 export type PipelineTerminalAction = (typeof PIPELINE_TERMINAL_ACTIONS)[number];
 
+export const PIPELINE_SUPERSEDE_POLICIES = ["close", "keep"] as const;
+export type PipelineSupersedePolicy = (typeof PIPELINE_SUPERSEDE_POLICIES)[number];
+
 const POSTURE_REQUIRED_ROLES = {
   light: ["critic", "actuator"],
   debate: ["adversary", "advocate", "adjudicator", "actuator"],
@@ -57,6 +60,7 @@ export interface PipelineDefinition {
   name: string;
   stages: PipelineStage[];
   terminalAction?: PipelineTerminalAction;
+  supersede?: PipelineSupersedePolicy;
 }
 
 function collectDuplicateStageIdErrors(stages: PipelineStage[], errors: PipelineValidationError[]): void {

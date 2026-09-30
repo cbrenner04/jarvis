@@ -73,10 +73,19 @@ export function reconcileReviewFeedbackItems(args: {
   };
 }
 
+function isCaptureArtifactShape(value: unknown): value is PrReviewInputCaptureArtifact {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.threads) && Array.isArray(record.topLevelComments);
+}
+
 function tryReadCaptureArtifact(laneWorktreePath: string): PrReviewInputCaptureArtifact | null {
   try {
     const raw = readFileSync(resolvePrReviewInputArtifactPath(laneWorktreePath), "utf8");
-    return JSON.parse(raw) as PrReviewInputCaptureArtifact;
+    const parsed: unknown = JSON.parse(raw);
+    return isCaptureArtifactShape(parsed) ? parsed : null;
   } catch {
     return null;
   }

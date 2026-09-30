@@ -56,6 +56,21 @@ describe("review-feedback item reconciliation", () => {
     expect(result.reviewFeedbackAddressedItemIds).not.toContain("thread-a");
   });
 
+  test("reconcileReviewFeedbackItemsAtLaneWorktree returns empty buckets when capture JSON lacks thread arrays", () => {
+    const laneWorktreePath = trackedMkdtempSync(join(tmpdir(), "review-feedback-reconcile-invalid-shape-"));
+    try {
+      writeFileSync(resolvePrReviewInputArtifactPath(laneWorktreePath), "{}\n", "utf8");
+      const result = reconcileReviewFeedbackItemsAtLaneWorktree(laneWorktreePath);
+      expect(result).toEqual({
+        reviewFeedbackAddressedItemIds: [],
+        reviewFeedbackDeclinedItemIds: [],
+        reviewFeedbackUnaddressedItemIds: [],
+      });
+    } finally {
+      rmSync(laneWorktreePath, { recursive: true, force: true });
+    }
+  });
+
   test("reconcileReviewFeedbackItemsAtLaneWorktree returns empty buckets when capture artifact is absent", () => {
     const laneWorktreePath = trackedMkdtempSync(join(tmpdir(), "review-feedback-reconcile-no-artifact-"));
     try {

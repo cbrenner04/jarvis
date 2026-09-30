@@ -63,6 +63,28 @@ function missingDurableStepSatisfiedByPriorLane(
   );
 }
 
+/** `next` when the durable step is satisfied; otherwise the rollup verdict to return. */
+function durableStepVerdict(
+  entryRun: Run,
+  step: { stepId: string },
+  index: number,
+  steps: readonly { stepId: string }[],
+  siblingRuns: readonly Run[],
+  runsForStep: readonly Run[],
+  priorLaneRuns: readonly Run[] | undefined,
+): WorkflowRunRollup | "next" {
+  const stepRun = authoredStepRun(runsForStep);
+  if (stepRun === undefined) {
+    if (missingDurableStepSatisfiedByPriorLane(entryRun, step.stepId, priorLaneRuns)) return "next";
+    return { status: "killed" };
+  }
+  if (stepRun.status !== "completed") return { status: stepRun.status, causeRun: stepRun };
+  if (stepRun.stepId?.includes(LINK_STEP_ID_INFIX) && !linkedRoutingFinished(siblingRuns, steps, index)) {
+    return { status: "killed" };
+  }
+  return "next";
+}
+
 /**
  * Computes the workflow-level status from a workflow invocation's durable rows.
  * The rollup applies only to the invocation's entry row; sibling rows keep their own status.
@@ -100,15 +122,16 @@ export function resolveWorkflowRunRollup(args: RollupArgs): WorkflowRunRollup {
   const steps = workflowSnapshot.steps;
   for (const [index, step] of steps.entries()) {
     if (step.durable === false) continue;
-    const stepRun = authoredStepRun(runsByStepId.get(step.stepId) ?? []);
-    if (stepRun === undefined) {
-      if (missingDurableStepSatisfiedByPriorLane(entryRun, step.stepId, priorLaneRuns)) continue;
-      return { status: "killed" };
-    }
-    if (stepRun.status !== "completed") return { status: stepRun.status, causeRun: stepRun };
-    if (stepRun.stepId?.includes(LINK_STEP_ID_INFIX) && !linkedRoutingFinished(siblingRuns, steps, index)) {
-      return { status: "killed" };
-    }
+    const verdict = durableStepVerdict(
+      entryRun,
+      step,
+      index,
+      steps,
+      siblingRuns,
+      runsByStepId.get(step.stepId) ?? [],
+      priorLaneRuns,
+    );
+    if (verdict !== "next") return verdict;
   }
 
   return { status: "completed" };

@@ -14,7 +14,17 @@ import {
   renderPatchReviewCriticPrompt,
   renderReviewDebateActuatorPrompt,
   renderReviewDebateCyclePrompts,
+  renderReviewDebateRolePrompt,
 } from "./review-implement.ts";
+
+const FALSIFIABILITY_RENDER_MARKERS = {
+  mandate: "would fail against the pre-change code implied by the branch diff context",
+  passesBeforeAndAfter: "would pass before and after the change as a finding in itself",
+  defectShape: "re-derives the production rule instead of asserting the intended outcome independently",
+  emptyVerdictCritic: "emit an empty verdict (critic)",
+  noManufactured: "report no manufactured problems (adversary)",
+  advocateConcede: "concede only findings the evidence supports (advocate)",
+} as const;
 
 const tempDirs: string[] = [];
 
@@ -164,4 +174,20 @@ test("whitespace-only repo guidance omits its declared optional section", () => 
   expect(rendered).not.toContain("## Repo Guidance");
   expect(rendered).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
   expect(rendered).toContain("Read the spec at spec/example/index.md.\nFollow these Jarvis rules:");
+});
+
+test("implement review critic, adversary, and advocate renders include falsifiability mandate, defect-shape taxonomy, and empty-verdict-when-nothing-found", async () => {
+  const context = reviewContext();
+  const runner = realAsyncSubprocessRunner;
+  const critic = await renderPatchReviewCriticPrompt(context, runner);
+  const adversary = await renderReviewDebateRolePrompt("adversary", context, undefined, runner);
+  const advocate = await renderReviewDebateRolePrompt("advocate", context, "(none)", runner);
+  for (const rendered of [critic, adversary, advocate]) {
+    expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.mandate);
+    expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.passesBeforeAndAfter);
+    expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.defectShape);
+  }
+  expect(critic).toContain(FALSIFIABILITY_RENDER_MARKERS.emptyVerdictCritic);
+  expect(adversary).toContain(FALSIFIABILITY_RENDER_MARKERS.noManufactured);
+  expect(advocate).toContain(FALSIFIABILITY_RENDER_MARKERS.advocateConcede);
 });

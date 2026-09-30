@@ -13,16 +13,23 @@ const RENDER_OBSERVER_TESTS: Readonly<Record<string, readonly string[]>> = {
     "shared/prompts/review-implement.test.ts",
     "shared/prompts/review-implement-contract-preservation.test.ts",
     "shared/prompts/review-implement-growth-budget.test.ts",
+    "shared/prompts/review-falsifiability-fragment.test.ts",
   ],
   "prompts/implement/review-advocate.md": [
     "shared/prompts/review-implement.test.ts",
     "shared/prompts/review-implement-contract-preservation.test.ts",
     "shared/prompts/review-implement-growth-budget.test.ts",
+    "shared/prompts/review-falsifiability-fragment.test.ts",
   ],
   "prompts/implement/review-critic.md": [
     "shared/prompts/review-implement.test.ts",
     "shared/prompts/review-implement-contract-preservation.test.ts",
     "shared/prompts/review-implement-growth-budget.test.ts",
+    "shared/prompts/review-falsifiability-fragment.test.ts",
+  ],
+  "prompts/implement/review-falsifiability.md": [
+    "shared/prompts/review-falsifiability-fragment.test.ts",
+    "shared/prompts/review-implement.test.ts",
   ],
   "prompts/intent/review-adjudicator.md": ["shared/prompts/review-profile.test.ts"],
   "prompts/intent/review-advocate.md": ["shared/prompts/review-profile.test.ts"],

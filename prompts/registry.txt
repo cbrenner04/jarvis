@@ -13,6 +13,7 @@ plan/review-actuator.md
 implement/shrink.md
 implement/instructions.md
 implement/rules.md
+implement/review-falsifiability.md
 implement/review-adversary.md
 implement/review-advocate.md
 implement/review-adjudicator.md

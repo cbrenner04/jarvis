@@ -7,9 +7,9 @@ import { classifyNeverLandedLane, listDirtyWorktreePathsForStaleReset } from "..
 import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
 import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
+import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publisher.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
-import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publisher.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
 import {
   executeTerminalPublication,

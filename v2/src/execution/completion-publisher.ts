@@ -5,6 +5,7 @@ import {
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import type { StateStore } from "../persistence/state-store.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import {
@@ -17,7 +18,6 @@ import {
 } from "./publication-retry.ts";
 import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
-import type { StateStore } from "../persistence/state-store.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 
 export type HarnessReadyFlipEvidenceLookup = (args: { branch: string; baseRef: string; prNumber: number }) => boolean;

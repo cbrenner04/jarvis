@@ -17,10 +17,10 @@
 
 ## Task checklist
 
-- [ ] Add `write-loop.test.ts` coverage that drives one settled main-loop iteration through `checkpointSettledIteration` / `commitSettledIteration` with the production committer, the ignore-only fixture, materialized symlink, and authored change; assert `iteration_commit` carries a fresh `commitSha` whose tree matches the contract.
-- [ ] Add a `// Mutation checkpoint:` comment on the new test tying failure to narrowing `completionStageArgs` in `v2/src/execution/completion-commit.ts` to bare `git add -A` (established `write-loop.test.ts` inversion pattern).
-- [ ] Update `v2/docs/write-behavior.md` per **Documentation updates**.
-- [ ] Update `v2/docs/v1-behaviors.md` per **Documentation updates**.
+- [x] Add `write-loop.test.ts` coverage that drives one settled main-loop iteration through `checkpointSettledIteration` / `commitSettledIteration` with the production committer, the ignore-only fixture, materialized symlink, and authored change; assert `iteration_commit` carries a fresh `commitSha` whose tree matches the contract.
+- [x] Add a `// Mutation checkpoint:` comment on the new test tying failure to narrowing `completionStageArgs` in `v2/src/execution/completion-commit.ts` to bare `git add -A` (established `write-loop.test.ts` inversion pattern).
+- [x] Update `v2/docs/write-behavior.md` per **Documentation updates**.
+- [x] Update `v2/docs/v1-behaviors.md` per **Documentation updates**.
 
 ## Acceptance criteria
 

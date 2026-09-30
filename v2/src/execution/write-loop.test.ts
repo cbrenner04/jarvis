@@ -11,6 +11,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -11231,6 +11232,12 @@ index 1234567..abcdefg 100644
       }));
 
       try {
+        const nodeModulesPath = join(worktreePath, "node_modules");
+        const expectedNodeModulesTarget = join(biomeRepoRoot, "node_modules");
+        expect(lstatSync(nodeModulesPath).isSymbolicLink()).toBe(true);
+        expect(readlinkSync(nodeModulesPath)).toBe(expectedNodeModulesTarget);
+        expect(gitIn(worktreePath, ["ls-files", "node_modules"]).trim()).toBe("");
+
         const result = await executeWriteLoop(
           iterLoopInput(jarvisRoot, branchName, store, { maxIterations: 1, logSink: sink }),
         );

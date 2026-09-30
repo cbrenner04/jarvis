@@ -337,6 +337,28 @@ describe("group-mode termination lifecycle", () => {
     return `process.on('SIGTERM', () => {}); require('fs').writeFileSync(${JSON.stringify(readyFile)}, 'ready'); setInterval(() => {}, 1000);`;
   }
 
+  /**
+   * SIGKILLs a fixture's process group and asserts it is gone, so a failed assertion (or a runner
+   * exiting before the production grace timer fires) can't orphan a SIGTERM-ignoring child.
+   */
+  async function reapGroup(pgid: number | undefined): Promise<void> {
+    if (pgid === undefined) return;
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+    for (let i = 0; i < 100; i++) {
+      try {
+        process.kill(-pgid, 0);
+      } catch {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(() => process.kill(-pgid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+  }
+
   function errnoError(code: string): NodeJS.ErrnoException {
     const error = new Error(code) as NodeJS.ErrnoException;
     error.code = code;
@@ -345,6 +367,7 @@ describe("group-mode termination lifecycle", () => {
 
   test("timeout rejects only after process.kill(-pgid, 0) confirms ESRCH", async () => {
     const readyFile = scratchPath("subprocess-test-timeout-esrch");
+    let pgid: number | undefined;
     let probeConfirmedAt: number | undefined;
     const realKill = process.kill.bind(process);
     const killSpy = spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
@@ -364,7 +387,11 @@ describe("group-mode termination lifecycle", () => {
     try {
       const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", resistantScript(readyFile)], cwd, {
         timeoutMs: 80,
-        processGroup: {},
+        processGroup: {
+          onGroupId: (id) => {
+            pgid = id;
+          },
+        },
       });
 
       await waitForFile(readyFile);
@@ -377,12 +404,14 @@ describe("group-mode termination lifecycle", () => {
       expect(settledAt - (probeConfirmedAt as number)).toBeLessThan(50);
     } finally {
       killSpy.mockRestore();
+      await reapGroup(pgid);
       rmSync(readyFile, { force: true });
     }
   }, 5000);
 
   test("timeout keeps its promise pending through the 50ms SIGTERM grace", async () => {
     const readyFile = scratchPath("subprocess-test-timeout-grace");
+    let pgid: number | undefined;
     let sigtermAt: number | undefined;
     const realKill = process.kill.bind(process);
     const killSpy = spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
@@ -393,7 +422,11 @@ describe("group-mode termination lifecycle", () => {
     try {
       const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", resistantScript(readyFile)], cwd, {
         timeoutMs: 80,
-        processGroup: {},
+        processGroup: {
+          onGroupId: (id) => {
+            pgid = id;
+          },
+        },
       });
       let settledFlag = false;
       promise.catch(() => {
@@ -416,6 +449,7 @@ describe("group-mode termination lifecycle", () => {
       expect(settledFlag).toBe(true);
     } finally {
       killSpy.mockRestore();
+      await reapGroup(pgid);
       rmSync(readyFile, { force: true });
     }
   }, 5000);

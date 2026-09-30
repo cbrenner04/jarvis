@@ -15,9 +15,17 @@ import {
   type Run,
   type StateStore,
 } from "../persistence/state-store.ts";
-import { captureIo, cliMain, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import {
-  formatReviewFeedbackWorkflowAdmissionRefusal,
+  COMPLETED_WAIT_RESULT,
+  captureIo,
+  cliMain,
+  makeStaleResetIpcClient,
+  workflowFrames,
+  writeHomeMachineConfig,
+  withWorkflowUuids,
+} from "../testing/cli-test-helpers.ts";
+import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import {
   prepareReviewFeedbackWorkflowAdmission,
   REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
   runReviewFeedbackWorkflowCommand,
@@ -156,6 +164,7 @@ type AdmissionPrView = {
   state: string;
   headRefName: string;
   url: string;
+  isDraft: boolean;
   reviews: Array<{ submittedAt?: string | null }>;
 };
 
@@ -164,6 +173,7 @@ function openReviewedAdmissionView(overrides: Partial<AdmissionPrView> = {}): Ad
     state: "OPEN",
     headRefName: BRANCH,
     url: "https://github.com/owner/repo/pull/42",
+    isDraft: true,
     reviews: [{ submittedAt: "2026-05-10T00:00:00Z" }],
     ...overrides,
   };
@@ -179,7 +189,7 @@ function createGhRunner(options: { admissionView: AdmissionPrView; captureThrows
   return {
     runAsync: async (cmd, args, cwd) => {
       if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
-      if (args[0] === "pr" && args[1] === "view" && args.includes("state,headRefName,url,reviews")) {
+      if (args[0] === "pr" && args[1] === "view" && args.some((arg) => arg.includes("isDraft"))) {
         return JSON.stringify(options.admissionView);
       }
       if (options.captureThrows != null) throw options.captureThrows;
@@ -229,15 +239,27 @@ function runtimeDepsForStore(store: ReviewFeedbackLaneResolutionStore, runner: A
   });
 }
 
-async function expectWriteNotAvailableAfterAdmission(
+const DISPATCH_RUN_ID = "review-feedback-dispatch-run";
+
+async function expectDispatchAfterAdmission(
   store: ReviewFeedbackLaneResolutionStore,
   runner: AsyncSubprocessRunner,
   parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
 ) {
   const cap = captureIo();
-  const code = await runReviewFeedbackWorkflowCommand([], parsed, cap.io, runtimeDepsForStore(store, runner));
-  expect(code).toBe(1);
-  expect(cap.read().stderr).toContain(REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE);
+  const code = await withFixedUuid(["dispatch-start", "dispatch-wait"], async () =>
+    runReviewFeedbackWorkflowCommand([], parsed, cap.io, {
+      ...runtimeDepsForStore(store, runner),
+      connectIpcClient: async () =>
+        makeStaleResetIpcClient(
+          workflowFrames("dispatch-start", "dispatch-wait", DISPATCH_RUN_ID, COMPLETED_WAIT_RESULT),
+        ),
+    }),
+  );
+  expect(code).toBe(0);
+  const output = cap.read();
+  expect(output.stderr).not.toContain(REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE);
+  expect(output.stdout).toContain(`${DISPATCH_RUN_ID}\n`);
 }
 
 async function prepareOk(run: Run, runner: AsyncSubprocessRunner) {
@@ -268,7 +290,7 @@ describe("review-feedback workflow admission", () => {
     expect(writeStep?.behavior).toBe("write");
     expect(writeStep?.behavior === "write" && writeStep.role).toBe("plan");
 
-    await expectWriteNotAvailableAfterAdmission(memoryStore({ runs: [run] }), runner, {
+    await expectDispatchAfterAdmission(memoryStore({ runs: [run] }), runner, {
       ok: true,
       branch: BRANCH,
     });
@@ -289,7 +311,7 @@ describe("review-feedback workflow admission", () => {
     const preparation = await prepareOk(run, runner);
     const writeStep = preparation.steps[0];
     expect(writeStep?.behavior === "write" && writeStep.role).toBe("plan");
-    await expectWriteNotAvailableAfterAdmission(memoryStore({ runs: [run] }), runner, { ok: true, branch: BRANCH });
+    await expectDispatchAfterAdmission(memoryStore({ runs: [run] }), runner, { ok: true, branch: BRANCH });
   });
 
   test("prepares a completed bare implement lane", async () => {
@@ -307,7 +329,7 @@ describe("review-feedback workflow admission", () => {
     const preparation = await prepareOk(run, runner);
     const writeStep = preparation.steps[0];
     expect(writeStep?.behavior === "write" && writeStep.role).toBe("implement");
-    await expectWriteNotAvailableAfterAdmission(memoryStore({ runs: [run] }), runner, { ok: true, branch: BRANCH });
+    await expectDispatchAfterAdmission(memoryStore({ runs: [run] }), runner, { ok: true, branch: BRANCH });
   });
 
   test("prepares a completed pipeline stage with disambiguators", async () => {
@@ -339,7 +361,7 @@ describe("review-feedback workflow admission", () => {
     };
     const outcome = await prepareReviewFeedbackWorkflowAdmission(parsed, admissionDeps(store, runner));
     expect(outcome.ok).toBe(true);
-    await expectWriteNotAvailableAfterAdmission(store, runner, parsed);
+    await expectDispatchAfterAdmission(store, runner, parsed);
   });
 
   test("prepares a fan-out pipeline stage when --branch-key disambiguates sibling rows", async () => {
@@ -419,7 +441,7 @@ describe("review-feedback workflow admission", () => {
     if (writeStep?.behavior !== "write") throw new Error("expected write step");
     expect(writeStep.worktree.branchName).toBe("resolved-branch");
     expect(getExternalWorktreePath(writeStep.worktree)).toBe(laneWorktree);
-    await expectWriteNotAvailableAfterAdmission(
+    await expectDispatchAfterAdmission(
       memoryStore({ runs: [run] }),
       createGhRunner({ admissionView: openReviewedAdmissionView({ headRefName: "resolved-branch" }) }),
       { ok: true, branch: "resolved-branch" },
@@ -549,31 +571,30 @@ describe("review-feedback workflow admission", () => {
     expect(outcome).toMatchObject({ ok: false, refusal: { code: "review_feedback_capture_failed" } });
   });
 
-  test("CLI admission refuses with stable code and does not contact the daemon", async () => {
+  test("CLI admission dispatches through the daemon after successful preparation", async () => {
     const run = baseRun({ id: "intent-entry", worktreePath: worktreePathForCapture });
-    const sent: unknown[] = [];
     const cap = captureIo();
-    const code = await cliMain(
-      ["run", "workflow", "review-feedback", "--branch", BRANCH],
-      cap.io,
-      createRuntimeDeps({
-        cwd: () => fixtureRoot,
-        readProjectRegistry: () => ({ [PROJECT]: { root: fixtureRoot } }),
-        machineConfigPath,
-        reviewFeedbackLaneStore: memoryStore({ runs: [run] }),
-        subprocessRunner: createGhRunner({ admissionView: openReviewedAdmissionView() }),
-        connectIpcClient: async () => {
-          throw new Error("daemon must not be contacted");
-        },
-      }),
+    const code = await withWorkflowUuids("cli-dispatch-start", "cli-dispatch-wait", async () =>
+      cliMain(
+        ["run", "workflow", "review-feedback", "--branch", BRANCH, "--detach"],
+        cap.io,
+        createRuntimeDeps({
+          cwd: () => fixtureRoot,
+          readProjectRegistry: () => ({ [PROJECT]: { root: fixtureRoot } }),
+          machineConfigPath,
+          reviewFeedbackLaneStore: memoryStore({ runs: [run] }),
+          subprocessRunner: createGhRunner({ admissionView: openReviewedAdmissionView() }),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(
+              workflowFrames("cli-dispatch-start", "cli-dispatch-wait", DISPATCH_RUN_ID, COMPLETED_WAIT_RESULT),
+            ),
+          forceSkipAttachClientWait: true,
+        }),
+      ),
     );
-    expect(code).toBe(1);
-    expect(sent).toHaveLength(0);
-    expect(cap.read().stderr).toContain(
-      formatReviewFeedbackWorkflowAdmissionRefusal({
-        code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
-        message: "review-feedback write dispatch is not available yet",
-      }),
-    );
+    expect(code).toBe(0);
+    const output = cap.read();
+    expect(output.stderr).not.toContain(REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE);
+    expect(output.stdout).toContain(`${DISPATCH_RUN_ID}\n`);
   });
 });

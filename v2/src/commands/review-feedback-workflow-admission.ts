@@ -1,10 +1,17 @@
 import { findProjectMatch } from "../../../shared/project-registry.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
+import { formatRpcError, request } from "../cli/ipc.ts";
 import type { Io } from "../cli/io.ts";
+import { waitForRunCompletion } from "../cli/run-completion.ts";
+import { withConnectDispatch } from "../cli/stale-dispatch.ts";
+import { parseStartResult } from "../daemon/daemon-wire.ts";
+import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publisher.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { ReviewFeedbackAdmissionRefusalCode } from "../execution/review-feedback-admission-prelude.ts";
 import { runReviewFeedbackAdmissionPrelude } from "../execution/review-feedback-admission-prelude.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import { RpcError } from "../ipc/rpc-errors.ts";
 import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import {
   type ReviewFeedbackLaneBareRequest,
@@ -13,7 +20,7 @@ import {
   type ReviewFeedbackLaneResolutionStore,
   resolveReviewFeedbackLane,
 } from "../persistence/review-feedback-lane-resolution.ts";
-import { openStateStore } from "../persistence/state-store.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import type { ReviewFeedbackWorkflowCliInput } from "./workflow-args.ts";
 import { prepareWorkflowStart, type WorkflowStartPreparationResult } from "./workflow-start-preparation.ts";
@@ -62,6 +69,49 @@ type ReviewFeedbackWorkflowAdmissionDeps = {
   projectRoot: string;
 };
 
+type HarnessReadyFlipEvidenceStore = Pick<StateStore, "loadRun" | "findNewestHarnessReadyFlipEvidenceInLineage">;
+
+function harnessReadyFlipLookup(
+  store: ReviewFeedbackLaneResolutionStore,
+  entryRunId: string,
+): ReturnType<typeof bindHarnessReadyFlipEvidenceLookup> {
+  if (!("loadRun" in store) || !("findNewestHarnessReadyFlipEvidenceInLineage" in store)) {
+    return undefined;
+  }
+  return bindHarnessReadyFlipEvidenceLookup(store as HarnessReadyFlipEvidenceStore & StateStore, entryRunId);
+}
+
+function reviewFeedbackWorkflowDetach(workflowArgv: readonly string[]): boolean {
+  return workflowArgv.includes("--detach");
+}
+
+async function startReviewFeedbackWorkflowRun(
+  client: IpcClient,
+  preparation: Extract<WorkflowStartPreparationResult, { ok: true }>,
+  detach: boolean,
+  io: Io,
+  deps: CliDeps,
+): Promise<number> {
+  let result: unknown;
+  try {
+    result = await request(client, "start", { steps: preparation.steps });
+  } catch (error) {
+    if (error instanceof RpcError) {
+      io.stderr(formatRpcError(error));
+      return 1;
+    }
+    throw error;
+  }
+  const start = parseStartResult(result);
+  if (start === undefined) {
+    io.stderr("invalid daemon response\n");
+    return 1;
+  }
+  io.stdout(`${start.runId}\n`);
+  if (detach || deps.forceSkipAttachClientWait) return 0;
+  return waitForRunCompletion(client, deps.attachWaitRunIdOverride ?? start.runId, io);
+}
+
 export async function prepareReviewFeedbackWorkflowAdmission(
   parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
   deps: ReviewFeedbackWorkflowAdmissionDeps,
@@ -73,7 +123,12 @@ export async function prepareReviewFeedbackWorkflowAdmission(
   if (!laneResult.ok) {
     return { ok: false, refusal: { code: laneResult.code, message: laneResult.message } };
   }
-  const prelude = await runReviewFeedbackAdmissionPrelude(laneResult.target, deps.subprocessRunner);
+  const findHarnessReadyFlipEvidenceInLineage = harnessReadyFlipLookup(deps.store, laneResult.target.entryRunId);
+  const prelude = await runReviewFeedbackAdmissionPrelude(
+    laneResult.target,
+    deps.subprocessRunner,
+    findHarnessReadyFlipEvidenceInLineage === undefined ? undefined : { findHarnessReadyFlipEvidenceInLineage },
+  );
   if (!prelude.ok) {
     return { ok: false, refusal: { code: prelude.code, message: prelude.message } };
   }
@@ -101,7 +156,7 @@ export async function prepareReviewFeedbackWorkflowAdmission(
 }
 
 export async function runReviewFeedbackWorkflowCommand(
-  _workflowArgv: readonly string[],
+  workflowArgv: readonly string[],
   parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
   io: Io,
   deps: CliDeps,
@@ -127,11 +182,10 @@ export async function runReviewFeedbackWorkflowCommand(
     io.stderr(`${formatReviewFeedbackWorkflowAdmissionRefusal(outcome.refusal)}\n`);
     return 1;
   }
-  io.stderr(
-    `${formatReviewFeedbackWorkflowAdmissionRefusal({
-      code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
-      message: "review-feedback write dispatch is not available yet",
-    })}\n`,
-  );
-  return 1;
+  const detach = reviewFeedbackWorkflowDetach(workflowArgv);
+  return withConnectDispatch(io, deps, async (client) => {
+    const resetExitCode = await outcome.preparation.runStaleResetPreflight(client);
+    if (resetExitCode !== undefined) return resetExitCode;
+    return startReviewFeedbackWorkflowRun(client, outcome.preparation, detach, io, deps);
+  });
 }

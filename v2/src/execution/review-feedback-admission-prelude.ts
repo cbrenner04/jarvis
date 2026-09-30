@@ -3,6 +3,7 @@ import {
   type AsyncSubprocessRunner,
   networkSubprocessOptions,
 } from "../../../shared/subprocess.ts";
+import type { HarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import {
   hasSubmittedPrReview,
@@ -16,6 +17,7 @@ export type ReviewFeedbackAdmissionRefusalCode =
   | "review_feedback_pr_no_review"
   | "review_feedback_pr_merged"
   | "review_feedback_pr_closed"
+  | "review_feedback_pr_not_draft"
   | "review_feedback_capture_failed";
 
 type ReviewFeedbackAdmissionPreludeResult =
@@ -26,7 +28,12 @@ type GhPrAdmissionView = {
   state?: string;
   headRefName?: string;
   url?: string;
+  isDraft?: boolean;
   reviews?: Array<{ submittedAt?: string | null }>;
+};
+
+export type ReviewFeedbackAdmissionPreludeOptions = {
+  findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
 };
 
 function refuse(code: ReviewFeedbackAdmissionRefusalCode, message: string): ReviewFeedbackAdmissionPreludeResult {
@@ -49,7 +56,7 @@ async function fetchPrAdmissionView(
 ): Promise<GhPrAdmissionView> {
   const stdout = await runner.runAsync(
     "gh",
-    ["pr", "view", String(prNumber), "--json", "state,headRefName,url,reviews"],
+    ["pr", "view", String(prNumber), "--json", "state,headRefName,url,reviews,isDraft"],
     worktreePath,
     networkSubprocessOptions(),
   );
@@ -59,6 +66,7 @@ async function fetchPrAdmissionView(
 export async function runReviewFeedbackAdmissionPrelude(
   target: ReviewFeedbackLaneTarget,
   runner: AsyncSubprocessRunner,
+  options?: ReviewFeedbackAdmissionPreludeOptions,
 ): Promise<ReviewFeedbackAdmissionPreludeResult> {
   let view: GhPrAdmissionView;
   try {
@@ -89,6 +97,21 @@ export async function runReviewFeedbackAdmissionPrelude(
       "review_feedback_pr_branch_mismatch",
       `PR #${target.prNumber} head branch ${JSON.stringify(view.headRefName)} does not match lane branch ${JSON.stringify(target.branch)}`,
     );
+  }
+
+  if (view.isDraft === false) {
+    const hasEvidence =
+      options?.findHarnessReadyFlipEvidenceInLineage?.({
+        branch: target.branch,
+        baseRef: target.baseRef,
+        prNumber: target.prNumber,
+      }) === true;
+    if (!hasEvidence) {
+      return refuse(
+        "review_feedback_pr_not_draft",
+        `PR #${target.prNumber} on branch ${JSON.stringify(target.branch)} is not a draft`,
+      );
+    }
   }
 
   if (!hasSubmittedPrReview(view.reviews ?? [])) {

@@ -10,6 +10,8 @@
 - Reuse the existing in-loop implement branch for `surviving-mutation` and `non-terminating-mutation` outcomes (checkpoint, `surviving_mutation_reprompt` + `write.surviving-mutation-reprompt`, or terminal `surviving_mutation_failed` / `non_terminating_mutation_failed` on budget exhaustion), not v1 patch shrink's `revertAllSince(preShrinkHead)` as the sole enforcement; rules out treating shrink survivors as publication-only failures with no shrink-row reprompt.
 - Gate the new call on shrink write loops only (`promptId === "implement.prompt.shrink"` or `bindingResolution?.role === "shrink"`), still before the per-iteration checkpoint; rules out running coverage advisory or this verifier on unrelated prompts.
 - Do not run the coverage advisory on shrink completions; rules out extending the implement-only advisory block to shrink.
+- Record pre-shrink HEAD (implement's verified tree) when the shrink row starts. If the shrink row's surviving-mutation reprompt budget exhausts, reset the worktree to pre-shrink HEAD (drop shrink commits, discard uncommitted edits) and settle the shrink row `complete` so publication proceeds on the verified tree; rules out a terminal `surviving_mutation_failed` caused solely by an optional shrink pass (rows `74c6fa62` deleted `work-boundary-telemetry.test.ts`, `2cb0de7d` rewrote `diff-scan.ts`).
+- File ownership vs sibling lanes: this spec owns the in-loop completion verification branch in `write-loop.ts` and `runShrinkAfterImplementComplete` in `workflow-runner.ts`. `publication-inflow-mutation-repair` owns `publishWithReadyRepair` survivor dispatch, the shared mutation-repair driver, and `workflow-runner.ts` completion-publication tails; `mutation-reprompt-colocated-fix-line` owns reprompt/repair `promptPlaceholders`. Do not edit those regions; rebase onto whichever lands first.
 
 ## Task checklist
 
@@ -21,6 +23,7 @@
 ## Acceptance criteria
 
 - [ ] `write-loop.test.ts` adds a shrink-loop case: after shrink settles `done`/`no-work` with a co-located killing test removed from coverage, run telemetry includes `surviving_mutation_reprompt` and the shrink row does not finish toward publication with terminal `loop_finished` `loopOutcomeKind: "complete"` until verification passes; fails against the pre-fix shrink-complete path.
+- [ ] Shrink-row exhaustion case (`write-loop.test.ts` or `workflow-runner-review.test.ts`): shrink commits a change that deletes the co-located killing test and every reprompt leaves the survivor; after the shrink row settles, worktree HEAD equals the recorded pre-shrink sha, `git status --porcelain` is empty, the shrink row is `complete`, and no terminal `surviving_mutation_failed` is appended; fails against the pre-fix path (shrink commit kept, publication fails).
 - [ ] `write-loop.test.ts` `"implement complete surviving mutation reprompts before publication"` stays green.
 - [ ] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.

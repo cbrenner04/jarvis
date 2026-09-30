@@ -20,7 +20,7 @@
 - [ ] `write-prompt.test.ts` asserts rendered `implement.prompt.shrink` includes the guard-test deletion prohibition in both the markdown Rules section and the final `STEP_RULES` block; fails against the pre-fix prompt and stepRules wiring.
 - [ ] `write.test.ts` `"implement.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block"` stays green.
 - [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [ ] `bun run test` passes (root `prompts/` is outside the scoped surfaces in `scripts/ci-test-scope.ts`, so the full suite is the scoped gate).
 
 ## Documentation updates
 

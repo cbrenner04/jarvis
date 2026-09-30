@@ -13,6 +13,7 @@
 - Each binding attempt in a fallback chain contributes only its own settlement on its row — rules out summing or forwarding prior-attempt usage onto a later row.
 - Duration is never used to estimate tokens — rules out `"estimated"` usage invented at telemetry build time.
 - Usage-capture problems append to `warnings` on the classified result; they do not change `kind` — rules out promoting a non-ok exit to `ok` when counters exist.
+- Out of scope: binding-side recovery in `shared/invocation/agents.ts` / `agents.test.ts` (owned by `agent-bindings-recover-usage-on-failed-settlement`) — rules out touching bindings here; this lane proves the mapper with injected bindings only.
 
 ## Tasks
 
@@ -27,7 +28,7 @@
 - [ ] `shared/invocation/execute.test.ts` — non-ok injected binding carrying `warnings` copies capped warning strings onto the `invocation_completed` row (same cap behavior as `ok`); fails against the pre-fix ok-only settlement branch in `createInvocationCompletedRecord`.
 - [ ] `shared/invocation/execute.test.ts` — `ok result with usage and cost records those exact values and sources` stays green.
 - [ ] `shared/invocation/execute.test.ts` — `appends one invocation_completed row per binding attempt in order` stays green.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -798,6 +798,9 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     }
 
     if (config.writeStdin && stdin) {
+      // A child that exits before reading its prompt closes the pipe (EPIPE); its exit settles the run,
+      // so swallow the stdin error instead of letting it escape as an unhandled 'error' event.
+      stdin.on("error", () => {});
       config.writeStdin(stdin, prompt);
     }
   });

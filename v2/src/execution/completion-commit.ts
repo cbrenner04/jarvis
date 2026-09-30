@@ -237,6 +237,8 @@ const EXCLUDE_MATERIALIZED_NODE_MODULES = ["--", ".", `:(exclude)${NODE_MODULES_
 // completion commit stages the whole worktree. The `glob` magic word (not the default pathspec
 // matching) is required for `**/` to match both the root and nested depths.
 const EXCLUDE_REVIEW_VERDICTS = ":(exclude,glob)**/verdict-*.md";
+// Harness-refreshed PR review capture sidecar (pr-review-input-capture.ts); never durable output.
+const EXCLUDE_PR_REVIEW_INPUT = ":(exclude,literal).jarvis-pr-review-input.json";
 
 /** `git add -A` pathspec for a completion commit; excludes the materialized node_modules
  * symlink when present, and review-verdict basenames unconditionally, so no harness completion
@@ -246,7 +248,7 @@ export function completionStageArgs(worktreePath: string, excludedPaths: readonl
   if (isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) {
     exclusions.push(EXCLUDE_MATERIALIZED_NODE_MODULES[2]);
   }
-  exclusions.push(EXCLUDE_REVIEW_VERDICTS);
+  exclusions.push(EXCLUDE_REVIEW_VERDICTS, EXCLUDE_PR_REVIEW_INPUT);
   return [...ADD_ALL_ARGS, "--", ".", ...exclusions];
 }
 

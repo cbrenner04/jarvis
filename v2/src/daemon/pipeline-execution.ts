@@ -99,6 +99,11 @@ export type PipelineExecutionDeps = {
    */
   staleResetPreflight?: { cliDeps: CliDeps; io: Io; connectClient: () => Promise<IpcClient> };
   reopenedStageReset?: ReopenedStageReset;
+  attemptFailedImplementPipelineResume?: (
+    pipeline: Pipeline & { stages: PipelineStageRecord[] },
+    pipelineId: string,
+    branchScope: string | undefined,
+  ) => Promise<ResumePipelineOutcome | undefined>;
 };
 
 type ReopenedStageReset = {
@@ -182,6 +187,16 @@ export type PipelineResumeRefusalReason =
   | "branch_resume_required"
   | PipelineBranchResumeRefusalReason;
 
+/** Run-resume admission refusal surfaced through `pipeline resume` without mapping to pipeline reasons. */
+export type PipelineRunResumeRefusalReason =
+  | "terminal_run"
+  | "resume_unsupported"
+  | "owner_alive"
+  | "claim_lost"
+  | "worktree_claimed"
+  | "run_owner_conflict"
+  | "unknown_run";
+
 export type ResumePipelineOutcome =
   | { kind: "resumed"; pipelineId: string }
   | {
@@ -208,6 +223,12 @@ export type ResumePipelineOutcome =
       branchKey: string;
       stageId?: string;
       status?: string;
+    }
+  | {
+      kind: "refused";
+      pipelineId: string;
+      reason: PipelineRunResumeRefusalReason;
+      message?: string;
     };
 
 /** True when a pipeline row carries complete admission context for restart continuation. `null` is absent; incomplete JSON is distinguishable via `loadPipelineContext`. */
@@ -660,6 +681,10 @@ export async function resumePipeline(
         ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope, resetStatus), options)
         : undefined;
     if (resetStatus !== undefined) {
+      if (resetStatus === "failed") {
+        const inPlace = await deps.attemptFailedImplementPipelineResume?.(pipeline, pipelineId, branchScope);
+        if (inPlace !== undefined) return inPlace;
+      }
       const reopen =
         resetStatus === "failed"
           ? store.reopenFailedPipeline({ pipelineId, branchKey: branchScope })
@@ -765,6 +790,8 @@ export async function resumePipeline(
   }
 
   if (resumeFailedRequiresReopen(derivedState)) {
+    const inPlace = await deps.attemptFailedImplementPipelineResume?.(current, pipelineId, undefined);
+    if (inPlace !== undefined) return inPlace;
     const reopenedStageReset = buildReopenedStageReset(current, findFailedStageForReopen(current, undefined), options);
     const reopen = store.reopenFailedPipeline({ pipelineId });
     if (reopen.kind === "refused") {

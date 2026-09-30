@@ -109,6 +109,7 @@ type PipelineHandlerDeps = {
   connectStaleResetClient?: (socketPath: string) => Promise<IpcClient>;
   staleResetCliDeps?: CliDeps;
   reconciledRunIds?: readonly string[];
+  attemptFailedImplementPipelineResume?: PipelineExecutionDeps["attemptFailedImplementPipelineResume"];
 };
 
 type PipelineHandlers = {
@@ -143,6 +144,9 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       isEntryRunLive: (entryRunId: string) => ctx.workflowPromisesByEntryRunId.has(entryRunId),
       ...(deps.executeTerminalPublication !== undefined
         ? { executeTerminalPublication: deps.executeTerminalPublication }
+        : {}),
+      ...(deps.attemptFailedImplementPipelineResume !== undefined
+        ? { attemptFailedImplementPipelineResume: deps.attemptFailedImplementPipelineResume }
         : {}),
       ...(daemonSocketPath !== undefined
         ? {

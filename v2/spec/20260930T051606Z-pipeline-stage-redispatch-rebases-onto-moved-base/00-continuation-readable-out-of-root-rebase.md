@@ -12,12 +12,12 @@
 - No open draft PR on the lane: rebase onto resolved base via existing `rebaseWorktreeOntoBase`; return `preRebaseSha` on `continue` — rules out leaving out-of-root moved-base lanes stuck until hand-merge.
 - Rebase conflicts abort with tree and branch unchanged; refusal uses existing rebase-conflict wording — rules out partial application on conflict.
 - No shared history (`hasCommonAncestor` false) or a dirty tree still refuse unchanged — rules out weakening those gates for chained stages.
-- Deferred to first consumer: exact continuation-readable predicates (single file vs `index.md` tree, existence, relationship to write-step `specPath`) — pin when the helper is implemented in code/tests; prose-only leaves two valid implementations.
+- Continuation-readable predicate: the write-step spec path (in-root or out-of-root) is readable when, existence-checked at the path the write step reads, it is an existing Markdown file or a directory containing `index.md` — rules out treating a missing path or an `index.md`-less directory as rebase-eligible.
 - Intent AC “conflicting base change” for the no-PR path is satisfied by the preserved `resetStaleWorkspace aborts a conflicting rebase…` test; open-PR merge conflicts are owned by [01](01-merge-when-open-pr-moved-base.md).
 
 ## Tasks
 
-- [ ] Add a continuation-readable spec helper (distinct from `isStaleResetLandedCriteriaSpecPath`); define qualifying predicates in code/tests per the deferred pin above; thread into `evaluateCommittedLaneContinuation` while keeping `trackableSpecPath` for landed-criteria and in-root tick-backing only.
+- [ ] Add a continuation-readable spec helper (distinct from `isStaleResetLandedCriteriaSpecPath`); implement the pinned predicate from Decisions; thread into `evaluateCommittedLaneContinuation` while keeping `trackableSpecPath` for landed-criteria and in-root tick-backing only.
 - [ ] When continuation-readable but not in-root landed-criteria, run moved-base rebase only (no `evaluateContinuationTickBacking`); leave open-PR moved-base rewrite to [01](01-merge-when-open-pr-moved-base.md).
 - [ ] Extend `cleanup.test.ts` temp-git fixtures for chained out-of-root spec shape (prior-worktree spec dir + implement lane worktree under managed path).
 - [ ] Update `v2/docs/operator-runbook.md` § Incomplete re-run preflight gates — out-of-root continuation rebase (no hand-merge-main workaround for chained stages).
@@ -26,7 +26,7 @@
 ## Acceptance criteria
 
 - [ ] `cleanup.test.ts` test `resetStaleWorkspace continues a chained out-of-root spec lane past a moved base with no PR` drives `resetStaleWorkspace` with an absolute out-of-root spec path, a clean lane ahead of advanced base, and `ghPrListRunner` returning no PR; asserts `status: "continue"`, rebased tip descended from base, `preRebaseSha` equal to the pre-rebase head, and worktree retained; fails against the pre-fix plain non-descendant refusal (reachable on main: `trackableSpecPath` stays undefined for out-of-root specs).
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace still refuses a non-descendant out-of-root lane with no common ancestor` uses disjoint histories with a continuation-readable out-of-root spec; asserts `staleResetDescendantGateReason` wording and unchanged tip; fails against the pre-fix code if the lane returns `continue` (reachable on main: out-of-root lanes refuse before rebase today; after the fix the test guards the `hasCommonAncestor` branch).
+- [ ] `cleanup.test.ts` test `resetStaleWorkspace still refuses a non-descendant out-of-root lane with no common ancestor` uses disjoint histories with a continuation-readable out-of-root spec; asserts `staleResetDescendantGateReason` wording and unchanged tip; regression guard — stays green (pre-fix code already refuses); pins that out-of-root continuation never bypasses the `hasCommonAncestor` refusal.
 - [ ] `cleanup.test.ts` test `resetStaleWorkspace aborts a conflicting rebase and refuses, leaving the lane unchanged` stays green.
 - [ ] `cleanup.test.ts` `describe("resetStaleWorkspace: incomplete implement re-run reset")` stays green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
@@ -35,3 +35,4 @@
 
 - [ ] `v2/docs/operator-runbook.md` § Incomplete re-run preflight gates — chained out-of-root stage specs and rebase continuation when base moved (no open PR).
 - [ ] `v2/docs/v1-behaviors.md` — incomplete re-dispatch continuation: out-of-root rebase gating (not in-root-only).
+- [ ] `v2/docs/pipeline-execution.md` — stale-reset/continuation gates paragraph: chained out-of-root continuation via the continuation-readable predicate (rebase when no open PR).

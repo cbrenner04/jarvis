@@ -34,3 +34,5 @@ When a draft PR already published the lane tip, rebasing onto a moved base rewri
 - [ ] `v2/docs/operator-runbook.md` § Incomplete re-run preflight gates — merge-when-PR-published for in-root and chained out-of-root lanes; merge-aware abort wording (not rebase-only).
 - [ ] `v2/docs/v1-behaviors.md` — incomplete re-dispatch continuation: merge-when-open-PR vs rebase when no PR.
 - [ ] `v2/docs/write-behavior.md` — `preRebaseSha` / `leaseFromSha` on rebase-continue vs omitted on merge-continue.
+- [ ] `v2/docs/operator-runbook.md` § Recovery — replace the `stale reuse refused` moved-base hand-merge workaround (merge `origin/main` into the lane and resume) with the automatic behavior: re-dispatch merges base when a PR is published, rebases otherwise.
+- [ ] `v2/docs/pipeline-execution.md` — stale-reset/continuation gates paragraph: merge-when-PR-published continuation.

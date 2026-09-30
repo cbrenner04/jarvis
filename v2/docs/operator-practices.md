@@ -39,7 +39,7 @@ Every session closes four cumulative CSVs (spec rows separate from operator rows
 - **`reports/operator-outcomes.csv`** — one outcome row per operator cost row.
 - **`reports/efficiency.csv`** — derived per-report rollup, regenerated from the four source CSVs.
 
-**Which file is authoritative.** Cost lives in `~/.jarvis/telemetry.jsonl`, on `record_kind: invocation_completed` rows (`cost_usd`, `cost_source`, `usage.*`). Sum a session's rows by `ts` window or by `branch`. `~/.jarvis/runs.jsonl` is the frozen v1 record and receives nothing new. Invocations recorded before #1509 are permanently `cost_usd: null`; leave such cells blank with a note.
+**Which file is authoritative.** Cost lives in `~/.jarvis/telemetry.jsonl` (active UTC month) and closed `~/.jarvis/telemetry/<YYYY-MM>.jsonl.gz` archives, on `record_kind: invocation_completed` rows (`cost_usd`, `cost_source`, `usage.*`). Sum a session's rows by `ts` window or by `branch`; a `ts` window crossing a UTC month boundary must include the prior month's `telemetry/<YYYY-MM>.jsonl.gz` too. `~/.jarvis/runs.jsonl` is the frozen v1 record and receives nothing new. Invocations recorded before #1509 are permanently `cost_usd: null`; leave such cells blank with a note.
 
 **Codex `cost_usd: null` is NOT a hole — recover it (2026-07-16).** Codex invocations record `cost_usd: null` / `usage_source: "unavailable"` when the rollout correlation misses, but the data is exact and on disk:
 

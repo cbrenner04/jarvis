@@ -18,10 +18,10 @@ Operators and v1-parity review lack runbook steps for gzip archives and a baseli
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents current-file vs `telemetry/<YYYY-MM>.jsonl.gz` paths under `JARVIS_HOME` and gives a minimal decompress/read example using standard gzip tooling.
-- [ ] `v2/docs/operator-runbook.md` per-role telemetry bullet and `resetsAt` snippet, and `v2/docs/operator-practices.md` cost-source paragraph, each name `telemetry/<YYYY-MM>.jsonl.gz` for windows crossing a month boundary.
-- [ ] `v2/docs/v1-behaviors.md` contains a **[v2 additive]** or **[v2 behavior change]** bullet for monthly telemetry rolling and indefinite closed-archive retention with source paths.
-- [ ] `bun run typecheck` passes.
+- [x] `v2/docs/operator-runbook.md` documents current-file vs `telemetry/<YYYY-MM>.jsonl.gz` paths under `JARVIS_HOME` and gives a minimal decompress/read example using standard gzip tooling.
+- [x] `v2/docs/operator-runbook.md` per-role telemetry bullet and `resetsAt` snippet, and `v2/docs/operator-practices.md` cost-source paragraph, each name `telemetry/<YYYY-MM>.jsonl.gz` for windows crossing a month boundary.
+- [x] `v2/docs/v1-behaviors.md` contains a **[v2 additive]** or **[v2 behavior change]** bullet for monthly telemetry rolling and indefinite closed-archive retention with source paths.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

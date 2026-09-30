@@ -671,13 +671,23 @@ A workflow can die after its step runs settle (review step, publication) — ste
 - `~/.jarvis/daemon.log` — `Workflow execution failed (<workflow>): <message>`
 - `jarvis run log <id>` — trailing `run_execution_failed` record with the message
 - `jarvis run wait <entry-id>` — reports `harness_failure` instead of a clean complete
-- `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran; **filter by `run_id`, do not read the tail and assume** (see [Reading telemetry](#reading-telemetry))
+- `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran; if the run's `ts` may fall in a closed UTC month, also read `~/.jarvis/telemetry/<YYYY-MM>.jsonl.gz` (see [Reading telemetry](#reading-telemetry)); **filter by `run_id`, do not read the tail and assume**
 
 Plan debate review has its own durable `run list` and TUI row, identified by the authored workflow `stepId` alongside the plan draft row. During execution its workflow detail shows the active adversary, advocate, adjudicator, or actuator; after completion, failure, interruption, or daemon restart the retained row shows its terminal status. Telemetry remains the per-role audit trail.
 
 ### Reading telemetry
 
-`~/.jarvis/telemetry.jsonl` is the per-role audit trail: one JSON row per role invocation. Rows are **snake_case** and carry full attribution plus cost:
+Under `JARVIS_HOME` (default `~/.jarvis`), the harness appends the active UTC calendar month to plain `telemetry.jsonl`. When the UTC month changes, the prior current file is gzip-compressed to `telemetry/<YYYY-MM>.jsonl.gz` beside it; closed-month archives are retained indefinitely (`jarvis cleanup` does not delete them). Roll semantics: [`telemetry-capture.md` § Monthly roll](./telemetry-capture.md#monthly-roll-and-closed-month-retention).
+
+List closed months and read one archive with standard gzip tooling:
+
+```sh
+ls "$HOME/.jarvis/telemetry/"*.jsonl.gz
+zcat "$HOME/.jarvis/telemetry/2026-05.jsonl.gz" | head
+# gunzip -c "$HOME/.jarvis/telemetry/2026-05.jsonl.gz"
+```
+
+`~/.jarvis/telemetry.jsonl` is the per-role audit trail for the current UTC month: one JSON row per role invocation. Rows are **snake_case** and carry full attribution plus cost:
 
 ```text
 run_id  branch  project  step_id  attempt_id  invocation_id  workflow  spec_ref  worktree_path
@@ -697,6 +707,8 @@ for l in open('$HOME/.jarvis/telemetry.jsonl'):
         print(d['role'], d['agent'], d['model'], d['duration_ms'], d['exit_kind'], d.get('cost_usd'))
 "
 ```
+
+Queries spanning a UTC month boundary must also scan closed `telemetry/<YYYY-MM>.jsonl.gz` files (same filter; decompress with `zcat`/`gunzip -c` or `gzip.open` in Python).
 
 **Gotcha (2026-07-26): the keys are `run_id`, not `runId`.** Querying `runId` returns `None` on every row, which reads exactly like "telemetry has no run attribution" and invites recency-guessing. Print `sorted(d.keys())` on one row before concluding a field is absent.
 
@@ -1041,6 +1053,8 @@ Operators add bullets here; delete when fixed. Durable lessons that are behavior
           print(d.get('exit_reason',''))
   " | grep -o '"rate_limit_info":{[^}]*}[^}]*}'
   ```
+
+  If the run's rows may have rolled at a UTC month boundary, pipe the same script over `zcat "$HOME/.jarvis/telemetry/<YYYY-MM>.jsonl.gz"` (or merge archive lines into the loop) — closed months live under `~/.jarvis/telemetry/<YYYY-MM>.jsonl.gz`.
 
   `five_hour` rejected with `seven_day` headroom means pause until `resetsAt` and re-dispatch the same lanes unchanged; both re-dispatched implements and a fresh plan lane admitted normally afterwards. Only a rejected `seven_day` window is the session-ending shape. A `quota` rung consumed mid-invocation is also not fatal on its own — cursor classification is scoped per [quota-signals.md § Cursor](./quota-signals.md#cursor).
 

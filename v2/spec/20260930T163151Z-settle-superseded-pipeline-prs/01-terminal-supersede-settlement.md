@@ -22,13 +22,13 @@ Successful terminal `ready` or `merge` publication leaves earlier intent and pla
 
 ## Tasks
 
-- [ ] Add `settleSupersededPrecedingStagePrs` (or equivalent) in `pipeline-execution.ts`; call from `settlePipelineTerminalPublication` after successful terminal success commit when policy and terminal action qualify.
-- [ ] Capture `TerminalPublicationResult` from `await execute(resolved.input)`; make `commitTerminalPublicationSuccessSafely` return a boolean gating supersede.
-- [ ] Extend `pipeline-execution.test.ts` fake store with `appendSupersedeFailures` / `supersedeFailures` when needed for assertions.
-- [ ] Add stubbed-GH tests under `pipeline terminal publication settlement` (or adjacent describe): multi-stage single-lane `ready` with `supersede: "close"` and distinct preceding PR artifacts — assert comment-before-close call order per PR, no delete-branch seam invocations, no calls for the terminal `prNumber`, and a non-`OPEN` candidate gets neither comment nor close.
-- [ ] Same harness: `supersede: "keep"`, `leave-draft`, and fan-out definitions issue zero supersede seam calls (fan-out case reachable on today’s terminal publication refusal path where `terminalPublicationSucceededAt` stays unset in `pipeline-execution.test.ts`).
-- [ ] Same harness: injected comment failure records `supersedeFailures`, continues other candidates, leaves `terminalPublicationSucceededAt` set and `derivePipelineState` `succeeded`.
-- [ ] Update docs listed below; adjust `v2/docs/v1-behaviors.md` entry that says no harness path reads `supersede` yet.
+- [x] Add `settleSupersededPrecedingStagePrs` (or equivalent) in `pipeline-execution.ts`; call from `settlePipelineTerminalPublication` after successful terminal success commit when policy and terminal action qualify.
+- [x] Capture `TerminalPublicationResult` from `await execute(resolved.input)`; make `commitTerminalPublicationSuccessSafely` return a boolean gating supersede.
+- [x] Extend `pipeline-execution.test.ts` fake store with `appendSupersedeFailures` / `supersedeFailures` when needed for assertions.
+- [x] Add stubbed-GH tests under `pipeline terminal publication settlement` (or adjacent describe): multi-stage single-lane `ready` with `supersede: "close"` and distinct preceding PR artifacts — assert comment-before-close call order per PR, no delete-branch seam invocations, no calls for the terminal `prNumber`, and a non-`OPEN` candidate gets neither comment nor close.
+- [x] Same harness: `supersede: "keep"`, `leave-draft`, and fan-out definitions issue zero supersede seam calls (fan-out case reachable on today’s terminal publication refusal path where `terminalPublicationSucceededAt` stays unset in `pipeline-execution.test.ts`).
+- [x] Same harness: injected comment failure records `supersedeFailures`, continues other candidates, leaves `terminalPublicationSucceededAt` set and `derivePipelineState` `succeeded`.
+- [x] Update docs listed below; adjust `v2/docs/v1-behaviors.md` entry that says no harness path reads `supersede` yet.
 
 ## Acceptance criteria
 
@@ -37,7 +37,7 @@ Successful terminal `ready` or `merge` publication leaves earlier intent and pla
 
 ## Documentation updates
 
-- [ ] `v2/docs/pipeline-execution.md` — supersede ordering, exclusions, and nonfatal failure at terminal publication.
-- [ ] `v2/docs/first-workflow-walkthrough.md` — inter-stage PRs are review surfaces; terminal settlement closes them under `"close"`.
-- [ ] `v2/docs/daemon-host.md` — cross-link terminal supersede settlement (`pipeline-execution.md`).
-- [ ] `v2/docs/v1-behaviors.md` — supersede settlement at terminal publication (supersedes the v2-only “no harness consumer yet” `pipeline.supersede` note).
+- [x] `v2/docs/pipeline-execution.md` — supersede ordering, exclusions, and nonfatal failure at terminal publication.
+- [x] `v2/docs/first-workflow-walkthrough.md` — inter-stage PRs are review surfaces; terminal settlement closes them under `"close"`.
+- [x] `v2/docs/daemon-host.md` — cross-link terminal supersede settlement (`pipeline-execution.md`).
+- [x] `v2/docs/v1-behaviors.md` — supersede settlement at terminal publication (supersedes the v2-only “no harness consumer yet” `pipeline.supersede` note).

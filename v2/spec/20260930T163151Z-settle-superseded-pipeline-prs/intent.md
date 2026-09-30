@@ -14,7 +14,7 @@ After a single-lane `ready` or `merge` succeeds under `"close"`, comment `Supers
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` drives a stubbed single-lane `ready` settlement proving comment-before-close on preceding PRs with no branch deletion; proves the exclusion set issues no calls; proves failures record `supersedeFailures`, continue candidates, and still derive `succeeded`; fails against the baseline.
+- [x] `pipeline-execution.test.ts` drives a stubbed single-lane `ready` settlement proving comment-before-close on preceding PRs with no branch deletion; proves the exclusion set issues no calls; proves failures record `supersedeFailures`, continue candidates, and still derive `succeeded`; fails against the baseline.
 
 ## Documentation updates
 

@@ -114,6 +114,44 @@ function pipelineFixture(args: {
   };
 }
 
+function fanOutPipelineFixture(args: {
+  pipelineId: string;
+  stageId: string;
+  workflow: string;
+  lanes: Array<{ branchKey: string; entryRun: Run }>;
+}): Pipeline & { stages: PipelineStageRecord[] } {
+  const definition: PipelineDefinition = {
+    name: "test-pipeline",
+    stages: [{ stageId: args.stageId, kind: "workflow", workflow: args.workflow, review: "none" }],
+  };
+  return {
+    id: args.pipelineId,
+    name: "test-pipeline",
+    createdAt: 1,
+    ownerIdentity: "owner",
+    status: "active",
+    definition,
+    context: null,
+    terminalPublicationFailure: null,
+    terminalPublicationSucceededAt: null,
+    dismissedAt: null,
+    stages: args.lanes.map((lane, index) => ({
+      id: `stage-row-${index}`,
+      pipelineId: args.pipelineId,
+      stageId: args.stageId,
+      branchKey: lane.branchKey,
+      position: index,
+      status: "succeeded" as const,
+      workflowInvocationId: lane.entryRun.id,
+      startedAt: 1,
+      endedAt: 2,
+      artifact: null,
+      failureDetail: null,
+      decidedAt: null,
+    })),
+  };
+}
+
 type AdmissionPrView = {
   state: string;
   headRefName: string;
@@ -302,6 +340,54 @@ describe("review-feedback workflow admission", () => {
     const outcome = await prepareReviewFeedbackWorkflowAdmission(parsed, admissionDeps(store, runner));
     expect(outcome.ok).toBe(true);
     await expectWriteNotAvailableAfterAdmission(store, runner, parsed);
+  });
+
+  test("prepares a fan-out pipeline stage when --branch-key disambiguates sibling rows", async () => {
+    const entryRunA = baseRun({
+      id: "pipeline-intent-entry-a",
+      worktreePath: worktreePathForCapture,
+      stepId: "intent-step-a",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-intent-a", {
+        stepId: "intent-step-a",
+        role: "author",
+        promptId: "intent.prompt.split",
+      }),
+    });
+    const entryRunB = baseRun({
+      id: "pipeline-intent-entry-b",
+      worktreePath: worktreePathForCapture,
+      stepId: "intent-step-b",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-intent-b", {
+        stepId: "intent-step-b",
+        role: "author",
+        promptId: "intent.prompt.split",
+      }),
+    });
+    const pipeline = fanOutPipelineFixture({
+      pipelineId: "pipe-fanout",
+      stageId: "intent-stage",
+      workflow: "intent",
+      lanes: [
+        { branchKey: "feature-a", entryRun: entryRunA },
+        { branchKey: "feature-b", entryRun: entryRunB },
+      ],
+    });
+    const runner = createGhRunner({ admissionView: openReviewedAdmissionView() });
+    const store = memoryStore({ runs: [entryRunA, entryRunB], pipelines: [pipeline] });
+    const parsed = {
+      ok: true as const,
+      branch: BRANCH,
+      pipelineId: "pipe-fanout",
+      stageId: "intent-stage",
+      branchKey: "feature-b",
+    };
+    const outcome = await prepareReviewFeedbackWorkflowAdmission(parsed, admissionDeps(store, runner));
+    expect(outcome).toMatchObject({ ok: true });
+    const refused = await prepareReviewFeedbackWorkflowAdmission(
+      { ok: true, branch: BRANCH, pipelineId: "pipe-fanout", stageId: "intent-stage" },
+      admissionDeps(store, runner),
+    );
+    expect(refused).toMatchObject({ ok: false, refusal: { code: "review_feedback_lane_unmatched" } });
   });
 
   test("prepares using the resolved lane worktree path and branch", async () => {

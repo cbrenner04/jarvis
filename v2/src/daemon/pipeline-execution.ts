@@ -18,8 +18,8 @@ import { normalizePublicationFailure, type PublicationFailure } from "../executi
 import {
   createDefaultSupersedeGh,
   executeTerminalPublication,
-  TerminalPublicationError,
   type SupersedeGh,
+  TerminalPublicationError,
   type TerminalPublicationInput,
   type TerminalPublicationResult,
 } from "../execution/terminal-publication.ts";
@@ -37,8 +37,8 @@ import {
   type Pipeline,
   type PipelineContext,
   type PipelineReopenRefusalReason,
-  type PipelineSupersedeFailure,
   type PipelineStageRecord,
+  type PipelineSupersedeFailure,
   type Run,
   type StateStore,
 } from "../persistence/state-store.ts";

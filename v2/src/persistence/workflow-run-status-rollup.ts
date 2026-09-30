@@ -11,6 +11,8 @@ type RollupArgs = {
   workflowSnapshot?: WorkflowSnapshot | null;
   siblingRuns: Run[];
   isLive: boolean;
+  /** Rows from earlier same-lane invocations; read lazily, only when a missing durable successor needs it. */
+  priorLaneRuns?: () => readonly Run[];
 };
 
 /** Rollup status plus the sibling row that determined a non-completed verdict, when one did. */
@@ -46,6 +48,57 @@ function linkedRoutingFinished(
   });
 }
 
+/** The step's verdict row in the latest prior same-lane invocation that has a row for it. */
+function latestPriorLaneStepRun(authoredStepId: string, priorLaneRuns: readonly Run[]): Run | undefined {
+  const stepRuns = priorLaneRuns.filter(
+    (run) => run.stepId != null && resolveAuthoredStepId(run.stepId) === authoredStepId,
+  );
+  const latest = stepRuns.reduce<Run | undefined>(
+    (acc, run) => (acc === undefined || run.createdAt >= acc.createdAt ? run : acc),
+    undefined,
+  );
+  const invocationId = latest?.workflowSnapshot?.invocationId;
+  return authoredStepRun(stepRuns.filter((run) => run.workflowSnapshot?.invocationId === invocationId));
+}
+
+function missingDurableStepSatisfiedByPriorLane(
+  entryRun: Run,
+  authoredStepId: string,
+  priorLaneRuns: (() => readonly Run[]) | undefined,
+): boolean {
+  if (
+    priorLaneRuns === undefined ||
+    entryRun.status !== "completed" ||
+    entryRun.terminalCause !== "complete" ||
+    entryRun.attemptCount !== 0
+  ) {
+    return false;
+  }
+  return latestPriorLaneStepRun(authoredStepId, priorLaneRuns())?.status === "completed";
+}
+
+/** `next` when the durable step is satisfied; otherwise the rollup verdict to return. */
+function durableStepVerdict(
+  entryRun: Run,
+  step: { stepId: string },
+  index: number,
+  steps: readonly { stepId: string }[],
+  siblingRuns: readonly Run[],
+  runsForStep: readonly Run[],
+  priorLaneRuns: (() => readonly Run[]) | undefined,
+): WorkflowRunRollup | "next" {
+  const stepRun = authoredStepRun(runsForStep);
+  if (stepRun === undefined) {
+    if (missingDurableStepSatisfiedByPriorLane(entryRun, step.stepId, priorLaneRuns)) return "next";
+    return { status: "killed" };
+  }
+  if (stepRun.status !== "completed") return { status: stepRun.status, causeRun: stepRun };
+  if (stepRun.stepId?.includes(LINK_STEP_ID_INFIX) && !linkedRoutingFinished(siblingRuns, steps, index)) {
+    return { status: "killed" };
+  }
+  return "next";
+}
+
 /**
  * Computes the workflow-level status from a workflow invocation's durable rows.
  * The rollup applies only to the invocation's entry row; sibling rows keep their own status.
@@ -55,11 +108,20 @@ function linkedRoutingFinished(
  *
  * Sibling rows map to authored steps via `findSnapshotStepForRunStepId`, so linked-implement
  * `~link-N` rows count toward their authored step, which rolls up `completed` only with evidence routing finished. A durable authored step with no row in a
- * non-live invocation rolls up to `killed`. Legacy snapshots have no durability metadata, so
- * their steps remain durable. A run with no workflow snapshot uses its own status unchanged.
+ * non-live invocation rolls up to `killed`, except a missing successor may count satisfied when the entry row is `completed` with `terminalCause: "complete"`,
+ * `attemptCount === 0`, and the latest earlier same-lane invocation with a row for that authored `stepId` (read lazily from `priorLaneRuns`) has that row `completed`. Legacy snapshots have no
+ * durability metadata, so their steps remain durable. A run with no workflow snapshot uses its own status unchanged.
  */
 export function resolveWorkflowRunRollup(args: RollupArgs): WorkflowRunRollup {
   const { entryRun, workflowSnapshot, siblingRuns, isLive } = args;
+  let priorLaneRunsCache: readonly Run[] | undefined;
+  const priorLaneRuns =
+    args.priorLaneRuns === undefined
+      ? undefined
+      : (): readonly Run[] => {
+          priorLaneRunsCache ??= args.priorLaneRuns?.() ?? [];
+          return priorLaneRunsCache;
+        };
 
   if (workflowSnapshot === null || workflowSnapshot === undefined) {
     return { status: entryRun.status };
@@ -82,12 +144,16 @@ export function resolveWorkflowRunRollup(args: RollupArgs): WorkflowRunRollup {
   const steps = workflowSnapshot.steps;
   for (const [index, step] of steps.entries()) {
     if (step.durable === false) continue;
-    const stepRun = authoredStepRun(runsByStepId.get(step.stepId) ?? []);
-    if (stepRun === undefined) return { status: "killed" };
-    if (stepRun.status !== "completed") return { status: stepRun.status, causeRun: stepRun };
-    if (stepRun.stepId?.includes(LINK_STEP_ID_INFIX) && !linkedRoutingFinished(siblingRuns, steps, index)) {
-      return { status: "killed" };
-    }
+    const verdict = durableStepVerdict(
+      entryRun,
+      step,
+      index,
+      steps,
+      siblingRuns,
+      runsByStepId.get(step.stepId) ?? [],
+      priorLaneRuns,
+    );
+    if (verdict !== "next") return verdict;
   }
 
   return { status: "completed" };

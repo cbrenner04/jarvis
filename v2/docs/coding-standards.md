@@ -51,6 +51,8 @@ Expect `noRestrictedImports` on the v1 import.
 
 Tests must be deterministic and sandbox-runnable by default. See [`test-writing.md`](./test-writing.md) for agent-runnable test conventions (dependency injection seams instead of spawning real processes or depending on wall-clock timing) and how to mark the rare real-process/real-clock exception.
 
+Acceptance criteria should cite evidence that would fail against pre-change code (named test, path pin, or stated verification) and pass after the change; criteria whose cited evidence would pass both before and after are authoring and review defects. Plan and implement review roles assemble the shared falsifiability fragment for this lens; harness-injected `## Unfalsifiable premises` during plan review addresses invariant reachability on the repository base separately ([`workflow-runner.md` § Review-debate dispatch](./workflow-runner.md#review-debate-dispatch)).
+
 ## Operator failure evidence
 
 Operator-facing checks state both the expected condition and the observed condition in an `OperatorFailureRecord`; a bare verdict is insufficient. When an input nearly matches, `nearMiss` preserves the specific unmatched evidence, while an absent candidate is stated in `observation` with no `nearMiss`. Every referenced path carries its origin at the branch that observed it: Jarvis-owned staging is `harness-internal`, operator-owned durable content is `operator-repository`, and a comparison across both names both paths separately.

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DaemonSocketInUseError } from "../ipc/server.ts";
+import { DaemonSocketBindFailureError, DaemonSocketInUseError } from "../ipc/server.ts";
 import {
   createHandoffHandlers,
   isLiveSuccessorPublicBindRefusal,
@@ -89,6 +89,10 @@ test("isLiveSuccessorPublicBindRefusal is true for EADDRINUSE and live-socket cl
   expect(isLiveSuccessorPublicBindRefusal(eaddrInUseError())).toBe(true);
   expect(isLiveSuccessorPublicBindRefusal(new DaemonSocketInUseError("/tmp/daemon.sock"))).toBe(true);
   expect(isLiveSuccessorPublicBindRefusal(new Error("rebind failed"))).toBe(false);
+  expect(isLiveSuccessorPublicBindRefusal(new DaemonSocketBindFailureError("/tmp/daemon.sock", "EADDRINUSE"))).toBe(
+    true,
+  );
+  expect(isLiveSuccessorPublicBindRefusal(new DaemonSocketBindFailureError("/tmp/daemon.sock", "EACCES"))).toBe(false);
 });
 
 test("recordSupersedeForRollbackAdmission blocks rollback reopen for external supersede", () => {

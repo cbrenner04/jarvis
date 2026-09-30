@@ -53,6 +53,28 @@ describe("waitForRunCompletion failure presentation", () => {
   });
 });
 
+describe("waitForRunCompletion review-feedback item projection", () => {
+  test("includes review-feedback id arrays in the wait payload when present", async () => {
+    const { payload } = await wait({
+      runStatus: "completed",
+      loopOutcomeKind: "complete",
+      reviewFeedbackAddressedItemIds: ["thread-addressed"],
+      reviewFeedbackDeclinedItemIds: ["thread-declined"],
+      reviewFeedbackUnaddressedItemIds: ["thread-unaddressed"],
+    });
+    expect(payload.reviewFeedbackAddressedItemIds).toEqual(["thread-addressed"]);
+    expect(payload.reviewFeedbackDeclinedItemIds).toEqual(["thread-declined"]);
+    expect(payload.reviewFeedbackUnaddressedItemIds).toEqual(["thread-unaddressed"]);
+  });
+
+  test("omits review-feedback id arrays when absent from the wait result", async () => {
+    const { payload } = await wait({ runStatus: "completed", loopOutcomeKind: "complete" });
+    expect(payload).not.toHaveProperty("reviewFeedbackAddressedItemIds");
+    expect(payload).not.toHaveProperty("reviewFeedbackDeclinedItemIds");
+    expect(payload).not.toHaveProperty("reviewFeedbackUnaddressedItemIds");
+  });
+});
+
 let stateStore: StateStore;
 let logSink: LogSink;
 let statePath: string;

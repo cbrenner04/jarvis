@@ -30,6 +30,9 @@ type CompletionCommitInput = ExternalSpecGitScope & {
   baseRef: string;
   specPath: string;
   agent: string;
+  /** Agent-free resume/repair tails only: an empty `agent` falls back to the branch's newest
+   * `Jarvis-Agent` trailer. Every other caller fails closed on empty attribution. */
+  allowBranchTrailerFallback?: boolean;
   /** Authoritative commit subject, resolved by the caller that owns workflow context. */
   title: string;
   /** Ready-gate attribution trailer when autofix commits in-scope repair output. */
@@ -373,9 +376,12 @@ export function createCompletionCommitter(
 ): CompletionCommitter {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one committer closure coordinates snapshot capture, checkpoint-vs-strict format-mode selection, staging, and the compare-and-swap commit; off-by-one (25) after adding the durability best-effort-format branch, and splitting it would fragment the atomic commit sequence.
   return async (input) => {
-    // Agent-free tails (resumed gate/mutation re-verify, repair on a row with no attributed attempt)
-    // fall back to the branch's newest `Jarvis-Agent` trailer, the agent that authored the work.
-    const agent = input.agent.trim() || (await newestBranchTrailerAgent(runGit, input.worktreePath, input.baseRef));
+    // Opted-in agent-free tails fall back to the branch's newest `Jarvis-Agent` trailer, the agent that authored the work.
+    const agent =
+      input.agent.trim() ||
+      (input.allowBranchTrailerFallback === true
+        ? await newestBranchTrailerAgent(runGit, input.worktreePath, input.baseRef)
+        : undefined);
     if (!agent) throw new Error("completion attribution is missing");
     const subject = input.title.trim();
     if (!subject) throw new Error("completion title is missing");

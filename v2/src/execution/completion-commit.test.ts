@@ -155,7 +155,7 @@ describe("createCompletionCommitter", () => {
     expect(message).toContain("Jarvis-Agent: claude");
   });
 
-  test("empty agent falls back to the branch's newest Jarvis-Agent trailer; none still throws", async () => {
+  test("opt-in empty agent falls back to newest branch trailer; no opt-in or no trailer throws", async () => {
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const calls: GitCall[] = [];
     let log = `a1\x1fwrite\x1fcodex\x1fwrite\x1fSpec: x\x1eb2\x1freview\x1fcursor\x1freview 1\x1fSpec: x\x1e`;
@@ -171,7 +171,9 @@ describe("createCompletionCommitter", () => {
       if (args[0] === "diff-tree") return "src/a.ts";
       return "";
     };
-    const input = { worktreePath, baseRef: "main", specPath: "v2/spec/test/index.md", agent: " ", title: "T" };
+    const base = { worktreePath, baseRef: "main", specPath: "v2/spec/test/index.md", agent: " ", title: "T" };
+    await expect(createCompletionCommitter(runGit)(base)).rejects.toThrow("completion attribution is missing");
+    const input = { ...base, allowBranchTrailerFallback: true };
     await createCompletionCommitter(runGit)(input);
     const commitCall = calls.find((c) => c.args[0] === "commit-tree");
     expect(commitCall?.args[commitCall.args.indexOf("-m") + 1]).toContain("Jarvis-Agent: cursor");

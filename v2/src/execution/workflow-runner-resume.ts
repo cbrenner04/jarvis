@@ -2394,6 +2394,7 @@ async function runMutationRepairAttempt(
       baseRef: context.baseRef,
       specPath: context.specPath,
       agent: context.completionAgent ?? "",
+      allowBranchTrailerFallback: true,
       title: renderStepCommitTitle(mutationRepairStep, creationTitle),
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
       step: mutationRepairStep,

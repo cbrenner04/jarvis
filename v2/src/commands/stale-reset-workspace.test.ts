@@ -85,6 +85,53 @@ describe("staleResetProbeRefusal probe guard", () => {
     expect(code).toBe(1);
     expect(stderrLines).toEqual(["Error: Cannot re-run incomplete spec: live run still active\n"]);
   });
+
+  test("probeMaybeResetStaleWorkspace returns worktree_claimed refusal without stderr", async () => {
+    const stderrLines: string[] = [];
+    const io = { stdout: () => {}, stderr: (line: string) => stderrLines.push(line) };
+    spyOn(cleanup, "resetStaleWorkspace").mockResolvedValue({
+      status: "refused",
+      code: "worktree_claimed",
+      message: "lane held by run abc",
+    });
+
+    const result = await probeMaybeResetStaleWorkspace(
+      "implement",
+      stubWriteBuild as never,
+      stubDeps,
+      io,
+      {} as never,
+      stubClient,
+    );
+
+    expect(result).toEqual({
+      refused: true,
+      message: "worktree_claimed: lane held by run abc\n",
+    });
+    expect(stderrLines).toEqual([]);
+  });
+
+  test("maybeResetStaleWorkspace writes worktree_claimed to stderr and returns 1", async () => {
+    const stderrLines: string[] = [];
+    const io = { stdout: () => {}, stderr: (line: string) => stderrLines.push(line) };
+    spyOn(cleanup, "resetStaleWorkspace").mockResolvedValue({
+      status: "refused",
+      code: "worktree_claimed",
+      message: "lane held by run abc",
+    });
+
+    const code = await maybeResetStaleWorkspace(
+      "implement",
+      stubWriteBuild as never,
+      stubDeps,
+      io,
+      {} as never,
+      stubClient,
+    );
+
+    expect(code).toBe(1);
+    expect(stderrLines).toEqual(["worktree_claimed: lane held by run abc\n"]);
+  });
 });
 
 describe("runStaleResetForWorkflow probe flag", () => {

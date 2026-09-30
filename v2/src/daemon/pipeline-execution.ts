@@ -799,6 +799,96 @@ export async function probePipelineResumeRedispatchRefusal(
   );
 }
 
+function resolvedStepsForBranchProbe(
+  resolution: Extract<PipelineStageResolutionResult, { ok: true }>,
+  split: ReturnType<typeof findFanOutSplit>,
+  branchKey: string,
+): { steps: AnyWorkflowStep[]; runStaleResetPreflight: StaleResetPreflight } | undefined {
+  if (isFanOutStageResolution(resolution)) {
+    if (split === null) return undefined;
+    const branchIndex = split.branchKeys.indexOf(branchKey);
+    if (branchIndex < 0) return undefined;
+    const branchResult = resolution.results[branchIndex];
+    if (branchResult === undefined) return undefined;
+    return {
+      steps: branchResult.steps,
+      runStaleResetPreflight: branchResult.runStaleResetPreflight ?? noopStaleResetPreflight,
+    };
+  }
+  return {
+    steps: singleStageResolutionSteps(resolution),
+    runStaleResetPreflight: resolution.runStaleResetPreflight ?? noopStaleResetPreflight,
+  };
+}
+
+function findRecoveryRedispatchWorkflowTarget(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  recoveryTarget: { stageId: string; branchKey: string },
+): { stage: Extract<PipelineStage, { kind: "workflow" }>; index: number; branchKey: string } | undefined {
+  const record = findStageRecord(pipeline.stages, recoveryTarget.stageId, recoveryTarget.branchKey);
+  if (record === undefined) return undefined;
+  const stage = pipeline.definition.stages[record.position];
+  if (stage?.kind !== "workflow" || record.status !== "failed") return undefined;
+  return { stage, index: record.position, branchKey: recoveryTarget.branchKey };
+}
+
+export async function probePipelineRecoverRedispatchRefusal(
+  pipelineId: string,
+  recoveryTarget: { stageId: string; branchKey: string },
+  deps: Omit<PipelineExecutionDeps, "context"> & { context?: PipelineContext },
+  options: { resetDespiteDirty?: boolean; resetDespiteLandedCriteria?: boolean },
+): Promise<{ refused: true; message: string } | undefined> {
+  if (deps.staleResetPreflight === undefined) return undefined;
+  const pipeline = deps.store.loadPipeline(pipelineId);
+  if (pipeline?.context === null) return undefined;
+  const loadedContext = pipeline?.context === undefined ? null : loadPipelineContext(pipeline.context);
+  if (pipeline === null || loadedContext === null || !loadedContext.ok) return undefined;
+
+  const target = findRecoveryRedispatchWorkflowTarget(pipeline, recoveryTarget);
+  if (target === undefined) return undefined;
+
+  const failedRecord = findStageRecord(pipeline.stages, recoveryTarget.stageId, recoveryTarget.branchKey);
+  const reopenedStageReset = buildReopenedStageReset(pipeline, failedRecord, options);
+
+  const split = findFanOutSplit(pipeline);
+  const stageArtifacts =
+    split !== null
+      ? buildBranchStageArtifacts(pipeline, split, target.branchKey, target.index)
+      : buildPrefixStageArtifactsForResumeProbe(pipeline, target.index, target.branchKey);
+  const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+  const resolution = await resolveStage(pipeline.definition, target.index, loadedContext.context, stageArtifacts, {
+    loadRun: (runId) => {
+      const entryRun = deps.store.loadRun(runId);
+      return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
+    },
+    branchKey: target.branchKey,
+    ...(split !== null ? { splitPosition: split.splitPosition } : {}),
+  });
+  if (!resolution.ok) return undefined;
+  const resolved = resolvedStepsForBranchProbe(resolution, split, target.branchKey);
+  if (resolved === undefined) return undefined;
+
+  const args: AdvanceWorkflowStageArgs = {
+    pipelineId,
+    definition: pipeline.definition,
+    stage: target.stage,
+    index: target.index,
+    branchKey: target.branchKey,
+    split,
+    context: loadedContext.context,
+    stageArtifacts,
+    store: deps.store,
+    dispatch: async () => ({ ok: false, code: "probe", message: "probe" }),
+    wait: async () => "completed",
+    resolveStage,
+    dispatchClaims: new Map(),
+    peerClaimTimeoutMs: DEFAULT_PEER_CLAIM_TIMEOUT_MS,
+    staleResetPreflight: deps.staleResetPreflight,
+    reopenedStageReset,
+  };
+  return probeWorkflowStageRedispatchPreflight(args, resolved.steps, target.branchKey, resolved.runStaleResetPreflight);
+}
+
 /**
  * Stage-scoped resume: reopen a failed continuation when needed, claim awaiting pipelines
  * without dispatch, or continue a reopened failed stage — never restart or silently succeed

@@ -1,14 +1,79 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import type { IpcClient } from "../ipc/client.ts";
+import * as cleanup from "./cleanup.ts";
 import {
   buildResetStaleWorkspaceOptions,
   maybeResetStaleWorkspace,
+  probeMaybeResetStaleWorkspace,
   STALE_RESET_WORKFLOWS,
 } from "./stale-reset-workspace.ts";
+
+const stubWriteBuild = {
+  ok: true as const,
+  steps: [
+    {
+      behavior: "write" as const,
+      specPath: "spec/demo/index.md",
+      worktree: {
+        git: true,
+        projectRoot: "/tmp/demo-root",
+        projectName: "demo",
+        branchName: "lane-branch",
+        baseRef: "main",
+      },
+    },
+  ],
+};
+
+const stubIo = { stdout: () => {}, stderr: () => {} };
+const stubDeps = { jarvisRoot: "/tmp/jarvis-home" } as never;
+const stubClient = {} as IpcClient;
+
+afterEach(() => {
+  spyOn(cleanup, "resetStaleWorkspace").mockRestore();
+});
 
 describe("stale-reset-workspace exports", () => {
   test("maybeResetStaleWorkspace and STALE_RESET_WORKFLOWS are importable", () => {
     expect(typeof maybeResetStaleWorkspace).toBe("function");
     expect(STALE_RESET_WORKFLOWS.has("intent")).toBe(true);
+  });
+});
+
+describe("runStaleResetForWorkflow probe flag", () => {
+  test("probeMaybeResetStaleWorkspace passes gatesOnly and skipWorktreeClaimGate to resetStaleWorkspace", async () => {
+    const capturedOptions: cleanup.ResetStaleWorkspaceOptions[] = [];
+    spyOn(cleanup, "resetStaleWorkspace").mockImplementation(async (_p, _b, _r, _j, _run, _d, _io, options) => {
+      capturedOptions.push(options ?? {});
+      return { status: "no-op" };
+    });
+
+    await probeMaybeResetStaleWorkspace(
+      "implement",
+      stubWriteBuild as never,
+      stubDeps,
+      stubIo,
+      {} as never,
+      stubClient,
+    );
+
+    expect(capturedOptions).toHaveLength(1);
+    expect(capturedOptions[0]?.gatesOnly).toBe(true);
+    expect(capturedOptions[0]?.skipWorktreeClaimGate).toBe(true);
+  });
+
+  test("maybeResetStaleWorkspace omits probe-only reset flags", async () => {
+    const capturedOptions: cleanup.ResetStaleWorkspaceOptions[] = [];
+    spyOn(cleanup, "resetStaleWorkspace").mockImplementation(async (_p, _b, _r, _j, _run, _d, _io, options) => {
+      capturedOptions.push(options ?? {});
+      return { status: "no-op" };
+    });
+
+    await maybeResetStaleWorkspace("implement", stubWriteBuild as never, stubDeps, stubIo, {} as never, stubClient);
+
+    expect(capturedOptions).toHaveLength(1);
+    expect(capturedOptions[0]?.gatesOnly).toBeUndefined();
+    expect(capturedOptions[0]?.skipWorktreeClaimGate).toBeUndefined();
   });
 });
 

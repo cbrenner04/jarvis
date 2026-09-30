@@ -14,10 +14,10 @@
 
 ## Acceptance criteria
 
-- [ ] A new test drives `pipeline_recover` against a real git fixture whose re-dispatch would be refused by the dirty-worktree gate; it returns an RPC error frame with the reason and creates no new run row, and `jarvis pipeline recover` prints the reason on stderr with a non-zero exit; fails against the pre-fix admitted outcome / exit 0.
-- [ ] A test shows `resetDespiteDirty` on the same fixture admits `pipeline_recover` (recover override wiring).
-- [ ] `v2/src/daemon/daemon-pipeline-recover.test.ts` stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A new test drives `pipeline_recover` against a real git fixture whose re-dispatch would be refused by the dirty-worktree gate; it returns an RPC error frame with the reason and creates no new run row, and `jarvis pipeline recover` prints the reason on stderr with a non-zero exit; fails against the pre-fix admitted outcome / exit 0.
+- [x] A test shows `resetDespiteDirty` on the same fixture admits `pipeline_recover` (recover override wiring).
+- [x] `v2/src/daemon/daemon-pipeline-recover.test.ts` stays green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

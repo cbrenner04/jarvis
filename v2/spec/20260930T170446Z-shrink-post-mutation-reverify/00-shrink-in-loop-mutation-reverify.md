@@ -22,12 +22,12 @@
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` adds a shrink-loop case: after shrink settles `done`/`no-work` with a co-located killing test removed from coverage, run telemetry includes `surviving_mutation_reprompt` and the shrink row does not finish toward publication with terminal `loop_finished` `loopOutcomeKind: "complete"` until verification passes; fails against the pre-fix shrink-complete path.
-- [ ] Shrink-row exhaustion case (`write-loop.test.ts` or `workflow-runner-review.test.ts`): shrink commits a change that deletes the co-located killing test and every reprompt leaves the survivor; after the shrink row settles, worktree HEAD equals the recorded pre-shrink sha, `git status --porcelain` is empty, the shrink row is `complete`, and no terminal `surviving_mutation_failed` is appended; fails against the pre-fix path (shrink commit kept, publication fails).
-- [ ] `write-loop.test.ts` `"implement complete surviving mutation reprompts before publication"` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `write-loop.test.ts` adds a shrink-loop case: after shrink settles `done`/`no-work` with a co-located killing test removed from coverage, run telemetry includes `surviving_mutation_reprompt` and the shrink row does not finish toward publication with terminal `loop_finished` `loopOutcomeKind: "complete"` until verification passes; fails against the pre-fix shrink-complete path.
+- [x] Shrink-row exhaustion case (`write-loop.test.ts` or `workflow-runner-review.test.ts`): shrink commits a change that deletes the co-located killing test and every reprompt leaves the survivor; after the shrink row settles, worktree HEAD equals the recorded pre-shrink sha, `git status --porcelain` is empty, the shrink row is `complete`, and no terminal `surviving_mutation_failed` is appended; fails against the pre-fix path (shrink commit kept, publication fails).
+- [x] `write-loop.test.ts` `"implement complete surviving mutation reprompts before publication"` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

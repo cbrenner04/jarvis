@@ -43,7 +43,7 @@ import {
   openLogSink,
 } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
+import { DEFAULT_HANDOFF_FALLBACK_MS, DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS } from "./daemon-changeover.ts";
 import {
   type DrainObserver,
   observePredecessorDrain,
@@ -1341,6 +1341,20 @@ async function daemonAnswersAt(socketPath: string): Promise<boolean> {
   }
 }
 
+/** Pure: default self-handoff successor `startDaemon` options, keyed off the incumbent's public socket dir. */
+export function selfHandoffSuccessorStartOptions(
+  socketPath: string,
+  observed: string,
+): { pidPath: string; logPath: string; privateSocketPath: string; readinessTimeoutMs: number } {
+  const home = dirname(socketPath);
+  return {
+    pidPath: join(home, "daemon.pid"),
+    logPath: join(home, "daemon.log"),
+    privateSocketPath: daemonPathsByDigest(observed, home).socketPath,
+    readinessTimeoutMs: DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS,
+  };
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: startup wires handoff rollback, listeners, and recovery in one ordered sequence
 export async function startDaemonRuntime(
   socketPath: string,
@@ -1686,12 +1700,7 @@ export async function startDaemonRuntime(
     (async (_loaded: string, observed: string): Promise<"committed" | "rolled_back"> => {
       // Paths derive from this daemon's own public socket directory, not module-level jarvis-home
       // constants, so a daemon bound under another home hands off within that home.
-      const home = dirname(socketPath);
-      await startDaemon(socketPath, {
-        pidPath: join(home, "daemon.pid"),
-        logPath: join(home, "daemon.log"),
-        privateSocketPath: daemonPathsByDigest(observed, home).socketPath,
-      });
+      await startDaemon(socketPath, selfHandoffSuccessorStartOptions(socketPath, observed));
       return "committed";
     });
   if (startupDeps.enableSelfHandoff === true && loadedExecutableDigest !== "unknown") {

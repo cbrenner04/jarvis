@@ -907,6 +907,55 @@ describe("executeWorkflow", () => {
     });
   });
 
+  test("shrink row threads preShrinkHead so surviving-mutation exhaustion reverts to implement-verified HEAD", async () => {
+    const branchName = "shrink-pre-shrink-head-threaded";
+    const { harness, step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) {
+        writeFileSync(join(cwd, "proof.txt"), "shrunk\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" };
+      }
+      writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    step.maxIterations = 2;
+    step.verifyDiffDerivedMutations = async () => ({
+      kind: "surviving-mutation",
+      mutation: "operator-flip: !== → ===",
+      killingTests: [],
+      killingSetObservedResult: "not-run",
+      sourceSite: { file: "v2/src/execution/workflow-runner.ts", line: 2298 },
+      dualConstraint: true,
+    });
+
+    const baseRef = step.worktree.baseRef;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(
+        Number(
+          execFileSync("git", ["rev-list", "--count", `${baseRef}..HEAD`], {
+            cwd: harness.workspace,
+            encoding: "utf8",
+          }).trim(),
+        ),
+      ).toBe(1);
+      expect(execFileSync("git", ["show", "HEAD:proof.txt"], { cwd: harness.workspace, encoding: "utf8" })).toBe(
+        "implemented\n",
+      );
+      expect(execFileSync("git", ["-C", harness.workspace, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "implement~shrink" })?.status,
+      ).toBe("completed");
+    });
+  });
+
   test("commits implement output before a shrink invocation error", async () => {
     const branchName = "shrink-invocation-error-commit";
     const { harness, step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {

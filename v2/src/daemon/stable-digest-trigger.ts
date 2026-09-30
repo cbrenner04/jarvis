@@ -34,6 +34,25 @@ export function shouldSampleNow(state: Readonly<StableDigestTriggerState>): bool
   return !state.handoffInFlight;
 }
 
+export type RetireCause = "handoff_origin" | "terminal" | null;
+
+/** Sole-owner stranded incumbent may reopen admission on the self-handoff sampling tick (see subspec 00). */
+export function shouldRetiringSoleOwnerSelfHeal(input: {
+  retiring: boolean;
+  publicBound: boolean;
+  handoffPending: boolean;
+  blocksRollbackReopen: boolean;
+  retireCause: RetireCause;
+}): boolean {
+  return (
+    input.retiring &&
+    input.publicBound &&
+    !input.handoffPending &&
+    !input.blocksRollbackReopen &&
+    input.retireCause === "handoff_origin"
+  );
+}
+
 export function startStableDigestTrigger(
   loadedDigest: string,
   deps: {

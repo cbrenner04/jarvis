@@ -317,6 +317,26 @@ export function workflowInvocationIsLive(
 /** The RPC or signal that started a daemon generation's retire transition. */
 type DaemonRetireTrigger = "supersede" | "changeover" | "shutdown" | "sigterm" | "sigint";
 
+export type DaemonRetireCause = "handoff_origin" | "terminal" | null;
+
+export type DaemonRetireCauseState = { cause: DaemonRetireCause };
+
+export function recordRetireCauseOnChangeover(state: DaemonRetireCauseState): void {
+  if (state.cause === null) state.cause = "handoff_origin";
+}
+
+export function recordRetireCauseTerminal(state: DaemonRetireCauseState): void {
+  state.cause = "terminal";
+}
+
+export function clearRetireCause(state: DaemonRetireCauseState): void {
+  state.cause = null;
+}
+
+export function recordRetireCauseAfterSupersede(state: DaemonRetireCauseState, blocksRollbackReopen: boolean): void {
+  if (blocksRollbackReopen) recordRetireCauseTerminal(state);
+}
+
 const RETIRE_TRIGGER_LOG_PREFIX = "JARVIS_DAEMON_RETIRE_TRIGGER:";
 const DRAIN_EXIT_LOG_PREFIX = "JARVIS_DAEMON_DRAIN_EXIT:";
 
@@ -901,6 +921,7 @@ type HandoffTransaction = {
 type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
 
 type HandoffHandlersDeps = ChangeoverHandlerDeps & {
+  retireCauseState: DaemonRetireCauseState;
   /** Reopens admission just before the public listener rebinds (restored on failure). */
   setAdmitting: () => void;
   /** True when a non-handoff-origin `supersede` must keep rollback from reopening admission. */
@@ -983,12 +1004,14 @@ export function createSupersedeHandler(deps: {
   pendingHandoffId: () => string | undefined;
   setRetiring: () => void;
   recordRetireTrigger: (trigger: "supersede") => void;
+  retireCauseState: DaemonRetireCauseState;
 }): RpcHandler {
   return (frame) => {
     recordSupersedeForRollbackAdmission(deps.state, {
       pendingHandoffId: deps.pendingHandoffId(),
       supersedeHandoffId: handoffIdentity(frame),
     });
+    recordRetireCauseAfterSupersede(deps.retireCauseState, deps.state.blocksRollbackReopen);
     deps.setRetiring();
     deps.recordRetireTrigger("supersede");
     return { kind: "response", result: { ok: true } };
@@ -1125,6 +1148,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.state === "rolled_back") return handoffResponse("rolled_back");
     if (active.state === "committed") return handoffResponse("committed");
     active.state = "committed";
+    recordRetireCauseTerminal(deps.retireCauseState);
     clearFallback(active);
     scheduleWatch(active, active.id);
     return handoffResponse("committed");
@@ -1192,6 +1216,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }
 
     deps.setRetiring();
+    recordRetireCauseOnChangeover(deps.retireCauseState);
     deps.recordRetireTrigger("changeover");
     const handoffId = crypto.randomUUID();
     let releaseDone: (() => void) | undefined;
@@ -1270,9 +1295,11 @@ export function createChangeoverHandler(deps: ChangeoverHandlerDeps): RpcHandler
 export function createSignalHandler(deps: {
   setShutdownRequested: () => void;
   recordRetireTrigger: (trigger: "sigterm" | "sigint") => void;
+  retireCauseState: DaemonRetireCauseState;
 }): (signal: NodeJS.Signals) => void {
   return (signal) => {
     deps.setShutdownRequested();
+    recordRetireCauseTerminal(deps.retireCauseState);
     deps.recordRetireTrigger(signal === "SIGINT" ? "sigint" : "sigterm");
   };
 }
@@ -1497,8 +1524,11 @@ export async function startDaemonRuntime(
     };
   };
 
+  const retireCauseState: DaemonRetireCauseState = { cause: null };
+
   const shutdownHandler: RpcHandler = () => {
     shutdownRequested = true;
+    recordRetireCauseTerminal(retireCauseState);
     recordRetireTrigger("shutdown");
     return { kind: "response", result: { ok: true } };
   };
@@ -1555,6 +1585,11 @@ export async function startDaemonRuntime(
       ? {}
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
+
+  const reopenAdmission = (): void => {
+    clearRetireCause(retireCauseState);
+    runControlContext.retiring = false;
+  };
 
   const ownsRunLocally = (runId: string): boolean =>
     [...runControlContext.activeRuns.values()].some((activeRun) => activeRun.runId === runId);
@@ -1626,6 +1661,7 @@ export async function startDaemonRuntime(
     pendingHandoffId: () => pendingHandoffId(),
     setRetiring,
     recordRetireTrigger,
+    retireCauseState,
   });
 
   let server: IpcServer;
@@ -1643,9 +1679,8 @@ export async function startDaemonRuntime(
       publicBound = false;
       return server.close();
     },
-    setAdmitting: () => {
-      runControlContext.retiring = false;
-    },
+    retireCauseState,
+    setAdmitting: reopenAdmission,
     rollbackBlocksReopenAdmission: () => supersedeAdmissionState.blocksRollbackReopen,
     recordRetireTrigger,
     bindPublicServer: async () => {
@@ -1810,6 +1845,7 @@ export async function startDaemonRuntime(
       shutdownRequested = true;
     },
     recordRetireTrigger,
+    retireCauseState,
   });
 
   process.on("SIGTERM", signalHandler);

@@ -7,7 +7,13 @@ import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
-import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
+import {
+  WORKFLOW_IMPLEMENT_USAGE,
+  WORKFLOW_INTENT_USAGE,
+  WORKFLOW_PLAN_USAGE,
+  WORKFLOW_REVIEW_FEEDBACK_USAGE,
+  WORKFLOW_USAGE,
+} from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
@@ -35,7 +41,9 @@ import {
   parseImplementWorkflowArgs,
   parseIntentWorkflowArgs,
   parsePlanWorkflowArgs,
+  parseReviewFeedbackWorkflowArgs,
 } from "./workflow-args.ts";
+import { runReviewFeedbackWorkflowCommand } from "./review-feedback-workflow-admission.ts";
 import {
   prepareWorkflowStart,
   type WorkflowStartPreparationResult,
@@ -57,6 +65,7 @@ function getWorkflowUsage(name: string): string {
   if (name === "intent") return WORKFLOW_INTENT_USAGE;
   if (name === "plan") return WORKFLOW_PLAN_USAGE;
   if (name === "implement") return WORKFLOW_IMPLEMENT_USAGE;
+  if (name === "review-feedback") return WORKFLOW_REVIEW_FEEDBACK_USAGE;
   return WORKFLOW_USAGE;
 }
 
@@ -194,9 +203,11 @@ function resolveImplementRecoveryRequest(
 
 function resolveWorkflowPresetBuilder(name: string | undefined, deps: CliDeps): ResolvedWorkflowPreset | undefined {
   if (name === undefined) return undefined;
-  if (name !== "intent" && name !== "plan" && name !== "implement") return undefined;
   const builder = deps.workflowPresetBuilders[name];
   if (builder === undefined) return undefined;
+  if (name !== "intent" && name !== "plan" && name !== "implement" && name !== "review-feedback") {
+    return undefined;
+  }
   return { builder, canonicalName: name };
 }
 
@@ -427,9 +438,18 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
     return 1;
   }
   const { builder, canonicalName } = resolved;
+  const isReviewFeedbackPreset = canonicalName === "review-feedback";
   const isIntentPreset = canonicalName === "intent";
   const isPlanPreset = canonicalName === "plan";
   const { rest: workflowArgv, detach } = parseWorkflowDetachFlag(argv.slice(1));
+  if (isReviewFeedbackPreset) {
+    const parsedReviewFeedback = parseReviewFeedbackWorkflowArgs(workflowArgv);
+    if (!parsedReviewFeedback.ok) {
+      io.stderr(WORKFLOW_REVIEW_FEEDBACK_USAGE);
+      return 1;
+    }
+    return runReviewFeedbackWorkflowCommand(workflowArgv, parsedReviewFeedback, io, deps);
+  }
   const parsed = parseWorkflowArgsByName(workflowArgv, isIntentPreset, isPlanPreset);
   if (!parsed.ok) {
     io.stderr(getWorkflowUsage(canonicalName));

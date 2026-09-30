@@ -319,6 +319,18 @@ export const NOTIFICATIONS_HELP_FLAGS: readonly CommandFlag[] = [
   },
 ];
 
+export const WORKFLOW_REVIEW_FEEDBACK_HELP_FLAGS: readonly CommandFlag[] = [
+  { name: "--branch", argumentShape: "<lane-branch>", description: "Published branch of the completed lane." },
+  { name: "--pipeline", argumentShape: "<id>", description: "Pipeline id when the lane came from a stage." },
+  { name: "--stage", argumentShape: "<stage-id>", description: "Workflow stage id within the pipeline." },
+  {
+    name: "--branch-key",
+    argumentShape: "<key>",
+    description: "Fan-out branch key when the pipeline stage requires it.",
+  },
+  WORKFLOW_DETACH_FLAG,
+];
+
 export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--branch", argumentShape: "<name>", description: "Implementation branch name." },
   { name: "--base", argumentShape: "<ref>", description: "Base git ref for the branch." },

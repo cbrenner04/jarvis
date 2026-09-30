@@ -90,6 +90,7 @@ function fakeBuilders(overrides: Partial<typeof WORKFLOW_PRESET_BUILDERS> = {}):
     plan: failEverything,
     "plan-reviewed": failEverything,
     "plan-reviewed-light": failEverything,
+    "review-feedback": failEverything as (typeof WORKFLOW_PRESET_BUILDERS)["review-feedback"],
     ...overrides,
   };
 }

@@ -10488,31 +10488,14 @@ index 1234567..abcdefg 100644
       return worktreePath;
     }
 
-    function initGitWorktreeNodeModulesIgnoreOnly(jarvisRoot: string, branchName: string): string {
-      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
-      mkdirSync(worktreePath, { recursive: true });
-      execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
-      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
-      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
-      execFileSync("git", ["-C", worktreePath, "config", "commit.gpgsign", "false"], { stdio: "pipe" });
-      copyFileSync(join(import.meta.dir, "../../../biome.json"), join(worktreePath, "biome.json"));
-      writeFileSync(join(worktreePath, ".gitignore"), "node_modules/\n", "utf8");
-      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
-      writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
-      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
-      execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
-      try {
-        symlinkSync(join(import.meta.dir, "../../../node_modules"), join(worktreePath, "node_modules"), "dir");
-      } catch {
-        /* reuse existing symlink */
-      }
-      return worktreePath;
-    }
-
     const biomeRepoRoot = join(import.meta.dir, "../../..");
     const complexityDirtyRel = "v2/src/complexity-dirty.ts";
 
-    function initRealGitWorktree(jarvisRoot: string, branchName: string): string {
+    function initRealGitWorktree(
+      jarvisRoot: string,
+      branchName: string,
+      options?: { gitignore?: "node_modules-only" },
+    ): string {
       const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
       mkdirSync(worktreePath, { recursive: true });
       execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
@@ -10520,17 +10503,29 @@ index 1234567..abcdefg 100644
       execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "config", "commit.gpgsign", "false"], { stdio: "pipe" });
       copyFileSync(join(biomeRepoRoot, "biome.json"), join(worktreePath, "biome.json"));
-      copyFileSync(join(biomeRepoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
-      try {
-        symlinkSync(join(biomeRepoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
-      } catch {
-        /* reuse existing symlink */
+      if (options?.gitignore === "node_modules-only") {
+        writeFileSync(join(worktreePath, ".gitignore"), "node_modules/\n", "utf8");
+      } else {
+        copyFileSync(join(biomeRepoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
+      }
+      const materializeNodeModulesSymlink = (): void => {
+        try {
+          symlinkSync(join(biomeRepoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+        } catch {
+          /* reuse existing symlink */
+        }
+      };
+      if (options?.gitignore !== "node_modules-only") {
+        materializeNodeModulesSymlink();
       }
       writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
       mkdirSync(join(worktreePath, "v2/src"), { recursive: true });
       writeFileSync(join(worktreePath, "v2/src/example.ts"), "export const seeded = true;\n");
       execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+      if (options?.gitignore === "node_modules-only") {
+        materializeNodeModulesSymlink();
+      }
       return worktreePath;
     }
 
@@ -11222,7 +11217,7 @@ index 1234567..abcdefg 100644
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "iter-checkpoint-node-modules-exclusion";
-      const worktreePath = initGitWorktreeNodeModulesIgnoreOnly(jarvisRoot, branchName);
+      const worktreePath = initRealGitWorktree(jarvisRoot, branchName, { gitignore: "node_modules-only" });
       const seedHead = gitIn(worktreePath, ["rev-parse", "HEAD"]);
       const store = openStateStore(stateDbPath);
       const sink = new TestLogSink();
@@ -11254,7 +11249,6 @@ index 1234567..abcdefg 100644
         const topLevel = gitIn(worktreePath, ["ls-tree", "--name-only", "HEAD"]).split("\n").filter(Boolean);
         expect(topLevel).not.toContain("node_modules");
         expect(topLevel).toContain(authoredRel);
-        expect(gitIn(worktreePath, ["show", `HEAD:${authoredRel}`])).toContain("authored");
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

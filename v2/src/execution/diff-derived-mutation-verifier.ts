@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
@@ -702,7 +702,7 @@ const COMPARISON_OPERATOR_KINDS = new Set<ts.SyntaxKind>([
 ]);
 
 const FLIP_SKIP_TOKEN_PATTERN =
-  />>>|>>|<<|===|!==|==|!=|<=|>=|&&|\|\||[+\-*/%&|^~!<>=?:;,.\[\]{}()]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[a-zA-Z_$][\w$]*/g;
+  />>>|>>|<<|===|!==|==|!=|<=|>=|&&|\|\||[+\-*/%&|^~!<>=?:;,.[\]{}()]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[a-zA-Z_$][\w$]*/g;
 
 function whitespaceNormalizedFlipSkipTokens(text: string): string[] {
   const normalized = text.trim().replace(/\s+/g, " ");

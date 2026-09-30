@@ -20,7 +20,7 @@ Every other landed spec is archived under `completed/`.
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 
-## Seeds (26)
+## Seeds (28)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
@@ -46,6 +46,8 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
+| `apply-pr-review-feedback-to-a-lane` | P1 | — | new 2026-09-30; scope = any completed intent/plan/implement workflow or stage with an open reviewed PR; dispatch as one seed, intent must split one ready-intent per slice |
+| `pipeline-stage-addresses-review-feedback` | P1 | — | new 2026-09-30; `pipeline resume --address-review <stage>`; after the review-feedback preset chain lands |
 | `cursor-quota-classified-from-stream-json-content` | P1 | — | new 2026-09-29; 6/52 cursor calls false-`quota`, escalating to paid rungs |
 | `harness-exposes-agent-toolset` | — | — | new 2026-09-29; **not dispatchable until owner sign-off** (near a new engine generation) |
 | `fold-shared-into-v2` | P3 | — | new 2026-09-29; prerequisite of `retire-v2-nomenclature` |

@@ -152,8 +152,7 @@ Cross-file pipeline execution (admission, dispatch, settlement, fan-out, derived
 
 A pipeline definition (`v2/src/execution/pipeline-definition.ts`) composes named workflow presets and manual approvals into an ordered value; it does not author prompts or steps itself — that stays in `publication-workflow-steps.ts` and `implement-workflow-steps.ts`. A definition is a `name`, an optional `terminalAction` on admitted definitions (supplied by project-pipeline resolution, omitted from source-registry rows), and a list of stages, each one of two kinds:
 
-- `workflow`: `{ stageId, kind: "workflow", workflow, review }` — `workflow` names
-  a base workflow (`intent`, `plan`, `implement`), never a reviewed preset name.
+- `workflow`: `{ stageId, kind: "workflow", workflow, review }` — `workflow` names a base workflow (`intent`, `plan`, `implement`), never a reviewed preset name. `PIPELINE_ELIGIBILITY` in `workflow-presets.ts` also registers standalone-only CLI preset names (today `review-feedback`) that must not appear as stage `workflow` values even though they may be admitted elsewhere later.
 - `approval`: `{ stageId, kind: "approval" }` — a manual gate; carries no posture.
 
 `review` is one of three postures: `none`, `light`, `debate`. A `(workflow,
@@ -171,7 +170,8 @@ Admission validation (`validatePipelineDefinition` in `pipeline-definition.ts`) 
 
 | code | field | When |
 | ---- | ----- | ---- |
-| `unknown-workflow` | `workflow` | `workflow` is not one of `BASE_WORKFLOW_NAMES` (`intent`, `plan`, `implement`). |
+| `unknown-workflow` | `workflow` | `workflow` is not one of `BASE_WORKFLOW_NAMES` (`intent`, `plan`, `implement`) and is not a registered standalone-only preset name. |
+| `standalone-only-workflow` | `workflow` | `workflow` names a preset registered in `PIPELINE_ELIGIBILITY` with `pipelineStageEligible: false` (standalone-only; not composable as a pipeline stage). |
 | `invalid-review-posture` | `review` | `review` is not `none`, `light`, or `debate`. |
 | `unrealizable-review-posture` | `review` | Valid posture but no resolution for that workflow (`implement` + `none` only). |
 | `missing-role-binding` | `review` | Realizable posture needs a review role with no key in the supplied config (see below). |

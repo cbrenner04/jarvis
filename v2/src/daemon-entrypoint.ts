@@ -1,5 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { startDaemonRuntime } from "./daemon/daemon";
+import {
+  DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS,
+  handoffFallbackMsForSuccessorReadiness,
+} from "./daemon/daemon-changeover.ts";
 import { resolveRunTimeoutBudgetMs } from "./daemon/run-time-budget";
 
 type EntrypointArgs = {
@@ -72,6 +76,17 @@ export function resolveSelfHandoffOptions(args: EntrypointArgs): {
   };
 }
 
+// Pure: the production `startDaemonRuntime` options. Incumbent fallback tracks the self-handoff readiness bound.
+export function buildEntrypointRuntimeOptions(args: EntrypointArgs) {
+  return {
+    ...resolveHandoffOptions(args),
+    ...resolveSelfHandoffOptions(args),
+    handoffFallbackMs: handoffFallbackMsForSuccessorReadiness(DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS),
+    // Only production wire for the config-backed whole-run timeout; without it no run timeout is armed.
+    runTimeout: { budgetMs: (project: string) => resolveRunTimeoutBudgetMs(project, undefined) },
+  };
+}
+
 // Pure: true when `--test-owner-pid` names a real PID worth watching (test-only owner liveness hook —
 // the entrypoint exits once that PID disappears).
 export function shouldWatchOwnerPid(testOwnerPid: number): boolean {
@@ -102,12 +117,7 @@ if (import.meta.main) {
     }, 100).unref();
   }
 
-  startDaemonRuntime(args.socketPath, undefined, undefined, {
-    ...resolveHandoffOptions(args),
-    ...resolveSelfHandoffOptions(args),
-    // Only production wire for the config-backed whole-run timeout; without it no run timeout is armed.
-    runTimeout: { budgetMs: (project) => resolveRunTimeoutBudgetMs(project, undefined) },
-  }).catch((err) => {
+  startDaemonRuntime(args.socketPath, undefined, undefined, buildEntrypointRuntimeOptions(args)).catch((err) => {
     console.error("Fatal daemon error:", err);
     process.exit(1);
   });

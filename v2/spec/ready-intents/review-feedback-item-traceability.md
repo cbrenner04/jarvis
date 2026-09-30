@@ -20,11 +20,11 @@ When a review-feedback run settles, durable run output and the operator-visible 
 ## Documentation updates
 
 - `v2/docs/operator-runbook.md` — reading addressed versus unaddressed review items after a run.
-- `v2/docs/v1-behaviors.md` — review-feedback re-entry capability and traceability contract.
+- `v2/docs/v1-behaviors.md` — review-feedback re-entry versus v1 (`review-feedback` worktree-name CLI, PR comments plus CI-failure path): v2 is preset-based lane admission by branch (and pipeline disambiguators), PR review threads/comments only, automatic capture on admit, and addressed/unaddressed item traceability.
 
 ## Prerequisites
 
 - The preset registry records whether each registered CLI workflow may be used as a pipeline stage `workflow` value, and pipeline definition validation rejects stage workflows marked standalone-only with a named error.
-- PR review threads and comments for a lane's open PR are captured into one durable review artifact via `gh`, with the PR as the sole feedback source.
+- Review-feedback admission resolves the lane and runs the capture prelude before write-step dispatch.
 - Review-feedback CLI admission resolves a completed plan or implement lane to its branch, worktree, and open PR and refuses in-flight lanes, closed or merged PRs, and non-plan/implement targets by name.
 - The review-feedback preset write step addresses captured PR feedback on the admitted branch and republishes through the normal ready gate and completion publication to the same open PR without implement spec-routing scope.

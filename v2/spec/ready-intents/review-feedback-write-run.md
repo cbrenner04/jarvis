@@ -26,5 +26,5 @@ A new standalone workflow preset registers with its own `prompts/<preset>/` set 
 ## Prerequisites
 
 - The preset registry records whether each registered CLI workflow may be used as a pipeline stage `workflow` value, and pipeline definition validation rejects stage workflows marked standalone-only with a named error.
-- PR review threads and comments for a lane's open PR are captured into one durable review artifact via `gh`, with the PR as the sole feedback source.
+- Review-feedback admission resolves the lane, runs the capture prelude, and refuses when capture fails.
 - Review-feedback CLI admission resolves a completed plan or implement lane to its branch, worktree, and open PR and refuses in-flight lanes, closed or merged PRs, and non-plan/implement targets by name.

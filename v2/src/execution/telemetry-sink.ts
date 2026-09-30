@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
   appendFileSync,
-  existsSync,
   linkSync,
   mkdirSync,
   readdirSync,
@@ -20,6 +19,8 @@ type TelemetryJsonlAppendOptions = {
   clock?: () => Date;
   /** Test seam: the rename that stages the current file (and claims orphaned staging files). */
   renameSync?: (from: string, to: string) => void;
+  /** Test seam: the stat that reads the current file's mtime before deciding to roll. */
+  statSync?: (path: string) => { mtimeMs: number };
 };
 
 const STAGING_INFIX = ".rolling-";
@@ -55,7 +56,6 @@ function publishArchiveNoClobber(telemetryDir: string, month: string, tmpPath: s
     const archivePath = join(telemetryDir, n === 0 ? `${month}.jsonl.gz` : `${month}.${n}.jsonl.gz`);
     try {
       linkSync(tmpPath, archivePath);
-      rmSync(tmpPath, { force: true });
       return;
     } catch (error) {
       if (errnoCode(error) !== "EEXIST") throw error;
@@ -69,8 +69,12 @@ function archiveStagedFile(sinkPath: string, stagedPath: string): void {
   const telemetryDir = join(dirname(sinkPath), "telemetry");
   mkdirSync(telemetryDir, { recursive: true });
   const tmpPath = join(telemetryDir, `.${month}.jsonl.gz.tmp-${process.pid}-${randomBytes(6).toString("hex")}`);
-  writeFileSync(tmpPath, gzipSync(readFileSync(stagedPath)));
-  publishArchiveNoClobber(telemetryDir, month, tmpPath);
+  try {
+    writeFileSync(tmpPath, gzipSync(readFileSync(stagedPath)));
+    publishArchiveNoClobber(telemetryDir, month, tmpPath);
+  } finally {
+    rmSync(tmpPath, { force: true });
+  }
   rmSync(stagedPath, { force: true });
 }
 
@@ -96,14 +100,27 @@ function sweepOrphanedStagingFiles(sinkPath: string, rename: (from: string, to: 
   }
 }
 
+/** Current file's mtime, or undefined when a concurrent roller already staged it away. */
+function currentMtimeMs(sinkPath: string, stat: (path: string) => { mtimeMs: number }): number | undefined {
+  try {
+    return stat(sinkPath).mtimeMs;
+  } catch (error) {
+    if (errnoCode(error) === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 function rollTelemetryCurrentFileIfNeeded(
   sinkPath: string,
   clock: () => Date,
   rename: (from: string, to: string) => void,
+  stat: (path: string) => { mtimeMs: number },
 ): void {
+  const mtimeMs = currentMtimeMs(sinkPath, stat);
+  if (mtimeMs !== undefined && utcMonthLabel(mtimeMs) === utcMonthLabel(clock().getTime())) return;
+  // Only when the file is absent or due to roll: orphans exist only after a roll died mid-flight.
   sweepOrphanedStagingFiles(sinkPath, rename);
-  if (!existsSync(sinkPath)) return;
-  if (utcMonthLabel(statSync(sinkPath).mtimeMs) === utcMonthLabel(clock().getTime())) return;
+  if (mtimeMs === undefined) return;
   const staged = stagingPath(sinkPath);
   if (!tryStage(rename, sinkPath, staged)) return;
   archiveStagedFile(sinkPath, staged);
@@ -112,10 +129,15 @@ function rollTelemetryCurrentFileIfNeeded(
 export function appendTelemetryJsonlLine(sinkPath: string, line: string, options?: TelemetryJsonlAppendOptions): void {
   const clock = options?.clock ?? (() => new Date());
   mkdirSync(dirname(sinkPath), { recursive: true });
-  rollTelemetryCurrentFileIfNeeded(sinkPath, clock, options?.renameSync ?? renameSync);
+  rollTelemetryCurrentFileIfNeeded(sinkPath, clock, options?.renameSync ?? renameSync, options?.statSync ?? statSync);
   appendFileSync(sinkPath, line.endsWith("\n") ? line : `${line}\n`, "utf8");
   const stampSec = clock().getTime() / 1000;
-  utimesSync(sinkPath, stampSec, stampSec);
+  try {
+    utimesSync(sinkPath, stampSec, stampSec);
+  } catch (error) {
+    // A concurrent roller staged the file after our append; the line travels with the staged file.
+    if (errnoCode(error) !== "ENOENT") throw error;
+  }
 }
 
 /** JSONL telemetry sink appending to `path`, creating its parent directory as needed. */

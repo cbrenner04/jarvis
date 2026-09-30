@@ -199,6 +199,27 @@ describe("telemetry-sink monthly roll", () => {
     expect(readFileSync(sinkPath, "utf8")).toBe('{"writer":"A"}\n{"writer":"B"}\n');
   });
 
+  test("a loser whose current file is renamed away before its stat still appends its line", () => {
+    isolateSink();
+    const mayRows = `${JSON.stringify({ month: "may" })}\n`;
+    seedCurrentFile(mayRows, utcMs(2026, 5, 20));
+    const { clock } = mutableClock(utcMs(2026, 6, 2));
+    // Winner B (a live process) stages the current file between loser A's existence check and its stat.
+    const winnerStaged = `${sinkPath}.rolling-${process.ppid}-winner`;
+    let raced = false;
+    const racingStat = (path: string): { mtimeMs: number } => {
+      if (!raced && path === sinkPath) {
+        raced = true;
+        renameSync(sinkPath, winnerStaged);
+      }
+      return statSync(path);
+    };
+    appendTelemetryJsonlLine(sinkPath, '{"writer":"A"}', { clock, statSync: racingStat });
+    expect(raced).toBe(true);
+    expect(readFileSync(sinkPath, "utf8")).toBe('{"writer":"A"}\n');
+    expect(readFileSync(winnerStaged, "utf8")).toBe(mayRows);
+  });
+
   test("a roll never overwrites an existing month archive", () => {
     isolateSink();
     const telemetryDir = join(jarvisRoot, "telemetry");

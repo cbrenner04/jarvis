@@ -67,7 +67,7 @@ function memoryStore(args: {
 function pipelineFixture(args: {
   pipelineId: string;
   stageId: string;
-  workflow: "intent" | "plan" | "implement";
+  workflow: string;
   entryRun: Run;
   branchKey?: string;
 }): Pipeline & { stages: PipelineStageRecord[] } {
@@ -296,5 +296,88 @@ describe("resolveReviewFeedbackLane pipeline", () => {
       stageId: "intent-stage",
       branchKey: "feature-a",
     });
+    expect(result.target.laneKind).toBe("intent");
+  });
+
+  test("resolves a succeeded pipeline stage when stage workflow is plan", () => {
+    const entryRun = baseRun({
+      id: "pipeline-plan-entry",
+      stepId: "plan-step",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-plan", {
+        stepId: "plan-step",
+        role: "author",
+        promptId: "plan.prompt.draft",
+      }),
+    });
+    const pipeline = pipelineFixture({
+      pipelineId: "pipe-plan",
+      stageId: "plan-stage",
+      workflow: "plan",
+      entryRun,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [entryRun], pipelines: [pipeline] }), {
+      mode: "pipeline",
+      project: PROJECT,
+      branch: BRANCH,
+      pipelineId: "pipe-plan",
+      stageId: "plan-stage",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected success");
+    expect(result.target.laneKind).toBe("plan");
+  });
+
+  test("resolves a succeeded pipeline stage when stage workflow is implement", () => {
+    const entryRun = baseRun({
+      id: "pipeline-implement-entry",
+      stepId: "implement-step",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-implement", {
+        stepId: "implement-step",
+        role: "implement",
+        promptId: "implement.prompt.body",
+      }),
+    });
+    const pipeline = pipelineFixture({
+      pipelineId: "pipe-implement",
+      stageId: "implement-stage",
+      workflow: "implement",
+      entryRun,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [entryRun], pipelines: [pipeline] }), {
+      mode: "pipeline",
+      project: PROJECT,
+      branch: BRANCH,
+      pipelineId: "pipe-implement",
+      stageId: "implement-stage",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected success");
+    expect(result.target.laneKind).toBe("implement");
+  });
+
+  test("refuses pipeline stage whose workflow is not intent, plan, or implement", () => {
+    const entryRun = baseRun({
+      id: "pipeline-debate-entry",
+      stepId: "debate-step",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-debate", {
+        stepId: "debate-step",
+        role: "author",
+        promptId: "debate.prompt.body",
+      }),
+    });
+    const pipeline = pipelineFixture({
+      pipelineId: "pipe-debate",
+      stageId: "debate-stage",
+      workflow: "debate",
+      entryRun,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [entryRun], pipelines: [pipeline] }), {
+      mode: "pipeline",
+      project: PROJECT,
+      branch: BRANCH,
+      pipelineId: "pipe-debate",
+      stageId: "debate-stage",
+    });
+    expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_not_eligible" });
   });
 });

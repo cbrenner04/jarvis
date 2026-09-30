@@ -10,6 +10,7 @@ type EntrypointArgs = {
   socketPath?: string;
   privateSocketPath?: string;
   predecessorSocketPath?: string;
+  predecessorHandoffId?: string;
   testOwnerPid?: number;
   testSelfHandoffDigestFile?: string;
   testSelfHandoffIntervalMs?: number;
@@ -19,6 +20,7 @@ const FLAG_KEYS: Record<string, keyof EntrypointArgs> = {
   "--socket": "socketPath",
   "--private-socket": "privateSocketPath",
   "--predecessor-socket": "predecessorSocketPath",
+  "--predecessor-handoff-id": "predecessorHandoffId",
   "--test-owner-pid": "testOwnerPid",
   "--test-self-handoff-digest-file": "testSelfHandoffDigestFile",
   "--test-self-handoff-interval-ms": "testSelfHandoffIntervalMs",
@@ -48,10 +50,12 @@ export function parseEntrypointArgs(argv: readonly string[]): EntrypointArgs {
 export function resolveHandoffOptions(args: EntrypointArgs): {
   privateSocketPath?: string;
   predecessorSocketPath?: string;
+  predecessorHandoffId?: string;
 } {
   return {
     ...(args.privateSocketPath === undefined ? {} : { privateSocketPath: args.privateSocketPath }),
     ...(args.predecessorSocketPath === undefined ? {} : { predecessorSocketPath: args.predecessorSocketPath }),
+    ...(args.predecessorHandoffId === undefined ? {} : { predecessorHandoffId: args.predecessorHandoffId }),
   };
 }
 

@@ -16,12 +16,12 @@ export function enumerateOtherDaemonSockets(jarvisHomeDir: string, ownSocketPath
 }
 
 /** Errors ignored (unreachable socket, RPC failure, timeout, etc.). */
-export async function supersedePeerDaemon(socketPath: string): Promise<void> {
+export async function supersedePeerDaemon(socketPath: string, handoffId?: string): Promise<void> {
   let client: IpcClient | undefined;
   try {
     client = await connectIpcClient(socketPath);
     const transport = createRpcTransport(client);
-    await transport.request("supersede", undefined, { timeoutMs: 1_000 });
+    await transport.request("supersede", handoffId === undefined ? undefined : { handoffId }, { timeoutMs: 1_000 });
   } catch {
     // Ignore all errors: unreachable socket, RPC failure, timeout, etc.
   } finally {

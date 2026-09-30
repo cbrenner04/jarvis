@@ -12,7 +12,7 @@ import {
   queryPipelineListsFromSocketPaths,
 } from "./pipeline-daemon-resolution.ts";
 import { resolvePipelineIdArgument } from "./pipeline-id-resolution.ts";
-import type { PipelineSnapshot } from "./pipeline-observation.ts";
+import { type PipelineSnapshot, resolvePipelineOwnership } from "./pipeline-observation.ts";
 
 const DIRECT_OWNER_RUN_METHODS = ["wait", "pause", "kill"] as const;
 
@@ -188,11 +188,11 @@ function pipelineNoLiveOwnerRefusal(pipelineId: string): { kind: "error"; code: 
 }
 
 /** Asks one peer generation whether it recognizes itself as the pipeline's owner; returns its
- * `ownerIdentity`, or `undefined` when unreachable or answering anything but an `owner` witness —
- * both are simply "not the owner", so callers don't distinguish. */
+ * `ownerIdentity`, or `undefined` when unreachable or answering no confirming witness. */
 async function queryPeerPipelineOwner(
   pipelineId: string,
   peerSocketPath: string,
+  acceptDurableStateWitness: boolean,
   deps: PipelineDecisionRoutingDeps,
 ): Promise<string | undefined> {
   let client: IpcClient;
@@ -208,9 +208,10 @@ async function queryPeerPipelineOwner(
       { pipelineId },
       { timeoutMs: deps.predecessorOwnerQueryTimeoutMs ?? PREDECESSOR_PIPELINE_OWNER_QUERY_TIMEOUT_MS },
     );
-    return isRecord(result) && result.kind === "owner" && typeof result.ownerIdentity === "string"
-      ? result.ownerIdentity
-      : undefined;
+    if (!isRecord(result) || typeof result.ownerIdentity !== "string") return undefined;
+    if (result.kind === "owner") return result.ownerIdentity;
+    if (acceptDurableStateWitness && result.kind === "durable_state") return result.ownerIdentity;
+    return undefined;
   } catch {
     return undefined;
   } finally {
@@ -218,16 +219,19 @@ async function queryPeerPipelineOwner(
   }
 }
 
-/** Queries every discovered peer in parallel; true when one answers an `owner` witness matching the
- * row's recorded `ownerIdentity`. Only `pipeline_owner` is ever sent — never the verb. */
+/** Queries every discovered peer in parallel; true when one answers a confirming witness matching
+ * the row's recorded `ownerIdentity`. Only `pipeline_owner` is ever sent — never the verb. */
 async function anyPeerConfirmsOwner(
-  pipelineId: string,
-  ownerIdentity: string | null,
+  pipeline: NonNullable<ReturnType<PipelineOwnershipStore["loadPipeline"]>>,
   deps: PipelineDecisionRoutingDeps,
 ): Promise<boolean> {
+  const ownerIdentity = pipeline.ownerIdentity;
   if (ownerIdentity === null) return false;
+  const acceptDurableStateWitness = resolvePipelineOwnership(pipeline, "").kind === "durable_state";
   const answers = await Promise.all(
-    deps.discoverPeerSocketPaths().map((peerSocketPath) => queryPeerPipelineOwner(pipelineId, peerSocketPath, deps)),
+    deps
+      .discoverPeerSocketPaths()
+      .map((peerSocketPath) => queryPeerPipelineOwner(pipeline.id, peerSocketPath, acceptDurableStateWitness, deps)),
   );
   return answers.includes(ownerIdentity);
 }
@@ -257,7 +261,7 @@ async function claimPipelineForDecision(
   if (pipeline.status === "interrupted" && (await deps.store.pipelineOwnerIsDead(pipelineId))) {
     return { kind: "proceed" };
   }
-  if (!(await anyPeerConfirmsOwner(pipelineId, pipeline.ownerIdentity, deps))) {
+  if (!(await anyPeerConfirmsOwner(pipeline, deps))) {
     return { kind: "refused" };
   }
   const claim = deps.store.claimPipelineContinuation({ pipelineId, priorOwnerIdentity: pipeline.ownerIdentity });

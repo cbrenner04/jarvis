@@ -105,7 +105,7 @@ export async function maybeResetStaleWorkspace(
     return 1;
   }
   // A continuation that rebased the lane records its pre-rebase tip on the write step, so the run's
-  // snapshot carries the publisher's lease authorization across resume.
+  // snapshot carries the publisher's lease authorization across resume. Merge continuation omits it.
   if (resetResult.status === "continue" && resetResult.preRebaseSha !== undefined && writeStep?.behavior === "write") {
     writeStep.leaseFromSha = resetResult.preRebaseSha;
   }

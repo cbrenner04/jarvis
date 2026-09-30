@@ -7,6 +7,7 @@ import { classifyNeverLandedLane, listDirtyWorktreePathsForStaleReset } from "..
 import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
 import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
+import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publisher.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
@@ -1017,6 +1018,8 @@ function resolveTerminalPublicationInput(
     };
   }
 
+  const findHarnessReadyFlipEvidenceInLineage = bindHarnessReadyFlipEvidenceLookup(store, entryRun.id);
+
   return {
     ok: true,
     input: {
@@ -1025,6 +1028,8 @@ function resolveTerminalPublicationInput(
       branch: entryRun.branch,
       baseRef: entryRun.specRef,
       verifierProcessGroups: storeVerifierProcessGroupRecorder(store, entryRun.id),
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId: entryRun.id, ...args }),
+      ...(findHarnessReadyFlipEvidenceInLineage !== undefined ? { findHarnessReadyFlipEvidenceInLineage } : {}),
       ...terminalReadyCommand(entryRun),
       ...(artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
       ...(artifact.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),

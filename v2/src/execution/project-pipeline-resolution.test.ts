@@ -158,31 +158,6 @@ describe("resolveProjectPipeline", () => {
     ["non-string terminalAction", { name: "fast", terminalAction: 1 }, "projects.demo.pipeline.terminalAction"],
     ["unknown terminalAction", { name: "fast", terminalAction: "publish" }, "projects.demo.pipeline.terminalAction"],
     [
-      "empty supersede",
-      { name: "fast", terminalAction: "leave-draft", supersede: "" },
-      "projects.demo.pipeline.supersede",
-    ],
-    [
-      "null supersede",
-      { name: "fast", terminalAction: "leave-draft", supersede: null },
-      "projects.demo.pipeline.supersede",
-    ],
-    [
-      "non-string supersede",
-      { name: "fast", terminalAction: "leave-draft", supersede: 1 },
-      "projects.demo.pipeline.supersede",
-    ],
-    [
-      "unknown supersede",
-      { name: "fast", terminalAction: "leave-draft", supersede: "discard" },
-      "projects.demo.pipeline.supersede",
-    ],
-    [
-      "whitespace-only supersede",
-      { name: "fast", terminalAction: "leave-draft", supersede: "   " },
-      "projects.demo.pipeline.supersede",
-    ],
-    [
       "null overrides",
       pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, null as unknown as Record<string, string>),
       "projects.demo.pipeline.reviewOverrides",
@@ -228,6 +203,34 @@ describe("resolveProjectPipeline", () => {
       key,
     });
     expect("message" in result.error && result.error.message.length > 0).toBe(true);
+    expect(lookupCalls).toBe(0);
+  });
+
+  test.each([
+    ["empty", "", "projects.demo.pipeline.supersede must be a non-empty string"],
+    ["null", null, "projects.demo.pipeline.supersede must be a string"],
+    ["non-string", 1, "projects.demo.pipeline.supersede must be a string"],
+    ["unknown", "discard", 'projects.demo.pipeline.supersede has unknown value "discard"'],
+    ["whitespace-only", "   ", 'projects.demo.pipeline.supersede has unknown value "   "'],
+  ] as Array<
+    [string, unknown, string]
+  >)("rejects %s supersede with its exact message before lookup", (_label, raw, message) => {
+    let lookupCalls = 0;
+    const result = resolveProjectPipeline(
+      config("demo", { name: "fast", terminalAction: "leave-draft", supersede: raw }),
+      (name) => {
+        lookupCalls += 1;
+        return getPipelineDefinition(name);
+      },
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+
+    expectFailure(result);
+    expect(result.error).toEqual({
+      code: "invalid-project-pipeline-config",
+      key: "projects.demo.pipeline.supersede",
+      message,
+    });
     expect(lookupCalls).toBe(0);
   });
 
@@ -370,8 +373,23 @@ describe("resolveProjectPipeline", () => {
     expect(first.definition).not.toBe(source.definition);
     expect(second.definition).not.toBe(source.definition);
     expect(first.definition).not.toBe(second.definition);
-    first.definition.supersede = "keep";
+    const sourceStages = structuredClone(source.definition.stages);
+    expect(sourceStages.length).toBeGreaterThan(0);
+    delete (first.definition as { supersede?: unknown }).supersede;
+    second.definition.stages.length = 0;
+    expect(first.definition.stages).toEqual(sourceStages);
     expect(second.definition.supersede).toBe("keep");
+    const fresh = getPipelineDefinition("fast");
+    if (!fresh.ok) throw new Error("expected source definition");
+    expect(fresh.definition.supersede).toBeUndefined();
+    expect(fresh.definition.stages).toEqual(sourceStages);
+    const again = resolveProjectPipeline(
+      config("first", pipelineConfig("fast")),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    if (!again.ok) throw new Error("expected successful resolution");
+    expect(again.definition).toEqual(admittedDefinition(source.definition, DEFAULT_TERMINAL_ACTION, "close"));
   });
 
   test("rejects unknown supersede values before lookup with terminalAction message parity", () => {

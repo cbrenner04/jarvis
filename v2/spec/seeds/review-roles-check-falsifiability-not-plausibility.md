@@ -20,6 +20,8 @@ Independent review with an explicit checklist found a real defect in **4 of 4** 
 
 The fourth — a value persisted correctly while its only consumer ignored it — required reading an unchanged file, so it is out of reach for a diff-only role and is not what this seed claims to fix.
 
+Plan stage too, 2026-09-29→30: ≥8 plans needed operator hand-correction before approval — plausible-but-unfalsifiable acceptance criteria, criteria restating decisions, tests that pass pre-change. The plan review roles show the same gap.
+
 ## Decisions
 
 - The shared review guidance gains a falsifiability mandate: for every ticked acceptance criterion, state whether the cited evidence would fail against the pre-change code, and treat "passes before and after" as a finding in itself. It is phrased over acceptance criteria and diffs generally, with no repo-specific vocabulary.

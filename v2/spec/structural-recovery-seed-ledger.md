@@ -14,19 +14,18 @@ Every other landed spec is archived under `completed/`.
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
-| `repair-exhausted-error-names-site-and-killing-set` | **dispatchable** — chain D tail, unblocked by #4138; op spreads no site fields | — |
-| `pipeline-resume-resumes-resumable-implement-row` | **dispatchable** — unblocked by #4149 | — |
-| `pipeline-resume-preflights-dispatch-refusals` | **dispatchable** — rewritten self-contained 2026-09-29 | — |
+| `repair-exhausted-error-names-site-and-killing-set` | **landed #4180**; reap with archival | — |
+| `pipeline-resume-resumes-resumable-implement-row` | **landed #4186**; reap with archival | — |
+| `pipeline-resume-preflights-dispatch-refusals` | in flight — PR #4190 open | — |
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Its decisions ask `--detach` to refuse with no run id, which #4087 deliberately ruled out by persisting a real row. Rewrite to the persisted-row contract. Blocked twice on dispatch | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101).** Do not plan until an operator pastes a captured rejection into the file; plan PR #4100 was rejected for un-tickable criteria | a captured rejection |
 
-## Seeds (31)
+## Seeds (22)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
-| `failed-self-handoff-leaves-daemon-refusing-work` | P0 | — | open; rollback after successor `supersede` never reopens admission, 5s readiness bound under load |
 | `capture-token-usage-on-failed-invocations` | P2 | — | open (#4080); usage fields live on `InvocationOk` only, so failed calls are unpriced |
 | `review-roles-check-falsifiability-not-plausibility` | P2 | — | open; no falsifiability mandate in `prompts/implement/review-*.md` |
 | `implement-respects-target-repo-doc-layout` | P2 | #3426 | open; leak 3 closed by #4029; `intent-split.test.ts` pins leak 1 |
@@ -38,7 +37,6 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | P2 | — | open; scope corrected to one file |
 | `completed-write-step-rows-stamp-finished-at` | P2 | — | rewritten; producer fixed incidentally by #3982, fallback UPDATE + backfill + test remain |
 | `serial-rerun-includes-frozen-v1` | P2 | — | open; `AGENTS.md` still says bare `bun test` |
-| `non-terminating-mutation-settlement-names-its-site` | P2 | — | open; one missing spread in `publicationLoopFinishedBase`; sequence after `repair-exhausted-error-names-site-and-killing-set` |
 | `superseded-pipeline-pr-hygiene` | P2 | — | unblocked by #3745; absorbs stacked-PR cleanup from the retired merge-at-gate seed |
 | `pipeline-fan-out-per-lane-terminal-settlement` | P2 | — | ready-flip half served by #3970; per-lane `merge` + spurious `failed` remain; doc target moved to `pipeline-execution.md` |
 | `pipeline-fan-out-lanes-serial-chained-bases` | P2 | — | open; prerequisite (per-lane settlement) not landed |
@@ -46,21 +44,22 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
-| `republication-refuses-pr-the-lane-flipped-ready` | P1 | — | new 2026-09-30; re-driven lane refuses the PR its own completion flipped ready (#4216, #4191); operator hand-`--undo`s each time |
-| `apply-pr-review-feedback-to-a-lane` | P1 | — | new 2026-09-30; scope = any completed intent/plan/implement workflow or stage with an open reviewed PR; dispatch as one seed, intent must split one ready-intent per slice |
 | `pipeline-stage-addresses-review-feedback` | P1 | — | new 2026-09-30; `pipeline resume --address-review <stage>`; after the review-feedback preset chain lands |
-| `cursor-quota-classified-from-stream-json-content` | P1 | — | new 2026-09-29; 6/52 cursor calls false-`quota`, escalating to paid rungs |
 | `harness-exposes-agent-toolset` | — | — | new 2026-09-29; **not dispatchable until owner sign-off** (near a new engine generation) |
 | `fold-shared-into-v2` | P3 | — | new 2026-09-29; prerequisite of `retire-v2-nomenclature` |
 | `retire-v2-nomenclature` | P3 | — | new 2026-09-29; `v2/` → top level; after `fold-shared-into-v2`; fold in at low priority |
-| `reopened-implement-rolls-up-killed-without-review-row` | P1 | — | new 2026-09-29; stranded shard lane (`f13b29a3`) at false `resumable_kill` over a ready PR |
-| `run-resume-refused-while-draining-generation-owns-terminal-row` | P1 | — | new 2026-09-29; terminal rows owned by a draining generation refuse `owner_alive` while `run list` advertises resume |
-| `pipeline-decision-claim-misses-older-draining-generation` | P1 | — | new 2026-09-30; peer `pipeline_owner` answers `durable_state` for a failed pipeline, so decision verbs refuse `pipeline_no_live_owner` until the draining generation exits |
-| `pipeline-stage-redispatch-rebases-onto-moved-base` | P1 | — | new 2026-09-30; chained stage spec out-of-root → not trackable → rebase continuation skipped; 4× hand-merge of main on resume |
 
 ## Open intake issues without a seed
 
 Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one still needing work. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
+
+## Reaped 2026-09-30
+
+Ledger stated 31 seeds with 31 rows, but 9 rows named seeds already consumed by intents (only 22 on disk); removed.
+
+| Item | Reason |
+| --- | --- |
+| seeds `run-resume-refused-while-draining-generation-owns-terminal-row`, `non-terminating-mutation-settlement-names-its-site`, `cursor-quota-classified-from-stream-json-content`, `failed-self-handoff-leaves-daemon-refusing-work`, `apply-pr-review-feedback-to-a-lane`, `pipeline-decision-claim-misses-older-draining-generation`, `pipeline-stage-redispatch-rebases-onto-moved-base`, `republication-refuses-pr-the-lane-flipped-ready`, `reopened-implement-rolls-up-killed-without-review-row` | consumed by intents #4178 #4181 #4184 #4196 #4204 #4212 #4218 #4226 #4238 |
 
 ## Reaped 2026-09-29
 
@@ -113,6 +112,13 @@ Issue #3029 (mechanisms 2 and 4 of the `## Blocker` contract) is the only one st
 | seed `merge-pipeline-stage-pr-at-its-approval-gate` | contradicted `detached-pipeline-plan-stage-consumes-ready-intents`; self-admitted merge-at-gate alone is a no-op; stacked-PR half moved to `superseded-pipeline-pr-hygiene` |
 | seeds `ready-gate-repair-out-of-diff-edits`, `render-observer-verification-keeps-a-fixed-deadline`, `implement-admission-persists-its-run-row`, `publication-failures-settle-failed`, `gate-allowset-derivation-fails-on-external-spec-home` | consumed into ready-intents by #4031, #4032, #4033, #4035, #4036, #4038 |
 | ready-intent `single-spec-home-predicate` | landed #3916/#3917 (`specsHome`, `resolveSpecsHome`); residual is a two-line wrapper, not worth a lane |
+
+## Landed 2026-09-29 → 2026-09-30 (for tracing; details in `reports/`)
+
+- Seeds landed: run-resume-refused #4216/#4236; non-terminating site #4191; cursor quota #4197; failed self-handoff #4200 #4203 #4227 #4242; decision claim #4220; re-dispatch onto moved base #4224; republication of harness-ready PR #4229 #4231 #4233.
+- Partial: `apply-pr-review-feedback-to-a-lane` #4208 #4209 (#4234 open; pipeline 96f57442); `reopened-implement-rolls-up-killed-without-review-row` plan #4240 (pipeline c1d2db5f open).
+- Ready-intents: #4180 repair-exhausted site; #4186 resume resumable implement row; #4168 #4237 node_modules link; #4173 #4188 #4223 session-log retention (telemetry lane f13b29a3 open).
+- Direct fixes: #4174 #4185 #4194 #4211 #4214 #4235 #4239.
 
 ## Landed 2026-09-21 (for tracing; details in `reports/`)
 

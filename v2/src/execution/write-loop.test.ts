@@ -10488,6 +10488,27 @@ index 1234567..abcdefg 100644
       return worktreePath;
     }
 
+    function initGitWorktreeNodeModulesIgnoreOnly(jarvisRoot: string, branchName: string): string {
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "commit.gpgsign", "false"], { stdio: "pipe" });
+      copyFileSync(join(import.meta.dir, "../../../biome.json"), join(worktreePath, "biome.json"));
+      writeFileSync(join(worktreePath, ".gitignore"), "node_modules/\n", "utf8");
+      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+      writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+      try {
+        symlinkSync(join(import.meta.dir, "../../../node_modules"), join(worktreePath, "node_modules"), "dir");
+      } catch {
+        /* reuse existing symlink */
+      }
+      return worktreePath;
+    }
+
     const biomeRepoRoot = join(import.meta.dir, "../../..");
     const complexityDirtyRel = "v2/src/complexity-dirty.ts";
 
@@ -11189,6 +11210,51 @@ index 1234567..abcdefg 100644
         expect(commitEvents).toHaveLength(2);
         expect(commitEvents[0]?.kind === "iteration_commit" && "commitSha" in commitEvents[0]).toBe(true);
         expect(commitEvents[1]).toMatchObject({ kind: "iteration_commit", skipReason: "no_file_changes" });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("settled iteration checkpoint omits harness-materialized node_modules symlink", async () => {
+      // Mutation checkpoint: narrowing `completionStageArgs` in `v2/src/execution/completion-commit.ts` to bare
+      // `git add -A` must turn this RED.
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-checkpoint-node-modules-exclusion";
+      const worktreePath = initGitWorktreeNodeModulesIgnoreOnly(jarvisRoot, branchName);
+      const seedHead = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const authoredRel = "authored-change.txt";
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, authoredRel), "authored\n", "utf8");
+          return progressWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, { maxIterations: 1, logSink: sink }),
+        );
+
+        expect(result.kind).toBe("budget-exhausted");
+        const commitEvents = sink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_commit");
+        expect(commitEvents).toHaveLength(1);
+        const commitEvent = commitEvents[0];
+        expect(commitEvent?.kind === "iteration_commit" && "commitSha" in commitEvent).toBe(true);
+        const commitSha =
+          commitEvent?.kind === "iteration_commit" && "commitSha" in commitEvent ? commitEvent.commitSha : undefined;
+        expect(commitSha).toBeDefined();
+        expect(commitSha).not.toBe(seedHead);
+        expect(commitSha).toBe(gitIn(worktreePath, ["rev-parse", "HEAD"]));
+
+        const topLevel = gitIn(worktreePath, ["ls-tree", "--name-only", "HEAD"]).split("\n").filter(Boolean);
+        expect(topLevel).not.toContain("node_modules");
+        expect(topLevel).toContain(authoredRel);
+        expect(gitIn(worktreePath, ["show", `HEAD:${authoredRel}`])).toContain("authored");
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

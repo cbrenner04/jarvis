@@ -9,6 +9,7 @@ import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import { assembleStepTemplate } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
+import { FALSIFIABILITY_GUIDANCE_MARKERS } from "./review-falsifiability-fragment.test.ts";
 import {
   type ReviewDebateRenderContext,
   renderPatchReviewCriticPrompt,
@@ -16,15 +17,6 @@ import {
   renderReviewDebateCyclePrompts,
   renderReviewDebateRolePrompt,
 } from "./review-implement.ts";
-
-const FALSIFIABILITY_RENDER_MARKERS = {
-  mandate: "would fail against the pre-change code implied by the branch diff context",
-  passesBeforeAndAfter: "would pass before and after the change as a finding in itself",
-  defectShape: "re-derives the production rule instead of asserting the intended outcome independently",
-  emptyVerdictCritic: "emit an empty verdict (critic)",
-  noManufactured: "report no manufactured problems (adversary)",
-  advocateConcede: "concede only findings the evidence supports (advocate)",
-} as const;
 
 const tempDirs: string[] = [];
 
@@ -185,11 +177,11 @@ test("implement review critic, adversary, and advocate renders include falsifiab
   for (const rendered of [critic, adversary, advocate]) {
     expect(rendered).toContain("## Review falsifiability");
     expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
-    expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.mandate);
-    expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.passesBeforeAndAfter);
-    expect(rendered).toContain(FALSIFIABILITY_RENDER_MARKERS.defectShape);
+    for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
+      expect(rendered).toContain(marker);
+    }
   }
-  expect(critic).toContain(FALSIFIABILITY_RENDER_MARKERS.emptyVerdictCritic);
-  expect(adversary).toContain(FALSIFIABILITY_RENDER_MARKERS.noManufactured);
-  expect(advocate).toContain(FALSIFIABILITY_RENDER_MARKERS.advocateConcede);
+  expect(critic).toContain("emit an empty verdict (critic)");
+  expect(adversary).toContain("report no manufactured problems (adversary)");
+  expect(advocate).toContain("concede only findings the evidence supports (advocate)");
 });

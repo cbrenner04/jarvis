@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { assembleStepTemplate } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 
 const FALSIFIABILITY_FRAGMENT_ID = "implement.review.falsifiability";
 
-const FALSIFIABILITY_GUIDANCE_MARKERS = [
+export const FALSIFIABILITY_GUIDANCE_MARKERS = [
   "would fail against the pre-change code implied by the branch diff context",
   "would pass before and after the change as a finding in itself",
   "re-derives the production rule instead of asserting the intended outcome independently",
@@ -16,21 +15,8 @@ const IMPLEMENT_REVIEW_FALSIFIABILITY_STEP_IDS = [
   "implement.prompt.review.advocate",
 ] as const;
 
-const FALSIFIABILITY_FRAGMENT_HEADING = "## Review falsifiability";
-const PROMPT_RENDER_COVERAGE_SENTINEL = "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__";
-
 describe("implement review falsifiability fragment", () => {
   const registry = loadPromptRegistry();
-
-  test("implement review falsifiability fragment assembles into implement review critic standing rules", () => {
-    const fragmentBody = registry.getById(FALSIFIABILITY_FRAGMENT_ID).body;
-    expect(fragmentBody).toContain(FALSIFIABILITY_FRAGMENT_HEADING);
-    expect(fragmentBody).not.toContain(PROMPT_RENDER_COVERAGE_SENTINEL);
-
-    const assembled = assembleStepTemplate(registry, "implement.prompt.review.critic");
-    expect(assembled).toContain(FALSIFIABILITY_FRAGMENT_HEADING);
-    expect(assembled).not.toContain(PROMPT_RENDER_COVERAGE_SENTINEL);
-  });
 
   test("implement review falsifiability guidance is defined only on the shared fragment", () => {
     const fragmentBody = registry.getById(FALSIFIABILITY_FRAGMENT_ID).body;

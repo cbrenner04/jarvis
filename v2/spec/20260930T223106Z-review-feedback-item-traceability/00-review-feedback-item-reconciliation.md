@@ -25,12 +25,12 @@ Review-feedback runs require a per-item response sidecar and a capture artifact,
 
 ## Acceptance criteria
 
-- [ ] `review-feedback-item-reconciliation.test.ts` test `classifies addressed, declined, and unaddressed capture ids from the sidecar` builds a two-thread one-comment capture with a sidecar addressing one id, declining one, omitting one, and naming one uncaptured id; asserts the three id arrays in capture order and the uncaptured id absent.
-- [ ] `review-feedback-write-run.test.ts` adds `persists addressed and unaddressed item ids on terminal loop_finished when only one captured item is addressed`, driving `executeWorkflow` with two captured ids and a sidecar that addresses one; asserts terminal `loop_finished` carries both non-empty addressed and unaddressed arrays; fails against the pre-fix settlement path.
-- [ ] `review-feedback-item-reconciliation.test.ts` test `classifies every captured id unaddressed when the response sidecar is missing` passes.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `review-feedback-item-reconciliation.test.ts` test `classifies addressed, declined, and unaddressed capture ids from the sidecar` builds a two-thread one-comment capture with a sidecar addressing one id, declining one, omitting one, and naming one uncaptured id; asserts the three id arrays in capture order and the uncaptured id absent.
+- [x] `review-feedback-write-run.test.ts` adds `persists addressed and unaddressed item ids on terminal loop_finished when only one captured item is addressed`, driving `executeWorkflow` with two captured ids and a sidecar that addresses one; asserts terminal `loop_finished` carries both non-empty addressed and unaddressed arrays; fails against the pre-fix settlement path.
+- [x] `review-feedback-item-reconciliation.test.ts` test `classifies every captured id unaddressed when the response sidecar is missing` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

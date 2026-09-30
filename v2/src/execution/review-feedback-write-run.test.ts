@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
+import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
@@ -118,6 +119,43 @@ function writeReviewArtifact(workspace: string, marker: string): void {
   );
   execFileSync("git", ["add", artifactPath], { cwd: workspace });
   execFileSync("git", ["commit", "-qm", "review input"], { cwd: workspace });
+}
+
+function writeTwoThreadCapture(workspace: string): void {
+  const artifactPath = resolvePrReviewInputArtifactPath(workspace);
+  writeFileSync(
+    artifactPath,
+    `${JSON.stringify(
+      {
+        captureVersion: 1,
+        prNumber: PR_NUMBER,
+        threads: [
+          { threadId: "capture-thread-one", outdated: false, comments: [] },
+          { threadId: "capture-thread-two", outdated: false, comments: [] },
+        ],
+        topLevelComments: [],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  execFileSync("git", ["add", artifactPath], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "review input two threads"], { cwd: workspace });
+}
+
+class TestLogSink implements LogSink {
+  events: Array<{ runId: string; event: LogEvent }> = [];
+
+  append(runId: string, event: LogEvent): void {
+    this.events.push({ runId, event });
+  }
+
+  close(): void {}
+
+  getEventsForRun(runId: string): LogEvent[] {
+    return this.events.filter((entry) => entry.runId === runId).map((entry) => entry.event);
+  }
 }
 
 async function runReviewFeedbackWrite(args: {
@@ -273,5 +311,46 @@ describe("executeWorkflow review-feedback write preset", () => {
       },
     });
     expect(publicationCalls).toBe(1);
+  });
+
+  test("persists addressed and unaddressed item ids on terminal loop_finished when only one captured item is addressed", async () => {
+    const logSink = new TestLogSink();
+    const { workspace, step } = laneWorkspace({
+      laneKind: "plan",
+      entrySpecPath: "v2/spec/plan-tree/index.md",
+      branchName: "rf-item-reconcile",
+      seed: (ws, entrySpecPath) => {
+        mkdirSync(dirname(join(ws, entrySpecPath)), { recursive: true });
+        writeFileSync(join(ws, entrySpecPath), "# Plan\n", "utf8");
+      },
+    });
+    writeTwoThreadCapture(workspace);
+    step.createBinding = ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke: async ({ cwd }) => {
+        writeFileSync(join(cwd, REVIEW_FEEDBACK_RESPONSE_SIDECAR), "- capture-thread-one: addressed\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      },
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "publication-commit" }),
+        completionPublisher: async () => ({ prNumber: PR_NUMBER }),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      const terminal = logSink.getEventsForRun(result.runId).findLast((event) => event.kind === "loop_finished");
+      expect(terminal?.kind).toBe("loop_finished");
+      if (terminal?.kind !== "loop_finished") throw new Error("expected terminal loop_finished");
+      expect(terminal.reviewFeedbackAddressedItemIds).toEqual(["capture-thread-one"]);
+      expect(terminal.reviewFeedbackUnaddressedItemIds).toEqual(["capture-thread-two"]);
+      expect(terminal.reviewFeedbackAddressedItemIds?.length).toBeGreaterThan(0);
+      expect(terminal.reviewFeedbackUnaddressedItemIds?.length).toBeGreaterThan(0);
+    });
   });
 });

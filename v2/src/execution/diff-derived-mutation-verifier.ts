@@ -786,6 +786,75 @@ function deriveOperatorMutations(
   visit(sourceFile);
 }
 
+function unwrapParenthesizedExpression(node: ts.Node): ts.Node {
+  let current = node;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function descendPastLeadingNegationChain(start: ts.Node): ts.Node {
+  let inner = start;
+  while (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken) {
+    inner = unwrapParenthesizedExpression(inner.operand);
+  }
+  return inner;
+}
+
+function guardFlipChangedLineSpan(
+  node: ts.PrefixUnaryExpression,
+  sourceFile: ts.SourceFile,
+  changedLineNumbers: ReadonlySet<number>,
+): { line: number; startPos: ts.LineAndCharacter; endPos: ts.LineAndCharacter } | null {
+  const start = node.getStart(sourceFile);
+  const end = node.getEnd();
+  const startPos = sourceFile.getLineAndCharacterOfPosition(start);
+  const endPos = sourceFile.getLineAndCharacterOfPosition(end);
+  const line = startPos.line + 1;
+  if (!changedLineNumbers.has(line) || startPos.line !== endPos.line) return null;
+  return { line, startPos, endPos };
+}
+
+/**
+ * Returns true when the guard visit handled subtree descent and the outer `visit` should return.
+ */
+function visitGuardPrefixUnaryExpression(
+  node: ts.PrefixUnaryExpression,
+  visit: (node: ts.Node) => void,
+  sourceFile: ts.SourceFile,
+  file: string,
+  changedLineNumbers: ReadonlySet<number>,
+  shouldSkipFlip: (line: number, candidateTokens: readonly string[]) => boolean,
+  candidates: Candidate[],
+): boolean {
+  const span = guardFlipChangedLineSpan(node, sourceFile, changedLineNumbers);
+  const admitted = span !== null;
+  if (admitted) {
+    if (shouldSkipFlip(span.line, whitespaceNormalizedFlipSkipTokens(node.getText(sourceFile)))) {
+      ts.forEachChild(node, visit);
+      return true;
+    }
+    const original = node.getText(sourceFile);
+    const mutated = original.slice(1).trimStart();
+    candidates.push({
+      file,
+      line: span.line,
+      columnStart: span.startPos.character,
+      columnEnd: span.endPos.character,
+      originalText: original,
+      mutatedText: mutated,
+      mutation: `guard-flip: ${original} → ${mutated}`,
+    });
+  }
+  const operand = unwrapParenthesizedExpression(node.operand);
+  if (admitted && ts.isPrefixUnaryExpression(operand) && operand.operator === ts.SyntaxKind.ExclamationToken) {
+    visit(descendPastLeadingNegationChain(operand));
+    return true;
+  }
+  return false;
+}
+
 /**
  * Classifies `!` prefix-unary expressions over the full current source, admitting a candidate only
  * when its `!` token sits on a changed line and the node's complete span fits on that one line — a
@@ -806,44 +875,9 @@ function deriveGuardMutations(
 
   function visit(node: ts.Node): void {
     if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
-      const start = node.getStart(sourceFile);
-      const end = node.getEnd();
-      const startPos = sourceFile.getLineAndCharacterOfPosition(start);
-      const endPos = sourceFile.getLineAndCharacterOfPosition(end);
-      const line = startPos.line + 1;
-      let admitted = false;
-      if (changedLineNumbers.has(line) && startPos.line === endPos.line) {
-        admitted = true;
-        if (shouldSkipFlip(line, whitespaceNormalizedFlipSkipTokens(node.getText(sourceFile)))) {
-          ts.forEachChild(node, visit);
-          return;
-        }
-        const original = node.getText(sourceFile);
-        const mutated = original.slice(1).trimStart();
-        candidates.push({
-          file,
-          line,
-          columnStart: startPos.character,
-          columnEnd: endPos.character,
-          originalText: original,
-          mutatedText: mutated,
-          mutation: `guard-flip: ${original} → ${mutated}`,
-        });
-      }
-      let operand: ts.Node = node.operand;
-      while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
-      if (admitted && ts.isPrefixUnaryExpression(operand) && operand.operator === ts.SyntaxKind.ExclamationToken) {
-        // One logical toggle is one candidate, so the chained `!`s are not re-derived. Abandoning the
-        // whole subtree here would also drop an independent guard nested inside the operand
-        // (`!!foo(!bar)` loses `!bar`), so descend past the chain and keep visiting from the first
-        // non-negation node instead of returning outright.
-        let inner: ts.Node = operand;
-        while (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken) {
-          let next: ts.Node = inner.operand;
-          while (ts.isParenthesizedExpression(next)) next = next.expression;
-          inner = next;
-        }
-        visit(inner);
+      if (
+        visitGuardPrefixUnaryExpression(node, visit, sourceFile, file, changedLineNumbers, shouldSkipFlip, candidates)
+      ) {
         return;
       }
     }

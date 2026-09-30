@@ -14,15 +14,14 @@ Evidence (2026-09-29/30 session, all hand-applied): plan PR #4163 (`ResumePipeli
 
 ## Direction
 
-A jarvis entry point takes a lane's open PR plus review input and re-enters that lane to address it, landing on the same branch and PR through the normal gate; unresolved items settle as a named blocker. Merged or closed PRs are out of scope.
+A standalone preset that runs only against a **completed pipeline stage** (plan or implement) whose PR is still open, and does exactly one thing: address the review feedback on that PR, committing to the same branch and PR through the normal gate. Merged or closed PRs, non-pipeline lanes, and in-flight stages are refused with a named reason.
 
 ## Candidate slices (each its own seed once the shape is confirmed)
 
-1. **Review input capture** — normalize GitHub PR review threads (`gh`) or an operator verdict file into one durable review artifact attached to the lane. No re-entry yet.
-2. **Implement-lane re-entry** — a completed implement lane with an open PR takes that artifact and runs write → gate → publication on the same branch/PR.
-3. **Plan-lane re-entry** — same for a published plan lane (corrected spec tree lands on the plan PR).
-4. **Traceability** — the run records which review items it addressed; unaddressed items settle as a named blocker.
-5. **Operator surface** — the standalone command (preset or `plan`/`implement` flag, per the open question).
+1. **Review input capture** — read the PR's review threads/comments (`gh`) into one durable review artifact for the stage. The PR is the only feedback source.
+2. **Admission** — resolve a completed plan/implement pipeline stage to its branch, worktree, and open PR; refuse everything else by name.
+3. **Feedback run** — the preset's write step addresses the captured items on the same branch, then gate and publication to the same PR.
+4. **Traceability** — the run records which review items it addressed; items it could not address are reported by name, not silently dropped.
 
 ## Open questions for the owner
 
@@ -31,7 +30,9 @@ A jarvis entry point takes a lane's open PR plus review input and re-enters that
 ## Decided
 
 - **A new workflow preset, not a flag on `plan`/`implement`** (owner, 2026-09-30).
-- **Its prompts are its own and need care.** A dedicated `prompts/<preset>/` set, not the implement or plan rules reused wholesale: the agent's job is to address the listed review items on an existing branch, so scope is the review items (not the spec's unchecked criteria), and routing/ticking/terminal-token mechanics differ from a fresh implement. Follow the plan-prompt coherence rules (no numbers in prompts, no restated mechanics) and give every registered prompt render-observer coverage.
+- **Strictly PR feedback.** The agent addresses the PR's review feedback and nothing else: no acceptance-criteria ticking, no subspec routing, no index edits, no new scope. It reuses only the plan/implement rules needed to understand what the PR is (spec layout, what the lane built).
+- **Its prompts are its own and need care.** A dedicated `prompts/<preset>/` set that embeds only that context from plan/implement; follow the plan-prompt coherence rules (no numbers in prompts, no restated mechanics) and give every registered prompt render-observer coverage.
+- **Runs only on a completed pipeline stage** (owner, 2026-09-30).
 - **Standalone only, never a pipeline stage** (owner, 2026-09-30). Every workflow preset today is pipeline-composable, so this is a new paradigm: if it lands as a preset, the preset registry needs a way to mark a preset not pipeline-eligible, and pipeline definitions must refuse it. Rules out a review-feedback pipeline stage.
 
 ## Documentation updates

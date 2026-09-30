@@ -132,6 +132,45 @@ describe("staleResetProbeRefusal probe guard", () => {
     expect(code).toBe(1);
     expect(stderrLines).toEqual(["worktree_claimed: lane held by run abc\n"]);
   });
+
+  test("probeMaybeResetStaleWorkspace returns structured refusal when reset throws", async () => {
+    const stderrLines: string[] = [];
+    const io = { stdout: () => {}, stderr: (line: string) => stderrLines.push(line) };
+    spyOn(cleanup, "resetStaleWorkspace").mockRejectedValue(new Error("disk full"));
+
+    const result = await probeMaybeResetStaleWorkspace(
+      "implement",
+      stubWriteBuild as never,
+      stubDeps,
+      io,
+      {} as never,
+      stubClient,
+    );
+
+    expect(result).toEqual({
+      refused: true,
+      message: "Error: Stale workspace reset failed: disk full\n",
+    });
+    expect(stderrLines).toEqual([]);
+  });
+
+  test("maybeResetStaleWorkspace writes throw to stderr and returns 1", async () => {
+    const stderrLines: string[] = [];
+    const io = { stdout: () => {}, stderr: (line: string) => stderrLines.push(line) };
+    spyOn(cleanup, "resetStaleWorkspace").mockRejectedValue(new Error("disk full"));
+
+    const code = await maybeResetStaleWorkspace(
+      "implement",
+      stubWriteBuild as never,
+      stubDeps,
+      io,
+      {} as never,
+      stubClient,
+    );
+
+    expect(code).toBe(1);
+    expect(stderrLines).toEqual(["Error: Stale workspace reset failed: disk full\n"]);
+  });
 });
 
 describe("runStaleResetForWorkflow probe flag", () => {

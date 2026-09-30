@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import type { InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
-import { buildJsonlSink } from "./telemetry-sink.ts";
+import { appendTelemetryJsonlLine, buildJsonlSink } from "./telemetry-sink.ts";
 import { emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 
 function utcMs(y: number, m: number, d: number): number {
@@ -156,5 +156,25 @@ describe("telemetry-sink monthly roll", () => {
     const row = JSON.parse(current.trim()) as { record_kind: string; ts: string };
     expect(row.record_kind).toBe("work_boundary_recorded");
     expect(row.ts).toBe(new Date(june).toISOString());
+  });
+
+  test("appendTelemetryJsonlLine keeps a caller-supplied trailing newline single", () => {
+    isolateSink();
+    const { clock } = mutableClock(utcMs(2026, 6, 1));
+    appendTelemetryJsonlLine(sinkPath, '{"a":1}\n', { clock });
+    appendTelemetryJsonlLine(sinkPath, '{"b":2}', { clock });
+    expect(readFileSync(sinkPath, "utf8")).toBe('{"a":1}\n{"b":2}\n');
+  });
+
+  test("appendTelemetryJsonlLine without a clock stamps real time and does not roll", () => {
+    isolateSink();
+    const before = Date.now();
+    appendTelemetryJsonlLine(sinkPath, '{"a":1}');
+    appendTelemetryJsonlLine(sinkPath, '{"b":2}');
+    const after = Date.now();
+    expect(existsSync(join(jarvisRoot, "telemetry"))).toBe(false);
+    const mtimeMs = statSync(sinkPath).mtimeMs;
+    expect(mtimeMs).toBeGreaterThanOrEqual(before - 1000);
+    expect(mtimeMs).toBeLessThanOrEqual(after + 1000);
   });
 });

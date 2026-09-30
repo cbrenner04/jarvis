@@ -11,6 +11,7 @@ import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import type { PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import { ReadyGateError } from "../execution/ready-finalize.ts";
 import { TerminalPublicationError, type TerminalPublicationInput } from "../execution/terminal-publication.ts";
@@ -7909,52 +7910,123 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   });
 
   test("whole-pipeline failed plan resume retires dirty draft and rematerializes from base before writer dispatch", async () => {
-    const intentWorktree = await materializeWorktree(intentBranch);
-    await seedIntentReadyIntent(intentWorktree);
-    const planWorktree = await materializeWorktree(planBranch, intentBranch);
-    mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
-    writeFileSync(join(planWorktree, ".jarvis-plan-stage", "draft.md"), "draft\n", "utf8");
-
-    const { store, stages } = fakeStore(
-      planChainDefinition(),
-      {
-        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
-        "run-plan": { specPath: "spec/plan" },
-      },
-      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
-    );
-    store.updateStage({
-      pipelineId: PIPELINE_ID,
-      stageId: "intent",
-      patch: { status: "succeeded", artifact: intentArtifact() },
-    });
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
-
-    const rpc = daemonRpcClient();
-    const dispatchOrder: string[] = [];
-    const stderrLines: string[] = [];
-    const dispatch: PipelineWorkflowDispatch = async () => {
-      expect(existsSync(planWorktree)).toBe(false);
-      dispatchOrder.push("reset");
-      await withExternalWorktree(managedWorktree(planBranch, intentBranch), async ({ path }) => {
-        dispatchOrder.push("dispatch");
-        expect(path).toBe(planWorktree);
-        expect(existsSync(join(path, ".jarvis-plan-stage"))).toBe(false);
-        const [head, base] = await Promise.all([
-          realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], path),
-          realAsyncSubprocessRunner.runAsync("git", ["rev-parse", intentBranch], projectRoot),
-        ]);
-        expect(head.trim()).toBe(base.trim());
+    const remoteHome = trackedMkdtempSync(join(tmpdir(), "pipeline-plan-resume-upstream-"));
+    const remote = join(remoteHome, "origin.git");
+    const publisher = join(remoteHome, "publisher");
+    const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+    let resolvedPlanWriteBaseRef: string | undefined;
+    const resolveStageCapturingPlanPresetBaseRef = (
+      definition: PipelineDefinition,
+      index: number,
+      context: PipelineContext,
+      stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      deps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> =>
+      resolveStageWorkflowSteps(definition, index, context, stageArtifacts, {
+        ...deps,
+        loadRun: (runId) =>
+          runId === "run-intent"
+            ? { worktreePath: join(jarvisRoot, "worktrees", "demo", intentBranch), branch: intentBranch }
+            : null,
+        builders: {
+          ...WORKFLOW_PRESET_BUILDERS,
+          plan: async (input) => {
+            resolvedPlanWriteBaseRef = (input as unknown as PlanWorkflowInput).baseRef;
+            return {
+              ok: true as const,
+              steps: planSteps(intentBranch),
+              identity: {
+                invocationId: "plan-invocation",
+                project: "demo",
+                name: "improve-api",
+                slug: "improve-api",
+                branch: planBranch,
+                seedFingerprint: "fp",
+              },
+            };
+          },
+        },
       });
-      return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
-    };
-
+    const rpc = daemonRpcClient();
     try {
+      git(projectRoot, ["clone", "-q", "--bare", projectRoot, remote]);
+      git(projectRoot, ["remote", "add", "origin", remote]);
+      git(projectRoot, ["fetch", "-q", "origin"]);
+      git(projectRoot, ["branch", "--set-upstream-to=origin/main", "main"]);
+      git(projectRoot, ["clone", "-q", "--branch", "main", remote, publisher]);
+      git(publisher, ["config", "user.email", "test@example.com"]);
+      git(publisher, ["config", "user.name", "Test"]);
+      writeFileSync(join(publisher, "merged.txt"), "merged while pipeline waits\n");
+      git(publisher, ["add", "merged.txt"]);
+      git(publisher, ["commit", "-qm", "merge another lane"]);
+      git(publisher, ["push", "-q", "origin", "main"]);
+      const expectedHead = git(publisher, ["rev-parse", "HEAD"]);
+      git(projectRoot, ["fetch", "-q", "origin"]);
+      expect(git(projectRoot, ["rev-parse", "main"])).not.toBe(expectedHead);
+      expect(git(projectRoot, ["rev-parse", "origin/main"])).toBe(expectedHead);
+
+      const intentWorktree = await materializeWorktree(intentBranch);
+      await seedIntentReadyIntent(intentWorktree);
+      const preResolveContext: PipelineContext = {
+        ...persistedContext,
+        cwd: projectRoot,
+        configPath: persistedContext.configPath,
+      };
+      const preResolveArtifacts = new Map([
+        [stageArtifactKey("intent"), { entryRunId: "run-intent", specPath: readyIntentRel }],
+      ]);
+      const preResolve = await resolveStageCapturingPlanPresetBaseRef(
+        planChainDefinition(),
+        1,
+        preResolveContext,
+        preResolveArtifacts,
+      );
+      expect(preResolve.ok).toBe(true);
+      expect(resolvedPlanWriteBaseRef).toBe("origin/main");
+      expect(git(projectRoot, ["rev-parse", resolvedPlanWriteBaseRef!])).toBe(expectedHead);
+
+      const planWorktree = await materializeWorktree(planBranch, intentBranch);
+      mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
+      writeFileSync(join(planWorktree, ".jarvis-plan-stage", "draft.md"), "draft\n", "utf8");
+
+      const { store, stages } = fakeStore(
+        planChainDefinition(),
+        {
+          "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+          "run-plan": { specPath: "spec/plan" },
+        },
+        { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+      );
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "intent",
+        patch: { status: "succeeded", artifact: intentArtifact() },
+      });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+      const dispatchOrder: string[] = [];
+      const stderrLines: string[] = [];
+      const dispatch: PipelineWorkflowDispatch = async () => {
+        expect(existsSync(planWorktree)).toBe(false);
+        dispatchOrder.push("reset");
+        await withExternalWorktree(managedWorktree(planBranch, intentBranch), async ({ path }) => {
+          dispatchOrder.push("dispatch");
+          expect(path).toBe(planWorktree);
+          expect(existsSync(join(path, ".jarvis-plan-stage"))).toBe(false);
+          const [head, base] = await Promise.all([
+            realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], path),
+            realAsyncSubprocessRunner.runAsync("git", ["rev-parse", intentBranch], projectRoot),
+          ]);
+          expect(head.trim()).toBe(base.trim());
+        });
+        return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+      };
+
       const outcome = await resumePipeline(PIPELINE_ID, {
         store,
         dispatch,
         wait: async () => "completed",
-        resolveStage: resolveStageWithFixedPlanSteps,
+        resolveStage: resolveStageCapturingPlanPresetBaseRef,
         staleResetPreflight: staleResetBundle(rpc, {
           stdout: () => {},
           stderr: (text) => {
@@ -7971,6 +8043,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(existsSync(planWorktree)).toBe(true);
     } finally {
       rpc.close();
+      rmSync(remoteHome, { recursive: true, force: true });
     }
   });
 

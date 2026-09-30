@@ -1189,21 +1189,42 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("chained plan stage resolves write-step baseRef to repository default branch, not prior branch", async () => {
     const { repoRoot, configPath, intentBranch, intentWorktree, readyIntentRel } = createChainedHandoffRepo();
-    expect(existsSync(join(repoRoot, readyIntentRel))).toBe(false);
-    expect(intentBranch).not.toBe("main");
+    const remoteHome = trackedMkdtempSync(join(tmpdir(), "pipeline-plan-upstream-"));
+    const remote = join(remoteHome, "origin.git");
+    const publisher = join(remoteHome, "publisher");
+    const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+    try {
+      expect(existsSync(join(repoRoot, readyIntentRel))).toBe(false);
+      expect(intentBranch).not.toBe("main");
+      git(repoRoot, ["clone", "-q", "--bare", repoRoot, remote]);
+      git(repoRoot, ["remote", "add", "origin", remote]);
+      git(repoRoot, ["fetch", "-q", "origin"]);
+      git(repoRoot, ["branch", "--set-upstream-to=origin/main", "main"]);
+      git(repoRoot, ["clone", "-q", "--branch", "main", remote, publisher]);
+      git(publisher, ["config", "user.email", "test@example.com"]);
+      git(publisher, ["config", "user.name", "Test"]);
+      writeFileSync(join(publisher, "merged.txt"), "merged while pipeline waits\n");
+      git(publisher, ["add", "merged.txt"]);
+      git(publisher, ["commit", "-qm", "merge another lane"]);
+      git(publisher, ["push", "-q", "origin", "main"]);
+      const expectedHead = git(publisher, ["rev-parse", "HEAD"]);
 
-    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
-    const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", readyIntentRel)]]);
-    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(intentWorktree, intentBranch) };
+      const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+      const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", readyIntentRel)]]);
+      const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(intentWorktree, intentBranch) };
 
-    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, context, stageArtifacts, deps);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const writeStep = singleStageResolutionSteps(result).find((step) => step.behavior === "write");
-    expect(writeStep?.behavior).toBe("write");
-    if (writeStep?.behavior !== "write") return;
-    expect(writeStep.worktree.baseRef).toBe("main");
-    expect(writeStep.worktree.baseRef).not.toBe(intentBranch);
+      const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, context, stageArtifacts, deps);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const writeStep = singleStageResolutionSteps(result).find((step) => step.behavior === "write");
+      expect(writeStep?.behavior).toBe("write");
+      if (writeStep?.behavior !== "write") return;
+      expect(writeStep.worktree.baseRef).toBe("origin/main");
+      expect(git(repoRoot, ["rev-parse", writeStep.worktree.baseRef])).toBe(expectedHead);
+      expect(writeStep.worktree.baseRef).not.toBe(intentBranch);
+    } finally {
+      rmSync(remoteHome, { recursive: true, force: true });
+    }
   });
 
   test("chained implement uses fetched upstream without changing the operator checkout", async () => {

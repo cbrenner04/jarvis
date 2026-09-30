@@ -680,9 +680,13 @@ async function resolvePlanStage(
       error: `pipeline-stage-resolve: preceding artifact specPath must be a ready-intent file, not a directory`,
     };
   }
+  const defaultBase = await getBaseBranch(context.cwd);
+  const baseRoot = (await isGitRepoAsync(prior.cwd)) ? prior.cwd : context.cwd;
+  const baseRef = await resolvePipelineImplementBase(baseRoot, defaultBase);
   const input: PlanWorkflowInput = {
     cwd: prior.cwd,
     readyIntent: prior.specPath,
+    baseRef,
     reviewPasses: stageReviewPasses(stage),
     ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),
     ...(context.targetDir !== undefined ? { targetDir: context.targetDir } : {}),

@@ -6588,8 +6588,9 @@ export function isLoadSensitive(file: string): boolean {
           const run = reopened.loadRun(fenced.result.runId);
           expect(run?.status).toBe("failed");
           expect(run?.terminalCause).toBe("completion_commit_failed");
+          if (run === null) throw new Error("expected run");
           const operatorError = composeRunOperatorError(
-            { ...run!, attempts: run?.attempts ?? [] },
+            { ...run, attempts: run.attempts },
             finished?.kind === "loop_finished"
               ? { runId: fenced.result.runId, seq: 1, ts: "2026-01-01T00:00:00.000Z", event: finished }
               : undefined,

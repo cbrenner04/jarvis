@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
 import { type PrReviewInputCaptureArtifact, resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 
-export type ReviewFeedbackItemReconciliation = {
+type ReviewFeedbackItemReconciliation = {
   reviewFeedbackAddressedItemIds: string[];
   reviewFeedbackDeclinedItemIds: string[];
   reviewFeedbackUnaddressedItemIds: string[];
@@ -18,14 +18,14 @@ const EMPTY_RECONCILIATION: ReviewFeedbackItemReconciliation = {
 const ADDRESSED_LINE = /^- (.+): addressed\s*$/;
 const DECLINED_LINE = /^- (.+): declined:/;
 
-export function listCapturedReviewFeedbackItemIds(artifact: PrReviewInputCaptureArtifact): string[] {
+function listCapturedReviewFeedbackItemIds(artifact: PrReviewInputCaptureArtifact): string[] {
   return [
     ...artifact.threads.map((thread) => thread.threadId),
     ...artifact.topLevelComments.map((comment) => comment.commentId),
   ];
 }
 
-export function parseReviewFeedbackResponseSidecar(content: string): Map<string, "addressed" | "declined"> {
+function parseReviewFeedbackResponseSidecar(content: string): Map<string, "addressed" | "declined"> {
   const byId = new Map<string, "addressed" | "declined">();
   for (const line of content.split("\n")) {
     const declinedMatch = line.match(DECLINED_LINE);

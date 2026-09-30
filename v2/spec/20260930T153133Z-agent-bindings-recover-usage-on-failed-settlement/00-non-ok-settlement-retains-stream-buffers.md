@@ -1,4 +1,4 @@
-# 01 — Non-ok settlement retains stream buffers for usage recovery
+# 00 — Non-ok settlement retains stream buffers for usage recovery
 
 `settleAbort` and several pinned non-ok settlements omit the retained NDJSON stream buffers that `ok` finalize parses (`claude abort returns terminal error`, cursor/codex abort parity), so finalize-only recovery cannot attach usage on abort or other paths that never carry parseable bytes on the settled result.
 
@@ -12,7 +12,7 @@
 
 - Centralize retention spreading for `settleAbort`, forced-result settle, and any non-ok path still missing `diagnostics` / claude-style `stdout` where the stream exists in `outBuf` / `errBuf`.
 - Extend `agents.test.ts`: abort after partial claude/cursor/opencode stream-json; idle stall and model_config fixtures assert retained buffers; stream-backed quota on cursor (and claude zero-exit quota envelope) assert buffers reachable for finalize parsers.
-- Run `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared`.
+- Run `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2`.
 
 ## Acceptance criteria
 
@@ -20,8 +20,8 @@
 - [ ] `agents.test.ts` — cursor and codex abort after partial stream retain the same class of buffers as non-abort error/quota paths (`diagnostics` / scoped stdout rules); fails against pre-fix abort shapes in `cursor binding invokes the CLI shape…` and `codex binding invokes the CLI shape…`.
 - [ ] `agents.test.ts` — idle stall and `model_config` settlements with buffered NDJSON retain streams on the settled result for finalize input; fails against pre-fix results that drop `outBuf` on those kinds.
 - [ ] `agents.test.ts` — stream-backed quota (cursor quota pattern and claude zero-exit quota envelope) retains NDJSON where finalize must read outside `ok.stdout`; fails against mocks that only attach usage to `ok`.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- None (settlement retention only; adapter recovery documented in subspec 02).
+- None (settlement retention only; adapter recovery documented in subspec 01).

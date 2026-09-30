@@ -1,4 +1,4 @@
-# 03 — Codex binding recovers session rollout usage on non-ok settlement
+# 02 — Codex binding recovers session rollout usage on non-ok settlement
 
 `runCodexBinding` returns immediately when `runAgent` settles non-`ok`, so `resolveCodexSessionUsage` / `finalizeCodexInvocationResult` never run and codex quota/error exits drop rollout token counters before telemetry.
 
@@ -13,14 +13,14 @@
 
 - Remove the non-`ok` short-circuit in `runCodexBinding`; apply `finalizeCodexInvocationResult` (or shared codex usage attachment) for non-`ok` the same as `ok` when a session file resolves.
 - Extend `agents.test.ts` with codex-session fixtures: non-`ok` exit (quota and generic error) after a changed session file with terminal `token_count` carries recovered usage on the settled result; missing session leaves usage null; multi-match refuses with existing warning and null usage.
-- Align `v2/docs/shared-invocation.md` codex paragraph with non-`ok` recovery; finish `v2/docs/v1-behaviors.md` codex/telemetry bullets if subspec 02 left them partial.
-- Run `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared`.
+- Align `v2/docs/shared-invocation.md` codex paragraph with non-`ok` recovery; finish `v2/docs/v1-behaviors.md` codex/telemetry bullets if subspec 01 left them partial.
+- Run `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2`.
 
 ## Acceptance criteria
 
 - [ ] `agents.test.ts` — codex binding with injected session dir: non-`ok` exit after rollout `token_count` settles with recovered usage and `usage_source: "agent"` on the result; fails against pre-fix early return on `kind !== "ok"`.
 - [ ] `agents.test.ts` — codex non-`ok` quota exit with injected session retains recovered usage; missing session dir leaves usage null; multi-match session correlation keeps existing warning and null usage.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

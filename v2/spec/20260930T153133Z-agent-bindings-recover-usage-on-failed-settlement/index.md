@@ -1,9 +1,8 @@
 # Agent bindings recover token usage on failed settlement
 
-Implement **00** before **01**–**04** so recovered usage on non-ok results reaches `invocation_completed` rows in integration tests.
+Prerequisite: `invocation-completed-records-failure-usage` lands the optional usage/cost/warnings fields on non-ok `InvocationResult` variants and the any-kind `createInvocationCompletedRecord` mapper; this lane only produces values on those fields and does not change `execute.ts` types or the mapper.
 
-- [ ] [00 — Non-ok invocation results carry recovered usage into telemetry](00-non-ok-invocation-usage-telemetry.md)
-- [ ] [01 — Non-ok settlement retains stream buffers for usage recovery](01-non-ok-settlement-retains-stream-buffers.md)
-- [ ] [02 — Stream-json bindings recover usage on non-ok finalize](02-stream-binding-usage-recovery-on-non-ok-finalize.md)
-- [ ] [03 — Codex binding recovers session rollout usage on non-ok settlement](03-codex-rollout-usage-recovery-on-non-ok.md)
-- [ ] [04 — Integration: intent acceptance for binding usage recovery](04-integration-intent-acceptance.md)
+- [ ] [00 — Non-ok settlement retains stream buffers for usage recovery](00-non-ok-settlement-retains-stream-buffers.md)
+- [ ] [01 — Stream-json bindings recover usage on non-ok finalize](01-stream-binding-usage-recovery-on-non-ok-finalize.md)
+- [ ] [02 — Codex binding recovers session rollout usage on non-ok settlement](02-codex-rollout-usage-recovery-on-non-ok.md)
+- [ ] [03 — Integration: intent acceptance for binding usage recovery](03-integration-intent-acceptance.md)

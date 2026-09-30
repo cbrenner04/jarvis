@@ -15,7 +15,7 @@ On quota, stall, error, model_config, idle stall, and abort teardown, each bindi
 ## Acceptance criteria
 
 - [ ] Injected stream and codex-session fixtures in `shared/invocation` binding tests prove usage survives non-ok exit and abort teardown, cumulative events are not double-counted, fallback attempts keep separate usage, missing counters stay null, and both a pre-result failure with no usage and a failure after partial usage are covered; no ambient agent sessions or machine config; fails against pre-fix bindings that settle non-ok without stream or rollout recovery.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
@@ -23,3 +23,5 @@ On quota, stall, error, model_config, idle stall, and abort teardown, each bindi
 - `v2/docs/v1-behaviors.md` — recovered usage on failed agent settlement before telemetry.
 
 ## Prerequisites
+
+- `invocation-completed-records-failure-usage` — non-ok `InvocationResult` variants carry optional `usage` / `usage_source` / `cost_usd` / `cost_source` / `warnings`, and `createInvocationCompletedRecord` copies them for every exit kind.

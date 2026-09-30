@@ -13,6 +13,17 @@ const SCOPE_PHRASES = ["Do not tick", "Do not edit `index.md`", "captured PR fee
 const SAMPLE_REVIEW_INPUT = '{"threads":[]}';
 
 describe("buildReviewFeedbackWritePrompt", () => {
+  test("renders review-feedback.prompt.write body from the registry template", () => {
+    const prompt = buildReviewFeedbackWritePrompt({
+      reviewInput: SAMPLE_REVIEW_INPUT,
+      laneKind: "plan",
+      entrySpecPath: "v2/spec/tree",
+    });
+    expect(prompt).toContain("# Review feedback");
+    expect(prompt).toContain("Apply fixes for the captured PR review on this lane");
+    expect(prompt).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+  });
+
   test("registers stable prompt ids", () => {
     const registry = loadPromptRegistry();
     expect(REVIEW_FEEDBACK_WRITE_PROMPT_ID).toBe("review-feedback.prompt.write");

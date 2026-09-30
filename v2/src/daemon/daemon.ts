@@ -629,7 +629,44 @@ export type WaitRunCompletionResult = {
   error?: RunOperatorError;
   /** Surviving worktree path; present when `runStatus` is `blocked`. */
   worktreePath?: string;
+  reviewFeedbackAddressedItemIds?: string[];
+  reviewFeedbackDeclinedItemIds?: string[];
+  reviewFeedbackUnaddressedItemIds?: string[];
 };
+
+export function reviewFeedbackItemIdsProjection(
+  addressed?: string[],
+  declined?: string[],
+  unaddressed?: string[],
+): Pick<
+  WaitRunCompletionResult,
+  "reviewFeedbackAddressedItemIds" | "reviewFeedbackDeclinedItemIds" | "reviewFeedbackUnaddressedItemIds"
+> {
+  const a = addressed ?? [];
+  const d = declined ?? [];
+  const u = unaddressed ?? [];
+  if (a.length === 0 && d.length === 0 && u.length === 0) return {};
+  return {
+    reviewFeedbackAddressedItemIds: a,
+    reviewFeedbackDeclinedItemIds: d,
+    reviewFeedbackUnaddressedItemIds: u,
+  };
+}
+
+export function reviewFeedbackItemIdsFromLoopFinished(
+  event: LoopFinishedEvent | undefined,
+): Pick<
+  WaitRunCompletionResult,
+  "reviewFeedbackAddressedItemIds" | "reviewFeedbackDeclinedItemIds" | "reviewFeedbackUnaddressedItemIds"
+> {
+  return event === undefined
+    ? {}
+    : reviewFeedbackItemIdsProjection(
+        event.reviewFeedbackAddressedItemIds,
+        event.reviewFeedbackDeclinedItemIds,
+        event.reviewFeedbackUnaddressedItemIds,
+      );
+}
 
 export type LoadedRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 
@@ -659,6 +696,13 @@ export function projectWorkflowEntryResult(
               : { ...entryResult.error, retryable: false, nextAction: "stop" },
         }),
     ...(entryResult?.failure === undefined ? {} : { failure: entryResult.failure }),
+    ...(entryResult === undefined
+      ? {}
+      : reviewFeedbackItemIdsProjection(
+          entryResult.reviewFeedbackAddressedItemIds,
+          entryResult.reviewFeedbackDeclinedItemIds,
+          entryResult.reviewFeedbackUnaddressedItemIds,
+        )),
   };
 }
 

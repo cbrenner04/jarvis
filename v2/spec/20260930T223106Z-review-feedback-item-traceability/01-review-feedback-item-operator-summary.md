@@ -24,11 +24,11 @@ Terminal `loop_finished` rows can carry review-feedback item id arrays after sub
 
 ## Acceptance criteria
 
-- [ ] `daemon-wait-run-completion.test.ts` test `wait and list project review-feedback item id arrays from the terminal loop_finished` seeds a terminal `loop_finished` carrying one addressed, one declined, and one unaddressed id and asserts wait JSON and the `DaemonListRunRow` carry all three arrays; a second case with three empty arrays asserts the fields are absent.
-- [ ] `run.test.ts` test `run list appends review-feedback item id columns` asserts a row with ids in one bucket renders all three trailing JSON columns, `[]` for empty buckets.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `daemon-wait-run-completion.test.ts` test `wait and list project review-feedback item id arrays from the terminal loop_finished` seeds a terminal `loop_finished` carrying one addressed, one declined, and one unaddressed id and asserts wait JSON and the `DaemonListRunRow` carry all three arrays; a second case with three empty arrays asserts the fields are absent.
+- [x] `run.test.ts` test `run list appends review-feedback item id columns` asserts a row with ids in one bucket renders all three trailing JSON columns, `[]` for empty buckets.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

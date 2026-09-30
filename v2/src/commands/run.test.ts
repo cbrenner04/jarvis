@@ -1361,6 +1361,24 @@ describe("run control", () => {
     expect(plain?.slice(17)).toEqual(["-", "-", "-", "-"]);
   });
 
+  test("run list appends review-feedback item id columns", async () => {
+    const { code, row } = await runSoloList([
+      {
+        runId: "review-feedback-run",
+        project: "demo",
+        branch: "lane-branch",
+        status: "completed",
+        isLive: false,
+        reviewFeedbackAddressedItemIds: ["thread-one"],
+        reviewFeedbackDeclinedItemIds: [],
+        reviewFeedbackUnaddressedItemIds: [],
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row().slice(21)).toEqual([JSON.stringify(["thread-one"]), JSON.stringify([]), JSON.stringify([])]);
+  });
+
   test("run list --all keeps the dismissal marker after the refusal cause cells", async () => {
     const { code, row } = await runSoloList(
       [

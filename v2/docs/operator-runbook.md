@@ -185,6 +185,8 @@ jarvis run workflow review-feedback --branch <lane-branch> --pipeline <id> --sta
 
 `jarvis run workflow review-feedback` targets a **completed** intent, plan, or implement lane that already published an open PR with at least one submitted review. Bare lanes: `--branch <lane-branch>` only. Pipeline stages: `--pipeline`, `--stage`, and `--branch` together; add `--branch-key` when the stage fans out. Admission resolves the lane worktree and PR, refreshes `.jarvis-pr-review-input.json` via `gh`, dispatches a single write step on that lane (the agent must leave a per-item `.jarvis-review-feedback-response.md` response sidecar, never committed; missing → `contract_miss`), and on terminal `done` or `no-work` republishes to the same lane PR (ready gate, mutation verification, then push/PR refresh using the entry lane's publication paths).
 
+After settlement, addressed, declined, and unaddressed capture ids (`threadId` / `commentId` from `.jarvis-pr-review-input.json`) appear on the terminal `loop_finished` row in `jarvis run log` JSONL when reconciliation ran. `jarvis run wait` JSON and `jarvis run list` expose the same three optional arrays (`reviewFeedbackAddressedItemIds`, `reviewFeedbackDeclinedItemIds`, `reviewFeedbackUnaddressedItemIds`) when any bucket is non-empty; empty buckets render as `[]` in list trailing columns. When every bucket is empty, wait/list omit the fields. Use those ids as the operator-facing item identifier when checking which captured threads or comments were handled.
+
 | Code | Meaning |
 | --- | --- |
 | `review_feedback_lane_in_flight` | Any non-terminal run remains on `(project, branch)` (including `paused`); finish or kill the in-flight run before starting another review-feedback round on that branch. |

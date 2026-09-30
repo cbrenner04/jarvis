@@ -10,7 +10,7 @@ Review feedback on a published lane PR lives only on GitHub until an operator co
 
 ## Behavior
 
-The harness exposes a capture step that, given a resolved lane and its open PR, reads review threads and inline comments through `gh` and writes or refreshes one durable review artifact scoped to that lane. Review-feedback admission invokes it automatically on every `jarvis run workflow <review-feedback-preset>` start immediately after lane resolution and before write-step dispatch; there is no separate operator capture command or flag. The PR is the only feedback source; operator or subagent verdicts outside the PR are not ingested.
+The harness exposes a capture library seam: a callable function that, given a resolved lane worktree and its open PR, reads review threads and inline comments through `gh` and writes or refreshes one durable review artifact scoped to that lane. Out of scope: review-feedback admission, preset wiring, and any operator command or flag that invokes capture (sibling lanes). The PR is the only feedback source; operator or subagent verdicts outside the PR are not ingested.
 
 ## Acceptance criteria
 
@@ -19,6 +19,6 @@ The harness exposes a capture step that, given a resolved lane and its open PR, 
 
 ## Documentation updates
 
-- `v2/docs/workflow-runner.md` — where the review artifact is written, what it contains, and that review-feedback admission refreshes it automatically.
+- `v2/docs/workflow-runner.md` — where the review artifact is written and what it contains.
 
 ## Prerequisites

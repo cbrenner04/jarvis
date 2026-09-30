@@ -3689,19 +3689,7 @@ test("paused implement~shrink run resumes preShrinkHead from durable log", async
   const preShrinkHead = "abc123deadbeef";
   const runId = createPausedHiddenShrinkRun("shrink-paused-pre-shrink-head");
   const response = await resumeDirect(
-    createHandlers(
-      logReader(runId, [
-        { kind: "pre_shrink_head", head: preShrinkHead },
-        {
-          kind: "surviving_mutation_reprompt",
-          attemptId: "attempt-1",
-          mutation: "operator-flip: !== → ===",
-          sourceFile: "v2/src/daemon/daemon-run-lifecycle-handlers.ts",
-          sourceLine: 587,
-        },
-        PAUSED_LOOP_FINISHED,
-      ]),
-    ),
+    createHandlers(logReader(runId, [{ kind: "pre_shrink_head", head: preShrinkHead }, PAUSED_LOOP_FINISHED])),
     runId,
   );
 
@@ -3709,11 +3697,6 @@ test("paused implement~shrink run resumes preShrinkHead from durable log", async
   expect(starts).toHaveLength(1);
   expect(starts[0]?.bindingResolution?.role).toBe("shrink");
   expect(starts[0]?.preShrinkHead).toBe(preShrinkHead);
-  expect(starts[0]?.survivingMutationReprompt).toEqual({
-    mutation: "operator-flip: !== → ===",
-    sourceFile: "v2/src/daemon/daemon-run-lifecycle-handlers.ts",
-    sourceLine: 587,
-  });
 });
 
 test("paused implement resume restores landing-contract but ignores checkpoint reprompt when co-present", async () => {

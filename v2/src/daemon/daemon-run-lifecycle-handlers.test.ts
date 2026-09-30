@@ -447,6 +447,102 @@ test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", 
   }
 });
 
+test("resume hidden ~shrink replays preShrinkHead from durable log", async () => {
+  const resumedInputs: WriteLoopInput[] = [];
+  const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
+  const logsPath = join(tmpdir(), `jarvis-hidden-shrink-pre-head-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  const preShrinkHead = "abc123deadbeef";
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-hidden-shrink-pre-head-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  const machineProfile = "hidden-shrink-pre-head-profile";
+  const previousJarvisHome = process.env.JARVIS_HOME;
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, `${machineProfile}.json`),
+    JSON.stringify({
+      models: {
+        claude: {
+          plan: rung("plan"),
+          implement: rung("M1"),
+          shrink: rung("S1"),
+          adversary: rung("adv"),
+          critic: rung("crit"),
+          advocate: rung("advoc"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
+  process.env.JARVIS_HOME = profileHome;
+  const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  };
+  try {
+    const branchName = "hidden-shrink-pre-head-resume";
+    const runId = stateStore.createRun({
+      project: branchName,
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: branchName,
+      specPath: "/tmp/spec.md",
+      status: "paused",
+      stepId: "implement~shrink",
+      workflowSnapshot: {
+        invocationId: "hidden-shrink-pre-head",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "shrink rules",
+            expectedArtifactPath: "/tmp/artifact",
+            agents: ["claude"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      },
+    });
+    logSink.append(runId, { kind: "pre_shrink_head", head: preShrinkHead });
+    logSink.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "paused",
+      iterationsConsumed: 1,
+      resumable: true,
+    });
+    logSink.close();
+
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      writeLoopExecutor: localFake.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    });
+    const signal = new AbortController().signal;
+
+    const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
+    expect(resumed).toEqual({ kind: "response", result: { ok: true } });
+    expect(resumedInputs).toHaveLength(1);
+    expect(resumedInputs[0]?.bindingResolution?.role).toBe("shrink");
+    expect(resumedInputs[0]?.preShrinkHead).toBe(preShrinkHead);
+  } finally {
+    localFake.abortAll();
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
+    rmSync(profileHome, { recursive: true, force: true });
+    rmSync(logsPath, { force: true });
+  }
+});
+
 function writeTwoLinkIndexFixture(worktreePath: string): void {
   writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
   writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");

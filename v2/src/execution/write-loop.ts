@@ -1286,6 +1286,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             baseRef: args.worktree.baseRef,
             specPath: args.specPath,
             agent: prepared.result.completionAgent ?? "",
+            allowBranchTrailerFallback: true,
             title: creationTitle,
             iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
             ...externalSpecGitScope(args),
@@ -3766,6 +3767,7 @@ async function commitRepairAndRepublish(
         baseRef: input.baseRef,
         specPath: input.specPath,
         agent: result.completionAgent ?? "",
+        allowBranchTrailerFallback: true,
         title: renderStepCommitTitle(
           { kind: "ready-gate" },
           resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),

@@ -21,13 +21,14 @@ Add one shared prompt fragment (generic wording: per-ticked-criterion falsifiabi
 ## Acceptance criteria
 
 - [ ] The shared review falsifiability fragment is registered and assembles into rendered implement review critic, adversary, and advocate prompts; pinned by the registered render-observer map entries for `prompts/implement/review-critic.md`, `review-adversary.md`, and `review-advocate.md`.
-- [ ] A render-observer test proves the rendered implement critic prompt states the per-criterion falsifiability mandate and the empty-verdict-when-nothing-found rule; it fails against the pre-change prompt corpus.
-- [ ] A test proves the falsifiability guidance body is defined in the fragment only and not duplicated across the three implement review step sources; it fails against a copy-pasted variant.
-- [ ] The new fragment body contains no project-specific identifiers (no repo, module, PR, or issue references); pinned by the existing prompt-corpus checks or a new one scoped to that fragment.
+- [ ] `shared/prompts/review-implement.test.ts` test `implement review critic, adversary, and advocate renders include falsifiability mandate, defect-shape taxonomy, and empty-verdict-when-nothing-found` fails against the pre-change prompt corpus.
+- [ ] `shared/prompts/review-falsifiability-fragment.test.ts` test `implement review falsifiability guidance is defined only on the shared fragment` fails when the same prose is copy-pasted into any of the three implement review step bodies.
+- [ ] `shared/prompts/review-falsifiability-fragment.test.ts` test `review falsifiability fragment has no project-specific identifiers` pins the new fragment body (or an equivalent check scoped to that fragment id).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
 
 ## Documentation updates
 
+- `v2/docs/prompts.md` — register the orphan-lane falsifiability fragment and `add:` assembly on implement review critic, adversary, and advocate (same pattern as `implement.rules`).
 - `v2/docs/v1-behaviors.md` — implement review prompt content now includes falsifiability review checks.
 - `v2/docs/workflow-runner.md` — what implement review roles are asked to check, not only I/O and rendering.
 

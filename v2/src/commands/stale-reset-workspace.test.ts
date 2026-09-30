@@ -40,6 +40,53 @@ describe("stale-reset-workspace exports", () => {
   });
 });
 
+describe("staleResetProbeRefusal probe guard", () => {
+  test("probeMaybeResetStaleWorkspace returns structured refusal without stderr when reset is refused", async () => {
+    const stderrLines: string[] = [];
+    const io = { stdout: () => {}, stderr: (line: string) => stderrLines.push(line) };
+    spyOn(cleanup, "resetStaleWorkspace").mockResolvedValue({
+      status: "refused",
+      reason: "live run still active",
+    });
+
+    const result = await probeMaybeResetStaleWorkspace(
+      "implement",
+      stubWriteBuild as never,
+      stubDeps,
+      io,
+      {} as never,
+      stubClient,
+    );
+
+    expect(result).toEqual({
+      refused: true,
+      message: "Error: Cannot re-run incomplete spec: live run still active\n",
+    });
+    expect(stderrLines).toEqual([]);
+  });
+
+  test("maybeResetStaleWorkspace writes refusal to stderr and returns 1 when reset is refused", async () => {
+    const stderrLines: string[] = [];
+    const io = { stdout: () => {}, stderr: (line: string) => stderrLines.push(line) };
+    spyOn(cleanup, "resetStaleWorkspace").mockResolvedValue({
+      status: "refused",
+      reason: "live run still active",
+    });
+
+    const code = await maybeResetStaleWorkspace(
+      "implement",
+      stubWriteBuild as never,
+      stubDeps,
+      io,
+      {} as never,
+      stubClient,
+    );
+
+    expect(code).toBe(1);
+    expect(stderrLines).toEqual(["Error: Cannot re-run incomplete spec: live run still active\n"]);
+  });
+});
+
 describe("runStaleResetForWorkflow probe flag", () => {
   test("probeMaybeResetStaleWorkspace passes gatesOnly and skipWorktreeClaimGate to resetStaleWorkspace", async () => {
     const capturedOptions: cleanup.ResetStaleWorkspaceOptions[] = [];

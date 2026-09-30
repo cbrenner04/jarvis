@@ -1642,11 +1642,10 @@ export async function startDaemonRuntime(
     },
   );
 
-  // Self-handoff sampling runs self-heal before its per-tick `isRetiring()` cutoff (below): a
-  // stranded handoff-origin sole owner can reopen admission on the same cadence as digest sampling,
-  // then sampling and backoff retry proceed on later ticks. The cutoff still fires on any admission
-  // cut that self-heal did not clear, without permanently stopping the interval; `close()` alone
-  // stops it at teardown.
+  // Self-handoff sampling runs self-heal before digest sampling on each tick (skipping only while a
+  // handoff transaction is pending or while retiring for a non-handoff-origin cause). Stranded
+  // handoff-origin retiring still samples so backoff retry can fire after rollback; only `close()`
+  // stops the interval at teardown.
   let selfHandoffTrigger: { stop(): void } | undefined;
   const setRetiring = setRetiringRaw;
 
@@ -1835,7 +1834,8 @@ export async function startDaemonRuntime(
             retireCause: retireCauseState.cause,
           };
           if (shouldRetiringSoleOwnerSelfHeal(selfHealInput)) reopenAdmission();
-          if (isRetiring()) return;
+          if (handoffHandlers.isPending()) return;
+          if (isRetiring() && retireCauseState.cause !== "handoff_origin") return;
           void onTick();
         };
         startupDeps.captureSelfHandoffSamplingIntervalTick?.(intervalBody);

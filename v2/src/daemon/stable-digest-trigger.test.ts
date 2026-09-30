@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   isBackingOff,
+  type RetiringSoleOwnerSelfHealInput,
   type ScheduleDigestSampling,
   selfHandoffBackoffMs,
   shouldRetiringSoleOwnerSelfHeal,
@@ -39,6 +40,31 @@ function sequenceSampler(values: Array<string | Error>): () => Promise<string> {
     if (value === undefined) throw new Error("sample sequence exhausted");
     if (value instanceof Error) throw value;
     return value;
+  };
+}
+
+/** Mirrors `startDaemonRuntime`'s self-handoff `scheduleSampling` interval body (self-heal gate, then `onTick`). */
+function daemonSelfHandoffSamplingLoop(
+  selfHealInput: () => RetiringSoleOwnerSelfHealInput,
+  onSelfHealReopen: () => void,
+): {
+  scheduleSampling: ScheduleDigestSampling;
+  fireSamplingTick: () => Promise<void>;
+} {
+  let onTick: (() => Promise<void>) | undefined;
+  const intervalBody = async (): Promise<void> => {
+    const input = selfHealInput();
+    if (shouldRetiringSoleOwnerSelfHeal(input)) onSelfHealReopen();
+    if (input.handoffPending) return;
+    if (input.retiring && input.retireCause !== "handoff_origin") return;
+    await onTick?.();
+  };
+  return {
+    scheduleSampling: (tick) => {
+      onTick = tick;
+      return { stop: () => {} };
+    },
+    fireSamplingTick: intervalBody,
   };
 }
 
@@ -301,6 +327,43 @@ describe("startStableDigestTrigger", () => {
     clock = 60_000 + 120_000;
     await loop.tick();
     expect(calls).toBe(3);
+  });
+
+  test("daemon sampling tick order retries through stranded retiring after rolled_back", async () => {
+    let retiring = true;
+    let clock = 0;
+    let calls = 0;
+    const loop = daemonSelfHandoffSamplingLoop(
+      () => ({
+        retiring,
+        publicBound: false,
+        handoffPending: false,
+        blocksRollbackReopen: false,
+        retireCause: "handoff_origin",
+      }),
+      () => {
+        retiring = false;
+      },
+    );
+    startStableDigestTrigger("loaded", {
+      now: () => clock,
+      sample: async () => "changed",
+      startHandoff: async () => {
+        calls += 1;
+        return "rolled_back";
+      },
+      scheduleSampling: loop.scheduleSampling,
+    });
+
+    await loop.fireSamplingTick();
+    await loop.fireSamplingTick();
+    expect(calls).toBe(1);
+
+    clock = selfHandoffBackoffMs(1);
+    await loop.fireSamplingTick();
+    expect(calls).toBe(1);
+    await loop.fireSamplingTick();
+    expect(calls).toBe(2);
   });
 
   test("a different divergent digest is not held by another digest's backoff", async () => {

@@ -22,6 +22,7 @@ Unsplit rationale: peer witness acceptance, stable decision-verb claim wiring, r
 ## Decisions
 
 - A peer answering `durable_state` whose `ownerIdentity` matches the row's recorded owner confirms ownership for the claim, same as `owner`; `claimPipelineContinuation` stays the guard.
+- Witness acceptance follows the same `pipeline_owner` contract as `resolvePipelineOwnership`: matching `durable_state` counts only when the peer would answer it for terminal derived execution state or a reconciled `interrupted` row — not arbitrary `state` values on a live-owned row.
 - `not_owner`, `not_found`, and unreachable peers still refuse.
 - No new verb or flag; `pipeline_owner` wire shape unchanged.
 
@@ -29,11 +30,11 @@ Unsplit rationale: peer witness acceptance, stable decision-verb claim wiring, r
 
 - [ ] A regression in `v2/src/daemon/daemon-stable-run-routing.test.ts` proves `pipeline_resume` (stable handlers) claims and runs when a fake peer answers `{ kind: "durable_state", state: "failed", ownerIdentity }` matching the row owner; it fails against the owner-only witness check.
 - [ ] A regression in the same file proves a matching `durable_state` witness with a mismatched `ownerIdentity` still refuses `pipeline_no_live_owner`.
-- [ ] A regression in the same file proves a peer answering `not_owner` or being unreachable still refuses `pipeline_no_live_owner`.
 - [ ] `describe("stable pipeline decision-verb claim across older generations")` owner-witness claim tests stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
+- `v2/docs/v1-behaviors.md` — revise the stable-endpoint claim entry (owner-only peer confirmation) so terminal `durable_state` from the recorded owner also confirms the claim.
 - `v2/docs/daemon-host.md` § Stable endpoint claims before running a decision verb — a terminal-state witness from the recorded owner confirms the claim.
 - `v2/docs/operator-runbook.md` § Stable-address pipeline control verbs — drop waiting for the owning daemon to exit when a failed pipeline is still held by a draining generation.

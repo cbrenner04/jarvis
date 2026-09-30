@@ -25,11 +25,11 @@ Primary: `v2/src/daemon/pipeline-stage-resolve.ts` (`resolvePlanStage`). In-scop
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` — `chained plan stage resolves write-step baseRef to repository default branch, not prior branch` uses the behind-`origin` fixture shared with `chained implement uses fetched upstream without changing the operator checkout`, asserts plan write-step `baseRef` is the fetched upstream tip matching remote `HEAD`, and still rules out `prior.branch`; fails against current code (reachable on main: that test expects local `main` today on `createChainedHandoffRepo()` without advancing origin).
-- [ ] `pipeline-execution.test.ts` — `whole-pipeline failed plan resume retires dirty draft and rematerializes from base before writer dispatch` adds the same behind-`origin` fixture and asserts resolved plan write-step `baseRef` is the fetched upstream tip matching remote `HEAD`, observed from `resolvePlanStage` / `resolveStageWorkflowSteps` output (preset input or write-step `baseRef` via resume-test-local plan builder or real plan preset builder) — not dispatch `HEAD` vs local default at `projectRoot`; fails against current code (reachable on main: `fixedPlanStepResolver` ignores preset `baseRef` and the test pins rematerialized `HEAD` to `intentBranch` at `projectRoot`).
-- [ ] `pipeline-stage-resolve.test.ts` — `chained implement uses fetched upstream without changing the operator checkout` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `pipeline-stage-resolve.test.ts` — `chained plan stage resolves write-step baseRef to repository default branch, not prior branch` uses the behind-`origin` fixture shared with `chained implement uses fetched upstream without changing the operator checkout`, asserts plan write-step `baseRef` is the fetched upstream tip matching remote `HEAD`, and still rules out `prior.branch`; fails against current code (reachable on main: that test expects local `main` today on `createChainedHandoffRepo()` without advancing origin).
+- [x] `pipeline-execution.test.ts` — `whole-pipeline failed plan resume retires dirty draft and rematerializes from base before writer dispatch` adds the same behind-`origin` fixture and asserts resolved plan write-step `baseRef` is the fetched upstream tip matching remote `HEAD`, observed from `resolvePlanStage` / `resolveStageWorkflowSteps` output (preset input or write-step `baseRef` via resume-test-local plan builder or real plan preset builder) — not dispatch `HEAD` vs local default at `projectRoot`; fails against current code (reachable on main: `fixedPlanStepResolver` ignores preset `baseRef` and the test pins rematerialized `HEAD` to `intentBranch` at `projectRoot`).
+- [x] `pipeline-stage-resolve.test.ts` — `chained implement uses fetched upstream without changing the operator checkout` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

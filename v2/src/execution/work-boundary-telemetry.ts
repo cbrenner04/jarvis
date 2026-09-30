@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { jarvisHome } from "../paths.ts";
-import { appendTelemetryJsonlLine, type TelemetryJsonlAppendOptions } from "./telemetry-sink.ts";
 import type { Attempt, OutcomeKind, Run, RunStatus } from "../persistence/state-store.ts";
+import { appendTelemetryJsonlLine, type TelemetryJsonlAppendOptions } from "./telemetry-sink.ts";
 
 export type WorkBoundaryRecordedRecord = {
   schema_version: 1;

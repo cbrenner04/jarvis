@@ -779,6 +779,13 @@ async function applyMergedBranchRefPrunes(
   return exit;
 }
 
+/** Queue homes (in-repo and external) whose entries cleanup never archives: seeds and ready-intents. */
+const QUEUE_DIR_NAMES: readonly string[] = ["seeds", "ready-intents"];
+
+function isQueueEntrySource(path: string): boolean {
+  return QUEUE_DIR_NAMES.includes(basename(dirname(path)));
+}
+
 function artifactForRetiredWorktree(
   candidate: CleanupCandidate,
   projectRoot: string,
@@ -790,12 +797,13 @@ function artifactForRetiredWorktree(
     .listRuns()
     .filter((run) => run.project === candidate.project && run.branch === candidate.worktree.branch)
     .map((run) => sourceForRun(run, candidate.worktree.path, projectRoot, registry, configPath))
-    .filter((path): path is string => path !== undefined);
+    .filter((path): path is string => path !== undefined && !isQueueEntrySource(path));
   // A spec-tree directory wins over a bare `.md` outright, as it did before this proof was added.
   // Folding both into one `find` let the newest row decide instead: `listRuns` is newest-first, and
   // an intent branch's newest row is its review row, so the older write row's landed
   // `ready-intents/<slug>.md` would be selected and offered for archival into a fabricated
-  // `ready-intents/completed/`. Ready-intents are pruned by byte-proof, never archived.
+  // `ready-intents/completed/`. Queue entries (seeds, ready-intents) are rejected above: ready-intents
+  // are pruned by byte-proof, never archived.
   // Both arms must also prove the source exists: `endsWith(".md")` is lexical, so a vanished file
   // would otherwise resolve as a "proven" artifact and be suppressed only later, at preview.
   const source =
@@ -1217,7 +1225,7 @@ export function discoverStrandedArtifacts(
     if (!existsSync(home)) continue;
     try {
       for (const child of readdirSync(home, { withFileTypes: true })) {
-        if (!child.isDirectory() || ["completed", "seeds", "ready-intents"].includes(child.name)) continue;
+        if (!child.isDirectory() || child.name === "completed" || QUEUE_DIR_NAMES.includes(child.name)) continue;
         if (child.name.startsWith(".") || isHarnessWorkflowStagingPath(child.name)) continue;
         artifacts.push({ home, source: join(home, child.name), name: child.name, project });
       }

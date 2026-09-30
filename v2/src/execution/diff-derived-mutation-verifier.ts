@@ -10,7 +10,6 @@ import {
 } from "../../../shared/prompts/registry.ts";
 import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import {
-  addLineFlipSkipKey,
   type ChangedLine,
   changedPathsFromDiff,
   type DiffFlipSkipContext,
@@ -705,31 +704,25 @@ const COMPARISON_OPERATOR_KINDS = new Set<ts.SyntaxKind>([
 const FLIP_SKIP_TOKEN_PATTERN =
   />>>|>>|<<|===|!==|==|!=|<=|>=|&&|\|\||[+\-*/%&|^~!<>=?:;,.\[\]{}()]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[a-zA-Z_$][\w$]*/g;
 
-export function collapseFlipSkipWhitespace(line: string): string {
-  return line.trim().replace(/\s+/g, " ");
-}
-
-export function whitespaceNormalizedFlipSkipTokens(text: string): string[] {
-  const normalized = collapseFlipSkipWhitespace(text);
+function whitespaceNormalizedFlipSkipTokens(text: string): string[] {
+  const normalized = text.trim().replace(/\s+/g, " ");
   if (normalized.length === 0) return [];
   return normalized.match(FLIP_SKIP_TOKEN_PATTERN) ?? [];
 }
 
-function countTokenMultiset(tokens: readonly string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const token of tokens) {
-    counts.set(token, (counts.get(token) ?? 0) + 1);
-  }
-  return counts;
-}
-
-export function flipSkipTokensSubsumedByRemoved(
+function flipSkipTokensSubsumedByRemoved(
   candidateTokens: readonly string[],
   removedTokens: readonly string[],
 ): boolean {
   if (removedTokens.length === 0) return false;
-  const removedCounts = countTokenMultiset(removedTokens);
-  const candidateCounts = countTokenMultiset(candidateTokens);
+  const removedCounts = new Map<string, number>();
+  for (const token of removedTokens) {
+    removedCounts.set(token, (removedCounts.get(token) ?? 0) + 1);
+  }
+  const candidateCounts = new Map<string, number>();
+  for (const token of candidateTokens) {
+    candidateCounts.set(token, (candidateCounts.get(token) ?? 0) + 1);
+  }
   for (const [token, count] of candidateCounts) {
     if ((removedCounts.get(token) ?? 0) < count) return false;
   }
@@ -737,10 +730,8 @@ export function flipSkipTokensSubsumedByRemoved(
 }
 
 function removedTokensForHunk(flipSkip: DiffFlipSkipContext, hunkKey: string): string[] {
-  const removedLines = flipSkip.removedLineContentsByHunkKey.get(hunkKey) ?? [];
-  if (removedLines.length === 0) return [];
   const tokens: string[] = [];
-  for (const line of removedLines) {
+  for (const line of flipSkip.removedLineContentsByHunkKey.get(hunkKey) ?? []) {
     tokens.push(...whitespaceNormalizedFlipSkipTokens(line));
   }
   return tokens;
@@ -753,10 +744,6 @@ function operatorFlipCandidateTokens(node: ts.BinaryExpression, sourceFile: ts.S
     ...whitespaceNormalizedFlipSkipTokens(operator),
     ...whitespaceNormalizedFlipSkipTokens(node.right.getText(sourceFile)),
   ];
-}
-
-function guardFlipCandidateTokens(node: ts.PrefixUnaryExpression, sourceFile: ts.SourceFile): string[] {
-  return whitespaceNormalizedFlipSkipTokens(node.getText(sourceFile));
 }
 
 function deriveOperatorMutations(
@@ -827,7 +814,7 @@ function deriveGuardMutations(
       let admitted = false;
       if (changedLineNumbers.has(line) && startPos.line === endPos.line) {
         admitted = true;
-        if (shouldSkipFlip(line, guardFlipCandidateTokens(node, sourceFile))) {
+        if (shouldSkipFlip(line, whitespaceNormalizedFlipSkipTokens(node.getText(sourceFile)))) {
           ts.forEachChild(node, visit);
           return;
         }
@@ -1543,7 +1530,6 @@ function groupCandidatesByLine(candidates: readonly Candidate[]): Map<number, Ca
 }
 
 function flipSkipForFile(
-  file: string,
   lines: readonly ChangedLine[],
   flipSkip: DiffFlipSkipContext,
 ): (line: number, candidateTokens: readonly string[]) => boolean {
@@ -1552,7 +1538,7 @@ function flipSkipForFile(
   const lineContentByNumber = new Map<number, string>();
   for (const line of lines) {
     lineContentByNumber.set(line.lineNumber, line.content);
-    const hunkKey = line.hunkKey ?? flipSkip.hunkKeyByAddLine.get(addLineFlipSkipKey(file, line.lineNumber));
+    const hunkKey = line.hunkKey;
     if (hunkKey === undefined) continue;
     hunkKeyByLine.set(line.lineNumber, hunkKey);
     if (!removedTokensByHunkKey.has(hunkKey)) {
@@ -1566,8 +1552,10 @@ function flipSkipForFile(
     const lineContent = lineContentByNumber.get(line);
     if (lineContent === undefined) return false;
     const lineTokens = whitespaceNormalizedFlipSkipTokens(lineContent);
-    if (!flipSkipTokensSubsumedByRemoved(lineTokens, removedTokens)) return false;
-    return flipSkipTokensSubsumedByRemoved(candidateTokens, removedTokens);
+    return (
+      flipSkipTokensSubsumedByRemoved(lineTokens, removedTokens) &&
+      flipSkipTokensSubsumedByRemoved(candidateTokens, removedTokens)
+    );
   };
 }
 
@@ -1585,7 +1573,7 @@ async function deriveCandidates(
       try {
         const source = sourceWithChangedLines(await readFile(`${worktreePath}/${file}`), lines);
         const changedLineNumbers = new Set(lines.map((line) => line.lineNumber));
-        const shouldSkipFlip = flipSkipForFile(file, lines, flipSkip);
+        const shouldSkipFlip = flipSkipForFile(lines, flipSkip);
         const operatorCandidates: Candidate[] = [];
         deriveOperatorMutations(file, source, changedLineNumbers, operatorCandidates, shouldSkipFlip);
         operatorCandidatesByLine = groupCandidatesByLine(operatorCandidates);

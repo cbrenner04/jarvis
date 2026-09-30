@@ -32,21 +32,14 @@ export interface ChangedLine {
   lineNumber: number;
   content: string;
   file: string;
-  /** Present on `add` lines when parsed via `parseDiffWithFlipSkip`. */
   hunkKey?: string;
 }
 
-/** Hunk-scoped removed `-` line contents and add-line → hunk mapping for flip-candidate whitespace skip. */
 export type DiffFlipSkipContext = {
-  hunkKeyByAddLine: Map<string, string>;
   removedLineContentsByHunkKey: Map<string, string[]>;
 };
 
-export function addLineFlipSkipKey(file: string, lineNumber: number): string {
-  return `${file}\u0000${lineNumber}`;
-}
-
-export function diffHunkFlipSkipKey(file: string, hunkIndex: number): string {
+function diffHunkKey(file: string, hunkIndex: number): string {
   return `${file}\u0000${hunkIndex}`;
 }
 
@@ -90,7 +83,6 @@ export function parseDiffWithFlipSkip(diffOutput: string): {
   flipSkip: DiffFlipSkipContext;
 } {
   const changedLines: ChangedLine[] = [];
-  const hunkKeyByAddLine = new Map<string, string>();
   const removedLineContentsByHunkKey = new Map<string, string[]>();
   const diffLines = diffOutput.split("\n");
 
@@ -109,10 +101,9 @@ export function parseDiffWithFlipSkip(diffOutput: string): {
       currentNewLineNum = extractLineNumberFromHunk(line);
       if (currentFile !== null) {
         hunkIndex += 1;
-        currentHunkKey = diffHunkFlipSkipKey(currentFile, hunkIndex);
+        currentHunkKey = diffHunkKey(currentFile, hunkIndex);
       }
     } else if (inHunk && currentFile) {
-      const priorLineNum = currentNewLineNum;
       currentNewLineNum = processDiffLine(
         line,
         currentFile,
@@ -121,9 +112,6 @@ export function parseDiffWithFlipSkip(diffOutput: string): {
         changedLines,
         removedLineContentsByHunkKey,
       );
-      if (line.startsWith("+") && !line.startsWith("+++")) {
-        hunkKeyByAddLine.set(addLineFlipSkipKey(currentFile, priorLineNum), currentHunkKey);
-      }
       if (!line.startsWith("\\") && line.length > 0 && !line.startsWith("diff") && !line.startsWith("index")) {
         if (!line.startsWith("+") && !line.startsWith("-") && !line.startsWith(" ")) {
           inHunk = false;
@@ -134,7 +122,7 @@ export function parseDiffWithFlipSkip(diffOutput: string): {
 
   return {
     changedLines,
-    flipSkip: { hunkKeyByAddLine, removedLineContentsByHunkKey },
+    flipSkip: { removedLineContentsByHunkKey },
   };
 }
 

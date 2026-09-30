@@ -22,33 +22,31 @@ const PLAN_REVIEW_FALSIFIABILITY_STEP_IDS = [
   "plan.prompt.review.advocate",
 ] as const;
 
+function expectFalsifiabilityGuidanceOnlyOnFragment(
+  registry: ReturnType<typeof loadPromptRegistry>,
+  stepIds: readonly string[],
+): void {
+  const fragmentBody = registry.getById(FALSIFIABILITY_FRAGMENT_ID).body;
+  for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
+    expect(fragmentBody).toContain(marker);
+  }
+  for (const stepId of stepIds) {
+    const stepBody = registry.getById(stepId).body;
+    for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
+      expect(stepBody).not.toContain(marker);
+    }
+  }
+}
+
 describe("implement review falsifiability fragment", () => {
   const registry = loadPromptRegistry();
 
   test("implement review falsifiability guidance is defined only on the shared fragment", () => {
-    const fragmentBody = registry.getById(FALSIFIABILITY_FRAGMENT_ID).body;
-    for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
-      expect(fragmentBody).toContain(marker);
-    }
-    for (const stepId of IMPLEMENT_REVIEW_FALSIFIABILITY_STEP_IDS) {
-      const stepBody = registry.getById(stepId).body;
-      for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
-        expect(stepBody).not.toContain(marker);
-      }
-    }
+    expectFalsifiabilityGuidanceOnlyOnFragment(registry, IMPLEMENT_REVIEW_FALSIFIABILITY_STEP_IDS);
   });
 
   test("plan review falsifiability guidance is defined only on the shared fragment", () => {
-    const fragmentBody = registry.getById(FALSIFIABILITY_FRAGMENT_ID).body;
-    for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
-      expect(fragmentBody).toContain(marker);
-    }
-    for (const stepId of PLAN_REVIEW_FALSIFIABILITY_STEP_IDS) {
-      const stepBody = registry.getById(stepId).body;
-      for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
-        expect(stepBody).not.toContain(marker);
-      }
-    }
+    expectFalsifiabilityGuidanceOnlyOnFragment(registry, PLAN_REVIEW_FALSIFIABILITY_STEP_IDS);
   });
 
   test("review falsifiability fragment has no project-specific identifiers", () => {

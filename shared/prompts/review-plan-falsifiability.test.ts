@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +19,13 @@ function specDirWithIntent(): string {
 }
 
 describe("plan review falsifiability fragment", () => {
+  let context: { worktreePath: string; specPath: string };
+
+  beforeEach(() => {
+    context = { worktreePath: "/repo", specPath: specDirWithIntent() };
+  });
+
   test("plan review critic, adversary, and advocate renders include falsifiability mandate, defect-shape taxonomy, and empty-verdict-when-nothing-found", () => {
-    const specPath = specDirWithIntent();
-    const context = { worktreePath: "/repo", specPath };
     const critic = renderPlanReviewCriticPrompt(context);
     const adversary = renderPlanReviewDebateRolePrompt("adversary", context);
     const advocate = renderPlanReviewDebateRolePrompt("advocate", context, "(none)");
@@ -37,8 +41,6 @@ describe("plan review falsifiability fragment", () => {
   });
 
   test("plan review adjudicator, actuator, and draft renders omit falsifiability fragment", () => {
-    const specPath = specDirWithIntent();
-    const context = { worktreePath: "/repo", specPath };
     const adjudicator = renderPlanReviewDebateRolePrompt("adjudicator", context, "prior");
     const actuator = renderPlanReviewActuatorPrompt(context, "Tighten ACs.");
     const draft = buildPlanDraftPrompt({

@@ -26,7 +26,7 @@ Autonomous self-handoff's default successor closure calls `startDaemon` without 
 
 ## Acceptance criteria
 
-- [x] `daemon-self-handoff-readiness.test.ts` (or the test title added there) exercises the default `spawnSelfHandoffSuccessor` closure from `startDaemonRuntime` (not an isolated `startDaemon` call with a hand-set `readinessTimeoutMs`): injected probers keep readiness false through `DEFAULT_DAEMON_READINESS_TIMEOUT_MS`, then succeed while the spawned child stays alive, and autonomous self-handoff successor startup completes `startDaemon` without readiness rollback; fails against the pre-fix code.
+- [x] `daemon-self-handoff-readiness.test.ts` asserts the default self-handoff successor `startDaemon` options (`selfHandoffSuccessorStartOptions`, used by `startDaemonRuntime`'s default closure) carry a readiness bound above both the manual-start budget and a 20s loaded startup, with no wall-clock waits or daemon runtime; fails against a 5s bound.
 - [x] A unit test on the exported fallback budget helper asserts incumbent fallback ms stays strictly beyond the self-handoff readiness window (release + readiness + resolution + slack); it fails against the pre-fix code if the helper is missing or mis-ordered.
 - [x] `v2/src/commands/daemon.test.ts` asserts manual `daemon start` does not pass `readinessTimeoutMs` into `startDaemon`; fails against the pre-fix code if that assertion is absent.
 - [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

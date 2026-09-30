@@ -17,7 +17,7 @@ const DEFAULT_CHANGEOVER_TIMEOUT_MS = 2_000;
 export const DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS = 5_000;
 export const DEFAULT_DAEMON_READINESS_TIMEOUT_MS = 5_000;
 /** Autonomous self-handoff successor `startDaemon` readiness budget; manual `daemon start` keeps the default above. */
-export const DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS = 15_000;
+export const DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS = 30_000;
 export const HANDOFF_RESOLUTION_TIMEOUT_MS = 2_000;
 
 /** Incumbent fallback ms from a successor's release + readiness + settlement budgets plus slack. */

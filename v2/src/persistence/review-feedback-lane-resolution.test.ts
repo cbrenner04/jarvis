@@ -3,6 +3,7 @@ import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
   type ReviewFeedbackLaneResolutionStore,
+  resolveReviewFeedbackEntrySpecPath,
   resolveReviewFeedbackLane,
 } from "./review-feedback-lane-resolution.ts";
 import {
@@ -19,7 +20,12 @@ const WORKTREE = "/worktrees/lane";
 
 function workflowSnapshot(
   invocationId: string,
-  firstStep: { stepId: string; role: string; promptId?: string },
+  firstStep: {
+    stepId: string;
+    role: string;
+    promptId?: string;
+    landingInputs?: NonNullable<Run["workflowSnapshot"]>["steps"][number]["landingInputs"];
+  },
   extraSteps: Array<{ stepId: string; role: string; promptId?: string }> = [],
 ): NonNullable<Run["workflowSnapshot"]> {
   return {
@@ -416,5 +422,43 @@ describe("resolveReviewFeedbackLane pipeline", () => {
       stageId: "debate-stage",
     });
     expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_not_eligible" });
+  });
+});
+
+describe("resolveReviewFeedbackEntrySpecPath", () => {
+  test("intent lane maps ready-intents landing path to ready-intents entry spec path", () => {
+    const run = baseRun({
+      specPath: "v2/spec/other.md",
+      workflowSnapshot: workflowSnapshot("inv-intent", {
+        stepId: "step-1",
+        role: "author",
+        promptId: "intent.prompt.split",
+        landingInputs: {
+          sourceRoot: "/home/.jarvis/specs/jarvis/ready-intents",
+          paths: ["/home/.jarvis/specs/jarvis/ready-intents/seed.md"],
+          consumeFrom: "source",
+        },
+      }),
+    });
+    expect(resolveReviewFeedbackEntrySpecPath("intent", run)).toBe("ready-intents");
+  });
+
+  test("non-intent lane keeps stored spec path when landing paths mention ready-intents", () => {
+    const landingInputs = {
+      sourceRoot: "/home/.jarvis/specs/jarvis/ready-intents",
+      paths: ["/home/.jarvis/specs/jarvis/ready-intents/seed.md"],
+      consumeFrom: "source" as const,
+    };
+    const run = baseRun({
+      specPath: "v2/spec/plan/index.md",
+      workflowSnapshot: workflowSnapshot("inv-plan", {
+        stepId: "step-1",
+        role: "author",
+        promptId: "plan.prompt.draft",
+        landingInputs,
+      }),
+    });
+    expect(resolveReviewFeedbackEntrySpecPath("plan", run)).toBe("v2/spec/plan/index.md");
+    expect(resolveReviewFeedbackEntrySpecPath("implement", run)).toBe("v2/spec/plan/index.md");
   });
 });

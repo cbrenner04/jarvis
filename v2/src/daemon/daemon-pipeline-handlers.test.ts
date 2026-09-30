@@ -399,6 +399,11 @@ test("pipelineExecutionDeps omits executeTerminalPublication without injectable 
   expect(handlers.pipelineExecutionDeps()).not.toHaveProperty("executeTerminalPublication");
 });
 
+test("pipelineExecutionDeps omits attemptFailedImplementPipelineResume without injectable dep", () => {
+  const handlers = pipelineHandlers();
+  expect(handlers.pipelineExecutionDeps()).not.toHaveProperty("attemptFailedImplementPipelineResume");
+});
+
 test("pipelineExecutionDeps wires executeTerminalPublication from deps", () => {
   const executeTerminalPublication = async () => ({ prNumber: 1 });
   const ctx = createRunControlHandlerContext({
@@ -418,6 +423,29 @@ test("pipelineExecutionDeps wires executeTerminalPublication from deps", () => {
     executeTerminalPublication,
   });
   expect(handlers.pipelineExecutionDeps().executeTerminalPublication).toBe(executeTerminalPublication);
+});
+
+test("pipelineExecutionDeps wires attemptFailedImplementPipelineResume from deps", () => {
+  const attemptFailedImplementPipelineResume = async () => undefined;
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
+  });
+  const handlers = createPipelineHandlers(ctx, {
+    pipelineDispatch: lifecycle.pipelineDispatch,
+    pipelineWait: lifecycle.pipelineWait,
+    admitWorkflowStart: workflowStart.admitWorkflowStart,
+    attemptFailedImplementPipelineResume,
+  });
+  expect(handlers.pipelineExecutionDeps().attemptFailedImplementPipelineResume).toBe(
+    attemptFailedImplementPipelineResume,
+  );
 });
 
 test("pipelineExecutionDeps omits staleResetPreflight without daemonSocketPath", () => {

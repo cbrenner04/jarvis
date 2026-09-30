@@ -938,7 +938,10 @@ export interface StateStore {
    * continuation shape is malformed is left alone. Returns the reopened stages for
    * {@link StateStore.restoreReopenedFailedStages}.
    */
-  reopenFailedStagesForResume(entryRunId: string): ReopenedFailedStage[];
+  reopenFailedStagesForResume(
+    entryRunId: string,
+    scope?: { pipelineId: string; stageId: string; branchKey: string },
+  ): ReopenedFailedStage[];
 
   /** Undo {@link StateStore.reopenFailedStagesForResume}: each stage still `running` on its link returns to its pre-reopen `failed` row and suffix. */
   restoreReopenedFailedStages(reopened: readonly ReopenedFailedStage[]): void;
@@ -2580,13 +2583,24 @@ class StateStoreImpl implements StateStore {
     }
   }
 
-  reopenFailedStagesForResume(entryRunId: string): ReopenedFailedStage[] {
+  reopenFailedStagesForResume(
+    entryRunId: string,
+    scope?: { pipelineId: string; stageId: string; branchKey: string },
+  ): ReopenedFailedStage[] {
     try {
       return this.db.transaction((): ReopenedFailedStage[] => {
         const reopened: ReopenedFailedStage[] = [];
         for (const pipeline of this.listPipelines()) {
-          if (pipeline.dismissedAt !== null) continue;
+          if (pipeline.dismissedAt !== null && (scope === undefined || scope.pipelineId !== pipeline.id)) continue;
           for (const stage of pipeline.stages) {
+            if (
+              scope !== undefined &&
+              (pipeline.id !== scope.pipelineId ||
+                stage.stageId !== scope.stageId ||
+                stage.branchKey !== scope.branchKey)
+            ) {
+              continue;
+            }
             const entry = this.reopenLinkedFailedStage(pipeline.stages, stage, entryRunId);
             if (entry !== null) reopened.push(entry);
           }

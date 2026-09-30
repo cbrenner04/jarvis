@@ -789,6 +789,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipelineDispatch,
     pipelineWait,
     admitWorkflowStart,
+    attemptFailedImplementPipelineResume: lifecycle.attemptFailedImplementPipelineResume,
     ...(deps.resolveStage !== undefined ? { resolveStage: deps.resolveStage } : {}),
     ...(deps.recoveryAttempt !== undefined ? { recoveryAttempt: deps.recoveryAttempt } : {}),
     ...(deps.recoveryLogSinkFactory !== undefined ? { recoveryLogSinkFactory: deps.recoveryLogSinkFactory } : {}),

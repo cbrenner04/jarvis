@@ -4531,6 +4531,99 @@ describe("resumePipeline branch scope", () => {
     });
   });
 
+  test("branch-scoped failed reopen probes in-place implement resume before reopenFailedPipeline", async () => {
+    const { store } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    let inPlaceBranchScope: string | undefined;
+    const attemptFailedImplementPipelineResume = async (
+      _pipeline: Pipeline & { stages: PipelineStageRecord[] },
+      _pipelineId: string,
+      branchScope?: string,
+    ) => {
+      inPlaceBranchScope = branchScope;
+      return {
+        kind: "refused" as const,
+        pipelineId: PIPELINE_ID,
+        reason: "resume_unsupported" as const,
+        message: "probe",
+      };
+    };
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      throw new Error("dispatch must not run when in-place probe refuses");
+    };
+
+    const outcome = await resumePipeline(
+      PIPELINE_ID,
+      {
+        store,
+        dispatch,
+        wait: async () => "completed",
+        resolveStage: resolveStageStub(),
+        attemptFailedImplementPipelineResume,
+      },
+      { branchKey: RESUME_BRANCH_FAILED },
+    );
+
+    expect(inPlaceBranchScope).toBe(RESUME_BRANCH_FAILED);
+    expect(outcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      reason: "resume_unsupported",
+      message: "probe",
+    });
+  });
+
+  test("branch-scoped interrupted reopen skips in-place implement resume probe", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {
+        "run-target-implement": {
+          specPath: "spec/target/implement.md",
+          stepId: "s1-entry",
+          workflowSnapshot: entryOnlySnapshot("inv-target-implement"),
+        },
+      },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_FAILED,
+      patch: { status: "interrupted" },
+    });
+    let inPlaceCalled = false;
+    const attemptFailedImplementPipelineResume = async () => {
+      inPlaceCalled = true;
+      return { kind: "refused" as const, pipelineId: PIPELINE_ID, reason: "resume_unsupported" as const };
+    };
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId: "run-target-implement",
+      invocationId: "inv-target-implement",
+    });
+
+    const outcome = await resumePipeline(
+      PIPELINE_ID,
+      {
+        store,
+        dispatch,
+        wait: async () => "completed",
+        resolveStage: resolveStageStub(),
+        attemptFailedImplementPipelineResume,
+      },
+      { branchKey: RESUME_BRANCH_FAILED },
+    );
+
+    expect(inPlaceCalled).toBe(false);
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(stageRecord(stages(), "implement", RESUME_BRANCH_FAILED)?.status).toBe("succeeded");
+  });
+
   test("branch-scoped resume reopens and dispatches an interrupted branch stage", async () => {
     const { store, stages } = fakeStore(
       FAN_OUT_PIPELINE_DEFINITION,

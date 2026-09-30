@@ -2074,7 +2074,6 @@ class StateStoreImpl implements StateStore {
     this.db.exec("PRAGMA foreign_keys=ON");
     applySchemaMigrations(this.db);
     repairCompletedPublicationFailureRows(this.db);
-    repairTerminalNullFinishedAt(this.db);
     backfillVerifierProcessGroupsFromReadyGatePgid(this.db);
     addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
     // Stores stamped `031-baseline-squash` before these columns existed skip `upgradeFromLegacyEra`;
@@ -2082,6 +2081,7 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
     addColumnIfMissing(this.db, "runs", "gate_refusal_recovery_state", "TEXT");
     addColumnIfMissing(this.db, "runs", "status_changed_at", "INTEGER");
+    repairTerminalNullFinishedAt(this.db);
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
     addColumnIfMissing(this.db, "runs", "harness_ready_flip_evidence", "TEXT");

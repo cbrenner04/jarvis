@@ -155,6 +155,30 @@ describe("createCompletionCommitter", () => {
     expect(message).toContain("Jarvis-Agent: claude");
   });
 
+  test("empty agent falls back to the branch's newest Jarvis-Agent trailer; none still throws", async () => {
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const calls: GitCall[] = [];
+    let log = `a1\x1fwrite\x1fcodex\x1fwrite\x1fSpec: x\x1eb2\x1freview\x1fcursor\x1freview 1\x1fSpec: x\x1e`;
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "log") return log;
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "rev-parse" && args[1] === "base-head^{tree}") return "base-tree";
+      if (args[0] === "symbolic-ref") return "refs/heads/feature";
+      if (args[0] === "commit-tree") return "new-commit";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+    const input = { worktreePath, baseRef: "main", specPath: "v2/spec/test/index.md", agent: " ", title: "T" };
+    await createCompletionCommitter(runGit)(input);
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    expect(commitCall?.args[commitCall.args.indexOf("-m") + 1]).toContain("Jarvis-Agent: cursor");
+    log = "";
+    await expect(createCompletionCommitter(runGit)(input)).rejects.toThrow("completion attribution is missing");
+  });
+
   test("commit-body Spec trailer keeps the full absolute path for an external spec, unlike the PR-body formatter", async () => {
     const { worktreePath, gitDir } = setupWorktree();
     const calls: GitCall[] = [];

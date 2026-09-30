@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { isStandaloneOnlyPipelineWorkflow, WORKFLOW_PRESET_BUILDERS } from "./workflow-presets.ts";
 
 describe("isStandaloneOnlyPipelineWorkflow", () => {
-  test("every builder preset is pipeline-eligible", () => {
+  test("every pipeline-composable builder preset is pipeline-eligible", () => {
     for (const name of Object.keys(WORKFLOW_PRESET_BUILDERS)) {
+      if (name === "review-feedback") continue;
       expect(isStandaloneOnlyPipelineWorkflow(name)).toBe(false);
     }
   });

@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
+  hasSubmittedPrReview,
   type PrReviewInputCaptureArtifact,
   PrReviewInputTruncatedError,
   refreshPrReviewInputCapture,
@@ -170,6 +171,16 @@ async function withFixtureArtifact(
     rmSync(laneWorktreePath, { recursive: true, force: true });
   }
 }
+
+describe("hasSubmittedPrReview", () => {
+  test("returns false when no review has submittedAt", () => {
+    expect(hasSubmittedPrReview([{ submittedAt: null }, {}])).toBe(false);
+  });
+
+  test("returns true when at least one review has submittedAt", () => {
+    expect(hasSubmittedPrReview([{ submittedAt: null }, { submittedAt: "2026-05-10T00:00:00Z" }])).toBe(true);
+  });
+});
 
 describe("refreshPrReviewInputCapture", () => {
   test("refresh writes actionable PR review threads and comments with stable GitHub ids", async () => {

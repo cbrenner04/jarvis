@@ -7,6 +7,7 @@ import type {
 import type { IpcClient } from "../ipc/client.ts";
 
 export const BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"] as const;
+type CliWorkflowStartName = BaseWorkflowName | "review-feedback";
 export const WORKFLOW_REVIEW_POSTURES = ["none", "light", "debate"] as const;
 
 export type BaseWorkflowName = (typeof BASE_WORKFLOW_NAMES)[number];
@@ -32,7 +33,7 @@ type WorkflowStartDestroyedArtifacts = {
 };
 
 export type WorkflowStartPreparationRequest<TDeps = unknown, TIo = unknown> = {
-  workflow: BaseWorkflowName;
+  workflow: CliWorkflowStartName;
   builder: WorkflowPresetBuilder;
   builderInput: WorkflowPresetBuilderInput;
   machineConfigPath: string;

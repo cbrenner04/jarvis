@@ -177,7 +177,26 @@ jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md --bas
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 # omit review: jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --review-passes 0
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
+jarvis run workflow review-feedback --branch <lane-branch>
+jarvis run workflow review-feedback --branch <lane-branch> --pipeline <id> --stage <stage-id> [--branch-key <key>]
 ```
+
+### Review-feedback workflow
+
+`jarvis run workflow review-feedback` targets a **completed** intent, plan, or implement lane that already published an open PR with at least one submitted review. Bare lanes: `--branch <lane-branch>` only. Pipeline stages: `--pipeline`, `--stage`, and `--branch` together; add `--branch-key` when the stage fans out. Admission resolves the lane worktree and PR, refreshes `.jarvis-pr-review-input.json` via `gh`, prepares the write step on that lane, then refuses with `review_feedback_write_not_available` until the review-feedback write preset lands (no run row, worktree claim, or agent yet).
+
+| Code | Meaning |
+| --- | --- |
+| `review_feedback_lane_in_flight` | Any non-terminal run remains on `(project, branch)` (including `paused`). |
+| `review_feedback_lane_unmatched` | No completed eligible lane matched (includes rollup-completed rows without both `prNumber` and `prUrl`, and missing pipeline disambiguators). |
+| `review_feedback_lane_ambiguous` | More than one completed eligible bare lane on the branch. |
+| `review_feedback_lane_not_eligible` | First workflow step is not base intent, plan, or implement. |
+| `review_feedback_pr_branch_mismatch` | Open PR `headRefName` ≠ resolved lane branch. |
+| `review_feedback_pr_no_review` | Open PR has no submitted review (`submittedAt` on any review). |
+| `review_feedback_pr_merged` | PR is merged. |
+| `review_feedback_pr_closed` | PR is closed (not merged). |
+| `review_feedback_capture_failed` | `gh` view or capture prelude failed. |
+| `review_feedback_write_not_available` | Admission prepared steps; write dispatch is not implemented yet. |
 
 **`--base main` names the checkout's local branch.** `gh pr merge` never advances it, so after merging, an implement launched with `--base main` would branch from a stale base and re-implement the lane that just merged. Preflight now fetches the base branch's upstream and refuses admission with `base_behind_origin: main is at <sha>, origin/main is at <sha>; run git pull or pass --base origin/main` when the local branch is strictly behind (#3381). Pass `--base origin/main` to branch from the fetched remote directly, or fast-forward the checkout first. A base with no upstream, an up-to-date or ahead local branch, or an unfetchable remote (offline) admits as before; the unfetchable case prints a `base freshness not checked` note on stderr.
 

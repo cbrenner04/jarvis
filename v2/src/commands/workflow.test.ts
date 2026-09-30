@@ -561,7 +561,10 @@ describe("run workflow dispatch", () => {
     const code = await main(["run", "workflow", "bogus"], cap.io, noDaemonDeps());
 
     expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n" });
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
+    });
   });
 
   test("run workflow rejects inherited preset names without contacting the daemon", async () => {
@@ -570,7 +573,10 @@ describe("run workflow dispatch", () => {
     const code = await main(["run", "workflow", "toString"], cap.io, noDaemonDeps());
 
     expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n" });
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
+    });
   });
 
   test("bare run workflow prints workflow usage and exits 1", async () => {
@@ -579,7 +585,10 @@ describe("run workflow dispatch", () => {
     const code = await main(["run", "workflow"], cap.io, noDaemonDeps());
 
     expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n" });
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
+    });
   });
 });
 
@@ -4603,7 +4612,7 @@ describe("intent and plan presets", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
     });
   });
 });

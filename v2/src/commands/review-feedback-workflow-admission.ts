@@ -38,7 +38,7 @@ type ReviewFeedbackWorkflowAdmissionRefusal = {
   message: string;
 };
 
-export function formatReviewFeedbackWorkflowAdmissionRefusal(refusal: ReviewFeedbackWorkflowAdmissionRefusal): string {
+function formatReviewFeedbackWorkflowAdmissionRefusal(refusal: ReviewFeedbackWorkflowAdmissionRefusal): string {
   return `${refusal.code}: ${refusal.message}`;
 }
 
@@ -70,20 +70,6 @@ type ReviewFeedbackWorkflowAdmissionDeps = {
 };
 
 type HarnessReadyFlipEvidenceStore = Pick<StateStore, "loadRun" | "findNewestHarnessReadyFlipEvidenceInLineage">;
-
-function harnessReadyFlipLookup(
-  store: ReviewFeedbackLaneResolutionStore,
-  entryRunId: string,
-): ReturnType<typeof bindHarnessReadyFlipEvidenceLookup> {
-  if (!("loadRun" in store) || !("findNewestHarnessReadyFlipEvidenceInLineage" in store)) {
-    return undefined;
-  }
-  return bindHarnessReadyFlipEvidenceLookup(store as HarnessReadyFlipEvidenceStore & StateStore, entryRunId);
-}
-
-function reviewFeedbackWorkflowDetach(workflowArgv: readonly string[]): boolean {
-  return workflowArgv.includes("--detach");
-}
 
 async function startReviewFeedbackWorkflowRun(
   client: IpcClient,
@@ -123,7 +109,11 @@ export async function prepareReviewFeedbackWorkflowAdmission(
   if (!laneResult.ok) {
     return { ok: false, refusal: { code: laneResult.code, message: laneResult.message } };
   }
-  const findHarnessReadyFlipEvidenceInLineage = harnessReadyFlipLookup(deps.store, laneResult.target.entryRunId);
+  const flipStore = deps.store as HarnessReadyFlipEvidenceStore & StateStore;
+  const findHarnessReadyFlipEvidenceInLineage =
+    "loadRun" in deps.store && "findNewestHarnessReadyFlipEvidenceInLineage" in deps.store
+      ? bindHarnessReadyFlipEvidenceLookup(flipStore, laneResult.target.entryRunId)
+      : undefined;
   const prelude = await runReviewFeedbackAdmissionPrelude(
     laneResult.target,
     deps.subprocessRunner,
@@ -182,7 +172,7 @@ export async function runReviewFeedbackWorkflowCommand(
     io.stderr(`${formatReviewFeedbackWorkflowAdmissionRefusal(outcome.refusal)}\n`);
     return 1;
   }
-  const detach = reviewFeedbackWorkflowDetach(workflowArgv);
+  const detach = workflowArgv.includes("--detach");
   return withConnectDispatch(io, deps, async (client) => {
     const resetExitCode = await outcome.preparation.runStaleResetPreflight(client);
     if (resetExitCode !== undefined) return resetExitCode;

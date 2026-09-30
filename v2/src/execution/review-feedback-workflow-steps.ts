@@ -7,7 +7,6 @@ import type {
   ReviewFeedbackLaneKind,
   ReviewFeedbackLaneTarget,
 } from "../persistence/review-feedback-lane-resolution.ts";
-import type { ReviewFeedbackLaneSnapshot } from "../persistence/state-store.ts";
 import { loadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
 import type { WriteWorkflowStep } from "./workflow-runner.ts";
 
@@ -24,16 +23,6 @@ export type ReviewFeedbackWorkflowResult = { ok: true; steps: WriteWorkflowStep[
 function roleForLaneKind(laneKind: ReviewFeedbackLaneKind): string {
   if (laneKind === "implement") return "implement";
   return "plan";
-}
-
-function reviewFeedbackLaneSnapshot(target: ReviewFeedbackLaneTarget): ReviewFeedbackLaneSnapshot {
-  return {
-    laneKind: target.laneKind,
-    entryRunId: target.entryRunId,
-    entrySpecPath: target.entrySpecPath,
-    prNumber: target.prNumber,
-    prUrl: target.prUrl,
-  };
 }
 
 export function buildReviewFeedbackWorkflowSteps(input: ReviewFeedbackWorkflowInput): ReviewFeedbackWorkflowResult {
@@ -59,7 +48,13 @@ export function buildReviewFeedbackWorkflowSteps(input: ReviewFeedbackWorkflowIn
       LANE_KIND: target.laneKind,
       ENTRY_SPEC_PATH: target.entrySpecPath,
     },
-    reviewFeedbackLane: reviewFeedbackLaneSnapshot(target),
+    reviewFeedbackLane: {
+      laneKind: target.laneKind,
+      entryRunId: target.entryRunId,
+      entrySpecPath: target.entrySpecPath,
+      prNumber: target.prNumber,
+      prUrl: target.prUrl,
+    },
   };
   try {
     const steps = loadWorkflowSteps([sourceStep], configPath === undefined ? {} : { machineConfigPath: configPath });

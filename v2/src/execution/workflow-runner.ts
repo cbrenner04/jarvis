@@ -795,7 +795,7 @@ function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktre
   return landed.specPath;
 }
 
-export type WorkflowCompletionPublicationSpecPathInput = {
+type WorkflowCompletionPublicationSpecPathInput = {
   publicationSpecPath?: string;
   landedSpecPath?: string;
   writeStepRunSpecPath?: string;
@@ -803,7 +803,6 @@ export type WorkflowCompletionPublicationSpecPathInput = {
   reviewFeedbackLane?: ReviewFeedbackLaneSnapshot;
 };
 
-/** Completion publication spec path for the workflow tail; review-feedback uses the entry lane path, not the write sidecar. */
 export function resolveWorkflowCompletionPublicationSpecPath(
   input: WorkflowCompletionPublicationSpecPathInput,
 ): string {
@@ -1576,12 +1575,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             let bodySummary: string | undefined;
             let specTemplate = false;
             const reviewFeedbackLane = workflowSnapshot.reviewFeedbackLane;
-            if (reviewFeedbackLane?.laneKind === "intent") {
-              bodySummary = deriveIntentRunBodySummary({
-                creationTitle: workflowSnapshot.creationTitle,
-                intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
-              });
-            } else if (completionStep.landing?.kind === "intent-stage") {
+            if (reviewFeedbackLane?.laneKind === "intent" || completionStep.landing?.kind === "intent-stage") {
               bodySummary = deriveIntentRunBodySummary({
                 creationTitle: workflowSnapshot.creationTitle,
                 intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),

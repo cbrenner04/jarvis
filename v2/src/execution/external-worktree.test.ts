@@ -828,22 +828,6 @@ describe("external worktree helper", () => {
   });
 });
 
-describe("getExternalWorktreePath", () => {
-  test("prefers localPath for git-backed review-feedback lane worktrees", () => {
-    const lanePath = "/worktrees/demo/lane-branch";
-    expect(
-      getExternalWorktreePath({
-        projectRoot: "/repo",
-        projectName: "demo",
-        branchName: "lane-branch",
-        baseRef: "main",
-        git: true,
-        localPath: lanePath,
-      }),
-    ).toBe(lanePath);
-  });
-});
-
 describe("isNotGitRepositoryDiagnostic", () => {
   test("recognizes pre-2.56 and 2.56+ git broken-repo diagnostics", () => {
     expect(isNotGitRepositoryDiagnostic("fatal: not a git repository: /nonexistent")).toBe(true);

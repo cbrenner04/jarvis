@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_WRITE_STEP_RULES } from "./step-rules.ts";
 import {
-  buildReviewFeedbackLaneContext,
   buildReviewFeedbackWritePrompt,
   resolveReviewFeedbackStepRules,
   REVIEW_FEEDBACK_RULES_PROMPT_ID,
@@ -117,21 +116,5 @@ describe("buildReviewFeedbackWritePrompt", () => {
       expect(resolved).toContain("# Review feedback write");
       expect(resolved.length).toBeGreaterThan("lane-specific-only".length);
     }
-  });
-
-  test("buildReviewFeedbackLaneContext matches lane kind shapes", () => {
-    expect(buildReviewFeedbackLaneContext({ laneKind: "intent", entrySpecPath: "/ri" })).toContain(
-      "Ready-intents root: `/ri`",
-    );
-    expect(buildReviewFeedbackLaneContext({ laneKind: "plan", entrySpecPath: "/spec" })).toContain(
-      "Admitted plan spec tree root: `/spec`",
-    );
-    expect(
-      buildReviewFeedbackLaneContext({
-        laneKind: "implement",
-        entrySpecPath: "spec/index.md",
-        projectRoot: "/root",
-      }),
-    ).toContain("Project root: `/root`");
   });
 });

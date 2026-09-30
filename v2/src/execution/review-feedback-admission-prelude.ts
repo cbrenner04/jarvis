@@ -32,7 +32,7 @@ type GhPrAdmissionView = {
   reviews?: Array<{ submittedAt?: string | null }>;
 };
 
-export type ReviewFeedbackAdmissionPreludeOptions = {
+type ReviewFeedbackAdmissionPreludeOptions = {
   findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
 };
 

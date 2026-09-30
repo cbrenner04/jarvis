@@ -1015,7 +1015,7 @@ function deriveFromLine(
   return deduplicateCandidates([...guardCandidates, ...operatorCandidates, ...destructiveCandidates]);
 }
 
-export function resolveCoLocatedKillingTest(productionPath: string): string | null {
+function resolveCoLocatedKillingTest(productionPath: string): string | null {
   if (!isCodePath(productionPath)) return null;
   const basename = productionPath.split("/").pop() ?? "";
   if (basename.includes(".test.")) return null;
@@ -1024,20 +1024,15 @@ export function resolveCoLocatedKillingTest(productionPath: string): string | nu
   return `${match[1]}.test.ts`;
 }
 
-const MUTATION_COVERAGE_FIX_MUTATIONS = new Set(["importer-discovery-cap-exceeded", "missing-killing-test"]);
-
-/** Per-kind co-located path steering for mutation reprompt/repair placeholders. */
 export function mutationCoverageFixDetail(mutation: string, sourceFile: string): string {
-  if (!MUTATION_COVERAGE_FIX_MUTATIONS.has(mutation)) return "";
+  if (mutation !== "importer-discovery-cap-exceeded" && mutation !== "missing-killing-test") return "";
   const coLocated = resolveCoLocatedKillingTest(sourceFile);
   if (coLocated === null) return "";
-  const scoped =
-    "Direct-importer or other non-co-located tests did not satisfy this failure; prefer the exact-stem co-located file below.";
-  const pathLine = `Add or extend the co-located killing test at \`${coLocated}\`.`;
+  const base = `Add or extend the co-located killing test at \`${coLocated}\`. Direct-importer or other non-co-located tests did not satisfy this failure; prefer the exact-stem co-located file below.`;
   if (mutation === "importer-discovery-cap-exceeded") {
-    return `${pathLine} ${scoped} This supplements importer-cap runbook recovery (reduce sprawl, add a qualifying importer within cap, etc.) — not a substitute for it.`;
+    return `${base} This supplements importer-cap runbook recovery (reduce sprawl, add a qualifying importer within cap, etc.) — not a substitute for it.`;
   }
-  return `${pathLine} ${scoped}`;
+  return base;
 }
 
 /**

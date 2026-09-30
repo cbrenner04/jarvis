@@ -3,7 +3,7 @@ import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
-import { mutationCoverageFixDetail, resolveCoLocatedKillingTest } from "./diff-derived-mutation-verifier.ts";
+import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
 
 /** v2 write-step rendering is the shared assembler; the shim keeps the historical call shape. */
 function renderStepPrompt(promptId: string, placeholders: Record<string, string>): string {
@@ -216,17 +216,23 @@ describe("write prompt", () => {
     expect(fixDetail).not.toContain("never count");
   });
 
-  test("mutationCoverageFixDetail is empty without a co-located production path or for operator-flip survivors", () => {
-    expect(resolveCoLocatedKillingTest("v2/src/execution/foo.test.ts")).toBeNull();
-    expect(mutationCoverageFixDetail("missing-killing-test", "v2/src/execution/foo.test.ts")).toBe("");
-    expect(mutationCoverageFixDetail("surviving-mutation", "v2/src/execution/foo.ts")).toBe("");
-    for (const promptId of ["write.surviving-mutation-reprompt", "write.mutation-repair"] as const) {
-      const rendered = renderStepPrompt(promptId, {
+  test.each([
+    ["missing-killing-test", "v2/src/execution/foo.test.ts"],
+    ["surviving-mutation", "v2/src/execution/foo.ts"],
+  ] as const)("mutationCoverageFixDetail empty for %s", (mutation, sourceFile) => {
+    expect(mutationCoverageFixDetail(mutation, sourceFile)).toBe("");
+  });
+
+  test.each([
+    "write.surviving-mutation-reprompt",
+    "write.mutation-repair",
+  ] as const)("%s renders no fix line when MUTATION_COVERAGE_FIX_DETAIL is empty", (promptId) => {
+    expect(
+      renderStepPrompt(promptId, {
         ...mutationRepromptBasePlaceholders,
         SURVIVING_MUTATION: "missing-killing-test",
         MUTATION_COVERAGE_FIX_DETAIL: "",
-      });
-      expect(rendered).not.toContain("v2/src/execution/foo.test.ts");
-    }
+      }),
+    ).not.toContain("v2/src/execution/foo.test.ts");
   });
 });

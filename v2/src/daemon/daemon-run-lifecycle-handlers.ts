@@ -36,6 +36,7 @@ import {
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
 import type { LinkedStageTarget } from "../persistence/pipeline-stage-settlement.ts";
+import { priorLaneRunsForWorkflowRollup } from "../persistence/prior-lane-runs-for-workflow-rollup.ts";
 import {
   type Attempt,
   isTerminalRunStatus,
@@ -881,22 +882,6 @@ export function createRunLifecycleHandlers(
     return { fullRuns, workflowRuns };
   };
 
-  /** Lazy rows of earlier same-lane invocations (entry row created before `entryRun`), for the rollup's missing-successor rule. */
-  const priorLaneRunsForWorkflowRollup = (entryRun: Run, invocationId: string) => (): Run[] => {
-    const byInvocation = new Map<string, Run[]>();
-    const lane = { project: entryRun.project, branch: entryRun.branch, specRef: entryRun.specRef };
-    for (const run of store.findWorkflowRunsOnLane(lane)) {
-      const id = run.workflowSnapshot?.invocationId;
-      if (id === undefined || id === invocationId) continue;
-      byInvocation.set(id, [...(byInvocation.get(id) ?? []), run]);
-    }
-    return [...byInvocation.values()].flatMap((rows) => {
-      const entryStepId = rows[0]?.workflowSnapshot?.steps[0]?.stepId;
-      const priorEntry = rows.find((row) => row.stepId === entryStepId);
-      return priorEntry !== undefined && priorEntry.createdAt < entryRun.createdAt ? rows : [];
-    });
-  };
-
   const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     if (entrySnapshot === undefined) return run.status;
@@ -906,7 +891,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: entrySnapshot,
       siblingRuns: store.findRunsByInvocationId(entrySnapshot.invocationId),
       isLive: workflowStillLive,
-      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, entrySnapshot.invocationId),
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, entrySnapshot.invocationId, store),
     });
   };
 
@@ -929,7 +914,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: workflowStillLive,
-      priorLaneRuns: priorLaneRunsForWorkflowRollup(entryFullRun, snapshot.invocationId),
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(entryFullRun, snapshot.invocationId, store),
     });
   };
 
@@ -1582,7 +1567,7 @@ export function createRunLifecycleHandlers(
       workflowSnapshot: snapshot,
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: false,
-      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, snapshot.invocationId),
+      priorLaneRuns: priorLaneRunsForWorkflowRollup(run, snapshot.invocationId, store),
     });
     return { kind: "response", result: workflowEntryResult(run, snapshot, rollupStatus) };
   };

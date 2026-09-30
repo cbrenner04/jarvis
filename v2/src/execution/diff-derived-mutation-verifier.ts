@@ -1024,6 +1024,17 @@ function resolveCoLocatedKillingTest(productionPath: string): string | null {
   return `${match[1]}.test.ts`;
 }
 
+export function mutationCoverageFixDetail(mutation: string, sourceFile: string): string {
+  if (mutation !== "importer-discovery-cap-exceeded" && mutation !== "missing-killing-test") return "";
+  const coLocated = resolveCoLocatedKillingTest(sourceFile);
+  if (coLocated === null) return "";
+  const base = `Add or extend the co-located killing test at \`${coLocated}\`. Direct-importer or other non-co-located tests did not satisfy this failure; prefer the exact-stem co-located file below.`;
+  if (mutation === "importer-discovery-cap-exceeded") {
+    return `${base} This supplements importer-cap runbook recovery (reduce sprawl, add a qualifying importer within cap, etc.) — not a substitute for it.`;
+  }
+  return base;
+}
+
 /**
  * Sibling co-located killing tests for a changed production file: existing `<stem>-*.test.ts` files
  * in the same directory (NOT the exact-stem `<stem>.test.ts`, which callers resolve separately). A

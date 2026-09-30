@@ -73,6 +73,7 @@ import {
 } from "./completion-publisher.ts";
 import {
   type DiffDerivedMutationVerifierInput,
+  mutationCoverageFixDetail,
   type VerificationResult,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
@@ -3445,6 +3446,7 @@ export async function runMutationRepairIteration(
       SOURCE_FILE: mutationError.sourceSiteFile,
       SOURCE_LINE: String(mutationError.sourceSiteLine),
       DUAL_CONSTRAINT_DETAIL: dualConstraintRepromptDetail(mutationError.dualConstraint),
+      MUTATION_COVERAGE_FIX_DETAIL: mutationCoverageFixDetail(mutationError.mutation, mutationError.sourceSiteFile),
     },
   };
   const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");

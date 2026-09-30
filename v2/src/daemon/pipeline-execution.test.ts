@@ -365,6 +365,7 @@ function fakeStore(
         .map(
           ([id, run]) => ({ id, attempts: [], status: "completed", ...run, ...statusOverlay(id) }) as unknown as Run,
         ),
+    findWorkflowRunsOnLane: () => [],
     listPipelines: () => {
       const pipeline = store.loadPipeline(PIPELINE_ID);
       return pipeline ? [pipeline] : [];

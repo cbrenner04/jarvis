@@ -24,6 +24,7 @@ import {
   MAX_KILLING_TEST_MS,
   MAX_VERIFICATION_MS,
   maskNonCodeSpans,
+  mutationCoverageFixDetail,
   mutationRecordFileName,
   parseEquivalentMutationDirective,
   peakVerifierTestRuns,
@@ -3700,6 +3701,27 @@ ${lines.map((line) => `+${line}`).join("\n")}
       mutation: "guard-flip: !x → x",
       reason: 'tab\tand"quote"',
     });
+  });
+});
+
+describe("mutationCoverageFixDetail", () => {
+  const productionFile = "v2/src/execution/foo.ts";
+
+  it.each([
+    "importer-discovery-cap-exceeded",
+    "missing-killing-test",
+  ] as const)("names exact-stem co-located path for %s", (mutation) => {
+    const detail = mutationCoverageFixDetail(mutation, productionFile);
+    expect(detail).toContain("v2/src/execution/foo.test.ts");
+    expect(detail).toContain("did not satisfy this failure");
+  });
+
+  it.each([
+    ["operator-flip: !== → ===", productionFile],
+    ["surviving-mutation", productionFile],
+    ["missing-killing-test", "v2/src/execution/foo.test.ts"],
+  ] as const)("returns empty for %s on %s", (mutation, sourceFile) => {
+    expect(mutationCoverageFixDetail(mutation, sourceFile)).toBe("");
   });
 });
 

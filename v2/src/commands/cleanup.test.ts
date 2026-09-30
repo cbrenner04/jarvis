@@ -28,7 +28,6 @@ import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
 import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
-import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   classifyNeverLandedLane,
@@ -67,6 +66,7 @@ import {
 } from "./cleanup.ts";
 import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
 import type { LegacyDaemonArtifactDeps } from "./daemon.ts";
+import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 
 const GH_PR_LIST_PROBE_ERROR = new AsyncSubprocessError("gh unreachable", 1, "", "network error", undefined);
 type OpenPr = { number: number; isDraft: boolean };

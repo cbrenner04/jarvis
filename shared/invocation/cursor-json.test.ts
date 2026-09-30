@@ -263,7 +263,6 @@ describe("cursorClassifierStdoutText", () => {
     ].join("\n");
 
     expect(cursorClassifierStdoutText(stdout)).toBe("");
-    // Guard inversion: scanning assistant frames or success result strings turns quota tests RED.
   });
 
   test("classifies only the terminal non-success result string", () => {

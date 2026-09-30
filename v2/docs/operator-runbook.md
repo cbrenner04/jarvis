@@ -1009,7 +1009,7 @@ Operators add bullets here; delete when fixed. Durable lessons that are behavior
   " | grep -o '"rate_limit_info":{[^}]*}[^}]*}'
   ```
 
-  `five_hour` rejected with `seven_day` headroom means pause until `resetsAt` and re-dispatch the same lanes unchanged; both re-dispatched implements and a fresh plan lane admitted normally afterwards. Only a rejected `seven_day` window is the session-ending shape. A `quota` rung consumed mid-invocation is also not fatal on its own — see [Choosing an actuator](#choosing-an-actuator) for the false-`quota` shape on cursor.
+  `five_hour` rejected with `seven_day` headroom means pause until `resetsAt` and re-dispatch the same lanes unchanged; both re-dispatched implements and a fresh plan lane admitted normally afterwards. Only a rejected `seven_day` window is the session-ending shape. A `quota` rung consumed mid-invocation is also not fatal on its own — cursor classification is scoped per [quota-signals.md § Cursor](./quota-signals.md#cursor).
 
   Cleanup: delete this bullet when that seed ships.
 - **`bun run test:v2` false-reds inside the agent sandbox (2026-09-09).** Four tests in `v2/src/ipc/server.test.ts` fail `EPERM` binding unix sockets under `$TMPDIR` when the suite runs from a sandboxed agent session; the same file is 16/16 with the sandbox disabled. Any hand-finish gate run from an agent session will show this, and it is never the diff under review. Re-run the named file outside the sandbox before treating it as a failure.

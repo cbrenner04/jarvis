@@ -621,21 +621,12 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       idleTimer.unref?.();
     };
 
-    // When `classifierDiagnostics` scopes classified stdout down (opencode stderr-only; cursor
-    // stream-json assistant/tool frames), the excluded stdout stream is retained here as
-    // observability-only `diagnostics` so an `error`/`quota`/`model_config` result is not left with
-    // nothing to show when stderr is empty. Never routed back into classification; the classified
-    // `stderr` still wins any diagnostic surface whenever it is non-empty.
+    // Excluded stdout (opencode/cursor scoping) stays on `diagnostics` only; never reclassified.
     const retainedDiagnosticsSpread = (): { diagnostics?: string } => {
       if (outBuf.length === 0) return {};
-      if (config.classifier === "opencode") {
+      if (config.classifier === "opencode") return { diagnostics: outBuf };
+      if (config.classifier === "cursor" && cursorClassifierStdoutText(outBuf) !== outBuf) {
         return { diagnostics: outBuf };
-      }
-      if (config.classifier === "cursor") {
-        const classifiedStdout = cursorClassifierStdoutText(outBuf);
-        if (classifiedStdout !== outBuf) {
-          return { diagnostics: outBuf };
-        }
       }
       return {};
     };

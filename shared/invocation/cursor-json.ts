@@ -90,34 +90,29 @@ export function parseCursorJsonOutput(stdout: string): CursorParseResult {
   return lastResultUsage === undefined ? { displayText } : { displayText, usage: lastResultUsage };
 }
 
-function isCursorTerminalSuccessResult(frame: Record<string, unknown>): boolean {
-  return frame.subtype === "success" && frame.is_error === false;
-}
-
 /** Stdout text cursor quota/transient/model-config classifiers may scan (not the full NDJSON stream). */
 export function cursorClassifierStdoutText(stdout: string): string {
   const lines = stdout.split(/\r?\n/);
-  let lastResultFrame: Record<string, unknown> | null = null;
-  for (const line of lines) {
-    const frame = parseFrameLine(line);
-    if (frame?.type === "result") {
-      lastResultFrame = frame;
-    }
-  }
-  if (lastResultFrame !== null) {
-    if (isCursorTerminalSuccessResult(lastResultFrame)) {
-      return "";
-    }
-    return typeof lastResultFrame.result === "string" ? lastResultFrame.result : "";
-  }
+  let lastResult: Record<string, unknown> | null = null;
   const plain: string[] = [];
   for (const line of lines) {
     if (line.trim() === "") {
       continue;
     }
-    if (parseFrameLine(line) === null) {
+    const frame = parseFrameLine(line);
+    if (frame?.type === "result") {
+      lastResult = frame;
+      continue;
+    }
+    if (frame === null) {
       plain.push(line);
     }
+  }
+  if (lastResult !== null) {
+    if (lastResult.subtype === "success" && lastResult.is_error === false) {
+      return "";
+    }
+    return typeof lastResult.result === "string" ? lastResult.result : "";
   }
   return plain.join("\n");
 }

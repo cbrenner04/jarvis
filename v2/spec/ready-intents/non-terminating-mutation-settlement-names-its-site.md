@@ -16,16 +16,17 @@ Publication failure settlement builds terminal `loop_finished` from `publication
 
 ## Decisions
 
-- Every terminal settlement carrying a non-terminating mutation failure spreads non-terminating mutation log fields alongside surviving-mutation log fields, including the publication tail.
+- `publicationLoopFinishedBase` spreads `nonTerminatingMutationLogFields` onto publication terminal `loop_finished` the same way it already spreads `survivingMutationLogFields`; write-loop and resume settlements are prerequisite-only and out of scope.
 
 ## Acceptance criteria
 
-- [ ] A test proves a publication-time `non_terminating_mutation_failed` records the mutation text, source file, and line on the terminal `loop_finished`; it fails against the pre-fix `publicationLoopFinishedBase`.
-- [ ] A test proves `run list`/`run wait` surface that site on the row's operator error (starved today only by the missing publication-tail spread).
+- [ ] `workflow-runner-publication.test.ts` adds a publication-time `non_terminating_mutation_failed` case mirroring `settles surviving_mutation_failed as durable failed with resumable terminal details after completion boundary`: terminal `loop_finished` carries mutation text, source file, and line, and `composeRunOperatorError` on that record surfaces the same site for list/wait projection; it fails against the pre-fix `publicationLoopFinishedBase`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
+- `v2/docs/v1-behaviors.md` — catalog that publication-time `non_terminating_mutation_failed` retains mutation site on terminal `loop_finished` and daemon list/wait operator errors (parity with `surviving_mutation_failed` on the publication tail).
+- `v2/docs/write-behavior.md` — publication terminal `loop_finished` rows for `non_terminating_mutation_failed` name the mutation site like other publication mutation outcomes.
 - `v2/docs/operator-runbook.md` — non-terminating mutant recovery names where the site is reported on `run log`, `run list`, and `run wait`.
 
 ## Prerequisites

@@ -12,9 +12,9 @@ Cleanup eligibility, pipeline landing practice, and the v1-behaviors parity cata
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents plan-lane subsumed retirement, `Landed elsewhere`, and the merged dirty-refusal suggestion in the Cleanup section, and notes closed in-repo plan PR cleanup in the pipeline landing subsection.
-- [ ] `v2/docs/v1-behaviors.md` records bulk cleanup plan-lane subsumed retirement and implement `Landed elsewhere` reporting.
-- [ ] `bun run typecheck` passes; `bun run test:v2` and `bun run test:integration:v2` pass after subspecs 00–02.
+- [x] `v2/docs/operator-runbook.md` documents plan-lane subsumed retirement, `Landed elsewhere`, and the merged dirty-refusal suggestion in the Cleanup section, and notes closed in-repo plan PR cleanup in the pipeline landing subsection.
+- [x] `v2/docs/v1-behaviors.md` records bulk cleanup plan-lane subsumed retirement and implement `Landed elsewhere` reporting.
+- [x] `bun run typecheck` passes; `bun run test:v2` and `bun run test:integration:v2` pass after subspecs 00–02.
 
 ## Documentation updates
 

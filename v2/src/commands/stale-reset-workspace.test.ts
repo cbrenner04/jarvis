@@ -100,6 +100,29 @@ describe("resetDespiteDirty threads to skipDirtyWorktreeGate", () => {
   }
 });
 
+describe("resetDespiteLandedCriteria threads to skipLandedCriteriaGate", () => {
+  for (const resetDespiteLandedCriteria of [true, false]) {
+    test(`resetDespiteLandedCriteria: ${resetDespiteLandedCriteria}`, async () => {
+      const captured: cleanup.ResetStaleWorkspaceOptions[] = [];
+      spyOn(cleanup, "resetStaleWorkspace").mockImplementation(async (_p, _b, _r, _j, _run, _d, _io, options) => {
+        captured.push(options ?? {});
+        return { status: "no-op" };
+      });
+
+      await maybeResetStaleWorkspace(
+        "implement",
+        stubWriteBuild as never,
+        stubDeps,
+        stubIo,
+        { resetDespiteLandedCriteria } as never,
+        stubClient,
+      );
+
+      expect(captured[0]?.skipLandedCriteriaGate).toBe(resetDespiteLandedCriteria);
+    });
+  }
+});
+
 describe("buildResetStaleWorkspaceOptions: the real plan step shape", () => {
   /**
    * `buildPlanWorkflowSteps` names a freshly-timestamped durable spec directory

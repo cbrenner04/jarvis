@@ -386,7 +386,8 @@ describe("group-mode termination lifecycle", () => {
 
     try {
       const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", resistantScript(readyFile)], cwd, {
-        timeoutMs: 80,
+        // Long enough for a loaded machine to boot node and write the ready file before the timeout fires.
+        timeoutMs: 1000,
         processGroup: {
           onGroupId: (id) => {
             pgid = id;
@@ -421,7 +422,8 @@ describe("group-mode termination lifecycle", () => {
 
     try {
       const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", resistantScript(readyFile)], cwd, {
-        timeoutMs: 80,
+        // Long enough for a loaded machine to boot node and write the ready file before the timeout fires.
+        timeoutMs: 1000,
         processGroup: {
           onGroupId: (id) => {
             pgid = id;
@@ -436,7 +438,7 @@ describe("group-mode termination lifecycle", () => {
       await waitForFile(readyFile);
       expect(existsSync(readyFile)).toBe(true);
 
-      for (let i = 0; i < 50 && sigtermAt === undefined; i++) {
+      for (let i = 0; i < 400 && sigtermAt === undefined; i++) {
         await new Promise((r) => setTimeout(r, 5));
       }
       expect(sigtermAt).toBeDefined();

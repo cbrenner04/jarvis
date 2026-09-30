@@ -4,11 +4,11 @@ Pipeline stage `workflow` values today are only `intent`, `plan`, and `implement
 
 ## Decisions
 
-- Colocate per-preset `pipelineStageEligible` metadata with `WORKFLOW_PRESET_BUILDERS` in `v2/src/execution/workflow-presets.ts` (rules out a second name list that can drift from builders).
-- Default `pipelineStageEligible: true` for every preset already in `WORKFLOW_PRESET_BUILDERS` (rules out opt-in pipeline eligibility for shipped presets).
-- Reserve `review-feedback` in that metadata with `pipelineStageEligible: false` before its builder lands (rules out waiting for the review-feedback slice to introduce the first standalone-only name the validator must recognize).
-- Deferred to first consumer: whether `review-feedback` also joins `WORKFLOW_PRESET_BUILDERS` in this slice or only the metadata table until the review-feedback ready-intent — pin when that slice opens.
-- Pipeline stage `workflow` continues to mean base workflow **or** a registered preset name that is standalone-only; reviewed preset names such as `intent-reviewed` stay `unknown-workflow` (rules out treating every registry key as a valid stage `workflow` value).
+- Add a separate `PIPELINE_ELIGIBILITY` table in `v2/src/execution/workflow-presets.ts`, keyed by preset name, whose keys are a superset of `WORKFLOW_PRESET_BUILDERS` keys (type-enforced), so a standalone-only name can be registered before its builder exists (rules out a stub `review-feedback` builder and rules out per-builder colocated metadata).
+- Every existing `WORKFLOW_PRESET_BUILDERS` key defaults to `pipelineStageEligible: true` in that table (rules out opt-in eligibility for shipped presets).
+- Register `review-feedback` in the eligibility table only, with `pipelineStageEligible: false`; `WORKFLOW_PRESET_BUILDERS` is unchanged in this subspec.
+- `CliWorkflowPresetName` stays `keyof typeof WORKFLOW_PRESET_BUILDERS` (builder-backed names only); the eligibility table's key type is `CliWorkflowPresetName | "review-feedback"` (rules out exposing `review-feedback` as a runnable CLI preset before its builder lands).
+- A stage `workflow` naming a standalone-only preset is refused with validation code `standalone-only-workflow`; reviewed preset names such as `intent-reviewed` stay `unknown-workflow` (rules out treating any registry key as a valid stage `workflow` value).
 - New validation code `standalone-only-workflow` on field `workflow`, with `stageId` and a message naming the stage and preset (rules out overloading `unknown-workflow` or `unrealizable-review-posture`).
 - Evaluate standalone-only refusal after confirming the string is a registered standalone-only preset and before emitting `unknown-workflow` (rules out classifying reserved standalone names as unknown).
 - Standalone-only stages skip review-posture and role-binding checks once refused (rules out duplicate errors on an already-invalid stage).
@@ -16,8 +16,7 @@ Pipeline stage `workflow` values today are only `intent`, `plan`, and `implement
 
 ## Tasks
 
-- [ ] Refactor `workflow-presets.ts` so each preset carries `pipelineStageEligible` alongside its builder; keep `CliWorkflowPresetName` aligned with registered builders.
-- [ ] Add `review-feedback` metadata entry with `pipelineStageEligible: false` per the reservation decision above.
+- [ ] Add `PIPELINE_ELIGIBILITY` to `workflow-presets.ts` covering every `WORKFLOW_PRESET_BUILDERS` key (`true`) plus `review-feedback` (`false`); leave builders and `CliWorkflowPresetName` unchanged.
 - [ ] Wire `validateWorkflowStage` in `pipeline-definition.ts` to emit `standalone-only-workflow` when `workflow` names a registered standalone-only preset.
 - [ ] Extend `PipelineValidationError`’s `code` union with `standalone-only-workflow`.
 - [ ] Add regression coverage in `pipeline-definition-validation.test.ts`; keep existing registry and posture tests green.
@@ -34,3 +33,5 @@ Pipeline stage `workflow` values today are only `intent`, `plan`, and `implement
 ## Documentation updates
 
 - `v2/docs/workflow-runner.md` § Pipeline definitions — standalone-only presets versus base `workflow` values and the `standalone-only-workflow` validation code.
+- `v2/docs/pipeline-execution.md` — list `standalone-only-workflow` beside `unknown-workflow`.
+- `v2/docs/v1-behaviors.md` — record the new pipeline refusal of standalone-only stage workflows.

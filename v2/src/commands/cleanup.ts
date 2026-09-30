@@ -20,6 +20,8 @@ import {
   isGitRepoAsync,
   originTrackingRefResolvesAsync,
 } from "../../../shared/git.ts";
+import { isRecord } from "../../../shared/is-record.ts";
+import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { type AcceptanceCriterion, parseSpec } from "../../../shared/spec-parser.ts";
@@ -32,7 +34,11 @@ import {
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { request } from "../cli/ipc.ts";
-import { readProjectConfigRecord, readRetentionSessions } from "../config/machine-config-loader.ts";
+import {
+  readMachineConfigDocument,
+  readProjectConfigRecord,
+  readRetentionSessions,
+} from "../config/machine-config-loader.ts";
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
 import { isMaterializedNodeModulesPath, isNotGitRepositoryDiagnostic } from "../execution/external-worktree.ts";
 import {
@@ -179,7 +185,15 @@ async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessR
   }
 }
 
-export type EligibilityResult = { status: "eligible" } | { status: "ineligible"; reason: string };
+export type EligibilityResult =
+  | { status: "eligible"; subsumedPlanRetirement?: boolean; skipSpecArchival?: boolean }
+  | { status: "ineligible"; reason: string };
+
+export type CheckEligibilityContext = {
+  projectRoot: string;
+  registry: Record<string, ProjectRegistryEntry>;
+  configPath?: string;
+};
 
 export type DaemonClient = ((project: string, branch: string) => Promise<{ isLive: boolean }[]>) & {
   checkWorkflowStartClaim?: (
@@ -270,28 +284,15 @@ export async function createBulkCleanupDaemonClient(deps: QueryDaemonListsDeps):
  * Fail closed: `gh` failure or daemon unreachable → ineligible. `listRuns()` errors propagate
  * (cleanup aborts rather than marking the worktree ineligible).
  */
-export async function checkEligibility(
-  candidate: DiscoveredWorktree,
+async function worktreeRetirementGuardEligibility(
   project: string,
-  runner: AsyncSubprocessRunner,
+  branch: string,
   daemonClient: DaemonClient,
   store: StateStore,
 ): Promise<EligibilityResult> {
-  if (candidate.branch === undefined) return { status: "ineligible", reason: "Could not determine branch" };
-  const branch = candidate.branch;
-  // Check if PR is merged
-  const mergedResult = await isMerged(branch, runner);
-  if (!mergedResult.merged) {
-    return { status: "ineligible", reason: `PR not merged: ${mergedResult.reason}` };
-  }
-
-  // Check durable run store for non-terminal runs
   const run = store
     .listRuns()
-    .find(
-      (candidate) =>
-        candidate.project === project && candidate.branch === branch && !isTerminalRunStatus(candidate.status),
-    );
+    .find((entry) => entry.project === project && entry.branch === branch && !isTerminalRunStatus(entry.status));
   if (run !== undefined) {
     return {
       status: "ineligible",
@@ -299,11 +300,9 @@ export async function checkEligibility(
     };
   }
 
-  // Check daemon for live runs
   try {
     const daemonRuns = await daemonClient(project, branch);
-    const hasLiveRun = daemonRuns.some((r) => r.isLive);
-    if (hasLiveRun) {
+    if (daemonRuns.some((r) => r.isLive)) {
       return { status: "ineligible", reason: "Daemon reports live run" };
     }
   } catch {
@@ -313,18 +312,55 @@ export async function checkEligibility(
   return { status: "eligible" };
 }
 
+export async function checkEligibility(
+  candidate: DiscoveredWorktree,
+  project: string,
+  runner: AsyncSubprocessRunner,
+  daemonClient: DaemonClient,
+  store: StateStore,
+  context?: CheckEligibilityContext,
+): Promise<EligibilityResult> {
+  if (candidate.branch === undefined) return { status: "ineligible", reason: "Could not determine branch" };
+  const branch = candidate.branch;
+  const ghCwd = context?.projectRoot ?? ".";
+  const mergedResult = await isMerged(branch, runner, ghCwd);
+  if (mergedResult.merged) {
+    return worktreeRetirementGuardEligibility(project, branch, daemonClient, store);
+  }
+
+  if (context !== undefined && branch.startsWith("plan/")) {
+    const configPath = context.configPath ?? join(jarvisHome(), "config.json");
+    const subsumed = await evaluatePlanLaneSubsumedEligibility(
+      { worktree: { ...candidate, branch }, project },
+      context.projectRoot,
+      runner,
+      store,
+      context.registry,
+      configPath,
+    );
+    if (subsumed.status === "ineligible") return subsumed;
+    const guards = await worktreeRetirementGuardEligibility(project, branch, daemonClient, store);
+    if (guards.status === "ineligible") return guards;
+    const eligible: EligibilityResult = { status: "eligible", subsumedPlanRetirement: true };
+    if (subsumed.skipSpecArchival === true) eligible.skipSpecArchival = true;
+    return eligible;
+  }
+
+  return { status: "ineligible", reason: `PR not merged: ${mergedResult.reason}` };
+}
+
 type MergedCheckResult = { merged: true } | { merged: false; reason: string };
 
 /**
  * Check if a branch's PR is merged using `gh pr view <branch> --json state,mergedAt`.
  * This command includes merged PRs (unlike `gh pr list --head` which defaults to open).
  */
-async function isMerged(branch: string, runner: AsyncSubprocessRunner): Promise<MergedCheckResult> {
+async function isMerged(branch: string, runner: AsyncSubprocessRunner, cwd = "."): Promise<MergedCheckResult> {
   try {
     const output = await runner.runAsync(
       "gh",
       ["pr", "view", branch, "--json", "state,mergedAt"],
-      ".",
+      cwd,
       networkSubprocessOptions(),
     );
     const parsed = JSON.parse(output);
@@ -343,6 +379,8 @@ async function isMerged(branch: string, runner: AsyncSubprocessRunner): Promise<
 export type CleanupCandidate = {
   worktree: DiscoveredWorktree & { branch: string };
   project: string;
+  subsumedPlanRetirement?: boolean;
+  skipSpecArchival?: boolean;
 };
 
 export type MergedBranchRefCandidate = {
@@ -447,6 +485,179 @@ export async function mergedPrHeadAuthorityMatches(
   } catch {
     return false;
   }
+}
+
+type GhPrStateRecord = { state?: string };
+
+/** True when no OPEN PR owns the branch; absent or CLOSED PRs are allowed. Fails closed on probe errors. */
+export async function planSubsumedPrGateAllows(
+  branch: string,
+  repoRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    const output = await runner.runAsync(
+      "gh",
+      ["pr", "list", "--head", branch, "--state", "all", "--json", "state"],
+      repoRoot,
+      networkSubprocessOptions(),
+    );
+    const parsed = JSON.parse(output) as GhPrStateRecord[];
+    if (!Array.isArray(parsed)) return false;
+    return !parsed.some((pr) => pr.state === "OPEN");
+  } catch {
+    return false;
+  }
+}
+
+function planTargetDirForProject(project: string, configPath: string): string {
+  const projectRecord = readProjectConfigRecord(project, configPath);
+  const plan = projectRecord?.plan;
+  const projectTargetDir = isRecord(plan) && typeof plan.targetDir === "string" ? plan.targetDir : undefined;
+  const modes = readMachineConfigDocument(configPath)?.modes;
+  const modePlan = isRecord(modes) ? modes.plan : undefined;
+  const modeTargetDir = isRecord(modePlan) && typeof modePlan.targetDir === "string" ? modePlan.targetDir : undefined;
+  return resolvePlanTargetDir({ projectTargetDir, modeTargetDir });
+}
+
+function isRepoRelativePath(projectRoot: string, absPath: string): string | undefined {
+  const rel = relative(projectRoot, absPath);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return undefined;
+  return rel;
+}
+
+function planLaneSpecDirFromRuns(
+  candidate: CleanupCandidate,
+  projectRoot: string,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+): string | undefined {
+  const artifact = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
+  if (artifact !== undefined) {
+    if (isExternalPlanArtifact(artifact)) return undefined;
+    const rel = isRepoRelativePath(projectRoot, artifact.source);
+    if (rel !== undefined) {
+      if (existsSync(join(artifact.source, "index.md"))) return rel;
+      if (artifact.source.endsWith(".md")) return dirname(rel);
+    }
+  }
+  const indexPath = resolveMergedWorktreeSpecIndexPath(candidate, projectRoot, store, registry);
+  if (indexPath !== undefined) return dirname(indexPath);
+  return undefined;
+}
+
+async function inferShallowestPlanSpecDirFromDiff(
+  projectRoot: string,
+  branch: string,
+  baseRef: string,
+  targetDir: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}..${branch}`], projectRoot);
+  const prefix = targetDir.endsWith("/") ? targetDir : `${targetDir}/`;
+  let best: string | undefined;
+  let bestDepth = Number.POSITIVE_INFINITY;
+  for (const line of output.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(prefix) || !trimmed.endsWith("index.md")) continue;
+    const specDir = dirname(trimmed);
+    const depth = specDir.split("/").length;
+    if (depth < bestDepth) {
+      bestDepth = depth;
+      best = specDir;
+    }
+  }
+  return best;
+}
+
+async function resolvePlanLaneSpecDirRel(
+  candidate: CleanupCandidate,
+  projectRoot: string,
+  branch: string,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  const fromRuns = planLaneSpecDirFromRuns(candidate, projectRoot, store, registry);
+  if (fromRuns !== undefined) return fromRuns;
+  const baseBranch = await getBaseBranch(projectRoot, runner);
+  const baseRef = await resolveStaleResetRef(projectRoot, baseBranch, runner);
+  const targetDir = planTargetDirForProject(candidate.project, configPath);
+  return inferShallowestPlanSpecDirFromDiff(projectRoot, branch, baseRef, targetDir, runner);
+}
+
+function planLaneAllowedPathPrefixes(
+  projectRoot: string,
+  specDirRel: string,
+  candidate: CleanupCandidate,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+): string[] {
+  const prefixes = [specDirRel];
+  const artifact = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
+  if (artifact !== undefined && !isExternalPlanArtifact(artifact)) {
+    const readyIntent = resolveConsumedReadyIntent(artifact);
+    if (readyIntent !== undefined) {
+      const rel = isRepoRelativePath(projectRoot, readyIntent);
+      if (rel !== undefined) prefixes.push(rel);
+    }
+  }
+  return prefixes;
+}
+
+async function planLaneSpecPresentOnDefaultBranch(
+  projectRoot: string,
+  specDirRel: string,
+  targetDir: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  const baseBranch = await getBaseBranch(projectRoot, runner);
+  const specAbs = join(projectRoot, specDirRel);
+  if ((await specTreeFsAtRef(projectRoot, specAbs, baseBranch, runner)) !== undefined) return true;
+  const completedAbs = join(projectRoot, targetDir, "completed", basename(specDirRel));
+  return (await specTreeFsAtRef(projectRoot, completedAbs, baseBranch, runner)) !== undefined;
+}
+
+export async function evaluatePlanLaneSubsumedEligibility(
+  candidate: CleanupCandidate,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+): Promise<EligibilityResult> {
+  const branch = candidate.worktree.branch;
+  if (!branch.startsWith("plan/")) {
+    return { status: "ineligible", reason: "not a plan lane" };
+  }
+  if (!(await planSubsumedPrGateAllows(branch, projectRoot, runner))) {
+    return { status: "ineligible", reason: "plan-lane PR gate failed" };
+  }
+  const specDirRel = await resolvePlanLaneSpecDirRel(
+    candidate,
+    projectRoot,
+    branch,
+    store,
+    registry,
+    configPath,
+    runner,
+  );
+  if (specDirRel === undefined) {
+    return { status: "ineligible", reason: "plan-lane spec directory unresolved" };
+  }
+  const targetDir = planTargetDirForProject(candidate.project, configPath);
+  const baseBranch = await getBaseBranch(projectRoot, runner);
+  const baseRef = await resolveStaleResetRef(projectRoot, baseBranch, runner);
+  const allowedPrefixes = planLaneAllowedPathPrefixes(projectRoot, specDirRel, candidate, store, registry);
+  const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner, allowedPrefixes);
+  if (nonStagingPaths.length > 0) {
+    return { status: "ineligible", reason: "plan-lane has unlanded paths outside allowed scope" };
+  }
+  if (!(await planLaneSpecPresentOnDefaultBranch(projectRoot, specDirRel, targetDir, runner))) {
+    return { status: "ineligible", reason: "plan-lane spec absent from default branch" };
+  }
+  return { status: "eligible", skipSpecArchival: true };
 }
 
 function shouldSkipLocalHeadForRefPrune(
@@ -611,6 +822,7 @@ export async function revalidateMergedBranchRefCandidate(
   store: StateStore,
   retiredBranches: ReadonlySet<string>,
   ownerProjects: readonly string[] = [candidate.project],
+  options?: { skipMergedPrAuthority?: boolean },
 ): Promise<EligibilityResult> {
   const root = candidate.repositoryRoot;
   const branch = candidate.branch;
@@ -635,7 +847,10 @@ export async function revalidateMergedBranchRefCandidate(
     return { status: "ineligible", reason: "tracking ref appeared since preview" };
   }
 
-  if (!(await mergedPrHeadAuthorityMatches(branch, currentHeadOid, root, runner))) {
+  if (
+    options?.skipMergedPrAuthority !== true &&
+    !(await mergedPrHeadAuthorityMatches(branch, currentHeadOid, root, runner))
+  ) {
     return { status: "ineligible", reason: "merged PR authority no longer matches" };
   }
 
@@ -1042,6 +1257,7 @@ async function archiveRetiredArtifact(
 ): Promise<void> {
   const projectRoot = registry[candidate.project]?.root;
   if (projectRoot === undefined) return;
+  if (candidate.skipSpecArchival === true) return;
   const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
   if (spec === undefined) {
     skips.skip(candidate.worktree.path, "no durable spec identity");
@@ -1464,6 +1680,7 @@ async function findEligibleWorktreeCandidates(
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   store: StateStore,
+  configPath: string,
 ): Promise<{ candidates: CleanupCandidate[]; daemonUnreachable: DiscoveredWorktree[] }> {
   const candidates: CleanupCandidate[] = [];
   const daemonUnreachable: DiscoveredWorktree[] = [];
@@ -1471,14 +1688,41 @@ async function findEligibleWorktreeCandidates(
     const project = projectForWorktree(worktree, registry, jarvisRoot);
     if (project === undefined || worktree.branch === undefined) continue;
 
-    const eligibility = await checkEligibility(worktree, project, runner, daemonClient, store);
+    const projectRoot = registry[project]?.root;
+    const eligibility = await checkEligibility(
+      worktree,
+      project,
+      runner,
+      daemonClient,
+      store,
+      projectRoot !== undefined ? { projectRoot, registry, configPath } : undefined,
+    );
     if (eligibility.status === "eligible") {
-      candidates.push({ worktree: { ...worktree, branch: worktree.branch }, project });
+      const entry: CleanupCandidate = { worktree: { ...worktree, branch: worktree.branch }, project };
+      if (eligibility.subsumedPlanRetirement === true) entry.subsumedPlanRetirement = true;
+      if (eligibility.skipSpecArchival === true) entry.skipSpecArchival = true;
+      candidates.push(entry);
     } else if (eligibility.reason === DAEMON_UNREACHABLE_REASON) {
       daemonUnreachable.push(worktree);
     }
   }
   return { candidates, daemonUnreachable };
+}
+
+function skipSpecArchivalSourceKeys(
+  candidates: readonly CleanupCandidate[],
+  registry: Record<string, ProjectRegistryEntry>,
+  store: StateStore,
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const candidate of candidates) {
+    if (candidate.skipSpecArchival !== true) continue;
+    const projectRoot = registry[candidate.project]?.root;
+    if (projectRoot === undefined) continue;
+    const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
+    if (spec !== undefined) keys.add(canonicalArtifactPath(spec.source));
+  }
+  return keys;
 }
 
 function previewWorktreeCandidates(
@@ -1492,6 +1736,7 @@ function previewWorktreeCandidates(
   io.stdout(`Found ${candidates.length} eligible worktree(s) for cleanup:\n`);
   for (const candidate of candidates) {
     io.stdout(`  ${candidate.worktree.path} (branch: ${candidate.worktree.branch})\n`);
+    if (candidate.skipSpecArchival === true) continue;
     const projectRoot = registry[candidate.project]?.root;
     if (projectRoot === undefined) continue;
     const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
@@ -1501,6 +1746,8 @@ function previewWorktreeCandidates(
 
 async function recheckEligibleWorktrees(
   candidates: readonly CleanupCandidate[],
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   store: StateStore,
@@ -1509,9 +1756,22 @@ async function recheckEligibleWorktrees(
   const stillEligible: CleanupCandidate[] = [];
   let daemonUnreachable = false;
   for (const candidate of candidates) {
-    const recheck = await checkEligibility(candidate.worktree, candidate.project, runner, daemonClient, store);
+    const projectRoot = registry[candidate.project]?.root;
+    const recheck = await checkEligibility(
+      candidate.worktree,
+      candidate.project,
+      runner,
+      daemonClient,
+      store,
+      projectRoot !== undefined ? { projectRoot, registry, configPath } : undefined,
+    );
     if (recheck.status === "eligible") {
-      stillEligible.push(candidate);
+      const entry: CleanupCandidate = { ...candidate };
+      if (recheck.subsumedPlanRetirement === true) entry.subsumedPlanRetirement = true;
+      else delete entry.subsumedPlanRetirement;
+      if (recheck.skipSpecArchival === true) entry.skipSpecArchival = true;
+      else delete entry.skipSpecArchival;
+      stillEligible.push(entry);
     } else {
       daemonUnreachable ||= recheck.reason === DAEMON_UNREACHABLE_REASON;
       io.stdout(`Skipped (became ineligible): ${candidate.worktree.path} — ${recheck.reason}\n`);
@@ -1562,6 +1822,7 @@ async function retireEligibleWorktrees(
           store,
           retiredBranches,
           ownerProjectsByRepositoryRoot.get(projectRoot),
+          { skipMergedPrAuthority: candidate.subsumedPlanRetirement === true },
         );
       },
       retiredBranches,
@@ -1927,21 +2188,25 @@ async function gatherCleanupDiscoveryContext(
     runner,
     daemonClient,
     store,
+    configPath,
   );
   const worktreeRefSnapshots = await collectWorktreeRefSnapshots(candidates, registry, runner);
   const daemonUnreachableExit = daemonUnreachable.length > 0 ? 1 : 0;
   const strandedArtifacts = discoverStrandedArtifacts(registry, io);
   const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
-  const stranded = await inspectStrandedArtifacts(
-    strandedArtifacts,
-    registry,
-    discovered.filter((worktree) => !retiringPaths.has(worktree.path)),
-    jarvisRoot,
-    store,
-    runner,
-    io,
-    skips,
-  );
+  const skipArchivalSources = skipSpecArchivalSourceKeys(candidates, registry, store);
+  const stranded = (
+    await inspectStrandedArtifacts(
+      strandedArtifacts,
+      registry,
+      discovered.filter((worktree) => !retiringPaths.has(worktree.path)),
+      jarvisRoot,
+      store,
+      runner,
+      io,
+      skips,
+    )
+  ).filter((spec) => !skipArchivalSources.has(canonicalArtifactPath(spec.source)));
   const reaperResult = await reapLegacyDaemonArtifacts(jarvisRoot, undefined, legacyDaemonArtifactDeps);
   const sessionLogPlan = discoverExpiredSessionLogs(sessionsDir, configPath, clock, store, io);
 
@@ -2015,6 +2280,7 @@ async function previewAllCleanupTargets(
 async function executeConfirmedCleanup(
   ctx: CleanupDiscoveryContext,
   registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
   jarvisRoot: string,
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
@@ -2023,7 +2289,7 @@ async function executeConfirmedCleanup(
   daemonBlockedExit: number,
   legacyDaemonArtifactDeps?: LegacyDaemonArtifactDeps,
 ): Promise<number> {
-  const recheck = await recheckEligibleWorktrees(ctx.candidates, runner, daemonClient, store, io);
+  const recheck = await recheckEligibleWorktrees(ctx.candidates, registry, configPath, runner, daemonClient, store, io);
   const stillEligible = recheck.candidates;
   const retiredBranches = new Set<string>();
   const sessions = createArchivePublicationSessions(runner, jarvisRoot);
@@ -2094,16 +2360,19 @@ async function executeConfirmedCleanup(
     legacyDaemonArtifactDeps,
   );
 
-  const strandedAfterRetirement = await inspectStrandedArtifacts(
-    ctx.strandedArtifacts,
-    registry,
-    await discoverMaterializedWorktrees(registry, jarvisRoot, runner),
-    jarvisRoot,
-    store,
-    runner,
-    io,
-    ctx.skips,
-  );
+  const skipArchivalSources = skipSpecArchivalSourceKeys(stillEligible, registry, store);
+  const strandedAfterRetirement = (
+    await inspectStrandedArtifacts(
+      ctx.strandedArtifacts,
+      registry,
+      await discoverMaterializedWorktrees(registry, jarvisRoot, runner),
+      jarvisRoot,
+      store,
+      runner,
+      io,
+      ctx.skips,
+    )
+  ).filter((spec) => !skipArchivalSources.has(canonicalArtifactPath(spec.source)));
   await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, store, io, ctx.skips, sessions);
   reportArchiveSessions(sessions, io);
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
@@ -2234,6 +2503,7 @@ async function runCleanupCommandWithSkipLedger(
   return executeConfirmedCleanup(
     ctx,
     registry,
+    options.configPath ?? join(jarvisRoot, "config.json"),
     jarvisRoot,
     runner,
     daemonClient,
@@ -2976,17 +3246,27 @@ export function staleResetRebaseConflictGateReason(baseHead: string, conflictPat
   return `rebase onto base ${baseHead} conflicted (${pathDetail}); rebase aborted, worktree unchanged; resolve manually or run \`jarvis cleanup --abandon <branch>\``;
 }
 
+function pathAllowedForPlanLane(path: string, allowedPrefixes: readonly string[]): boolean {
+  return allowedPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
 async function unlandedNonStagingPaths(
   projectRoot: string,
   branch: string,
   baseRef: string,
   runner: AsyncSubprocessRunner,
+  allowedPrefixes?: readonly string[],
 ): Promise<string[]> {
   const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}..${branch}`], projectRoot);
   return output
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !isHarnessWorkflowStagingPath(line));
+    .filter((line) => {
+      if (line.length === 0) return false;
+      if (isHarnessWorkflowStagingPath(line)) return false;
+      if (allowedPrefixes !== undefined && pathAllowedForPlanLane(line, allowedPrefixes)) return false;
+      return true;
+    });
 }
 
 async function unlandedCommitCount(

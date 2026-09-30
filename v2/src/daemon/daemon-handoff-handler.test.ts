@@ -154,7 +154,9 @@ test("fallback rollback retries after EADDRINUSE then reopens admission", async 
     rollbackBlocksReopenAdmission: () => false,
     bindPublicServer: async () => {
       bindCalls += 1;
-      if (bindCalls === 1) throw eaddrInUseError();
+      if (bindCalls === 1) {
+        throw new DaemonSocketBindFailureError("/tmp/daemon-public.sock", "EADDRINUSE");
+      }
     },
     probePublicServer: async () => probeResults.shift() ?? false,
     fallbackMs: 10,
@@ -184,7 +186,7 @@ test("fallback rollback defers competing rebind while a live successor holds the
     rollbackBlocksReopenAdmission: () => false,
     bindPublicServer: async () => {
       bindCalls += 1;
-      throw eaddrInUseError();
+      throw new DaemonSocketBindFailureError("/tmp/daemon-public.sock", "EADDRINUSE");
     },
     probePublicServer: async () => probeResults.shift() ?? true,
     fallbackMs: 10,

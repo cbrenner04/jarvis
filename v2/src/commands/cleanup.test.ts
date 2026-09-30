@@ -671,6 +671,40 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).not.toContain(worktreePath);
   });
 
+  test("subsumed plan lane retires after the default branch advances past the lane cut", async () => {
+    const specName = "20260930T120006Z-subsumed-main-advanced";
+    const branch = "plan/subsumed-main-advanced";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    writeFileSync(join(worktreePath, "v2", "spec", specName, "notes.md"), "lane refinement\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane spec edit"], worktreePath);
+    writeFileSync(join(projectRoot, "landed-after-cut.txt"), "main moved\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "landed-after-cut.txt"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "main advances"], projectRoot);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe("CLOSED", "plan");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand({ dryRun: true, configPath }, registry, jarvisRoot, runner, async () => [], store, io);
+    expect(stdout).toContain(worktreePath);
+
+    stdout = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true, configPath },
+      registry,
+      jarvisRoot,
+      runner,
+      async () => [],
+      store,
+      io,
+    );
+    expect(stdout).toContain("Retired");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
   test("subsumed plan lane ineligible: spec absent from default branch", async () => {
     const specName = "20260930T120003Z-subsumed-no-main-spec";
     const branch = "plan/subsumed-no-main";
@@ -3008,6 +3042,53 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(criteriaWorktree);
     expect(listOutput).toContain(unrelatedWorktree);
+  });
+
+  test("merged worktree whose spec was archived on main keeps prose dirt refused", async () => {
+    const specName = "20260930-archived-prose-dirt";
+    const specDir = join(projectRoot, "v2", "spec", specName);
+    const subspecRel = `v2/spec/${specName}/00-task.md`;
+    const indexRel = `v2/spec/${specName}/index.md`;
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add spec"], projectRoot);
+
+    const branch = "plan/archived-prose-dirt";
+    const worktreePath = await createWorktree(branch);
+    writeFileSync(
+      join(worktreePath, subspecRel),
+      "# Task\n\nOperator prose edit.\n\n## Acceptance criteria\n\n- [ ] done\n",
+    );
+
+    mkdirSync(join(projectRoot, "v2", "spec", "completed"), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["mv", specDir, join(projectRoot, "v2", "spec", "completed", specName)],
+      projectRoot,
+    );
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "archive spec"], projectRoot);
+
+    const store: StateStore = {
+      listRuns: () => [
+        { project: "project", branch, worktreePath, specPath: join(worktreePath, indexRel), status: "completed" },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(stdout).toContain(`Skipped merged worktree retirement: ${worktreePath}`);
+    expect(stdout).toContain(subspecRel);
+    expect(readFileSync(join(worktreePath, subspecRel), "utf8")).toContain("Operator prose edit.");
   });
 });
 

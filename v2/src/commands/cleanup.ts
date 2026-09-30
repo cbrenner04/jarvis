@@ -374,7 +374,9 @@ export async function evaluateImplementLandedElsewhereReport(
   if (mergedResult.merged) return undefined;
   if (!(await planSubsumedPrGateAllows(branch, projectRoot, runner))) return undefined;
   const candidate: CleanupCandidate = { worktree: { ...worktree, branch }, project };
-  const specIndexPath = resolveMergedWorktreeSpecIndexPath(candidate, projectRoot, store, registry);
+  const specIndexPath = resolveMergedWorktreeSpecIndexPath(candidate, projectRoot, store, registry, {
+    acceptWorktreeReadableIndex: true,
+  });
   if (specIndexPath === undefined) return undefined;
   const targetDir = planTargetDirForProject(project, configPath);
   if (!(await implementSpecTreeOnCompletedAtDefaultBranch(projectRoot, specIndexPath, targetDir, runner))) {
@@ -572,7 +574,9 @@ function planLaneSpecDirFromRuns(
       if (artifact.source.endsWith(".md")) return dirname(rel);
     }
   }
-  const indexPath = resolveMergedWorktreeSpecIndexPath(candidate, projectRoot, store, registry);
+  const indexPath = resolveMergedWorktreeSpecIndexPath(candidate, projectRoot, store, registry, {
+    acceptWorktreeReadableIndex: true,
+  });
   if (indexPath !== undefined) return dirname(indexPath);
   return undefined;
 }
@@ -584,7 +588,7 @@ async function inferShallowestPlanSpecDirFromDiff(
   targetDir: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
-  const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}..${branch}`], projectRoot);
+  const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}...${branch}`], projectRoot);
   const prefix = targetDir.endsWith("/") ? targetDir : `${targetDir}/`;
   let best: string | undefined;
   let bestDepth = Number.POSITIVE_INFINITY;
@@ -681,7 +685,9 @@ async function evaluatePlanLaneSubsumedEligibility(
   const baseBranch = await getBaseBranch(projectRoot, runner);
   const baseRef = await resolveStaleResetRef(projectRoot, baseBranch, runner);
   const allowedPrefixes = planLaneAllowedPathPrefixes(projectRoot, specDirRel, candidate, store, registry);
-  const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner, allowedPrefixes);
+  const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner, allowedPrefixes, {
+    mergeBase: true,
+  });
   if (nonStagingPaths.length > 0) {
     return { status: "ineligible", reason: "plan-lane has unlanded paths outside allowed scope" };
   }
@@ -2677,6 +2683,7 @@ function resolveMergedWorktreeSpecIndexPath(
   projectRoot: string,
   store: StateStore,
   registry: Record<string, ProjectRegistryEntry>,
+  options?: { acceptWorktreeReadableIndex?: boolean },
 ): string | undefined {
   for (const run of store.listRuns()) {
     if (run.project !== candidate.project || run.branch !== candidate.worktree.branch) continue;
@@ -2687,7 +2694,8 @@ function resolveMergedWorktreeSpecIndexPath(
     if (relPath === "" || relPath.startsWith("..") || isAbsolute(relPath)) continue;
     if (
       isStaleResetLandedCriteriaSpecPath(projectRoot, relPath) ||
-      isReadableSpecIndexInWorktree(candidate.worktree.path, projectRoot, relPath)
+      (options?.acceptWorktreeReadableIndex === true &&
+        isReadableSpecIndexInWorktree(candidate.worktree.path, projectRoot, relPath))
     ) {
       return relPath;
     }
@@ -3394,8 +3402,12 @@ async function unlandedNonStagingPaths(
   baseRef: string,
   runner: AsyncSubprocessRunner,
   allowedPrefixes?: readonly string[],
+  options?: { mergeBase?: boolean },
 ): Promise<string[]> {
-  const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}..${branch}`], projectRoot);
+  // Plan-lane scope diffs from the merge-base (`...`) so default-branch commits after the lane cut
+  // do not read as lane paths; stale-reset callers keep the tree diff (`..`).
+  const range = options?.mergeBase === true ? `${baseRef}...${branch}` : `${baseRef}..${branch}`;
+  const output = await runner.runAsync("git", ["diff", "--name-only", range], projectRoot);
   return output
     .split("\n")
     .map((line) => line.trim())

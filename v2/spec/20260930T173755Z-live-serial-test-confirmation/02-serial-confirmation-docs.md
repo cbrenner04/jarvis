@@ -13,21 +13,21 @@ Operator docs do not name a live-roster serial confirmation command, so hand rec
 
 ## Tasks
 
-- [ ] Update `v2/docs/operator-practices.md` gate-failure / recovery workflow with harness pooled retry versus hand `bun run test:confirm:live`, and `v1/` exclusion.
-- [ ] Update `v2/docs/operator-runbook.md` recovery sections that describe confirming test failures (e.g. manual gate reruns) with the same two-layer contrast, command, and exclusion.
-- [ ] Update `v2/docs/test-writing.md` with when to use `test:confirm:live` versus scoped gates, full aggregate including integration, serial execution, and mid-work sandbox/integration policy.
-- [ ] Update `v2/docs/v1-behaviors.md` agent mid-work serial retry and implement-rules entries to cite `bun run test:confirm:live`.
-- [ ] Update `v2/docs/prompts.md` to state jarvis-specific serial confirmation lives in `AGENTS.md` via `test:confirm:live`.
+- [x] Update `v2/docs/operator-practices.md` gate-failure / recovery workflow with harness pooled retry versus hand `bun run test:confirm:live`, and `v1/` exclusion.
+- [x] Update `v2/docs/operator-runbook.md` recovery sections that describe confirming test failures (e.g. manual gate reruns) with the same two-layer contrast, command, and exclusion.
+- [x] Update `v2/docs/test-writing.md` with when to use `test:confirm:live` versus scoped gates, full aggregate including integration, serial execution, and mid-work sandbox/integration policy.
+- [x] Update `v2/docs/v1-behaviors.md` agent mid-work serial retry and implement-rules entries to cite `bun run test:confirm:live`.
+- [x] Update `v2/docs/prompts.md` to state jarvis-specific serial confirmation lives in `AGENTS.md` via `test:confirm:live`.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-practices.md` and `v2/docs/operator-runbook.md` distinguish harness pooled `test:*` retry from hand `bun run test:confirm:live`, name the command in gate-failure / recovery workflow, and state it excludes frozen `v1/`.
-- [ ] `v2/docs/test-writing.md` names `bun run test:confirm:live`, when to use it versus scoped `test:*` gates, that it runs the full live aggregate including integration serially, and that mid-work use follows existing sandbox/integration policy (not a scoped substitute; not harness finalization integration).
-- [ ] `v2/docs/v1-behaviors.md` agent mid-work serial retry and implement-rules catalog entries cite `bun run test:confirm:live`, not bare `bun test`, for jarvis-repo serial confirmation.
-- [ ] `v2/docs/prompts.md` states jarvis-specific serial confirmation lives in `AGENTS.md` via `test:confirm:live`.
-- [ ] `bun run lint:md` passes.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes (branch diff includes subspec 00's root tooling).
+- [x] `v2/docs/operator-practices.md` and `v2/docs/operator-runbook.md` distinguish harness pooled `test:*` retry from hand `bun run test:confirm:live`, name the command in gate-failure / recovery workflow, and state it excludes frozen `v1/`.
+- [x] `v2/docs/test-writing.md` names `bun run test:confirm:live`, when to use it versus scoped `test:*` gates, that it runs the full live aggregate including integration serially, and that mid-work use follows existing sandbox/integration policy (not a scoped substitute; not harness finalization integration).
+- [x] `v2/docs/v1-behaviors.md` agent mid-work serial retry and implement-rules catalog entries cite `bun run test:confirm:live`, not bare `bun test`, for jarvis-repo serial confirmation.
+- [x] `v2/docs/prompts.md` states jarvis-specific serial confirmation lives in `AGENTS.md` via `test:confirm:live`.
+- [x] `bun run lint:md` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes (branch diff includes subspec 00's root tooling).
 
 ## Documentation updates
 

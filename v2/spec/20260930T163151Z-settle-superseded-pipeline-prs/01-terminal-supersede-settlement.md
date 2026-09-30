@@ -33,7 +33,7 @@ Successful terminal `ready` or `merge` publication leaves earlier intent and pla
 ## Acceptance criteria
 
 - [x] `pipeline-execution.test.ts` drives a stubbed single-lane `ready` settlement with `definition.supersede === "close"` proving comment-before-close on preceding open PRs with no branch deletion, skips non-open PRs, and never touches the terminal PR; proves the exclusion set (`keep`, `leave-draft`, fan-out with terminal success not committed) issues no supersede seam calls; proves failures record `supersedeFailures`, continue candidates, and still derive `succeeded`; fails against the baseline.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

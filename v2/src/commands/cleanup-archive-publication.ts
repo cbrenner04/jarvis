@@ -10,6 +10,7 @@ type ArchivePublicationStep = "worktree add" | "git mv" | "ready-intent prune" |
 
 export type ArchivePublicationResult =
   | { status: "archived"; destination: string; intentPruned: boolean; branch: string; worktreePath: string }
+  | { status: "intentPruned"; readyIntent: string; branch: string; worktreePath: string }
   | { status: "skipped"; reason: string };
 
 export type ArchivePublicationSession = {
@@ -19,6 +20,8 @@ export type ArchivePublicationSession = {
   commits(): number;
   /** Stage one in-repo archive move as a commit on the isolated cleanup branch. */
   publish(spec: ArtifactSpec): Promise<ArchivePublicationResult>;
+  /** Stage only a consumed ready-intent prune when the spec tree is already on the default branch. */
+  publishConsumedReadyIntentOnly(spec: ArtifactSpec): Promise<ArchivePublicationResult>;
 };
 
 type ArchivePublicationDeps = {
@@ -201,6 +204,44 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
       }
       commits += 1;
       return { status: "archived", destination, intentPruned: relReadyIntent !== undefined, branch, worktreePath };
+    },
+    async publishConsumedReadyIntentOnly(spec) {
+      let readyIntent: string | undefined;
+      try {
+        readyIntent = resolveConsumedReadyIntent(spec);
+      } catch (error) {
+        return { status: "skipped", reason: `failed to inspect ready-intent: ${errorMessage(error)}` };
+      }
+      if (readyIntent === undefined) {
+        return { status: "skipped", reason: "no consumed ready-intent to prune" };
+      }
+      const relReadyIntent = repoRelative(deps.projectRoot, readyIntent);
+      if (relReadyIntent === undefined) {
+        return { status: "skipped", reason: "ready-intent path lies outside the project checkout" };
+      }
+      const materializeFailure = await materialize();
+      if (materializeFailure !== undefined) return materializeFailure;
+      try {
+        await git(["rm", "--quiet", relReadyIntent], worktreePath);
+      } catch (error) {
+        return rollback("ready-intent prune", error);
+      }
+      try {
+        await git(
+          [
+            ...(await commitIdentityFlags()),
+            "commit",
+            "--quiet",
+            "-m",
+            `spec: prune consumed ready-intent for ${spec.name}`,
+          ],
+          worktreePath,
+        );
+      } catch (error) {
+        return rollback("commit", error);
+      }
+      commits += 1;
+      return { status: "intentPruned", readyIntent, branch, worktreePath };
     },
   };
 }

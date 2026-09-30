@@ -81,6 +81,7 @@ describe("cleanup archive publication session", () => {
   test("publishConsumedReadyIntentOnly commits ready-intent prune on the cleanup branch", async () => {
     const intent = "---\nname: prune-only\n---\n";
     const { spec, readyIntent } = inRepoSpec("20260930T000001Z-prune-only", "[x] Done", intent, intent);
+    if (readyIntent === undefined) throw new Error("fixture must write a ready-intent");
     await commitFixtures(projectRoot);
     const session = createArchivePublicationSession({
       runner: realAsyncSubprocessRunner,

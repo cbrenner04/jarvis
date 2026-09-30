@@ -66,17 +66,32 @@ function baseRun(overrides: Partial<Run> = {}): Run {
   };
 }
 
+type HarnessFlipLineageQuery = Parameters<StateStore["findNewestHarnessReadyFlipEvidenceInLineage"]>[0];
+type HarnessFlipLineageEvidence = ReturnType<StateStore["findNewestHarnessReadyFlipEvidenceInLineage"]>;
+
+type ReviewFeedbackAdmissionStore = ReviewFeedbackLaneResolutionStore &
+  Pick<StateStore, "findNewestHarnessReadyFlipEvidenceInLineage">;
+
 function memoryStore(args: {
   runs: Run[];
   pipelines?: Array<Pipeline & { stages: PipelineStageRecord[] }>;
-}): ReviewFeedbackLaneResolutionStore {
+  harnessFlipEvidenceInLineage?: (query: HarnessFlipLineageQuery) => HarnessFlipLineageEvidence;
+}): ReviewFeedbackLaneResolutionStore | ReviewFeedbackAdmissionStore {
   const runs = args.runs;
   const pipelines = args.pipelines ?? [];
-  return {
+  const base: ReviewFeedbackLaneResolutionStore = {
     listRuns: () => runs,
-    findRunsByInvocationId: (invocationId) => runs.filter((run) => run.workflowSnapshot?.invocationId === invocationId),
-    loadRun: (runId) => (runs.find((run) => run.id === runId) ?? null) as ReturnType<StateStore["loadRun"]>,
-    loadPipeline: (pipelineId) => pipelines.find((pipeline) => pipeline.id === pipelineId) ?? null,
+    findRunsByInvocationId: (invocationId: string) =>
+      runs.filter((run) => run.workflowSnapshot?.invocationId === invocationId),
+    loadRun: (runId: string) => (runs.find((run) => run.id === runId) ?? null) as ReturnType<StateStore["loadRun"]>,
+    loadPipeline: (pipelineId: string) => pipelines.find((pipeline) => pipeline.id === pipelineId) ?? null,
+  };
+  if (args.harnessFlipEvidenceInLineage === undefined) {
+    return base;
+  }
+  return {
+    ...base,
+    findNewestHarnessReadyFlipEvidenceInLineage: args.harnessFlipEvidenceInLineage,
   };
 }
 
@@ -464,6 +479,39 @@ describe("review-feedback workflow admission", () => {
       ),
     );
     expect(outcome).toMatchObject({ ok: false, refusal: { code: "review_feedback_lane_in_flight" } });
+  });
+
+  test("admits operator-flipped non-draft PR when lineage lookup finds harness ready-flip evidence", async () => {
+    const run = baseRun({ id: "intent-entry", worktreePath: worktreePathForCapture });
+    const store = memoryStore({
+      runs: [run],
+      harnessFlipEvidenceInLineage: (query) =>
+        query.project === PROJECT &&
+        query.specRef === "main" &&
+        query.branch === BRANCH &&
+        query.baseRef === "main" &&
+        query.prNumber === 42
+          ? { prNumber: 42, branch: BRANCH, baseRef: "main", flippedAt: 1 }
+          : null,
+    });
+    const runner = createGhRunner({ admissionView: openReviewedAdmissionView({ isDraft: false }) });
+    const outcome = await prepareReviewFeedbackWorkflowAdmission(
+      { ok: true, branch: BRANCH },
+      admissionDeps(store, runner),
+    );
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("refuses non-draft PR without harness ready-flip evidence when store supports lineage lookup", async () => {
+    const run = baseRun({ id: "intent-entry", worktreePath: worktreePathForCapture });
+    const outcome = await prepareReviewFeedbackWorkflowAdmission(
+      { ok: true, branch: BRANCH },
+      admissionDeps(
+        memoryStore({ runs: [run], harnessFlipEvidenceInLineage: () => null }),
+        createGhRunner({ admissionView: openReviewedAdmissionView({ isDraft: false }) }),
+      ),
+    );
+    expect(outcome).toMatchObject({ ok: false, refusal: { code: "review_feedback_pr_not_draft" } });
   });
 
   test("refuses open PR with no review", async () => {

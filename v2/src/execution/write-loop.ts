@@ -452,8 +452,6 @@ export type WriteLoopInput = WriteExecuteInput & {
   verifyDiffDerivedMutations?: (input: DiffDerivedMutationVerifierInput) => Promise<VerificationResult>;
   /** Implement-verified HEAD recorded when a shrink write loop starts; exhaustion reverts to this tree. */
   preShrinkHead?: string;
-  /** Test seam for `resetWorktreeToPreShrinkHead`; production uses `git reset --hard` and `git clean -fd`. */
-  resetWorktreeToPreShrinkHead?: (worktreePath: string, preShrinkHead: string) => Promise<void>;
   /** Publication landing contract when invoked from workflow-runner write steps. */
   landing?: PublicationLanding;
   /** Per-project autofix override (`bun run fix` when unset). */
@@ -482,31 +480,17 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
 }
 
-const IMPLEMENT_SHRINK_PROMPT_ID = "implement.prompt.shrink";
+export function isShrinkWriteLoop(args: Pick<WriteLoopInput, "promptId" | "bindingResolution">): boolean {
+  return args.promptId === "implement.prompt.shrink" || args.bindingResolution?.role === "shrink";
+}
 
 export function runsInLoopDiffDerivedMutationVerification(
   args: Pick<WriteLoopInput, "promptId" | "bindingResolution">,
 ): boolean {
-  return (
-    args.promptId === "implement.prompt.body" ||
-    args.promptId === IMPLEMENT_SHRINK_PROMPT_ID ||
-    args.bindingResolution?.role === "shrink"
-  );
+  return args.promptId === "implement.prompt.body" || isShrinkWriteLoop(args);
 }
 
-export function isShrinkWriteLoop(args: Pick<WriteLoopInput, "promptId" | "bindingResolution">): boolean {
-  return args.promptId === IMPLEMENT_SHRINK_PROMPT_ID || args.bindingResolution?.role === "shrink";
-}
-
-async function resetWorktreeToPreShrinkHead(
-  worktreePath: string,
-  preShrinkHead: string,
-  seam?: WriteLoopInput["resetWorktreeToPreShrinkHead"],
-): Promise<void> {
-  if (seam !== undefined) {
-    await seam(worktreePath, preShrinkHead);
-    return;
-  }
+async function resetWorktreeToPreShrinkHead(worktreePath: string, preShrinkHead: string): Promise<void> {
   await runRepairFenceGit(worktreePath, ["reset", "--hard", preShrinkHead]);
   await runRepairFenceGit(worktreePath, ["clean", "-fd"]);
 }
@@ -1998,8 +1982,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       // Run coverage advisory for completing implement writes before terminal boundary
       if (result.kind === "complete" && args.promptId === "implement.prompt.body") {
         inLoopVerifierProcessGroups = storeVerifierProcessGroupRecorder(store, runId);
-        const processGroups = inLoopVerifierProcessGroups;
-        const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal, processGroups);
+        const advisoryResult = await runCoverageAdvisory(
+          worktreePath,
+          args.bindings,
+          args.signal,
+          inLoopVerifierProcessGroups,
+        );
         if (advisoryResult !== null && "skipReason" in advisoryResult) {
           args.logSink?.append(runId, {
             kind: "coverage_advisory_skipped",
@@ -2026,7 +2014,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         appendInconclusiveMutationCandidates(args.logSink, runId, attemptId, verificationResult);
         if (verificationResult.kind === "surviving-mutation") {
           if (iterationsConsumed >= maxIterations && isShrinkWriteLoop(args) && args.preShrinkHead !== undefined) {
-            await resetWorktreeToPreShrinkHead(worktreePath, args.preShrinkHead, args.resetWorktreeToPreShrinkHead);
+            await resetWorktreeToPreShrinkHead(worktreePath, args.preShrinkHead);
             pendingSurvivingMutationReprompt = undefined;
           } else {
             try {

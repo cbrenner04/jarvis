@@ -2292,17 +2292,12 @@ async function runShrinkAfterImplementComplete(
   const worktreePath = getExternalWorktreePath(step.worktree);
   const preShrinkHead = existsSync(join(worktreePath, ".git")) ? await getCurrentHeadAsync(worktreePath) : undefined;
 
-  return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () =>
-    executeWriteLoop(
-      onStepRunCreated
-        ? {
-            ...preparedStep.input,
-            ...(preShrinkHead !== undefined ? { preShrinkHead } : {}),
-            onRunCreated: (runId) => onStepRunCreated(stepIndex, runId),
-          }
-        : { ...preparedStep.input, ...(preShrinkHead !== undefined ? { preShrinkHead } : {}) },
-    ),
-  );
+  const shrinkLoopInput = {
+    ...preparedStep.input,
+    ...(preShrinkHead !== undefined ? { preShrinkHead } : {}),
+    ...(onStepRunCreated !== undefined ? { onRunCreated: (runId: string) => onStepRunCreated(stepIndex, runId) } : {}),
+  };
+  return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () => executeWriteLoop(shrinkLoopInput));
 }
 
 async function shrinkPromptPlaceholders(

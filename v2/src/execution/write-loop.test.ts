@@ -561,7 +561,6 @@ async function runLoop(args: {
   verifyDiffDerivedMutations?: WriteLoopInput["verifyDiffDerivedMutations"];
   bindingResolution?: WriteLoopInput["bindingResolution"];
   preShrinkHead?: WriteLoopInput["preShrinkHead"];
-  resetWorktreeToPreShrinkHead?: WriteLoopInput["resetWorktreeToPreShrinkHead"];
   externalPlanSpec?: WriteLoopInput["externalPlanSpec"];
   specReadRoot?: WriteLoopInput["specReadRoot"];
   completionValidator?: WriteLoopInput["completionValidator"];
@@ -617,9 +616,6 @@ async function runLoop(args: {
       : {}),
     ...(args.bindingResolution !== undefined ? { bindingResolution: args.bindingResolution } : {}),
     ...(args.preShrinkHead !== undefined ? { preShrinkHead: args.preShrinkHead } : {}),
-    ...(args.resetWorktreeToPreShrinkHead !== undefined
-      ? { resetWorktreeToPreShrinkHead: args.resetWorktreeToPreShrinkHead }
-      : {}),
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
     ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
     ...(args.completionValidator !== undefined ? { completionValidator: args.completionValidator } : {}),
@@ -638,6 +634,13 @@ const IN_LOOP_SURVIVING_SOURCE_LINE = 17;
 const IN_LOOP_NON_TERMINATING_MUTATION = "guard-flip: while (true) → while (false)";
 const IN_LOOP_NON_TERMINATING_SOURCE_FILE = "v2/src/daemon/daemon-run-control-handler-guard.ts";
 const IN_LOOP_NON_TERMINATING_SOURCE_LINE = 42;
+
+const SHRINK_LOOP_TEST_PLACEHOLDERS = {
+  SPEC_TREE: "# Spec\n",
+  ALLOWLIST: "- proof.txt",
+  BRANCH_DIFF: "(no changes)",
+  RUN_SCOPED_DIFF: "(no changes)",
+} as const;
 
 function writeSpecIndex(jarvisRoot: string, branchName: string, content: string): void {
   const specDir = join(jarvisRoot, "worktrees", "demo", branchName, "spec");
@@ -8355,12 +8358,7 @@ export function isLoadSensitive(file: string): boolean {
         jarvisRoot,
         stateDbPath,
         promptId: "implement.prompt.shrink",
-        promptPlaceholders: {
-          SPEC_TREE: "# Spec\n",
-          ALLOWLIST: "- proof.txt",
-          BRANCH_DIFF: "(no changes)",
-          RUN_SCOPED_DIFF: "(no changes)",
-        },
+        promptPlaceholders: SHRINK_LOOP_TEST_PLACEHOLDERS,
         maxIterations: 3,
         logSink,
         bindings: [
@@ -8437,12 +8435,7 @@ export function isLoadSensitive(file: string): boolean {
         branchName,
         promptId: "implement.prompt.shrink",
         preShrinkHead,
-        promptPlaceholders: {
-          SPEC_TREE: "# Spec\n",
-          ALLOWLIST: "- proof.txt",
-          BRANCH_DIFF: "(no changes)",
-          RUN_SCOPED_DIFF: "(no changes)",
-        },
+        promptPlaceholders: SHRINK_LOOP_TEST_PLACEHOLDERS,
         maxIterations: 2,
         logSink,
         bindings: [

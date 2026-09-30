@@ -43,7 +43,7 @@ import {
   openLogSink,
 } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
+import { DEFAULT_HANDOFF_FALLBACK_MS, DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS } from "./daemon-changeover.ts";
 import {
   type DrainObserver,
   observePredecessorDrain,
@@ -1254,6 +1254,8 @@ type DaemonStartupDeps = {
    * private endpoint. A rejection propagates unchanged, same as any other `startHandoff` failure.
    */
   startSelfHandoffSuccessor?: (loaded: string, observed: string) => Promise<"committed" | "rolled_back">;
+  /** Merged into the default self-handoff `startDaemon` call (tests inject probers and handoff mocks). */
+  selfHandoffStartDaemonOptions?: NonNullable<Parameters<typeof startDaemon>[1]>;
   /** Self-handoff sampling interval; defaults to 30s. Same injection seam as `startDrainExitLoop`'s `intervalMs`. */
   selfHandoffSamplingIntervalMs?: number;
 };
@@ -1688,9 +1690,11 @@ export async function startDaemonRuntime(
       // constants, so a daemon bound under another home hands off within that home.
       const home = dirname(socketPath);
       await startDaemon(socketPath, {
+        ...startupDeps.selfHandoffStartDaemonOptions,
         pidPath: join(home, "daemon.pid"),
         logPath: join(home, "daemon.log"),
         privateSocketPath: daemonPathsByDigest(observed, home).socketPath,
+        readinessTimeoutMs: DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS,
       });
       return "committed";
     });

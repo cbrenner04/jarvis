@@ -92,7 +92,7 @@ import type { RunOperatorError } from "./run-operator-error.ts";
 import {
   type RetireCause,
   type RetiringSoleOwnerSelfHealInput,
-  shouldRetiringSoleOwnerSelfHeal,
+  runSelfHandoffSamplingIntervalTick,
   startStableDigestTrigger,
 } from "./stable-digest-trigger.ts";
 
@@ -1642,10 +1642,7 @@ export async function startDaemonRuntime(
     },
   );
 
-  // Self-handoff sampling runs self-heal before digest sampling on each tick (skipping only while a
-  // handoff transaction is pending or while retiring for a non-handoff-origin cause). Stranded
-  // handoff-origin retiring still samples so backoff retry can fire after rollback; only `close()`
-  // stops the interval at teardown.
+  // Self-handoff sampling: self-heal gate then digest tick; `close()` stops the interval.
   let selfHandoffTrigger: { stop(): void } | undefined;
   const setRetiring = setRetiringRaw;
 
@@ -1833,10 +1830,13 @@ export async function startDaemonRuntime(
             blocksRollbackReopen: supersedeAdmissionState.blocksRollbackReopen,
             retireCause: retireCauseState.cause,
           };
-          if (shouldRetiringSoleOwnerSelfHeal(selfHealInput)) reopenAdmission();
-          if (handoffHandlers.isPending()) return;
-          if (isRetiring() && retireCauseState.cause !== "handoff_origin") return;
-          void onTick();
+          runSelfHandoffSamplingIntervalTick(
+            selfHealInput,
+            reopenAdmission,
+            isRetiring,
+            () => retireCauseState.cause,
+            onTick,
+          );
         };
         startupDeps.captureSelfHandoffSamplingIntervalTick?.(intervalBody);
         const timer = setInterval(intervalBody, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);

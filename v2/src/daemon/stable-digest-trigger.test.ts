@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   isBackingOff,
-  type RetiringSoleOwnerSelfHealInput,
   type ScheduleDigestSampling,
+  runSelfHandoffSamplingIntervalTick,
   selfHandoffBackoffMs,
   shouldRetiringSoleOwnerSelfHeal,
   shouldSampleNow,
@@ -40,31 +40,6 @@ function sequenceSampler(values: Array<string | Error>): () => Promise<string> {
     if (value === undefined) throw new Error("sample sequence exhausted");
     if (value instanceof Error) throw value;
     return value;
-  };
-}
-
-/** Mirrors `startDaemonRuntime`'s self-handoff `scheduleSampling` interval body (self-heal gate, then `onTick`). */
-function daemonSelfHandoffSamplingLoop(
-  selfHealInput: () => RetiringSoleOwnerSelfHealInput,
-  onSelfHealReopen: () => void,
-): {
-  scheduleSampling: ScheduleDigestSampling;
-  fireSamplingTick: () => Promise<void>;
-} {
-  let onTick: (() => Promise<void>) | undefined;
-  const intervalBody = async (): Promise<void> => {
-    const input = selfHealInput();
-    if (shouldRetiringSoleOwnerSelfHeal(input)) onSelfHealReopen();
-    if (input.handoffPending) return;
-    if (input.retiring && input.retireCause !== "handoff_origin") return;
-    await onTick?.();
-  };
-  return {
-    scheduleSampling: (tick) => {
-      onTick = tick;
-      return { stop: () => {} };
-    },
-    fireSamplingTick: intervalBody,
   };
 }
 
@@ -333,18 +308,28 @@ describe("startStableDigestTrigger", () => {
     let retiring = true;
     let clock = 0;
     let calls = 0;
-    const loop = daemonSelfHandoffSamplingLoop(
-      () => ({
-        retiring,
-        publicBound: false,
-        handoffPending: false,
-        blocksRollbackReopen: false,
-        retireCause: "handoff_origin",
-      }),
-      () => {
-        retiring = false;
-      },
-    );
+    const loop = manualSamplingLoop();
+    const fireSamplingTick = async () => {
+      let tickPromise: void | Promise<void> | undefined;
+      runSelfHandoffSamplingIntervalTick(
+        {
+          retiring,
+          publicBound: false,
+          handoffPending: false,
+          blocksRollbackReopen: false,
+          retireCause: "handoff_origin",
+        },
+        () => {
+          retiring = false;
+        },
+        () => retiring,
+        () => "handoff_origin",
+        () => {
+          tickPromise = loop.tick();
+        },
+      );
+      await tickPromise;
+    };
     startStableDigestTrigger("loaded", {
       now: () => clock,
       sample: async () => "changed",
@@ -355,14 +340,14 @@ describe("startStableDigestTrigger", () => {
       scheduleSampling: loop.scheduleSampling,
     });
 
-    await loop.fireSamplingTick();
-    await loop.fireSamplingTick();
+    await fireSamplingTick();
+    await fireSamplingTick();
     expect(calls).toBe(1);
 
     clock = selfHandoffBackoffMs(1);
-    await loop.fireSamplingTick();
+    await fireSamplingTick();
     expect(calls).toBe(1);
-    await loop.fireSamplingTick();
+    await fireSamplingTick();
     expect(calls).toBe(2);
   });
 

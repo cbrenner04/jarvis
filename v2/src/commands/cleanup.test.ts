@@ -533,6 +533,9 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       const completed = join(projectRoot, "v2", "spec", "completed", specName);
       mkdirSync(dirname(completed), { recursive: true });
       await realAsyncSubprocessRunner.runAsync("git", ["mv", source, completed], projectRoot);
+      const mainReadyIntent = join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`);
+      mkdirSync(dirname(mainReadyIntent), { recursive: true });
+      writeFileSync(mainReadyIntent, intent);
       await commitFixtures(projectRoot);
     }
     const worktreePath = await createWorktree(branch);
@@ -584,6 +587,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const specName = `20260930T120000Z-subsumed-${prState}-${specOnMain}`;
     const branch = `plan/subsumed-${prState}-${specOnMain}`;
     const { worktreePath, source, configPath } = await setupSubsumedPlanLane(specName, branch, specOnMain);
+    const readyIntent = join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`);
     const store = storeForLaneRun(specName, branch, worktreePath);
     const runner = ghRunnerForCleanupPrProbe(prState, "plan");
     const registry = { project: { root: projectRoot } };
@@ -613,6 +617,9 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(listOutput).not.toContain(worktreePath);
     expect(existsSync(source)).toBe(specOnMain === "open");
     expect(stdout).not.toContain("Archived:");
+    expect(stdout).toContain(`Pruned consumed ready-intent: ${readyIntent}`);
+    expect(existsSync(readyIntent)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain(`v2/spec/ready-intents/${specName}.md`);
   });
 
   test.each([

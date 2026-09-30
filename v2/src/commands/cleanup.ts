@@ -1064,6 +1064,35 @@ function artifactForRetiredWorktree(
   };
 }
 
+/** Subsumed lanes may have only a `completed/` tree on the default branch while runs still name the open spec dir. */
+function artifactForSubsumedRetirementHygiene(
+  candidate: CleanupCandidate,
+  projectRoot: string,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+): ArtifactSpec | undefined {
+  const targetDir = planTargetDirForProject(candidate.project, configPath);
+  for (const run of store.listRuns()) {
+    if (run.project !== candidate.project || run.branch !== candidate.worktree.branch) continue;
+    const source = sourceForRun(run, candidate.worktree.path, projectRoot, registry, configPath);
+    if (source === undefined || isQueueEntrySource(source)) continue;
+    const name = basename(source);
+    const openSource = join(projectRoot, targetDir, name);
+    if (existsSync(join(openSource, "index.md"))) {
+      return { home: join(projectRoot, targetDir), source: openSource, name, branch: candidate.worktree.branch };
+    }
+    const completedSource = join(projectRoot, targetDir, "completed", name);
+    if (existsSync(join(completedSource, "index.md"))) {
+      return { home: join(projectRoot, targetDir), source: completedSource, name, branch: candidate.worktree.branch };
+    }
+    if (existsSync(join(source, "index.md"))) {
+      return { home: dirname(source), source, name, branch: candidate.worktree.branch };
+    }
+  }
+  return undefined;
+}
+
 function externalPlanSourceForRun(
   resolvedSpecPath: string,
   run: Run,
@@ -1275,6 +1304,15 @@ function reportArchiveSessions(sessions: ArchivePublicationSessions, io: { stdou
   }
 }
 
+/** When the open spec dir is gone but the tree already lives under `completed/`, still resolve intent bytes for prune. */
+function hygieneSpecForSubsumedRetirement(spec: ArtifactSpec, projectRoot: string, targetDir: string): ArtifactSpec {
+  if (existsSync(join(spec.source, "intent.md"))) return spec;
+  const name = basename(spec.source);
+  const completedSource = join(projectRoot, targetDir, "completed", name);
+  if (!existsSync(join(completedSource, "intent.md"))) return spec;
+  return { ...spec, source: completedSource, home: join(projectRoot, targetDir) };
+}
+
 async function archiveRetiredArtifact(
   candidate: CleanupCandidate,
   registry: Record<string, ProjectRegistryEntry>,
@@ -1285,13 +1323,30 @@ async function archiveRetiredArtifact(
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
   skips: ArtifactSkipLedger,
   sessions: ArchivePublicationSessions,
+  configPath: string = join(jarvisHome(), "config.json"),
 ): Promise<void> {
   const projectRoot = registry[candidate.project]?.root;
   if (projectRoot === undefined) return;
-  if (candidate.skipSpecArchival === true) return;
-  const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
+  const spec =
+    candidate.skipSpecArchival === true
+      ? artifactForSubsumedRetirementHygiene(candidate, projectRoot, store, registry, configPath)
+      : artifactForRetiredWorktree(candidate, projectRoot, store, registry, configPath);
   if (spec === undefined) {
     skips.skip(candidate.worktree.path, "no durable spec identity");
+    return;
+  }
+
+  if (candidate.skipSpecArchival === true) {
+    if (isExternalPlanArtifact(spec)) return;
+    const targetDir = planTargetDirForProject(candidate.project, configPath);
+    const hygieneSpec = hygieneSpecForSubsumedRetirement(spec, projectRoot, targetDir);
+    if (hasInRepoArtifactOwner(hygieneSpec, projectRoot, candidate.worktree.path, allWorktrees)) {
+      skips.skip(hygieneSpec.source, "another materialized worktree owns this spec");
+      return;
+    }
+    const result = await sessions.for(candidate.project, projectRoot).publishConsumedReadyIntentOnly(hygieneSpec);
+    if (result.status === "skipped") return;
+    reportArchive(hygieneSpec, result, "artifact", io);
     return;
   }
 
@@ -1684,6 +1739,9 @@ function reportArchive(
 ): void {
   if (result.status === "pruned") {
     io.stdout(`Pruned consumed ready-intent: ${spec.source} (consumed by ${result.consumedBy})\n`);
+  } else if (result.status === "intentPruned") {
+    const where = ` (committed on ${result.branch}; the operator checkout is unchanged)`;
+    io.stdout(`Pruned consumed ready-intent: ${result.readyIntent}${where}\n`);
   } else if (result.status === "archived") {
     const where = "branch" in result ? ` (committed on ${result.branch}; the operator checkout is unchanged)` : "";
     io.stdout(
@@ -1839,6 +1897,7 @@ async function retireEligibleWorktrees(
   ownerProjectsByRepositoryRoot: ReadonlyMap<string, readonly string[]>,
   skips: ArtifactSkipLedger,
   sessions: ArchivePublicationSessions,
+  configPath: string,
 ): Promise<number> {
   if (candidates.length === 0) return 0;
   return performWorktreeRemovals(
@@ -1846,7 +1905,18 @@ async function retireEligibleWorktrees(
     runner,
     io,
     async (candidate) => {
-      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, jarvisRoot, io, skips, sessions);
+      await archiveRetiredArtifact(
+        candidate,
+        registry,
+        discovered,
+        store,
+        runner,
+        jarvisRoot,
+        io,
+        skips,
+        sessions,
+        configPath,
+      );
     },
     (candidate) => registry[candidate.project]?.root ?? ".",
     {
@@ -2353,6 +2423,7 @@ async function executeConfirmedCleanup(
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     ctx.skips,
     sessions,
+    configPath,
   );
   const branchRefExit = await applyMergedBranchRefPrunes(
     ctx.branchRefDiscovery.candidates,

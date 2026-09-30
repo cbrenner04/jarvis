@@ -186,7 +186,7 @@ async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessR
 }
 
 export type EligibilityResult =
-  | { status: "eligible"; subsumedPlanRetirement?: boolean; skipSpecArchival?: boolean }
+  | { status: "eligible"; skipSpecArchival?: boolean }
   | { status: "ineligible"; reason: string };
 
 export type CheckEligibilityContext = {
@@ -341,16 +341,10 @@ export async function checkEligibility(
     if (subsumed.status === "ineligible") return subsumed;
     const guards = await worktreeRetirementGuardEligibility(project, branch, daemonClient, store);
     if (guards.status === "ineligible") return guards;
-    const eligible: EligibilityResult = { status: "eligible", subsumedPlanRetirement: true };
-    if (subsumed.skipSpecArchival === true) eligible.skipSpecArchival = true;
-    return eligible;
+    return { status: "eligible", skipSpecArchival: true };
   }
 
   return { status: "ineligible", reason: `PR not merged: ${mergedResult.reason}` };
-}
-
-export function formatImplementLandedElsewhereLine(worktreePath: string, branch: string, reason: string): string {
-  return `Landed elsewhere: ${worktreePath} — ${reason}; run jarvis cleanup --abandon ${branch} --discard-unlanded after verifying\n`;
 }
 
 async function implementSpecTreeOnCompletedAtDefaultBranch(
@@ -419,7 +413,6 @@ async function isMerged(branch: string, runner: AsyncSubprocessRunner, cwd = "."
 export type CleanupCandidate = {
   worktree: DiscoveredWorktree & { branch: string };
   project: string;
-  subsumedPlanRetirement?: boolean;
   skipSpecArchival?: boolean;
 };
 
@@ -527,8 +520,6 @@ export async function mergedPrHeadAuthorityMatches(
   }
 }
 
-type GhPrStateRecord = { state?: string };
-
 /** True when no OPEN PR owns the branch; absent or CLOSED PRs are allowed. Fails closed on probe errors. */
 export async function planSubsumedPrGateAllows(
   branch: string,
@@ -542,7 +533,7 @@ export async function planSubsumedPrGateAllows(
       repoRoot,
       networkSubprocessOptions(),
     );
-    const parsed = JSON.parse(output) as GhPrStateRecord[];
+    const parsed = JSON.parse(output) as GhPrHeadRecord[];
     if (!Array.isArray(parsed)) return false;
     return !parsed.some((pr) => pr.state === "OPEN");
   } catch {
@@ -659,7 +650,7 @@ async function planLaneSpecPresentOnDefaultBranch(
   return (await specTreeFsAtRef(projectRoot, completedAbs, baseBranch, runner)) !== undefined;
 }
 
-export async function evaluatePlanLaneSubsumedEligibility(
+async function evaluatePlanLaneSubsumedEligibility(
   candidate: CleanupCandidate,
   projectRoot: string,
   runner: AsyncSubprocessRunner,
@@ -1740,7 +1731,6 @@ async function findEligibleWorktreeCandidates(
     );
     if (eligibility.status === "eligible") {
       const entry: CleanupCandidate = { worktree: { ...worktree, branch: worktree.branch }, project };
-      if (eligibility.subsumedPlanRetirement === true) entry.subsumedPlanRetirement = true;
       if (eligibility.skipSpecArchival === true) entry.skipSpecArchival = true;
       candidates.push(entry);
     } else if (eligibility.reason === DAEMON_UNREACHABLE_REASON) {
@@ -1757,7 +1747,9 @@ async function findEligibleWorktreeCandidates(
         configPath,
       );
       if (landedReason !== undefined) {
-        io.stdout(formatImplementLandedElsewhereLine(worktree.path, worktree.branch, landedReason));
+        io.stdout(
+          `Landed elsewhere: ${worktree.path} — ${landedReason}; run jarvis cleanup --abandon ${worktree.branch} --discard-unlanded after verifying\n`,
+        );
       }
     }
   }
@@ -1822,8 +1814,6 @@ async function recheckEligibleWorktrees(
     );
     if (recheck.status === "eligible") {
       const entry: CleanupCandidate = { ...candidate };
-      if (recheck.subsumedPlanRetirement === true) entry.subsumedPlanRetirement = true;
-      else delete entry.subsumedPlanRetirement;
       if (recheck.skipSpecArchival === true) entry.skipSpecArchival = true;
       else delete entry.skipSpecArchival;
       stillEligible.push(entry);
@@ -1877,7 +1867,7 @@ async function retireEligibleWorktrees(
           store,
           retiredBranches,
           ownerProjectsByRepositoryRoot.get(projectRoot),
-          { skipMergedPrAuthority: candidate.subsumedPlanRetirement === true },
+          { skipMergedPrAuthority: candidate.skipSpecArchival === true },
         );
       },
       retiredBranches,

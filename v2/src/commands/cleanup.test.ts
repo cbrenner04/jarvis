@@ -486,7 +486,10 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).toContain("No eligible worktrees or stranded artifacts");
   });
 
-  function ghRunnerForSubsumedPlan(prState: "CLOSED" | "absent" | "OPEN" | "probe-failure"): AsyncSubprocessRunner {
+  function ghRunnerForCleanupPrProbe(
+    prState: "CLOSED" | "absent" | "OPEN" | "probe-failure",
+    laneKind: "plan" | "implement",
+  ): AsyncSubprocessRunner {
     return {
       runAsync: async (cmd, args, cwd) => {
         if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
@@ -503,12 +506,11 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
             if (prState === "probe-failure") throw GH_PR_LIST_PROBE_ERROR;
             const headIndex = args.indexOf("--head");
             const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
-            if (branchName?.startsWith("plan/") && prState === "CLOSED") {
-              return JSON.stringify([{ state: "CLOSED" }]);
-            }
-            if (branchName?.startsWith("plan/") && prState === "OPEN") {
-              return JSON.stringify([{ state: "OPEN" }]);
-            }
+            if (branchName === undefined) return "[]";
+            const planLane = branchName.startsWith("plan/");
+            if (laneKind === "plan" ? !planLane : planLane) return "[]";
+            if (prState === "CLOSED") return JSON.stringify([{ state: "CLOSED" }]);
+            if (prState === "OPEN") return JSON.stringify([{ state: "OPEN" }]);
             return "[]";
           }
         }
@@ -552,7 +554,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     };
   }
 
-  function storeForSubsumedPlan(
+  function storeForLaneRun(
     specName: string,
     branch: string,
     worktreePath: string,
@@ -582,8 +584,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const specName = `20260930T120000Z-subsumed-${prState}-${specOnMain}`;
     const branch = `plan/subsumed-${prState}-${specOnMain}`;
     const { worktreePath, source, configPath } = await setupSubsumedPlanLane(specName, branch, specOnMain);
-    const store = storeForSubsumedPlan(specName, branch, worktreePath);
-    const runner = ghRunnerForSubsumedPlan(prState);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe(prState, "plan");
     const registry = { project: { root: projectRoot } };
     let stdout = "";
     const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
@@ -620,13 +622,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const specName = "20260930T120001Z-subsumed-ineligible-pr";
     const branch = "plan/subsumed-ineligible-pr";
     const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
-    const store = storeForSubsumedPlan(specName, branch, worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
     let stdout = "";
     await runCleanupCommand(
       { dryRun: true, configPath },
       { project: { root: projectRoot } },
       jarvisRoot,
-      ghRunnerForSubsumedPlan(prState),
+      ghRunnerForCleanupPrProbe(prState, "plan"),
       async () => [],
       store,
       {
@@ -645,13 +647,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     writeFileSync(join(worktreePath, "outside-scope.txt"), "nope\n");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "outside-scope.txt"], worktreePath);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "outside"], worktreePath);
-    const store = storeForSubsumedPlan(specName, branch, worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
     let stdout = "";
     await runCleanupCommand(
       { dryRun: true, configPath },
       { project: { root: projectRoot } },
       jarvisRoot,
-      ghRunnerForSubsumedPlan("CLOSED"),
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
       async () => [],
       store,
       {
@@ -676,13 +678,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], projectRoot);
     });
     await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
-    const store = storeForSubsumedPlan(specName, branch, worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
     let stdout = "";
     await runCleanupCommand(
       { dryRun: true, configPath },
       { project: { root: projectRoot } },
       jarvisRoot,
-      ghRunnerForSubsumedPlan("CLOSED"),
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
       async () => [],
       store,
       {
@@ -697,13 +699,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const specName = "20260930T120004Z-subsumed-active-run";
     const branch = "plan/subsumed-active-run";
     const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
-    const store = storeForSubsumedPlan(specName, branch, worktreePath, "in-progress");
+    const store = storeForLaneRun(specName, branch, worktreePath, "in-progress");
     let stdout = "";
     await runCleanupCommand(
       { dryRun: true, configPath },
       { project: { root: projectRoot } },
       jarvisRoot,
-      ghRunnerForSubsumedPlan("CLOSED"),
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
       async () => [],
       store,
       {
@@ -718,13 +720,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const specName = "20260930T120005Z-subsumed-live-daemon";
     const branch = "plan/subsumed-live-daemon";
     const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
-    const store = storeForSubsumedPlan(specName, branch, worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
     let stdout = "";
     await runCleanupCommand(
       { dryRun: true, configPath },
       { project: { root: projectRoot } },
       jarvisRoot,
-      ghRunnerForSubsumedPlan("CLOSED"),
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
       async () => [{ isLive: true }],
       store,
       { stdout: (s) => (stdout += s), stderr: () => {} },
@@ -732,37 +734,6 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).not.toContain(worktreePath);
     expect(stdout).not.toContain("Retired");
   });
-
-  function ghRunnerForImplementLandedElsewhere(prState: "CLOSED" | "OPEN" | "probe-failure"): AsyncSubprocessRunner {
-    return {
-      runAsync: async (cmd, args, cwd) => {
-        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          if (prState === "CLOSED") return JSON.stringify({ state: "CLOSED", mergedAt: null });
-          if (prState === "OPEN") return JSON.stringify({ state: "OPEN", mergedAt: null });
-          throw new AsyncSubprocessError("not found", 1, "", "", undefined);
-        }
-        if (cmd === "gh" && args[1] === "list") {
-          const stateIndex = args.indexOf("--state");
-          const stateArg = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
-          if (stateArg === "open") return "[]";
-          if (stateArg === "all") {
-            if (prState === "probe-failure") throw GH_PR_LIST_PROBE_ERROR;
-            const headIndex = args.indexOf("--head");
-            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
-            if (branchName !== undefined && !branchName.startsWith("plan/") && prState === "CLOSED") {
-              return JSON.stringify([{ state: "CLOSED" }]);
-            }
-            if (branchName !== undefined && !branchName.startsWith("plan/") && prState === "OPEN") {
-              return JSON.stringify([{ state: "OPEN" }]);
-            }
-            return "[]";
-          }
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
-      },
-    };
-  }
 
   async function setupImplementLandedElsewhereLane(
     specName: string,
@@ -789,26 +760,12 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     return { worktreePath, configPath };
   }
 
-  function storeForImplementLane(specName: string, branch: string, worktreePath: string): StateStore {
-    return {
-      listRuns: () => [
-        {
-          status: "completed",
-          specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
-          project: "project",
-          branch,
-          worktreePath,
-        },
-      ],
-    } as unknown as StateStore;
-  }
-
   test("implement lane with CLOSED PR and spec on completed/ prints Landed elsewhere and is not retired", async () => {
     const specName = "20260930T130000Z-landed-elsewhere";
     const branch = "20260930T130000Z-landed-elsewhere";
     const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
-    const store = storeForImplementLane(specName, branch, worktreePath);
-    const runner = ghRunnerForImplementLandedElsewhere("CLOSED");
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe("CLOSED", "implement");
     const registry = { project: { root: projectRoot } };
     let stdout = "";
     const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
@@ -846,13 +803,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const specName = "20260930T130001Z-landed-elsewhere-silent";
     const branch = "20260930T130001Z-landed-elsewhere-silent";
     const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
-    const store = storeForImplementLane(specName, branch, worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
     let stdout = "";
     await runCleanupCommand(
       { dryRun: true, configPath },
       { project: { root: projectRoot } },
       jarvisRoot,
-      ghRunnerForImplementLandedElsewhere(prState),
+      ghRunnerForCleanupPrProbe(prState, "implement"),
       async () => [],
       store,
       { stdout: (s) => (stdout += s), stderr: () => {} },
@@ -864,10 +821,10 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const specName = "20260930T130002Z-landed-guard";
     const branch = "20260930T130002Z-landed-guard";
     const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
-    const store = storeForImplementLane(specName, branch, worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
     const worktree: DiscoveredWorktree = { path: worktreePath, branch };
     const registry = { project: { root: projectRoot } };
-    const openRunner = ghRunnerForImplementLandedElsewhere("OPEN");
+    const openRunner = ghRunnerForCleanupPrProbe("OPEN", "implement");
     expect(
       await evaluateImplementLandedElsewhereReport(
         worktree,
@@ -880,7 +837,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         configPath,
       ),
     ).toBeUndefined();
-    const closedRunner = ghRunnerForImplementLandedElsewhere("CLOSED");
+    const closedRunner = ghRunnerForCleanupPrProbe("CLOSED", "implement");
     expect(
       await evaluateImplementLandedElsewhereReport(
         worktree,

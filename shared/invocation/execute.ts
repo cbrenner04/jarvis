@@ -1,9 +1,6 @@
 import type { SessionLog } from "./session-log.ts";
 
-export type InvocationOk = {
-  kind: "ok";
-  stdout: string;
-  stderr: string;
+export type InvocationSettlement = {
   usage_source?: "agent" | "estimated" | "unavailable";
   usage?: {
     input_tokens: number | null;
@@ -16,27 +13,33 @@ export type InvocationOk = {
   warnings?: string[];
 };
 
+export type InvocationOk = {
+  kind: "ok";
+  stdout: string;
+  stderr: string;
+} & InvocationSettlement;
+
 export type InvocationQuota = {
   kind: "quota";
   stderr: string;
   authFailure?: true;
   /** See `InvocationError.diagnostics`. */
   diagnostics?: string;
-};
+} & InvocationSettlement;
 
 export type InvocationStall = {
   kind: "stall";
   stderr: string;
-};
+} & InvocationSettlement;
 
 export type InvocationError =
-  | {
+  | ({
       kind: "model_config";
       stderr: string;
       /** See the `error` variant's `diagnostics`. */
       diagnostics?: string;
-    }
-  | {
+    } & InvocationSettlement)
+  | ({
       kind: "error";
       exitCode: number;
       stderr: string;
@@ -50,7 +53,7 @@ export type InvocationError =
        * this stream (see `invocationDiagnosticText`); it must never be fed back into classification.
        */
       diagnostics?: string;
-    };
+    } & InvocationSettlement);
 
 export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall | InvocationError;
 
@@ -364,6 +367,30 @@ function capTextField(text: string): string {
   return marker + text.slice(text.length - (TEXT_FIELD_CAP_CHARS - marker.length));
 }
 
+const NULL_INVOCATION_USAGE: InvocationCompletedRecord["usage"] = {
+  input_tokens: null,
+  output_tokens: null,
+  cache_read_input_tokens: null,
+  cache_creation_input_tokens: null,
+};
+
+function settlementFromResult(result: InvocationResult): {
+  usage: InvocationCompletedRecord["usage"];
+  usage_source: InvocationCompletedRecord["usage_source"];
+  cost_usd: number | null;
+  cost_source: InvocationCompletedRecord["cost_source"];
+  warnings: string[];
+} {
+  const settlement = result as InvocationSettlement;
+  return {
+    usage: settlement.usage ?? NULL_INVOCATION_USAGE,
+    usage_source: settlement.usage_source ?? "unavailable",
+    cost_usd: settlement.cost_usd ?? null,
+    cost_source: settlement.cost_source ?? "unavailable",
+    warnings: (settlement.warnings ?? []).map(capTextField),
+  };
+}
+
 function createInvocationCompletedRecord(args: {
   telemetry: InvocationTelemetryContext;
   invocationId: string;
@@ -373,8 +400,7 @@ function createInvocationCompletedRecord(args: {
   result: InvocationResult;
   durationMs: number;
 }): InvocationCompletedRecord {
-  const isOk = args.result.kind === "ok";
-  const okResult = isOk ? (args.result as InvocationOk) : null;
+  const settlement = settlementFromResult(args.result);
 
   return {
     schema_version: 1,
@@ -396,16 +422,11 @@ function createInvocationCompletedRecord(args: {
     worktree_path: args.telemetry.worktreePath,
     branch: args.telemetry.branch,
     spec_ref: args.telemetry.specRef,
-    usage: okResult?.usage ?? {
-      input_tokens: null,
-      output_tokens: null,
-      cache_read_input_tokens: null,
-      cache_creation_input_tokens: null,
-    },
-    usage_source: okResult?.usage_source ?? "unavailable",
-    cost_usd: okResult?.cost_usd ?? null,
-    cost_source: okResult?.cost_source ?? "unavailable",
-    warnings: (okResult?.warnings ?? []).map(capTextField),
+    usage: settlement.usage,
+    usage_source: settlement.usage_source,
+    cost_usd: settlement.cost_usd,
+    cost_source: settlement.cost_source,
+    warnings: settlement.warnings,
     exit_kind: args.result.kind,
     exit_reason:
       args.result.kind === "ok"

@@ -19,10 +19,12 @@ Contract:
   bindings are configured).
 - When the caller also passes write-step telemetry context plus a sink, each
   settled binding subprocess appends one `invocation_completed` JSONL row before
-  fallback classification continues. An `ok` result carrying `usage`/`cost_usd`
-  with source metadata records those exact values on the row; results without
-  them or non-`ok` results default to null usage and "unavailable" sources.
-  Callers that omit that pair stay telemetry no-op.
+  fallback classification continues. When the settled `InvocationResult` carries
+  optional settlement (`usage`, `usage_source`, `cost_usd`, `cost_source`,
+  `warnings`), the row copies those fields for every exit kind; omitted settlement
+  keeps explicit null usage and `usage_source` / `cost_source` of `"unavailable"`
+  (never assumed free). Field catalog: [`telemetry-capture.md`](./telemetry-capture.md).
+  Callers that omit telemetry context plus sink stay telemetry no-op.
 - When the caller also passes a `sessionLog` (opened via `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt in the fallback chain writes `harness` (binding id, agent, model) and `outbound` (prompt) lines before `binding.invoke` runs, then `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes stdout under `inbound_stdout` and stderr under `inbound_stderr`; a `quota`/`model_config`/`error` result writes its `stderr` under `inbound_stderr`, plus, when it carries a retained observability `diagnostics` stream (opencode, whose classified `stderr` is scoped away — see below), that stream under `inbound_stdout`; a `stall` result carries buffered stderr followed by buffered stdout in its `stderr` diagnostics and writes that combined payload only under `inbound_stderr`, never `inbound_stdout`. An empty stalled inbound payload therefore means neither stream produced output. A throwing `sessionLog.append` is swallowed and never fails the invocation. Callers that omit `sessionLog` stay unaffected.
 - Optional `onAgentShellCommand` on each `binding.invoke` call (and forwarded by `executeWithQuotaFallback`) fires synchronously when a claude or cursor binding's live `stream-json` stdout announces a shell-tool invocation, at or just before the agent CLI executes it. The callback receives the extracted shell command string. A matching shell-tool completion frame invokes optional `onAgentShellCommandComplete`. Codex bindings emit no live structured stream today (only post-hoc session rollout reads), so they never fire either callback. `singleSpawn` incrementally parses NDJSON stdout lines for per-agent shell-tool frames; claude frames include `assistant`/`tool_use` Bash blocks and `tool_result` completions, cursor frames use `tool_call` `shellToolCall` started/completed events.
 

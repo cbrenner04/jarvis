@@ -2,7 +2,7 @@
 
 ## Problem
 
-Pipeline terminal publication (`executeTerminalPublication`, wired from `pipeline-execution.ts`) republication will refuse an open non-draft PR unless durable evidence shows this lane's harness flipped it ready earlier, but `runReadyFlipOrFail` never invokes ready-flip evidence persistence after a successful `gh pr ready`, so the entry run row cannot prove the harness flipped that PR. Standalone implement / `ready-finalize` flip sites are out of scope.
+Pipeline terminal publication (`executeTerminalPublication`, wired from `pipeline-execution.ts`) republication will refuse an open non-draft PR unless durable evidence shows this lane's harness flipped it ready earlier, but `runReadyFlipOrFail` never invokes ready-flip evidence persistence after a successful `gh pr ready`, so the entry run row cannot prove the harness flipped that PR. The `ready-finalize` flip site is covered by subspec 01.
 
 ## Decisions
 
@@ -11,7 +11,7 @@ Pipeline terminal publication (`executeTerminalPublication`, wired from `pipelin
 - Wire persistence through an optional `recordHarnessReadyFlipEvidence` callback on `TerminalPublicationInput` (pipeline closes over `entryRun.id` and `StateStore`) — rules out importing `StateStore` into `terminal-publication.ts`.
 - Omit the write when the callback is absent — rules out inventing a run row for seam-only unit tests that never model persistence.
 - A rejected `ghReadyFlip` leaves prior row evidence unchanged and performs no write on this attempt — rules out recording on gate success before flip or on flip failure paths that still throw `TerminalPublicationError`.
-- `ready-finalize` / standalone write-loop finalization stays out of scope — rules out coupling this subspec to non-`terminal-publication.ts` flip sites (separate follow-on intents).
+- `ready-finalize` flip is subspec 01 — keeps this subspec to `terminal-publication.ts`.
 
 ## Tasks
 
@@ -31,4 +31,4 @@ Pipeline terminal publication (`executeTerminalPublication`, wired from `pipelin
 ## Documentation updates
 
 - [ ] `v2/docs/v1-behaviors.md` — pipeline terminal publication after a successful harness ready flip persists ready-flip evidence on the owning run row.
-- [ ] `v2/docs/state-store.md` — production writers include pipeline terminal publication via `recordHarnessReadyFlipEvidence` bound from `resolveTerminalPublicationInput`; qualify or remove wording that terminal settlement never writes `harness_ready_flip_evidence` where it would contradict this path.
+- [ ] `v2/docs/state-store.md` — production writers include pipeline terminal publication via `recordHarnessReadyFlipEvidence` bound from `resolveTerminalPublicationInput`; qualify line ~62 wording that terminal settlement never writes `harness_ready_flip_evidence` where it would contradict this path.

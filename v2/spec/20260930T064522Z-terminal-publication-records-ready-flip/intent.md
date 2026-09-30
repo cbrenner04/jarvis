@@ -2,7 +2,7 @@
 name: terminal-publication-records-ready-flip
 ---
 
-# Terminal publication records a successful ready flip
+# Harness ready flips record evidence
 
 ## Problem
 
@@ -10,16 +10,18 @@ Completion publication can refuse republication on a non-draft PR the harness fl
 
 ## Behavior
 
-The terminal publication ready path invokes the state-store ready-flip evidence write only after `gh pr ready` succeeds for the resolved PR number, using the publication branch and base ref. A failed `gh pr ready` leaves prior evidence unchanged and records none for this attempt.
+Both harness flip sites — pipeline terminal publication (`terminal-publication.ts`) and implement completion ready finalization (`ready-finalize.ts`, the site that flipped #4216, #4191, #4227) — invoke the state-store ready-flip evidence write only after `gh pr ready` succeeds for the resolved PR number, using the branch and base ref, on the run row the `(project, branch, spec_ref)` lineage lookup scans. A failed `gh pr ready` leaves prior evidence unchanged and records none for this attempt.
 
 ## Acceptance criteria
 
-- [ ] `terminal-publication.test.ts` fails against the pre-fix path and pins evidence persistence after a successful flip and no persistence when the injected `ghReadyFlip` rejects.
+- [ ] `ready-finalize.test.ts` and `terminal-publication.test.ts` each fail against the pre-fix path and pins evidence persistence after a successful flip and no persistence when the injected `ghReadyFlip` rejects.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- None; the ready-flip evidence write contract is documented in `v2/docs/state-store.md` (ready-flip-evidence-persistence).
+- `v2/docs/v1-behaviors.md` — both flip sites record evidence after success.
+- `v2/docs/state-store.md` — list both production writers; qualify line ~62 terminal-settlement wording.
+- `v2/docs/write-behavior.md` — ready finalization records evidence after a successful flip.
 
 ## Prerequisites
 

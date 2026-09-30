@@ -1,11 +1,7 @@
 import { expect, test } from "bun:test";
 import { DaemonSocketBindFailureError, DaemonSocketInUseError } from "../ipc/server.ts";
-import {
-  type DaemonRetireCause,
-  createHandoffHandlers,
-  createSupersedeHandler,
-  isLiveSuccessorPublicBindRefusal,
-} from "./daemon.ts";
+import { createHandoffHandlers, createSupersedeHandler, isLiveSuccessorPublicBindRefusal } from "./daemon.ts";
+import type { RetireCause } from "./stable-digest-trigger.ts";
 
 function requestFrame(method: string, params?: unknown) {
   return { kind: "request" as const, id: "1", method, params };
@@ -37,7 +33,7 @@ async function pendingHandoffId(handlers: ReturnType<typeof createHandoffHandler
 function makeHandlers() {
   let retiring = true;
   const supersedeAdmissionState = { blocksRollbackReopen: false };
-  const retireCauseState = { cause: null as DaemonRetireCause };
+  const retireCauseState = { cause: null as RetireCause };
   const handlers = createHandoffHandlers({
     ...baseDeps,
     retireCauseState,

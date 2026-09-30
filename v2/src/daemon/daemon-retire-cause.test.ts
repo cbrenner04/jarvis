@@ -1,14 +1,11 @@
 import { expect, test } from "bun:test";
 import {
-  clearRetireCause,
   createHandoffHandlers,
   createSignalHandler,
   createSupersedeHandler,
   recordRetireCauseOnChangeover,
-  recordRetireCauseTerminal,
-  type DaemonRetireCause,
 } from "./daemon.ts";
-import { shouldRetiringSoleOwnerSelfHeal } from "./stable-digest-trigger.ts";
+import { type RetireCause, shouldRetiringSoleOwnerSelfHeal } from "./stable-digest-trigger.ts";
 
 function requestFrame(method: string, params?: unknown) {
   return { kind: "request" as const, id: "1", method, params };
@@ -63,7 +60,7 @@ async function runFallbackTicks(advance: (ms: number) => void, count: number) {
 
 function makeSupersedePair() {
   const supersedeAdmissionState = { blocksRollbackReopen: false };
-  const retireCauseState = { cause: null as DaemonRetireCause };
+  const retireCauseState = { cause: null as RetireCause };
   const handlers = createHandoffHandlers({
     ...baseDeps,
     retireCauseState,
@@ -88,18 +85,18 @@ function makeSupersedePair() {
 }
 
 test("recordRetireCauseOnChangeover sets handoff_origin only while cause is null", () => {
-  const state = { cause: null as DaemonRetireCause };
+  const state = { cause: null as RetireCause };
   recordRetireCauseOnChangeover(state);
   expect(state.cause).toBe("handoff_origin");
   recordRetireCauseOnChangeover(state);
   expect(state.cause).toBe("handoff_origin");
-  recordRetireCauseTerminal(state);
+  state.cause = "terminal";
   recordRetireCauseOnChangeover(state);
   expect(state.cause).toBe("terminal");
 });
 
 test("operator signals record terminal retireCause", () => {
-  const retireCauseState = { cause: null as DaemonRetireCause };
+  const retireCauseState = { cause: null as RetireCause };
   const handler = createSignalHandler({
     setShutdownRequested: () => {},
     recordRetireTrigger: () => {},
@@ -133,7 +130,7 @@ test("successor supersede during a pending handoff keeps handoff_origin", async 
 
 test("fallback rollback after changeover does not set terminal before admission reopens", async () => {
   const { scheduleAfter, advance } = makeFallbackClock();
-  const retireCauseState = { cause: null as DaemonRetireCause };
+  const retireCauseState = { cause: null as RetireCause };
   const handlers = createHandoffHandlers({
     ...baseDeps,
     retireCauseState,
@@ -150,7 +147,7 @@ test("fallback rollback after changeover does not set terminal before admission 
 });
 
 test("committed-handoff watch rebind clears retireCause; a later changeover restores handoff_origin for self-heal", async () => {
-  const retireCauseState = { cause: null as DaemonRetireCause };
+  const retireCauseState = { cause: null as RetireCause };
   let retiring = false;
   const handlers = createHandoffHandlers({
     ...baseDeps,
@@ -159,7 +156,7 @@ test("committed-handoff watch rebind clears retireCause; a later changeover rest
       retiring = true;
     },
     setAdmitting: () => {
-      clearRetireCause(retireCauseState);
+      retireCauseState.cause = null;
       retiring = false;
     },
     rollbackBlocksReopenAdmission: () => false,

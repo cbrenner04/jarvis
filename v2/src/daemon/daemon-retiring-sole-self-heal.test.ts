@@ -26,6 +26,16 @@ function requestFrame(method: string, params?: unknown) {
   return { kind: "request" as const, id: uniqueId(), method, params };
 }
 
+function selfHealInput(publicBound = true): RetiringSoleOwnerSelfHealInput {
+  return {
+    retiring: true,
+    publicBound,
+    handoffPending: false,
+    blocksRollbackReopen: false,
+    retireCause: "handoff_origin",
+  };
+}
+
 function ensureTestMachineConfig(): void {
   const home = process.env.JARVIS_HOME;
   if (home === undefined) throw new Error("JARVIS_HOME unset");
@@ -120,13 +130,7 @@ afterEach(() => {
 
 test("sampling tick self-heals a stranded handoff-origin sole owner and admits start", async () => {
   const { handlers, fireSamplingTick, close } = await startSelfHealDaemon(store, socketPath, {
-    predicateInputs: () => ({
-      retiring: true,
-      publicBound: true,
-      handoffPending: false,
-      blocksRollbackReopen: false,
-      retireCause: "handoff_origin",
-    }),
+    predicateInputs: selfHealInput,
   });
   try {
     await beginChangeover(handlers);
@@ -141,13 +145,7 @@ test("sampling tick self-heals a stranded handoff-origin sole owner and admits s
 
 test("publicBound false leaves admission closed on the sampling tick", async () => {
   const { handlers, fireSamplingTick, close } = await startSelfHealDaemon(store, socketPath, {
-    predicateInputs: () => ({
-      retiring: true,
-      publicBound: false,
-      handoffPending: false,
-      blocksRollbackReopen: false,
-      retireCause: "handoff_origin",
-    }),
+    predicateInputs: () => selfHealInput(false),
   });
   try {
     await beginChangeover(handlers);

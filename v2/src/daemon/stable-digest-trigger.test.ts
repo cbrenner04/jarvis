@@ -3,7 +3,6 @@ import {
   isBackingOff,
   type ScheduleDigestSampling,
   selfHandoffBackoffMs,
-  runRetiringSoleOwnerSelfHealOnSamplingTick,
   shouldRetiringSoleOwnerSelfHeal,
   shouldSampleNow,
   shouldTriggerHandoff,
@@ -109,32 +108,6 @@ describe("shouldRetiringSoleOwnerSelfHeal", () => {
 
   test("is false when retireCause was cleared", () => {
     expect(shouldRetiringSoleOwnerSelfHeal({ ...matching, retireCause: null })).toBe(false);
-  });
-});
-
-describe("runRetiringSoleOwnerSelfHealOnSamplingTick", () => {
-  const matching = {
-    retiring: true,
-    publicBound: true,
-    handoffPending: false,
-    blocksRollbackReopen: false,
-    retireCause: "handoff_origin" as const,
-  };
-
-  test("reopens admission when the predicate matches", () => {
-    let reopened = false;
-    runRetiringSoleOwnerSelfHealOnSamplingTick(matching, () => {
-      reopened = true;
-    });
-    expect(reopened).toBe(true);
-  });
-
-  test("does not reopen admission when the predicate is false", () => {
-    let reopened = false;
-    runRetiringSoleOwnerSelfHealOnSamplingTick({ ...matching, handoffPending: true }, () => {
-      reopened = true;
-    });
-    expect(reopened).toBe(false);
   });
 });
 

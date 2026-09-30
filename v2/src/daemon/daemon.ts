@@ -90,9 +90,9 @@ import { continuePipeline } from "./pipeline-execution.ts";
 import type { KillSurvivor } from "./run-kill-outcome.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
 import {
+  type RetireCause,
   type RetiringSoleOwnerSelfHealInput,
-  runRetiringSoleOwnerSelfHealOnSamplingTick,
-  type ScheduleDigestSampling,
+  shouldRetiringSoleOwnerSelfHeal,
   startStableDigestTrigger,
 } from "./stable-digest-trigger.ts";
 
@@ -322,24 +322,10 @@ export function workflowInvocationIsLive(
 /** The RPC or signal that started a daemon generation's retire transition. */
 type DaemonRetireTrigger = "supersede" | "changeover" | "shutdown" | "sigterm" | "sigint";
 
-export type DaemonRetireCause = "handoff_origin" | "terminal" | null;
-
-export type DaemonRetireCauseState = { cause: DaemonRetireCause };
+type DaemonRetireCauseState = { cause: RetireCause };
 
 export function recordRetireCauseOnChangeover(state: DaemonRetireCauseState): void {
   if (state.cause === null) state.cause = "handoff_origin";
-}
-
-export function recordRetireCauseTerminal(state: DaemonRetireCauseState): void {
-  state.cause = "terminal";
-}
-
-export function clearRetireCause(state: DaemonRetireCauseState): void {
-  state.cause = null;
-}
-
-export function recordRetireCauseAfterSupersede(state: DaemonRetireCauseState, blocksRollbackReopen: boolean): void {
-  if (blocksRollbackReopen) recordRetireCauseTerminal(state);
 }
 
 const RETIRE_TRIGGER_LOG_PREFIX = "JARVIS_DAEMON_RETIRE_TRIGGER:";
@@ -1016,7 +1002,7 @@ export function createSupersedeHandler(deps: {
       pendingHandoffId: deps.pendingHandoffId(),
       supersedeHandoffId: handoffIdentity(frame),
     });
-    recordRetireCauseAfterSupersede(deps.retireCauseState, deps.state.blocksRollbackReopen);
+    if (deps.state.blocksRollbackReopen) deps.retireCauseState.cause = "terminal";
     deps.setRetiring();
     deps.recordRetireTrigger("supersede");
     return { kind: "response", result: { ok: true } };
@@ -1153,7 +1139,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.state === "rolled_back") return handoffResponse("rolled_back");
     if (active.state === "committed") return handoffResponse("committed");
     active.state = "committed";
-    recordRetireCauseTerminal(deps.retireCauseState);
+    deps.retireCauseState.cause = "terminal";
     clearFallback(active);
     scheduleWatch(active, active.id);
     return handoffResponse("committed");
@@ -1304,7 +1290,7 @@ export function createSignalHandler(deps: {
 }): (signal: NodeJS.Signals) => void {
   return (signal) => {
     deps.setShutdownRequested();
-    recordRetireCauseTerminal(deps.retireCauseState);
+    deps.retireCauseState.cause = "terminal";
     deps.recordRetireTrigger(signal === "SIGINT" ? "sigint" : "sigterm");
   };
 }
@@ -1537,7 +1523,7 @@ export async function startDaemonRuntime(
 
   const shutdownHandler: RpcHandler = () => {
     shutdownRequested = true;
-    recordRetireCauseTerminal(retireCauseState);
+    retireCauseState.cause = "terminal";
     recordRetireTrigger("shutdown");
     return { kind: "response", result: { ok: true } };
   };
@@ -1596,7 +1582,7 @@ export async function startDaemonRuntime(
   });
 
   const reopenAdmission = (): void => {
-    clearRetireCause(retireCauseState);
+    retireCauseState.cause = null;
     runControlContext.retiring = false;
   };
 
@@ -1839,7 +1825,7 @@ export async function startDaemonRuntime(
           throw error;
         }
       },
-      scheduleSampling: ((onTick) => {
+      scheduleSampling: (onTick) => {
         const intervalBody = (): void => {
           const selfHealInput = startupDeps.selfHandoffSelfHealPredicateInputs?.() ?? {
             retiring: isRetiring(),
@@ -1848,7 +1834,7 @@ export async function startDaemonRuntime(
             blocksRollbackReopen: supersedeAdmissionState.blocksRollbackReopen,
             retireCause: retireCauseState.cause,
           };
-          runRetiringSoleOwnerSelfHealOnSamplingTick(selfHealInput, reopenAdmission);
+          if (shouldRetiringSoleOwnerSelfHeal(selfHealInput)) reopenAdmission();
           if (isRetiring()) return;
           void onTick();
         };
@@ -1856,7 +1842,7 @@ export async function startDaemonRuntime(
         const timer = setInterval(intervalBody, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);
         timer.unref?.();
         return { stop: () => clearInterval(timer) };
-      }) satisfies ScheduleDigestSampling,
+      },
     });
   }
 

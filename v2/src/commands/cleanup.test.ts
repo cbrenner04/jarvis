@@ -7300,6 +7300,34 @@ describe("cleanup: session log retention", () => {
     expect(second.stdout).not.toContain("cold-to-gone");
   });
 
+  test("cleanup preserves closed telemetry archives through session log retention apply", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const telemetryDir = join(jarvisRoot, "telemetry");
+    mkdirSync(telemetryDir, { recursive: true });
+    const archiveMay = join(telemetryDir, "2026-05.jsonl.gz");
+    const archiveApr = join(telemetryDir, "2026-04.jsonl.gz");
+    const mayBytes = gzipSync('{"month":"2026-05"}\n');
+    const aprBytes = gzipSync('{"month":"2026-04"}\n');
+    writeFileSync(archiveMay, mayBytes);
+    writeFileSync(archiveApr, aprBytes);
+
+    const warm = runRow(runId(1), "completed", now.getTime() - 20 * dayMs);
+    const coldGzip = runRow(runId(2), "killed", now.getTime() - 45 * dayMs);
+    const warmPath = writeSessionLog(sessionsDir, warm.id, "warm-plain");
+    const coldGzipLogPath = writeSessionLog(sessionsDir, coldGzip.id, "gone-plain");
+    const coldGzipPath = writeColdGzip(coldGzipLogPath, "gone-plain");
+    rmSync(coldGzipLogPath, { force: true });
+
+    const result = await runSessionCleanup(sessionsDir, [warm, coldGzip]);
+    expect(result.code).toBe(0);
+    expect(readFileSync(archiveMay)).toEqual(mayBytes);
+    expect(readFileSync(archiveApr)).toEqual(aprBytes);
+    expect(existsSync(warmPath)).toBe(false);
+    expect(existsSync(`${warmPath}.gz`)).toBe(true);
+    expect(existsSync(coldGzipPath)).toBe(false);
+  });
+
   test("tiered session log retention recovers interrupted compression", async () => {
     writeRetentionConfig(7, 30);
     const sessionsDir = join(jarvisRoot, "sessions");

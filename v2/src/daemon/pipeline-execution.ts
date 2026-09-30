@@ -1433,28 +1433,18 @@ function commitTerminalPublicationSuccessSafely(
   }
 }
 
-function terminalWorkflowStagePosition(pipeline: Pipeline & { stages: PipelineStageRecord[] }): number | undefined {
-  let position: number | undefined;
+function supersedePrecedingStageCandidates(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  terminalPrNumber: number,
+): Array<{ stageId: string; prNumber: number }> {
+  let terminalPosition: number | undefined;
   for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
     if (record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
     if (stage.kind !== "workflow") continue;
-    if (record.status === "succeeded") position = record.position;
+    if (record.status === "succeeded") terminalPosition = record.position;
   }
-  return position;
-}
+  if (terminalPosition === undefined) return [];
 
-function supersedeCandidatePrNumber(record: PipelineStageRecord): number | undefined {
-  const raw = record.artifact;
-  if (raw === null || typeof raw !== "object") return undefined;
-  const prNumber = (raw as PipelineStageArtifact).prNumber;
-  return typeof prNumber === "number" ? prNumber : undefined;
-}
-
-function precedingSupersedeCandidates(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  terminalPosition: number,
-  terminalPrNumber: number,
-): Array<{ stageId: string; prNumber: number }> {
   const seen = new Set<number>();
   const candidates: Array<{ stageId: string; prNumber: number }> = [];
   for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
@@ -1462,13 +1452,20 @@ function precedingSupersedeCandidates(
     if (stage.kind !== "workflow") continue;
     if (record.position >= terminalPosition) continue;
     if (record.status !== "succeeded") continue;
-    const prNumber = supersedeCandidatePrNumber(record);
-    if (prNumber === undefined || prNumber === terminalPrNumber) continue;
-    if (seen.has(prNumber)) continue;
+    const raw = record.artifact;
+    const prNumber =
+      raw !== null && typeof raw === "object" && typeof (raw as PipelineStageArtifact).prNumber === "number"
+        ? (raw as PipelineStageArtifact).prNumber
+        : undefined;
+    if (prNumber === undefined || prNumber === terminalPrNumber || seen.has(prNumber)) continue;
     seen.add(prNumber);
     candidates.push({ stageId: stage.stageId, prNumber });
   }
   return candidates;
+}
+
+function supersedeFailureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function settleSupersededPrecedingStagePrs(
@@ -1477,8 +1474,7 @@ async function settleSupersededPrecedingStagePrs(
     pipeline: Pipeline & { stages: PipelineStageRecord[] };
     terminalAction: PipelineTerminalAction;
     worktreePath: string;
-    publicationResult: TerminalPublicationResult;
-    resolvedInput: TerminalPublicationInput;
+    terminalPrNumber: number;
   },
   deps: Pick<PipelineExecutionDeps, "store" | "supersedeGh">,
 ): Promise<void> {
@@ -1486,28 +1482,19 @@ async function settleSupersededPrecedingStagePrs(
   if (args.pipeline.definition.supersede !== "close") return;
   if (args.terminalAction !== "ready" && args.terminalAction !== "merge") return;
 
-  const terminalPrNumber = args.publicationResult.prNumber ?? args.resolvedInput.prNumber;
-  if (terminalPrNumber === undefined) return;
-
-  const terminalPosition = terminalWorkflowStagePosition(args.pipeline);
-  if (terminalPosition === undefined) return;
-
-  const candidates = precedingSupersedeCandidates(args.pipeline, terminalPosition, terminalPrNumber);
+  const candidates = supersedePrecedingStageCandidates(args.pipeline, args.terminalPrNumber);
   if (candidates.length === 0) return;
 
   const supersedeGh = deps.supersedeGh ?? createDefaultSupersedeGh();
   const failures: PipelineSupersedeFailure[] = [];
 
   for (const candidate of candidates) {
-    const body = `Superseded by #${terminalPrNumber} (pipeline ${args.pipelineId}, stage ${candidate.stageId})`;
+    const body = `Superseded by #${args.terminalPrNumber} (pipeline ${args.pipelineId}, stage ${candidate.stageId})`;
     let state: string;
     try {
       ({ state } = await supersedeGh.prState(args.worktreePath, candidate.prNumber));
     } catch (error) {
-      failures.push({
-        prNumber: candidate.prNumber,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      failures.push({ prNumber: candidate.prNumber, message: supersedeFailureMessage(error) });
       continue;
     }
     if (state !== "OPEN") continue;
@@ -1515,20 +1502,14 @@ async function settleSupersededPrecedingStagePrs(
     try {
       await supersedeGh.comment(args.worktreePath, candidate.prNumber, body);
     } catch (error) {
-      failures.push({
-        prNumber: candidate.prNumber,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      failures.push({ prNumber: candidate.prNumber, message: supersedeFailureMessage(error) });
       continue;
     }
 
     try {
       await supersedeGh.close(args.worktreePath, candidate.prNumber);
     } catch (error) {
-      failures.push({
-        prNumber: candidate.prNumber,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      failures.push({ prNumber: candidate.prNumber, message: supersedeFailureMessage(error) });
     }
   }
 
@@ -1583,17 +1564,19 @@ async function settlePipelineTerminalPublication(
     const publicationResult = await execute(resolved.input);
     const committed = commitTerminalPublicationSuccessSafely(store, pipelineId, terminalAction);
     if (committed) {
-      await settleSupersededPrecedingStagePrs(
-        {
-          pipelineId,
-          pipeline,
-          terminalAction,
-          worktreePath: resolved.input.worktreePath,
-          publicationResult,
-          resolvedInput: resolved.input,
-        },
-        deps,
-      );
+      const terminalPrNumber = publicationResult.prNumber ?? resolved.input.prNumber;
+      if (terminalPrNumber !== undefined) {
+        await settleSupersededPrecedingStagePrs(
+          {
+            pipelineId,
+            pipeline,
+            terminalAction,
+            worktreePath: resolved.input.worktreePath,
+            terminalPrNumber,
+          },
+          deps,
+        );
+      }
     }
   } catch (error) {
     if (error instanceof TerminalPublicationError) {

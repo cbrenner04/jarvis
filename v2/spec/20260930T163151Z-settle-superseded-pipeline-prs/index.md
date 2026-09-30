@@ -5,4 +5,4 @@ After successful single-lane `ready` or `merge` terminal publication with `super
 ## Subspecs
 
 - [x] [00 — Durable `supersedeFailures` on the pipeline row](./00-supersede-failures-persistence.md)
-- [ ] [01 — Terminal supersede settlement](./01-terminal-supersede-settlement.md)
+- [x] [01 — Terminal supersede settlement](./01-terminal-supersede-settlement.md)

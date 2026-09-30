@@ -5549,16 +5549,17 @@ function terminalPipelineDefinition(action: PipelineTerminalAction): PipelineDef
 function terminalRunDeps(
   store: StateStore,
   executeTerminalPublication: NonNullable<PipelineExecutionDeps["executeTerminalPublication"]>,
-  supersedeGh?: SupersedeGh,
+  options?: { supersedeGh?: SupersedeGh; dispatch?: PipelineWorkflowDispatch },
 ): PipelineExecutionDeps {
   return {
     store,
-    dispatch: async () => ({ ok: true, entryRunId: "run-implement", invocationId: "inv-implement" }),
+    dispatch:
+      options?.dispatch ?? (async () => ({ ok: true, entryRunId: "run-implement", invocationId: "inv-implement" })),
     wait: async () => "completed",
     context: baseContext,
     resolveStage: resolveStageStub(),
     executeTerminalPublication,
-    ...(supersedeGh !== undefined ? { supersedeGh } : {}),
+    ...(options?.supersedeGh !== undefined ? { supersedeGh: options.supersedeGh } : {}),
   };
 }
 
@@ -5584,24 +5585,17 @@ function supersedeStageRun(prNumber: number, specPath: string): Partial<Run> {
   };
 }
 
-function supersedePipelineDeps(
-  store: StateStore,
-  executeTerminalPublication: NonNullable<PipelineExecutionDeps["executeTerminalPublication"]>,
-  supersedeGh: SupersedeGh,
-): PipelineExecutionDeps {
-  const dispatch: PipelineWorkflowDispatch = async (steps) => ({
-    ok: true,
-    entryRunId: `run-${stageIndexOf(steps)}`,
-    invocationId: `inv-${stageIndexOf(steps)}`,
-  });
+const supersedeThreeStageDispatch: PipelineWorkflowDispatch = async (steps) => ({
+  ok: true,
+  entryRunId: `run-${stageIndexOf(steps)}`,
+  invocationId: `inv-${stageIndexOf(steps)}`,
+});
+
+function supersedeThreeStageRuns(): Record<string, Partial<Run>> {
   return {
-    store,
-    dispatch,
-    wait: async () => "completed",
-    context: baseContext,
-    resolveStage: resolveStageStub(),
-    executeTerminalPublication,
-    supersedeGh,
+    "run-0": supersedeStageRun(10, "spec/intent.md"),
+    "run-1": supersedeStageRun(20, "spec/plan.md"),
+    "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
   };
 }
 
@@ -5945,15 +5939,14 @@ describe("pipeline terminal publication settlement", () => {
 
   test("supersedes preceding open stage PRs after ready terminal success with comment before close", async () => {
     const { gh, calls } = trackingSupersedeGh();
-    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
-      "run-0": supersedeStageRun(10, "spec/intent.md"),
-      "run-1": supersedeStageRun(20, "spec/plan.md"),
-      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
-    });
+    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, supersedeThreeStageRuns());
 
     await runPipeline(
       PIPELINE_ID,
-      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+      terminalRunDeps(store, async () => TERMINAL_PR, {
+        supersedeGh: gh,
+        dispatch: supersedeThreeStageDispatch,
+      }),
     );
 
     expect(calls.filter((c) => c.op === "prState").map((c) => c.prNumber)).toEqual([10, 20]);
@@ -5982,15 +5975,11 @@ describe("pipeline terminal publication settlement", () => {
         [20, "OPEN"],
       ]),
     });
-    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
-      "run-0": supersedeStageRun(10, "spec/intent.md"),
-      "run-1": supersedeStageRun(20, "spec/plan.md"),
-      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
-    });
+    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, supersedeThreeStageRuns());
 
     await runPipeline(
       PIPELINE_ID,
-      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+      terminalRunDeps(store, async () => TERMINAL_PR, { supersedeGh: gh, dispatch: supersedeThreeStageDispatch }),
     );
 
     expect(calls.filter((c) => c.op === "prState").map((c) => c.prNumber)).toEqual([10, 20]);
@@ -6003,27 +5992,19 @@ describe("pipeline terminal publication settlement", () => {
   test("does not supersede when policy is keep, terminal action is leave-draft, or fan-out refuses terminal success", async () => {
     const { gh, calls } = trackingSupersedeGh();
     const keepDefinition: PipelineDefinition = { ...SUPERSEDE_PIPELINE_DEFINITION, supersede: "keep" };
-    const { store: keepStore } = fakeStore(keepDefinition, {
-      "run-0": supersedeStageRun(10, "spec/intent.md"),
-      "run-1": supersedeStageRun(20, "spec/plan.md"),
-      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
-    });
+    const { store: keepStore } = fakeStore(keepDefinition, supersedeThreeStageRuns());
     await runPipeline(
       PIPELINE_ID,
-      supersedePipelineDeps(keepStore, async () => TERMINAL_PR, gh),
+      terminalRunDeps(keepStore, async () => TERMINAL_PR, { supersedeGh: gh, dispatch: supersedeThreeStageDispatch }),
     );
     expect(calls).toEqual([]);
 
     calls.length = 0;
     const leaveDefinition: PipelineDefinition = { ...SUPERSEDE_PIPELINE_DEFINITION, terminalAction: "leave-draft" };
-    const { store: leaveStore } = fakeStore(leaveDefinition, {
-      "run-0": supersedeStageRun(10, "spec/intent.md"),
-      "run-1": supersedeStageRun(20, "spec/plan.md"),
-      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
-    });
+    const { store: leaveStore } = fakeStore(leaveDefinition, supersedeThreeStageRuns());
     await runPipeline(
       PIPELINE_ID,
-      supersedePipelineDeps(leaveStore, async () => TERMINAL_PR, gh),
+      terminalRunDeps(leaveStore, async () => TERMINAL_PR, { supersedeGh: gh, dispatch: supersedeThreeStageDispatch }),
     );
     expect(calls).toEqual([]);
 
@@ -6068,15 +6049,11 @@ describe("pipeline terminal publication settlement", () => {
 
   test("records supersedeFailures and still succeeds when comment fails on one candidate", async () => {
     const { gh, calls } = trackingSupersedeGh({ commentErrorFor: 10 });
-    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
-      "run-0": supersedeStageRun(10, "spec/intent.md"),
-      "run-1": supersedeStageRun(20, "spec/plan.md"),
-      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
-    });
+    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, supersedeThreeStageRuns());
 
     await runPipeline(
       PIPELINE_ID,
-      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+      terminalRunDeps(store, async () => TERMINAL_PR, { supersedeGh: gh, dispatch: supersedeThreeStageDispatch }),
     );
 
     expect(store.loadPipeline(PIPELINE_ID)?.supersedeFailures).toEqual([{ prNumber: 10, message: "comment failed" }]);
@@ -6091,11 +6068,7 @@ describe("pipeline terminal publication settlement", () => {
 
   test("does not supersede when terminal success commit fails", async () => {
     const { gh, calls } = trackingSupersedeGh();
-    const { store: inner } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, {
-      "run-0": supersedeStageRun(10, "spec/intent.md"),
-      "run-1": supersedeStageRun(20, "spec/plan.md"),
-      "run-2": supersedeStageRun(TERMINAL_PR.prNumber, "spec/implement.md"),
-    });
+    const { store: inner } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, supersedeThreeStageRuns());
     const store = {
       ...inner,
       commitTerminalPublicationSuccess: () => {
@@ -6105,7 +6078,7 @@ describe("pipeline terminal publication settlement", () => {
 
     await runPipeline(
       PIPELINE_ID,
-      supersedePipelineDeps(store, async () => TERMINAL_PR, gh),
+      terminalRunDeps(store, async () => TERMINAL_PR, { supersedeGh: gh, dispatch: supersedeThreeStageDispatch }),
     );
 
     expect(calls).toEqual([]);

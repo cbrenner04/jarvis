@@ -287,7 +287,6 @@ type PipelineTerminalPublicationFailure = {
   prUrl?: string;
 };
 
-/** One nonfatal supersede GitHub failure recorded after terminal publication succeeds. */
 export type PipelineSupersedeFailure = {
   prNumber: number;
   message: string;
@@ -996,10 +995,7 @@ export interface StateStore {
   /** Atomically record terminal-publication success on the pipeline row. Idempotent when already set. */
   commitTerminalPublicationSuccess(args: { pipelineId: string }): void;
 
-  /**
-   * Append nonfatal supersede failures onto the pipeline row without touching terminal
-   * publication markers. Idempotent when `failures` is empty.
-   */
+  /** Concatenate supersede failures onto the pipeline row; no-op when `failures` is empty. */
   appendSupersedeFailures(args: { pipelineId: string; failures: readonly PipelineSupersedeFailure[] }): void;
 
   /**

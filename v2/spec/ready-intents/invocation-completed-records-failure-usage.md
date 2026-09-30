@@ -10,7 +10,7 @@ name: invocation-completed-records-failure-usage
 
 ## Behavior
 
-Quota, stall, and error results may carry the same optional `usage`, `usage_source`, `cost_usd`, `cost_source`, and `warnings` shape as `ok`. The telemetry builder copies those fields for every exit kind without changing `exit_kind`, `exit_reason`, or fallback advance rules. Each binding attempt in a fallback chain contributes only its own settlement to its row. When counters are absent, usage fields stay null and cost stays unpriced (`no-usage` / `unavailable` per existing catalog rules); duration is never used to estimate tokens. Usage-capture failures append warnings and never replace the classified outcome.
+This intent owns extending `InvocationQuota`, `InvocationStall`, `InvocationError`, and model_config results in `shared/invocation` with the same optional `usage`, `usage_source`, `cost_usd`, `cost_source`, and `warnings` shape as `ok`; agent bindings populate recovered values on those fields without redefining the types. The telemetry builder copies those fields for every exit kind without changing `exit_kind`, `exit_reason`, or fallback advance rules. Each binding attempt in a fallback chain contributes only its own settlement to its row. When counters are absent, usage fields stay null and cost stays unpriced (`no-usage` / `unavailable` per existing catalog rules); duration is never used to estimate tokens. Usage-capture failures append warnings and never replace the classified outcome.
 
 ## Acceptance criteria
 
@@ -20,5 +20,6 @@ Quota, stall, and error results may carry the same optional `usage`, `usage_sour
 ## Documentation updates
 
 - `v2/docs/telemetry-capture.md` — non-ok `invocation_completed` usage and cost keys, partial-counter provenance, and unavailable-data semantics (null, never assumed free).
+- `v2/docs/v1-behaviors.md` — non-ok `invocation_completed` usage and cost when bindings supply counters.
 
 ## Prerequisites

@@ -135,7 +135,7 @@ export type OutcomeKind =
   | "non_terminating_mutation_failed";
 
 /** Harness `gh pr ready` success evidence persisted on one run row. */
-export type HarnessReadyFlipEvidence = {
+type HarnessReadyFlipEvidence = {
   prNumber: number;
   branch: string;
   baseRef: string;

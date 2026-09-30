@@ -19,10 +19,10 @@
 
 ## Task checklist
 
-- [ ] Replace `readCleanupSessionLogRetentionDays` with a reader returning `{ ok: true; hotDays: number; coldDays: number }` or `{ ok: false; error: string }`, resolving `retention.sessions` with the `14`/`90` defaults, positive-integer validation per field, the `coldDays > hotDays` constraint, and the exact messages above — preserving the top-level non-record throw, the absent-file default, and indifference to unrelated keys.
-- [ ] Point `discoverExpiredSessionLogs` in `v2/src/commands/cleanup.ts` at `coldDays`.
-- [ ] Update `v2/src/config/machine-config-loader.test.ts` and the session-retention cases in `v2/src/commands/cleanup.test.ts` to the new keys.
-- [ ] Apply the documentation updates below.
+- [x] Replace `readCleanupSessionLogRetentionDays` with a reader returning `{ ok: true; hotDays: number; coldDays: number }` or `{ ok: false; error: string }`, resolving `retention.sessions` with the `14`/`90` defaults, positive-integer validation per field, the `coldDays > hotDays` constraint, and the exact messages above — preserving the top-level non-record throw, the absent-file default, and indifference to unrelated keys.
+- [x] Point `discoverExpiredSessionLogs` in `v2/src/commands/cleanup.ts` at `coldDays`.
+- [x] Update `v2/src/config/machine-config-loader.test.ts` and the session-retention cases in `v2/src/commands/cleanup.test.ts` to the new keys.
+- [x] Apply the documentation updates below.
 
 ## Acceptance criteria
 

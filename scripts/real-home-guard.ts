@@ -71,7 +71,7 @@ export function shouldGuardRealHome(env: Record<string, string | undefined>): bo
 /** Snapshot of `homeDir`'s sessions/specs listings and telemetry log stat. */
 export function snapshotRealHome(homeDir: string): RealHomeSnapshot {
   return {
-    sessionEntries: listBoundedDepthEntries(join(homeDir, "sessions"), 0), // flat listing — no recursion into ~1.24M-file tree
+    sessionEntries: listBoundedDepthEntries(join(homeDir, "sessions"), 1),
     specEntries: listBoundedDepthEntries(join(homeDir, "specs"), SPECS_WALK_MAX_DEPTH),
     telemetry: statTelemetry(homeDir),
   };

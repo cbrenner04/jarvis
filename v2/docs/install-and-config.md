@@ -234,7 +234,7 @@ An explicit `jarvis run workflow implement --review-passes <n>` overrides the re
 
 | Key | Role | Default | Validation |
 | --- | --- | --- | --- |
-| `retention.sessions.hotDays` | Reserved hot-tier boundary (no runtime effect yet) | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — stderr names `retention.sessions.hotDays` — without affecting other cleanup slices |
+| `retention.sessions.hotDays` | Reserved hot-tier boundary (no runtime effect yet) | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — reports `retention.sessions.hotDays must be a positive integer`, or when `retention` / `retention.sessions` is not an object reports `retention.sessions.hotDays and retention.sessions.coldDays must be positive integers` — without affecting other cleanup slices |
 | `retention.sessions.coldDays` | Retention window for expired terminal-run session logs under `~/.jarvis/sessions/` | `90` when absent | Positive integer, must be strictly greater than `retention.sessions.hotDays`; non-integer, zero, negative, non-number, or ordering failure skips session-log reaping — stderr names `retention.sessions.coldDays` or both fields when `retention` / `retention.sessions` is not an object (`retention.sessions.hotDays and retention.sessions.coldDays must be positive integers`) or reports `retention.sessions.coldDays must be greater than retention.sessions.hotDays` — without affecting other cleanup slices |
 
 ## Daemon

@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { PrReviewInputCaptureArtifact } from "./pr-review-input-capture.ts";
-import { reconcileReviewFeedbackItems } from "./review-feedback-item-reconciliation.ts";
+import { rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { type PrReviewInputCaptureArtifact, resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
+import {
+  reconcileReviewFeedbackItems,
+  reconcileReviewFeedbackItemsAtLaneWorktree,
+} from "./review-feedback-item-reconciliation.ts";
 
 function sampleCapture(): PrReviewInputCaptureArtifact {
   return {
@@ -47,5 +54,30 @@ describe("review-feedback item reconciliation", () => {
     });
     expect(result.reviewFeedbackDeclinedItemIds).toContain("thread-a");
     expect(result.reviewFeedbackAddressedItemIds).not.toContain("thread-a");
+  });
+
+  test("reconcileReviewFeedbackItemsAtLaneWorktree returns empty buckets when capture artifact is absent", () => {
+    const laneWorktreePath = trackedMkdtempSync(join(tmpdir(), "review-feedback-reconcile-no-artifact-"));
+    try {
+      const result = reconcileReviewFeedbackItemsAtLaneWorktree(laneWorktreePath);
+      expect(result).toEqual({
+        reviewFeedbackAddressedItemIds: [],
+        reviewFeedbackDeclinedItemIds: [],
+        reviewFeedbackUnaddressedItemIds: [],
+      });
+    } finally {
+      rmSync(laneWorktreePath, { recursive: true, force: true });
+    }
+  });
+
+  test("reconcileReviewFeedbackItemsAtLaneWorktree reads capture artifact from the lane worktree", () => {
+    const laneWorktreePath = trackedMkdtempSync(join(tmpdir(), "review-feedback-reconcile-with-artifact-"));
+    try {
+      writeFileSync(resolvePrReviewInputArtifactPath(laneWorktreePath), `${JSON.stringify(sampleCapture())}\n`, "utf8");
+      const result = reconcileReviewFeedbackItemsAtLaneWorktree(laneWorktreePath);
+      expect(result.reviewFeedbackUnaddressedItemIds).toEqual(["thread-a", "thread-b", "comment-c"]);
+    } finally {
+      rmSync(laneWorktreePath, { recursive: true, force: true });
+    }
   });
 });

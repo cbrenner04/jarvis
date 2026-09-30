@@ -591,6 +591,58 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).not.toContain("archive:");
   });
 
+  test.each([
+    { name: "ready-intent", queueDir: "ready-intents" },
+    { name: "seed", queueDir: "seeds" },
+  ])("never archives a $name as a merged intent worktree's only run-row source", async ({ queueDir }) => {
+    const branch = `intent/queue-only-${queueDir}`;
+    const worktreePath = await createWorktree(branch);
+    mkdirSync(join(projectRoot, "v2", "spec", queueDir), { recursive: true });
+    const queuePath = join(projectRoot, "v2", "spec", queueDir, "queue-only.md");
+    writeFileSync(queuePath, "# Intent\n\n## Acceptance criteria\n\n- [ ] Not yet implemented.\n");
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "v2", "spec", queueDir, "queue-only.md"),
+          project: "project",
+          branch,
+          stepId: "intent",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let preview = "";
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: (s: string) => (preview += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(preview).toContain(worktreePath);
+    expect(preview).not.toContain("archive:");
+    expect(preview).not.toContain(`${queueDir}/completed`);
+
+    let applied = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      store,
+      { stdout: (s: string) => (applied += s), stderr: () => {} },
+    );
+    expect(applied).not.toContain("Archived");
+    expect(existsSync(queuePath)).toBe(true);
+    expect(existsSync(join(projectRoot, "v2", "spec", queueDir, "completed"))).toBe(false);
+  });
+
   test("prefers a spec-tree directory over a landed ready-intent on the same branch", async () => {
     // The shape every intent branch has: an older write row whose specPath was rewritten to the
     // landed `ready-intents/<slug>.md`, and a newer review row. `listRuns` is newest-first, so a

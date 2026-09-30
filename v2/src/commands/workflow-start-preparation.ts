@@ -7,8 +7,7 @@ import type {
 import type { IpcClient } from "../ipc/client.ts";
 
 export const BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"] as const;
-export const CLI_WORKFLOW_PRESET_NAMES = [...BASE_WORKFLOW_NAMES, "review-feedback"] as const;
-export type CliWorkflowStartName = (typeof CLI_WORKFLOW_PRESET_NAMES)[number];
+type CliWorkflowStartName = BaseWorkflowName | "review-feedback";
 export const WORKFLOW_REVIEW_POSTURES = ["none", "light", "debate"] as const;
 
 export type BaseWorkflowName = (typeof BASE_WORKFLOW_NAMES)[number];

@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { createRuntimeDeps } from "../cli/deps.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
+import type { ReviewFeedbackLaneResolutionStore } from "../persistence/review-feedback-lane-resolution.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   type Pipeline,
@@ -13,8 +15,6 @@ import {
   type Run,
   type StateStore,
 } from "../persistence/state-store.ts";
-import type { ReviewFeedbackLaneResolutionStore } from "../persistence/review-feedback-lane-resolution.ts";
-import { createRuntimeDeps } from "../cli/deps.ts";
 import { captureIo, cliMain, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import {
   formatReviewFeedbackWorkflowAdmissionRefusal,

@@ -33,6 +33,7 @@ import { IMPLEMENT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { classifyNeverLandedLane, type DestroyedArtifacts } from "./cleanup.ts";
+import { runReviewFeedbackWorkflowCommand } from "./review-feedback-workflow-admission.ts";
 import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import {
   type ImplementWorkflowCliInput,
@@ -43,7 +44,6 @@ import {
   parsePlanWorkflowArgs,
   parseReviewFeedbackWorkflowArgs,
 } from "./workflow-args.ts";
-import { runReviewFeedbackWorkflowCommand } from "./review-feedback-workflow-admission.ts";
 import {
   prepareWorkflowStart,
   type WorkflowStartPreparationResult,

@@ -18,7 +18,7 @@ export type ReviewFeedbackAdmissionRefusalCode =
   | "review_feedback_pr_closed"
   | "review_feedback_capture_failed";
 
-export type ReviewFeedbackAdmissionPreludeResult =
+type ReviewFeedbackAdmissionPreludeResult =
   | { ok: true; artifact: PrReviewInputCaptureArtifact; artifactPath: string }
   | { ok: false; code: ReviewFeedbackAdmissionRefusalCode; message: string };
 

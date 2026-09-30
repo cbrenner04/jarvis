@@ -1,12 +1,11 @@
 import { findProjectMatch } from "../../../shared/project-registry.ts";
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import { runReviewFeedbackAdmissionPrelude } from "../execution/review-feedback-admission-prelude.ts";
-import type { ReviewFeedbackAdmissionRefusalCode } from "../execution/review-feedback-admission-prelude.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
+import type { ReviewFeedbackAdmissionRefusalCode } from "../execution/review-feedback-admission-prelude.ts";
+import { runReviewFeedbackAdmissionPrelude } from "../execution/review-feedback-admission-prelude.ts";
 import { WORKFLOW_PRESET_BUILDERS, type WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
-import { openStateStore } from "../persistence/state-store.ts";
 import {
   type ReviewFeedbackLaneBareRequest,
   type ReviewFeedbackLanePipelineRequest,
@@ -14,19 +13,20 @@ import {
   type ReviewFeedbackLaneResolutionStore,
   resolveReviewFeedbackLane,
 } from "../persistence/review-feedback-lane-resolution.ts";
-import { stampWorkflowStepsWithMachineConfig } from "./workflow-step-config-stamp.ts";
-import { prepareWorkflowStart, type WorkflowStartPreparationResult } from "./workflow-start-preparation.ts";
-import type { ReviewFeedbackWorkflowCliInput } from "./workflow-args.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
+import type { ReviewFeedbackWorkflowCliInput } from "./workflow-args.ts";
+import { prepareWorkflowStart, type WorkflowStartPreparationResult } from "./workflow-start-preparation.ts";
+import { stampWorkflowStepsWithMachineConfig } from "./workflow-step-config-stamp.ts";
 
 export const REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE = "review_feedback_write_not_available";
 
-export type ReviewFeedbackWorkflowAdmissionRefusalCode =
+type ReviewFeedbackWorkflowAdmissionRefusalCode =
   | ReviewFeedbackLaneRefusalCode
   | ReviewFeedbackAdmissionRefusalCode
   | typeof REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE;
 
-export type ReviewFeedbackWorkflowAdmissionRefusal = {
+type ReviewFeedbackWorkflowAdmissionRefusal = {
   code: ReviewFeedbackWorkflowAdmissionRefusalCode;
   message: string;
 };
@@ -53,7 +53,7 @@ function laneRequestFromCli(
   return { mode: "bare", project, branch };
 }
 
-export type ReviewFeedbackWorkflowAdmissionDeps = {
+type ReviewFeedbackWorkflowAdmissionDeps = {
   store: ReviewFeedbackLaneResolutionStore;
   subprocessRunner: AsyncSubprocessRunner;
   machineConfigPath: string;

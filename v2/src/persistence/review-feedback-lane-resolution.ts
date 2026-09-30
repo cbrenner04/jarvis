@@ -1,7 +1,6 @@
-import { resolvePrEvidenceAcrossInvocation } from "./pipeline-stage-settlement.ts";
 import type { WorkflowPipelineStage } from "../execution/pipeline-definition.ts";
+import { resolvePrEvidenceAcrossInvocation } from "./pipeline-stage-settlement.ts";
 import {
-  DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   isTerminalRunStatus,
   type Pipeline,
   type PipelineStageRecord,
@@ -13,7 +12,7 @@ import { resolveWorkflowRunRollup } from "./workflow-run-status-rollup.ts";
 
 export type ReviewFeedbackLaneKind = "intent" | "plan" | "implement";
 
-export type ReviewFeedbackLaneProvenance =
+type ReviewFeedbackLaneProvenance =
   | { kind: "bare" }
   | { kind: "pipeline"; pipelineId: string; stageId: string; branchKey: string };
 
@@ -33,7 +32,7 @@ export type ReviewFeedbackLaneRefusalCode =
   | "review_feedback_lane_ambiguous"
   | "review_feedback_lane_not_eligible";
 
-export type ReviewFeedbackLaneResolutionResult =
+type ReviewFeedbackLaneResolutionResult =
   | { ok: true; target: ReviewFeedbackLaneTarget }
   | { ok: false; code: ReviewFeedbackLaneRefusalCode; message: string };
 
@@ -52,7 +51,7 @@ export type ReviewFeedbackLanePipelineRequest = {
   branchKey?: string;
 };
 
-export type ReviewFeedbackLaneRequest = ReviewFeedbackLaneBareRequest | ReviewFeedbackLanePipelineRequest;
+type ReviewFeedbackLaneRequest = ReviewFeedbackLaneBareRequest | ReviewFeedbackLanePipelineRequest;
 
 export type ReviewFeedbackLaneResolutionStore = Pick<
   StateStore,
@@ -69,7 +68,7 @@ function isEntryRunRow(run: Run): boolean {
   return run.stepId === snapshot.steps[0]?.stepId;
 }
 
-export function bareLaneKindFromFirstStep(step: WorkflowSnapshotStep | undefined): ReviewFeedbackLaneKind | null {
+function bareLaneKindFromFirstStep(step: WorkflowSnapshotStep | undefined): ReviewFeedbackLaneKind | null {
   if (step == null) return null;
   if (step.role === "implement") return "implement";
   if (step.promptId === "intent.prompt.split") return "intent";

@@ -28,6 +28,10 @@ Admission prepares a write step with placeholder prompt `review-feedback.prompt.
 - [x] `bun run typecheck` passes.
 - [ ] `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
+## Blocker
+
+`bun run test:shared` fails on `shared/subprocess.test.ts` `group-mode termination lifecycle` cases (`timeoutMs: 80` before detached `node -e` writes the ready file; measured ~156ms). Out of this subspec’s file list (#4214). `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass on re-run; review-feedback tests pass.
+
 ## Documentation updates
 
 - `v2/docs/prompts.md` — § Per-workflow step prompts: add `review-feedback.prompt.write` (placeholders, `fragmentPolicy`) and `review-feedback.rules` (lane, injected via `STEP_RULES`); add `review-feedback-rules` to the lane list. Operator and runner docs land in subspec `03`.

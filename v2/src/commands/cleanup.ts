@@ -2699,7 +2699,6 @@ async function applyPreContinuationGates(args: {
     }
   }
   if (
-    !skipLandedCriteriaGate &&
     !(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) &&
     !(await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner))
   ) {

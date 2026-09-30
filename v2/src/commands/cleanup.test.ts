@@ -6015,11 +6015,11 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
-  test("resetStaleWorkspace retires instead of merging when reset-despite-landed-criteria is set on an out-of-root moved-base open-PR lane", async () => {
+  test("resetStaleWorkspace refuses rather than merging or retiring when reset-despite-landed-criteria is set on an out-of-root moved-base open-PR lane", async () => {
     const branch = "impl/out-of-root-landed-override";
-    const outOfRootIndexPath = setupChainedOutOfRootSpec("landed-override-merge");
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("out-of-root-landed-override");
     const worktreePath = await setupWorktreeAndBranch(branch);
-    await commitInWorktree(worktreePath, "override-lane.txt");
+    const worktreeHead = await commitInWorktree(worktreePath, "out-of-root-landed-override.txt");
     await advanceBase("landed-override-advance.md");
 
     const result = await callReset(
@@ -6030,9 +6030,40 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true },
     );
 
-    expect(result.status).toBe("reset");
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
-    expect(listOutput).not.toContain(worktreePath);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace keeps the descendant gate under reset-despite-landed-criteria on a dirty non-descendant open-PR lane", async () => {
+    const branch = "impl/landed-override-dirty";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("landed-override-dirty");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "landed-override-dirty.txt");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 907, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true, skipDirtyWorktreeGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
   });
 
   test("resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane", async () => {

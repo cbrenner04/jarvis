@@ -11,7 +11,8 @@ After a failed self-handoff the incumbent can remain retiring with no pending ha
 ## Decisions
 
 - Export a pure predicate for the self-heal condition and evaluate it on each stable-digest sampling tick before the retiring skip would block handoff sampling, so a matching sole owner reopens admission without a process restart.
-- Self-heal does not run while a handoff is pending or a live successor answers the public address.
+- Self-heal uses only in-process state (no probes): while this process holds the public listener and no handoff is pending, no successor can be serving the public address.
+- Self-heal applies only to a handoff-origin retire (changeover, handoff fallback/rollback); a generation retiring after operator stop, a non-successor `supersede`, or a committed handoff keeps draining and exits via `shouldShutdownNow` unchanged.
 
 ## Acceptance criteria
 

@@ -89,7 +89,12 @@ import {
 import { continuePipeline } from "./pipeline-execution.ts";
 import type { KillSurvivor } from "./run-kill-outcome.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
-import { startStableDigestTrigger } from "./stable-digest-trigger.ts";
+import {
+  type RetireCause,
+  type RetiringSoleOwnerSelfHealInput,
+  shouldRetiringSoleOwnerSelfHeal,
+  startStableDigestTrigger,
+} from "./stable-digest-trigger.ts";
 
 export { reconcileOrphanedRuns };
 
@@ -316,6 +321,12 @@ export function workflowInvocationIsLive(
 
 /** The RPC or signal that started a daemon generation's retire transition. */
 type DaemonRetireTrigger = "supersede" | "changeover" | "shutdown" | "sigterm" | "sigint";
+
+type DaemonRetireCauseState = { cause: RetireCause };
+
+export function recordRetireCauseOnChangeover(state: DaemonRetireCauseState): void {
+  if (state.cause === null) state.cause = "handoff_origin";
+}
 
 const RETIRE_TRIGGER_LOG_PREFIX = "JARVIS_DAEMON_RETIRE_TRIGGER:";
 const DRAIN_EXIT_LOG_PREFIX = "JARVIS_DAEMON_DRAIN_EXIT:";
@@ -901,6 +912,7 @@ type HandoffTransaction = {
 type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
 
 type HandoffHandlersDeps = ChangeoverHandlerDeps & {
+  retireCauseState: DaemonRetireCauseState;
   /** Reopens admission just before the public listener rebinds (restored on failure). */
   setAdmitting: () => void;
   /** True when a non-handoff-origin `supersede` must keep rollback from reopening admission. */
@@ -983,12 +995,14 @@ export function createSupersedeHandler(deps: {
   pendingHandoffId: () => string | undefined;
   setRetiring: () => void;
   recordRetireTrigger: (trigger: "supersede") => void;
+  retireCauseState: DaemonRetireCauseState;
 }): RpcHandler {
   return (frame) => {
     recordSupersedeForRollbackAdmission(deps.state, {
       pendingHandoffId: deps.pendingHandoffId(),
       supersedeHandoffId: handoffIdentity(frame),
     });
+    if (deps.state.blocksRollbackReopen) deps.retireCauseState.cause = "terminal";
     deps.setRetiring();
     deps.recordRetireTrigger("supersede");
     return { kind: "response", result: { ok: true } };
@@ -1125,6 +1139,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     if (active.state === "rolled_back") return handoffResponse("rolled_back");
     if (active.state === "committed") return handoffResponse("committed");
     active.state = "committed";
+    deps.retireCauseState.cause = "terminal";
     clearFallback(active);
     scheduleWatch(active, active.id);
     return handoffResponse("committed");
@@ -1192,6 +1207,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }
 
     deps.setRetiring();
+    recordRetireCauseOnChangeover(deps.retireCauseState);
     deps.recordRetireTrigger("changeover");
     const handoffId = crypto.randomUUID();
     let releaseDone: (() => void) | undefined;
@@ -1270,9 +1286,11 @@ export function createChangeoverHandler(deps: ChangeoverHandlerDeps): RpcHandler
 export function createSignalHandler(deps: {
   setShutdownRequested: () => void;
   recordRetireTrigger: (trigger: "sigterm" | "sigint") => void;
+  retireCauseState: DaemonRetireCauseState;
 }): (signal: NodeJS.Signals) => void {
   return (signal) => {
     deps.setShutdownRequested();
+    deps.retireCauseState.cause = "terminal";
     deps.recordRetireTrigger(signal === "SIGINT" ? "sigint" : "sigterm");
   };
 }
@@ -1327,6 +1345,10 @@ type DaemonStartupDeps = {
   startSelfHandoffSuccessor?: (loaded: string, observed: string) => Promise<"committed" | "rolled_back">;
   /** Self-handoff sampling interval; defaults to 30s. Same injection seam as `startDrainExitLoop`'s `intervalMs`. */
   selfHandoffSamplingIntervalMs?: number;
+  /** Receives each production self-handoff sampling-interval body for manual firing in tests. */
+  captureSelfHandoffSamplingIntervalTick?: (tick: () => void) => void;
+  /** When set, overrides predicate inputs for self-heal on each sampling tick (tests only). */
+  selfHandoffSelfHealPredicateInputs?: () => RetiringSoleOwnerSelfHealInput;
 };
 
 export async function recoverReconciledRuns(
@@ -1497,8 +1519,11 @@ export async function startDaemonRuntime(
     };
   };
 
+  const retireCauseState: DaemonRetireCauseState = { cause: null };
+
   const shutdownHandler: RpcHandler = () => {
     shutdownRequested = true;
+    retireCauseState.cause = "terminal";
     recordRetireTrigger("shutdown");
     return { kind: "response", result: { ok: true } };
   };
@@ -1556,6 +1581,11 @@ export async function startDaemonRuntime(
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
 
+  const reopenAdmission = (): void => {
+    retireCauseState.cause = null;
+    runControlContext.retiring = false;
+  };
+
   const ownsRunLocally = (runId: string): boolean =>
     [...runControlContext.activeRuns.values()].some((activeRun) => activeRun.runId === runId);
   const stableRunHandlers =
@@ -1612,10 +1642,11 @@ export async function startDaemonRuntime(
     },
   );
 
-  // The self-handoff sampling loop's per-tick `isRetiring()` check (below) is the sampling cutoff:
-  // it fires on any admission cut, client-initiated or self-triggered, without permanently
-  // stopping the interval, so a rollback that reopens admission lets sampling resume and retry.
-  // `close()` is the only place that permanently stops it, at real teardown.
+  // Self-handoff sampling runs self-heal before its per-tick `isRetiring()` cutoff (below): a
+  // stranded handoff-origin sole owner can reopen admission on the same cadence as digest sampling,
+  // then sampling and backoff retry proceed on later ticks. The cutoff still fires on any admission
+  // cut that self-heal did not clear, without permanently stopping the interval; `close()` alone
+  // stops it at teardown.
   let selfHandoffTrigger: { stop(): void } | undefined;
   const setRetiring = setRetiringRaw;
 
@@ -1626,6 +1657,7 @@ export async function startDaemonRuntime(
     pendingHandoffId: () => pendingHandoffId(),
     setRetiring,
     recordRetireTrigger,
+    retireCauseState,
   });
 
   let server: IpcServer;
@@ -1643,9 +1675,8 @@ export async function startDaemonRuntime(
       publicBound = false;
       return server.close();
     },
-    setAdmitting: () => {
-      runControlContext.retiring = false;
-    },
+    retireCauseState,
+    setAdmitting: reopenAdmission,
     rollbackBlocksReopenAdmission: () => supersedeAdmissionState.blocksRollbackReopen,
     recordRetireTrigger,
     bindPublicServer: async () => {
@@ -1795,10 +1826,20 @@ export async function startDaemonRuntime(
         }
       },
       scheduleSampling: (onTick) => {
-        const timer = setInterval(() => {
+        const intervalBody = (): void => {
+          const selfHealInput = startupDeps.selfHandoffSelfHealPredicateInputs?.() ?? {
+            retiring: isRetiring(),
+            publicBound,
+            handoffPending: handoffHandlers.isPending(),
+            blocksRollbackReopen: supersedeAdmissionState.blocksRollbackReopen,
+            retireCause: retireCauseState.cause,
+          };
+          if (shouldRetiringSoleOwnerSelfHeal(selfHealInput)) reopenAdmission();
           if (isRetiring()) return;
           void onTick();
-        }, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);
+        };
+        startupDeps.captureSelfHandoffSamplingIntervalTick?.(intervalBody);
+        const timer = setInterval(intervalBody, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);
         timer.unref?.();
         return { stop: () => clearInterval(timer) };
       },
@@ -1810,6 +1851,7 @@ export async function startDaemonRuntime(
       shutdownRequested = true;
     },
     recordRetireTrigger,
+    retireCauseState,
   });
 
   process.on("SIGTERM", signalHandler);

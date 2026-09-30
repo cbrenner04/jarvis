@@ -34,6 +34,26 @@ export function shouldSampleNow(state: Readonly<StableDigestTriggerState>): bool
   return !state.handoffInFlight;
 }
 
+export type RetireCause = "handoff_origin" | "terminal" | null;
+
+export type RetiringSoleOwnerSelfHealInput = {
+  retiring: boolean;
+  publicBound: boolean;
+  handoffPending: boolean;
+  blocksRollbackReopen: boolean;
+  retireCause: RetireCause;
+};
+
+export function shouldRetiringSoleOwnerSelfHeal(input: RetiringSoleOwnerSelfHealInput): boolean {
+  return (
+    input.retiring &&
+    input.publicBound &&
+    !input.handoffPending &&
+    !input.blocksRollbackReopen &&
+    input.retireCause === "handoff_origin"
+  );
+}
+
 export function startStableDigestTrigger(
   loadedDigest: string,
   deps: {

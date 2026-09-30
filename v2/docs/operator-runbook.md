@@ -57,7 +57,7 @@ Two-point rule ([`operator-practices.md`](./operator-practices.md#operator-feedb
 
 Session close-out obligations ([`operator-practices.md` § Definition of done](./operator-practices.md#definition-of-done-session)):
 
-1. **Drive + review + merge** v2 work through the normal PR path.
+1. **Drive + review + merge** v2 work through the normal PR path. Keep hand-opened PRs draft until their last commit is pushed ([§ Merging](./operator-practices.md#merging)).
 2. **Seed harness gaps** surfaced while dogfooding — link stopgaps in this runbook to the seed and a cleanup trigger.
 3. **Triage harness suggestions** ([`operator-practices.md` § Harness suggestions](./operator-practices.md#harness-suggestions-from-other-repos)).
 4. **Session report** under `reports/` with UTC timestamp; link every implementation PR.
@@ -827,7 +827,7 @@ For a red pipeline stage or `ready_gate_failed` run, read `failureDetail.message
 - **Admitted outcomes:** `surviving_mutation_failed`, plus the `completion_commit_failed` / `ready_gate_failed` this same resume tail can itself settle. `runtime_smoke_failed` is excluded (retrying this tail cannot change a runtime-smoke result), along with `landing_failed`, `ready_flip_failed`, generic invocation failures, and completed rows.
 - **Ticked mutation failures recover through implement.** If the agent ticked every acceptance criterion before the mutation failure, rerun `jarvis run workflow implement --base <ref> --spec <path>` with the same branch and spec: it finds the newest matching failed mutation-finalization row and retries that tail (mutation re-verification, gate repair, publication) without unticking criteria or replaying the write step. **Commit first:** mutation verification and body-summary derivation are diff-derived against the base ref; fix coverage in the worktree and let `run resume` commit it (or `git commit` it yourself) — an uncommitted fix either gets committed by the resume tail or settles a named `completion_commit_failed`, never silently re-verified against the stale diff. `implement.recovery_target_missing` means the retained worktree or branch was cleaned up; `worktree_claimed` means another live run owns it. Both refuse without changing the workspace.
 
-`surviving_mutation_failed` → `jarvis run resume` applies before implement recovery exhausts its bounded repair attempts. `mutation_repair_exhausted` is not admitted again: manually fix and publish the retained worktree, or untick criteria before a fresh implement run.
+`surviving_mutation_failed` → `jarvis run resume` applies before implement recovery exhausts its bounded repair attempts. `mutation_repair_exhausted` is not admitted again: manually fix and publish the retained worktree, or untick criteria before a fresh implement run. Survivor evidence on `mutation_repair_exhausted` (`survivingMutation*`, killing set, observed result) is defined in [daemon-host.md § Operator error on list and wait](./daemon-host.md#operator-error-on-list-and-wait); legacy exhausted rows without persisted survivor fields stay guidance-only, and an `unknown` killing-set result omits killing-set fields from the composed error.
 
 **A `completed` implement whose final boundary itself made no change still publishes when its branch carries real content ahead of base (2026-08-26).** The completion tail's forced marker commit is gated on that commit's diff against `baseRef`, and the gate only suppresses publication when that diff was positively read and came back empty; an unresolvable `baseRef` or unreadable diff falls through to publish. A no-work shrink over an already-clean branch (no content ahead of base) is rolled back locally and never pushed — unless the boundary's commit carries real changes against its own parent (a legitimate revert of branch content back to base), in which case the commit stays local and unpushed rather than being unwound. A no-work shrink over a branch that already has real commits still publishes normally. For a historically stranded run from before this fix (an empty marker commit sitting unpublished), hand-publish from the worktree: `git push origin HEAD:<branch>` then `gh pr create --draft --base <base>`.
 
@@ -922,7 +922,13 @@ Preview lists every present artifact of a reapable unit under `remove:`; apply r
 
 ### Session-log retention
 
-Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sessions/`. This slice is global (not project-scoped) and runs on every invocation even when the other slices report nothing eligible.
+Write-loop session logs live under `~/.jarvis/sessions/<YYYY-MM>/<run-id>-<timestamp>.log` (UTC month at open). Legacy flat logs may still sit directly under `~/.jarvis/sessions/`. To print the newest log for a run across both layouts:
+
+```bash
+ls -t ~/.jarvis/sessions/<run-id>-*.log ~/.jarvis/sessions/*/<run-id>-*.log 2>/dev/null | head -1 | xargs cat
+```
+
+Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sessions/`. This slice is global (not project-scoped) and runs on every invocation even when the other slices report nothing eligible. The reaper still considers only regular files **directly** under `~/.jarvis/sessions/` (not month shards), so every post-shard log is permanently non-reap-eligible until a future reaper-surface change — not merely delayed.
 
 **Retention window.** Default 14 days; override with `cleanup.sessionLogRetentionDays` in `~/.jarvis/config.json` ([install-and-config.md](./install-and-config.md#cleanup)). Expiry compares the owning run's durable `finishedAt` against `now - retentionDays`; a log with no run row (orphan) ages by file mtime against the same cutoff instead.
 

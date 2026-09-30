@@ -21,6 +21,7 @@ import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
+  isNotGitRepositoryDiagnostic,
   WorktreeBusyError,
   WorktreeMaterializationError,
   withExternalWorktree,
@@ -824,5 +825,17 @@ describe("external worktree helper", () => {
       // Extraction still runs against the local HEAD tree rather than surfacing a git archive error.
       expect(readFileSync(join(stageDir, "tracked.txt"), "utf8")).toBe(committed);
     });
+  });
+});
+
+describe("isNotGitRepositoryDiagnostic", () => {
+  test("recognizes pre-2.56 and 2.56+ git broken-repo diagnostics", () => {
+    expect(isNotGitRepositoryDiagnostic("fatal: not a git repository: /nonexistent")).toBe(true);
+    expect(isNotGitRepositoryDiagnostic("fatal: gitfile does not point to a valid repository: /x/.git")).toBe(true);
+  });
+
+  test("rejects unrelated git failures", () => {
+    expect(isNotGitRepositoryDiagnostic("fatal: ambiguous argument 'HEAD'")).toBe(false);
+    expect(isNotGitRepositoryDiagnostic("")).toBe(false);
   });
 });

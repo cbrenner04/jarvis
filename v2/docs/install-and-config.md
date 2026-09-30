@@ -234,7 +234,7 @@ An explicit `jarvis run workflow implement --review-passes <n>` overrides the re
 
 | Key | Role | Default | Validation |
 | --- | --- | --- | --- |
-| `cleanup.sessionLogRetentionDays` | Retention window for expired terminal-run session logs under `~/.jarvis/sessions/` | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — stderr names `cleanup.sessionLogRetentionDays` — without affecting other cleanup slices |
+| `cleanup.sessionLogRetentionDays` | Retention window for expired terminal-run session logs: pre-existing flat `.log` files directly under `~/.jarvis/sessions/` only (see [operator-runbook.md § Session-log retention](./operator-runbook.md#session-log-retention); logs opened after month-sharding land under `~/.jarvis/sessions/<YYYY-MM>/` and are outside the reaper's direct-children scope) | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — stderr names `cleanup.sessionLogRetentionDays` — without affecting other cleanup slices |
 
 There is no `jarvis config` subcommand for this field; hand-edit `~/.jarvis/config.json`.
 

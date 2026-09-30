@@ -643,10 +643,9 @@ function findResumeRedispatchInBranchSuffix(
   branchKey: string,
 ): ResumeRedispatchWorkflowTarget | undefined {
   const definition = pipeline.definition;
-  const lastIndex = definition.stages.length - 1;
-  for (let index = split.splitPosition + 1; index <= lastIndex; index += 1) {
-    const stage = definition.stages[index];
-    if (stage === undefined) continue;
+  const start = split.splitPosition + 1;
+  for (const [offset, stage] of definition.stages.slice(start).entries()) {
+    const index = start + offset;
     const record = findStageRecord(pipeline.stages, stage.stageId, branchKey);
     if (record === undefined) continue;
     if (record.status === "failed" || record.status === "skipped") return undefined;
@@ -663,9 +662,7 @@ function findResumeRedispatchBeforeSplit(
   toIndex: number,
 ): ResumeRedispatchWorkflowTarget | undefined {
   const definition = pipeline.definition;
-  for (let index = 0; index <= toIndex; index += 1) {
-    const stage = definition.stages[index];
-    if (stage === undefined) continue;
+  for (const [index, stage] of definition.stages.slice(0, Math.max(0, toIndex + 1)).entries()) {
     const record = findStageRecord(pipeline.stages, stage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
     if (record === undefined) continue;
     if (isAuthoredStageSatisfied(stage, record)) continue;

@@ -27,14 +27,14 @@ import * as sharedGit from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import {
+  REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+  REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+} from "../../../shared/prompts/review-feedback-write.ts";
+import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
-import {
-  REVIEW_FEEDBACK_RESPONSE_SIDECAR,
-  REVIEW_FEEDBACK_WRITE_PROMPT_ID,
-} from "../../../shared/prompts/review-feedback-write.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { deriveOperatorIncidents } from "../daemon/operator-incidents.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
@@ -46,11 +46,11 @@ import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
-import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
+import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import {
   baseRefProbeFailsSeam,
   gateFailureOutput,

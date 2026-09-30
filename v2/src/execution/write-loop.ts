@@ -40,9 +40,9 @@ import {
   type DraftContractRepromptEvent,
   dualConstraintRepromptDetail,
   type LandingContractRepromptEvent,
+  type LogEvent,
   type LogSink,
   type LoopFinishedEvent,
-  type LogEvent,
   type PersistedRecord,
   priorLogRecordsFromSink,
   type StagedMarkdownLintRepromptEvent,
@@ -112,9 +112,9 @@ import {
   survivingMutationLogFields,
   validateRepoRelativePath,
 } from "./ready-finalize.ts";
+import { reconcileReviewFeedbackItemsAtLaneWorktree } from "./review-feedback-item-reconciliation.ts";
 import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
-import { reconcileReviewFeedbackItemsAtLaneWorktree } from "./review-feedback-item-reconciliation.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";

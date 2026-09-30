@@ -89,10 +89,6 @@ function readMigrationIds(dbPath: string): string[] {
   return rows.map((row) => row.id);
 }
 
-function expectedFinishedAt(seed: SeedRow): number {
-  return seed.statusChangedAt ?? seed.createdAt;
-}
-
 describe("terminal null finished_at migration", () => {
   const dbPath = join(tmpdir(), "jarvis-test-state-terminal-null-finished-at-migration.sqlite");
 
@@ -107,14 +103,12 @@ describe("terminal null finished_at migration", () => {
     openStateStore(dbPath).close();
     const rows = readRows(dbPath);
 
-    for (const id of REPAIRED_IDS) {
-      const seed = SEED_ROWS.find((row) => row.id === id);
-      expect(seed).toBeDefined();
-      expect(rows[id]).toMatchObject({
-        status: seed?.status,
-        finished_at: expectedFinishedAt(seed!),
-        status_changed_at: seed?.statusChangedAt,
-        created_at: seed?.createdAt,
+    for (const seed of SEED_ROWS.filter((row) => REPAIRED_IDS.includes(row.id))) {
+      expect(rows[seed.id]).toMatchObject({
+        status: seed.status,
+        finished_at: seed.statusChangedAt ?? seed.createdAt,
+        status_changed_at: seed.statusChangedAt,
+        created_at: seed.createdAt,
       });
     }
     expect(rows["in-progress"]).toMatchObject({ finished_at: null });
@@ -141,10 +135,8 @@ describe("terminal null finished_at migration", () => {
     openStateStore(dbPath).close();
 
     const rows = readRows(dbPath);
-    for (const id of REPAIRED_IDS) {
-      const seed = SEED_ROWS.find((row) => row.id === id);
-      expect(seed).toBeDefined();
-      expect(rows[id]?.finished_at).toBe(expectedFinishedAt(seed!));
+    for (const seed of SEED_ROWS.filter((row) => REPAIRED_IDS.includes(row.id))) {
+      expect(rows[seed.id]?.finished_at).toBe(seed.statusChangedAt ?? seed.createdAt);
     }
     expect(readMigrationIds(dbPath)).toEqual([
       "004-invocation-failure-detail",

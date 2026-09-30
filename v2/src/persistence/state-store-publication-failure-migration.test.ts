@@ -9,7 +9,7 @@ import { removeOrchestrationStore } from "./state-store-on-disk.ts";
 
 const BASELINE_ID = "031-baseline-squash";
 const MIGRATION_ID = "032-completed-publication-failure-rows-to-failed";
-const TERMINAL_NULL_FINISHED_AT_MIGRATION_ID = "033-terminal-null-finished-at-backfill";
+const FINISHED_AT_BACKFILL_ID = "033-terminal-null-finished-at-backfill";
 const CREATED_AT = 1_700_000_000_000;
 const FINISHED_AT = CREATED_AT + 5_000;
 const CHANGED_AT = CREATED_AT + 6_000;
@@ -96,7 +96,7 @@ describe("completed publication-failure rows migration", () => {
     for (const seed of SEED_ROWS.filter((row) => !REPAIRED_IDS.includes(row.id))) {
       expect(rows[seed.id]).toMatchObject({ status: seed.status, terminal_cause: seed.cause });
     }
-    expect(readMigrationIds(dbPath)).toEqual([BASELINE_ID, MIGRATION_ID, TERMINAL_NULL_FINISHED_AT_MIGRATION_ID]);
+    expect(readMigrationIds(dbPath)).toEqual([BASELINE_ID, MIGRATION_ID, FINISHED_AT_BACKFILL_ID]);
 
     const before = readRows(dbPath);
     openStateStore(dbPath).close();
@@ -108,7 +108,7 @@ describe("completed publication-failure rows migration", () => {
     raw.close();
     openStateStore(dbPath).close();
     expect(readRows(dbPath)["commit-failed"]?.status).toBe("completed");
-    expect(readMigrationIds(dbPath)).toEqual([BASELINE_ID, MIGRATION_ID, TERMINAL_NULL_FINISHED_AT_MIGRATION_ID]);
+    expect(readMigrationIds(dbPath)).toEqual([BASELINE_ID, MIGRATION_ID, FINISHED_AT_BACKFILL_ID]);
   });
 
   test("a pre-squash store is upgraded and repaired in one open", () => {
@@ -123,7 +123,7 @@ describe("completed publication-failure rows migration", () => {
       "030-operator-notification-delivery",
       BASELINE_ID,
       MIGRATION_ID,
-      TERMINAL_NULL_FINISHED_AT_MIGRATION_ID,
+      FINISHED_AT_BACKFILL_ID,
     ]);
   });
 

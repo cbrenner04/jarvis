@@ -1593,16 +1593,15 @@ function repairCompletedPublicationFailureRows(db: Database): void {
 
 const TERMINAL_NULL_FINISHED_AT_MIGRATION_ID = "033-terminal-null-finished-at-backfill";
 
-/** Backfills `finished_at` on terminal rows left null before `commitCompletionBoundary` stamped it. */
 function repairTerminalNullFinishedAt(db: Database): void {
   const applied = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(TERMINAL_NULL_FINISHED_AT_MIGRATION_ID);
   if (applied) return;
-  const terminalStatusesSql = [...TERMINAL_RUN_STATUSES].map((status) => `'${status}'`).join(", ");
+  if (!tableHasColumn(db, "runs", "finished_at") || !tableHasColumn(db, "runs", "status_changed_at")) return;
   db.exec("BEGIN");
   try {
     db.exec(`
       UPDATE runs SET finished_at = COALESCE(status_changed_at, created_at)
-      WHERE status IN (${terminalStatusesSql}) AND finished_at IS NULL
+      WHERE status IN (${TERMINAL_RUN_STATUSES_SQL}) AND finished_at IS NULL
     `);
     db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(
       TERMINAL_NULL_FINISHED_AT_MIGRATION_ID,

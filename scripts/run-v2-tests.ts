@@ -120,6 +120,11 @@ export interface FileResult {
   status: number | null;
 }
 
+export type RunV2TestFilesOptions = {
+  /** When false, nested scoped runs (e.g. base-ref probes) do not emit gate attribution markers. */
+  emitFailingTestFileRecords?: boolean;
+};
+
 function classOfTestFile(file: string) {
   if (!file.replace(/\\/g, "/").replace(/^\.\//, "").startsWith("v2/")) {
     return undefined;
@@ -185,7 +190,9 @@ export async function runV2TestFiles(
   label = "v2",
   concurrency = resolveConcurrency(),
   attemptId = process.env[READY_ATTEMPT_ENV] ?? "standalone",
+  options: RunV2TestFilesOptions = {},
 ): Promise<FileResult[]> {
+  const emitFailingTestFileRecords = options.emitFailingTestFileRecords ?? true;
   const results: FileResult[] = [];
   const batches = planTestBatches(files, classOfTestFile);
   let stopAdmitting = false;
@@ -207,7 +214,7 @@ export async function runV2TestFiles(
         }
         const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
         process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
-        if (result.timedOut || result.status !== 0 || result.signal !== null) {
+        if (emitFailingTestFileRecords && (result.timedOut || result.status !== 0 || result.signal !== null)) {
           process.stderr.write(failingTestFileRecord(file, attemptId));
         }
         results.push({ file, timedOut: result.timedOut, status: result.status });

@@ -615,6 +615,10 @@ async function runBaseRefProbeCommand(
         createWorktreeSpawn(runner, worktreeDir, scope.verifierProcessGroups, probeEnv, (outcome) => {
           failure = outcome;
         }),
+        "v2",
+        undefined,
+        undefined,
+        { emitFailingTestFileRecords: false },
       );
       if (aggregateExitCode(results) === 0) {
         return "pass";

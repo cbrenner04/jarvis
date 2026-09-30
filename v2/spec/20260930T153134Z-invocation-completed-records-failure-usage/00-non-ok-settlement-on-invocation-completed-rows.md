@@ -28,7 +28,7 @@
 - [x] `shared/invocation/execute.test.ts` — non-ok injected binding carrying `warnings` copies capped warning strings onto the `invocation_completed` row (same cap behavior as `ok`); fails against the pre-fix ok-only settlement branch in `createInvocationCompletedRecord`.
 - [x] `shared/invocation/execute.test.ts` — `ok result with usage and cost records those exact values and sources` stays green.
 - [x] `shared/invocation/execute.test.ts` — `appends one invocation_completed row per binding attempt in order` stays green.
-- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

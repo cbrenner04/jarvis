@@ -9,11 +9,13 @@ import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import { assembleStepTemplate } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
+import { FALSIFIABILITY_GUIDANCE_MARKERS } from "./review-falsifiability-fragment.test.ts";
 import {
   type ReviewDebateRenderContext,
   renderPatchReviewCriticPrompt,
   renderReviewDebateActuatorPrompt,
   renderReviewDebateCyclePrompts,
+  renderReviewDebateRolePrompt,
 } from "./review-implement.ts";
 
 const tempDirs: string[] = [];
@@ -164,4 +166,22 @@ test("whitespace-only repo guidance omits its declared optional section", () => 
   expect(rendered).not.toContain("## Repo Guidance");
   expect(rendered).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
   expect(rendered).toContain("Read the spec at spec/example/index.md.\nFollow these Jarvis rules:");
+});
+
+test("implement review critic, adversary, and advocate renders include falsifiability mandate, defect-shape taxonomy, and empty-verdict-when-nothing-found", async () => {
+  const context = reviewContext();
+  const runner = realAsyncSubprocessRunner;
+  const critic = await renderPatchReviewCriticPrompt(context, runner);
+  const adversary = await renderReviewDebateRolePrompt("adversary", context, undefined, runner);
+  const advocate = await renderReviewDebateRolePrompt("advocate", context, "(none)", runner);
+  for (const rendered of [critic, adversary, advocate]) {
+    expect(rendered).toContain("## Review falsifiability");
+    expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+    for (const marker of FALSIFIABILITY_GUIDANCE_MARKERS) {
+      expect(rendered).toContain(marker);
+    }
+  }
+  expect(critic).toContain("emit an empty verdict (critic)");
+  expect(adversary).toContain("report no manufactured problems (adversary)");
+  expect(advocate).toContain("concede only findings the evidence supports (advocate)");
 });

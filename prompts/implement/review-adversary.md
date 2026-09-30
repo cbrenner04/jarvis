@@ -3,8 +3,9 @@ id: implement.prompt.review.adversary
 behavior: implement
 kind: step
 fragmentPolicy: global
-revision: 3
+revision: 4
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
+add: [implement.review.falsifiability]
 ---
 # Implement Mode — Review: Adversary
 

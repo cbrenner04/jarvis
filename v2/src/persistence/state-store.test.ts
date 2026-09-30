@@ -541,6 +541,7 @@ describe("StateStore", () => {
 
     const attempt1Id = store.recordAttemptStart(runId);
     store.commitCompletionBoundary({ attemptId: attempt1Id, runStatus: "in-progress", outcomeKind: "no-work" });
+    expect(loadRunOrThrow(store, runId).finishedAt).toBeNull();
     const attempt2Id = store.recordAttemptStart(runId);
     store.commitCompletionBoundary({ attemptId: attempt2Id, runStatus: "completed", outcomeKind: "done" });
 
@@ -6413,7 +6414,8 @@ describe("gate refusal recovery state", () => {
     const loaded = loadRunOrThrow(store, runId);
     expect(loaded.status).toBe("completed");
     expect(loaded.gateRefusalRecoveryState).toBeNull();
-    expect(loaded.finishedAt).toBeNull();
+    expect(loaded.terminalCause).toBeNull();
+    expect(loaded.finishedAt).not.toBeNull();
   });
 
   test("a row whose current terminal outcome is not gate_invocation_refused projects no gate refusal recovery record even with a valid record in the column", () => {

@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it, mock, setSystemTime } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
-import type { StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import {
   AmbiguousOpenPrError,
   bindHarnessReadyFlipEvidenceLookup,
@@ -1924,6 +1925,16 @@ describe("createCompletionPublisher lease-forced push", () => {
 });
 
 describe("bindHarnessReadyFlipEvidenceLookup", () => {
+  it("returns undefined when the owning run row is missing", () => {
+    const store = {
+      loadRun: () => null,
+      findNewestHarnessReadyFlipEvidenceInLineage: () => {
+        throw new Error("should not be called");
+      },
+    } as unknown as StateStore;
+    expect(bindHarnessReadyFlipEvidenceLookup(store, "missing")).toBeUndefined();
+  });
+
   it("returns true only when the store finds lineage evidence", () => {
     let evidence: object | null = null;
     const store = {
@@ -1935,5 +1946,34 @@ describe("bindHarnessReadyFlipEvidenceLookup", () => {
     expect(lookup?.(args)).toBe(false);
     evidence = { prNumber: 1 };
     expect(lookup?.(args)).toBe(true);
+    evidence = null;
+    expect(lookup?.(args)).toBe(false);
+  });
+
+  it("reads persisted lineage evidence for the run row project and specRef", () => {
+    const stateDbPath = join(trackedMkdtempSync(join(tmpdir(), "completion-publisher-bind-")), "state.db");
+    const store = openStateStore(stateDbPath);
+    const branch = "feature-branch";
+    const baseRef = "main";
+    const prNumber = 42;
+    const runId = store.createRun({
+      project: "demo",
+      specRef: baseRef,
+      worktreePath: "/tmp/worktree",
+      branch,
+      specPath: "spec.md",
+    });
+    try {
+      setSystemTime(new Date(10_000));
+      store.recordHarnessReadyFlipEvidence({ runId, prNumber, branch, baseRef });
+      const lookup = bindHarnessReadyFlipEvidenceLookup(store, runId);
+      const args = { branch, baseRef, prNumber };
+      expect(lookup?.(args)).toBe(true);
+      expect(lookup?.({ ...args, prNumber: prNumber + 1 })).toBe(false);
+    } finally {
+      setSystemTime();
+      store.close();
+      removeOrchestrationStore(stateDbPath);
+    }
   });
 });

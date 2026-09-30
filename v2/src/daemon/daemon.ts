@@ -962,11 +962,7 @@ export type RollbackAdmissionSupersedeState = {
   blocksRollbackReopen: boolean;
 };
 
-/**
- * Records a `supersede` for rollback admission policy. A handoff-origin supersede — received while
- * the active transaction is pending from that transaction's successor — does not block rollback
- * reopen; any other supersede does.
- */
+/** Handoff-origin `supersede` during a pending transaction does not block rollback admission reopen. */
 export function recordSupersedeForRollbackAdmission(
   state: RollbackAdmissionSupersedeState,
   input: { handoffPending: boolean; fromHandoffSuccessor?: boolean },
@@ -976,10 +972,6 @@ export function recordSupersedeForRollbackAdmission(
     return;
   }
   state.blocksRollbackReopen = true;
-}
-
-export function rollbackBlocksReopenAdmission(state: RollbackAdmissionSupersedeState): boolean {
-  return state.blocksRollbackReopen;
 }
 
 function handoffIdentity(frame: Parameters<RpcHandler>[0]): string | undefined {
@@ -1038,15 +1030,7 @@ export function createHandoffHandlers(deps: HandoffHandlersDeps): {
     }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS);
   };
 
-  /**
-   * Runs on the committed watch's cadence once a handoff commits: probes the public address and,
-   * when nothing answers, rebinds and reopens admission unconditionally — the same reclaim pending
-   * rollback performs, without consulting `rollbackBlocksReopenAdmission` (handoff-origin
-   * `supersede` during the pending transaction is cleared on rollback; committed watch is unrelated).
-   * A rebind that fails
-   * (e.g. a still-listening successor that only answers slowly) reschedules rather than giving up,
-   * and never logs or marks the transaction settled — only a successful rebind does either.
-   */
+  /** Committed watch: rebind when the public address is not live; never gated by rollback supersede state. */
   const tickWatch = async (handoffId: string): Promise<void> => {
     const active = transaction;
     if (closed || active === undefined || !isHandoffStillPending(active.id, active.state, handoffId, "committed")) {
@@ -1598,26 +1582,17 @@ export async function startDaemonRuntime(
 
   const supersedeAdmissionState: RollbackAdmissionSupersedeState = { blocksRollbackReopen: false };
   let isHandoffPending: () => boolean = () => false;
-  const recordIncomingSupersede = (fromHandoffSuccessor: boolean): void => {
-    const handoffPending = isHandoffPending();
-    recordSupersedeForRollbackAdmission(supersedeAdmissionState, {
-      handoffPending,
-      ...(handoffPending ? { fromHandoffSuccessor } : {}),
-    });
-  };
-  const retireOnSupersede = (): RpcHandlerResult => {
-    setRetiring();
-    recordRetireTrigger("supersede");
-    return { kind: "response", result: { ok: true } };
-  };
-  const publicSupersedeHandler: RpcHandler = () => {
-    recordIncomingSupersede(false);
-    return retireOnSupersede();
-  };
-  const privateSupersedeHandler: RpcHandler = () => {
-    recordIncomingSupersede(true);
-    return retireOnSupersede();
-  };
+  const supersedeHandler =
+    (fromHandoffSuccessor: boolean): RpcHandler =>
+    () => {
+      recordSupersedeForRollbackAdmission(supersedeAdmissionState, {
+        handoffPending: isHandoffPending(),
+        fromHandoffSuccessor,
+      });
+      setRetiring();
+      recordRetireTrigger("supersede");
+      return { kind: "response", result: { ok: true } };
+    };
 
   let server: IpcServer;
   // False while the public listener is released for a handoff; private-endpoint start/resume admit
@@ -1637,7 +1612,7 @@ export async function startDaemonRuntime(
     setAdmitting: () => {
       runControlContext.retiring = false;
     },
-    rollbackBlocksReopenAdmission: () => rollbackBlocksReopenAdmission(supersedeAdmissionState),
+    rollbackBlocksReopenAdmission: () => supersedeAdmissionState.blocksRollbackReopen,
     recordRetireTrigger,
     bindPublicServer: async () => {
       try {
@@ -1659,7 +1634,7 @@ export async function startDaemonRuntime(
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
-    supersede: publicSupersedeHandler,
+    supersede: supersedeHandler(false),
     changeover: handoffHandlers.changeover,
     handoff_commit: handoffHandlers.handoff_commit,
     handoff_rollback: handoffHandlers.handoff_rollback,
@@ -1674,7 +1649,7 @@ export async function startDaemonRuntime(
   // must never recurse.
   const privateHandlers = {
     ...handlers,
-    supersede: privateSupersedeHandler,
+    supersede: supersedeHandler(true),
     wait: runControlHandlers.wait,
     pause: runControlHandlers.pause,
     kill: runControlHandlers.kill,

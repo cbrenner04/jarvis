@@ -4,34 +4,47 @@ import {
   createHandoffHandlers,
   isLiveSuccessorPublicBindRefusal,
   recordSupersedeForRollbackAdmission,
-  rollbackBlocksReopenAdmission,
 } from "./daemon.ts";
 
 function requestFrame(method: string, params?: unknown) {
   return { kind: "request" as const, id: "1", method, params };
 }
 
+const baseDeps = {
+  getPrivateSocketPath: () => "/tmp/daemon-priv.sock",
+  recordRetireTrigger: () => {},
+  closePublicServer: async () => {},
+  bindPublicServer: async () => {},
+  probePublicServer: async () => false,
+};
+
+function eaddrInUseError() {
+  return Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" });
+}
+
+async function flushMicrotasks() {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function pendingHandoffId(handlers: ReturnType<typeof createHandoffHandlers>) {
+  const changeover = await handlers.changeover(requestFrame("changeover"), new AbortController().signal);
+  if (changeover.kind !== "response") throw new Error("expected changeover response");
+  await flushMicrotasks();
+  return (changeover.result as { handoffId: string }).handoffId;
+}
+
 function makeHandlers() {
   let retiring = true;
-  let publicBound = true;
   const supersedeAdmissionState = { blocksRollbackReopen: false };
   const handlers = createHandoffHandlers({
-    getPrivateSocketPath: () => "/tmp/daemon-priv.sock",
+    ...baseDeps,
     setRetiring: () => {
       retiring = true;
     },
     setAdmitting: () => {
       retiring = false;
     },
-    rollbackBlocksReopenAdmission: () => rollbackBlocksReopenAdmission(supersedeAdmissionState),
-    recordRetireTrigger: () => {},
-    closePublicServer: async () => {
-      publicBound = false;
-    },
-    bindPublicServer: async () => {
-      publicBound = true;
-    },
-    probePublicServer: async () => false,
+    rollbackBlocksReopenAdmission: () => supersedeAdmissionState.blocksRollbackReopen,
     fallbackMs: 60_000,
   });
   const supersede = (fromHandoffSuccessor?: boolean) => {
@@ -41,7 +54,7 @@ function makeHandlers() {
     });
     retiring = true;
   };
-  return { handlers, supersede, isRetiring: () => retiring, isPublicBound: () => publicBound };
+  return { handlers, supersede, isRetiring: () => retiring };
 }
 
 type FakeTimer = { callback: () => void; dueAt: number; cleared: boolean };
@@ -54,24 +67,26 @@ function makeFallbackClock() {
     timers.push(timer);
     return timer;
   };
-  const runDue = () => {
+  const advance = (ms: number) => {
+    clock.now += ms;
     for (const timer of [...timers]) {
       if (timer.cleared || timer.dueAt > clock.now) continue;
       timer.cleared = true;
       timer.callback();
     }
   };
-  const advance = (ms: number) => {
-    clock.now += ms;
-    runDue();
-  };
   return { scheduleAfter, advance };
 }
 
+async function runFallbackTicks(advance: (ms: number) => void, count: number) {
+  for (let i = 0; i < count; i += 1) {
+    advance(10);
+    await flushMicrotasks();
+  }
+}
+
 test("isLiveSuccessorPublicBindRefusal is true for EADDRINUSE and live-socket classification", () => {
-  expect(isLiveSuccessorPublicBindRefusal(Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" }))).toBe(
-    true,
-  );
+  expect(isLiveSuccessorPublicBindRefusal(eaddrInUseError())).toBe(true);
   expect(isLiveSuccessorPublicBindRefusal(new DaemonSocketInUseError("/tmp/daemon.sock"))).toBe(true);
   expect(isLiveSuccessorPublicBindRefusal(new Error("rebind failed"))).toBe(false);
 });
@@ -79,31 +94,26 @@ test("isLiveSuccessorPublicBindRefusal is true for EADDRINUSE and live-socket cl
 test("recordSupersedeForRollbackAdmission blocks rollback reopen for external supersede", () => {
   const state = { blocksRollbackReopen: false };
   recordSupersedeForRollbackAdmission(state, { handoffPending: false });
-  expect(rollbackBlocksReopenAdmission(state)).toBe(true);
+  expect(state.blocksRollbackReopen).toBe(true);
 });
 
 test("recordSupersedeForRollbackAdmission does not block when pending and from the handoff successor", () => {
   const state = { blocksRollbackReopen: false };
   recordSupersedeForRollbackAdmission(state, { handoffPending: true, fromHandoffSuccessor: true });
-  expect(rollbackBlocksReopenAdmission(state)).toBe(false);
+  expect(state.blocksRollbackReopen).toBe(false);
 });
 
 test("recordSupersedeForRollbackAdmission blocks when pending but not from the handoff successor", () => {
   const state = { blocksRollbackReopen: false };
   recordSupersedeForRollbackAdmission(state, { handoffPending: true, fromHandoffSuccessor: false });
-  expect(rollbackBlocksReopenAdmission(state)).toBe(true);
+  expect(state.blocksRollbackReopen).toBe(true);
 });
 
 test("handoff rollback reopens admission after changeover and handoff-origin supersede", async () => {
   const { handlers, supersede, isRetiring } = makeHandlers();
-  const changeover = await handlers.changeover(requestFrame("changeover"), new AbortController().signal);
-  if (changeover.kind !== "response") throw new Error("expected changeover response");
-  const handoffId = (changeover.result as { handoffId: string }).handoffId;
-  await new Promise((resolve) => setImmediate(resolve));
-
+  const handoffId = await pendingHandoffId(handlers);
   supersede(true);
   expect(isRetiring()).toBe(true);
-
   const rollback = await handlers.handoff_rollback(
     requestFrame("handoff_rollback", { handoffId }),
     new AbortController().signal,
@@ -114,11 +124,7 @@ test("handoff rollback reopens admission after changeover and handoff-origin sup
 
 test("handoff rollback stays non-admitting after supersede from a non-successor peer during pending", async () => {
   const { handlers, supersede, isRetiring } = makeHandlers();
-  const changeover = await handlers.changeover(requestFrame("changeover"), new AbortController().signal);
-  if (changeover.kind !== "response") throw new Error("expected changeover response");
-  const handoffId = (changeover.result as { handoffId: string }).handoffId;
-  await new Promise((resolve) => setImmediate(resolve));
-
+  const handoffId = await pendingHandoffId(handlers);
   supersede(false);
   const rollback = await handlers.handoff_rollback(
     requestFrame("handoff_rollback", { handoffId }),
@@ -134,7 +140,7 @@ test("fallback rollback retries after EADDRINUSE then reopens admission", async 
   let bindCalls = 0;
   const probeResults = [false, false, false];
   const handlers = createHandoffHandlers({
-    getPrivateSocketPath: () => "/tmp/daemon-priv.sock",
+    ...baseDeps,
     setRetiring: () => {
       retiring = true;
     },
@@ -142,28 +148,16 @@ test("fallback rollback retries after EADDRINUSE then reopens admission", async 
       retiring = false;
     },
     rollbackBlocksReopenAdmission: () => false,
-    recordRetireTrigger: () => {},
-    closePublicServer: async () => {},
     bindPublicServer: async () => {
       bindCalls += 1;
-      if (bindCalls === 1) {
-        throw Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" });
-      }
+      if (bindCalls === 1) throw eaddrInUseError();
     },
     probePublicServer: async () => probeResults.shift() ?? false,
     fallbackMs: 10,
     scheduleAfter,
   });
-  const changeover = await handlers.changeover(requestFrame("changeover"), new AbortController().signal);
-  if (changeover.kind !== "response") throw new Error("expected changeover response");
-  const handoffId = (changeover.result as { handoffId: string }).handoffId;
-  await new Promise((resolve) => setImmediate(resolve));
-  advance(10);
-  await new Promise((resolve) => setImmediate(resolve));
-  advance(10);
-  await new Promise((resolve) => setImmediate(resolve));
-  advance(10);
-  await new Promise((resolve) => setImmediate(resolve));
+  const handoffId = await pendingHandoffId(handlers);
+  await runFallbackTicks(advance, 3);
   const settled = await handlers.handoff_commit(
     requestFrame("handoff_commit", { handoffId }),
     new AbortController().signal,
@@ -180,27 +174,21 @@ test("fallback rollback defers competing rebind while a live successor holds the
   const probeResults = [false, false, true];
   let settled: "committed" | "rolled_back" | undefined;
   const handlers = createHandoffHandlers({
-    getPrivateSocketPath: () => "/tmp/daemon-priv.sock",
+    ...baseDeps,
     setRetiring: () => {},
     setAdmitting: () => {},
     rollbackBlocksReopenAdmission: () => false,
-    recordRetireTrigger: () => {},
-    closePublicServer: async () => {},
     bindPublicServer: async () => {
       bindCalls += 1;
-      throw Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" });
+      throw eaddrInUseError();
     },
     probePublicServer: async () => probeResults.shift() ?? true,
     fallbackMs: 10,
     scheduleAfter,
   });
-  const changeover = await handlers.changeover(requestFrame("changeover"), new AbortController().signal);
-  if (changeover.kind !== "response") throw new Error("expected changeover response");
-  const handoffId = (changeover.result as { handoffId: string }).handoffId;
-  await new Promise((resolve) => setImmediate(resolve));
+  const handoffId = await pendingHandoffId(handlers);
   for (let tick = 0; tick < 3; tick += 1) {
-    advance(10);
-    await new Promise((resolve) => setImmediate(resolve));
+    await runFallbackTicks(advance, 1);
     const commit = await handlers.handoff_commit(
       requestFrame("handoff_commit", { handoffId }),
       new AbortController().signal,

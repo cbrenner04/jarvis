@@ -18,10 +18,18 @@ function configureIdentity(dir: string): void {
   execFileSync("git", ["config", "user.name", "Test"], { cwd: dir });
 }
 
+// `git commit` runs `git maintenance run --auto`, which (git >= 2.46) detaches and briefly creates
+// `.git/objects/maintenance.lock`; a cpSync walking `.git` then hits ENOENT on the vanished file.
+function disableBackgroundMaintenance(dir: string): void {
+  execFileSync("git", ["config", "maintenance.auto", "false"], { cwd: dir });
+  execFileSync("git", ["config", "gc.auto", "0"], { cwd: dir });
+}
+
 function initGitDir(): string {
   const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-git-fixture-template-"));
   execFileSync("git", ["init", "-q"], { cwd: dir });
   configureIdentity(dir);
+  disableBackgroundMaintenance(dir);
   return dir;
 }
 

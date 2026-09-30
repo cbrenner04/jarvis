@@ -5862,6 +5862,163 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  async function stampLeaseFromStaleReset(
+    writeStep: { behavior: "write" },
+    resetResult: Awaited<ReturnType<typeof resetStaleWorkspace>>,
+  ): Promise<void> {
+    if (resetResult.status === "continue" && resetResult.preRebaseSha !== undefined && writeStep.behavior === "write") {
+      (writeStep as { leaseFromSha?: string }).leaseFromSha = resetResult.preRebaseSha;
+    }
+  }
+
+  test("resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base", async () => {
+    const branch = "impl/chained-out-of-root-merge";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const preMergeSha = await commitInWorktree(worktreePath, "chained-open-pr-impl.txt");
+
+    await advanceBase("chained-open-pr-merge-advance.md");
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 901, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+    expect(baseHead).toBeTruthy();
+  });
+
+  test("resetStaleWorkspace merges base into an open-PR in-root lane past a moved base", async () => {
+    const branch = "impl/in-root-open-pr-merge";
+    const subspecRel = "v2/spec/open-pr-merge-lane/00-task.md";
+    const indexRel = await setupSpecTree("open-pr-merge-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, "unrelated-open-pr-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 902, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane", async () => {
+    const branch = "impl/chained-open-pr-merge-conflict";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge-conflict");
+    const conflictRel = "chained-open-pr-merge-conflict.txt";
+    writeFileSync(join(projectRoot, conflictRel), "start\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add conflict file"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, conflictRel), "lane\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane edit"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, conflictRel), "base\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "base edit"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 903, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(conflictRel);
+    expect(reason).toContain("conflicted");
+    expect(reason).toContain("worktree unchanged");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(preMergeSha);
+    const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
+    expect(statusOutput.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("maybeResetStaleWorkspace sets leaseFromSha on rebase-continue only", async () => {
+    const branch = "impl/lease-from-sha";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("lease-from-sha");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "lease-rebase.txt");
+    await advanceBase("lease-rebase-advance.md");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    const rebaseWriteStep = { behavior: "write" as const };
+    const rebaseResult = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+    await stampLeaseFromStaleReset(rebaseWriteStep, rebaseResult);
+    expect(rebaseResult.status).toBe("continue");
+    expect((rebaseWriteStep as { leaseFromSha?: string }).leaseFromSha).toBe(preRebaseSha);
+
+    const mergeBranch = "impl/lease-merge";
+    const mergeOutOfRoot = setupChainedOutOfRootSpec("lease-merge");
+    const mergeWorktreePath = await setupWorktreeAndBranch(mergeBranch);
+    await commitInWorktree(mergeWorktreePath, "lease-merge.txt");
+    await advanceBase("lease-merge-advance.md");
+
+    const mergeWriteStep = { behavior: "write" as const };
+    const mergeResult = await callReset(
+      mergeBranch,
+      ghPrListRunner(projectRoot, [{ number: 904, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: mergeOutOfRoot },
+    );
+    await stampLeaseFromStaleReset(mergeWriteStep, mergeResult);
+    expect(mergeResult.status).toBe("continue");
+    if (mergeResult.status === "continue") {
+      expect(mergeResult.preRebaseSha).toBeUndefined();
+    }
+    expect((mergeWriteStep as { leaseFromSha?: string }).leaseFromSha).toBeUndefined();
+  });
+
   test("resetStaleWorkspace continues an external plan tree despite an unbacked tick, since the tick guard is out of root", async () => {
     const branch = "impl/external-continue";
     const worktreePath = await setupWorktreeAndBranch(branch);

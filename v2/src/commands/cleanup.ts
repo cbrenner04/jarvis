@@ -2598,6 +2598,29 @@ async function rebaseWorktreeOntoBase(
   }
 }
 
+/**
+ * Merge `baseHead` into the worktree's checked-out branch; a conflict is aborted, leaving the
+ * worktree unchanged. Returns `undefined` on a clean merge, or the conflicting paths otherwise.
+ */
+async function mergeWorktreeWithBase(
+  worktreePath: string,
+  baseHead: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string[] | undefined> {
+  try {
+    await runner.runAsync("git", ["merge", "--no-edit", baseHead], worktreePath);
+    return undefined;
+  } catch {
+    const conflictPaths = await listRebaseConflictPaths(worktreePath, runner);
+    try {
+      await runner.runAsync("git", ["merge", "--abort"], worktreePath);
+    } catch {
+      // best effort — conflictPaths were already captured before the abort attempt
+    }
+    return conflictPaths;
+  }
+}
+
 /** `undefined` means no verdict — the caller falls through to the pre-continuation gates unchanged. */
 /** `preRebaseSha` is set only when this call rebased the lane: the lane tip before the rewrite, which authorizes the publisher's lease push. */
 type CommittedLaneContinuationResult =
@@ -2687,7 +2710,8 @@ async function applyPreContinuationGates(args: {
 /**
  * Committed-lane continuation for the non-disposable, commits-ahead-of-base case: a descendant lane
  * continues subject to tick-backing; a lane behind a moved base rebases first (only when a trackable
- * continuation-readable write-step spec) and continues on a clean rebase, or refuses naming conflicts;
+ * continuation-readable write-step spec) merges or rebases onto the moved base (merge when an open draft PR
+ * already published the lane tip, rebase otherwise) and continues on success, or refuses naming conflicts;
  * one with no shared history, or no continuation-readable spec to rebase for, refuses as a plain non-descendant.
  */
 async function evaluateCommittedLaneContinuation(args: {
@@ -2697,6 +2721,7 @@ async function evaluateCommittedLaneContinuation(args: {
   baseRef: string;
   baseHead: string;
   worktreeHead: string;
+  hasOpenPr: boolean;
   trackableSpecPath: string | undefined;
   continuationReadableSpecPath: string | undefined;
   skipLandedCriteriaGate: boolean;
@@ -2708,6 +2733,7 @@ async function evaluateCommittedLaneContinuation(args: {
     baseRef,
     baseHead,
     worktreeHead,
+    hasOpenPr,
     trackableSpecPath,
     continuationReadableSpecPath,
     runner,
@@ -2737,11 +2763,13 @@ async function evaluateCommittedLaneContinuation(args: {
     if (tickBacking?.status !== "continue") return tickBacking;
   }
 
-  const conflictPaths = await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
-  if (conflictPaths !== undefined) {
-    return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, conflictPaths) };
+  const rewrite = hasOpenPr
+    ? await mergeWorktreeWithBase(worktreePath, baseHead, runner)
+    : await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
+  if (rewrite !== undefined) {
+    return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, rewrite) };
   }
-  return { status: "continue", preRebaseSha: worktreeHead };
+  return hasOpenPr ? { status: "continue" } : { status: "continue", preRebaseSha: worktreeHead };
 }
 
 function staleResetDescendantGateReason(baseRef: string, baseHead: string, worktreeHead: string): string {
@@ -3050,6 +3078,7 @@ export async function resetStaleWorkspace(
                 baseRef,
                 baseHead,
                 worktreeHead,
+                hasOpenPr: prGate.pr !== undefined,
                 trackableSpecPath,
                 continuationReadableSpecPath,
                 skipLandedCriteriaGate,

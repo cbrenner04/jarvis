@@ -23,16 +23,16 @@ When a draft PR already published the lane tip, rebasing onto a moved base rewri
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base` uses the chained out-of-root fixture with a faked open draft PR; asserts `status: "continue"`, old tip is ancestor of new tip, no rebase (`git rev-parse ORIG_HEAD` fails in the worktree after success), no `preRebaseSha`, and worktree retained; fails against the pre-fix rebase-only path (reachable on main: no merge-continuation path).
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace merges base into an open-PR in-root lane past a moved base` uses an in-root continuation-readable spec, faked open draft PR, and moved base; asserts `status: "continue"`, old tip ancestor of new tip, no rebase (`ORIG_HEAD` absent), no `preRebaseSha`, worktree retained; fails against the pre-fix rebase-only path (reachable on main: `evaluateCommittedLaneContinuation` always rebases today).
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane` asserts refusal naming conflicting paths, branch tip and worktree porcelain unchanged from before the attempt; fails against the pre-fix code (reachable on main: no merge-continuation path exists).
-- [ ] `stale-reset-workspace.test.ts` or `cleanup.test.ts` asserts `maybeResetStaleWorkspace` sets `writeStep.leaseFromSha` from `preRebaseSha` on rebase-continue and does not set it on merge-continue when exercising moved-base continuation (fails if merge-continue copies a rebase lease).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `cleanup.test.ts` test `resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base` uses the chained out-of-root fixture with a faked open draft PR; asserts `status: "continue"`, old tip is ancestor of new tip, no rebase (`git rev-parse ORIG_HEAD` fails in the worktree after success), no `preRebaseSha`, and worktree retained; fails against the pre-fix rebase-only path (reachable on main: no merge-continuation path).
+- [x] `cleanup.test.ts` test `resetStaleWorkspace merges base into an open-PR in-root lane past a moved base` uses an in-root continuation-readable spec, faked open draft PR, and moved base; asserts `status: "continue"`, old tip ancestor of new tip, no rebase (`ORIG_HEAD` absent), no `preRebaseSha`, worktree retained; fails against the pre-fix rebase-only path (reachable on main: `evaluateCommittedLaneContinuation` always rebases today).
+- [x] `cleanup.test.ts` test `resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane` asserts refusal naming conflicting paths, branch tip and worktree porcelain unchanged from before the attempt; fails against the pre-fix code (reachable on main: no merge-continuation path exists).
+- [x] `stale-reset-workspace.test.ts` or `cleanup.test.ts` asserts `maybeResetStaleWorkspace` sets `writeStep.leaseFromSha` from `preRebaseSha` on rebase-continue and does not set it on merge-continue when exercising moved-base continuation (fails if merge-continue copies a rebase lease).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/operator-runbook.md` § Incomplete re-run preflight gates — merge-when-PR-published for in-root and chained out-of-root lanes; merge-aware abort wording (not rebase-only).
-- [ ] `v2/docs/v1-behaviors.md` — incomplete re-dispatch continuation: merge-when-open-PR vs rebase when no PR.
-- [ ] `v2/docs/write-behavior.md` — `preRebaseSha` / `leaseFromSha` on rebase-continue vs omitted on merge-continue.
-- [ ] `v2/docs/operator-runbook.md` § Recovery — replace the `stale reuse refused` moved-base hand-merge workaround (merge `origin/main` into the lane and resume) with the automatic behavior: re-dispatch merges base when a PR is published, rebases otherwise.
-- [ ] `v2/docs/pipeline-execution.md` — stale-reset/continuation gates paragraph: merge-when-PR-published continuation.
+- [x] `v2/docs/operator-runbook.md` § Incomplete re-run preflight gates — merge-when-PR-published for in-root and chained out-of-root lanes; merge-aware abort wording (not rebase-only).
+- [x] `v2/docs/v1-behaviors.md` — incomplete re-dispatch continuation: merge-when-open-PR vs rebase when no PR.
+- [x] `v2/docs/write-behavior.md` — `preRebaseSha` / `leaseFromSha` on rebase-continue vs omitted on merge-continue.
+- [x] `v2/docs/operator-runbook.md` § Recovery — replace the `stale reuse refused` moved-base hand-merge workaround (merge `origin/main` into the lane and resume) with the automatic behavior: re-dispatch merges base when a PR is published, rebases otherwise.
+- [x] `v2/docs/pipeline-execution.md` — stale-reset/continuation gates paragraph: merge-when-PR-published continuation.

@@ -112,7 +112,7 @@ describe("terminal null finished_at migration", () => {
       });
     }
     expect(rows["in-progress"]).toMatchObject({ finished_at: null });
-    expect(rows["paused"]).toMatchObject({ finished_at: null });
+    expect(rows.paused).toMatchObject({ finished_at: null });
     expect(rows["failed-has-finished"]).toMatchObject({ finished_at: EXISTING_FINISHED_AT });
     expect(readMigrationIds(dbPath)).toEqual([BASELINE_ID, PUBLICATION_FAILURE_MIGRATION_ID, MIGRATION_ID]);
 

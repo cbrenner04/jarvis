@@ -40,7 +40,7 @@ const builderPipelineEligibility = Object.fromEntries(
   ]),
 ) as Record<CliWorkflowPresetName, { pipelineStageEligible: boolean }>;
 
-export const PIPELINE_ELIGIBILITY = {
+const PIPELINE_ELIGIBILITY = {
   ...builderPipelineEligibility,
   "review-feedback": { pipelineStageEligible: false },
 } satisfies Record<PipelineEligibilityPresetName, { pipelineStageEligible: boolean }>;

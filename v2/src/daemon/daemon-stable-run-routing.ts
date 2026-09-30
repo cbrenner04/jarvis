@@ -12,7 +12,7 @@ import {
   queryPipelineListsFromSocketPaths,
 } from "./pipeline-daemon-resolution.ts";
 import { resolvePipelineIdArgument } from "./pipeline-id-resolution.ts";
-import { resolvePipelineOwnership, type PipelineSnapshot } from "./pipeline-observation.ts";
+import { type PipelineSnapshot, resolvePipelineOwnership } from "./pipeline-observation.ts";
 
 const DIRECT_OWNER_RUN_METHODS = ["wait", "pause", "kill"] as const;
 

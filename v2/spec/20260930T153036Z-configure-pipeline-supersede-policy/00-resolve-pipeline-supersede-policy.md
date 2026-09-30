@@ -20,17 +20,18 @@ Terminal publication can close earlier stage PRs, but project config cannot yet 
 - Add `PIPELINE_SUPERSEDE_POLICIES` (or equivalent) and optional `supersede` on `PipelineDefinition`; extend `parseProjectPipeline` allowlist, defaulting, and validation; set `supersede` in `resolveProjectPipeline` after copy and `terminalAction` assignment.
 - Extend `project-pipeline-resolution.test.ts` with default/explicit resolution and copy isolation, malformed and unknown `supersede` negatives with lookup-spy ordering (no lookup on parse failures only), and forbidden-key coverage if not already implied by the shared table.
 - Repair compile/fixture fallout where admitted definitions must carry `supersede` (tests and any admission fixtures that construct full `PipelineDefinition` objects); run `bun run typecheck`.
-- Document operator config values, default, validation, admitted-definition immutability, and that terminal publication does not consume `supersede` until the settlement slice; record v2 admission behavior in `v1-behaviors.md` with `[v2 additive]` and Sources.
+- Document operator config values, default, validation, admitted-definition immutability, and that `supersede` has no runtime effect yet (no consumer reads it); record v2 admission behavior in `v1-behaviors.md` with `[v2 additive]` and Sources.
 
 ## Acceptance criteria
 
 - [ ] `project-pipeline-resolution.test.ts` — coverage added that fails against the baseline and proves absent `supersede` composes `"close"` and explicit `"keep"` composes `"keep"` onto independently owned admitted definitions for the same registry pipeline without mutating the source row or sibling resolved copies.
 - [ ] `project-pipeline-resolution.test.ts` — coverage added that fails against the baseline and proves unknown and malformed `supersede` values return `invalid-project-pipeline-config` with full config paths, unknown values use `has unknown value "…"` message parity with `terminalAction` parse negatives, and a registry lookup spy shows no lookup on parse failures only.
-- [ ] `bun run typecheck` passes after `PipelineDefinition` / admitted literal fallout from resolved `supersede`.
-- [ ] `v2/docs/install-and-config.md` documents `projects.<key>.pipeline.supersede` (`"close"`, `"keep"`), default `"close"`, allowlist and validation, that resolution copies the policy onto the admitted definition only and terminal publication does not consume it until the settlement slice, and the canonical complete project example omits default `supersede` while the table documents the key.
+- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass after `PipelineDefinition` / admitted-definition fixture fallout (e.g. exact-shape `toEqual` assertions on resolved definitions).
+- [ ] `v2/docs/install-and-config.md` documents `projects.<key>.pipeline.supersede` (`"close"`, `"keep"`), default `"close"`, allowlist and validation, that resolution copies the policy onto the admitted definition only and that it has no runtime effect yet (docs must not name a future slice), and the canonical complete project example omits default `supersede` while the table documents the key.
 - [ ] `v2/docs/v1-behaviors.md` includes a `[v2 additive]` bullet with Sources citing admission-time resolution that records resolved `supersede` on the immutable admitted pipeline definition (admission-only; no publication behavior change in this slice).
 
 ## Documentation updates
 
-- `v2/docs/install-and-config.md` — table row and prose for `projects.<key>.pipeline.supersede`; allowlist includes `supersede`; canonical complete project example omits default `supersede`; note resolution vs terminal-publication consumption.
+- `v2/docs/install-and-config.md` — table row and prose for `projects.<key>.pipeline.supersede`; allowlist includes `supersede`; canonical complete project example omits default `supersede`; note it has no runtime effect yet.
+- `v2/docs/pipeline-execution.md` — `PipelineDefinition` shape lists optional `supersede` (`close` | `keep`); `resolveProjectPipeline` summary names `supersede` alongside `terminalAction`.
 - `v2/docs/v1-behaviors.md` — `[v2 additive]` bullet with Sources (`v2/src/execution/project-pipeline-resolution.ts`, related admission paths) for admitted-definition `supersede`.

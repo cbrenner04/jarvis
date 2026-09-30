@@ -13,9 +13,9 @@ Pre-fix `commitCompletionBoundary` could leave terminal rows with `finished_at` 
 
 ## Tasks
 
-- [ ] Implement `repairTerminalNullFinishedAt` and wire it in the constructor after `repairCompletedPublicationFailureRows`.
-- [ ] Add `v2/src/persistence/state-store-terminal-null-finished-at-migration.test.ts` beside `state-store-publication-failure-migration.test.ts` (raw SQLite seed, `openStateStore` reopen assertions).
-- [ ] Update `v2/docs/state-store.md` and `v2/docs/v1-behaviors.md` per documentation updates below.
+- [x] Implement `repairTerminalNullFinishedAt` and wire it in the constructor after `repairCompletedPublicationFailureRows`.
+- [x] Add `v2/src/persistence/state-store-terminal-null-finished-at-migration.test.ts` beside `state-store-publication-failure-migration.test.ts` (raw SQLite seed, `openStateStore` reopen assertions).
+- [x] Update `v2/docs/state-store.md` and `v2/docs/v1-behaviors.md` per documentation updates below.
 
 ## Acceptance criteria
 

@@ -6,7 +6,6 @@ import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-suppor
 import {
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
-  readCleanupSessionLogRetentionDays,
   readCodexSandboxMode,
   readMachineConfigDocument,
   readNotificationSinkCommand,
@@ -14,6 +13,7 @@ import {
   readProjectImplementReviewPasses,
   readProjectReadyCommand,
   readProjectRegistry,
+  readRetentionSessions,
   readReviewRoleTimeoutMs,
   readRunTimeoutMs,
   resolveMachineProfile,
@@ -115,44 +115,88 @@ describe("resolveMachineProfile", () => {
   });
 });
 
-describe("readCleanupSessionLogRetentionDays", () => {
-  test.each([
-    ["cleanup", { agents: ["claude"] }],
-    ["cleanup.sessionLogRetentionDays", { cleanup: {} }],
-  ] as Array<[string, unknown]>)("defaults to 14 when %s is absent", (_label, config) => {
-    expect(readCleanupSessionLogRetentionDays(writeConfig(config))).toEqual({ ok: true, days: 14 });
-  });
+describe("readRetentionSessions", () => {
+  const defaults = { ok: true as const, hotDays: 14, coldDays: 90 };
+  const ok = (hotDays: number, coldDays: number) => ({ ok: true as const, hotDays, coldDays });
 
-  test("returns a configured positive integer", () => {
-    expect(readCleanupSessionLogRetentionDays(writeConfig({ cleanup: { sessionLogRetentionDays: 30 } }))).toEqual({
-      ok: true,
-      days: 30,
-    });
+  test.each([
+    ["retention", { agents: ["claude"] }],
+    ["retention.sessions", { retention: {} }],
+  ] as Array<[string, unknown]>)("defaults to 14/90 when %s is absent", (_label, config) => {
+    expect(readRetentionSessions(writeConfig(config))).toEqual(defaults);
   });
 
   test.each([
-    ["non-object cleanup", { cleanup: "invalid" }],
-    ["non-integer", { cleanup: { sessionLogRetentionDays: 1.5 } }],
-    ["zero", { cleanup: { sessionLogRetentionDays: 0 } }],
-    ["negative", { cleanup: { sessionLogRetentionDays: -1 } }],
-    ["non-number", { cleanup: { sessionLogRetentionDays: "30" } }],
-  ] as Array<[string, unknown]>)("rejects %s naming the key", (_label, config) => {
-    expect(readCleanupSessionLogRetentionDays(writeConfig(config))).toEqual({
+    [{ coldDays: 30 }, 14, 30],
+    [{ hotDays: 7 }, 7, 90],
+    [{ hotDays: 7, coldDays: 30 }, 7, 30],
+  ] as Array<
+    [Record<string, number>, number, number]
+  >)("merges overrides with defaults (%#)", (sessions, hotDays, coldDays) => {
+    expect(readRetentionSessions(writeConfig({ retention: { sessions } }))).toEqual(ok(hotDays, coldDays));
+  });
+
+  test.each([
+    ["hotDays non-integer", { retention: { sessions: { hotDays: 1.5, coldDays: 30 } } }, "hotDays"],
+    ["hotDays zero", { retention: { sessions: { hotDays: 0, coldDays: 30 } } }, "hotDays"],
+    ["hotDays negative", { retention: { sessions: { hotDays: -1, coldDays: 30 } } }, "hotDays"],
+    ["hotDays non-number", { retention: { sessions: { hotDays: "7", coldDays: 30 } } }, "hotDays"],
+    ["coldDays non-integer", { retention: { sessions: { hotDays: 7, coldDays: 30.5 } } }, "coldDays"],
+    ["coldDays zero", { retention: { sessions: { hotDays: 7, coldDays: 0 } } }, "coldDays"],
+    ["coldDays negative", { retention: { sessions: { hotDays: 7, coldDays: -1 } } }, "coldDays"],
+    ["coldDays non-number", { retention: { sessions: { hotDays: 7, coldDays: "30" } } }, "coldDays"],
+  ] as Array<[string, unknown, string]>)("rejects %s naming the field", (_label, config, field) => {
+    expect(readRetentionSessions(writeConfig(config))).toEqual({
       ok: false,
-      error: "cleanup.sessionLogRetentionDays must be a positive integer",
+      error: `retention.sessions.${field} must be a positive integer`,
     });
   });
 
-  test("reads cleanup without validating unrelated agents", () => {
+  test.each([
+    ["non-object retention", { retention: "invalid" }],
+    ["non-object retention.sessions", { retention: { sessions: "invalid" } }],
+  ] as Array<[string, unknown]>)("rejects %s naming both fields", (_label, config) => {
+    expect(readRetentionSessions(writeConfig(config))).toEqual({
+      ok: false,
+      error: "retention.sessions.hotDays and retention.sessions.coldDays must be positive integers",
+    });
+  });
+
+  test.each([
+    ["coldDays equal to hotDays", { retention: { sessions: { hotDays: 14, coldDays: 14 } } }],
+    ["coldDays below hotDays", { retention: { sessions: { hotDays: 30, coldDays: 14 } } }],
+    ["default coldDays with hotDays at default", { retention: { sessions: { hotDays: 90 } } }],
+  ] as Array<[string, unknown]>)("rejects %s", (_label, config) => {
+    expect(readRetentionSessions(writeConfig(config))).toEqual({
+      ok: false,
+      error: "retention.sessions.coldDays must be greater than retention.sessions.hotDays",
+    });
+  });
+
+  test("cleanup.sessionLogRetentionDays is not a retention source", () => {
+    expect(readRetentionSessions(writeConfig({ cleanup: { sessionLogRetentionDays: 30 } }))).toEqual(defaults);
+  });
+
+  test("reads retention without validating unrelated agents", () => {
     expect(
-      readCleanupSessionLogRetentionDays(writeConfig({ agents: "invalid", cleanup: { sessionLogRetentionDays: 30 } })),
-    ).toEqual({ ok: true, days: 30 });
+      readRetentionSessions(writeConfig({ agents: "invalid", retention: { sessions: { hotDays: 7, coldDays: 30 } } })),
+    ).toEqual(ok(7, 30));
+  });
+
+  test("nonexistent config path resolves to defaults", () => {
+    expect(readRetentionSessions("/nonexistent/path/config.json")).toEqual(defaults);
+  });
+
+  test.each([
+    ["array root", ["claude"]],
+    ["null root", null],
+    ["string root", "string"],
+  ] as Array<[string, unknown]>)("non-record top-level config throws naming JSON object (%s)", (_label, value) => {
+    expect(() => readRetentionSessions(writeConfig(value))).toThrow(/must be a JSON object/);
   });
 
   test("unparseable JSON throws without naming retention", () => {
-    expect(() => readCleanupSessionLogRetentionDays(writeRawConfig("{ invalid json"))).toThrow(
-      /Failed to parse machine config/,
-    );
+    expect(() => readRetentionSessions(writeRawConfig("{ invalid json"))).toThrow(/Failed to parse machine config/);
   });
 });
 

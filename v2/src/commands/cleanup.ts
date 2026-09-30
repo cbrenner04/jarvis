@@ -29,7 +29,7 @@ import {
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { request } from "../cli/ipc.ts";
-import { readCleanupSessionLogRetentionDays, readProjectConfigRecord } from "../config/machine-config-loader.ts";
+import { readProjectConfigRecord, readRetentionSessions } from "../config/machine-config-loader.ts";
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
 import { isMaterializedNodeModulesPath, isNotGitRepositoryDiagnostic } from "../execution/external-worktree.ts";
 import {
@@ -1575,9 +1575,9 @@ function discoverExpiredSessionLogs(
   store: StateStore,
   io: { stderr: (s: string) => void },
 ): SessionLogReapPlan {
-  let retention: ReturnType<typeof readCleanupSessionLogRetentionDays>;
+  let retention: ReturnType<typeof readRetentionSessions>;
   try {
-    retention = readCleanupSessionLogRetentionDays(configPath);
+    retention = readRetentionSessions(configPath);
   } catch (error) {
     io.stderr(
       `Failed to load machine config; skipped session-log reaping: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -1589,7 +1589,7 @@ function discoverExpiredSessionLogs(
     return null;
   }
 
-  const cutoffMs = clock().getTime() - retention.days * 24 * 60 * 60 * 1000;
+  const cutoffMs = clock().getTime() - retention.coldDays * 24 * 60 * 60 * 1000;
   const plan: NonNullable<SessionLogReapPlan> = {
     expired: [],
     oldestKeptDate: new Date(cutoffMs).toISOString().slice(0, 10),

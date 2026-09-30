@@ -50,8 +50,7 @@ describe("validatePipelineDefinition", () => {
       stageId: "feedback-step",
       field: "workflow",
     });
-    expect(result.errors[0]?.message).toContain("feedback-step");
-    expect(result.errors[0]?.message).toContain("review-feedback");
+    expect(result.errors[0]?.message).toMatch(/feedback-step.*review-feedback/);
   });
 
   test("base workflow names intent plan implement validate clean with full review roles", () => {

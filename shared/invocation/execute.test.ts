@@ -408,6 +408,156 @@ describe("shared invocation fallback", () => {
     }
   });
 
+  test("non-ok bindings copy agent-sourced settlement onto invocation_completed rows", async () => {
+    const agentUsage = {
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_read_input_tokens: 1,
+      cache_creation_input_tokens: 2,
+    };
+    const quotaSettlement = {
+      usage_source: "agent" as const,
+      usage: agentUsage,
+      cost_usd: 0.02,
+      cost_source: "agent" as const,
+    };
+    const errorUsage = {
+      input_tokens: 99,
+      output_tokens: 1,
+      cache_read_input_tokens: null,
+      cache_creation_input_tokens: null,
+    };
+
+    for (const { label, result } of [
+      { label: "quota", result: { kind: "quota" as const, stderr: "quota", ...quotaSettlement } },
+      { label: "stall", result: { kind: "stall" as const, stderr: "silent", ...quotaSettlement } },
+      {
+        label: "error",
+        result: { kind: "error" as const, exitCode: 1, stderr: "hard", ...quotaSettlement },
+      },
+      {
+        label: "model_config",
+        result: { kind: "model_config" as const, stderr: "bad model", ...quotaSettlement },
+      },
+    ]) {
+      const rows: InvocationCompletedRecord[] = [];
+      await executeWithQuotaFallback({
+        prompt: "p",
+        cwd: "/tmp",
+        bindings: [binding(label, result)],
+        telemetry: telemetryArgs({
+          append(record) {
+            rows.push(record);
+          },
+        }),
+      });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.usage).toEqual(agentUsage);
+      expect(rows[0]?.usage_source).toBe("agent");
+      expect(rows[0]?.cost_usd).toBe(0.02);
+      expect(rows[0]?.cost_source).toBe("agent");
+      expect(rows[0]?.exit_kind).toBe(result.kind);
+    }
+
+    const chainRows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        binding("first", {
+          kind: "quota",
+          stderr: "quota",
+          usage_source: "agent",
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_read_input_tokens: null,
+            cache_creation_input_tokens: null,
+          },
+          cost_usd: 0.01,
+          cost_source: "agent",
+        }),
+        binding("second", {
+          kind: "error",
+          exitCode: 1,
+          stderr: "fail",
+          usage_source: "agent",
+          usage: errorUsage,
+          cost_usd: 0.99,
+          cost_source: "no-price",
+        }),
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          chainRows.push(record);
+        },
+      }),
+    });
+
+    expect(chainRows).toHaveLength(2);
+    expect(chainRows[0]?.usage.input_tokens).toBe(1);
+    expect(chainRows[1]?.usage).toEqual(errorUsage);
+    expect(chainRows[1]?.cost_source).toBe("no-price");
+    expect(chainRows[0]?.exit_kind).toBe("quota");
+    expect(chainRows[1]?.exit_kind).toBe("error");
+  });
+
+  test("non-ok bindings without counters keep null usage and unavailable sources", async () => {
+    for (const result of [
+      { kind: "quota" as const, stderr: "quota" },
+      { kind: "error" as const, exitCode: 1, stderr: "hard" },
+      { kind: "stall" as const, stderr: "silent" },
+    ]) {
+      const rows: InvocationCompletedRecord[] = [];
+      await executeWithQuotaFallback({
+        prompt: "p",
+        cwd: "/tmp",
+        bindings: [binding(result.kind, result)],
+        telemetry: telemetryArgs({
+          append(record) {
+            rows.push(record);
+          },
+        }),
+      });
+
+      expect(rows[0]?.usage).toEqual({
+        input_tokens: null,
+        output_tokens: null,
+        cache_read_input_tokens: null,
+        cache_creation_input_tokens: null,
+      });
+      expect(rows[0]?.usage_source).toBe("unavailable");
+      expect(rows[0]?.cost_usd).toBeNull();
+      expect(rows[0]?.cost_source).toBe("unavailable");
+    }
+  });
+
+  test("non-ok result carrying warnings copies capped warning strings onto invocation_completed row", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        binding("quota-with-warning", {
+          kind: "quota",
+          stderr: "quota",
+          usage_source: "unavailable",
+          warnings: ["partial usage parse failed"],
+        }),
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.warnings).toEqual(["partial usage parse failed"]);
+    expect(rows[0]?.exit_kind).toBe("quota");
+  });
+
   test("ok result with usage and cost records those exact values and sources", async () => {
     const rows: InvocationCompletedRecord[] = [];
     const _result = await executeWithQuotaFallback({

@@ -3,6 +3,7 @@ import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
+import { mutationCoverageFixDetail, resolveCoLocatedKillingTest } from "./diff-derived-mutation-verifier.ts";
 
 /** v2 write-step rendering is the shared assembler; the shim keeps the historical call shape. */
 function renderStepPrompt(promptId: string, placeholders: Record<string, string>): string {
@@ -167,6 +168,7 @@ describe("write prompt", () => {
       SOURCE_FILE: "v2/src/execution/write-loop.ts",
       SOURCE_LINE: "142",
       DUAL_CONSTRAINT_DETAIL: "Determinism guard forbids a real-timer kill test.",
+      MUTATION_COVERAGE_FIX_DETAIL: "",
     });
 
     expect(rendered).toContain("Read the spec at spec/example/00-sub.md.");
@@ -186,5 +188,45 @@ describe("write prompt", () => {
         STEP_RULES: "Rules.",
       }),
     ).toThrow(PromptRenderingError);
+  });
+
+  const mutationRepromptBasePlaceholders = {
+    SPEC_PATH: "spec/example/00-sub.md",
+    STEP_RULES: "Rules.",
+    SOURCE_FILE: "v2/src/execution/foo.ts",
+    SOURCE_LINE: "10",
+    DUAL_CONSTRAINT_DETAIL: "",
+  };
+
+  test.each([
+    ["write.surviving-mutation-reprompt", "importer-discovery-cap-exceeded"],
+    ["write.mutation-repair", "importer-discovery-cap-exceeded"],
+    ["write.surviving-mutation-reprompt", "missing-killing-test"],
+    ["write.mutation-repair", "missing-killing-test"],
+  ] as const)("mutation coverage fix detail on %s for %s", (promptId, mutation) => {
+    const fixDetail = mutationCoverageFixDetail(mutation, mutationRepromptBasePlaceholders.SOURCE_FILE);
+    const rendered = renderStepPrompt(promptId, {
+      ...mutationRepromptBasePlaceholders,
+      SURVIVING_MUTATION: mutation,
+      MUTATION_COVERAGE_FIX_DETAIL: fixDetail,
+    });
+    expect(rendered).toContain("v2/src/execution/foo.test.ts");
+    expect(rendered).toContain("did not satisfy this failure");
+    expect(rendered).toContain("non-co-located");
+    expect(fixDetail).not.toContain("never count");
+  });
+
+  test("mutationCoverageFixDetail is empty without a co-located production path or for operator-flip survivors", () => {
+    expect(resolveCoLocatedKillingTest("v2/src/execution/foo.test.ts")).toBeNull();
+    expect(mutationCoverageFixDetail("missing-killing-test", "v2/src/execution/foo.test.ts")).toBe("");
+    expect(mutationCoverageFixDetail("surviving-mutation", "v2/src/execution/foo.ts")).toBe("");
+    for (const promptId of ["write.surviving-mutation-reprompt", "write.mutation-repair"] as const) {
+      const rendered = renderStepPrompt(promptId, {
+        ...mutationRepromptBasePlaceholders,
+        SURVIVING_MUTATION: "missing-killing-test",
+        MUTATION_COVERAGE_FIX_DETAIL: "",
+      });
+      expect(rendered).not.toContain("v2/src/execution/foo.test.ts");
+    }
   });
 });

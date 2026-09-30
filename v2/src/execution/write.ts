@@ -34,6 +34,7 @@ import {
   dualConstraintRepromptDetail,
   type SurvivingMutationRepromptContext,
 } from "../persistence/log-stream.ts";
+import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -653,6 +654,10 @@ async function executeDefaultWrite(
           SOURCE_FILE: survivingReprompt.sourceFile,
           SOURCE_LINE: String(survivingReprompt.sourceLine),
           DUAL_CONSTRAINT_DETAIL: dualConstraintRepromptDetail(survivingReprompt.dualConstraint),
+          MUTATION_COVERAGE_FIX_DETAIL: mutationCoverageFixDetail(
+            survivingReprompt.mutation,
+            survivingReprompt.sourceFile,
+          ),
         },
       });
     } else {

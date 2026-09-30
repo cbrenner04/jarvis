@@ -18,8 +18,8 @@ Implement (non-`plan/*`) worktrees whose spec landed via another PR stay ineligi
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts`: an implement worktree with a CLOSED PR and its spec under `completed/` on the default branch prints the `Landed elsewhere` line including `jarvis cleanup --abandon <branch> --discard-unlanded` and is not removed in dry-run or apply; fails against the pre-fix baseline.
-- [ ] `cleanup.test.ts`: the same lane shape with an OPEN PR, or with a failing PR probe, prints no `Landed elsewhere` line.
+- [x] `cleanup.test.ts`: an implement worktree with a CLOSED PR and its spec under `completed/` on the default branch prints the `Landed elsewhere` line including `jarvis cleanup --abandon <branch> --discard-unlanded` and is not removed in dry-run or apply; fails against the pre-fix baseline.
+- [x] `cleanup.test.ts`: the same lane shape with an OPEN PR, or with a failing PR probe, prints no `Landed elsewhere` line.
 
 ## Documentation updates
 

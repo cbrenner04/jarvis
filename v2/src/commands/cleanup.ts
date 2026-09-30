@@ -349,6 +349,46 @@ export async function checkEligibility(
   return { status: "ineligible", reason: `PR not merged: ${mergedResult.reason}` };
 }
 
+export function formatImplementLandedElsewhereLine(worktreePath: string, branch: string, reason: string): string {
+  return `Landed elsewhere: ${worktreePath} — ${reason}; run jarvis cleanup --abandon ${branch} --discard-unlanded after verifying\n`;
+}
+
+async function implementSpecTreeOnCompletedAtDefaultBranch(
+  projectRoot: string,
+  specIndexRel: string,
+  targetDir: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  const baseBranch = await getBaseBranch(projectRoot, runner);
+  const completedAbs = join(projectRoot, targetDir, "completed", basename(dirname(specIndexRel)));
+  return (await specTreeFsAtRef(projectRoot, completedAbs, baseBranch, runner)) !== undefined;
+}
+
+/** Report line when an implement lane's spec already lives under `completed/` on the default branch. */
+export async function evaluateImplementLandedElsewhereReport(
+  worktree: DiscoveredWorktree,
+  project: string,
+  branch: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+): Promise<string | undefined> {
+  if (branch.startsWith("plan/")) return undefined;
+  const mergedResult = await isMerged(branch, runner, projectRoot);
+  if (mergedResult.merged) return undefined;
+  if (!(await planSubsumedPrGateAllows(branch, projectRoot, runner))) return undefined;
+  const candidate: CleanupCandidate = { worktree: { ...worktree, branch }, project };
+  const specIndexPath = resolveMergedWorktreeSpecIndexPath(candidate, projectRoot, store, registry);
+  if (specIndexPath === undefined) return undefined;
+  const targetDir = planTargetDirForProject(project, configPath);
+  if (!(await implementSpecTreeOnCompletedAtDefaultBranch(projectRoot, specIndexPath, targetDir, runner))) {
+    return undefined;
+  }
+  return `PR not merged: ${mergedResult.reason}`;
+}
+
 type MergedCheckResult = { merged: true } | { merged: false; reason: string };
 
 /**
@@ -1681,6 +1721,7 @@ async function findEligibleWorktreeCandidates(
   daemonClient: DaemonClient,
   store: StateStore,
   configPath: string,
+  io: { stdout: (s: string) => void },
 ): Promise<{ candidates: CleanupCandidate[]; daemonUnreachable: DiscoveredWorktree[] }> {
   const candidates: CleanupCandidate[] = [];
   const daemonUnreachable: DiscoveredWorktree[] = [];
@@ -1704,6 +1745,20 @@ async function findEligibleWorktreeCandidates(
       candidates.push(entry);
     } else if (eligibility.reason === DAEMON_UNREACHABLE_REASON) {
       daemonUnreachable.push(worktree);
+    } else if (projectRoot !== undefined) {
+      const landedReason = await evaluateImplementLandedElsewhereReport(
+        worktree,
+        project,
+        worktree.branch,
+        projectRoot,
+        runner,
+        store,
+        registry,
+        configPath,
+      );
+      if (landedReason !== undefined) {
+        io.stdout(formatImplementLandedElsewhereLine(worktree.path, worktree.branch, landedReason));
+      }
     }
   }
   return { candidates, daemonUnreachable };
@@ -2189,6 +2244,7 @@ async function gatherCleanupDiscoveryContext(
     daemonClient,
     store,
     configPath,
+    io,
   );
   const worktreeRefSnapshots = await collectWorktreeRefSnapshots(candidates, registry, runner);
   const daemonUnreachableExit = daemonUnreachable.length > 0 ? 1 : 0;
@@ -2539,6 +2595,18 @@ function mergedWorktreeRetirementRefusalLine(worktreePath: string, dirtyPaths: r
   return `Skipped merged worktree retirement: ${worktreePath} — worktree has uncommitted changes (${pathDetail})\n`;
 }
 
+function isReadableSpecIndexInWorktree(worktreePath: string, projectRoot: string, specIndexRel: string): boolean {
+  const worktreeAbs = join(worktreePath, specIndexRel);
+  if (!isPathInside(projectRoot, resolve(projectRoot, specIndexRel))) return false;
+  if (!existsSync(worktreeAbs)) return false;
+  try {
+    readFileSync(worktreeAbs, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveMergedWorktreeSpecIndexPath(
   candidate: CleanupCandidate,
   projectRoot: string,
@@ -2552,7 +2620,12 @@ function resolveMergedWorktreeSpecIndexPath(
     const indexAbs = basename(source) === "index.md" ? source : join(source, "index.md");
     const relPath = relative(projectRoot, indexAbs);
     if (relPath === "" || relPath.startsWith("..") || isAbsolute(relPath)) continue;
-    if (isStaleResetLandedCriteriaSpecPath(projectRoot, relPath)) return relPath;
+    if (
+      isStaleResetLandedCriteriaSpecPath(projectRoot, relPath) ||
+      isReadableSpecIndexInWorktree(candidate.worktree.path, projectRoot, relPath)
+    ) {
+      return relPath;
+    }
   }
   return undefined;
 }

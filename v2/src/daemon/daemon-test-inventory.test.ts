@@ -289,6 +289,9 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   // (redispatch-continues-committed-lane); replaced by "pipeline resume continues a landed lane
   // with unpushed commits, preserving the worktree and branch tip" in the same file.
   "pipeline resume refuses never-landed lane with unpushed commits and names salvage path",
+  // Renamed: dispatch-time refusal wording now says returns dispatch_refused (same behavior).
+  "pipeline intent-stage stale-reset refusal fails stage without dispatch",
+  "pipeline implement-stage stale-reset refusal fails stage without dispatch",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

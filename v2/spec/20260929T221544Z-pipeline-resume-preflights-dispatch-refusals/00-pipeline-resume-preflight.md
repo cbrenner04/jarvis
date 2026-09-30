@@ -23,7 +23,7 @@
 - [x] Tests show `resetDespiteDirty` on the dirty-worktree case and `resetDespiteLandedCriteria` on the drift case each still admit (`resumed`).
 - [x] The probe leaves worktree contents, branch, and HEAD unchanged (asserted in the dirty, not-descended, and rebase-eligible-clean-lane cases).
 - [x] A test shows a clean, rebase-eligible lane admits (`resumed`) and the probe performs no rebase.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -1,7 +1,7 @@
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { jarvisHome } from "../paths.ts";
+import { appendTelemetryJsonlLine, type TelemetryJsonlAppendOptions } from "./telemetry-sink.ts";
 import type { Attempt, OutcomeKind, Run, RunStatus } from "../persistence/state-store.ts";
 
 export type WorkBoundaryRecordedRecord = {
@@ -23,6 +23,7 @@ export function defaultTelemetrySinkPath(): string {
 
 type BoundaryTelemetryContext = {
   sinkPath?: string;
+  clock?: TelemetryJsonlAppendOptions["clock"];
 };
 
 export type BoundaryStamp = {
@@ -36,15 +37,16 @@ export type BoundaryStamp = {
 function appendWorkBoundaryRecorded(
   sinkPath: string,
   record: Omit<WorkBoundaryRecordedRecord, "schema_version" | "record_kind" | "ts">,
+  options?: TelemetryJsonlAppendOptions,
 ): void {
-  mkdirSync(dirname(sinkPath), { recursive: true });
+  const clock = options?.clock ?? (() => new Date());
   const line: WorkBoundaryRecordedRecord = {
     schema_version: 1,
     record_kind: "work_boundary_recorded",
-    ts: new Date().toISOString(),
+    ts: clock().toISOString(),
     ...record,
   };
-  appendFileSync(sinkPath, `${JSON.stringify(line)}\n`, "utf8");
+  appendTelemetryJsonlLine(sinkPath, JSON.stringify(line), options);
 }
 
 function resolveTelemetrySinkPath(sinkPath?: string): string {
@@ -77,14 +79,20 @@ export function emitWorkBoundaryRecorded(
 ): string | undefined {
   if (telemetry === undefined) return undefined;
   try {
-    appendWorkBoundaryRecorded(resolveTelemetrySinkPath(telemetry.sinkPath), {
-      run_id: stamp.runId,
-      attempt_id: stamp.attemptId,
-      outcome_kind: stamp.outcomeKind,
-      run_status: stamp.runStatus,
-      commit_sha: commit.commitSha,
-      files_changed: commit.filesChanged,
-    });
+    const appendOptions: TelemetryJsonlAppendOptions | undefined =
+      telemetry.clock !== undefined ? { clock: telemetry.clock } : undefined;
+    appendWorkBoundaryRecorded(
+      resolveTelemetrySinkPath(telemetry.sinkPath),
+      {
+        run_id: stamp.runId,
+        attempt_id: stamp.attemptId,
+        outcome_kind: stamp.outcomeKind,
+        run_status: stamp.runStatus,
+        commit_sha: commit.commitSha,
+        files_changed: commit.filesChanged,
+      },
+      appendOptions,
+    );
     return undefined;
   } catch (error) {
     return errorMessage(error);

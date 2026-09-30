@@ -10,7 +10,7 @@ Durable contract for **analysis facts** in v2: where they live, how they are emi
 | --- | --- | --- | --- | --- |
 | **Orchestration** | `~/.jarvis/state/v2.sqlite` | Run lifecycle, attempt outcomes, checkpoint | **Yes** — resume derives from here + git | Write loop, workflow runner, daemon `wait` |
 | **Observability** | injectable (shared `logs.jsonl`) | Loop lifecycle for tail/follow | **No** | TUI log follow, daemon IPC tail |
-| **Telemetry** | `~/.jarvis/telemetry.jsonl` (injectable) | Append-only analysis facts | **No** | Future export, offline analysis |
+| **Telemetry** | `~/.jarvis/telemetry.jsonl` (injectable) | Append-only analysis facts; current UTC month in plain JSONL, prior months in `telemetry/<YYYY-MM>.jsonl.gz` | **No** | Future export, offline analysis |
 
 Rules:
 
@@ -27,7 +27,24 @@ Rules:
 orchestration (v2.sqlite)  →  resume / checkpoint
 observability (logs.jsonl) →  tail / follow loop events
 telemetry (telemetry.jsonl)→  append-only facts for analysis
+telemetry/YYYY-MM.jsonl.gz →  closed UTC months (retained)
 ```
+
+## Monthly roll and closed-month retention
+
+**Current file:** injectable path (default `join(jarvisHome(), "telemetry.jsonl")`). All producers append the active UTC month here as plain JSONL.
+
+**Closed months:** when the current file exists and its UTC `mtime` month differs from the injectable clock's UTC month, the harness synchronously gzip-compresses the entire current file, writes `join(dirname(currentPath), "telemetry", "<YYYY-MM>.jsonl.gz")` via a temp sibling and atomic rename, removes the plain current file, then appends create a fresh current file. Archive `<YYYY-MM>` is the current file's UTC calendar month from `mtime` at roll time (not the clock month when they differ). After each append, `utimesSync` sets the current file's `atime`/`mtime` to the injected clock so roll bucketing matches tests and injected clocks.
+
+**Skipped UTC months** produce no archive — there is no placeholder gzip for months with no writes.
+
+**Legacy first roll:** a pre-existing multi-month `telemetry.jsonl` is archived whole under its `mtime` month; that first archive may contain rows from earlier calendar months. No row splitting or migration.
+
+**Compression** is synchronous `gzipSync` in the appending process; a large legacy first roll is a one-time blocking cost. Read closed months with standard gzip tooling (`zcat`, `gunzip -c`, …).
+
+**Retention:** closed-month gzip archives are not deleted by `jarvis cleanup` ([operator-runbook.md § Reading telemetry](./operator-runbook.md#reading-telemetry)).
+
+**Injectable contract:** sink path and `clock` (`() => Date`, default real time) are passed into the shared roll-then-append helper used by `buildJsonlSink` and `emitWorkBoundaryRecorded`.
 
 ## Event grains and join keys
 
@@ -78,7 +95,7 @@ Same shape for write, review-debate, and plan steps — only `workflow`, `step_i
 
 **Implemented** at the write-loop / workflow-runner completion boundary (outside `commitCompletionBoundary` and orchestration SQLite). Distinct from observability `boundary_committed` — different consumer, different file, different name. Required: `run_id`, `attempt_id`, `outcome_kind`, `run_status`, `commit_sha`, `files_changed` (integer count of paths differing between the completion commit's base tree and completion tree; name-only diff with rename detection off — no path list in schema version 1). `run_status` is the row's status when the commit is recorded: a workflow completion row reads `in-progress` there, because the publication tail settles it afterwards.
 
-Emission is gated on an attached telemetry block; the sink path is the injected `sinkPath` when supplied, otherwise `~/.jarvis/telemetry.jsonl`. Append is **at-least-once** (best-effort): a crash before publish may drop a row; a crash after emit may duplicate one. An append failure is surfaced separately on the returned result and does not alter boundary control flow or orchestration state.
+Emission is gated on an attached telemetry block; the sink path is the injected `sinkPath` when supplied, otherwise `~/.jarvis/telemetry.jsonl`. Appends use the same monthly roll-then-append helper as `invocation_completed` ([Monthly roll and closed-month retention](#monthly-roll-and-closed-month-retention)). Append is **at-least-once** (best-effort): a crash before publish may drop a row; a crash after emit may duplicate one. An append failure is surfaced separately on the returned result and does not alter boundary control flow or orchestration state.
 
 Orchestration `outcome_kind` on the attempt row is authoritative for resume; telemetry rows are authoritative for analysis history.
 
@@ -137,7 +154,7 @@ Shipped: the shared per-step telemetry context (`operatorSessionId`, `workflow`,
 
 ## Testing contract
 
-- Telemetry sink path is injectable (temp file per test).
+- Telemetry sink path and optional `clock` are injectable (temp file per test; fixed UTC clock for roll cases).
 - Contract tests assert required IDs and fields after a mocked invocation; no
   harness roll-up assertions in unit tests.
 - `schema_version` bumps get golden-file or fixture checks only when the envelope

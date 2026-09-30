@@ -17,12 +17,13 @@ Chained pipeline plan stages and `pipeline resume` re-dispatch of a failed plan 
 ## Decisions
 
 - Chained plan stage resolution resolves `baseRef` with the same rule as chained implement (`resolvePipelineImplementBase`): fetched upstream when the local default branch is strictly behind; operator checkout untouched; ahead, diverged, untracked, or unfetchable bases keep existing policy.
+- Plan freshness `gitRoot` matches implement: `prior.cwd` when it is a git repository (the chained plan `readRoot` bound into `prior.cwd`, including fan-out and admission rebinding), otherwise `context.cwd`.
 - Standalone `plan --base` keeps its `base_behind_origin` refusal.
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` drives chained plan stage resolution with local default branch strictly behind `origin` and asserts the plan write-step worktree `baseRef` is the fetched upstream tip and matches the remote head without mutating the operator checkout; fails against current code (reachable on main: `chained plan stage resolves write-step baseRef to repository default branch, not prior branch` expects `main` while `chained implement uses fetched upstream without changing the operator checkout` already pins implement upstream behavior).
-- [ ] `pipeline-stage-resolve.test.ts` or `pipeline-execution.test.ts` drives `pipeline resume` re-dispatch of a failed plan lane through the same stage-resolution path with local default strictly behind origin and asserts the rematerialized plan write-step uses the fetched upstream `baseRef`; fails against current code.
+- [ ] `pipeline-stage-resolve.test.ts` updates `chained plan stage resolves write-step baseRef to repository default branch, not prior branch` using the same behind-`origin` fixture as `chained implement uses fetched upstream without changing the operator checkout` (bare remote, publisher advances `main`, operator `main` strictly behind, checkout untouched) — not only flipping the assertion to `origin/main` on `createChainedHandoffRepo()` where local default still matches remote — and asserts plan write-step `baseRef` is the fetched upstream tip matching remote head; fails against current code (reachable on main: that test expects `main` today).
+- [ ] `pipeline-execution.test.ts` extends `whole-pipeline failed plan resume retires dirty draft and rematerializes from base before writer dispatch` with the same behind-`origin` fixture and asserts rematerialized plan write-step `baseRef` is the fetched upstream tip through `resolvePlanStage`; fails against current code (reachable on main: that test pins rematerialization to local branch head at `projectRoot`, not upstream).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

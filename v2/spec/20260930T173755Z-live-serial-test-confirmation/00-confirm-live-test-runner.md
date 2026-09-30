@@ -19,11 +19,11 @@ Serial failure confirmation must exercise the same live roster as `bun run test`
 
 ## Acceptance criteria
 
-- [ ] `scripts/run-tests.test.ts` test `serial aggregate runs one file at a time` drives `runAggregateTests(1, fakeSpawn)` and asserts max in-flight spawns is 1 and every spawn is `bun test <file>` without `--parallel`.
-- [ ] `scripts/run-tests.test.ts` test `serial aggregate covers the aggregate roster in agent-then-integration order` asserts the spawned files equal `[...agent, ...integration]` from `aggregateTestFiles()` and none start with `v1/`.
-- [ ] `scripts/run-tests.test.ts` test `test:confirm:live runs the aggregate runner serially` asserts root `package.json` maps `test:confirm:live` to `bun run scripts/run-tests.ts --serial`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes (root tooling touched).
+- [x] `scripts/run-tests.test.ts` test `serial aggregate runs one file at a time` drives `runAggregateTests(1, fakeSpawn)` and asserts max in-flight spawns is 1 and every spawn is `bun test <file>` without `--parallel`.
+- [x] `scripts/run-tests.test.ts` test `serial aggregate covers the aggregate roster in agent-then-integration order` asserts the spawned files equal `[...agent, ...integration]` from `aggregateTestFiles()` and none start with `v1/`.
+- [x] `scripts/run-tests.test.ts` test `test:confirm:live runs the aggregate runner serially` asserts root `package.json` maps `test:confirm:live` to `bun run scripts/run-tests.ts --serial`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes (root tooling touched).
 
 ## Documentation updates
 

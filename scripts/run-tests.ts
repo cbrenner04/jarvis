@@ -1,5 +1,20 @@
-import { aggregateExitCode, runV2TestFiles, v2Tests } from "./run-v2-tests.ts";
-import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { aggregateExitCode, defaultSpawn, resolveConcurrency, runV2TestFiles, v2Tests } from "./run-v2-tests.ts";
+import { partitionTestFiles, planTestBatches, readTestIsolationClass, walkTestFiles } from "./test-slice.ts";
+
+function classOfTestFile(file: string) {
+  if (!file.replace(/\\/g, "/").replace(/^\.\//, "").startsWith("v2/")) {
+    return undefined;
+  }
+  if (!existsSync(file)) {
+    return undefined;
+  }
+  return readTestIsolationClass(file, readFileSync(file, "utf8"));
+}
+
+function scheduleAggregateSlice(files: string[]): string[] {
+  return planTestBatches(files, classOfTestFile).flat();
+}
 
 /** Aggregate suite: agent and integration tests both run through the pooled per-file seam. */
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
@@ -8,28 +23,37 @@ export function aggregateTestFiles(): { agent: string[]; integration: string[] }
     ...walkTestFiles("test"),
     ...walkTestFiles("scripts"),
   ]);
-  return {
-    agent: [...v2Tests("agent"), ...sharedAndHarness.agent],
-    integration: [...v2Tests("integration"), ...sharedAndHarness.integration],
-  };
+  const agent = scheduleAggregateSlice([...v2Tests("agent"), ...sharedAndHarness.agent]);
+  const integration = scheduleAggregateSlice([...v2Tests("integration"), ...sharedAndHarness.integration]);
+  return { agent, integration };
 }
 
-if (import.meta.main) {
+export async function runAggregateTests(
+  concurrency?: number,
+  spawn: Parameters<typeof runV2TestFiles>[2] = defaultSpawn,
+): Promise<number> {
+  const conc = concurrency ?? resolveConcurrency();
   const { agent, integration } = aggregateTestFiles();
 
   if (agent.length > 0) {
-    const code = aggregateExitCode(await runV2TestFiles("agent", agent, undefined, ""));
+    const code = aggregateExitCode(await runV2TestFiles("agent", agent, spawn, "", conc));
     if (code !== 0) {
-      process.exit(code);
+      return code;
     }
   }
 
   if (integration.length > 0) {
-    const code = aggregateExitCode(await runV2TestFiles("integration", integration, undefined, ""));
+    const code = aggregateExitCode(await runV2TestFiles("integration", integration, spawn, "", conc));
     if (code !== 0) {
-      process.exit(code);
+      return code;
     }
   }
 
-  process.exit(0);
+  return 0;
+}
+
+if (import.meta.main) {
+  const serial = process.argv.includes("--serial");
+  const code = await runAggregateTests(serial ? 1 : undefined);
+  process.exit(code);
 }

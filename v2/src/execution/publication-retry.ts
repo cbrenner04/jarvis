@@ -34,6 +34,13 @@ export function normalizePublicationFailure(operation: string, thrown: unknown):
   };
 }
 
+/** Attach normalized publication evidence to a thrown error for `publicationFailureFor`. */
+export function stampPublicationFailure(error: Error, operation: string, thrown: unknown = error): PublicationFailure {
+  const failure = normalizePublicationFailure(operation, thrown);
+  details.set(error, failure);
+  return failure;
+}
+
 export function publicationFailureFor(error: unknown): PublicationFailure | undefined {
   return error instanceof Error ? details.get(error) : undefined;
 }
@@ -83,6 +90,8 @@ export async function runPublicationWithRetry<T>(
     } catch (error) {
       if (options.isSuccess?.(error)) return undefined as T;
       const original = error instanceof Error ? error : new Error(String(error));
+      const existingFailure = publicationFailureFor(original);
+      if (existingFailure?.operation === "gh pr ready --undo") throw original;
       const failure = normalizePublicationFailure(operation, original);
       details.set(original, failure);
       if (!isTransientPublicationFailure(failure) || attempt === 3) throw original;

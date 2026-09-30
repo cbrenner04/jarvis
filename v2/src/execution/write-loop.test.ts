@@ -3895,6 +3895,97 @@ describe("write loop", () => {
       }
     });
 
+    test("publishCompletionArtifacts wires lineage lookup to undo harness-ready non-draft PRs", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "harness-republication-undo";
+      const baseRef = "main";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      const prNumber = 88;
+      const runId = store.createRun({
+        project: "demo",
+        specRef: baseRef,
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      store.recordHarnessReadyFlipEvidence({ runId, prNumber, branch: branchName, baseRef });
+      let isDraft = false;
+      const ghCalls: string[] = [];
+      const readyFinalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        ghReadyFlip: async () => {},
+      });
+      try {
+        setSystemTime(new Date(19_000));
+        const outcome = await publishCompletionArtifacts(
+          {
+            promptId: "plan.prompt.draft",
+            readyFinalizer,
+            completionPublisher: createCompletionPublisher({
+              git: async (_cwd, args) => {
+                if (args[0] === "rev-parse" && args.includes(`${branchName}@{u}`)) throw new Error("no upstream");
+                if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+                return "";
+              },
+              gh: async (_cwd, args) => {
+                ghCalls.push(args.join(" "));
+                if (args[0] === "pr" && args[1] === "ready" && args[2] === "--undo") {
+                  isDraft = true;
+                  return "";
+                }
+                if (args[0] === "pr" && args[1] === "list") {
+                  return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft }]);
+                }
+                if (args[0] === "pr" && args[1] === "view") {
+                  return JSON.stringify({
+                    number: prNumber,
+                    url: `https://github.com/user/repo/pull/${prNumber}`,
+                    baseRefName: baseRef,
+                  });
+                }
+                return "";
+              },
+              delay: async () => {},
+              fetchPrBody: async () => "",
+              writePrBody: async () => {},
+              renderFooter: async () => "",
+            }),
+          },
+          {
+            worktreePath,
+            baseRef,
+            specPath: "spec.md",
+            branch: branchName,
+          },
+          undefined,
+          (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+          { runId, store },
+        );
+        expect(outcome.kind).toBe("success");
+        expect(ghCalls.some((call) => call === `pr ready --undo ${prNumber}`)).toBe(true);
+        expect(
+          store.findNewestHarnessReadyFlipEvidenceInLineage({
+            project: "demo",
+            branch: branchName,
+            specRef: baseRef,
+            baseRef,
+            prNumber,
+          }),
+        ).toEqual({
+          prNumber,
+          branch: branchName,
+          baseRef,
+          flippedAt: 19_000,
+        });
+      } finally {
+        setSystemTime();
+        store.close();
+      }
+    });
+
     test("routes markdown-only workflow prompts around the ready gate", async () => {
       const calls: string[] = [];
       const readyFinalizer = createReadyFinalizer({

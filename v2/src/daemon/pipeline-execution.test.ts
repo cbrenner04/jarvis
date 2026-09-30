@@ -1802,6 +1802,7 @@ describe("pipeline activation after restart", () => {
         worktreePath: "/repo/worktree",
         verifierProcessGroups: expect.any(Object),
         recordHarnessReadyFlipEvidence: expect.any(Function),
+        findHarnessReadyFlipEvidenceInLineage: expect.any(Function),
         branch: "feature-branch",
         baseRef: "main",
         ...DEFERRED_FINAL_PR,
@@ -4035,6 +4036,7 @@ describe("resumePipeline", () => {
         worktreePath: "/repo/worktree",
         verifierProcessGroups: expect.any(Object),
         recordHarnessReadyFlipEvidence: expect.any(Function),
+        findHarnessReadyFlipEvidenceInLineage: expect.any(Function),
         branch: "feature-branch",
         baseRef: "main",
         ...DEFERRED_FINAL_PR,
@@ -5567,6 +5569,7 @@ describe("pipeline terminal publication settlement", () => {
           baseRef: "main",
           verifierProcessGroups: expect.any(Object),
           recordHarnessReadyFlipEvidence: expect.any(Function),
+          findHarnessReadyFlipEvidenceInLineage: expect.any(Function),
           ...TERMINAL_PR,
         },
       ]);

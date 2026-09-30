@@ -2431,6 +2431,9 @@ async function runMutationRepairAttempt(
       ...externalSpecGitScope(context),
       ...leaseFromShaField(context),
     },
+    undefined,
+    undefined,
+    { runId: context.runId, store },
   );
   throwIfAborted(deps.signal);
   if (pushOnly.kind !== "success") {

@@ -114,7 +114,7 @@ function reviewThreadsGraphqlPayload(): string {
 
 function prViewPayload(): string {
   return JSON.stringify({
-    reviews: [{ submittedAt: "2026-05-01T00:00:00Z" }, { submittedAt: "2026-05-10T00:00:00Z" }],
+    reviews: [{ submittedAt: "2026-05-10T00:00:00Z" }, { submittedAt: "2026-05-01T00:00:00Z" }],
     comments: [
       {
         id: FIXTURE.topOld,
@@ -209,5 +209,50 @@ describe("refreshPrReviewInputCapture", () => {
       expect(artifact.topLevelComments.some((comment) => comment.commentId === FIXTURE.topBot)).toBe(false);
       expect(artifact.topLevelComments).toHaveLength(1);
     });
+  });
+
+  test("uses the latest submitted review when an earlier submission is also present", async () => {
+    const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-latest-review-");
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
+        if (args[0] === "repo" && args[1] === "view") return `${FIXTURE.owner}/${FIXTURE.repo}\n`;
+        if (args[0] === "api" && args[1] === "graphql") return reviewThreadsGraphqlPayload();
+        if (args[0] === "pr" && args[1] === "view" && args.includes("reviews,comments")) {
+          return JSON.stringify({
+            reviews: [{ submittedAt: "2026-05-01T00:00:00Z" }, { submittedAt: "2026-05-10T00:00:00Z" }],
+            comments: [
+              {
+                id: FIXTURE.topOld,
+                author: { login: "reviewer-old" },
+                body: "pre-review conversation",
+                createdAt: "2026-05-09T23:59:59Z",
+              },
+              {
+                id: FIXTURE.topKeep,
+                author: { login: "reviewer-new" },
+                body: "post-review conversation",
+                createdAt: "2026-05-10T00:00:02Z",
+              },
+            ],
+          });
+        }
+        throw new Error(`unexpected gh invocation: ${args.join(" ")} in ${cwd ?? laneWorktreePath}`);
+      },
+    };
+    try {
+      await refreshPrReviewInputCapture({
+        laneWorktreePath,
+        prNumber: FIXTURE.prNumber,
+        runner,
+      });
+      const artifact = JSON.parse(
+        readFileSync(resolvePrReviewInputArtifactPath(laneWorktreePath), "utf8"),
+      ) as PrReviewInputCaptureArtifact;
+      expect(artifact.topLevelComments.map((comment) => comment.commentId)).toEqual([FIXTURE.topKeep]);
+      expect(artifact.topLevelComments.some((comment) => comment.commentId === FIXTURE.topOld)).toBe(false);
+    } finally {
+      rmSync(laneWorktreePath, { recursive: true, force: true });
+    }
   });
 });

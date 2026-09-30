@@ -12,11 +12,11 @@
 
 ## Task checklist
 
-- [ ] Scope supersede clearing to a `supersede` from the pending transaction's own successor (identity match) in `startDaemonRuntime` / `createHandoffHandlers` wiring.
-- [ ] Export `createHandoffHandlers` or add a `createChangeoverHandler`-parity focused seam for fake-driven rollback coverage.
-- [ ] Add a focused handoff-handler unit test with fakes: `changeover` → `supersede` → `handoff_rollback` → assert admission reopens and a subsequent admitted call succeeds.
-- [ ] Update `rollback` / `tickWatch` inline comments and docblocks in `v2/src/daemon/daemon.ts` to match post-fix admission policy (no pre-fix-only `wasSuperseded()` gating on pending rollback).
-- [ ] Align `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` per Documentation updates below.
+- [x] Scope supersede clearing to a `supersede` from the pending transaction's own successor (identity match) in `startDaemonRuntime` / `createHandoffHandlers` wiring.
+- [x] Export `createHandoffHandlers` or add a `createChangeoverHandler`-parity focused seam for fake-driven rollback coverage.
+- [x] Add a focused handoff-handler unit test with fakes: `changeover` → `supersede` → `handoff_rollback` → assert admission reopens and a subsequent admitted call succeeds.
+- [x] Update `rollback` / `tickWatch` inline comments and docblocks in `v2/src/daemon/daemon.ts` to match post-fix admission policy (no pre-fix-only `wasSuperseded()` gating on pending rollback).
+- [x] Align `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` per Documentation updates below.
 
 ## Acceptance criteria
 
@@ -31,6 +31,6 @@
 
 ## Documentation updates
 
-- [ ] `v2/docs/daemon-host.md` § Handoff changeover at the public address — rollback on a pending handoff reopens admission after a successful rebind even when the handoff successor already called `supersede`; supersede before or outside that transaction still blocks reopen.
-- [ ] `v2/docs/operator-runbook.md` § Daemon lifecycle — sole daemon answering `daemon_superseded` after `Self-handoff failed` when rollback should have restored admission; `jarvis daemon start` as manual fallback.
-- [ ] `v2/docs/v1-behaviors.md` — update the `[v2-only]` handoff-transaction bullet to record rollback reopening admission after handoff-origin `supersede`.
+- [x] `v2/docs/daemon-host.md` § Handoff changeover at the public address — rollback on a pending handoff reopens admission after a successful rebind even when the handoff successor already called `supersede`; supersede before or outside that transaction still blocks reopen.
+- [x] `v2/docs/operator-runbook.md` § Daemon lifecycle — sole daemon answering `daemon_superseded` after `Self-handoff failed` when rollback should have restored admission; `jarvis daemon start` as manual fallback.
+- [x] `v2/docs/v1-behaviors.md` — update the `[v2-only]` handoff-transaction bullet to record rollback reopening admission after handoff-origin `supersede`.

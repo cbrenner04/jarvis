@@ -892,7 +892,7 @@ type HandoffTransaction = {
   rollbackPromise?: Promise<RpcHandlerResult>;
   /** Set by `scheduleFallback` once the transaction exists; a failed fallback rollback reschedules it. */
   fallbackTimer?: ReturnType<typeof setTimeout>;
-  /** After a live successor refused reclaim, defer competing rollback until the probe reads live. */
+  /** After reclaim refuses a live successor, defer fallback rollback on a not-live probe until commit or the address frees. */
   fallbackDeferRollbackForLiveSuccessor?: boolean;
   /** Set by `scheduleWatch` once committed; a failed rebind attempt reschedules it. */
   watchTimer?: ReturnType<typeof setTimeout>;

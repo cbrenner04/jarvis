@@ -13,9 +13,9 @@ Depends on [00-rollback-clears-handoff-origin-supersede.md](00-rollback-clears-h
 
 ## Task checklist
 
-- [ ] Teach `resolveFallback` / rollback error handling to distinguish live-successor bind refusal from retriable reclaim failures.
-- [ ] Add focused fake-driven fallback regressions (injected `probePublicServer`/`bindPublicServer`, fake clock): EADDRINUSE-then-success rebind; live successor holds the public address; assert rollback defers without rescheduling a competing rebind until the successor settles commit or rollback.
-- [ ] Align `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` per Documentation updates below.
+- [x] Teach `resolveFallback` / rollback error handling to distinguish live-successor bind refusal from retriable reclaim failures.
+- [x] Add focused fake-driven fallback regressions (injected `probePublicServer`/`bindPublicServer`, fake clock): EADDRINUSE-then-success rebind; live successor holds the public address; assert rollback defers without rescheduling a competing rebind until the successor settles commit or rollback.
+- [x] Align `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` per Documentation updates below.
 
 ## Acceptance criteria
 
@@ -29,5 +29,5 @@ Depends on [00-rollback-clears-handoff-origin-supersede.md](00-rollback-clears-h
 
 ## Documentation updates
 
-- [ ] `v2/docs/daemon-host.md` § Handoff changeover — reconcile the existing paragraph that a failed fallback rollback reschedules until rebind or a live successor is found with deferral: while a live successor still holds the stable public address, fallback rollback does not schedule competing rebind attempts and waits for commit or not-live before reclaim; transient failures with no live peer still reschedule on the existing cadence.
-- [ ] `v2/docs/v1-behaviors.md` — extend the `[v2-only]` handoff-transaction bullet with fallback deferral when a live successor holds the public address.
+- [x] `v2/docs/daemon-host.md` § Handoff changeover — reconcile the existing paragraph that a failed fallback rollback reschedules until rebind or a live successor is found with deferral: while a live successor still holds the stable public address, fallback rollback does not schedule competing rebind attempts and waits for commit or not-live before reclaim; transient failures with no live peer still reschedule on the existing cadence.
+- [x] `v2/docs/v1-behaviors.md` — extend the `[v2-only]` handoff-transaction bullet with fallback deferral when a live successor holds the public address.

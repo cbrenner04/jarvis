@@ -16,20 +16,20 @@
 
 ## Tasks
 
-- [ ] Route qualifying whole-pipeline and branch-scoped failed implement resumes through the shared run-resume lifecycle before failed-stage reopen, passing the target pipeline/stage so reopen admits it regardless of pipeline dismissal.
-- [ ] Preserve the current re-dispatch path for every non-qualifying failed stage and propagate run-resume refusal details unchanged through `ResumePipelineOutcome`.
-- [ ] Add focused daemon regressions for successful in-place resume (unscoped and branch-scoped), refused admission, and dismissed-pipeline resume.
-- [ ] Update the operator and durable behavior contracts.
+- [x] Route qualifying whole-pipeline and branch-scoped failed implement resumes through the shared run-resume lifecycle before failed-stage reopen, passing the target pipeline/stage so reopen admits it regardless of pipeline dismissal.
+- [x] Preserve the current re-dispatch path for every non-qualifying failed stage and propagate run-resume refusal details unchanged through `ResumePipelineOutcome`.
+- [x] Add focused daemon regressions for successful in-place resume (unscoped and branch-scoped), refused admission, and dismissed-pipeline resume.
+- [x] Update the operator and durable behavior contracts.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-pipeline-resume.test.ts` proves unscoped `pipeline_resume` on a failed implement stage whose workflow rollup cause row — a distinct invocation sibling of the entry run — settled `gate_invocation_refused` with a non-`slot_contention` `gateRefusalRecoveryState.cause` (e.g. `ceiling_headroom`, so automatic slot re-drive cannot also claim it) resumes that exact sibling row, leaves the stage's `workflowInvocationId` (the entry run) unchanged, performs no workflow dispatch or stale-reset preflight, and creates no replacement worktree after the base advances past the lane's merge base; it fails against the pre-fix re-dispatch path.
-- [ ] A branch-scoped variant of the above passes `branchKey` to `pipeline_resume`, resumes the exact same cause-row sibling on that branch, and leaves every sibling lane's stage rows and `workflowInvocationId` byte-identical; it fails against the pre-fix re-dispatch path.
-- [ ] A test dismisses the pipeline first, then proves `pipeline_resume` still resumes the qualifying row in place with the stage reopened to `running` (not left `failed`); it fails against a reopen step that inherits the blanket sweep's dismissed-pipeline skip.
-- [ ] `v2/src/daemon/daemon-pipeline-resume.test.ts` proves a qualifying row whose run-resume lifecycle refuses returns a `ResumePipelineOutcome` of `{ kind: "refused", ... }` carrying that admission's reason/message unchanged (a run-resume reason, not a mapped pipeline reason), producing the CLI's existing nonzero-exit behavior, leaves the failed stage and link unchanged, and performs no workflow dispatch; it fails against a fallback to re-dispatch.
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` test `re-dispatches only the failed continuation stage and preserves predecessor invocation IDs` stays green, pinning non-resumable re-dispatch behavior.
-- [ ] `v2/docs/operator-runbook.md`, `v2/docs/pipeline-execution.md`, and `v2/docs/v1-behaviors.md` record that `pipeline resume` resumes a resumable failed implement write row in place (including for a dismissed pipeline), while non-resumable failed stages still re-dispatch and admission refusal does not fall back.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-pipeline-resume.test.ts` proves unscoped `pipeline_resume` on a failed implement stage whose workflow rollup cause row — a distinct invocation sibling of the entry run — settled `gate_invocation_refused` with a non-`slot_contention` `gateRefusalRecoveryState.cause` (e.g. `ceiling_headroom`, so automatic slot re-drive cannot also claim it) resumes that exact sibling row, leaves the stage's `workflowInvocationId` (the entry run) unchanged, performs no workflow dispatch or stale-reset preflight, and creates no replacement worktree after the base advances past the lane's merge base; it fails against the pre-fix re-dispatch path.
+- [x] A branch-scoped variant of the above passes `branchKey` to `pipeline_resume`, resumes the exact same cause-row sibling on that branch, and leaves every sibling lane's stage rows and `workflowInvocationId` byte-identical; it fails against the pre-fix re-dispatch path.
+- [x] A test dismisses the pipeline first, then proves `pipeline_resume` still resumes the qualifying row in place with the stage reopened to `running` (not left `failed`); it fails against a reopen step that inherits the blanket sweep's dismissed-pipeline skip.
+- [x] `v2/src/daemon/daemon-pipeline-resume.test.ts` proves a qualifying row whose run-resume lifecycle refuses returns a `ResumePipelineOutcome` of `{ kind: "refused", ... }` carrying that admission's reason/message unchanged (a run-resume reason, not a mapped pipeline reason), producing the CLI's existing nonzero-exit behavior, leaves the failed stage and link unchanged, and performs no workflow dispatch; it fails against a fallback to re-dispatch.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` test `re-dispatches only the failed continuation stage and preserves predecessor invocation IDs` stays green, pinning non-resumable re-dispatch behavior.
+- [x] `v2/docs/operator-runbook.md`, `v2/docs/pipeline-execution.md`, and `v2/docs/v1-behaviors.md` record that `pipeline resume` resumes a resumable failed implement write row in place (including for a dismissed pipeline), while non-resumable failed stages still re-dispatch and admission refusal does not fall back.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

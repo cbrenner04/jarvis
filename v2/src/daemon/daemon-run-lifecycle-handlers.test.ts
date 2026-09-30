@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -1169,4 +1170,395 @@ test("wait projects a completed row's stale publication cause as complete unless
     expect(result.runStatus).toBe("completed");
     expect(result.loopOutcomeKind).toBe(expected);
   }
+});
+
+test("run resume admitted while a pipeline-scoped resume awaits admission reopens without the pipeline scope", async () => {
+  const pausedRun = (branch: string): string =>
+    stateStore.createRun({
+      project: branch,
+      specRef: "main",
+      worktreePath: `/tmp/${branch}`,
+      branch,
+      specPath: "/tmp/spec.md",
+      status: "paused",
+      queuedInput: mockWriteLoopInput({ projectName: branch, branchName: branch }),
+    });
+  const pipelineRunId = pausedRun("pipeline-scoped-resume");
+  const plainRunId = pausedRun("plain-run-resume");
+  let releasePipelineAdmission = (): void => {};
+  const pipelineAdmissionGate = new Promise<void>((resolve) => {
+    releasePipelineAdmission = resolve;
+  });
+  let signalPipelineAdmissionEntered = (): void => {};
+  const pipelineAdmissionEntered = new Promise<void>((resolve) => {
+    signalPipelineAdmissionEntered = resolve;
+  });
+  const reopenScopes = new Map<string, unknown>();
+  const target = stateStore;
+  const gatedStore = new Proxy(target, {
+    get(obj, prop) {
+      if (prop === "admitRunForResume") {
+        return async (runId: string) => {
+          if (runId === pipelineRunId) {
+            signalPipelineAdmissionEntered();
+            await pipelineAdmissionGate;
+          }
+          return obj.admitRunForResume(runId);
+        };
+      }
+      if (prop === "reopenFailedStagesForResume") {
+        return (entryRunId: string, reopenStage?: unknown) => {
+          reopenScopes.set(entryRunId, reopenStage);
+          return obj.reopenFailedStagesForResume(entryRunId, reopenStage as never);
+        };
+      }
+      const value = Reflect.get(obj, prop, obj);
+      return typeof value === "function" ? value.bind(obj) : value;
+    },
+  });
+  const ctx = createRunControlHandlerContext({
+    stateStore: gatedStore,
+    logReader: { tail: () => [], async *follow() {} },
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+  });
+  const pipelineScope = { pipelineId: "pipeline-1", stageId: "implement", branchKey: "default" };
+  const pipelineResume = handlers.resumeRunForPipeline(pipelineRunId, pipelineScope);
+  await pipelineAdmissionEntered;
+
+  const plain = await handlers.resume(
+    { kind: "request", id: "r1", method: "resume", params: { runId: plainRunId } },
+    new AbortController().signal,
+  );
+  expect(plain).toEqual({ kind: "response", result: { ok: true } });
+  expect(reopenScopes.has(plainRunId)).toBe(true);
+  expect(reopenScopes.get(plainRunId)).toBeUndefined();
+
+  releasePipelineAdmission();
+  expect(await pipelineResume).toEqual({ kind: "ok" });
+  expect(reopenScopes.get(pipelineRunId)).toEqual(pipelineScope);
+});
+
+test("resumeRunForPipeline refuses an unknown run id", async () => {
+  const { handlers } = lifecycleHandlers();
+  const outcome = await handlers.resumeRunForPipeline("missing-run-id", {
+    pipelineId: "pipeline-1",
+    stageId: "stage-1",
+    branchKey: "main",
+  });
+  expect(outcome).toEqual({
+    kind: "refused",
+    reason: "unknown_run",
+    message: "Run missing-run-id not found",
+  });
+});
+
+test("resumeRunForPipeline resolves terminal log records from logReader for run-resume admission", async () => {
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-pipeline-resume-admission-"));
+  mkdirSync(worktreePath, { recursive: true });
+  const branch = "pipeline-resume/admission-log";
+  const logsPath = join(tmpdir(), `lifecycle-pipeline-resume-admission-log-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  try {
+    const runId = stateStore.createRun({
+      project: "demo",
+      specRef: "main",
+      worktreePath,
+      branch,
+      specPath: join(worktreePath, "spec.md"),
+      status: "failed",
+      queuedInput: mockWriteLoopInput({ projectName: "demo", branchName: branch, localPath: worktreePath }),
+    });
+    const attemptId = stateStore.recordAttemptStart(runId);
+    stateStore.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "idle_output_timeout",
+      terminalCause: "idle_output_timeout",
+    });
+    logSink.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "idle_output_timeout",
+      iterationsConsumed: 1,
+      resumable: true,
+    });
+    logSink.close();
+
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    });
+
+    const outcome = await handlers.resumeRunForPipeline(runId, {
+      pipelineId: "pipeline-1",
+      stageId: "stage-1",
+      branchKey: branch,
+    });
+    expect(outcome).toMatchObject({
+      kind: "refused",
+      reason: "resume_unsupported",
+      message: "direct write resume requires a paused run",
+    });
+  } finally {
+    fakeExecutor.abortAll();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("resumeRunForPipeline returns terminal_run when run-resume admission is terminal, without reconstructing the write loop", async () => {
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-pipeline-resume-terminal-admission-"));
+  mkdirSync(worktreePath, { recursive: true });
+  const branch = "pipeline-resume/terminal-admission";
+  try {
+    const runId = stateStore.createRun({
+      project: "demo",
+      specRef: "main",
+      worktreePath,
+      branch,
+      specPath: join(worktreePath, "spec.md"),
+      status: "failed",
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "pipeline-resume-terminal-admission",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "rules",
+            expectedArtifactPath: "out.md",
+            agents: ["codex"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      },
+    });
+    const { handlers } = lifecycleHandlers();
+    const outcome = await handlers.resumeRunForPipeline(runId, {
+      pipelineId: "pipeline-1",
+      stageId: "stage-1",
+      branchKey: branch,
+    });
+    expect(outcome).toMatchObject({ kind: "refused", reason: "terminal_run" });
+    expect(fakeExecutor.pendingCount()).toBe(0);
+  } finally {
+    fakeExecutor.abortAll();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("resumeRunForPipeline routes a failed gate_invocation_refused implement~link-N row through resumeLinkedWorkflowStart", async () => {
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-pipeline-resume-linked-"));
+  writeTwoLinkIndexFixture(worktreePath);
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath,
+    branch: "linked-route/pipeline-resume",
+    specPath: "index.md",
+    stepId: "implement~link-0",
+    workflowSnapshot: linkedWorkflowRunSnapshot("linked-pipeline-resume"),
+  });
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "gate_invocation_refused",
+    terminalCause: "gate_invocation_refused",
+  });
+  stateStore.setRunStatus(runId, "failed");
+
+  const profile = setUpLinkedResumeMachineProfile();
+  try {
+    const { handlers, captured } = capturingLinkedWorkflowHandlers(profile.writeLoopBindingSourceDeps);
+    const outcome = await handlers.resumeRunForPipeline(runId, {
+      pipelineId: "pipeline-linked",
+      stageId: "implement",
+      branchKey: "default",
+    });
+    expect(outcome).toEqual({ kind: "ok" });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.workflowSnapshot.invocationId).toBe("linked-pipeline-resume");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+  } finally {
+    profile.cleanup();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("resumeRunForPipeline maps resumeReconstructedRun errors to refused outcomes", async () => {
+  const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-pipeline-resume-reconstruct-error-"));
+  mkdirSync(worktreePath, { recursive: true });
+  const branch = "pipeline-resume/reconstruct-error";
+  const input = mockWriteLoopInput({
+    projectName: "demo",
+    branchName: branch,
+    localPath: worktreePath,
+    projectRoot: worktreePath,
+  });
+  const profile = setUpLinkedResumeMachineProfile();
+  try {
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: { tail: () => [], async *follow() {} },
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+      writeLoopBindingSourceDeps: profile.writeLoopBindingSourceDeps,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    });
+    const signal = new AbortController().signal;
+    const claimed = await handlers.start({ kind: "request", id: "claim", method: "start", params: { input } }, signal);
+    expect(claimed.kind).toBe("response");
+
+    const runId = stateStore.createRun({
+      project: "demo",
+      specRef: "main",
+      worktreePath,
+      branch,
+      specPath: join(worktreePath, "spec.md"),
+      status: "paused",
+      queuedInput: input,
+    });
+
+    const outcome = await handlers.resumeRunForPipeline(runId, {
+      pipelineId: "pipeline-1",
+      stageId: "stage-1",
+      branchKey: branch,
+    });
+    expect(outcome).toMatchObject({ kind: "refused", reason: "worktree_claimed" });
+    expect(fakeExecutor.pendingCount()).toBe(1);
+  } finally {
+    profile.cleanup();
+    fakeExecutor.abortAll();
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+const IMPLEMENT_RESUME_PIPELINE: PipelineDefinition = {
+  name: "implement-resume-lifecycle",
+  stages: [
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+    { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+  ],
+};
+
+function seedGateRefusedImplementShrink(
+  store: StateStore,
+  invocationId: string,
+): { pipelineId: string; entryRunId: string; shrinkRunId: string } {
+  const snapshot: WorkflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "rules",
+        expectedArtifactPath: "spec.md",
+        agents: ["claude"],
+        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        durable: true,
+      },
+    ],
+  };
+  const entryRunId = store.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath: "/tmp/implement-resume-entry",
+    branch: "feature/implement",
+    specPath: "spec/feature/index.md",
+    stepId: "implement",
+    status: "completed",
+    workflowSnapshot: snapshot,
+  });
+  const shrinkRunId = store.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath: "/tmp/implement-resume-entry",
+    branch: "feature/implement",
+    specPath: "spec/feature/index.md",
+    stepId: "implement~shrink",
+    workflowSnapshot: snapshot,
+  });
+  const attemptId = store.recordAttemptStart(shrinkRunId);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "gate_invocation_refused",
+    terminalCause: "gate_invocation_refused",
+    gateRefusalRecoveryState: { cause: "ceiling_headroom", gateCommand: "bun run test:v2", slotRedriveCount: 0 },
+  });
+  const pipelineId = store.createPipeline({
+    definition: IMPLEMENT_RESUME_PIPELINE,
+    context: { cwd: "/tmp", configPath: "/tmp/cfg", seed: "s" },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: { status: "failed", workflowInvocationId: entryRunId },
+  });
+  return { pipelineId, entryRunId, shrinkRunId };
+}
+
+test("attemptFailedImplementPipelineResume does not tail logs when logReader is unset", async () => {
+  const { pipelineId } = seedGateRefusedImplementShrink(stateStore, "inv-lifecycle-no-log-reader");
+  const pipeline = stateStore.loadPipeline(pipelineId);
+  if (!pipeline) throw new Error("pipeline missing");
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+  });
+  const outcome = await handlers.attemptFailedImplementPipelineResume(pipeline, pipelineId, undefined);
+  expect(outcome).toMatchObject({
+    kind: "refused",
+    pipelineId,
+    reason: "resume_unsupported",
+    message: expect.stringMatching(/.+/),
+  });
+});
+
+test("attemptFailedImplementPipelineResume tails cause-run logs through logReader when configured", async () => {
+  const tailCalls: string[] = [];
+  const { pipelineId, shrinkRunId } = seedGateRefusedImplementShrink(stateStore, "inv-lifecycle-log-reader");
+  const pipeline = stateStore.loadPipeline(pipelineId);
+  if (!pipeline) throw new Error("pipeline missing");
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    logReader: {
+      tail: (runId) => {
+        tailCalls.push(runId);
+        return [];
+      },
+      async *follow() {},
+    },
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+  });
+  await handlers.attemptFailedImplementPipelineResume(pipeline, pipelineId, undefined);
+  expect(tailCalls).toContain(shrinkRunId);
 });

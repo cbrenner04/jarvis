@@ -542,6 +542,27 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("implement it");
   });
 
+  test("claude binding settles on exit when the child's stdin pipe errors (EPIPE)", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n', stderr: "" }]);
+    const spawn = (binary: string, argv: readonly string[], opts: SpawnOptions): ChildProcess => {
+      const child = fake.spawn(binary, argv, opts);
+      const stdin = child.stdin as PassThrough;
+      stdin.write = () => {
+        queueMicrotask(() => stdin.emit("error", Object.assign(new Error("EPIPE: broken pipe"), { code: "EPIPE" })));
+        return false;
+      };
+      return child;
+    };
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
+      { spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "implement it", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
+  });
+
   test("claude binding appends --add-dir for each additionalReadDirs entry", async () => {
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n', stderr: "" }]);
     const binding = createResolvedAgentBinding(

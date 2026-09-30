@@ -49,6 +49,27 @@ describe("runAggregateTests", () => {
     expect(new Set(spawned.slice(agent.length))).toEqual(new Set(integration));
     expect(spawned.every((file) => !file.startsWith("v1/"))).toBe(true);
   });
+
+  test("returns non-zero when integration phase fails", async () => {
+    muteRunnerOutput();
+    const { integration } = aggregateTestFiles();
+    expect(integration.length).toBeGreaterThan(0);
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1];
+      const failed = file !== undefined && integration.includes(file);
+      return {
+        status: failed ? 1 : 0,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+      };
+    };
+
+    const code = await runAggregateTests(1, spawn);
+
+    expect(code).toBe(1);
+  });
 });
 
 describe("test:confirm:live", () => {

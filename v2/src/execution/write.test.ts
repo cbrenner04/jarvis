@@ -1561,6 +1561,52 @@ describe("write behavior", () => {
     expect(agentSawNested).toBe(true);
   });
 
+  test("plan redraft drops ambiguous nested spec/ staging when multiple immediate children block the single-child clause", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-ambiguous-nested-redraft-wipe";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const firstNested = join(stagePath, "spec", "2099-01-01T00-00-14Z-first");
+    const secondNested = join(stagePath, "spec", "2099-01-01T00-00-15Z-second");
+
+    const first = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName,
+      agentSetup: (_cwd, stage) => {
+        mkdirSync(join(stage, "notes"), { recursive: true });
+        writeFileSync(join(stage, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
+        writePrefixedPlanDraftStage(stage, ["spec"], "2099-01-01T00-00-14Z-first", {
+          index: MINIMAL_PLAN_DRAFT_INDEX,
+          subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
+        });
+        writePrefixedPlanDraftStage(stage, ["spec"], "2099-01-01T00-00-15Z-second", {
+          index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
+          subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
+        });
+      },
+    });
+
+    expect(first.result.kind).toBe("contract_miss");
+    expect(existsSync(firstNested)).toBe(true);
+    expect(existsSync(secondNested)).toBe(true);
+
+    let agentSawAmbiguousNested = false;
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            agentSawAmbiguousNested = existsSync(firstNested) || existsSync(secondNested);
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(agentSawAmbiguousNested).toBe(false);
+  });
+
   test("plan-draft shape contract_miss preserves immediate-child-only staging for redraft", async () => {
     const { jarvisRoot } = createJarvisHome();
     const branchName = "plan-immediate-child-only-redraft";

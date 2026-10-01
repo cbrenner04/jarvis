@@ -10,7 +10,7 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 
 Every other landed spec is archived under `completed/`.
 
-## Ready-intents (6 queued: 4 dispatchable, 1 waiting on in-flight PRs, 1 not startable)
+## Ready-intents (7 queued: 5 dispatchable, 1 waiting on in-flight PRs, 1 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
@@ -19,9 +19,10 @@ Every other landed spec is archived under `completed/`.
 | `retire-superseded-pipeline-branches` | dispatchable | — (#4290, #4296 landed) |
 | `completion-commit-run-scope` | dispatchable; rewritten 2026-10-01 after plan rejection: refuses main-sync content (staged blob = `main` tip, lane never changed path) and shrink diffs against the merge base | — (#4328 landed) |
 | `write-loop-test-split` | dispatchable after in-flight `write-loop.test.ts` PRs land; one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`) | in-flight PRs touching `write-loop.test.ts` |
+| `tui-revision-follow-single-supervisor` | dispatchable; one plan, chained subspecs (supervisor + reserved exit together, then log-follow) (replaces seed `tui-revision-follow-replaces-itself`) | — |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
-## Seeds (21)
+## Seeds (20)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
@@ -31,7 +32,6 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `plan-draft-shape-names-its-failure` | P1 | — | new 2026-10-01; pipeline 62810cc3 plan lane stranded on bare `plan.draft.shape` (nested spec dir); hand-flattened + recover |
 | `terminal-publication-accepts-operator-merged-pr` | P1 | — | new 2026-10-01; pipelines 998a665f, 66f666ad + once prior session |
 | `closed-lane-is-not-republished` | P1 | — | new 2026-10-01; #4302 republished closed #4286; prior #4243/#4244 |
-| `tui-revision-follow-replaces-itself` | P2 | — | new 2026-10-01; 19-process TUI chain on ttys001 |
 | `implement-respects-target-repo-doc-layout` | P2 | #3426 | open; leak 3 closed by #4029; `intent-split.test.ts` pins leak 1 |
 | `intent-split-covers-sibling-repo-surfaces` | P2 | #3439 | re-scoped to split-internal prerequisite consistency (`siblings` was v1-only) |
 | `detached-pipeline-plan-stage-consumes-ready-intents` | P2 | #3041 | AC2 landed #3534, AC3 landed #3657; in-repo git-chained silent skip remains; chosen mechanism over the retired merge-at-gate seed |

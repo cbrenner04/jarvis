@@ -496,7 +496,7 @@ Lifecycle, settlement handoff, fan-out fail-closed behavior, and recovery reacha
 
 A red gate fails before flip or merge.
 
-**Failure classes:** failures throw `TerminalPublicationError` naming `terminalAction` and wrapping a normalized `PublicationFailure`. `ReadyGateError` maps with `operation` = gate `command`, `exitCode` from the gate, output tail in `stdoutTail`, and `message` carrying `gateFailureKind` (including `ready_gate_out_of_scope` / `outsidePaths`) and `timedOut` when set. Ready-flip and merge mutation failures use operation labels `"gh pr ready"` and `"gh pr merge"` respectively. Failures retain `prNumber`/`prUrl` and perform no PR close or delete.
+**Failure classes:** failures throw `TerminalPublicationError` naming `terminalAction` and wrapping a normalized `PublicationFailure`. Optional `PublicationFailure.cause` (including `pr_closed` for closed unmerged implement PRs) is canonical in [`pipeline-execution.md` § Terminal publication](./pipeline-execution.md#terminal-publication). `ReadyGateError` maps with `operation` = gate `command`, `exitCode` from the gate, output tail in `stdoutTail`, and `message` carrying `gateFailureKind` (including `ready_gate_out_of_scope` / `outsidePaths`) and `timedOut` when set. Ready-flip and merge mutation failures use operation labels `"gh pr ready"` and `"gh pr merge"` respectively. Failures retain `prNumber`/`prUrl` and perform no PR close or delete.
 
 Sources: `v2/src/execution/terminal-publication.ts`, `v2/src/execution/ready-finalize.ts`, `v2/src/execution/publication-retry.ts`, `v2/spec/ready-intents/settle-pipeline-terminal-action.md`.
 

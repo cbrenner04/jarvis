@@ -11778,6 +11778,50 @@ index 1234567..abcdefg 100644
       }
     });
 
+    test("iteration_commit logs mainSyncRevertedPaths from the committer", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-main-sync-revert-log";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const reverted = ["sync-a.txt", "sync-b.txt"];
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "lane.txt"), "lane\n");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["done"]),
+            maxIterations: 1,
+            logSink: sink,
+            completionCommitter: async () => ({
+              commitSha: "checkpoint-sha-main-sync",
+              filesChanged: 1,
+              mainSyncRevertedPaths: reverted,
+            }),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+        expect(result.kind).toBe("complete");
+        const commitEvent = sink.getEventsForRun(result.runId).find((event) => event.kind === "iteration_commit");
+        expect(commitEvent).toMatchObject({
+          kind: "iteration_commit",
+          commitSha: "checkpoint-sha-main-sync",
+          mainSyncRevertedPaths: reverted,
+        });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
     test("iteration_commit event distinguishes committed, no_file_changes, and no_git skips", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));

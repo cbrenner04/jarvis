@@ -138,6 +138,7 @@ For each suggestion:
 - **Fan out `plan`/`intent` freely; implement fan-out is bounded by the gate, not the lane count** — current numbers and the `shared/**` exception are in [`operator-runbook.md` § Concurrency](./operator-runbook.md#concurrency). A gate failure under load is worth one isolated re-run before trusting it.
 - **Don't branch-switch the primary checkout while a `plan`/`intent` is starting** — it reads its seed from the primary checkout at startup. Operator-side edits go in a separate worktree.
 - **Merging to `main` during a long in-flight run can leave that run behind base.** Batch merges for when no lane is live, or expect [integration](#integration-merge-then-retest-pattern) on conflict.
+- **Main-sync strips show on `iteration_commit`.** When the harness refuses staged paths that mirror `main` without a lane edit, `jarvis run log` `iteration_commit` events with a fresh `commitSha` may carry `mainSyncRevertedPaths` (sorted repo-relative paths). Diff the lane against its merge base before merge remains a manual sanity check.
 
 ## Integration-merge-then-retest pattern
 

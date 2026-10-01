@@ -22,20 +22,10 @@ Non-test ready gates with lint-style attribution build `resolveAttributableRepai
 - [x] `write-loop.test.ts` "never invokes repair for a fully attributed untouched-path gate" stays green.
 - [x] `write-loop.test.ts` "repair refuses a staged path outside the attributable allowset" stays green.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 
 - `v2/docs/workflow-runner.md` — ready-gate repair attributable allowset is intersected with the frozen run-diff envelope (including per-gate extensions); wholly out-of-envelope attributable lint failures settle out-of-scope without repair.
 - `v2/docs/v1-behaviors.md` — catalog attributable repair allowset intersection with the frozen fence and out-of-envelope lint settlement.
-
-## Blocker
-
-Artifact contract check failed: Unticked non-human-only acceptance criteria:
-- `v2/src/execution/write-loop.test.ts` adds a regression where a non-test ready gate fails with lint-style attribution only on a path outside the frozen run diff: no agent repair edit lands on that path, no `ready_gate_repair` log events fire, and the run settles `ready_gate_out_of_scope`; fails against the pre-fix `resolveAttributableRepairAllowset`.
-- `write-loop.test.ts` "never invokes repair for a fully attributed untouched-path gate" stays green.
-- `write-loop.test.ts` "repair refuses a staged path outside the attributable allowset" stays green.
-- `bun run typecheck` passes.
-- `bun run test:v2` passes.
-- `bun run test:integration:v2` passes.

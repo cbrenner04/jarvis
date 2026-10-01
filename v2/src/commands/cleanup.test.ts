@@ -51,6 +51,7 @@ import {
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
+  supersededPipelinePrHeadAuthorityMatches,
   OPEN_PR_PROBE_UNREACHABLE_REASON,
   parseCheckedOutBranchesFromWorktreePorcelain,
   performWorktreeRemovals,
@@ -6970,6 +6971,105 @@ type MergedBranchGhPr = {
   headRefOid?: string;
 };
 
+type SupersedeGhFixture = {
+  prListByRepo: Record<string, MergedBranchGhPr[]>;
+  commentsByPr: Record<number, string[]>;
+  prViewByNumber: Record<number, { state: string; mergedAt: string | null; isCrossRepository?: boolean }>;
+  prViewByBranch?: Record<string, { state: string; mergedAt: string | null }>;
+  listThrows?: boolean;
+  commentsThrowsForPr?: ReadonlySet<number>;
+  viewThrowsForPr?: ReadonlySet<number>;
+};
+
+function ghSupersedeRunner(fixture: SupersedeGhFixture, fallbackRoot: string): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "pr") {
+        if (args[1] === "list") {
+          if (fixture.listThrows === true) throw GH_PR_LIST_PROBE_ERROR;
+          const key = cwd ?? fallbackRoot;
+          return JSON.stringify(fixture.prListByRepo[key] ?? []);
+        }
+        if (args[1] === "view") {
+          const jsonIndex = args.indexOf("--json");
+          const jsonFields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+          const target = args[2];
+          if (target === undefined) return "";
+          const asNumber = Number(target);
+          if (fixture.viewThrowsForPr?.has(asNumber) === true) throw GH_PR_LIST_PROBE_ERROR;
+          if (!Number.isNaN(asNumber)) {
+            if (jsonFields.includes("comments")) {
+              if (fixture.commentsThrowsForPr?.has(asNumber) === true) throw GH_PR_LIST_PROBE_ERROR;
+              const bodies = fixture.commentsByPr[asNumber] ?? [];
+              return JSON.stringify({ comments: bodies.map((body) => ({ body })) });
+            }
+            const view = fixture.prViewByNumber[asNumber];
+            if (view !== undefined) return JSON.stringify(view);
+          }
+          const branchView = fixture.prViewByBranch?.[target];
+          if (branchView !== undefined) return JSON.stringify(branchView);
+          throw new AsyncSubprocessError("not found", 1, "", "", undefined);
+        }
+      }
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? fallbackRoot);
+    },
+  };
+}
+
+function closedSupersedePr(oid: string, number: number): MergedBranchGhPr {
+  return { number, state: "CLOSED", mergedAt: null, headRefOid: oid };
+}
+
+function supersedeSettlementBody(successorPr: number, pipelineId = "pipe-1", stageId = "plan"): string {
+  return `Superseded by #${successorPr} (pipeline ${pipelineId}, stage ${stageId})`;
+}
+
+function supersedeFixtureForBranch(
+  projectRoot: string,
+  branch: string,
+  oid: string,
+  closedPrNumber: number,
+  successorPrNumber: number,
+  options: {
+    commentBody?: string;
+    omitComment?: boolean;
+    successorMerged?: boolean;
+    openPr?: boolean;
+    headOid?: string;
+    listThrows?: boolean;
+    commentsThrows?: boolean;
+    successorViewThrows?: boolean;
+    successorState?: "MERGED" | "CLOSED" | "OPEN";
+    crossRepo?: boolean;
+  } = {},
+): SupersedeGhFixture {
+  const headRefOid = options.headOid ?? oid;
+  const prs: MergedBranchGhPr[] = [closedSupersedePr(headRefOid, closedPrNumber)];
+  if (options.openPr === true) {
+    prs.push({ number: closedPrNumber + 100, state: "OPEN", mergedAt: null, headRefOid: oid });
+  }
+  const commentBody = options.commentBody ?? supersedeSettlementBody(successorPrNumber);
+  const commentsByPr: Record<number, string[]> = {};
+  if (options.omitComment !== true) commentsByPr[closedPrNumber] = [commentBody];
+  const successorState = options.successorState ?? (options.successorMerged === false ? "CLOSED" : "MERGED");
+  const fixture: SupersedeGhFixture = {
+    prListByRepo: { [projectRoot]: prs },
+    commentsByPr,
+    prViewByNumber: {
+      [successorPrNumber]: {
+        state: successorState,
+        mergedAt: successorState === "MERGED" ? "2026-01-01T00:00:00Z" : null,
+        isCrossRepository: options.crossRepo === true,
+      },
+    },
+    prViewByBranch: { [branch]: { state: "CLOSED", mergedAt: null } },
+  };
+  if (options.listThrows === true) fixture.listThrows = true;
+  if (options.commentsThrows === true) fixture.commentsThrowsForPr = new Set([closedPrNumber]);
+  if (options.successorViewThrows === true) fixture.viewThrowsForPr = new Set([successorPrNumber]);
+  return fixture;
+}
+
 function mergedBranchPr(oid: string, number = 1): MergedBranchGhPr {
   return { number, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid };
 }
@@ -7016,6 +7116,121 @@ function ghPrRunnerByRepo(
     },
   };
 }
+
+describe("cleanup: superseded-pipeline branch retirement", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-supersede-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    await initMergedBranchTestRepo(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("materialized worktree dry-run and apply retire under supersede proof", async () => {
+    const branch = "implement/superseded-lane";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 10, 99);
+    const runner = ghSupersedeRunner(fixture, projectRoot);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let dryStdout = "";
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        {
+          listRuns: () => [],
+        } as unknown as StateStore,
+        { stdout: (s) => (dryStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(dryStdout).toContain(worktreePath);
+    let applyStdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        { listRuns: () => [] } as unknown as StateStore,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(applyStdout).toContain("Retired:");
+    expect(existsSync(worktreePath)).toBe(false);
+  });
+
+  test("head-only branch ref discovery and prune under supersede proof", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "superseded-head-only");
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 11, 100);
+    const runner = ghSupersedeRunner(fixture, projectRoot);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(discovered.candidates).toEqual([{ project: "project", branch, headOid: oid, repositoryRoot: projectRoot }]);
+
+    let stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        { listRuns: () => [] } as unknown as StateStore,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Pruned ref: project refs/heads/${branch}`);
+  });
+
+  test.each([
+    { case: "closed without settlement comment", options: { omitComment: true } },
+    { case: "OPEN PR on branch", options: { openPr: true } },
+    { case: "pr list probe failure", options: { listThrows: true } },
+    { case: "comment probe failure", options: { commentsThrows: true } },
+    { case: "successor view probe failure", options: { successorViewThrows: true } },
+    { case: "head OID mismatch", options: { headOid: "deadbeef" } },
+    { case: "non-exact settlement comment", options: { commentBody: "Superseded by #99" } },
+    { case: "unmerged successor", options: { successorMerged: false, successorState: "CLOSED" } },
+    { case: "open successor", options: { successorState: "OPEN" } },
+    { case: "cross-repo successor", options: { crossRepo: true } },
+  ])("ineligible when $case", async ({ case: caseName, options }) => {
+    const slug = caseName
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48);
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, `bad-${slug}`);
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 12, 101, options);
+    const runner = ghSupersedeRunner(fixture, projectRoot);
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(false);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    expect((await discoverMergedBranchRefCandidates(registry, { runner })).candidates).toEqual([]);
+  });
+
+  test("guard inversion: merged successor required for supersede authority", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "supersede-successor-guard");
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 13, 102, { successorState: "MERGED" });
+    const runner = ghSupersedeRunner(fixture, projectRoot);
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(true);
+    fixture.prViewByNumber[102] = { state: "CLOSED", mergedAt: null };
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(false);
+  });
+});
 
 describe("cleanup: discover merged branch-ref candidates", () => {
   let tempRoot: string;

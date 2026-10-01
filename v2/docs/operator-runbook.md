@@ -909,11 +909,12 @@ When a completed open-home spec's owning worktree is retired in the same `jarvis
 
 **`--dry-run` is a plan, not an outcome** for other cleanup slices. It lists an archive destination based on the state it sees; the apply-time recheck runs again and can correctly refuse every archival the preview listed outside the bounded stranded case above. Read a dry-run listing as "these are candidates", and confirm against the apply run's stdout.
 
-A worktree is eligible when **merged-PR authority** or **plan-lane subsumed authority** succeeds and the shared retirement guards pass. `--dry-run` lists subsumed plan lanes in the same worktree-retirement preview as merged lanes; apply uses the same removal sequence and apply-time eligibility recheck.
+A worktree is eligible when **merged-PR authority**, **plan-lane subsumed authority**, or **superseded-pipeline authority** succeeds and the shared retirement guards pass. Evaluation order: merged-PR first; for in-repo `plan/*` only, plan-lane subsumed second when merged-PR fails; superseded-pipeline third when merged-PR fails and plan-lane subsumed did not succeed. `--dry-run` lists subsumed plan lanes and superseded-pipeline lanes in the same worktree-retirement preview as merged lanes; apply uses the same removal sequence and apply-time eligibility recheck.
 
 - **Merged-PR authority** (all branches): `gh pr view <branch> --json state,mergedAt` reports `state: "MERGED"` and `mergedAt` is set.
 - **Plan-lane subsumed authority** (in-repo `plan/*` only, only when merged-PR authority fails): `gh pr list --head <branch> --state all --json state` shows no OPEN PR (empty, CLOSED, or absent — probe failure is ineligible, not “no open PR”); every `base..head` path lies under the resolved plan spec directory, the lane's consumed ready-intent, or harness workflow staging; the resolved spec directory is present on the repository default branch at `HEAD` either open under the registered `plan.targetDir` or under `<targetDir>/completed/` (read-only `git ls-tree`, same posture as hand-landed stranded archival). Spec directory identity: durable runs on `(project, branch)` via the same `sourceForRun` / `resolveMergedWorktreeSpecIndexPath` walk as merged dirty retirement (`artifactForRetiredWorktree` precedence when multiple rows qualify), else the shallowest repo-relative `index.md` under the registered in-repo `plan.targetDir` touched in `base..head`; unresolved identity is ineligible. External `plan.commit: false` trees under `~/.jarvis/specs/.../plans/` never use this authority. Post-removal archival matches merged retirement when a provable artifact exists, but skips moving a spec tree already on the default branch open or under `completed/`.
-- **Shared guards** (both authorities): no non-terminal durable run on `(project, branch)`; no live daemon run for `(project, branch)`; daemon-unreachable remains fail-closed as below.
+- **Superseded-pipeline authority** (all branches, only when merged-PR authority fails and, for `plan/*`, plan-lane subsumed authority did not succeed): `gh pr list --head <branch> --state all` shows no OPEN PR (probe failure is ineligible, not “closed”); exactly one CLOSED PR on the branch has `headRefOid` equal to the local `refs/heads/<branch>` OID; an issue comment on that PR has body exactly `Superseded by #<n> (pipeline <pipelineId>, stage <stageId>)` matching terminal supersede settlement in pipeline execution; referenced `#<n>` resolves via `gh pr view <n>` to a same-repository PR in `MERGED` state with `mergedAt` set (open, closed-without-merge, missing, or cross-repo references are ineligible). Post-removal archival matches merged retirement when a provable artifact exists; it does not set `skipSpecArchival` unless plan-lane subsumed authority already did.
+- **Shared guards** (all authorities): no non-terminal durable run on `(project, branch)`; no live daemon run for `(project, branch)`; daemon-unreachable remains fail-closed as below.
 
 **`Landed elsewhere` (implement lanes, not retirement).** Non-`plan/*` worktrees stay ineligible for bulk retirement when only the spec landed elsewhere. When merged-PR authority fails, subsumed plan authority does not apply, `gh pr list --head` shows no OPEN PR (probe failure → no line), and durable-run resolution finds a spec whose tree exists under `<targetDir>/completed/` on the default branch, stdout prints `Landed elsewhere: <worktree-path> — <reason>; run jarvis cleanup --abandon <branch> --discard-unlanded after verifying` without adding the worktree to dry-run or apply retirement. An OPEN PR suppresses the line.
 
@@ -927,23 +928,23 @@ Successful merged-worktree retirement removes the worktree, then prunes the same
 
 ### Merged-branch ref pruning (worktree-independent)
 
-Every cleanup also scans each distinct registered project Git root for local heads whose merged PR authority is verifiable, even when no managed worktree exists for that branch.
+Every cleanup also scans each distinct registered project Git root for local heads whose merged-PR or superseded-pipeline authority is verifiable, even when no managed worktree exists for that branch.
 
 **Prunes** (apply, after confirmation):
 
-- Exact `refs/heads/<branch>` when the head matches exactly one merged PR's `headRefOid`, no open PR owns the branch, and apply-time guards pass.
+- Exact `refs/heads/<branch>` when merged-PR authority or superseded-pipeline authority matches the local head OID, no open PR owns the branch, and apply-time guards pass.
 - Exact `refs/remotes/origin/<branch>` when that tracking ref existed at preview time and still matches the previewed OID at apply time.
 
 **Keeps**:
 
 - The repository base branch, the operator's current branch, and any branch checked out in a worktree (unless that worktree is retired in the same apply invocation).
-- Local heads whose PR is not merged, is ambiguous, or cannot be verified (`gh` failure).
+- Local heads whose merged-PR and superseded-pipeline proofs both fail, are ambiguous, or cannot be verified (`gh` failure).
 - Orphan `origin/<branch>` tracking refs with no matching local head.
 - Branches with a non-terminal durable run or a live daemon run for any registered project sharing the repository's Git common directory. Named cleanup still discovers ref candidates only for the selected project, but refuses an ambiguous shared-ref prune rather than mutating another project's live branch.
 
 **Preview and apply reporting** (project identity on every line): dry-run `prune ref: <project> <full-ref>` (apply-time candidates, subject to the same revalidation guards; not a guaranteed deletion); apply success `Pruned ref: <project> <full-ref>`; apply skip `Skipped ref prune: <project> refs/heads/<branch> — <reason>`; apply failure on stderr `Failed to prune ref <full-ref> (<project>): <message>`.
 
-Apply revalidates head OID, tracking-ref OID, merged-PR authority, checkout status, and durable/daemon run ownership immediately before each mutation; a ref that changed after preview is skipped, not deleted.
+Apply revalidates head OID, tracking-ref OID, merged-PR or superseded-pipeline authority, checkout status, and durable/daemon run ownership immediately before each mutation; a ref that changed after preview is skipped, not deleted.
 
 **Partial failure.** A failed head or tracking-ref deletion is not reported as success, makes the invocation exit nonzero, and does not block later eligible ref candidates or the independent worktree-retirement, artifact-archival, and daemon-artifact-reaping slices. Worktree retirement is reported successful only when both removal and its required ref prune succeed. Unusable registered project roots (missing, non-Git, or inaccessible) are reported on stderr as `Skipped project <project>: <reason> (<root>)` and make the invocation exit nonzero.
 

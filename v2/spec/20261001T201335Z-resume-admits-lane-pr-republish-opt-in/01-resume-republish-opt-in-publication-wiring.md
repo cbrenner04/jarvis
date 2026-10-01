@@ -30,7 +30,7 @@ Resume RPC may carry `allowLanePrRepublish` after subspec 00, but daemon resume 
 - [x] `completion-publisher.test.ts`: `allowLanePrRepublish: true` with newest head+base `MERGED` history calls `gh pr create`; fails against pre-fix if merged opt-in create is untested at publisher seam.
 - [x] `pipeline-execution.test.ts` or extended `daemon-pipeline-recover.test.ts`: `pipeline recover` with fake `gh` whose newest head+base PR is `CLOSED` does not call `gh pr create` (no resume opt-in); fails against pre-fix recover republication that recreated drafts after closed lane PR history.
 - [x] `run.test.ts` and `pipeline.test.ts` — resume CLI/RPC forwarding cases from subspec 00 stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

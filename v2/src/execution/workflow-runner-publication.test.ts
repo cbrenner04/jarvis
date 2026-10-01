@@ -3882,7 +3882,7 @@ describe("workflow completion lane PR republication settlement", () => {
         logSink,
         freshDispatch: true,
         allowLanePrRepublish: true,
-        ...(snapshot !== undefined ? { workflowSnapshot: snapshot } : {}),
+        ...(snapshot != null ? { workflowSnapshot: snapshot } : {}),
         completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
         completionPublisher: publisher,
         readyFinalizer: async () => {},

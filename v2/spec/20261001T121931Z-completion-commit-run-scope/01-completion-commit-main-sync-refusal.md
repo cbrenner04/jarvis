@@ -20,11 +20,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/completion-commit.test.ts` (real git): lane forked at B, `main` then edits X, adds W, deletes Z; worktree mirrors all three plus a lane edit to Y; commit contains only Y; X, W, Z match `HEAD` in the worktree; `mainSyncRevertedPaths` names X, W, Z; fails pre-fix (all four committed).
-- [ ] Same file: X synced from `origin/main` while local `main` still points at B is refused; fails pre-fix.
-- [ ] Same file: a lane edit to X that differs from `main` tip, and a path the lane changed before `main` advanced, both commit unchanged; worktree with only main-sync paths creates no commit.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes for `v2/src/execution/completion-commit.test.ts` and `v2/src/execution/main-sync-scope.test.ts`.
+- [x] `v2/src/execution/completion-commit.test.ts` (real git): lane forked at B, `main` then edits X, adds W, deletes Z; worktree mirrors all three plus a lane edit to Y; commit contains only Y; X, W, Z match `HEAD` in the worktree; `mainSyncRevertedPaths` names X, W, Z; fails pre-fix (all four committed).
+- [x] Same file: X synced from `origin/main` while local `main` still points at B is refused; fails pre-fix.
+- [x] Same file: a lane edit to X that differs from `main` tip, and a path the lane changed before `main` advanced, both commit unchanged; worktree with only main-sync paths creates no commit.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes for `v2/src/execution/completion-commit.test.ts` and `v2/src/execution/main-sync-scope.test.ts`.
 
 ## Documentation updates
 

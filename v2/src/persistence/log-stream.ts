@@ -122,6 +122,7 @@ type IterationCommitEvent =
       kind: "iteration_commit";
       attemptId: string;
       commitSha: string;
+      mainSyncRevertedPaths?: string[];
     }
   | {
       kind: "iteration_commit";

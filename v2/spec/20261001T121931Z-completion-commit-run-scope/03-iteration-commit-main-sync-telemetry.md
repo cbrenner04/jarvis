@@ -17,10 +17,10 @@ Operators cannot see which paths the harness stripped during an iteration checkp
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts`: an iteration whose committer returns `mainSyncRevertedPaths` logs them on `iteration_commit`; fails pre-fix.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/write-loop.test.ts`: an iteration whose committer returns `mainSyncRevertedPaths` logs them on `iteration_commit`; fails pre-fix.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

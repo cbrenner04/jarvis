@@ -13,6 +13,12 @@ import {
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
+import {
+  MAIN_SYNC_ABSENT_BLOB,
+  type MainSyncPathBlobs,
+  resolveLaneMergeBase,
+  selectMainSyncPaths,
+} from "./main-sync-scope.ts";
 import { readBranchCommits } from "./pr-attribution.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
@@ -47,7 +53,11 @@ type CompletionCommitInput = ExternalSpecGitScope & {
    * this and keeps the stored message's own step classification. */
   step?: CompletionStepMetadata;
 };
-type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
+type CompletionCommitResult = {
+  commitSha?: string;
+  filesChanged?: number;
+  mainSyncRevertedPaths?: string[];
+};
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 
@@ -136,7 +146,111 @@ type PendingCommit = {
   timestamp: string;
   commitSha?: string;
   formatMode?: "checkpoint" | "strict";
+  mainSyncRevertedPaths?: string[];
 };
+
+async function blobAtRef(runGit: Git, cwd: string, ref: string, path: string): Promise<string> {
+  try {
+    return await runGit(cwd, ["rev-parse", `${ref}:${path}`]);
+  } catch {
+    return MAIN_SYNC_ABSENT_BLOB;
+  }
+}
+
+async function stagedBlobAtPath(runGit: Git, cwd: string, index: string, path: string): Promise<string> {
+  try {
+    const line = await runGit(cwd, ["ls-files", "-s", "--", path], { GIT_INDEX_FILE: index });
+    const blob = line.split(/\s+/)[1];
+    return blob ?? MAIN_SYNC_ABSENT_BLOB;
+  } catch {
+    return MAIN_SYNC_ABSENT_BLOB;
+  }
+}
+
+async function refResolves(runGit: Git, cwd: string, ref: string): Promise<boolean> {
+  try {
+    await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resetStagedPathToHead(
+  runGit: Git,
+  cwd: string,
+  index: string,
+  path: string,
+  headBlob: string,
+): Promise<void> {
+  const indexEnv = { GIT_INDEX_FILE: index };
+  if (headBlob === MAIN_SYNC_ABSENT_BLOB) {
+    try {
+      await runGit(cwd, ["rm", "--cached", "-f", "--", path], indexEnv);
+    } catch {
+      await runGit(cwd, ["update-index", "--remove", "--", path], indexEnv);
+    }
+    const absolute = join(cwd, path);
+    if (existsSync(absolute)) {
+      rmSync(absolute);
+    }
+    return;
+  }
+  await runGit(cwd, ["restore", "--source=HEAD", "--staged", "--worktree", "--", path], indexEnv);
+}
+
+async function refuseMainSyncInStagedIndex(
+  runGit: Git,
+  input: CompletionCommitInput,
+  index: string,
+  head: string,
+  candidatePaths: readonly string[],
+): Promise<string[]> {
+  const mergeBase = await resolveLaneMergeBase(input.worktreePath, input.baseRef, {
+    runAsync(command, args, cwd) {
+      if (command !== "git") throw new Error(`Unsupported subprocess command: ${command}`);
+      return runGit(cwd, args);
+    },
+  });
+  if (mergeBase === undefined) return [];
+
+  const uniqueCandidates = [...new Set(candidatePaths)];
+  if (uniqueCandidates.length === 0) return [];
+
+  const baseRefResolves = await refResolves(runGit, input.worktreePath, input.baseRef);
+  const originRef = `origin/${input.baseRef}`;
+  const originResolves = await refResolves(runGit, input.worktreePath, originRef);
+
+  const entries: MainSyncPathBlobs[] = [];
+  for (const path of uniqueCandidates) {
+    const headBlob = await blobAtRef(runGit, input.worktreePath, head, path);
+    const mergeBaseBlob = await blobAtRef(runGit, input.worktreePath, mergeBase, path);
+    const stagedBlob = await stagedBlobAtPath(runGit, input.worktreePath, index, path);
+    const entry: MainSyncPathBlobs = { path, headBlob, mergeBaseBlob, stagedBlob };
+    if (baseRefResolves) {
+      entry.baseRefTipBlob = await blobAtRef(runGit, input.worktreePath, input.baseRef, path);
+    }
+    if (originResolves) {
+      entry.originBaseRefTipBlob = await blobAtRef(runGit, input.worktreePath, originRef, path);
+    }
+    entries.push(entry);
+  }
+
+  const refused = selectMainSyncPaths(entries);
+  if (refused.length === 0) return [];
+
+  const headBlobByPath = new Map(entries.map((entry) => [entry.path, entry.headBlob]));
+  for (const path of refused) {
+    await resetStagedPathToHead(
+      runGit,
+      input.worktreePath,
+      index,
+      path,
+      headBlobByPath.get(path) ?? MAIN_SYNC_ABSENT_BLOB,
+    );
+  }
+  return [...refused].sort((a, b) => a.localeCompare(b));
+}
 
 function renderJarvisStepTrailer(step: CompletionStepMetadata): string {
   switch (step.kind) {
@@ -215,6 +329,11 @@ function git(cwd: string, args: readonly string[], env?: Record<string, string>)
 /** When true, the committer reuses HEAD without creating a commit (iteration materialization no-op). */
 export function shouldReuseHeadWithoutNewCommit(indexTree: string, headTree: string): boolean {
   return indexTree === headTree;
+}
+
+/** Parse NUL-delimited `git diff --name-only -z` output; drops empty segments (including the usual trailing one). */
+export function parseGitNameOnlyZ(output: string): string[] {
+  return output.split("\0").filter((path) => path.length > 0);
 }
 
 async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, completionTree: string): Promise<number> {
@@ -302,8 +421,16 @@ async function preparePendingCommit(
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath, excludedPaths), { GIT_INDEX_FILE: index });
+  const stagedDiffPaths = parseGitNameOnlyZ(
+    await runGit(input.worktreePath, ["diff", "--cached", "--name-only", "-z", "HEAD"], {
+      GIT_INDEX_FILE: index,
+    }),
+  );
+  const mainSyncCandidatePaths = [...new Set([...changedPaths, ...stagedDiffPaths])];
+  const mainSyncRevertedPaths = await refuseMainSyncInStagedIndex(runGit, input, index, head, mainSyncCandidatePaths);
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
   const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
+  const syncRevertResult = mainSyncRevertedPaths.length > 0 ? { mainSyncRevertedPaths } : undefined;
   if (shouldReuseHeadWithoutNewCommit(tree, baseTree)) {
     // HEAD may already be a completion commit whose publish previously failed;
     // report its sha so the caller retries publication instead of no-op'ing.
@@ -314,8 +441,9 @@ async function preparePendingCommit(
         ? {
             commitSha: head,
             filesChanged: await countFilesChanged(runGit, input.worktreePath, `${head}^^{tree}`, `${head}^{tree}`),
+            ...syncRevertResult,
           }
-        : {},
+        : { ...syncRevertResult },
     };
   }
   const step = input.step ?? { kind: "write" as const };
@@ -332,6 +460,7 @@ async function preparePendingCommit(
     agent,
     timestamp: new Date().toISOString(),
     formatMode,
+    ...(mainSyncRevertedPaths.length > 0 ? { mainSyncRevertedPaths } : {}),
   };
   writeFileSync(pendingPath, `${JSON.stringify(pending)}\n`, "utf8");
   return { kind: "pending", pending };
@@ -361,11 +490,26 @@ async function restagePendingTreeAfterStrictFormat(
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath, excludedPaths), { GIT_INDEX_FILE: index });
+  const stagedDiffPaths = parseGitNameOnlyZ(
+    await runGit(input.worktreePath, ["diff", "--cached", "--name-only", "-z", "HEAD"], {
+      GIT_INDEX_FILE: index,
+    }),
+  );
+  const mainSyncCandidatePaths = [...new Set([...changedPaths, ...stagedDiffPaths])];
+  const mainSyncRevertedPaths = await refuseMainSyncInStagedIndex(runGit, input, index, head, mainSyncCandidatePaths);
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
   // Drop any checkpoint-stage commitSha so the strict boundary re-commits the re-formatted tree
   // instead of reusing the stale checkpoint-tree commit object.
   const { commitSha: _priorCheckpointSha, ...pendingWithoutSha } = pending;
-  const upgraded: PendingCommit = { ...pendingWithoutSha, tree, formatMode: "strict" };
+  const mergedSyncPaths = [...new Set([...(pending.mainSyncRevertedPaths ?? []), ...mainSyncRevertedPaths])].sort(
+    (a, b) => a.localeCompare(b),
+  );
+  const upgraded: PendingCommit = {
+    ...pendingWithoutSha,
+    tree,
+    formatMode: "strict",
+    ...(mergedSyncPaths.length > 0 ? { mainSyncRevertedPaths: mergedSyncPaths } : {}),
+  };
   writeFileSync(pendingPath, `${JSON.stringify(upgraded)}\n`, "utf8");
   return upgraded;
 }
@@ -440,6 +584,7 @@ export function createCompletionCommitter(
         return {
           commitSha: pending.commitSha,
           filesChanged: await countFilesChanged(runGit, input.worktreePath, `${pending.baseHead}^{tree}`, pending.tree),
+          ...(pending.mainSyncRevertedPaths?.length ? { mainSyncRevertedPaths: pending.mainSyncRevertedPaths } : {}),
         };
       }
 
@@ -463,6 +608,7 @@ export function createCompletionCommitter(
       return {
         commitSha: commit,
         filesChanged: await countFilesChanged(runGit, input.worktreePath, `${pending.baseHead}^{tree}`, pending.tree),
+        ...(pending.mainSyncRevertedPaths?.length ? { mainSyncRevertedPaths: pending.mainSyncRevertedPaths } : {}),
       };
     } finally {
       try {

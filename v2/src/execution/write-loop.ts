@@ -5251,7 +5251,7 @@ function resolveContractMissBlockerPath(
 }
 
 type ProgressIterationCommitOutcome =
-  | { kind: "committed"; commitSha: string }
+  | { kind: "committed"; commitSha: string; mainSyncRevertedPaths?: string[] }
   | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" | "no_binding" };
 
 function activeSubspecTitle(args: WriteLoopInput, worktreePath: string): string | undefined {
@@ -5386,7 +5386,11 @@ async function commitSettledIteration(
   if (committed.commitSha === undefined || committed.commitSha === headBefore) {
     return { kind: "skipped", skipReason: "no_file_changes" };
   }
-  return { kind: "committed", commitSha: committed.commitSha };
+  return {
+    kind: "committed",
+    commitSha: committed.commitSha,
+    ...(committed.mainSyncRevertedPaths?.length ? { mainSyncRevertedPaths: committed.mainSyncRevertedPaths } : {}),
+  };
 }
 
 /** Commits the settled result's checkpoint and appends its `iteration_commit` log event. */
@@ -5404,7 +5408,12 @@ async function checkpointSettledIteration(
     kind: "iteration_commit",
     attemptId,
     ...(commitOutcome.kind === "committed"
-      ? { commitSha: commitOutcome.commitSha }
+      ? {
+          commitSha: commitOutcome.commitSha,
+          ...(commitOutcome.mainSyncRevertedPaths?.length
+            ? { mainSyncRevertedPaths: commitOutcome.mainSyncRevertedPaths }
+            : {}),
+        }
       : { skipReason: commitOutcome.skipReason }),
   });
   return commitOutcome;

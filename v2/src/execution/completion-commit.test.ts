@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFile, execFileSync, execSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,7 +10,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
-import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
+import { createCompletionCommitter, parseGitNameOnlyZ, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
 
 const { roots } = trackedTempRoots();
 const repoRoot = join(import.meta.dir, "../../..");
@@ -116,6 +116,14 @@ function wrapGitWithAddTracker(onAdd?: () => void) {
 }
 
 type GitCall = { args: readonly string[]; env: Record<string, string> | undefined };
+
+describe("parseGitNameOnlyZ", () => {
+  test("drops empty segments from NUL-delimited git name-only output", () => {
+    expect(parseGitNameOnlyZ("src/a.ts\0")).toEqual(["src/a.ts"]);
+    expect(parseGitNameOnlyZ("first\0second\0")).toEqual(["first", "second"]);
+    expect(parseGitNameOnlyZ("\0")).toEqual([]);
+  });
+});
 
 describe("createCompletionCommitter", () => {
   test("commits and returns a sha when the working tree has changes", async () => {
@@ -485,6 +493,86 @@ describe("createCompletionCommitter", () => {
       ":(exclude).jarvis-pr-review-input.jso[n]",
       ":(exclude).jarvis-review-feedback-response.m[d]",
     ]);
+  });
+
+  test("strict restaging preserves checkpoint mainSyncRevertedPaths on the completion result", async () => {
+    const { worktreePath, gitDir } = setupWorktree();
+    mkdirSync(join(worktreePath, "src"), { recursive: true });
+    writeFileSync(join(worktreePath, "src/code.ts"), "export const x=1;\n");
+    const checkpointSyncPaths = ["src/synced-from-main.ts"];
+    writeFileSync(
+      join(gitDir, "jarvis-completion-pending.json"),
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "checkpoint-tree",
+        branchRef: "refs/heads/feature",
+        message: "Test Spec Title\n\nJarvis-Agent: claude\nJarvis-Step: write",
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        formatMode: "checkpoint",
+        mainSyncRevertedPaths: checkpointSyncPaths,
+      })}\n`,
+      "utf8",
+    );
+    const runGit = async (_cwd: string, args: readonly string[], _env?: Record<string, string>): Promise<string> => {
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args.join("\0") === ["status", "--porcelain=v1", "-z", "--untracked-files=all"].join("\0")) {
+        return " M src/code.ts\0";
+      }
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "strict-tree";
+      if (args[0] === "commit-tree") return "strict-commit";
+      if (args[0] === "diff-tree") return "src/code.ts";
+      if (args[0] === "update-ref") return "";
+      if (args[0] === "reset") return "";
+      if (args[0] === "read-tree") return "";
+      if (args[0] === "add") return "";
+      if (args[0] === "diff" && args.includes("--cached")) return "src/code.ts\0";
+      return "";
+    };
+
+    const result = await createCompletionCommitter(runGit)({
+      worktreePath,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+    });
+
+    expect(result.mainSyncRevertedPaths).toEqual(checkpointSyncPaths);
+  });
+
+  test("strict restaging surfaces main-sync reverts found during restage when checkpoint omitted them", async () => {
+    const { worktreePath, mergeBaseHead } = initForkedLaneAtMergeBase();
+    writeFileSync(join(worktreePath, "x.txt"), readPathAtRef(worktreePath, "main", "x.txt") ?? "");
+    writeFileSync(join(worktreePath, "w.txt"), readPathAtRef(worktreePath, "main", "w.txt") ?? "");
+    rmSync(join(worktreePath, "z.txt"));
+    writeFileSync(join(worktreePath, "y.txt"), "y-lane-edit\n");
+
+    const gitDir = join(worktreePath, ".git");
+    const branchRef = execFileSync("git", ["symbolic-ref", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    writeFileSync(
+      join(gitDir, "jarvis-completion-pending.json"),
+      `${JSON.stringify({
+        baseHead: mergeBaseHead,
+        tree: "checkpoint-tree",
+        branchRef,
+        message: "Test Spec Title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude\nJarvis-Step: write",
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        formatMode: "checkpoint",
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.mainSyncRevertedPaths).toEqual(["w.txt", "x.txt", "z.txt"]);
+    expect(result.commitSha).toBeDefined();
   });
 
   test("defaults absent and legacy pending step metadata to write", async () => {
@@ -1083,6 +1171,110 @@ describe("createCompletionCommitter", () => {
       stdio: "pipe",
     });
     expect(committed).toBe("tracked verdict\n");
+  });
+
+  function initForkedLaneAtMergeBase(): { worktreePath: string; mergeBaseHead: string } {
+    const { worktreePath } = initRealGitWorktree();
+    execSync("git branch -M main", { cwd: worktreePath, stdio: "pipe" });
+    writeFileSync(join(worktreePath, "x.txt"), "x-at-b\n");
+    writeFileSync(join(worktreePath, "y.txt"), "y-at-b\n");
+    writeFileSync(join(worktreePath, "z.txt"), "z-at-b\n");
+    execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
+    execSync('git commit -q -m "fork base"', { cwd: worktreePath, stdio: "pipe" });
+    const mergeBaseHead = headSha(worktreePath);
+    execSync("git branch -q lane", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git checkout -q main", { cwd: worktreePath, stdio: "pipe" });
+    writeFileSync(join(worktreePath, "x.txt"), "x-on-main\n");
+    writeFileSync(join(worktreePath, "w.txt"), "w-on-main\n");
+    execSync("git rm -q z.txt", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
+    execSync('git commit -q -m "advance main"', { cwd: worktreePath, stdio: "pipe" });
+    execSync("git checkout -q lane", { cwd: worktreePath, stdio: "pipe" });
+    return { worktreePath, mergeBaseHead };
+  }
+
+  function readPathAtRef(worktreePath: string, ref: string, path: string): string | undefined {
+    try {
+      return execFileSync("git", ["show", `${ref}:${path}`], {
+        cwd: worktreePath,
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch {
+      return undefined;
+    }
+  }
+
+  test("refuses main-sync staged paths and commits only lane-owned edits", async () => {
+    const { worktreePath, mergeBaseHead } = initForkedLaneAtMergeBase();
+    writeFileSync(join(worktreePath, "x.txt"), readPathAtRef(worktreePath, "main", "x.txt") ?? "");
+    writeFileSync(join(worktreePath, "w.txt"), readPathAtRef(worktreePath, "main", "w.txt") ?? "");
+    rmSync(join(worktreePath, "z.txt"));
+    writeFileSync(join(worktreePath, "y.txt"), "y-lane-edit\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(mergeBaseHead);
+    expect(result.mainSyncRevertedPaths).toEqual(["w.txt", "x.txt", "z.txt"]);
+    expect(readFileSync(join(worktreePath, "x.txt"), "utf8")).toBe("x-at-b\n");
+    expect(readFileSync(join(worktreePath, "y.txt"), "utf8")).toBe("y-lane-edit\n");
+    expect(existsSync(join(worktreePath, "w.txt"))).toBe(false);
+    expect(existsSync(join(worktreePath, "z.txt"))).toBe(true);
+    expect(readFileSync(join(worktreePath, "z.txt"), "utf8")).toBe("z-at-b\n");
+    const committed = execFileSync("git", ["show", "--name-only", "--pretty=format:", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    })
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(committed).toEqual(["y.txt"]);
+    expect(execFileSync("git", ["show", "HEAD:y.txt"], { cwd: worktreePath, encoding: "utf8", stdio: "pipe" })).toBe(
+      "y-lane-edit\n",
+    );
+  });
+
+  test("refuses paths synced from origin/main when local baseRef is still at merge base", async () => {
+    const { worktreePath } = initForkedLaneAtMergeBase();
+    execSync("git remote add origin .", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git fetch -q origin main:refs/remotes/origin/main", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git checkout -q main", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git reset -q --hard HEAD~1", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git checkout -q lane", { cwd: worktreePath, stdio: "pipe" });
+    writeFileSync(join(worktreePath, "x.txt"), readPathAtRef(worktreePath, "origin/main", "x.txt") ?? "");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.mainSyncRevertedPaths).toEqual(["x.txt"]);
+    expect(readFileSync(join(worktreePath, "x.txt"), "utf8")).toBe("x-at-b\n");
+    expect(result.commitSha).toBeUndefined();
+  });
+
+  test("keeps lane-owned edits and pre-fork lane changes; only main-sync dirt skips commit", async () => {
+    const { worktreePath, mergeBaseHead } = initForkedLaneAtMergeBase();
+    writeFileSync(join(worktreePath, "x.txt"), "x-lane-owned\n");
+    execSync("git add x.txt", { cwd: worktreePath, stdio: "pipe" });
+    execSync('git commit -q -m "lane x before main"', { cwd: worktreePath, stdio: "pipe" });
+    writeFileSync(join(worktreePath, "x.txt"), "x-lane-owned\n");
+    writeFileSync(join(worktreePath, "w.txt"), readPathAtRef(worktreePath, "main", "w.txt") ?? "");
+    rmSync(join(worktreePath, "z.txt"));
+
+    const laneOnlySync = await createCompletionCommitter()(
+      completionInput(worktreePath, { iterationTimeoutMs: 60_000 }),
+    );
+    expect(laneOnlySync.mainSyncRevertedPaths).toEqual(["w.txt", "z.txt"]);
+    expect(laneOnlySync.commitSha).toBeUndefined();
+
+    writeFileSync(join(worktreePath, "x.txt"), "x-differs-from-main\n");
+    const laneEdit = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+    expect(laneEdit.commitSha).toBeDefined();
+    expect(laneEdit.commitSha).not.toBe(mergeBaseHead);
+    expect(laneEdit.mainSyncRevertedPaths).toBeUndefined();
+    expect(execFileSync("git", ["show", "HEAD:x.txt"], { cwd: worktreePath, encoding: "utf8", stdio: "pipe" })).toBe(
+      "x-differs-from-main\n",
+    );
   });
 
   test("a node_modules symlink already tracked at HEAD survives the completion commit", async () => {

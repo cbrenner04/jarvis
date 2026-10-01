@@ -45,6 +45,7 @@ import {
   type LoopFinishedEvent,
   type PersistedRecord,
   priorLogRecordsFromSink,
+  type GateInvocationBudgetRefusedEvent,
   type StagedMarkdownLintRepromptEvent,
   type SurvivingMutationRepromptContext,
   type SurvivingMutationRepromptEvent,
@@ -172,7 +173,7 @@ const INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS = 2048;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
 
-export type GateInvocationRefusalCause = "slot_contention" | "ceiling_headroom";
+export type GateInvocationRefusalCause = "slot_contention" | "ceiling_headroom" | "iteration_gate_budget";
 
 const writeLoopOutcomeKindSet = new Set<string>(WRITE_LOOP_OUTCOME_KINDS);
 
@@ -466,6 +467,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   landingContractReprompt?: { violation: string; offendingFile: string };
   /** Reprompt context for the next plan-draft iteration after a staged Markdown lint miss. */
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
+  /** Reprompt context for the next iteration after a per-iteration gate budget refusal. */
+  gateBudgetReprompt?: { refusedCommand: string };
   /** One-shot repair context for an eligible plan-draft normalizer miss. */
   draftContractReprompt?: DraftContractRepromptContext;
   /** Durable evidence that this run's one plan-draft contract repair is spent. */
@@ -586,6 +589,20 @@ export function findStagedMarkdownLintRepromptFromLog(
     : { ruleId: latest.ruleId, offendingFile: latest.offendingFile, message: latest.violation };
 }
 
+/** Last gate-budget reprompt context from a run's persisted log tail (resume after pause). */
+export function findGateBudgetRepromptFromLog(
+  logRecords: readonly PersistedRecord[] | undefined,
+): WriteLoopInput["gateBudgetReprompt"] {
+  if (logRecords === undefined) return undefined;
+  let latest: GateInvocationBudgetRefusedEvent | undefined;
+  for (const record of logRecords) {
+    if (record.event.kind === "gate_invocation_budget_refused") {
+      latest = record.event;
+    }
+  }
+  return latest === undefined ? undefined : { refusedCommand: latest.command };
+}
+
 type DraftContractRepromptState = {
   spent: boolean;
   pending?: DraftContractRepromptContext;
@@ -684,6 +701,8 @@ type IterationActiveGate = { command: string; startedAtMs: number; lease: GateIn
 
 export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
 
+export const MAX_AGENT_GATE_INVOCATIONS_PER_ITERATION = 2;
+
 /** An owned hold on the machine-wide gate-invocation budget; only its holder can release it. */
 type GateInvocationLease = { release: () => void };
 
@@ -737,13 +756,14 @@ function createIterationActiveGateTracker(options: {
   clock: () => number;
   iterationStartedAtMs: number;
   iterationCeilingMs?: number;
-  onRefused: (command: string, cause: GateInvocationRefusalCause) => void;
+  onRefused: (command: string, cause: GateInvocationRefusalCause, admittedCount?: number) => void;
 }): {
   getActiveGate: () => IterationActiveGate | undefined;
   onAgentShellCommand: (command: string) => void;
   onAgentShellCommandComplete: () => void;
 } {
   let activeGate: IterationActiveGate | undefined;
+  let admittedClassifiedCount = 0;
   const iterationCeilingHeadroomMs = (): number => {
     if (options.iterationCeilingMs === undefined) return Number.POSITIVE_INFINITY;
     return options.iterationCeilingMs - (options.clock() - options.iterationStartedAtMs);
@@ -752,6 +772,10 @@ function createIterationActiveGateTracker(options: {
     getActiveGate: () => activeGate,
     onAgentShellCommand: (command: string) => {
       if (!isReadyTestCommand(command) || activeGate !== undefined) return;
+      if (admittedClassifiedCount >= MAX_AGENT_GATE_INVOCATIONS_PER_ITERATION) {
+        options.onRefused(command, "iteration_gate_budget", admittedClassifiedCount);
+        return;
+      }
       if (iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS) {
         options.onRefused(command, "ceiling_headroom");
         return;
@@ -761,6 +785,7 @@ function createIterationActiveGateTracker(options: {
         options.onRefused(command, "slot_contention");
         return;
       }
+      admittedClassifiedCount += 1;
       activeGate = { command, startedAtMs: options.clock(), lease };
     },
     onAgentShellCommandComplete: () => {
@@ -1481,6 +1506,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let resumedAttemptId = prepared.resumedAttemptId;
     let pendingLandingReprompt = args.landingContractReprompt;
     let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;
+    let pendingGateBudgetReprompt =
+      args.gateBudgetReprompt ?? findGateBudgetRepromptFromLog(priorLogRecordsFromSink(args.logSink, prepared.runId));
     let pendingSurvivingMutationReprompt = args.survivingMutationReprompt;
     const durableDraftReprompt = findDraftContractRepromptStateFromLog(
       priorLogRecordsFromSink(args.logSink, prepared.runId),
@@ -1519,6 +1546,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         "bounded",
         pendingLandingReprompt,
         pendingStagedMarkdownLintReprompt,
+        pendingGateBudgetReprompt,
         pendingDraftContractReprompt,
         pendingSurvivingMutationReprompt,
       );
@@ -1537,6 +1565,38 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         );
       }
       if (settled.kind === "gate_invocation_refused") {
+        if (settled.gateRefusalCause === "iteration_gate_budget") {
+          closeSessionLog(sessionLog, "error");
+          args.logSink?.append(runId, {
+            kind: "gate_invocation_budget_refused",
+            attemptId,
+            command: settled.gateCommand,
+            admittedCount: settled.gateBudgetAdmittedCount ?? 0,
+          });
+          if (settled.quiesced.kind === "settled") {
+            const failure = await checkpointBeforeControlledLoss(
+              args,
+              prepared,
+              store,
+              runId,
+              worktreePath,
+              attemptId,
+              iterationsConsumed + 1,
+              settled.quiesced.result.result,
+            );
+            if (failure !== undefined) return failure;
+          }
+          store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "progress",
+            runStatus: "in-progress",
+          });
+          pendingGateBudgetReprompt = { refusedCommand: settled.gateCommand };
+          iterationsConsumed += 1;
+          continue;
+        }
         closeSessionLog(sessionLog, "error");
         return finishGateInvocationRefused(
           args,
@@ -1578,6 +1638,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const stepResult = settled.result;
       iterationsConsumed += 1;
       if (isDraftContractRepair) pendingDraftContractReprompt = undefined;
+      if (pendingGateBudgetReprompt !== undefined) pendingGateBudgetReprompt = undefined;
 
       const { result } = stepResult;
 
@@ -2565,6 +2626,7 @@ type IterationSettlement =
       kind: "gate_invocation_refused";
       gateCommand: string;
       gateRefusalCause: GateInvocationRefusalCause;
+      gateBudgetAdmittedCount?: number;
       quiesced: QuiescedExecutionOutcome;
     };
 
@@ -2635,6 +2697,7 @@ async function awaitIteration(
   settlementPolicy: IterationSettlementPolicy = "bounded",
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
+  gateBudgetReprompt?: { refusedCommand: string },
   draftContractReprompt?: DraftContractRepromptContext,
   survivingMutationReprompt?: SurvivingMutationRepromptContext,
 ): Promise<IterationSettlement> {
@@ -2667,13 +2730,13 @@ async function awaitIteration(
 
   const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
   const iterationStartedAtMs = (args.clock ?? (() => new Date()))().getTime();
-  let gateRefusal: { command: string; cause: GateInvocationRefusalCause } | undefined;
+  let gateRefusal: { command: string; cause: GateInvocationRefusalCause; admittedCount?: number } | undefined;
   const gateTracker = createIterationActiveGateTracker({
     clock: () => (args.clock ?? (() => new Date()))().getTime(),
     iterationStartedAtMs,
     ...(args.iterationCeilingMs !== undefined ? { iterationCeilingMs: args.iterationCeilingMs } : {}),
-    onRefused: (command, cause) => {
-      gateRefusal = { command, cause };
+    onRefused: (command, cause, admittedCount) => {
+      gateRefusal = { command, cause, ...(admittedCount !== undefined ? { admittedCount } : {}) };
       abortExecution();
     },
   });
@@ -2695,6 +2758,7 @@ async function awaitIteration(
       sessionLog,
       landingContractReprompt,
       stagedMarkdownLintReprompt,
+      gateBudgetReprompt,
       draftContractReprompt,
       survivingMutationReprompt,
       gateTracker,
@@ -2730,6 +2794,7 @@ async function awaitIteration(
       kind: "gate_invocation_refused",
       gateCommand: gateRefusal.command,
       gateRefusalCause: gateRefusal.cause,
+      ...(gateRefusal.admittedCount !== undefined ? { gateBudgetAdmittedCount: gateRefusal.admittedCount } : {}),
       quiesced,
     };
   }
@@ -2847,7 +2912,7 @@ async function finishGateInvocationRefused(
   attemptId: string,
   iterationsConsumed: number,
   gateCommand: string,
-  gateRefusalCause: GateInvocationRefusalCause,
+  gateRefusalCause: Exclude<GateInvocationRefusalCause, "iteration_gate_budget">,
   quiesced: QuiescedExecutionOutcome,
 ): Promise<WriteLoopResult> {
   if (gateRefusalCause === "slot_contention" && quiesced.kind === "settled") {
@@ -3138,6 +3203,7 @@ function buildWriteExecuteInput(
   sessionLog: SessionLog,
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
+  gateBudgetReprompt?: { refusedCommand: string },
   draftContractReprompt?: DraftContractRepromptContext,
   survivingMutationReprompt?: SurvivingMutationRepromptContext,
   gateTracker?: ReturnType<typeof createIterationActiveGateTracker>,
@@ -3191,6 +3257,7 @@ function buildWriteExecuteInput(
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
+    ...(gateBudgetReprompt !== undefined ? { gateBudgetReprompt } : {}),
     ...(draftContractReprompt !== undefined ? { draftContractReprompt } : {}),
     ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),

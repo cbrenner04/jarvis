@@ -10,16 +10,17 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 
 Every other landed spec is archived under `completed/`.
 
-## Ready-intents (4 queued: 3 dispatchable, 1 not startable)
+## Ready-intents (5 queued: 3 dispatchable, 1 waiting on in-flight PRs, 1 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
 | `agent-bindings-recover-usage-on-failed-settlement` | dispatchable (standalone plan) | — (#4301 landed its prerequisite) |
 | `publication-inflow-mutation-repair` | dispatchable; replan from the ready-intent (plan PR #4284 closed) and carry its reviewed decisions: re-verify HEAD before repair, revert weakened killing tests, revert uncommitted repair edits on timeout | — |
 | `retire-superseded-pipeline-branches` | dispatchable | — (#4290, #4296 landed) |
+| `write-loop-test-split` | dispatchable after in-flight `write-loop.test.ts` PRs land; one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`) | in-flight PRs touching `write-loop.test.ts` |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
-## Seeds (23)
+## Seeds (22)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
@@ -27,7 +28,6 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | --- | --- | --- | --- |
 | `agent-abort-reaps-its-process-tree` | P1 | — | new 2026-10-01; cursor shell-tool sessions escape agent group kill: `bun test` pid 55854 at 97% CPU 45 min after cd5e5790 iteration_timeout, ppid 1; load ~31 |
 | `plan-draft-shape-names-its-failure` | P1 | — | new 2026-10-01; pipeline 62810cc3 plan lane stranded on bare `plan.draft.shape` (nested spec dir); hand-flattened + recover |
-| `write-loop-test-fits-file-budget` | P1 | — | new 2026-10-01; ~170 s vs 180 s per-file budget; red gates a360bdd6, c7cd745e (x2), #4328 hand-finish |
 | `harness-commits-stay-in-run-scope` | P1 | — | new 2026-10-01; 3 lanes swept out-of-scope content on 2026-09-30 (d39f5071c, bf1e5cbc6, 658c18963) |
 | `terminal-publication-accepts-operator-merged-pr` | P1 | — | new 2026-10-01; pipelines 998a665f, 66f666ad + once prior session |
 | `closed-lane-is-not-republished` | P1 | — | new 2026-10-01; #4302 republished closed #4286; prior #4243/#4244 |

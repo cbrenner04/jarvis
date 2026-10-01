@@ -1,6 +1,6 @@
 # Session 2026-10-01: iteration timeouts were the agents' own test runs
 
-Operator session 2026-10-01 00:55Z→13:35Z (Opus 5.5), Jarvis-on-Jarvis, every agent invocation on cursor Composer 2.5. **12 fixes/implements landed**, plus 5 plan and 9 seed/intent/spec PRs; 2 implements in flight at report time. Only 2 of 12 landed straight off the harness; the rest needed a hand fix or hand-finish. Headline: the `iteration_timeout` wave blamed on host load was agents self-running full suites, with killed iterations leaking test trees (fixed #4335). Review caught defects in 5 PRs the gates passed.
+Operator session 2026-10-01 00:55Z→13:35Z (Opus 5.5), Jarvis-on-Jarvis, every agent invocation on cursor Composer 2.5. **14 fixes/implements landed**, plus 5 plan and 9 seed/intent/spec PRs; 2 of the 14 landed after the report was first written. Only 2 of the first 12 landed straight off the harness; the rest needed a hand fix or hand-finish. Headline: the `iteration_timeout` wave blamed on host load was agents self-running full suites, with killed iterations leaking test trees (fixed #4335). Review caught defects in 5 PRs the gates passed.
 
 ## Landed
 
@@ -18,10 +18,12 @@ Operator session 2026-10-01 00:55Z→13:35Z (Opus 5.5), Jarvis-on-Jarvis, every 
 | [#4345](https://github.com/cbrenner04/jarvis/pull/4345) | Shared locator binds a module's own inventory declaration | harness | cursor Composer 2.5 | 8 | $0.39 |
 | [#4340](https://github.com/cbrenner04/jarvis/pull/4340) | Direct fix: `write-loop.test.ts` load-sensitive until the split lands | hand (split out of #4323) | operator | — | — |
 | [#4347](https://github.com/cbrenner04/jarvis/pull/4347) | Direct fix: resumed workflow settlements notify again | hand | operator | — | — |
+| [#4349](https://github.com/cbrenner04/jarvis/pull/4349) | TUI revision-follow respawns under one supervisor instead of nesting | harness (landed after report) | cursor Composer 2.5 | — | ≥$2.00 |
+| [#4350](https://github.com/cbrenner04/jarvis/pull/4350) | Harness commits refuse main-sync content (`completion-commit-run-scope`) | harness (landed after report) | cursor Composer 2.5 | — | ≥$2.35 |
 
 Agent min = summed invocation `duration_ms`. Cost covers implement runs only; plans are separate. #4330 shows $0.00 because its only two invocations timed out and recorded no usage.
 
-In flight at report time: `completion-commit-run-scope` (db620719, $2.35 so far), `tui-revision-follow-single-supervisor` (d7947a22, $2.00 so far).
+Cost for #4349/#4350 is the at-report spend (d7947a22, db620719); final figure not recaptured.
 
 Plans: [#4312](https://github.com/cbrenner04/jarvis/pull/4312) [#4313](https://github.com/cbrenner04/jarvis/pull/4313) [#4315](https://github.com/cbrenner04/jarvis/pull/4315) [#4343](https://github.com/cbrenner04/jarvis/pull/4343) [#4344](https://github.com/cbrenner04/jarvis/pull/4344). Seeds/intents/spec: [#4305](https://github.com/cbrenner04/jarvis/pull/4305) [#4306](https://github.com/cbrenner04/jarvis/pull/4306) [#4307](https://github.com/cbrenner04/jarvis/pull/4307) [#4319](https://github.com/cbrenner04/jarvis/pull/4319) [#4324](https://github.com/cbrenner04/jarvis/pull/4324) [#4333](https://github.com/cbrenner04/jarvis/pull/4333) [#4336](https://github.com/cbrenner04/jarvis/pull/4336) [#4339](https://github.com/cbrenner04/jarvis/pull/4339) [#4342](https://github.com/cbrenner04/jarvis/pull/4342). Closed 15 subsumed/rejected stage PRs.
 
@@ -61,9 +63,8 @@ Plans: [#4312](https://github.com/cbrenner04/jarvis/pull/4312) [#4313](https://g
 
 ## Open items for next session
 
-- Land the 2 in-flight implements (`completion-commit-run-scope`, `tui-revision-follow-single-supervisor`) after review.
 - Held dependents were queued as ready-intents in #4348; reject their pipeline gates: e024fa54 (3), eed3e866 (1), fd3b20e8 (2), c7fef6b6 (`implement-run-records-agent-process-groups` plan ready, then `daemon-sweeps-recorded-agent-groups`), f6d26336 (2).
-- Plan `write-loop-test-split` once lane PRs touching `write-loop.test.ts` land.
+- Plan `write-loop-test-split` (blocker #4350 landed).
 - Seed: `notifications wait` survives daemon handoff.
 - Seed: pipeline fan-out per-lane terminal settlement.
 - Check that leaked test trees 55854 and 69074 were reaped.

@@ -28,8 +28,8 @@ When `bun run check` fails only on `scripts/guard-dead-exports.ts` (`<file>:<lin
 ## Acceptance criteria
 
 - [ ] `scripts/guard-dead-exports.test.ts`: an in-file-only export reports the new message with the `<file>:<line>:` prefix intact; fails against the old message.
-- [ ] `v2/src/execution/write-loop.test.ts`: the ready-repair prompt renders `ALLOWED_PATHS` equal to `resolveAttributableRepairAllowset(frozen, error)` in both branches (marker-attributed subset; frozen fallback); fails when the placeholder is empty or the frozen set is rendered for a marker-attributed failure.
-- [ ] `v2/src/execution/write-loop.test.ts`: the `ready_gate_repair` event carries `failingStep` and a `gateOutputTail` ending with the gate output's last line and capped at 4 KiB.
+- [ ] `v2/src/execution/write-loop-ready-repair.test.ts` (new; `write-loop.test.ts` is over budget pending its split): the ready-repair prompt renders `ALLOWED_PATHS` equal to `resolveAttributableRepairAllowset(frozen, error)` in both branches (marker-attributed subset; frozen fallback); fails when the placeholder is empty or the frozen set is rendered for a marker-attributed failure.
+- [ ] `v2/src/execution/write-loop-ready-repair.test.ts` (new; `write-loop.test.ts` is over budget pending its split): the `ready_gate_repair` event carries `failingStep` and a `gateOutputTail` ending with the gate output's last line and capped at 4 KiB.
 - [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

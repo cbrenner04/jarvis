@@ -1,27 +1,12 @@
 # Structural-recovery traceability ledger
 
-Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-10-01 against `main` @ `cebeb7b39`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
+Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-10-01 against `main` @ `003285d77`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
 
-## Open specs (12)
+## Open specs (0)
 
-| Spec | Plan PR | Implement PR | Status |
-| --- | --- | --- | --- |
-| `20261001T010033Z-agent-bindings-recover-usage-on-failed-settlement` | #4313 | #4323 | merged; awaiting cleanup archive |
-| `20261001T010034Z-retire-superseded-pipeline-branches` | #4312 | #4329 | merged; awaiting cleanup archive |
-| `20261001T010234Z-publication-inflow-mutation-repair` | #4315 | #4330 | merged; awaiting cleanup archive |
-| `20261001T010421Z-terminal-publication-accepts-operator-merged-pr` | — | #4322 | merged; awaiting cleanup archive |
-| `20261001T010442Z-lane-pr-history-blocks-republish` | — | #4331 | merged; awaiting cleanup archive |
-| `20261001T010529Z-ready-gate-attributable-repair-scope` | — | #4328 | merged; awaiting cleanup archive |
-| `20261001T010555Z-pipeline-stage-review-feedback-launch` | — | #4326 | merged; awaiting cleanup archive |
-| `20261001T011651Z-plan-draft-shape-reasons-and-nested-child` | — | #4332 | merged; awaiting cleanup archive |
-| `20261001T023250Z-agent-abort-reaps-descendant-groups` | — | #4335 | merged (subspec 01 shipped but unticked in `index.md`); awaiting cleanup archive |
-| `20261001T121601Z-self-parsing-inventory-locator-contract` | — | #4345 | merged; awaiting cleanup archive |
-| `20261001T121931Z-completion-commit-run-scope` | #4343 | — | **implement in flight** |
-| `20261001T122322Z-tui-revision-follow-single-supervisor` | #4344 | #4349 | merged; awaiting cleanup archive |
+None open. Every landed spec is archived under `completed/`.
 
-Every other landed spec is archived under `completed/`.
-
-## Ready-intents (12 queued: 5 dispatchable, 1 waiting on an in-flight lane, 5 waiting on a chain head, 1 evidence-gated)
+## Ready-intents (12 queued: 6 dispatchable, 5 waiting on a chain head, 1 evidence-gated)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
@@ -35,7 +20,7 @@ Every other landed spec is archived under `completed/`.
 | `resume-path-inventory-binds-real-declaration` | dispatchable (#4345 merged) | — |
 | `self-parsing-structural-test-docs` | chained | `resume-path-inventory-binds-real-declaration` |
 | `pipeline-resume-address-review-cli` | dispatchable (#4326 merged) | — |
-| `write-loop-test-split` | one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`); other `write-loop.test.ts` PRs landed | `completion-commit-run-scope` implement in flight |
+| `write-loop-test-split` | dispatchable (#4350 merged); one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`) | — |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
 ## Seeds (17)
@@ -72,7 +57,7 @@ None; #3029 closed 2026-09-30. Closed: #3423 (#4090), #3417 (#4076), #3040 (#408
 | --- | --- |
 | seeds `agent-abort-reaps-its-process-tree`, `plan-draft-shape-names-its-failure`, `terminal-publication-accepts-operator-merged-pr`, `closed-lane-is-not-republished`, `self-parsing-structural-tests-can-bind-to-their-own-fixtures`, `pipeline-stage-addresses-review-feedback` | consumed by this session's pipeline intents; remainders queued as ready-intents; files removed in the closeout PR |
 | ready-intent `detach-admission-refuses-without-a-run-row` | already closed by #4087 (routing row persisted before its id is reported); deleted, not rewritten (#4307) |
-| seed `harness-commits-stay-in-run-scope` | consumed by ready-intent `completion-commit-run-scope` (658c18963 half closed by #4328) |
+| seed `harness-commits-stay-in-run-scope` | consumed by ready-intent `completion-commit-run-scope` (658c18963 half closed by #4328; landed #4350) |
 | seeds `write-loop-test-fits-file-budget`, `tui-revision-follow-replaces-itself` | consumed by ready-intents `write-loop-test-split` (#4336), `tui-revision-follow-single-supervisor` (#4342; landed #4349) |
 | ready-intents `agent-bindings-recover-usage-on-failed-settlement`, `publication-inflow-mutation-repair`, `retire-superseded-pipeline-branches`, `completion-commit-run-scope`, `tui-revision-follow-single-supervisor` | consumed by plans #4313 #4315 #4312 #4343 #4344 |
 | pipelines 62810cc3, e024fa54, eed3e866, fd3b20e8, c7fef6b6, f6d26336, ff032ba5, 83a695ea, 4a891b77 | rejected or failed after their head lanes landed standalone; dependents queued as ready-intents (§ Ready-intents) |
@@ -160,9 +145,9 @@ Ledger stated 31 seeds with 31 rows, but 9 rows named seeds already consumed by 
 
 ## Landed 2026-10-01 (second session; details in `reports/`)
 
-- Implements: #4322 #4323 #4326 #4328 #4329 #4330 #4331 #4332 #4335 #4340 #4345 #4347 #4349.
+- Implements: #4322 #4323 #4326 #4328 #4329 #4330 #4331 #4332 #4335 #4340 #4345 #4347 #4349 #4350.
 - Plans: #4312 #4313 #4315 #4343 #4344.
-- Seeds, intents, spec archival: #4305 #4306 #4307 #4319 #4324 #4333 #4336 #4339 #4342.
+- Seeds, intents, spec archival: #4305 #4306 #4307 #4319 #4324 #4333 #4336 #4339 #4342 #4351; all session spec dirs archived.
 
 ## Landed 2026-09-30 (second session; details in `reports/`)
 

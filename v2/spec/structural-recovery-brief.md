@@ -12,11 +12,11 @@ The 2026-09-21 session closed the regression P0 (#4132) and every dispatchable t
 
 What is left is no longer a fixed point that strands complete work. It is chain tails, the resume-surfaces chain, dogfood quality, and parked display work.
 
-Counts after the 2026-10-01 second-session closeout: 12 open spec dirs (11 merged awaiting cleanup archive, 1 implement in flight) and 12 queued ready-intents; 5 dispatchable, 1 waiting on the in-flight lane, 5 chained, 1 evidence-gated. 17 seeds. Landed: ledger § Landed.
+Counts after the 2026-10-01 second-session closeout: 0 open spec dirs and 12 queued ready-intents; 6 dispatchable (5 chain heads + `write-loop-test-split`), 5 chained, 1 evidence-gated. 17 seeds. Landed: ledger § Landed.
 
 ## Priority-ordered work
 
-2026-10-01 second session landed 13 implements (operator-merged publication, lane-PR history, review-feedback launch, plan-draft shape, agent-abort group reap, self-parsing locator, TUI single supervisor, inflow mutation repair, superseded-branch retirement, failed-settlement usage, ready-gate repair scope, resumed-settle notify) and queued the rejected pipelines' dependents as ready-intents (ledger § Landed).
+2026-10-01 second session landed 14 implements (operator-merged publication, lane-PR history, review-feedback launch, plan-draft shape, agent-abort group reap, self-parsing locator, TUI single supervisor, completion-commit run scope, inflow mutation repair, superseded-branch retirement, failed-settlement usage, ready-gate repair scope, resumed-settle notify) and queued the rejected pipelines' dependents as ready-intents (ledger § Landed).
 
 | P | Item | Why |
 | --- | --- | --- |
@@ -28,13 +28,13 @@ Counts after the 2026-10-01 second-session closeout: 12 open spec dirs (11 merge
 | **P1** | [[pipeline-resume-address-review-cli]] | #4326 landed the daemon launch; no CLI verb reaches it |
 | **P1** | Mutation repair: [[resume-mutation-repair-reverifies-before-repair]]; [[mutation-verifier-fails-fast-on-first-killing-file]] | Resume repairs survivors an operator commit already killed (#4331, #4332); the verifier keeps running after a killing file fails |
 | **P1** | [[notifications-wait-survives-daemon-handoff]] | `wait` dies `IPC connection lost` on every daemon handoff |
-| **P1** | [[write-loop-test-split]] (after `completion-commit-run-scope` lands) | `write-loop.test.ts` exceeds the file budget and is classified load-sensitive (#4340) until split |
+| **P1** | [[write-loop-test-split]] (dispatchable; #4350 landed) | `write-loop.test.ts` exceeds the file budget and is classified load-sensitive (#4340) until split |
 | **P2** | Dogfood quality: [[implement-respects-target-repo-doc-layout]] (#3426); [[intent-split-covers-sibling-repo-surfaces]] (#3439); [[detached-pipeline-plan-stage-consumes-ready-intents]] (#3041); [[per-project-config-overrides-seam]] (#3026/#3150); [[implement-can-run-integration-slice-tests]] | Each recurs but none strands a lane |
 | **P2** | Fan-out: [[pipeline-fan-out-per-lane-terminal-settlement]]; [[pipeline-fan-out-lanes-serial-chained-bases]] | Fan-out pipelines still derive `failed` after every lane succeeds |
 | **P3** | [[fold-shared-into-v2]] → [[retire-v2-nomenclature]] (fold in; lowish priority) | `v2` is a planning-era label; there is no v3 |
 | **P3** | [[agent-confinement-is-per-vendor-and-unexpressed]] (#1453); [[cli-retire-run-start-pause-and-config]]; [[tui-dock-command-grammar-mirrors-cli]]; [[tui-typed-run-steering-clears-command-input]] | Parked; see the open decision on `run pause` below |
 
-Dispatch order for the next session: run `cleanup -y` to archive the merged spec dirs; plan the five chain heads in parallel (lane-pr outcomes, plan-draft reprompt, agent process groups, resume-path inventory, address-review CLI) and dispatch each dependent after its head merges; intent the three new P1 seeds; plan `write-loop-test-split` once `completion-commit-run-scope` lands. Leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
+Dispatch order for the next session: plan the five chain heads (lane-pr outcomes, plan-draft reprompt, agent process groups, resume-path inventory, address-review CLI) and `write-loop-test-split` in parallel, and dispatch each dependent after its head merges; intent the three new P1 seeds. Leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
 
 ## Contradictions and decisions surfaced by the audit
 

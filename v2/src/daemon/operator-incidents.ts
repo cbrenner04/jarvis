@@ -412,6 +412,7 @@ function invocationOwedTransitionDelivered(
   return transitions.includes(invocationOwedTransition(entryRun, rows, marker, terminalLogRecordForRun));
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: single pass over invocation rows; lane PR outcome branches mirror publication-failure ones
 function collectWorkflowInvocations(
   store: StateStore,
   runs: readonly Run[],

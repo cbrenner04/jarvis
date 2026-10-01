@@ -972,6 +972,7 @@ export function createRunLifecycleHandlers(
     };
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat per-field row projection; lane PR outcome adds one branch
   const buildRunListRow = (
     run: Run,
     fullRun: LoadedRun | undefined,

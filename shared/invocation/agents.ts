@@ -4,9 +4,9 @@ import { randomUUID } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync, statSync, watch as watchFs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-predicate.ts";
 import { computeCost, type Usage } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
+import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-predicate.ts";
 import { probeAgentDescendantProcessGroups } from "./agent-descendant-process-groups.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
@@ -55,6 +55,30 @@ function bindingAgentRunOptions(opts: ResolvedAgentBindingOptions): AgentRunOpti
     ...(opts.signalProcessGroup !== undefined ? { signalProcessGroup: opts.signalProcessGroup } : {}),
     ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
   };
+}
+
+type ProcessGroupLeader = { readonly pid?: number | undefined; kill(signal: NodeJS.Signals): unknown };
+
+/** Signals group `pgid`; when that fails and `pgid` is the leader's own group, signals the leader directly. */
+export function signalProcessGroupOrLeader(
+  pgid: number,
+  signal: NodeJS.Signals,
+  leader: ProcessGroupLeader,
+  killPid: (pid: number, signal: NodeJS.Signals) => void = (pid, sig) => {
+    process.kill(pid, sig);
+  },
+): void {
+  try {
+    killPid(-pgid, signal);
+  } catch {
+    if (pgid === leader.pid) {
+      try {
+        leader.kill(signal);
+      } catch {
+        // Best-effort kill.
+      }
+    }
+  }
 }
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
@@ -613,19 +637,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
 
     const signalProcessGroup =
       opts.signalProcessGroup ??
-      ((pgid: number, signal: NodeJS.Signals) => {
-        try {
-          process.kill(-pgid, signal);
-        } catch {
-          if (pgid === child.pid) {
-            try {
-              child.kill(signal);
-            } catch {
-              // Best-effort kill.
-            }
-          }
-        }
-      });
+      ((pgid: number, signal: NodeJS.Signals) => signalProcessGroupOrLeader(pgid, signal, child));
 
     const killProcessGroup = () => {
       if (processGroupKillArmed) return;
@@ -648,7 +660,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         }
         signalProcessGroup(agentPgid, "SIGTERM");
         const graceMs = opts.abortKillGraceMs ?? 2000;
-        for (const pgid of groups) {
+        for (const pgid of [...foreignGroups, agentPgid]) {
           const timer = setTimer(() => {
             signalProcessGroup(pgid, "SIGKILL");
           }, graceMs);

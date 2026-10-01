@@ -63,6 +63,8 @@ export async function probeAgentDescendantProcessGroups(rootPid: number): Promis
     const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
       encoding: "utf8",
       maxBuffer: 8 * 1024 * 1024,
+      // A wedged `ps` must not stall the abort kill; fall back to the agent's own group.
+      timeout: 5000,
     });
     return collectSubtreeProcessGroupIds(rootPid, parseProcessTablePsOutput(stdout));
   } catch {

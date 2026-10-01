@@ -8,7 +8,12 @@ import { PassThrough } from "node:stream";
 import { computeCost } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
 import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
-import { createResolvedAgentBinding, isIgnoredWorktreeActivityPath, parseShellToolFrameLine } from "./agents.ts";
+import {
+  createResolvedAgentBinding,
+  isIgnoredWorktreeActivityPath,
+  parseShellToolFrameLine,
+  signalProcessGroupOrLeader,
+} from "./agents.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
 
@@ -84,6 +89,15 @@ function fakeSpawn(outcomes: FakeOutcome[]) {
     return child as unknown as ChildProcess;
   };
   return { spawn, calls };
+}
+
+/** Abort tests must not hang when the leader kill path regresses; fail inside a bounded wait instead. */
+function settlesWithin<T>(promise: Promise<T>, ms = 2000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`invocation did not settle within ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function hangWithControllableIdle(
@@ -754,7 +768,7 @@ describe("createResolvedAgentBinding", () => {
     ).invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
 
     controller.abort("idle-timeout");
-    const result = await promise;
+    const result = await settlesWithin(promise);
 
     expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "aborted: idle-timeout" });
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
@@ -901,6 +915,8 @@ describe("createResolvedAgentBinding", () => {
   test("process group kill skips own harness ids when snapshot lists them", async () => {
     const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
     const groupSignals: { pgid: number; signal: string }[] = [];
+    const graceMs = 25;
+    const escalationCallbacks: Array<() => void> = [];
     const binding = createResolvedAgentBinding(
       { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
       {
@@ -909,6 +925,14 @@ describe("createResolvedAgentBinding", () => {
         signalProcessGroup: (pgid, signal) => {
           groupSignals.push({ pgid, signal });
         },
+        abortKillGraceMs: graceMs,
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0], delay?: number) => {
+          if (delay === graceMs) {
+            escalationCallbacks.push(callback as () => void);
+            return callback as unknown as ReturnType<typeof setTimeout>;
+          }
+          return setTimeout(callback, delay);
+        }) as typeof setTimeout,
       },
     );
     const controller = new AbortController();
@@ -920,6 +944,12 @@ describe("createResolvedAgentBinding", () => {
     ]);
     closeFakeChild(fake);
     await promise;
+    for (const runEscalation of escalationCallbacks) {
+      runEscalation();
+    }
+    expect(groupSignals.filter((entry) => entry.signal === "SIGKILL")).toEqual([
+      { pgid: AGENT_PGID, signal: "SIGKILL" },
+    ]);
   });
 
   test("aborting a settled invocation does not signal its former child", async () => {
@@ -1322,7 +1352,7 @@ describe("createResolvedAgentBinding", () => {
     ).invoke({ prompt: "implement it", cwd: "/repo", signal: controller.signal });
 
     controller.abort("operator");
-    const result = await promise;
+    const result = await settlesWithin(promise);
 
     expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "aborted: operator" });
     expect(fake.calls[0]?.binary).toBe("codex");
@@ -1864,7 +1894,7 @@ describe("createResolvedAgentBinding", () => {
     ).invoke({ prompt: "implement it", cwd: "/repo", signal: controller.signal });
 
     controller.abort("operator");
-    const result = await promise;
+    const result = await settlesWithin(promise);
 
     expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "aborted: operator" });
     expect(fake.calls[0]?.binary).toBe("cursor");
@@ -2753,5 +2783,38 @@ describe("createResolvedAgentBinding", () => {
 
       expect(progressCalls).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("signalProcessGroupOrLeader", () => {
+  const LEADER_PID = 4242;
+
+  function leader() {
+    const signals: string[] = [];
+    return { pid: LEADER_PID, signals, kill: (signal: NodeJS.Signals) => signals.push(signal) };
+  }
+
+  const throwingKill = () => {
+    throw new Error("ESRCH");
+  };
+
+  test("signals the negated group id and leaves the leader alone when the group signal succeeds", () => {
+    const target = leader();
+    const groupCalls: { pid: number; signal: string }[] = [];
+    signalProcessGroupOrLeader(LEADER_PID, "SIGTERM", target, (pid, signal) => groupCalls.push({ pid, signal }));
+    expect(groupCalls).toEqual([{ pid: -LEADER_PID, signal: "SIGTERM" }]);
+    expect(target.signals).toEqual([]);
+  });
+
+  test("falls back to signalling the leader when its own group signal fails", () => {
+    const target = leader();
+    signalProcessGroupOrLeader(LEADER_PID, "SIGKILL", target, throwingKill);
+    expect(target.signals).toEqual(["SIGKILL"]);
+  });
+
+  test("does not signal the leader when a descendant group signal fails", () => {
+    const target = leader();
+    signalProcessGroupOrLeader(LEADER_PID + 1, "SIGTERM", target, throwingKill);
+    expect(target.signals).toEqual([]);
   });
 });

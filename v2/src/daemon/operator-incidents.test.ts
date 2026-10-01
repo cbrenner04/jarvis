@@ -881,6 +881,20 @@ test("a succeeded implement stage row with a null endedAt derives no stage-succe
   expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
 });
 
+test("a succeeded implement stage with lanePrOutcome and null endedAt derives no stage-succeeded incident", () => {
+  const pipelineId = seedImplementLanePipeline();
+  landBranchAAtImplement(pipelineId, implementArtifact(5, { lanePrOutcome: { kind: "lane_pr_closed", prNumber: 5 } }));
+  const raw = new Database(dbPath);
+  try {
+    raw
+      .prepare("UPDATE pipeline_stages SET ended_at = NULL WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?")
+      .run(pipelineId, "implement", "a");
+  } finally {
+    raw.close();
+  }
+  expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
+});
+
 test("an undelivered stage-succeeded incident is not masked by an already-delivered gate incident", () => {
   setSystemTime(new Date(1_000_000));
   const pipelineId = store.createPipeline({

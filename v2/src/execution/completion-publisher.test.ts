@@ -46,6 +46,27 @@ describe("createCompletionPublisher", () => {
     return "";
   };
 
+  function ghOpenEmptyThenAllHistory(history: { number: number; state: string } | "throw"): {
+    gh: (_cwd: string, args: readonly string[]) => Promise<string>;
+    ghCalls: string[];
+  } {
+    const ghCalls: string[] = [];
+    const gh = async (_cwd: string, args: readonly string[]) => {
+      ghCalls.push(args.join(" "));
+      if (args[0] === "pr" && args[1] === "list") {
+        const state = args[args.indexOf("--state") + 1];
+        if (state === "open") return JSON.stringify([]);
+        if (state === "all") {
+          if (history === "throw") throw new Error("gh api unavailable");
+          return JSON.stringify([{ ...history, baseRefName: "main" }]);
+        }
+      }
+      if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
+      return "";
+    };
+    return { gh, ghCalls };
+  }
+
   function republicationGhForPr(prNumber: number, options?: { afterUndo?: "draft" | "gone" | "closed" }) {
     const ghCalls: string[] = [];
     let isDraft = false;
@@ -1373,28 +1394,16 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 
-  it("returns lane_pr_closed without create when newest head+base history is CLOSED", async () => {
-    const ghCalls: string[] = [];
+  it.each([
+    { state: "CLOSED" as const, number: 88, kind: "lane_pr_closed" as const },
+    { state: "MERGED" as const, number: 77, kind: "lane_pr_merged" as const },
+  ])("returns $kind without create when newest head+base history is $state", async ({ state, number, kind }) => {
     let writeBodyCalls = 0;
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number, state });
 
     const publisher = createCompletionPublisher({
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
-        return "";
-      },
-      gh: async (_cwd, args) => {
-        ghCalls.push(args.join(" "));
-        if (args[0] === "pr" && args[1] === "list") {
-          const state = args[args.indexOf("--state") + 1];
-          if (state === "open") return JSON.stringify([]);
-          if (state === "all") {
-            return JSON.stringify([{ number: 88, baseRefName: "main", state: "CLOSED" }]);
-          }
-        }
-        if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
-        return "";
-      },
+      git: republicationGit,
+      gh,
       delay: noopDelay,
       fetchPrBody: async () => "",
       writePrBody: async () => {
@@ -1405,61 +1414,21 @@ describe("createCompletionPublisher", () => {
 
     const result = await publisher(baseInput);
 
-    expect(result.lanePrOutcome).toEqual({ kind: "lane_pr_closed", prNumber: 88 });
+    expect(result.lanePrOutcome).toEqual({ kind, prNumber: number });
     expect(result.prNumber).toBeUndefined();
     expect(result.prUrl).toBeUndefined();
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
     expect(writeBodyCalls).toBe(0);
   });
 
-  it("returns lane_pr_merged without create when newest head+base history is MERGED", async () => {
-    const ghCalls: string[] = [];
-
-    const publisher = createCompletionPublisher({
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
-        return "";
-      },
-      gh: async (_cwd, args) => {
-        ghCalls.push(args.join(" "));
-        if (args[0] === "pr" && args[1] === "list") {
-          const state = args[args.indexOf("--state") + 1];
-          if (state === "open") return JSON.stringify([]);
-          if (state === "all") {
-            return JSON.stringify([{ number: 77, baseRefName: "main", state: "MERGED" }]);
-          }
-        }
-        if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
-        return "";
-      },
-      delay: noopDelay,
-      ...noopRefreshSeams,
-    });
-
-    const result = await publisher(baseInput);
-
-    expect(result.lanePrOutcome).toEqual({ kind: "lane_pr_merged", prNumber: 77 });
-    expect(result.prNumber).toBeUndefined();
-    expect(result.prUrl).toBeUndefined();
-    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
-  });
-
   it("creates a fresh draft when allowLanePrRepublish is set despite closed history", async () => {
     const ghCalls: string[] = [];
 
     const publisher = createCompletionPublisher({
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
-        return "";
-      },
+      git: republicationGit,
       gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
-        if (args[0] === "pr" && args[1] === "list") {
-          const state = args[args.indexOf("--state") + 1];
-          if (state === "open") return JSON.stringify([]);
-        }
+        if (args[0] === "pr" && args[1] === "list" && args.includes("open")) return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/99";
         if (args[0] === "pr" && args[1] === "view") {
           return viewPr(99, "https://github.com/user/repo/pull/99");
@@ -1479,21 +1448,11 @@ describe("createCompletionPublisher", () => {
   });
 
   it("fails pr publication permanently when all-state history probe throws", async () => {
+    const { gh } = ghOpenEmptyThenAllHistory("throw");
+
     const publisher = createCompletionPublisher({
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
-        return "";
-      },
-      gh: async (_cwd, args) => {
-        if (args[0] === "pr" && args[1] === "list") {
-          const state = args[args.indexOf("--state") + 1];
-          if (state === "open") return JSON.stringify([]);
-          if (state === "all") throw new Error("gh api unavailable");
-        }
-        if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
-        return "";
-      },
+      git: republicationGit,
+      gh,
       delay: noopDelay,
       ...noopRefreshSeams,
     });

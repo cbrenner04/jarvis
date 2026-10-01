@@ -3429,19 +3429,17 @@ type CompletionPublishSuccess = {
   resolvedBase?: string;
 };
 
-type PublicationSuccessAbsorption = {
-  prNumber?: number;
-  prUrl?: string;
-  lanePrOutcome?: LanePrOutcome;
-  publicationBaseRetarget?: { requestedBase: string; resolvedBase: string };
-};
-
 function absorbPublicationSuccess(
   store: StateStore,
   runId: string,
   logSink: LogSink | undefined,
   success: CompletionPublishSuccess | undefined,
-): PublicationSuccessAbsorption {
+): {
+  prNumber?: number;
+  prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
+  publicationBaseRetarget?: { requestedBase: string; resolvedBase: string };
+} {
   if (success === undefined) {
     return {};
   }
@@ -3454,14 +3452,13 @@ function absorbPublicationSuccess(
     return {
       prNumber: success.prNumber,
       prUrl: success.prUrl,
-      ...(success.lanePrOutcome !== undefined ? { lanePrOutcome: success.lanePrOutcome } : {}),
-      ...(publicationBaseRetarget !== undefined ? { publicationBaseRetarget } : {}),
+      ...(publicationBaseRetarget ? { publicationBaseRetarget } : {}),
     };
   }
   settleCompletedPublication(store, runId, logSink);
   return {
     ...(success.lanePrOutcome !== undefined ? { lanePrOutcome: success.lanePrOutcome } : {}),
-    ...(publicationBaseRetarget !== undefined ? { publicationBaseRetarget } : {}),
+    ...(publicationBaseRetarget ? { publicationBaseRetarget } : {}),
   };
 }
 

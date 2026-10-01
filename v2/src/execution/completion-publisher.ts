@@ -295,8 +295,7 @@ type PrEvidence = {
   url: string;
 };
 
-type OpenPrRecord = { number: number; baseRefName: string; isDraft?: boolean };
-type AllStatePrRecord = { number: number; baseRefName: string; state: string };
+type PrListRecord = { number: number; baseRefName: string; isDraft?: boolean; state?: string };
 
 /** Raised when a branch carries more than one open PR matching the same base; no safe default to pick. */
 export class AmbiguousOpenPrError extends Error {
@@ -343,50 +342,17 @@ class NoPublishableCommitsError extends Error {
   }
 }
 
-async function listMatchingOpenPrs(
+async function listMatchingPrs(
   gh: GhCommand,
   cwd: string,
   branch: string,
   baseRef: string,
-): Promise<OpenPrRecord[]> {
-  const prListJson = await gh(cwd, [
-    "pr",
-    "list",
-    "--head",
-    branch,
-    "--state",
-    "open",
-    "--json",
-    "number,baseRefName,isDraft",
-  ]);
-  const prs = JSON.parse(prListJson) as OpenPrRecord[];
+  state: "open" | "all",
+): Promise<PrListRecord[]> {
+  const jsonFields = state === "open" ? "number,baseRefName,isDraft" : "number,baseRefName,state";
+  const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", state, "--json", jsonFields]);
+  const prs = JSON.parse(prListJson) as PrListRecord[];
   return prs.filter((pr) => pr.baseRefName === baseRef);
-}
-
-async function listMatchingPrsAllStates(
-  gh: GhCommand,
-  cwd: string,
-  branch: string,
-  baseRef: string,
-): Promise<AllStatePrRecord[]> {
-  const prListJson = await gh(cwd, [
-    "pr",
-    "list",
-    "--head",
-    branch,
-    "--state",
-    "all",
-    "--json",
-    "number,baseRefName,state",
-  ]);
-  const prs = JSON.parse(prListJson) as AllStatePrRecord[];
-  return prs.filter((pr) => pr.baseRefName === baseRef);
-}
-
-function laneOutcomeFromNewestHistory(newest: AllStatePrRecord): LanePrOutcome | undefined {
-  if (newest.state === "CLOSED") return { kind: "lane_pr_closed", prNumber: newest.number };
-  if (newest.state === "MERGED") return { kind: "lane_pr_merged", prNumber: newest.number };
-  return undefined;
 }
 
 /**
@@ -419,7 +385,7 @@ export async function resolveOpenDraftPr(
   baseRef: string,
   options?: ResolveOpenDraftPrOptions,
 ): Promise<PrEvidence | undefined> {
-  const matches = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
+  const matches = await listMatchingPrs(gh, cwd, branch, baseRef, "open");
   if (matches.length === 0) return undefined;
   if (matches.length > 1) {
     throw new AmbiguousOpenPrError(
@@ -442,7 +408,7 @@ export async function resolveOpenDraftPr(
       throw new OpenPrNotDraftError(match.number, branch);
     }
     await undoHarnessReadyFlip(gh, cwd, match.number);
-    const afterUndo = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
+    const afterUndo = await listMatchingPrs(gh, cwd, branch, baseRef, "open");
     const redrafted = afterUndo.length === 1 ? afterUndo[0] : undefined;
     if (redrafted === undefined || redrafted.number !== match.number || redrafted.isDraft === false) {
       throw new OpenPrUnavailableAfterHarnessUndoError(match.number, branch);
@@ -496,11 +462,12 @@ async function findOrCreatePr(
 
   if (draftPrOptions?.allowLanePrRepublish !== true) {
     try {
-      const history = await listMatchingPrsAllStates(gh, cwd, branch, baseRef);
-      const newest = history[0];
-      if (newest !== undefined) {
-        const laneOutcome = laneOutcomeFromNewestHistory(newest);
-        if (laneOutcome !== undefined) return { kind: "lane", outcome: laneOutcome };
+      const newest = (await listMatchingPrs(gh, cwd, branch, baseRef, "all"))[0];
+      if (newest?.state === "CLOSED") {
+        return { kind: "lane", outcome: { kind: "lane_pr_closed", prNumber: newest.number } };
+      }
+      if (newest?.state === "MERGED") {
+        return { kind: "lane", outcome: { kind: "lane_pr_merged", prNumber: newest.number } };
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));

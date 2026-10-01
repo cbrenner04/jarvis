@@ -8,6 +8,6 @@ Intent acceptance criteria in `intent.md` are satisfied when every automated acc
 
 Documentation: subspec 02 owns full `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` closure for this spec; subspecs 00 and 01 land runtime behavior without duplicate doc edits until 02 merges.
 
-- [ ] [00 — Run list/wait lane PR operator error](./00-run-list-wait-lane-pr-operator-error.md)
+- [x] [00 — Run list/wait lane PR operator error](./00-run-list-wait-lane-pr-operator-error.md)
 - [ ] [01 — Operator notification lane PR incidents](./01-operator-notification-lane-pr-incidents.md)
 - [ ] [02 — Pipeline list/wait lane PR stage observation](./02-pipeline-list-wait-lane-pr-stage-observation.md)

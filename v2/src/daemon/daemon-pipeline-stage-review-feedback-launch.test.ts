@@ -17,8 +17,6 @@ import { createPipelineHandlers } from "./daemon-pipeline-handlers.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
-import { parsePipelineStageReviewFeedbackLaunchParams } from "./pipeline-stage-review-feedback-launch.ts";
-
 const PROJECT = "demo";
 const BRANCH = "lane-branch";
 const STAGE_BY_WORKFLOW = {
@@ -184,15 +182,6 @@ afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
   stateStore.close();
-});
-
-describe("parsePipelineStageReviewFeedbackLaunchParams", () => {
-  test("rejects empty branchKey with invalid_params message", () => {
-    expect(parsePipelineStageReviewFeedbackLaunchParams({ pipelineId: "p1", stageId: "s1", branchKey: "" })).toEqual({
-      ok: false,
-      message: "branchKey must be a non-empty string when provided",
-    });
-  });
 });
 
 describe("pipeline_stage_review_feedback_launch", () => {

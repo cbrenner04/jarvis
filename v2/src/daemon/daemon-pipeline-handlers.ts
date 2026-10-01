@@ -1,4 +1,4 @@
-import { realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";

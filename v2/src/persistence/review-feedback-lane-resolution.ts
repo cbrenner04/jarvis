@@ -349,14 +349,6 @@ function resolvePipelineReviewFeedbackLane(
   });
 }
 
-function resolvePipelineStageReviewFeedbackLane(
-  store: ReviewFeedbackLaneResolutionStore,
-  request: ReviewFeedbackLanePipelineStageRequest,
-): ReviewFeedbackLaneResolutionResult {
-  const { pipelineId, stageId } = request;
-  return resolvePipelineStageIdentifiedReviewFeedbackLane(store, pipelineId, stageId, request.branchKey, undefined);
-}
-
 export function resolveReviewFeedbackLane(
   store: ReviewFeedbackLaneResolutionStore,
   request: ReviewFeedbackLaneRequest,
@@ -365,7 +357,13 @@ export function resolveReviewFeedbackLane(
     return resolveBareReviewFeedbackLane(store, request);
   }
   if (request.mode === "pipeline_stage") {
-    return resolvePipelineStageReviewFeedbackLane(store, request);
+    return resolvePipelineStageIdentifiedReviewFeedbackLane(
+      store,
+      request.pipelineId,
+      request.stageId,
+      request.branchKey,
+      undefined,
+    );
   }
   return resolvePipelineReviewFeedbackLane(store, request);
 }

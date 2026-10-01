@@ -16,7 +16,6 @@ import { RpcError } from "../ipc/rpc-errors.ts";
 import {
   type ReviewFeedbackLaneBareRequest,
   type ReviewFeedbackLanePipelineRequest,
-  type ReviewFeedbackLanePipelineStageRequest,
   type ReviewFeedbackLaneRefusalCode,
   type ReviewFeedbackLaneRequest,
   type ReviewFeedbackLaneResolutionStore,
@@ -44,19 +43,6 @@ function formatReviewFeedbackWorkflowAdmissionRefusal(refusal: ReviewFeedbackWor
   return `${refusal.code}: ${refusal.message}`;
 }
 
-export function reviewFeedbackLaneRequestFromPipelineStage(
-  pipelineId: string,
-  stageId: string,
-  branchKey?: string,
-): ReviewFeedbackLanePipelineStageRequest {
-  return {
-    mode: "pipeline_stage",
-    pipelineId,
-    stageId,
-    ...(branchKey !== undefined ? { branchKey } : {}),
-  };
-}
-
 function laneRequestFromCli(
   project: string,
   parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
@@ -82,6 +68,15 @@ type ReviewFeedbackWorkflowAdmissionDeps = {
   builder: WorkflowPresetBuilder;
   project: string;
   projectRoot: string;
+};
+
+type ReviewFeedbackWorkflowAdmissionForLaneDeps = {
+  store: ReviewFeedbackLaneResolutionStore;
+  subprocessRunner: AsyncSubprocessRunner;
+  machineConfigPath: string;
+  builder: WorkflowPresetBuilder;
+  projectRoot?: string;
+  resolveProjectRoot?: (projectKey: string) => string | undefined;
 };
 
 type HarnessReadyFlipEvidenceStore = Pick<StateStore, "loadRun" | "findNewestHarnessReadyFlipEvidenceInLineage">;
@@ -115,7 +110,7 @@ async function startReviewFeedbackWorkflowRun(
 
 export async function prepareReviewFeedbackWorkflowAdmissionForLaneRequest(
   laneRequest: ReviewFeedbackLaneRequest,
-  deps: Omit<ReviewFeedbackWorkflowAdmissionDeps, "project">,
+  deps: ReviewFeedbackWorkflowAdmissionForLaneDeps,
 ): Promise<
   | { ok: true; preparation: Extract<WorkflowStartPreparationResult, { ok: true }> }
   | { ok: false; refusal: ReviewFeedbackWorkflowAdmissionRefusal }
@@ -123,6 +118,16 @@ export async function prepareReviewFeedbackWorkflowAdmissionForLaneRequest(
   const laneResult = resolveReviewFeedbackLane(deps.store, laneRequest);
   if (!laneResult.ok) {
     return { ok: false, refusal: { code: laneResult.code, message: laneResult.message } };
+  }
+  const projectRoot = deps.projectRoot ?? deps.resolveProjectRoot?.(laneResult.target.project);
+  if (projectRoot === undefined) {
+    return {
+      ok: false,
+      refusal: {
+        code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
+        message: `review-feedback: unregistered project ${laneResult.target.project}`,
+      },
+    };
   }
   const flipStore = deps.store as HarnessReadyFlipEvidenceStore & StateStore;
   const findHarnessReadyFlipEvidenceInLineage =

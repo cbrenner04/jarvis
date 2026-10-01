@@ -1,12 +1,8 @@
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import {
-  prepareReviewFeedbackWorkflowAdmissionForLaneRequest,
-  REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
-  reviewFeedbackLaneRequestFromPipelineStage,
-} from "../commands/review-feedback-workflow-admission.ts";
+import { prepareReviewFeedbackWorkflowAdmissionForLaneRequest } from "../commands/review-feedback-workflow-admission.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
-import { resolveReviewFeedbackLane } from "../persistence/review-feedback-lane-resolution.ts";
+import type { ReviewFeedbackLanePipelineStageRequest } from "../persistence/review-feedback-lane-resolution.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import type { WorkflowStartResult } from "./daemon-workflow-admission-handlers.ts";
 
@@ -62,25 +58,18 @@ export async function executePipelineStageReviewFeedbackLaunch(
   params: PipelineStageReviewFeedbackLaunchParams,
   deps: PipelineStageReviewFeedbackLaunchDeps,
 ): Promise<Awaited<WorkflowStartResult>> {
-  const laneRequest = reviewFeedbackLaneRequestFromPipelineStage(params.pipelineId, params.stageId, params.branchKey);
-  const lanePreview = resolveReviewFeedbackLane(deps.store, laneRequest);
-  if (!lanePreview.ok) {
-    return { kind: "error", code: lanePreview.code, message: lanePreview.message };
-  }
-  const projectRoot = deps.resolveProjectRoot(lanePreview.target.project);
-  if (projectRoot === undefined) {
-    return {
-      kind: "error",
-      code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
-      message: `review-feedback: unregistered project ${lanePreview.target.project}`,
-    };
-  }
+  const laneRequest: ReviewFeedbackLanePipelineStageRequest = {
+    mode: "pipeline_stage",
+    pipelineId: params.pipelineId,
+    stageId: params.stageId,
+    ...(params.branchKey !== undefined ? { branchKey: params.branchKey } : {}),
+  };
   const outcome = await prepareReviewFeedbackWorkflowAdmissionForLaneRequest(laneRequest, {
     store: deps.store,
     subprocessRunner: deps.subprocessRunner,
     machineConfigPath: deps.machineConfigPath,
     builder: deps.builder,
-    projectRoot,
+    resolveProjectRoot: deps.resolveProjectRoot,
   });
   if (!outcome.ok) {
     return { kind: "error", code: outcome.refusal.code, message: outcome.refusal.message };

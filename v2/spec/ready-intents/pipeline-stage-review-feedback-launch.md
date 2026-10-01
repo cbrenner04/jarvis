@@ -10,7 +10,8 @@ Pipeline operators must leave pipeline control and hand-assemble `jarvis run wor
 
 ## Decisions
 
-- A dedicated daemon launch path (not `pipeline_resume`) accepts `pipelineId`, `stageId`, and optional `branchKey`, resolves the stage's completed intent/plan/implement lane branch, and runs the same review-feedback admission and workflow start as the standalone preset.
+- IPC: daemon RPC `pipeline_stage_review_feedback_launch` with params `{ pipelineId, stageId, branchKey? }` (camelCase strings; `branchKey` omitted when not disambiguating fan-out). Not `pipeline_resume`.
+- The handler resolves the stage's completed intent/plan/implement lane branch and runs the same review-feedback admission and workflow start as the standalone preset.
 - Every admission refusal (in flight, no review, merged/closed PR, wrong kind, capture failure, unmatched stage) surfaces verbatim with the standalone codes.
 - Pipeline state, stage rows, and gates are unchanged; the admitted run is linked to the pipeline and stage for display only.
 - The review-feedback preset remains standalone-only; this is re-entry on an existing stage, not a pipeline definition change.
@@ -22,7 +23,7 @@ Pipeline operators must leave pipeline control and hand-assemble `jarvis run wor
 
 ## Documentation updates
 
-- `v2/docs/pipeline-execution.md` — `pipeline resume --address-review` flag semantics and that pipeline state is unchanged.
+- `v2/docs/pipeline-execution.md` — `pipeline_stage_review_feedback_launch` request params, admission refusals, and that pipeline/stage state is unchanged.
 
 ## Prerequisites
 

@@ -192,6 +192,26 @@ function handlerClientRecordingMethod(
   return client;
 }
 
+/** Reconnect stays well under this many clock reads; a non-terminating retry loop throws instead of hanging. */
+const MAX_FAKE_CLOCK_READS = 1_000;
+
+function boundedFakeClock() {
+  const clock = { nowMs: 0, sleepMs: [] as number[], reads: 0 };
+  return {
+    clock,
+    now: () => {
+      clock.reads += 1;
+      if (clock.reads > MAX_FAKE_CLOCK_READS)
+        throw new Error("fake clock read bound exceeded: retry loop did not terminate");
+      return clock.nowMs;
+    },
+    sleep: async (ms: number) => {
+      clock.sleepMs.push(ms);
+      clock.nowMs += ms;
+    },
+  };
+}
+
 function notificationCliDeps() {
   return {
     now: () => DERIVATION_NOW_MS,
@@ -614,17 +634,13 @@ test("notifications wait reconnects in-loop notification_list for project catch-
 
 test("notifications wait exhausts reconnect budget when connect never succeeds after IPC loss", async () => {
   let connectCalls = 0;
-  let nowMs = 0;
-  const sleepMs: number[] = [];
+  const { clock, now, sleep } = boundedFakeClock();
 
   const cap = captureIo();
   const code = await main(["notifications", "wait", "--since", "0"], cap.io, {
     ...notificationCliDeps(),
-    now: () => nowMs,
-    sleep: async (ms) => {
-      sleepMs.push(ms);
-      nowMs += ms;
-    },
+    now,
+    sleep,
     connectIpcClient: async () => {
       connectCalls += 1;
       if (connectCalls === 1) {
@@ -638,21 +654,19 @@ test("notifications wait exhausts reconnect budget when connect never succeeds a
   expect(code).toBe(1);
   expect(output.stderr).toBe("IPC connection lost\n");
   expect(connectCalls).toBeGreaterThan(2);
-  expect(sleepMs.length).toBeGreaterThan(0);
-  expect(nowMs).toBeGreaterThanOrEqual(120_000);
+  expect(clock.sleepMs.length).toBeGreaterThan(0);
+  expect(clock.nowMs).toBeGreaterThanOrEqual(120_000);
 });
 
 test("notifications wait exhausts reconnect budget when every reconnected client loses the RPC", async () => {
   let connectCalls = 0;
-  let nowMs = 0;
+  const { clock, now, sleep } = boundedFakeClock();
 
   const cap = captureIo();
   const code = await main(["notifications", "wait", "--since", "0"], cap.io, {
     ...notificationCliDeps(),
-    now: () => nowMs,
-    sleep: async (ms) => {
-      nowMs += ms;
-    },
+    now,
+    sleep,
     connectIpcClient: async () => {
       connectCalls += 1;
       return handlerClientThatClosesOnMethod(handlers, "notification_wait");
@@ -663,7 +677,7 @@ test("notifications wait exhausts reconnect budget when every reconnected client
   expect(cap.read().stderr).toBe("IPC connection lost\n");
   expect(connectCalls).toBeGreaterThan(2);
   expect(connectCalls).toBeLessThan(1_000);
-  expect(nowMs).toBeGreaterThanOrEqual(120_000);
+  expect(clock.nowMs).toBeGreaterThanOrEqual(120_000);
 });
 
 test("notifications wait RpcError on notification_wait exits immediately without reconnect", async () => {

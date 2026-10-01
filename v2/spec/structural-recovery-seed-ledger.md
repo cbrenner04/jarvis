@@ -1,31 +1,42 @@
 # Structural-recovery traceability ledger
 
-Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-10-01 against `main` @ `6e2255e05`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
+Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-10-01 against `main` @ `cebeb7b39`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
 
-## Open specs (1)
+## Open specs (12)
 
-| Spec | Plan PR | Subspecs | Status |
+| Spec | Plan PR | Implement PR | Status |
 | --- | --- | --- | --- |
-| `20260930T223106Z-review-feedback-item-traceability` | #4298 | — | implement PR #4303 open, reviewed; 2 green CI pending; merge next session |
+| `20261001T010033Z-agent-bindings-recover-usage-on-failed-settlement` | #4313 | #4323 | merged; awaiting cleanup archive |
+| `20261001T010034Z-retire-superseded-pipeline-branches` | #4312 | #4329 | merged; awaiting cleanup archive |
+| `20261001T010234Z-publication-inflow-mutation-repair` | #4315 | #4330 | merged; awaiting cleanup archive |
+| `20261001T010421Z-terminal-publication-accepts-operator-merged-pr` | — | #4322 | merged; awaiting cleanup archive |
+| `20261001T010442Z-lane-pr-history-blocks-republish` | — | #4331 | merged; awaiting cleanup archive |
+| `20261001T010529Z-ready-gate-attributable-repair-scope` | — | #4328 | merged; awaiting cleanup archive |
+| `20261001T010555Z-pipeline-stage-review-feedback-launch` | — | #4326 | merged; awaiting cleanup archive |
+| `20261001T011651Z-plan-draft-shape-reasons-and-nested-child` | — | #4332 | merged; awaiting cleanup archive |
+| `20261001T023250Z-agent-abort-reaps-descendant-groups` | — | #4335 | merged (subspec 01 shipped but unticked in `index.md`); awaiting cleanup archive |
+| `20261001T121601Z-self-parsing-inventory-locator-contract` | — | #4345 | merged; awaiting cleanup archive |
+| `20261001T121931Z-completion-commit-run-scope` | #4343 | — | **implement in flight** |
+| `20261001T122322Z-tui-revision-follow-single-supervisor` | #4344 | #4349 | merged; awaiting cleanup archive |
 
 Every other landed spec is archived under `completed/`.
 
-## Ready-intents (12 queued: 2 dispatchable, 9 waiting on a head lane or in-flight PRs, 1 not startable)
+## Ready-intents (12 queued: 5 dispatchable, 1 waiting on an in-flight lane, 5 waiting on a chain head, 1 evidence-gated)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
-| `write-loop-test-split` | dispatchable after in-flight `write-loop.test.ts` PRs land; one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`) | in-flight PRs touching `write-loop.test.ts` |
+| `lane-pr-outcomes-settle-runs-and-stages` | dispatchable; lane-pr chain head (#4331 merged) | — |
+| `daemon-projects-lane-pr-settlement` | chained | `lane-pr-outcomes-settle-runs-and-stages` |
+| `resume-admits-lane-pr-republish-opt-in` | chained | `lane-pr-outcomes-settle-runs-and-stages` |
+| `plan-draft-shape-contract-reprompt` | dispatchable (#4332 merged) | — |
+| `plan-draft-shape-operator-docs` | chained | `plan-draft-shape-contract-reprompt` |
+| `implement-run-records-agent-process-groups` | dispatchable (#4335 merged) | — |
+| `daemon-sweeps-recorded-agent-groups` | chained | `implement-run-records-agent-process-groups` |
+| `resume-path-inventory-binds-real-declaration` | dispatchable (#4345 merged) | — |
+| `self-parsing-structural-test-docs` | chained | `resume-path-inventory-binds-real-declaration` |
+| `pipeline-resume-address-review-cli` | dispatchable (#4326 merged) | — |
+| `write-loop-test-split` | one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`); other `write-loop.test.ts` PRs landed | `completion-commit-run-scope` implement in flight |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
-| `daemon-projects-lane-pr-settlement` | dispatchable after `lane-pr-history-blocks-republish` merged | #4331, then `lane-pr-outcomes-settle-runs-and-stages` |
-| `lane-pr-outcomes-settle-runs-and-stages` | dispatchable after `lane-pr-history-blocks-republish` merged | #4331 |
-| `resume-admits-lane-pr-republish-opt-in` | dispatchable after `lane-pr-history-blocks-republish` merged | #4331, then `lane-pr-outcomes-settle-runs-and-stages` |
-| `pipeline-resume-address-review-cli` | dispatchable (`pipeline-stage-review-feedback-launch` merged #4326) | — |
-| `plan-draft-shape-contract-reprompt` | dispatchable after `plan-draft-shape-reasons-and-nested-child` merged | #4332 |
-| `plan-draft-shape-operator-docs` | dispatchable after `plan-draft-shape-reasons-and-nested-child` merged | #4332, then `plan-draft-shape-contract-reprompt` |
-| `implement-run-records-agent-process-groups` | dispatchable (`agent-abort-reaps-descendant-groups` merged #4335) | — |
-| `daemon-sweeps-recorded-agent-groups` | dispatchable after `implement-run-records-agent-process-groups` (head `agent-abort-reaps-descendant-groups` merged #4335) | `implement-run-records-agent-process-groups` |
-| `resume-path-inventory-binds-real-declaration` | dispatchable after `self-parsing-inventory-locator-contract` merged | #4345 |
-| `self-parsing-structural-test-docs` | dispatchable after `self-parsing-inventory-locator-contract` merged | #4345, then `resume-path-inventory-binds-real-declaration` |
 
 ## Seeds (23)
 
@@ -36,23 +47,23 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `notifications-wait-survives-daemon-handoff` | P1 | — | new 2026-10-01; wait died `IPC connection lost` on 3 handoffs |
 | `resume-mutation-repair-reverifies-before-repair` | P1 | — | new 2026-10-01; resume repaired stale survivors already killed by an operator commit: ff6cc773 (#4331), 5280b7bf (#4332) |
 | `mutation-verifier-fails-fast-on-first-killing-file` | P1 | — | new 2026-10-01; #4332 `write-loop.ts:612` settled non-terminating while a killing file had failed in ~14 ms |
-| `agent-abort-reaps-its-process-tree` | P1 | — | new 2026-10-01; cursor shell-tool sessions escape agent group kill: `bun test` pid 55854 at 97% CPU 45 min after cd5e5790 iteration_timeout, ppid 1; load ~31 |
-| `plan-draft-shape-names-its-failure` | P1 | — | new 2026-10-01; pipeline 62810cc3 plan lane stranded on bare `plan.draft.shape` (nested spec dir); hand-flattened + recover |
-| `terminal-publication-accepts-operator-merged-pr` | P1 | — | new 2026-10-01; pipelines 998a665f, 66f666ad + once prior session |
-| `closed-lane-is-not-republished` | P1 | — | new 2026-10-01; #4302 republished closed #4286; prior #4243/#4244 |
+| `agent-abort-reaps-its-process-tree` | — | — | consumed: spec landed #4335; remainder in ready-intents `implement-run-records-agent-process-groups` → `daemon-sweeps-recorded-agent-groups`; seed file unreaped |
+| `plan-draft-shape-names-its-failure` | — | — | consumed: spec landed #4332; remainder in ready-intents `plan-draft-shape-contract-reprompt` → `plan-draft-shape-operator-docs`; seed file unreaped |
+| `terminal-publication-accepts-operator-merged-pr` | — | — | landed #4322; seed file unreaped |
+| `closed-lane-is-not-republished` | — | — | consumed: spec landed #4331; remainder in lane-pr chain ready-intents (3); seed file unreaped |
 | `implement-respects-target-repo-doc-layout` | P2 | #3426 | open; leak 3 closed by #4029; `intent-split.test.ts` pins leak 1 |
 | `intent-split-covers-sibling-repo-surfaces` | P2 | #3439 | re-scoped to split-internal prerequisite consistency (`siblings` was v1-only) |
 | `detached-pipeline-plan-stage-consumes-ready-intents` | P2 | #3041 | AC2 landed #3534, AC3 landed #3657; in-repo git-chained silent skip remains; chosen mechanism over the retired merge-at-gate seed |
 | `per-project-config-overrides-seam` | P2 | #3026, #3150 | open; `agents` / `idleOutputTimeoutMs` machine-level only |
 | `implement-can-run-integration-slice-tests` | P2 | — | re-scoped to measurement criteria after #3867 |
-| `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | P2 | — | open; scope corrected to one file |
+| `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | — | — | consumed: spec landed #4345; remainder in ready-intents `resume-path-inventory-binds-real-declaration` → `self-parsing-structural-test-docs`; seed file unreaped |
 | `pipeline-fan-out-per-lane-terminal-settlement` | P2 | — | ready-flip half served by #3970; per-lane `merge` + spurious `failed` remain; doc target moved to `pipeline-execution.md` |
 | `pipeline-fan-out-lanes-serial-chained-bases` | P2 | — | open; prerequisite (per-lane settlement) not landed |
 | `agent-confinement-is-per-vendor-and-unexpressed` | P3 | #1453 | open; depends on `per-project-config-overrides-seam` |
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
-| `pipeline-stage-addresses-review-feedback` | P1 | — | new 2026-09-30; `pipeline resume --address-review <stage>`; after the review-feedback preset chain lands |
+| `pipeline-stage-addresses-review-feedback` | — | — | consumed: launch landed #4326; remainder in ready-intent `pipeline-resume-address-review-cli`; seed file unreaped |
 | `harness-exposes-agent-toolset` | — | — | new 2026-09-29; **not dispatchable until owner sign-off** (near a new engine generation) |
 | `fold-shared-into-v2` | P3 | — | new 2026-09-29; prerequisite of `retire-v2-nomenclature` |
 | `retire-v2-nomenclature` | P3 | — | new 2026-09-29; `v2/` → top level; after `fold-shared-into-v2`; fold in at low priority |
@@ -61,16 +72,24 @@ P is the brief's priority. Issue is the intake issue where one exists.
 
 None; #3029 closed 2026-09-30. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
 
+## Reaped 2026-10-01 (second session)
+
+| Item | Reason |
+| --- | --- |
+| ready-intent `detach-admission-refuses-without-a-run-row` | already closed by #4087 (routing row persisted before its id is reported); deleted, not rewritten (#4307) |
+| seed `harness-commits-stay-in-run-scope` | consumed by ready-intent `completion-commit-run-scope` (658c18963 half closed by #4328) |
+| seeds `write-loop-test-fits-file-budget`, `tui-revision-follow-replaces-itself` | consumed by ready-intents `write-loop-test-split` (#4336), `tui-revision-follow-single-supervisor` (#4342; landed #4349) |
+| ready-intents `agent-bindings-recover-usage-on-failed-settlement`, `publication-inflow-mutation-repair`, `retire-superseded-pipeline-branches`, `completion-commit-run-scope`, `tui-revision-follow-single-supervisor` | consumed by plans #4313 #4315 #4312 #4343 #4344 |
+| pipelines 62810cc3, e024fa54, eed3e866, fd3b20e8, c7fef6b6, f6d26336, ff032ba5, 83a695ea, 4a891b77 | rejected or failed after their head lanes landed standalone; dependents queued as ready-intents (§ Ready-intents) |
+| 15 pipeline stage PRs | closed as subsumed by the standalone implements |
+
 ## Reaped 2026-10-01
 
 | Item | Reason |
 | --- | --- |
-| ready-intent `detach-admission-refuses-without-a-run-row` | already closed by #4087 (routing row persisted before its id is reported); deleted, not rewritten |
 | seeds `capture-token-usage-on-failed-invocations`, `review-roles-check-falsifiability-not-plausibility`, `mutation-verifier-ignores-whitespace-only-line-changes`, `completed-write-step-rows-stamp-finished-at`, `cleanup-retires-subsumed-and-landed-worktrees`, `superseded-pipeline-pr-hygiene` | consumed by intents #4247 #4248 #4251 #4256 #4257 #4274 #4275 #4276 #4277 |
 | 14 ready-intents (`backfill-terminal-null-finished-at-migration`, `cleanup-retires-subsumed-and-landed-worktrees`, `completion-boundary-terminal-stamps-finished-at`, `configure-pipeline-supersede-policy`, `invocation-completed-records-failure-usage`, `mutation-reprompt-colocated-fix-line`, `mutation-verifier-ignores-whitespace-only-line-changes`, `pipeline-verbs-accept-full-ids-on-degraded-listing`, `plan-stage-bases-on-fetched-default-branch`, `review-roles-falsifiability-implement`, `review-roles-falsifiability-plan`, `settle-superseded-pipeline-prs`, `shrink-post-mutation-reverify`, `skipped-durable-successor-rollup-completed`) | landed or consumed; not reaped by their implement PRs (some reintroduced by merged intent/plan PRs) |
 | landed spec dirs | archived (closeout 2026-09-30b) |
-| ready-intents `agent-bindings-recover-usage-on-failed-settlement`, `publication-inflow-mutation-repair`, `retire-superseded-pipeline-branches`, `completion-commit-run-scope`, `tui-revision-follow-single-supervisor` | consumed by plans #4313 #4315 #4312 #4343 #4344 |
-| seed `harness-commits-stay-in-run-scope` | consumed by ready-intent `completion-commit-run-scope` (658c18963 half closed by #4328) |
 | PRs #4286, #4302 | closed: #4286 swept stale-`main` content (rebuilt as #4301); #4302 duplicate republication of the closed lane |
 
 ## Reaped 2026-09-30 (second session)
@@ -143,6 +162,12 @@ Ledger stated 31 seeds with 31 rows, but 9 rows named seeds already consumed by 
 | seed `merge-pipeline-stage-pr-at-its-approval-gate` | contradicted `detached-pipeline-plan-stage-consumes-ready-intents`; self-admitted merge-at-gate alone is a no-op; stacked-PR half moved to `superseded-pipeline-pr-hygiene` |
 | seeds `ready-gate-repair-out-of-diff-edits`, `render-observer-verification-keeps-a-fixed-deadline`, `implement-admission-persists-its-run-row`, `publication-failures-settle-failed`, `gate-allowset-derivation-fails-on-external-spec-home` | consumed into ready-intents by #4031, #4032, #4033, #4035, #4036, #4038 |
 | ready-intent `single-spec-home-predicate` | landed #3916/#3917 (`specsHome`, `resolveSpecsHome`); residual is a two-line wrapper, not worth a lane |
+
+## Landed 2026-10-01 (second session; details in `reports/`)
+
+- Implements: #4322 #4323 #4326 #4328 #4329 #4330 #4331 #4332 #4335 #4340 #4345 #4347 #4349.
+- Plans: #4312 #4313 #4315 #4343 #4344.
+- Seeds, intents, spec archival: #4305 #4306 #4307 #4319 #4324 #4333 #4336 #4339 #4342.
 
 ## Landed 2026-09-30 (second session; details in `reports/`)
 

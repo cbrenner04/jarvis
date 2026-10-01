@@ -53,6 +53,13 @@ export function buildReviewFeedbackWorkflowSteps(input: ReviewFeedbackWorkflowIn
       entrySpecPath: target.entrySpecPath,
       prNumber: target.prNumber,
       prUrl: target.prUrl,
+      ...(target.provenance.kind === "pipeline"
+        ? {
+            pipelineId: target.provenance.pipelineId,
+            stageId: target.provenance.stageId,
+            branchKey: target.provenance.branchKey,
+          }
+        : {}),
     },
   };
   try {

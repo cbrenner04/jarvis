@@ -110,6 +110,9 @@ export type ReviewFeedbackLaneSnapshot = {
   entrySpecPath: string;
   prNumber: number;
   prUrl: string;
+  pipelineId?: string;
+  stageId?: string;
+  branchKey?: string;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */

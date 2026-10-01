@@ -5,8 +5,9 @@ import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE } from "../commands/review-feedback-workflow-admission.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { ReviewFeedbackLaneResolutionStore } from "../persistence/review-feedback-lane-resolution.ts";
 import {
@@ -238,6 +239,16 @@ describe("executePipelineStageReviewFeedbackLaunch", () => {
     );
     expect(result).toEqual({ kind: "response", result: { runId: "rf-run" } });
     expect(admittedSteps?.length).toBeGreaterThan(0);
+    const writeStep = admittedSteps?.[0] as WriteWorkflowStep | undefined;
+    expect(writeStep?.behavior).toBe("write");
+    expect(writeStep?.worktree.projectRoot).toBe(fixtureRoot);
+    if (writeStep === undefined) throw new Error("expected write step");
+    expect(getExternalWorktreePath(writeStep.worktree)).toBe(worktreePath);
+    expect(writeStep?.reviewFeedbackLane).toMatchObject({
+      pipelineId,
+      stageId,
+      branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+    });
   });
 });
 

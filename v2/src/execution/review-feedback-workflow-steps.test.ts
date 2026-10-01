@@ -68,6 +68,30 @@ describe("buildReviewFeedbackWorkflowSteps", () => {
     }
   });
 
+  test("stamps pipeline stage identity on reviewFeedbackLane when provenance is pipeline", () => {
+    const pipelineTarget: ReviewFeedbackLaneTarget = {
+      ...laneTarget("intent", "ready-intents"),
+      provenance: { kind: "pipeline", pipelineId: "pipe-1", stageId: "intent-stage", branchKey: "feature-a" },
+    };
+    const result = buildReviewFeedbackWorkflowSteps({
+      target: pipelineTarget,
+      projectRoot: "/repo",
+      configPath: writeHomeMachineConfig(),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.steps[0]?.reviewFeedbackLane).toEqual({
+      laneKind: "intent",
+      entryRunId: "intent-entry",
+      entrySpecPath: "ready-intents",
+      prNumber: 42,
+      prUrl: "https://example.test/pull/42",
+      pipelineId: "pipe-1",
+      stageId: "intent-stage",
+      branchKey: "feature-a",
+    });
+  });
+
   test("implement-lane steps omit linked-index routing bindings", () => {
     const step = buildSteps("implement", "v2/spec/lane/index.md");
     expect(step.linkedIndexRouting).toBeUndefined();

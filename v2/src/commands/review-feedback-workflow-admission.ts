@@ -147,7 +147,7 @@ export async function prepareReviewFeedbackWorkflowAdmissionForLaneRequest(
     builder: deps.builder,
     builderInput: {
       target: laneResult.target,
-      projectRoot: deps.projectRoot,
+      projectRoot,
       configPath: deps.machineConfigPath,
     } as unknown as BuildImplementWorkflowStepsInput,
     machineConfigPath: deps.machineConfigPath,

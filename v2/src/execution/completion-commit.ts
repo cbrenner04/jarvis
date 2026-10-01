@@ -331,6 +331,11 @@ export function shouldReuseHeadWithoutNewCommit(indexTree: string, headTree: str
   return indexTree === headTree;
 }
 
+/** Parse NUL-delimited `git diff --name-only -z` output; drops empty segments (including the usual trailing one). */
+export function parseGitNameOnlyZ(output: string): string[] {
+  return output.split("\0").filter((path) => path.length > 0);
+}
+
 async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, completionTree: string): Promise<number> {
   const output = await runGit(cwd, ["diff-tree", "--no-renames", "--name-only", baseTree, completionTree]);
   if (!output) return 0;
@@ -416,13 +421,11 @@ async function preparePendingCommit(
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath, excludedPaths), { GIT_INDEX_FILE: index });
-  const stagedDiffPaths = (
+  const stagedDiffPaths = parseGitNameOnlyZ(
     await runGit(input.worktreePath, ["diff", "--cached", "--name-only", "-z", "HEAD"], {
       GIT_INDEX_FILE: index,
-    })
-  )
-    .split("\0")
-    .filter((path) => path.length > 0);
+    }),
+  );
   const mainSyncCandidatePaths = [...new Set([...changedPaths, ...stagedDiffPaths])];
   const mainSyncRevertedPaths = await refuseMainSyncInStagedIndex(runGit, input, index, head, mainSyncCandidatePaths);
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
@@ -487,13 +490,11 @@ async function restagePendingTreeAfterStrictFormat(
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath, excludedPaths), { GIT_INDEX_FILE: index });
-  const stagedDiffPaths = (
+  const stagedDiffPaths = parseGitNameOnlyZ(
     await runGit(input.worktreePath, ["diff", "--cached", "--name-only", "-z", "HEAD"], {
       GIT_INDEX_FILE: index,
-    })
-  )
-    .split("\0")
-    .filter((path) => path.length > 0);
+    }),
+  );
   const mainSyncCandidatePaths = [...new Set([...changedPaths, ...stagedDiffPaths])];
   const mainSyncRevertedPaths = await refuseMainSyncInStagedIndex(runGit, input, index, head, mainSyncCandidatePaths);
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });

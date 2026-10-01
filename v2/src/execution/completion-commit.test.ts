@@ -10,7 +10,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
-import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
+import { createCompletionCommitter, parseGitNameOnlyZ, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
 
 const { roots } = trackedTempRoots();
 const repoRoot = join(import.meta.dir, "../../..");
@@ -116,6 +116,14 @@ function wrapGitWithAddTracker(onAdd?: () => void) {
 }
 
 type GitCall = { args: readonly string[]; env: Record<string, string> | undefined };
+
+describe("parseGitNameOnlyZ", () => {
+  test("drops empty segments from NUL-delimited git name-only output", () => {
+    expect(parseGitNameOnlyZ("src/a.ts\0")).toEqual(["src/a.ts"]);
+    expect(parseGitNameOnlyZ("first\0second\0")).toEqual(["first", "second"]);
+    expect(parseGitNameOnlyZ("\0")).toEqual([]);
+  });
+});
 
 describe("createCompletionCommitter", () => {
   test("commits and returns a sha when the working tree has changes", async () => {

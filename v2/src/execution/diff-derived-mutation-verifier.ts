@@ -501,16 +501,64 @@ type ScopedTestRunner = {
   runAsync: (command: string, args: string[], cwd: string, options?: AsyncSubprocessOptions) => Promise<string>;
 };
 
+function isNonTimeoutScopedFailure(reason: unknown): boolean {
+  return reason instanceof AsyncSubprocessError && reason.code !== "ETIMEDOUT";
+}
+
+/** On the first non-timeout scoped failure, abort siblings and finish without awaiting hung runs. */
+async function waitScopedParallel(
+  tasks: readonly Promise<void>[],
+  batchAbort: AbortController,
+): Promise<{ earlyCaught: true } | { earlyCaught: false; results: PromiseSettledResult<void>[] }> {
+  if (tasks.length === 0) return { earlyCaught: false, results: [] };
+  return new Promise((resolve) => {
+    let settled = 0;
+    const results: PromiseSettledResult<void>[] = new Array(tasks.length);
+    let resolved = false;
+
+    const tryFinish = (): void => {
+      if (resolved || settled < tasks.length) return;
+      resolved = true;
+      resolve({ earlyCaught: false, results });
+    };
+
+    for (let index = 0; index < tasks.length; index += 1) {
+      const task = tasks[index];
+      if (task === undefined) continue;
+      task.then(
+        () => {
+          results[index] = { status: "fulfilled", value: undefined };
+          settled += 1;
+          tryFinish();
+        },
+        (reason: unknown) => {
+          results[index] = { status: "rejected", reason };
+          settled += 1;
+          if (isNonTimeoutScopedFailure(reason) && !resolved) {
+            resolved = true;
+            batchAbort.abort();
+            resolve({ earlyCaught: true });
+            return;
+          }
+          tryFinish();
+        },
+      );
+    }
+  });
+}
+
 /** `Promise.allSettled` over `items`, running at most `limit` at a time, preserving input order. */
 async function settleBounded<T>(
   items: readonly string[],
   limit: number,
   run: (item: string) => Promise<T>,
+  shouldStopDequeuing?: () => boolean,
 ): Promise<PromiseSettledResult<T>[]> {
   const results: PromiseSettledResult<T>[] = new Array(items.length);
   let next = 0;
   const worker = async (): Promise<void> => {
     while (next < items.length) {
+      if (shouldStopDequeuing?.()) return;
       const index = next;
       next += 1;
       const item = items[index];
@@ -536,6 +584,8 @@ export async function runDiffDerivedScopedTests(
   const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
   const semaphore = getVerifierTestRunSemaphore();
   const timeoutMs = options?.timeoutMs ?? MAX_KILLING_TEST_MS;
+  const batchAbort = new AbortController();
+  let failFast = false;
   const spawnOne = async (testPath: string): Promise<void> => {
     // One recorded group per spawn: concurrent siblings must not overwrite each other's ids.
     const tracked = trackProcessGroup(options?.processGroups);
@@ -543,9 +593,21 @@ export async function runDiffDerivedScopedTests(
       await subprocess.runAsync("bun", ["test", testPath], cwd, {
         timeoutMs,
         processGroup: tracked.processGroup,
+        signal: batchAbort.signal,
       });
     } finally {
       tracked.settle();
+    }
+  };
+  const runScopedFile = async (testPath: string): Promise<void> => {
+    try {
+      await spawnOne(testPath);
+    } catch (reason) {
+      if (isNonTimeoutScopedFailure(reason)) {
+        failFast = true;
+        batchAbort.abort();
+      }
+      throw reason;
     }
   };
   // Isolated mode holds the semaphore exclusively for the whole batch: spawning via semaphore.run()
@@ -553,9 +615,20 @@ export async function runDiffDerivedScopedTests(
   // every slot the per-call run() would wait on. It still honours the same concurrency bound inside
   // the hold — an unbounded fan-out would reintroduce exactly the contention isolation exists to
   // remove, and would spawn past `MAX_CONCURRENT_VERIFIER_TEST_RUNS` while claiming to cap it.
-  const results = options?.isolated
-    ? await semaphore.runExclusive(() => settleBounded(scope, MAX_CONCURRENT_VERIFIER_TEST_RUNS, spawnOne))
-    : await Promise.allSettled(scope.map((testPath) => semaphore.run(() => spawnOne(testPath))));
+  let results: PromiseSettledResult<void>[];
+  if (options?.isolated) {
+    results = await semaphore.runExclusive(() =>
+      settleBounded(scope, MAX_CONCURRENT_VERIFIER_TEST_RUNS, runScopedFile, () => failFast),
+    );
+  } else {
+    const parallelWait = await waitScopedParallel(
+      scope.map((testPath) => semaphore.run(() => runScopedFile(testPath))),
+      batchAbort,
+    );
+    if (parallelWait.earlyCaught) return false;
+    results = parallelWait.results;
+  }
+  if (failFast) return false;
   for (const result of results) {
     if (result.status === "rejected" && !(result.reason instanceof AsyncSubprocessError)) {
       throw result.reason;

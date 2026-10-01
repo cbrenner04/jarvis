@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createFileTuiRevisionReexecChannel,
-  type TuiRevisionReexecChannel,
-  type TuiRevisionReexecChannelPayload,
   TUI_REEXEC_CHANNEL_ENV,
   TUI_REVISION_REEXEC_EXIT_CODE,
+  type TuiRevisionReexecChannel,
+  type TuiRevisionReexecChannelPayload,
 } from "./tui-reexec-channel.ts";
 import { buildTuiReexecEnv } from "./tui-revision-reexec.ts";
 

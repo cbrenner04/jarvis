@@ -55,7 +55,17 @@ export type ReviewFeedbackLanePipelineRequest = {
   branchKey?: string;
 };
 
-type ReviewFeedbackLaneRequest = ReviewFeedbackLaneBareRequest | ReviewFeedbackLanePipelineRequest;
+export type ReviewFeedbackLanePipelineStageRequest = {
+  mode: "pipeline_stage";
+  pipelineId: string;
+  stageId: string;
+  branchKey?: string;
+};
+
+export type ReviewFeedbackLaneRequest =
+  | ReviewFeedbackLaneBareRequest
+  | ReviewFeedbackLanePipelineRequest
+  | ReviewFeedbackLanePipelineStageRequest;
 
 export type ReviewFeedbackLaneResolutionStore = Pick<
   StateStore,
@@ -238,19 +248,17 @@ function selectPipelineStageRow(
   return { kind: "stage", stage: row };
 }
 
-function resolvePipelineReviewFeedbackLane(
-  store: ReviewFeedbackLaneResolutionStore,
-  request: ReviewFeedbackLanePipelineRequest,
-): ReviewFeedbackLaneResolutionResult {
-  if (request.pipelineId === undefined) {
-    return refuse("review_feedback_lane_unmatched", "missing required flag --pipeline");
-  }
-  if (request.stageId === undefined) {
-    return refuse("review_feedback_lane_unmatched", "missing required flag --stage");
-  }
-  const { project, branch, pipelineId, stageId } = request;
+type PipelineStageBranchBinding = { project: string; branch: string };
 
-  if (hasInFlightRunOnBranch(store, project, branch)) {
+function resolvePipelineStageIdentifiedReviewFeedbackLane(
+  store: ReviewFeedbackLaneResolutionStore,
+  pipelineId: string,
+  stageId: string,
+  branchKey: string | undefined,
+  branchBinding: PipelineStageBranchBinding | undefined,
+): ReviewFeedbackLaneResolutionResult {
+  if (branchBinding !== undefined && hasInFlightRunOnBranch(store, branchBinding.project, branchBinding.branch)) {
+    const { branch } = branchBinding;
     return refuse("review_feedback_lane_in_flight", `lane on branch ${branch} is still in flight`);
   }
 
@@ -271,7 +279,7 @@ function resolvePipelineReviewFeedbackLane(
     );
   }
 
-  const stageSelection = selectPipelineStageRow(pipeline.stages, stageId, request.branchKey);
+  const stageSelection = selectPipelineStageRow(pipeline.stages, stageId, branchKey);
   if (stageSelection.kind === "refusal") return stageSelection.result;
   const stageRow = stageSelection.stage;
   if (stageRow.status !== "succeeded") {
@@ -284,8 +292,25 @@ function resolvePipelineReviewFeedbackLane(
   }
 
   const entryRun = store.loadRun(entryRunId);
-  if (entryRun === null || entryRun.branch !== branch || entryRun.project !== project) {
-    return refuse("review_feedback_lane_unmatched", `stage ${stageId} entry run does not match branch ${branch}`);
+  if (entryRun === null) {
+    return refuse("review_feedback_lane_unmatched", `stage ${stageId} has no linked workflow entry run`);
+  }
+
+  const project = branchBinding?.project ?? entryRun.project;
+  const branch = branchBinding?.branch ?? entryRun.branch;
+
+  if (branchBinding === undefined && hasInFlightRunOnBranch(store, project, branch)) {
+    return refuse("review_feedback_lane_in_flight", `lane on branch ${branch} is still in flight`);
+  }
+
+  if (
+    branchBinding !== undefined &&
+    (entryRun.branch !== branchBinding.branch || entryRun.project !== branchBinding.project)
+  ) {
+    return refuse(
+      "review_feedback_lane_unmatched",
+      `stage ${stageId} entry run does not match branch ${branchBinding.branch}`,
+    );
   }
   if (!isEntryRunRow(entryRun)) {
     return refuse("review_feedback_lane_unmatched", `stage ${stageId} is not linked to a workflow entry run`);
@@ -307,12 +332,38 @@ function resolvePipelineReviewFeedbackLane(
   };
 }
 
+function resolvePipelineReviewFeedbackLane(
+  store: ReviewFeedbackLaneResolutionStore,
+  request: ReviewFeedbackLanePipelineRequest,
+): ReviewFeedbackLaneResolutionResult {
+  if (request.pipelineId === undefined) {
+    return refuse("review_feedback_lane_unmatched", "missing required flag --pipeline");
+  }
+  if (request.stageId === undefined) {
+    return refuse("review_feedback_lane_unmatched", "missing required flag --stage");
+  }
+  const { project, branch, pipelineId, stageId } = request;
+  return resolvePipelineStageIdentifiedReviewFeedbackLane(store, pipelineId, stageId, request.branchKey, {
+    project,
+    branch,
+  });
+}
+
 export function resolveReviewFeedbackLane(
   store: ReviewFeedbackLaneResolutionStore,
   request: ReviewFeedbackLaneRequest,
 ): ReviewFeedbackLaneResolutionResult {
   if (request.mode === "bare") {
     return resolveBareReviewFeedbackLane(store, request);
+  }
+  if (request.mode === "pipeline_stage") {
+    return resolvePipelineStageIdentifiedReviewFeedbackLane(
+      store,
+      request.pipelineId,
+      request.stageId,
+      request.branchKey,
+      undefined,
+    );
   }
   return resolvePipelineReviewFeedbackLane(store, request);
 }

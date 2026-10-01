@@ -73,6 +73,7 @@ function pipelineHandlers(
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     resolveStage,
   });
 }
@@ -420,6 +421,7 @@ test("pipelineExecutionDeps wires executeTerminalPublication from deps", () => {
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     executeTerminalPublication,
   });
   expect(handlers.pipelineExecutionDeps().executeTerminalPublication).toBe(executeTerminalPublication);
@@ -441,6 +443,7 @@ test("pipelineExecutionDeps wires attemptFailedImplementPipelineResume from deps
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     attemptFailedImplementPipelineResume,
   });
   expect(handlers.pipelineExecutionDeps().attemptFailedImplementPipelineResume).toBe(
@@ -470,6 +473,7 @@ test("pipelineExecutionDeps wires staleResetPreflight when daemonSocketPath is s
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     daemonSocketPath: "/marker-daemon.sock",
     connectStaleResetClient: async (socketPath) => {
       connectedTo = socketPath;
@@ -507,6 +511,7 @@ test("pipelineExecutionDeps wires loadLogRecords from logReader", () => {
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
   });
   const deps = handlers.pipelineExecutionDeps();
   expect(deps.loadLogRecords).toBeDefined();
@@ -609,6 +614,25 @@ test("pipeline_resume forwards branchKey to resumePipeline when provided", async
   expect(response).toEqual({
     kind: "response",
     result: { kind: "refused", pipelineId, branchKey: "unknown-branch", reason: "branch_not_found" },
+  });
+});
+
+test("pipeline_stage_review_feedback_launch rejects malformed params with invalid_params", async () => {
+  const handlers = pipelineHandlers();
+
+  const response = await handlers.pipeline_stage_review_feedback_launch(
+    requestFrame("launch-invalid-branch", "pipeline_stage_review_feedback_launch", {
+      pipelineId: "p1",
+      stageId: "s1",
+      branchKey: "",
+    }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "branchKey must be a non-empty string when provided",
   });
 });
 

@@ -48,7 +48,7 @@ import { findTerminalLogRecord } from "./run-operator-error.ts";
 import { armRunTimeout, fireRunTimeout, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
 import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
-type WorkflowStartResult =
+export type WorkflowStartResult =
   | { kind: "response"; result: unknown }
   | { kind: "error"; code: string; message: string }
   | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;

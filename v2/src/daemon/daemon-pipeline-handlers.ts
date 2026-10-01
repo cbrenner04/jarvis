@@ -1,16 +1,19 @@
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
+import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
+import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client";
 import type { RpcHandler } from "../ipc/server.ts";
-import { jarvisHome } from "../paths.ts";
+import { jarvisHome, MACHINE_CONFIG_PATH } from "../paths.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
 import { loadPipelineContext, type Pipeline, type PipelineStageRecord } from "../persistence/state-store.ts";
 import type { ActiveRun, OwnershipKey } from "./daemon.ts";
 import { ownershipKeyString, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
-import type { WorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
+import type { WorkflowStartAdmission, WorkflowStartResult } from "./daemon-workflow-admission-handlers.ts";
 import {
   applyPipelineApprovalDecision,
   derivePipelineState,
@@ -42,6 +45,11 @@ import {
   resolveBlockedPlanStageRecoveryTarget,
 } from "./pipeline-stage-recovery.ts";
 import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import {
+  executePipelineStageReviewFeedbackLaunch,
+  type PipelineStageReviewFeedbackLaunchDeps,
+  parsePipelineStageReviewFeedbackLaunchParams,
+} from "./pipeline-stage-review-feedback-launch.ts";
 
 const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
 const PIPELINE_LIST_TERMINAL_LIMIT = 50;
@@ -98,10 +106,17 @@ function pipelineMatchesListFilter(
   return true;
 }
 
+type PipelineStageReviewFeedbackLaunchHandlerDeps = Omit<
+  PipelineStageReviewFeedbackLaunchDeps,
+  "store" | "handleWorkflowStart"
+>;
+
 type PipelineHandlerDeps = {
   pipelineDispatch: PipelineWorkflowDispatch;
   pipelineWait: PipelineWorkflowWait;
   admitWorkflowStart: WorkflowStartAdmission["admitWorkflowStart"];
+  handleWorkflowStart: (steps: AnyWorkflowStep[]) => WorkflowStartResult;
+  reviewFeedbackLaunch?: Partial<PipelineStageReviewFeedbackLaunchHandlerDeps>;
   resolveStage?: typeof resolveStageWorkflowSteps;
   recoveryAttempt?: PipelineStageRecoveryAttempt;
   recoveryLogSinkFactory?: (storagePath: string) => LogSink;
@@ -118,6 +133,7 @@ type PipelineHandlers = {
   pipeline_approve: RpcHandler;
   pipeline_reject: RpcHandler;
   pipeline_resume: RpcHandler;
+  pipeline_stage_review_feedback_launch: RpcHandler;
   pipeline_recover: RpcHandler;
   pipeline_dismiss: RpcHandler;
   pipeline_undismiss: RpcHandler;
@@ -128,10 +144,25 @@ type PipelineHandlers = {
   pipelineExecutionDeps: () => Omit<PipelineExecutionDeps, "context">;
 };
 
+function defaultReviewFeedbackLaunchDeps(
+  overrides: Partial<PipelineStageReviewFeedbackLaunchHandlerDeps> | undefined,
+): PipelineStageReviewFeedbackLaunchHandlerDeps {
+  const machineConfigPath = overrides?.machineConfigPath ?? MACHINE_CONFIG_PATH;
+  const resolveProjectRoot =
+    overrides?.resolveProjectRoot ?? ((projectKey: string) => readProjectRegistry(machineConfigPath)[projectKey]?.root);
+  return {
+    subprocessRunner: overrides?.subprocessRunner ?? realAsyncSubprocessRunner,
+    machineConfigPath,
+    resolveProjectRoot,
+    builder: overrides?.builder ?? WORKFLOW_PRESET_BUILDERS["review-feedback"],
+  };
+}
+
 export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: PipelineHandlerDeps): PipelineHandlers {
   const { store, pipelineWaitObserver, logReader, logsPath } = ctx;
-  const { pipelineDispatch, pipelineWait, admitWorkflowStart } = deps;
+  const { pipelineDispatch, pipelineWait, admitWorkflowStart, handleWorkflowStart } = deps;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+  const reviewFeedbackLaunchDeps = defaultReviewFeedbackLaunchDeps(deps.reviewFeedbackLaunch);
 
   const pipelineExecutionDeps = (): Omit<PipelineExecutionDeps, "context"> => {
     const daemonSocketPath = deps.daemonSocketPath;
@@ -512,11 +543,27 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     await recoverContinuablePipelines(store, pipelineExecutionDeps(), undefined, new Set(deps.reconciledRunIds ?? []));
   };
 
+  const pipeline_stage_review_feedback_launch: RpcHandler = async (frame) => {
+    if (ctx.retiring) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
+    const parsed = parsePipelineStageReviewFeedbackLaunchParams(frame.params);
+    if (!parsed.ok) {
+      return { kind: "error", code: "invalid_params", message: parsed.message };
+    }
+    return executePipelineStageReviewFeedbackLaunch(parsed.value, {
+      store,
+      handleWorkflowStart,
+      ...reviewFeedbackLaunchDeps,
+    });
+  };
+
   return {
     pipeline_start,
     pipeline_approve,
     pipeline_reject,
     pipeline_resume,
+    pipeline_stage_review_feedback_launch,
     pipeline_recover,
     pipeline_dismiss,
     pipeline_undismiss,

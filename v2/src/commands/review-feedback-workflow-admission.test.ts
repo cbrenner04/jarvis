@@ -27,6 +27,7 @@ import {
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import {
   prepareReviewFeedbackWorkflowAdmission,
+  prepareReviewFeedbackWorkflowAdmissionForLaneRequest,
   REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
   runReviewFeedbackWorkflowCommand,
 } from "./review-feedback-workflow-admission.ts";
@@ -347,6 +348,37 @@ describe("review-feedback workflow admission", () => {
     const writeStep = preparation.steps[0];
     expect(writeStep?.behavior === "write" && writeStep.role).toBe("implement");
     await expectDispatchAfterAdmission(memoryStore({ runs: [run] }), runner, { ok: true, branch: BRANCH });
+  });
+
+  test("resolveProjectRoot-only deps stamp resolved projectRoot on built steps", async () => {
+    const run = baseRun({
+      id: "intent-entry",
+      worktreePath: worktreePathForCapture,
+      stepId: "intent-step",
+      workflowSnapshot: workflowSnapshot("inv-intent", {
+        stepId: "intent-step",
+        role: "author",
+        promptId: "intent.prompt.split",
+      }),
+    });
+    const runner = createGhRunner({ admissionView: openReviewedAdmissionView() });
+    const resolvedRoot = join(fixtureRoot, "resolved-project-root");
+    mkdirSync(resolvedRoot, { recursive: true });
+    const outcome = await prepareReviewFeedbackWorkflowAdmissionForLaneRequest(
+      { mode: "bare", project: PROJECT, branch: BRANCH },
+      {
+        store: memoryStore({ runs: [run] }),
+        subprocessRunner: runner,
+        machineConfigPath,
+        builder: WORKFLOW_PRESET_BUILDERS["review-feedback"],
+        resolveProjectRoot: (projectKey) => (projectKey === PROJECT ? resolvedRoot : undefined),
+      },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected preparation success");
+    const writeStep = outcome.preparation.steps[0];
+    expect(writeStep?.behavior).toBe("write");
+    expect(writeStep?.behavior === "write" && writeStep.worktree.projectRoot).toBe(resolvedRoot);
   });
 
   test("prepares a completed pipeline stage with disambiguators", async () => {

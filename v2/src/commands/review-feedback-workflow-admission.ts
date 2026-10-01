@@ -17,6 +17,7 @@ import {
   type ReviewFeedbackLaneBareRequest,
   type ReviewFeedbackLanePipelineRequest,
   type ReviewFeedbackLaneRefusalCode,
+  type ReviewFeedbackLaneRequest,
   type ReviewFeedbackLaneResolutionStore,
   resolveReviewFeedbackLane,
 } from "../persistence/review-feedback-lane-resolution.ts";
@@ -69,6 +70,15 @@ type ReviewFeedbackWorkflowAdmissionDeps = {
   projectRoot: string;
 };
 
+type ReviewFeedbackWorkflowAdmissionForLaneDeps = {
+  store: ReviewFeedbackLaneResolutionStore;
+  subprocessRunner: AsyncSubprocessRunner;
+  machineConfigPath: string;
+  builder: WorkflowPresetBuilder;
+  projectRoot?: string;
+  resolveProjectRoot?: (projectKey: string) => string | undefined;
+};
+
 type HarnessReadyFlipEvidenceStore = Pick<StateStore, "loadRun" | "findNewestHarnessReadyFlipEvidenceInLineage">;
 
 async function startReviewFeedbackWorkflowRun(
@@ -98,16 +108,26 @@ async function startReviewFeedbackWorkflowRun(
   return waitForRunCompletion(client, deps.attachWaitRunIdOverride ?? start.runId, io);
 }
 
-export async function prepareReviewFeedbackWorkflowAdmission(
-  parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
-  deps: ReviewFeedbackWorkflowAdmissionDeps,
+export async function prepareReviewFeedbackWorkflowAdmissionForLaneRequest(
+  laneRequest: ReviewFeedbackLaneRequest,
+  deps: ReviewFeedbackWorkflowAdmissionForLaneDeps,
 ): Promise<
   | { ok: true; preparation: Extract<WorkflowStartPreparationResult, { ok: true }> }
   | { ok: false; refusal: ReviewFeedbackWorkflowAdmissionRefusal }
 > {
-  const laneResult = resolveReviewFeedbackLane(deps.store, laneRequestFromCli(deps.project, parsed));
+  const laneResult = resolveReviewFeedbackLane(deps.store, laneRequest);
   if (!laneResult.ok) {
     return { ok: false, refusal: { code: laneResult.code, message: laneResult.message } };
+  }
+  const projectRoot = deps.projectRoot ?? deps.resolveProjectRoot?.(laneResult.target.project);
+  if (projectRoot === undefined) {
+    return {
+      ok: false,
+      refusal: {
+        code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
+        message: `review-feedback: unregistered project ${laneResult.target.project}`,
+      },
+    };
   }
   const flipStore = deps.store as HarnessReadyFlipEvidenceStore & StateStore;
   const findHarnessReadyFlipEvidenceInLineage =
@@ -127,7 +147,7 @@ export async function prepareReviewFeedbackWorkflowAdmission(
     builder: deps.builder,
     builderInput: {
       target: laneResult.target,
-      projectRoot: deps.projectRoot,
+      projectRoot,
       configPath: deps.machineConfigPath,
     } as unknown as BuildImplementWorkflowStepsInput,
     machineConfigPath: deps.machineConfigPath,
@@ -143,6 +163,22 @@ export async function prepareReviewFeedbackWorkflowAdmission(
     return { ok: false, refusal: { code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE, message: preparation.error } };
   }
   return { ok: true, preparation };
+}
+
+export async function prepareReviewFeedbackWorkflowAdmission(
+  parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
+  deps: ReviewFeedbackWorkflowAdmissionDeps,
+): Promise<
+  | { ok: true; preparation: Extract<WorkflowStartPreparationResult, { ok: true }> }
+  | { ok: false; refusal: ReviewFeedbackWorkflowAdmissionRefusal }
+> {
+  return prepareReviewFeedbackWorkflowAdmissionForLaneRequest(laneRequestFromCli(deps.project, parsed), {
+    store: deps.store,
+    subprocessRunner: deps.subprocessRunner,
+    machineConfigPath: deps.machineConfigPath,
+    builder: deps.builder,
+    projectRoot: deps.projectRoot,
+  });
 }
 
 export async function runReviewFeedbackWorkflowCommand(

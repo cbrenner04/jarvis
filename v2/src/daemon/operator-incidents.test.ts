@@ -6,6 +6,7 @@ import type { OperatorFailureRecord } from "../../../shared/operator-failure-rec
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { deriveOperatorIncidents, serializeOperatorIncident } from "./operator-incidents.ts";
+import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 const dbPath = join(tmpdir(), `jarvis-operator-incidents-${process.pid}.sqlite`);
@@ -519,6 +520,88 @@ function seedInvocationRow(stepId: string, status: "completed" | "in-progress" |
   return runId;
 }
 
+test("invocation lane incident prUrl is taken from the row whose prNumber matches the outcome", () => {
+  setSystemTime(new Date(1_000_000));
+  const closedNumber = 88;
+  const matchingUrl = `https://github.com/org/repo/pull/${closedNumber}`;
+  const decoyUrl = "https://github.com/org/repo/pull/1";
+  const decoyRunId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "two-step",
+    specPath: "s.md",
+    stepId: "plan~link-0",
+    workflowSnapshot: TWO_STEP_SNAPSHOT,
+  });
+  store.commitTerminalRunSettlement({
+    runId: decoyRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: 1,
+    prUrl: decoyUrl,
+  });
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.commitTerminalRunSettlement({
+    runId: entryRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+  });
+  const reviewRunId = seedInvocationRow("review", "completed");
+  store.commitTerminalRunSettlement({
+    runId: reviewRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+    prUrl: matchingUrl,
+  });
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_005_000);
+  const incident = deriveOperatorIncidents(store).find((row) => row.runId === entryRunId);
+  expect(incident).toMatchObject({
+    kind: "run-ad-hoc-terminal",
+    cause: "lane_pr_closed",
+    prNumber: closedNumber,
+    prUrl: matchingUrl,
+  });
+});
+
+test("invocation lane outcome is resolved from a sibling row when the entry row has none", () => {
+  setSystemTime(new Date(1_000_000));
+  const mergedNumber = 77;
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.commitTerminalRunSettlement({
+    runId: entryRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: mergedNumber,
+    prUrl: `https://github.com/org/repo/pull/${mergedNumber}`,
+  });
+  const reviewRunId = seedInvocationRow("review", "completed");
+  const reviewLaneLog: TerminalLogRecord = {
+    runId: reviewRunId,
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 1,
+      resumable: false,
+      lanePrOutcome: { kind: "lane_pr_merged", prNumber: mergedNumber },
+    },
+  };
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_005_000);
+  const incident = deriveOperatorIncidents(store, 2_000_000, {
+    terminalLogRecordForRun: (runId) => (runId === reviewRunId ? reviewLaneLog : undefined),
+  }).find((row) => row.runId === entryRunId);
+  expect(incident).toMatchObject({
+    kind: "run-ad-hoc-terminal",
+    cause: "lane_pr_merged",
+    prNumber: mergedNumber,
+    transition: `lane_pr_merged:${mergedNumber}:1005000`,
+  });
+});
+
 test("multi-row workflow invocation emits one terminal incident", () => {
   setSystemTime(new Date(1_000_000));
   const entryRunId = seedInvocationRow("plan", "completed");
@@ -867,9 +950,9 @@ test("a lane whose implement stage fails then later succeeds derives both a stag
   expect(succeededIncident.transition).not.toBe(failedIncident.transition);
 });
 
-test("a succeeded implement stage row with a null endedAt derives no stage-succeeded incident", () => {
+function expectNoStageSucceededWhenImplementEndedAtNull(artifact: ReturnType<typeof implementArtifact>): void {
   const pipelineId = seedImplementLanePipeline();
-  landBranchAAtImplement(pipelineId, implementArtifact(5));
+  landBranchAAtImplement(pipelineId, artifact);
   const raw = new Database(dbPath);
   try {
     raw
@@ -879,6 +962,56 @@ test("a succeeded implement stage row with a null endedAt derives no stage-succe
     raw.close();
   }
   expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
+}
+
+test("a succeeded implement stage row with a null endedAt derives no stage-succeeded incident", () => {
+  expectNoStageSucceededWhenImplementEndedAtNull(implementArtifact(5));
+});
+
+test("a succeeded implement stage with lanePrOutcome and null endedAt derives no stage-succeeded incident", () => {
+  expectNoStageSucceededWhenImplementEndedAtNull(
+    implementArtifact(5, { lanePrOutcome: { kind: "lane_pr_closed", prNumber: 5 } }),
+  );
+});
+
+test("terminal pipeline with publication failure emits pipeline-terminal when a succeeded stage settled lane PR", () => {
+  setSystemTime(new Date(1_000_000));
+  const closedNumber = 99;
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "linear-implement",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+      ],
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "intent", patch: { status: "succeeded" } });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "succeeded",
+      artifact: implementArtifact(closedNumber, {
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+      }),
+    },
+  });
+  store.commitTerminalPublicationFailure({
+    pipelineId,
+    terminalAction: "ready",
+    failure: { operation: "gh pr ready", message: "ready failed", exitCode: 1 },
+  });
+  const incidents = deriveOperatorIncidents(store);
+  expect(incidents.some((row) => row.kind === "publication-failure")).toBe(false);
+  expect(incidents).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId, cause: "succeeded" })]);
+  store.tryRecordNotificationDelivery({
+    incidentId: `pipeline:${pipelineId}`,
+    transition: "publication-failed",
+    deliveredAt: 1,
+  });
+  // In `previewPipelineIncidentKeys`, flipping `pipelineSettledLanePrOutcome(pipeline) === undefined` to `!==` treats `publication-failed` as the only preview key and suppresses the pipeline after that stale delivery.
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
 });
 
 test("an undelivered stage-succeeded incident is not masked by an already-delivered gate incident", () => {
@@ -1159,4 +1292,24 @@ test.each(
   const otherRunId = seedInvocationStepRow("inv-unrelated", "plan", "b-unrelated");
   store.commitTerminalRunSettlement({ runId: otherRunId, status: "killed", terminalCause: "run_timeout" });
   expect(stageCauses(linkStagePair(entryRunIdFor(), "failed"))).toEqual({ stageFailed: "failed", terminal: "failed" });
+});
+
+test("serializeOperatorIncident carries detail, prNumber, and prUrl only when present", () => {
+  const base = {
+    incidentId: "run:r1",
+    kind: "run-ad-hoc-terminal" as const,
+    transition: "terminal:failed:1",
+    project: "demo",
+    runId: "r1",
+    cause: "failed",
+    sinceMs: 1,
+  };
+  const full = JSON.parse(
+    serializeOperatorIncident({ ...base, detail: "refused paths: a.ts", prNumber: 7, prUrl: "https://x/7" }),
+  );
+  expect(full).toMatchObject({ detail: "refused paths: a.ts", prNumber: 7, prUrl: "https://x/7" });
+  const bare = JSON.parse(serializeOperatorIncident(base));
+  expect(bare).not.toHaveProperty("detail");
+  expect(bare).not.toHaveProperty("prNumber");
+  expect(bare).not.toHaveProperty("prUrl");
 });

@@ -13,15 +13,15 @@
 
 ## Tasks
 
-- [ ] Adjust `projectPipelineSnapshot`, pipeline list/wait handlers, and `derivePipelineState` (projection-only hooks) so lane-settled stages and pipeline rollup match the decisions above.
-- [ ] Add `daemon-pipeline-observation.test.ts` projection-only fixtures (seeded stage rows with `artifact.lanePrOutcome`, no settlement under test).
-- [ ] Update `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` for run list/wait `lanePrOutcome`, notification lane incidents, and pipeline stage `artifact.lanePrOutcome` projection.
+- [x] Adjust `projectPipelineSnapshot`, pipeline list/wait handlers, and `derivePipelineState` (projection-only hooks) so lane-settled stages and pipeline rollup match the decisions above.
+- [x] Add `daemon-pipeline-observation.test.ts` projection-only fixtures (seeded stage rows with `artifact.lanePrOutcome`, no settlement under test).
+- [x] Update `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` for run list/wait `lanePrOutcome`, notification lane incidents, and pipeline stage `artifact.lanePrOutcome` projection.
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-observation.test.ts` (projection-only, not settlement logic owned by sibling spec): a stage row with `artifact.lanePrOutcome.kind` `lane_pr_merged` projects `status` `succeeded` and merged `artifact.lanePrOutcome.prNumber` on `pipeline_list`/`pipeline_wait` wire `stages[]`, with no publication-failed `failureDetail`; fails against pre-fix free-form failure detail.
-- [ ] Same test surface: a stage row with `artifact.lanePrOutcome.kind` `lane_pr_closed` projects `lane_pr_closed` on `stages[].artifact.lanePrOutcome` and PR number without publication-failed `failureDetail`; fails against pre-fix publication-failed stage observation.
-- [ ] `daemon-pipeline-observation.test.ts`: with stale pipeline `terminalPublicationFailure` and a succeeded stage carrying `artifact.lanePrOutcome`, `projectPipelineSnapshot` / `derivePipelineState` do not report pipeline `state` `failed` or publication-failed stage observation solely from `terminalPublicationFailure`; fails against pre-fix `hasPipelineTerminalPublicationFailure` rollup on the contradiction fixture above.
+- [x] `daemon-pipeline-observation.test.ts` (projection-only, not settlement logic owned by sibling spec): a stage row with `artifact.lanePrOutcome.kind` `lane_pr_merged` projects `status` `succeeded` and merged `artifact.lanePrOutcome.prNumber` on `pipeline_list`/`pipeline_wait` wire `stages[]`, with no publication-failed `failureDetail`; fails against pre-fix free-form failure detail.
+- [x] Same test surface: a stage row with `artifact.lanePrOutcome.kind` `lane_pr_closed` projects `lane_pr_closed` on `stages[].artifact.lanePrOutcome` and PR number without publication-failed `failureDetail`; fails against pre-fix publication-failed stage observation.
+- [x] `daemon-pipeline-observation.test.ts`: with stale pipeline `terminalPublicationFailure` and a succeeded stage carrying `artifact.lanePrOutcome`, `projectPipelineSnapshot` / `derivePipelineState` do not report pipeline `state` `failed` or publication-failed stage observation solely from `terminalPublicationFailure`; fails against pre-fix `hasPipelineTerminalPublicationFailure` rollup on the contradiction fixture above.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass. (Manual)
 
 ## Documentation updates

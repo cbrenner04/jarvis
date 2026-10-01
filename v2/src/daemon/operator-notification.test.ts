@@ -1,14 +1,23 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import crypto from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IpcServer } from "../ipc/server.ts";
-import type { LogReader } from "../persistence/log-stream.ts";
+import { type LogReader, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { startDaemonRuntime } from "./daemon.ts";
-import { deriveOperatorIncidents } from "./operator-incidents.ts";
-import { runNotificationSweep } from "./operator-notification-sweep.ts";
+import {
+  deriveOperatorIncidents,
+  NOTIFICATION_KEY_FORMAT_VERSION,
+  serializeOperatorIncident,
+} from "./operator-incidents.ts";
+import {
+  notificationSweepDeriveOptions,
+  reconcileNotificationKeyFormat,
+  runNotificationSweep,
+} from "./operator-notification-sweep.ts";
 
 const dbPath = join(tmpdir(), `jarvis-operator-notify-${process.pid}.sqlite`);
 
@@ -730,4 +739,227 @@ test.each([{ label: "actionable fixtures" }])("deriving project does not increas
     loadRunsByIdsCount: 1,
     findRunsByInvocationIdsCount: 1,
   });
+});
+
+const LANE_INVOCATION_SNAPSHOT: WorkflowSnapshot = {
+  invocationId: "inv-lane-notify",
+  steps: [{ stepId: "plan", role: "plan" }],
+};
+
+function seedLaneClosedInvocationRun(closedNumber: number, settledAt: number): string {
+  const entryRunId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/worktree",
+    branch: "lane-closed",
+    specPath: "spec.md",
+    stepId: "plan",
+    workflowSnapshot: LANE_INVOCATION_SNAPSHOT,
+  });
+  store.commitTerminalRunSettlement({
+    runId: entryRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+  });
+  patchRunRow(entryRunId, { finishedAt: settledAt, createdAt: DERIVATION_OLD_MS });
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", settledAt);
+  return entryRunId;
+}
+
+test("deriveOperatorIncidents names lane_pr_closed and prNumber for settled invocation", () => {
+  const settledAt = DERIVATION_RECENT_MS;
+  const closedNumber = 88;
+  const entryRunId = seedLaneClosedInvocationRun(closedNumber, settledAt);
+  const incident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.runId === entryRunId);
+  expect(incident).toMatchObject({
+    kind: "run-ad-hoc-terminal",
+    cause: "lane_pr_closed",
+    prNumber: closedNumber,
+    transition: `lane_pr_closed:${closedNumber}:${settledAt}`,
+  });
+  expect(deriveOperatorIncidents(store, DERIVATION_NOW_MS).some((row) => row.kind === "publication-failure")).toBe(
+    false,
+  );
+});
+
+test("runNotificationSweep names lane_pr_merged from durable loop_finished log", () => {
+  const settledAt = DERIVATION_RECENT_MS;
+  const mergedNumber = 77;
+  const mergedUrl = `https://github.com/org/repo/pull/${mergedNumber}`;
+  const logsPath = join(tmpdir(), `jarvis-operator-notify-logs-${process.pid}-${crypto.randomUUID()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  const logReader = openLogReader(logsPath);
+  const entryRunId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/worktree",
+    branch: "lane-merged",
+    specPath: "spec.md",
+    stepId: "plan",
+    workflowSnapshot: LANE_INVOCATION_SNAPSHOT,
+  });
+  store.commitTerminalRunSettlement({
+    runId: entryRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+  });
+  patchRunRow(entryRunId, { finishedAt: settledAt, createdAt: DERIVATION_OLD_MS });
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", settledAt);
+  logSink.append(entryRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+    lanePrOutcome: { kind: "lane_pr_merged", prNumber: mergedNumber },
+  });
+  logSink.close();
+
+  const incident = deriveOperatorIncidents(
+    store,
+    DERIVATION_NOW_MS,
+    notificationSweepDeriveOptions({ logReader }),
+  ).find((row) => row.runId === entryRunId);
+  expect(incident).toMatchObject({
+    cause: "lane_pr_merged",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+    transition: `lane_pr_merged:${mergedNumber}:${settledAt}`,
+  });
+
+  const spawned: string[] = [];
+  runNotificationSweep({
+    store,
+    readSinkCommand: () => "sink",
+    logReader,
+    spawnSink: (_command, json) => {
+      spawned.push(json);
+      return { ok: true };
+    },
+    nowMs: () => DERIVATION_NOW_MS,
+  });
+  const mergedPayload = spawned.find((json) => json.includes("lane_pr_merged"));
+  expect(mergedPayload).toBeDefined();
+  expect(JSON.parse(mergedPayload ?? "{}")).toMatchObject({
+    cause: "lane_pr_merged",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+  });
+});
+
+test("deriveOperatorIncidents stage-succeeded carries lane_pr_closed from artifact.lanePrOutcome", () => {
+  const settledAt = DERIVATION_RECENT_MS;
+  const closedNumber = 88;
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "implement-lane",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "plan", patch: { status: "succeeded" } });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "succeeded",
+      endedAt: settledAt,
+      artifact: {
+        entryRunId: "run-implement",
+        specPath: "spec.md",
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+        prNumber: closedNumber,
+      },
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  const incident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.kind === "stage-succeeded");
+  expect(incident).toMatchObject({
+    pipelineId,
+    stageId: "implement",
+    cause: "lane_pr_closed",
+    prNumber: closedNumber,
+    transition: `lane_pr_closed:${closedNumber}:succeeded:${settledAt}`,
+  });
+});
+
+test("serializeOperatorIncident includes lane prNumber and prUrl on sink JSON", () => {
+  const settledAt = DERIVATION_RECENT_MS;
+  const closedNumber = 88;
+  const prUrl = `https://github.com/org/repo/pull/${closedNumber}`;
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "implement-lane-url",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "plan", patch: { status: "succeeded" } });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "succeeded",
+      endedAt: settledAt,
+      artifact: {
+        entryRunId: "run-implement-url",
+        specPath: "spec.md",
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+        prNumber: closedNumber,
+        prUrl,
+      },
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+  const incident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.kind === "stage-succeeded");
+  if (incident === undefined) throw new Error("expected stage-succeeded incident");
+  expect(JSON.parse(serializeOperatorIncident(incident))).toMatchObject({
+    prNumber: closedNumber,
+    prUrl,
+    cause: "lane_pr_closed",
+  });
+});
+
+test("reconcileNotificationKeyFormat suppresses lane transition redelivery after key-format bump", () => {
+  expect(NOTIFICATION_KEY_FORMAT_VERSION).toBeGreaterThan(5);
+  const settledAt = 10_000;
+  const closedNumber = 88;
+  const entryRunId = seedLaneClosedInvocationRun(closedNumber, settledAt);
+  const incidentId = `run:${entryRunId}`;
+  store.tryRecordNotificationDelivery({
+    incidentId,
+    transition: `terminal:completed:${settledAt}`,
+    deliveredAt: 11_000,
+  });
+  store.recordNotificationKeyFormatVersion(NOTIFICATION_KEY_FORMAT_VERSION - 1);
+
+  expect(reconcileNotificationKeyFormat({ store, nowMs: () => 70_000, daemonStartedAtMs: 50_000 })).toEqual({
+    suppressed: 1,
+  });
+
+  const spawned: string[] = [];
+  runNotificationSweep({
+    store,
+    readSinkCommand: () => "sink",
+    spawnSink: (_command, json) => {
+      spawned.push(json);
+      return { ok: true };
+    },
+    nowMs: () => 70_000,
+  });
+  expect(spawned).toEqual([]);
+  expect(
+    store.hasNotificationDelivery({
+      incidentId,
+      transition: `lane_pr_closed:${closedNumber}:${settledAt}`,
+    }),
+  ).toBe(true);
 });

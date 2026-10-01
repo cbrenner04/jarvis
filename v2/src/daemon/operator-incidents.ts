@@ -1,14 +1,16 @@
 import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
-import type { PipelineStageArtifact } from "../persistence/pipeline-stage-settlement.ts";
+import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
 import {
   derivePipelineState,
-  hasPipelineTerminalPublicationFailure,
   isPipelineTerminal,
+  narrowPipelineStageArtifact,
   type PipelineDerivedState,
+  terminalPublicationFailureForcesPipelineFailed,
 } from "./pipeline-execution.ts";
 import { derivePipelineAwaitingGates } from "./pipeline-observation.ts";
+import { resolveRunLanePrOutcome, type TerminalLogRecord } from "./run-operator-error.ts";
 
 type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
@@ -27,7 +29,11 @@ type OperatorIncidentKind =
  * changes shape or a new incident kind is added; `reconcileNotificationKeyFormat` then marks
  * already-settled incidents delivered under the new format instead of re-sending them.
  */
-export const NOTIFICATION_KEY_FORMAT_VERSION = 5;
+export const NOTIFICATION_KEY_FORMAT_VERSION = 6;
+
+export type DeriveOperatorIncidentsOptions = {
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined;
+};
 
 /** One operator-actionable incident at derived altitude. */
 export type OperatorIncident = {
@@ -141,14 +147,48 @@ function stageSucceededTransition(stage: PipelineStageRecord): string | undefine
   return stage.endedAt === null ? undefined : `succeeded:${stage.endedAt}`;
 }
 
-/** Same narrowing `pipeline-execution.ts` applies before reading artifact PR fields. */
-function narrowStageArtifact(artifact: unknown): PipelineStageArtifact | undefined {
-  return artifact !== null &&
-    typeof artifact === "object" &&
-    typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
-    typeof (artifact as PipelineStageArtifact).specPath === "string"
-    ? (artifact as PipelineStageArtifact)
-    : undefined;
+function lanePrOutcomeTransition(outcome: LanePrOutcome, settledAt: number): string {
+  return `${outcome.kind}:${outcome.prNumber}:${settledAt}`;
+}
+
+function stageLaneSucceededTransition(stage: PipelineStageRecord, outcome: LanePrOutcome): string | undefined {
+  if (stage.endedAt === null) return undefined;
+  return `${outcome.kind}:${outcome.prNumber}:succeeded:${stage.endedAt}`;
+}
+
+function prUrlForLaneOutcome(rows: readonly Run[], prNumber: number): string | undefined {
+  for (const run of rows) {
+    if (run.prNumber === prNumber && run.prUrl != null) return run.prUrl;
+  }
+  return undefined;
+}
+
+function lanePrOutcomeIncidentFields(
+  outcome: LanePrOutcome,
+  settledAt: number,
+  prUrl?: string,
+): Pick<OperatorIncident, "transition" | "cause" | "prNumber" | "prUrl"> {
+  return {
+    transition: lanePrOutcomeTransition(outcome, settledAt),
+    cause: outcome.kind,
+    prNumber: outcome.prNumber,
+    ...(prUrl !== undefined ? { prUrl } : {}),
+  };
+}
+
+function invocationLanePrOutcome(
+  entryRun: Run,
+  rows: readonly Run[],
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
+): LanePrOutcome | undefined {
+  const fromEntry = resolveRunLanePrOutcome(entryRun, terminalLogRecordForRun?.(entryRun.id));
+  if (fromEntry !== undefined) return fromEntry;
+  for (const run of rows) {
+    if (run.id === entryRun.id) continue;
+    const outcome = resolveRunLanePrOutcome(run, terminalLogRecordForRun?.(run.id));
+    if (outcome !== undefined) return outcome;
+  }
+  return undefined;
 }
 
 /**
@@ -199,7 +239,7 @@ function previewPipelineIncidentKeys(
   }
 
   if (isPipelineTerminal(state)) {
-    if (hasPipelineTerminalPublicationFailure(pipeline)) {
+    if (terminalPublicationFailureForcesPipelineFailed(pipeline)) {
       keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: "publication-failed" });
     } else {
       keys.push({
@@ -218,7 +258,12 @@ function previewPipelineIncidentKeys(
         });
       }
       if (stage.status === "succeeded" && isImplementWorkflowStage(pipeline, stage)) {
-        const transition = stageSucceededTransition(stage);
+        const artifact = narrowPipelineStageArtifact(stage.artifact);
+        const laneOutcome = artifact?.lanePrOutcome;
+        const transition =
+          laneOutcome !== undefined
+            ? stageLaneSucceededTransition(stage, laneOutcome)
+            : stageSucceededTransition(stage);
         if (transition !== undefined) {
           keys.push({ incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey), transition });
         }
@@ -259,6 +304,7 @@ function previewRunIncidentKeys(
   run: Run,
   suppressedInvocationIds: ReadonlySet<string>,
   pipelineAttributedRunIds: ReadonlySet<string>,
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
 ): IncidentKey[] {
   const invocationId = run.workflowSnapshot?.invocationId;
   if (invocationId !== undefined && suppressedInvocationIds.has(invocationId)) {
@@ -278,6 +324,16 @@ function previewRunIncidentKeys(
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, "run_timeout") }];
   }
   if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
+    const laneOutcome = resolveRunLanePrOutcome(run, terminalLogRecordForRun?.(run.id));
+    if (laneOutcome !== undefined) {
+      const settledAt = run.finishedAt ?? run.statusChangedAt ?? run.createdAt;
+      return [
+        {
+          incidentId: runIncidentId(run.id),
+          transition: lanePrOutcomeTransition(laneOutcome, settledAt),
+        },
+      ];
+    }
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, `terminal:${run.status}`) }];
   }
   return [];
@@ -335,12 +391,35 @@ function findCandidateEntryRun(candidateRows: readonly Run[]): Run | undefined {
  * the per-tick sibling load stays proportional to undelivered work, not to history inside the recency
  * window.
  */
+function invocationOwedTransition(
+  entryRun: Run,
+  rows: readonly Run[],
+  marker: InvocationSettledMarker,
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
+): string {
+  const laneOutcome = invocationLanePrOutcome(entryRun, rows, terminalLogRecordForRun);
+  if (laneOutcome !== undefined) return lanePrOutcomeTransition(laneOutcome, marker.settledAt);
+  return terminalTransition(marker);
+}
+
+function invocationOwedTransitionDelivered(
+  entryRun: Run,
+  rows: readonly Run[],
+  marker: InvocationSettledMarker,
+  transitions: readonly string[],
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
+): boolean {
+  return transitions.includes(invocationOwedTransition(entryRun, rows, marker, terminalLogRecordForRun));
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: single pass over invocation rows; lane PR outcome branches mirror publication-failure ones
 function collectWorkflowInvocations(
   store: StateStore,
   runs: readonly Run[],
   ledger: DeliveredLedger,
   suppressedInvocationIds: ReadonlySet<string>,
   pipelineAttributedRunIds: ReadonlySet<string>,
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
 ): WorkflowInvocationRows[] {
   const candidateRowsByInvocation = new Map<string, Run[]>();
   for (const run of runs) {
@@ -363,7 +442,9 @@ function collectWorkflowInvocations(
     const marker = store.readWorkflowInvocationSettledMarker(entryRun.id);
     if (marker === null) continue;
     const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
-    if (transitions.includes(terminalTransition(marker))) continue;
+    if (invocationOwedTransitionDelivered(entryRun, candidateRows, marker, transitions, terminalLogRecordForRun)) {
+      continue;
+    }
     markersByInvocation.set(invocationId, marker);
     invocationIds.add(invocationId);
   }
@@ -381,7 +462,10 @@ function collectWorkflowInvocations(
     const entryRun = findInvocationEntryRun(rows);
     if (entryRun === undefined) continue;
     const marker = markersByInvocation.get(invocationId) ?? store.readWorkflowInvocationSettledMarker(entryRun.id);
-    if (marker !== null) invocations.push({ invocationId, entryRun, rows, marker });
+    if (marker === null) continue;
+    const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
+    if (invocationOwedTransitionDelivered(entryRun, rows, marker, transitions, terminalLogRecordForRun)) continue;
+    invocations.push({ invocationId, entryRun, rows, marker });
   }
   return invocations;
 }
@@ -408,10 +492,25 @@ function invocationCommitFailureDetail(rows: readonly Run[]): { detail: string }
   return {};
 }
 
-function collectInvocationIncidents(invocations: readonly WorkflowInvocationRows[]): OperatorIncident[] {
+function collectInvocationIncidents(
+  invocations: readonly WorkflowInvocationRows[],
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
+): OperatorIncident[] {
   const incidents: OperatorIncident[] = [];
   for (const { entryRun, rows, marker } of invocations) {
     if (hasOwnIncidentRow(rows)) continue;
+    const laneOutcome = invocationLanePrOutcome(entryRun, rows, terminalLogRecordForRun);
+    if (laneOutcome !== undefined) {
+      incidents.push({
+        incidentId: runIncidentId(entryRun.id),
+        kind: "run-ad-hoc-terminal",
+        project: entryRun.project,
+        runId: entryRun.id,
+        sinceMs: marker.settledAt,
+        ...lanePrOutcomeIncidentFields(laneOutcome, marker.settledAt, prUrlForLaneOutcome(rows, laneOutcome.prNumber)),
+      });
+      continue;
+    }
     incidents.push({
       incidentId: runIncidentId(entryRun.id),
       kind: "run-ad-hoc-terminal",
@@ -572,9 +671,11 @@ function pushStageSucceededIncident(
   stage: PipelineStageRecord,
   project: string | null,
 ): void {
-  const transition = stageSucceededTransition(stage);
+  const artifact = narrowPipelineStageArtifact(stage.artifact);
+  const laneOutcome = artifact?.lanePrOutcome;
+  const transition =
+    laneOutcome !== undefined ? stageLaneSucceededTransition(stage, laneOutcome) : stageSucceededTransition(stage);
   if (transition === undefined) return;
-  const artifact = narrowStageArtifact(stage.artifact);
   incidents.push({
     incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
     kind: "stage-succeeded",
@@ -583,7 +684,11 @@ function pushStageSucceededIncident(
     pipelineId: pipeline.id,
     stageId: stage.stageId,
     branchKey: stage.branchKey,
-    ...(artifact?.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
+    ...(laneOutcome !== undefined
+      ? { cause: laneOutcome.kind, prNumber: laneOutcome.prNumber }
+      : artifact?.prNumber !== undefined
+        ? { prNumber: artifact.prNumber }
+        : {}),
     ...(artifact?.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),
     sinceMs: stageSinceMs(stage),
   });
@@ -605,7 +710,7 @@ function collectPipelineIncidents(
   }
 
   if (isPipelineTerminal(state)) {
-    if (hasPipelineTerminalPublicationFailure(pipeline)) {
+    if (terminalPublicationFailureForcesPipelineFailed(pipeline)) {
       pushPublicationFailureIncident(incidents, pipeline, project);
     } else {
       const hasTimedOutStage = pipeline.stages.some(
@@ -663,6 +768,7 @@ function collectRunIncidents(
   runs: readonly Run[],
   suppressedInvocationIds: ReadonlySet<string>,
   pipelineAttributedRunIds: ReadonlySet<string>,
+  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
 ): OperatorIncident[] {
   const incidents: OperatorIncident[] = [];
   for (const run of runs) {
@@ -689,6 +795,19 @@ function collectRunIncidents(
     }
     // Workflow rows roll up to their invocation (`collectInvocationIncidents`); only plain rows settle here.
     if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
+      const laneOutcome = resolveRunLanePrOutcome(run, terminalLogRecordForRun?.(run.id));
+      if (laneOutcome !== undefined) {
+        const settledAt = run.finishedAt ?? run.statusChangedAt ?? run.createdAt;
+        incidents.push({
+          incidentId: runIncidentId(run.id),
+          kind: "run-ad-hoc-terminal",
+          project: run.project,
+          runId: run.id,
+          sinceMs: settledAt,
+          ...lanePrOutcomeIncidentFields(laneOutcome, settledAt, run.prUrl ?? undefined),
+        });
+        continue;
+      }
       pushRunIncident(incidents, run, "run-ad-hoc-terminal", statusChangeTransition(run, `terminal:${run.status}`));
     }
   }
@@ -696,7 +815,12 @@ function collectRunIncidents(
 }
 
 /** Recompute every current operator-actionable incident from durable rows. */
-export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.now()): OperatorIncident[] {
+export function deriveOperatorIncidents(
+  store: StateStore,
+  nowMs: number = Date.now(),
+  options: DeriveOperatorIncidentsOptions = {},
+): OperatorIncident[] {
+  const terminalLogRecordForRun = options.terminalLogRecordForRun;
   const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;
   const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
   const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
@@ -731,11 +855,21 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
   }
 
   const runsForCollection = candidateRuns.filter((run) => {
-    const keys = previewRunIncidentKeys(run, suppressedInvocationIds, pipelineAttributedRunIds);
+    const keys = previewRunIncidentKeys(
+      run,
+      suppressedInvocationIds,
+      pipelineAttributedRunIds,
+      terminalLogRecordForRun,
+    );
     return keys.length > 0 && !onlyDeliveredIncidents(delivered, keys);
   });
 
-  for (const incident of collectRunIncidents(runsForCollection, suppressedInvocationIds, pipelineAttributedRunIds)) {
+  for (const incident of collectRunIncidents(
+    runsForCollection,
+    suppressedInvocationIds,
+    pipelineAttributedRunIds,
+    terminalLogRecordForRun,
+  )) {
     pushUndeliveredIncident(incidents, delivered, incident);
   }
 
@@ -745,13 +879,14 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
     ledger,
     suppressedInvocationIds,
     pipelineAttributedRunIds,
+    terminalLogRecordForRun,
   );
   // An entry row can sit outside the recency window while a successor settles inside it.
   const invocationDelivered = loadDeliveredIncidentKeys(
     store,
     invocations.map((invocation) => runIncidentId(invocation.entryRun.id)),
   );
-  for (const incident of collectInvocationIncidents(invocations)) {
+  for (const incident of collectInvocationIncidents(invocations, terminalLogRecordForRun)) {
     pushUndeliveredIncident(incidents, invocationDelivered, incident);
   }
 
@@ -770,6 +905,9 @@ export function serializeOperatorIncident(incident: OperatorIncident): string {
     branchKey: incident.branchKey ?? null,
     runId: incident.runId ?? null,
     cause: incident.cause ?? null,
+    ...(incident.detail !== undefined ? { detail: incident.detail } : {}),
+    ...(incident.prNumber !== undefined ? { prNumber: incident.prNumber } : {}),
+    ...(incident.prUrl !== undefined ? { prUrl: incident.prUrl } : {}),
     sinceMs: incident.sinceMs,
   });
 }

@@ -405,6 +405,9 @@ export interface LogSink {
 export interface LogReader {
   tail(runId: string): PersistedRecord[];
 
+  /** Every durable record across runs in one read; lets per-tick consumers avoid one full read per run. */
+  readAllRecords?(): PersistedRecord[];
+
   /**
    * Yields existing events from seq 1, then blocks for new appends.
    * Honour AbortSignal for clean shutdown.
@@ -426,7 +429,7 @@ class FileLogStream implements LogSink, LogReader {
   }
 
   /** Reads all durable-log records; unparseable lines (e.g. a truncated trailing write) are skipped. */
-  private readAllRecords(): PersistedRecord[] {
+  readAllRecords(): PersistedRecord[] {
     if (!existsSync(this.storagePath)) {
       return [];
     }

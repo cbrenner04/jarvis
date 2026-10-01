@@ -727,6 +727,21 @@ test("pipeline_resume refuses the named branch's own awaiting gate without dispa
   expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
 });
 
+test("pipeline_resume rejects allowLanePrRepublish false without resume side effects", async () => {
+  const { pipelineId, before } = setupFanOutResumePipeline(stateStore);
+
+  const response = await handlers.pipeline_resume(
+    requestFrame("resume", "pipeline_resume", { pipelineId, allowLanePrRepublish: false }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "allowLanePrRepublish must be true when present",
+  });
+  expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
+});
+
 test("pipeline_resume returns a branch_not_found refusal, not invalid_params, for an unknown well-formed branchKey", async () => {
   const { pipelineId, before } = setupFanOutResumePipeline(stateStore);
 

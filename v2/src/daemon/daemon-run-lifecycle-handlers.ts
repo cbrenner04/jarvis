@@ -1510,9 +1510,16 @@ export function createRunLifecycleHandlers(
     if (ctx.retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
-    const params = frame.params as { runId?: string } | undefined;
+    const params = frame.params as { runId?: string; allowLanePrRepublish?: unknown } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
+    }
+    if (params.allowLanePrRepublish !== undefined && params.allowLanePrRepublish !== true) {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: "allowLanePrRepublish must be true when present",
+      };
     }
 
     const runId = params.runId as string;

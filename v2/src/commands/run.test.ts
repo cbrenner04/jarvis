@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RUN_DISMISS_USAGE, RUN_START_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
+import { RUN_DISMISS_USAGE, RUN_RESUME_USAGE, RUN_START_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
@@ -432,6 +432,29 @@ describe("dispatch to keyed daemons", () => {
       method: "resume",
       params: { runId: "run-123" },
     });
+    expect(cap.read()).toEqual({ stdout: "resumed run-123\n", stderr: "" });
+  });
+
+  test("run resume --allow-lane-pr-republish forwards allowLanePrRepublish on the resume RPC", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000002";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "resume", "run-123", "--allow-lane-pr-republish"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent[0]).toMatchObject({
+      kind: "request",
+      method: "resume",
+      params: { runId: "run-123", allowLanePrRepublish: true },
+    });
+    const frame = sent[0] as { params: Record<string, unknown> };
+    expect(frame.params).not.toHaveProperty("allowLanePrRepublish", false);
     expect(cap.read()).toEqual({ stdout: "resumed run-123\n", stderr: "" });
   });
 
@@ -1005,11 +1028,11 @@ describe("run control", () => {
   });
 
   test("pause and resume reject --force as a usage error", async () => {
-    for (const argv of [
-      ["run", "pause", "--force", "run-123"],
-      ["run", "resume", "--force", "run-123"],
-      ["run", "pause", "--force"],
-      ["run", "resume", "--force"],
+    for (const { argv, usage } of [
+      { argv: ["run", "pause", "--force", "run-123"], usage: RUN_USAGE },
+      { argv: ["run", "resume", "--force", "run-123"], usage: RUN_RESUME_USAGE },
+      { argv: ["run", "pause", "--force"], usage: RUN_USAGE },
+      { argv: ["run", "resume", "--force"], usage: RUN_RESUME_USAGE },
     ]) {
       const cap = captureIo();
 
@@ -1020,7 +1043,7 @@ describe("run control", () => {
       });
 
       expect(code).toBe(1);
-      expect(cap.read()).toEqual({ stdout: "", stderr: RUN_USAGE });
+      expect(cap.read()).toEqual({ stdout: "", stderr: usage });
     }
   });
 

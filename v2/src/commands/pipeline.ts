@@ -211,12 +211,19 @@ function readStaleResetOverrideFlags(
   };
 }
 
+function readAllowLanePrRepublishFlag(values: Record<string, string | boolean | undefined>): {
+  allowLanePrRepublish?: true;
+} {
+  return values["allow-lane-pr-republish"] === true ? { allowLanePrRepublish: true } : {};
+}
+
 function parsePipelineResumeArgs(argv: readonly string[]):
   | ({
       ok: true;
       pipelineId: string;
       branchKey?: string;
       addressReviewStageId?: string;
+      allowLanePrRepublish?: true;
     } & PipelineStaleResetOverrideFlags)
   | { ok: false } {
   let values: Record<string, string | boolean | undefined>;
@@ -241,6 +248,7 @@ function parsePipelineResumeArgs(argv: readonly string[]):
   if (branchKey !== undefined && branchKey.trim().length === 0) return { ok: false };
 
   const staleReset = readStaleResetOverrideFlags(values);
+  const allowLanePrRepublish = readAllowLanePrRepublishFlag(values);
   const addressReviewRaw = values["address-review"];
   if (addressReviewRaw !== undefined) {
     if (staleReset.resetDespiteDirty || staleReset.resetDespiteLandedCriteria) return { ok: false };
@@ -250,6 +258,7 @@ function parsePipelineResumeArgs(argv: readonly string[]):
       pipelineId,
       ...(branchKey !== undefined ? { branchKey } : {}),
       addressReviewStageId: addressReviewRaw,
+      ...allowLanePrRepublish,
     };
   }
 
@@ -258,6 +267,7 @@ function parsePipelineResumeArgs(argv: readonly string[]):
     pipelineId,
     ...(branchKey !== undefined ? { branchKey } : {}),
     ...staleReset,
+    ...allowLanePrRepublish,
   };
 }
 
@@ -978,6 +988,7 @@ async function runPipelineControlSubcommand(
         ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
         ...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {}),
         ...(parsed.resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+        ...(parsed.allowLanePrRepublish ? { allowLanePrRepublish: true } : {}),
       },
       "resumed",
       io,

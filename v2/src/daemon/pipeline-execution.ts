@@ -960,6 +960,7 @@ export async function resumePipeline(
     branchKey?: string;
     resetDespiteDirty?: boolean;
     resetDespiteLandedCriteria?: boolean;
+    allowLanePrRepublish?: boolean;
   } = {},
 ): Promise<ResumePipelineOutcome> {
   const { store } = deps;

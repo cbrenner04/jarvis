@@ -284,6 +284,33 @@ test("resume admits a paused direct write run with durable queuedInput", async (
   expect(resumed).toEqual({ kind: "response", result: { ok: true } });
 });
 
+test("resume rejects allowLanePrRepublish false without changing the run row", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  const runId = stateStore.createRun({
+    project: "republish-guard",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "republish-guard",
+    specPath: "/tmp/spec.md",
+    status: "paused",
+    queuedInput: mockWriteLoopInput({ projectName: "republish-guard", branchName: "republish-guard" }),
+  });
+  const before = loadRunOrThrow(stateStore, runId);
+
+  const refused = await handlers.resume(
+    { kind: "request", id: "r1", method: "resume", params: { runId, allowLanePrRepublish: false } },
+    signal,
+  );
+  expect(refused).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "allowLanePrRepublish must be true when present",
+  });
+  expect(loadRunOrThrow(stateStore, runId)).toEqual(before);
+  expect(fakeExecutor.pendingCount()).toBe(0);
+});
+
 test("resume admits a paused workflow write step with exact snapshot stepId", async () => {
   const resumedInputs: WriteLoopInput[] = [];
   const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));

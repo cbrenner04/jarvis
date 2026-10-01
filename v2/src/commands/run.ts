@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import {
   RUN_DISMISS_PARSE_ARG_OPTIONS,
   RUN_KILL_PARSE_ARG_OPTIONS,
+  RUN_RESUME_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
   RUN_LOG_PARSE_ARG_OPTIONS,
 } from "../cli/command-help-flags.ts";
@@ -14,6 +15,7 @@ import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import {
   RUN_DISMISS_USAGE,
   RUN_KILL_USAGE,
+  RUN_RESUME_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
   RUN_START_USAGE,
@@ -349,11 +351,12 @@ async function runActionCommand(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  const usage = subcommand === "kill" ? RUN_KILL_USAGE : RUN_USAGE;
-  let values: { force?: boolean };
+  const usage = subcommand === "kill" ? RUN_KILL_USAGE : subcommand === "resume" ? RUN_RESUME_USAGE : RUN_USAGE;
+  let values: { force?: boolean; "allow-lane-pr-republish"?: boolean };
   let positionals: string[];
   try {
-    const options = subcommand === "kill" ? RUN_KILL_PARSE_ARG_OPTIONS : {};
+    const options =
+      subcommand === "kill" ? RUN_KILL_PARSE_ARG_OPTIONS : subcommand === "resume" ? RUN_RESUME_PARSE_ARG_OPTIONS : {};
     const parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options });
     values = parsed.values;
     positionals = parsed.positionals;
@@ -367,8 +370,9 @@ async function runActionCommand(
     return 1;
   }
   if (subcommand === "resume") {
+    const params = values["allow-lane-pr-republish"] === true ? { runId, allowLanePrRepublish: true } : { runId };
     return withConnectDispatch(io, deps, async (client) => {
-      await request(client, "resume", { runId });
+      await request(client, "resume", params);
       io.stdout(`resumed ${runId}\n`);
       return 0;
     });

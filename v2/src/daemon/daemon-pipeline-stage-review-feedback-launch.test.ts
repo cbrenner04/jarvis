@@ -133,6 +133,7 @@ function seedSucceededReviewFeedbackStage(
 function launchHandlers(
   runner: AsyncSubprocessRunner,
   handleWorkflowStartOverride?: (steps: AnyWorkflowStep[]) => WorkflowStartResult,
+  retiring = false,
 ) {
   const ctx = createRunControlHandlerContext({
     stateStore,
@@ -140,6 +141,7 @@ function launchHandlers(
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
   });
+  ctx.retiring = retiring;
   const workflowStart = createWorkflowStartAdmission(ctx);
   const handleWorkflowStart = handleWorkflowStartOverride ?? workflowStart.handleWorkflowStart;
   const lifecycle = createRunLifecycleHandlers(ctx, {
@@ -213,6 +215,30 @@ describe("pipeline_stage_review_feedback_launch", () => {
     expect(response.result).toEqual({ runId: `review-feedback-${workflow}` });
     expect(admittedSteps?.length).toBeGreaterThan(0);
     expect(admittedSteps?.[0]?.behavior).toBe("write");
+    expect(pipelineSnapshot(stateStore, pipelineId)).toBe(before);
+  });
+
+  test("refuses daemon_superseded on a retiring daemon without mutating pipeline rows", async () => {
+    const branch = `intent-${BRANCH}`;
+    const runner = createGhRunner(openReviewedAdmissionView(branch));
+    const handlers = launchHandlers(runner, undefined, true);
+    const { pipelineId, stageId } = seedSucceededReviewFeedbackStage(
+      stateStore,
+      "intent",
+      join(worktreePathForCapture, "intent-retiring"),
+    );
+    const before = pipelineSnapshot(stateStore, pipelineId);
+
+    const response = await handlers.pipeline_stage_review_feedback_launch(
+      requestFrame("refuse-retiring", "pipeline_stage_review_feedback_launch", { pipelineId, stageId }),
+      new AbortController().signal,
+    );
+
+    expect(response).toEqual({
+      kind: "error",
+      code: "daemon_superseded",
+      message: "Daemon is retiring and not accepting new work",
+    });
     expect(pipelineSnapshot(stateStore, pipelineId)).toBe(before);
   });
 

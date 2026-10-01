@@ -544,6 +544,9 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
   };
 
   const pipeline_stage_review_feedback_launch: RpcHandler = async (frame) => {
+    if (ctx.retiring) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
     const parsed = parsePipelineStageReviewFeedbackLaunchParams(frame.params);
     if (!parsed.ok) {
       return { kind: "error", code: "invalid_params", message: parsed.message };

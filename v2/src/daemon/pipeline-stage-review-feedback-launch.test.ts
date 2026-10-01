@@ -4,11 +4,10 @@ import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE } from "../commands/review-feedback-workflow-admission.ts";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
-import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { ReviewFeedbackLaneResolutionStore } from "../persistence/review-feedback-lane-resolution.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
@@ -17,6 +16,7 @@ import {
   type Run,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import {
   executePipelineStageReviewFeedbackLaunch,
   parsePipelineStageReviewFeedbackLaunchParams,

@@ -58,7 +58,7 @@ import {
   initOutsideDiffRepairWorktree,
   lintMdOnlyGateFailureOutput,
   PLACEHOLDER_BASE_REF_PROBE_OBSERVATION,
-} from "./ready-finalize.test.ts";
+} from "./ready-finalize.test-support.ts";
 import {
   createReadyFinalizer,
   deriveGateAllowedPaths,

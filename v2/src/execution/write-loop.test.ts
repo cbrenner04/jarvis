@@ -95,9 +95,12 @@ import {
   isShrinkWriteLoop,
   liveGateInvocationLeaseCount,
   MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
+  MAX_MUTATION_REPAIR_ATTEMPTS,
   persistRetainedFinalizationCheckpoint,
   publishCompletionArtifacts,
   publishWithReadyRepair,
+  readMutationRepairAttemptsConsumed,
+  writeMutationRepairAttemptsConsumed,
   resolvePreShrinkHead,
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
@@ -633,6 +636,35 @@ async function runLoop(args: {
   } finally {
     store.close();
   }
+}
+
+const mockVerifyPass = async () => ({
+  kind: "pass" as const,
+  runBase: "HEAD",
+  inspectedPaths: [],
+  candidateCount: 0,
+  acceptedSites: [],
+  skippedCandidates: [],
+});
+
+function countMutationRepairHarnessSessions(sessionsDir: string, runId: string): number {
+  if (!existsSync(sessionsDir)) return 0;
+  let count = 0;
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (lstatSync(path).isDirectory()) {
+        walk(path);
+        continue;
+      }
+      const content = readFileSync(path, "utf8");
+      if (content.includes(`run=${runId}`) && content.includes("mutation-repair=")) {
+        count += 1;
+      }
+    }
+  };
+  walk(sessionsDir);
+  return count;
 }
 
 const IN_LOOP_SURVIVING_MUTATION = "operator-flip: === → !==";
@@ -8945,6 +8977,7 @@ index 1234567..abcdefg 100644
     test("returns surviving_mutation_failed when mutation verification detects an uncovered changed guard", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
+      const sessionsDir = join(jarvisRoot, "sessions");
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
@@ -8952,6 +8985,7 @@ index 1234567..abcdefg 100644
         logSink,
         completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
         completionPublisher: async () => ({}),
+        verifyDiffDerivedMutations: mockVerifyPass,
         readyFinalizer: async () => {
           throw new SurvivingMutationError(
             "operator-flip: === → !==",
@@ -8971,6 +9005,9 @@ index 1234567..abcdefg 100644
       expect(result.survivingMutationKillingTests).toEqual(["src/test.test.ts"]);
       expect(result.survivingMutationKillingSetResult).toBe("passed-unconfirmed");
       expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
+      expect(countMutationRepairHarnessSessions(sessionsDir, result.runId)).toBeGreaterThan(0);
+      const events = logSink.getEventsForRun(result.runId);
+      expect(events).not.toContain("mutation_repair_exhausted");
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "surviving_mutation_failed",
@@ -8981,6 +9018,160 @@ index 1234567..abcdefg 100644
         survivingMutationKillingTests: ["src/test.test.ts"],
         survivingMutationKillingSetResult: "passed-unconfirmed",
       });
+    });
+
+    test("publication surviving mutation exhausts in-flow write.mutation-repair before resumable settlement", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const sessionsDir = join(jarvisRoot, "sessions");
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        verifyDiffDerivedMutations: mockVerifyPass,
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError(
+            "operator-flip: === → !==",
+            "src/test.ts",
+            42,
+            ["src/test.test.ts"],
+            "passed-unconfirmed",
+          );
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(countMutationRepairHarnessSessions(sessionsDir, result.runId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
+      expect(logSink.getEventsForRun(result.runId)).not.toContain("mutation_repair_exhausted");
+    });
+
+    test("publication in-flow mutation repair blocked settles surviving_mutation_failed without mutation_repair_exhausted", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const sessionsDir = join(jarvisRoot, "sessions");
+      let agentCalls = 0;
+      const bindings: InvocationBinding[] = [
+        {
+          id: "implement-then-repair",
+          metadata: { agent: "codex", model: "test" },
+          invoke: async ({ cwd }) => {
+            agentCalls += 1;
+            if (agentCalls === 1) {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ];
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        verifyDiffDerivedMutations: mockVerifyPass,
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError(
+            "operator-flip: === → !==",
+            "src/test.ts",
+            42,
+            ["src/test.test.ts"],
+            "passed-unconfirmed",
+          );
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(countMutationRepairHarnessSessions(sessionsDir, result.runId)).toBe(1);
+      expect(logSink.getEventsForRun(result.runId)).not.toContain("mutation_repair_exhausted");
+    });
+
+    test("publication mutation repair honors persisted attempt count for the shared budget", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "shared-mutation-repair-budget";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      writeMutationRepairAttemptsConsumed(store, runId, 2);
+      const sessionsDir = join(jarvisRoot, "sessions");
+      try {
+        await publishWithReadyRepair(
+          {
+            worktree: {
+              projectRoot: "/fake",
+              projectName: "demo",
+              branchName,
+              baseRef: "HEAD",
+              jarvisRoot,
+            },
+            specPath: "spec.md",
+            stepRules: "repair",
+            expectedArtifactPath: "proof.txt",
+            bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+            stateStore: store,
+            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+            sessionsDir,
+            verifyDiffDerivedMutations: mockVerifyPass,
+            completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {
+              throw new SurvivingMutationError(
+                "operator-flip: === → !==",
+                "src/test.ts",
+                42,
+                ["src/test.test.ts"],
+                "passed-unconfirmed",
+              );
+            },
+          },
+          store,
+          { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+          0,
+          {
+            worktreePath,
+            baseRef: "HEAD",
+            specPath: "spec.md",
+            branch: branchName,
+          },
+        );
+        expect(readMutationRepairAttemptsConsumed(store, runId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
+        expect(countMutationRepairHarnessSessions(sessionsDir, runId)).toBe(1);
+        let sessionText = "";
+        const walkSessions = (dir: string): void => {
+          for (const entry of readdirSync(dir)) {
+            const path = join(dir, entry);
+            if (lstatSync(path).isDirectory()) {
+              walkSessions(path);
+              continue;
+            }
+            const content = readFileSync(path, "utf8");
+            if (content.includes(`run=${runId}`) && content.includes("mutation-repair=")) {
+              sessionText = content;
+            }
+          }
+        };
+        walkSessions(sessionsDir);
+        expect(sessionText).toContain("mutation-repair=3");
+        expect(sessionText).not.toContain("mutation-repair=1");
+      } finally {
+        store.close();
+      }
     });
 
     test("returns runtime_smoke_failed when runtime smoke verification fails", async () => {

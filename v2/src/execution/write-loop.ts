@@ -63,6 +63,7 @@ import {
 import {
   biomeEligiblePaths,
   type CompletionCommitter,
+  type CompletionStepMetadata,
   completionStageArgs,
   createCompletionCommitter,
   isHarnessTransientRootSidecar,
@@ -81,7 +82,12 @@ import {
   type VerificationResult,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
-import { type ExternalSpecGitScope, excludeExternalSpecGitPaths, externalSpecGitScope } from "./external-spec-git.ts";
+import {
+  type ExternalSpecGitScope,
+  excludeExternalSpecGitPaths,
+  externalSpecGitScope,
+  withExternalSpecTreeReadOnly,
+} from "./external-spec-git.ts";
 import { getExternalWorktreePath, isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
@@ -118,6 +124,7 @@ import { reconcileReviewFeedbackItemsAtLaneWorktree } from "./review-feedback-it
 import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
+import { throwIfAborted } from "./throw-if-aborted.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { type CoverageRunSkipReason, reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
@@ -3469,7 +3476,10 @@ export function appendRuntimeSmokeOutcome(
   }
 }
 
-type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
+type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1] & {
+  /** When true, `surviving_mutation_failed` returns without the publication in-flow repair loop (resume republish). */
+  skipPublicationMutationRepairLoop?: boolean;
+};
 type CompletionPublishOutcome = CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" });
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
@@ -3591,6 +3601,294 @@ export async function runMutationRepairIteration(
     runStatus: boundary.runStatus,
   });
   return stepResult.kind === "blocked" ? "blocked" : "continue";
+}
+
+function mutationRepairAttemptsBudgetKey(runId: string): string {
+  return `mutation-repair-attempts:${runId}`;
+}
+
+export function readMutationRepairAttemptsConsumed(store: StateStore, runId: string): number {
+  return store.readRunBudgetConsumedMs(mutationRepairAttemptsBudgetKey(runId));
+}
+
+export function writeMutationRepairAttemptsConsumed(store: StateStore, runId: string, consumed: number): void {
+  store.writeRunBudgetConsumedMs(mutationRepairAttemptsBudgetKey(runId), consumed);
+}
+
+export type MutationRepairPublicationAttemptResult =
+  | { kind: "retry"; mutationError: SurvivingMutationError }
+  | { kind: "repair_blocked" }
+  | { kind: "repair_unsettled" }
+  | { kind: "completion_commit_failed"; message: string }
+  | { kind: "publication_failure"; failure: CompletionPublishFailure; readyGateOrigin?: ReadyGateOrigin }
+  | { kind: "complete"; success: CompletionPublishSuccess; iterationsConsumed: number };
+
+/** Commit → push-only → reverification → optional `publishWithReadyRepair` for one mutation-repair attempt. */
+export async function runMutationRepairPublicationAttempt(options: {
+  repairArgs: WriteLoopInput;
+  store: StateStore;
+  runId: string;
+  worktreePath: string;
+  baseRef: string;
+  specPath: string;
+  branch: string;
+  creationTitle: string;
+  bodySummary?: string;
+  specTemplate?: boolean;
+  completionAgent?: string;
+  externalSpec: ExternalSpecGitScope;
+  requiredIntegrationScope?: string;
+  leaseFromSha?: string;
+  mutationError: SurvivingMutationError;
+  attempt: number;
+  skipPublicationMutationRepairLoop: boolean;
+  beforeRepairCommit?: () => Promise<void>;
+  iterationTimeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<MutationRepairPublicationAttemptResult> {
+  const {
+    repairArgs,
+    store,
+    runId,
+    worktreePath,
+    baseRef,
+    specPath,
+    branch,
+    creationTitle,
+    mutationError,
+    attempt,
+    externalSpec,
+  } = options;
+  const result: WriteLoopResult = {
+    kind: "complete",
+    runId,
+    iterationsConsumed: attempt - 1,
+    resumable: false,
+    ...(options.completionAgent !== undefined ? { completionAgent: options.completionAgent } : {}),
+  };
+  const repairOutcome = await withExternalSpecTreeReadOnly(externalSpec, [], () =>
+    runMutationRepairIteration(repairArgs, store, result, mutationError, attempt),
+  );
+  if (repairOutcome === "blocked") return { kind: "repair_blocked" };
+  if (repairOutcome === "unsettled") return { kind: "repair_unsettled" };
+
+  if (options.beforeRepairCommit !== undefined) {
+    await options.beforeRepairCommit();
+  }
+
+  const mutationRepairStep: CompletionStepMetadata = { kind: "mutation-repair" };
+  try {
+    await (repairArgs.completionCommitter ?? createCompletionCommitter())({
+      worktreePath,
+      baseRef,
+      specPath,
+      agent: options.completionAgent ?? "",
+      allowBranchTrailerFallback: true,
+      title: renderStepCommitTitle(mutationRepairStep, creationTitle),
+      iterationTimeoutMs: options.iterationTimeoutMs ?? repairArgs.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+      step: mutationRepairStep,
+      ...externalSpec,
+    });
+  } catch (error) {
+    return { kind: "completion_commit_failed", message: errorMessage(error) };
+  }
+
+  const pushOnly = await publishCompletionArtifacts(
+    { ...repairArgs, skipReadyFinalization: true },
+    {
+      worktreePath,
+      baseRef,
+      specPath,
+      branch,
+      creationTitle,
+      ...(options.bodySummary !== undefined ? { bodySummary: options.bodySummary } : {}),
+      ...(options.specTemplate === true ? { specTemplate: true } : {}),
+      ...externalSpec,
+      ...(options.leaseFromSha !== undefined ? { leaseFromSha: options.leaseFromSha } : {}),
+    },
+    undefined,
+    undefined,
+    { runId, store },
+  );
+  if (options.signal?.aborted) {
+    throwIfAborted(options.signal);
+  }
+  if (pushOnly.kind !== "success") {
+    return {
+      kind: "publication_failure",
+      failure: pushOnly,
+    };
+  }
+
+  const verify = repairArgs.verifyDiffDerivedMutations ?? verifyDiffDerivedMutations;
+  const verification = await verify({
+    worktreePath,
+    runBase: baseRef,
+  });
+  if (verification.kind === "surviving-mutation") {
+    return {
+      kind: "retry",
+      mutationError: new SurvivingMutationError(
+        verification.mutation,
+        verification.sourceSite.file,
+        verification.sourceSite.line,
+        verification.killingTests,
+        verification.killingSetObservedResult,
+        verification.dualConstraint,
+      ),
+    };
+  }
+
+  if (options.signal?.aborted) {
+    throwIfAborted(options.signal);
+  }
+  const publication = await publishWithReadyRepair(repairArgs, store, result, attempt, {
+    worktreePath,
+    baseRef,
+    specPath,
+    branch,
+    creationTitle,
+    ...(options.bodySummary !== undefined ? { bodySummary: options.bodySummary } : {}),
+    ...(options.specTemplate === true ? { specTemplate: true } : {}),
+    ...externalSpec,
+    ...(options.requiredIntegrationScope !== undefined
+      ? { requiredIntegrationScope: options.requiredIntegrationScope }
+      : {}),
+    ...(options.leaseFromSha !== undefined ? { leaseFromSha: options.leaseFromSha } : {}),
+    skipPublicationMutationRepairLoop: options.skipPublicationMutationRepairLoop,
+  });
+  if (options.signal?.aborted) {
+    throwIfAborted(options.signal);
+  }
+  if (
+    publication.failure?.kind === "surviving_mutation_failed" &&
+    publication.failure.error instanceof SurvivingMutationError
+  ) {
+    return { kind: "retry", mutationError: publication.failure.error };
+  }
+  if (publication.failure !== undefined) {
+    return {
+      kind: "publication_failure",
+      failure: publication.failure,
+      ...(publication.readyGateOrigin !== undefined ? { readyGateOrigin: publication.readyGateOrigin } : {}),
+    };
+  }
+  if (publication.success === undefined) {
+    return {
+      kind: "publication_failure",
+      failure: { kind: "completion_commit_failed", error: new Error("publication succeeded without payload") },
+    };
+  }
+  return {
+    kind: "complete",
+    success: publication.success,
+    iterationsConsumed: publication.iterationsConsumed,
+  };
+}
+
+function survivingMutationFailureOutcome(
+  error: SurvivingMutationError,
+  source: Pick<CompletionPublishFailure, "prNumber" | "prUrl">,
+): CompletionPublishFailure {
+  return {
+    kind: "surviving_mutation_failed",
+    error,
+    ...(source.prNumber !== undefined ? { prNumber: source.prNumber } : {}),
+    ...(source.prUrl !== undefined ? { prUrl: source.prUrl } : {}),
+  };
+}
+
+async function dispatchSurvivingMutationPublicationOutcome(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  input: CompletionPublishInput,
+  outcome: CompletionPublishFailure,
+  iterationsConsumed: number,
+): Promise<ReadyRepairPublishResult> {
+  if (
+    outcome.kind !== "surviving_mutation_failed" ||
+    input.skipPublicationMutationRepairLoop === true ||
+    args.bindings.length === 0 ||
+    !(outcome.error instanceof SurvivingMutationError)
+  ) {
+    return buildReadyRepairPublishResult(outcome, iterationsConsumed);
+  }
+  return runPublicationMutationRepairLoop(args, store, result, input, outcome.error, iterationsConsumed, outcome);
+}
+
+async function runPublicationMutationRepairLoop(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  input: CompletionPublishInput,
+  initialError: SurvivingMutationError,
+  iterationsConsumed: number,
+  initialOutcome: CompletionPublishFailure,
+): Promise<ReadyRepairPublishResult> {
+  let mutationError = initialError;
+  const consumedBefore = readMutationRepairAttemptsConsumed(store, result.runId);
+  const externalSpec = externalSpecGitScope(args);
+  const creationTitle =
+    typeof input.creationTitle === "string" ? input.creationTitle : resolvePublicationTitleFromInput(input, args);
+
+  for (let attempt = consumedBefore + 1; attempt <= MAX_MUTATION_REPAIR_ATTEMPTS; attempt += 1) {
+    const attemptResult = await runMutationRepairPublicationAttempt({
+      repairArgs: args,
+      store,
+      runId: result.runId,
+      worktreePath: input.worktreePath,
+      baseRef: input.baseRef,
+      specPath: input.specPath,
+      branch: input.branch,
+      creationTitle,
+      ...(input.bodySummary !== undefined ? { bodySummary: input.bodySummary } : {}),
+      ...(input.specTemplate === true ? { specTemplate: true } : {}),
+      ...(result.completionAgent !== undefined ? { completionAgent: result.completionAgent } : {}),
+      externalSpec,
+      ...(input.requiredIntegrationScope !== undefined
+        ? { requiredIntegrationScope: input.requiredIntegrationScope }
+        : {}),
+      ...(input.leaseFromSha !== undefined ? { leaseFromSha: input.leaseFromSha } : {}),
+      mutationError,
+      attempt,
+      skipPublicationMutationRepairLoop: true,
+      ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
+      ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    });
+    writeMutationRepairAttemptsConsumed(store, result.runId, attempt);
+
+    if (attemptResult.kind === "complete") {
+      return { success: attemptResult.success, iterationsConsumed: attemptResult.iterationsConsumed };
+    }
+    if (attemptResult.kind === "retry") {
+      mutationError = attemptResult.mutationError;
+      continue;
+    }
+    if (attemptResult.kind === "repair_blocked" || attemptResult.kind === "repair_unsettled") {
+      return buildReadyRepairPublishResult(
+        survivingMutationFailureOutcome(mutationError, initialOutcome),
+        iterationsConsumed,
+      );
+    }
+    if (attemptResult.kind === "completion_commit_failed") {
+      return buildReadyRepairPublishResult(
+        { kind: "completion_commit_failed", error: new Error(attemptResult.message) },
+        iterationsConsumed,
+      );
+    }
+    return buildReadyRepairPublishResult(attemptResult.failure, iterationsConsumed, attemptResult.readyGateOrigin);
+  }
+
+  return buildReadyRepairPublishResult(
+    survivingMutationFailureOutcome(mutationError, initialOutcome),
+    iterationsConsumed,
+  );
+}
+
+function resolvePublicationTitleFromInput(input: CompletionPublishInput, args: WriteLoopInput): string {
+  if (typeof input.creationTitle === "string") return input.creationTitle;
+  return resolvePublicationTitle(getExternalWorktreePath(args.worktree), input.specPath, input.creationTitle);
 }
 
 async function classifyReadyGatePublishFailure(
@@ -4314,6 +4612,9 @@ export async function publishWithReadyRepair(
   }
   if (!isActiveReadyGateFailure(outcome)) {
     appendReadyGateTimeoutLog(args, result.runId, outcome);
+    if (outcome.kind === "surviving_mutation_failed") {
+      return dispatchSurvivingMutationPublicationOutcome(args, store, result, input, outcome, iterationsConsumed);
+    }
     return buildReadyRepairPublishResult(outcome, iterationsConsumed);
   }
   if (args.signal?.aborted) return buildReadyRepairPublishResult(outcome, iterationsConsumed);
@@ -4403,6 +4704,9 @@ export async function publishWithReadyRepair(
   outcome = autofixRepublish.outcome;
   if (!isActiveReadyGateFailure(outcome)) {
     appendReadyGateTimeoutLog(args, result.runId, outcome);
+    if (outcome.kind === "surviving_mutation_failed") {
+      return dispatchSurvivingMutationPublicationOutcome(args, store, result, input, outcome, iterationsConsumed);
+    }
     return buildReadyRepairPublishResult(outcome, iterationsConsumed);
   }
 

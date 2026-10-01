@@ -98,7 +98,9 @@ import {
   type PersistedRepairFenceEnforcer,
   publishCompletionArtifacts,
   publishWithReadyRepair,
-  runMutationRepairIteration,
+  readMutationRepairAttemptsConsumed,
+  runMutationRepairPublicationAttempt,
+  writeMutationRepairAttemptsConsumed,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
@@ -2308,7 +2310,8 @@ async function runMutationRepairContinuation(
   });
 
   let mutationError = initialError;
-  for (let attempt = 1; attempt <= MAX_MUTATION_REPAIR_ATTEMPTS; attempt += 1) {
+  const consumedBefore = readMutationRepairAttemptsConsumed(store, context.runId);
+  for (let attempt = consumedBefore + 1; attempt <= MAX_MUTATION_REPAIR_ATTEMPTS; attempt += 1) {
     const attemptResult = await runMutationRepairAttempt(
       context,
       store,
@@ -2318,6 +2321,7 @@ async function runMutationRepairContinuation(
       deps,
       body,
     );
+    writeMutationRepairAttemptsConsumed(store, context.runId, attempt);
     if (attemptResult.kind === "retry") {
       mutationError = attemptResult.mutationError;
       continue;
@@ -2348,17 +2352,51 @@ async function runMutationRepairAttempt(
   deps: ReviewMutationResumeDeps,
   body: { bodySummary: string | undefined; specTemplate: boolean },
 ): Promise<MutationRepairAttemptResult> {
-  const result: WriteLoopResult = {
-    kind: "complete",
-    runId: context.runId,
-    iterationsConsumed: attempt - 1,
-    resumable: false,
-    ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
-  };
-  const repairOutcome = await withExternalSpecTreeReadOnly(externalSpecGitScope(context), [], () =>
-    runMutationRepairIteration(repairArgs, store, result, mutationError, attempt),
-  );
-  if (repairOutcome === "blocked") {
+  const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
+  let attemptResult: Awaited<ReturnType<typeof runMutationRepairPublicationAttempt>>;
+  try {
+    attemptResult = await runMutationRepairPublicationAttempt({
+      repairArgs,
+      store,
+      runId: context.runId,
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+      branch: context.branch,
+      creationTitle,
+      ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
+      ...(body.specTemplate ? { specTemplate: true } : {}),
+      ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+      externalSpec: externalSpecGitScope(context),
+      ...reviewMutationRequiredIntegrationScope(context),
+      ...leaseFromShaField(context),
+      mutationError,
+      attempt,
+      skipPublicationMutationRepairLoop: true,
+      beforeRepairCommit: () => admitRunForResumeOrThrow(store, context.runId),
+      ...(deps.mutationRepair?.iterationTimeoutMs !== undefined
+        ? { iterationTimeoutMs: deps.mutationRepair.iterationTimeoutMs }
+        : {}),
+      ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+    });
+  } catch (error) {
+    if (deps.signal?.aborted) throw error;
+    return {
+      kind: "settled",
+      outcome: await settlePublicationResumeFailure(
+        store,
+        context,
+        store.recordAttemptStart(context.runId),
+        "completion_commit_failed",
+        0,
+        errorMessage(error),
+        deps.logSink,
+        REVIEW_MUTATION_RESUME_POLICY,
+      ),
+    };
+  }
+
+  if (attemptResult.kind === "repair_blocked") {
     return {
       kind: "settled",
       outcome: await settleMutationRepairExhausted(
@@ -2371,7 +2409,7 @@ async function runMutationRepairAttempt(
       ),
     };
   }
-  if (repairOutcome === "unsettled") {
+  if (attemptResult.kind === "repair_unsettled") {
     return {
       kind: "settled",
       outcome: await settleMutationRepairExhausted(
@@ -2384,24 +2422,7 @@ async function runMutationRepairAttempt(
       ),
     };
   }
-
-  await admitRunForResumeOrThrow(store, context.runId);
-  const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
-  const mutationRepairStep: CompletionStepMetadata = { kind: "mutation-repair" };
-  try {
-    await (deps.completionCommitter ?? createCompletionCommitter())({
-      worktreePath: context.worktreePath,
-      baseRef: context.baseRef,
-      specPath: context.specPath,
-      agent: context.completionAgent ?? "",
-      allowBranchTrailerFallback: true,
-      title: renderStepCommitTitle(mutationRepairStep, creationTitle),
-      iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
-      step: mutationRepairStep,
-      ...externalSpecGitScope(context),
-    });
-  } catch (error) {
-    const message = errorMessage(error);
+  if (attemptResult.kind === "completion_commit_failed") {
     return {
       kind: "settled",
       outcome: await settlePublicationResumeFailure(
@@ -2410,125 +2431,53 @@ async function runMutationRepairAttempt(
         store.recordAttemptStart(context.runId),
         "completion_commit_failed",
         0,
-        message,
+        attemptResult.message,
         deps.logSink,
         REVIEW_MUTATION_RESUME_POLICY,
       ),
     };
   }
-
-  // Push the repair commit (draft PR only, no ready flip) before verification can retry or settle.
-  const pushOnly = await publishCompletionArtifacts(
-    { ...repairArgs, skipReadyFinalization: true },
-    {
-      worktreePath: context.worktreePath,
-      baseRef: context.baseRef,
-      specPath: context.specPath,
-      branch: context.branch,
-      creationTitle,
-      ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
-      ...(body.specTemplate ? { specTemplate: true } : {}),
-      ...externalSpecGitScope(context),
-      ...leaseFromShaField(context),
-    },
-    undefined,
-    undefined,
-    { runId: context.runId, store },
-  );
-  throwIfAborted(deps.signal);
-  if (pushOnly.kind !== "success") {
+  if (attemptResult.kind === "retry") {
+    return { kind: "retry", mutationError: attemptResult.mutationError };
+  }
+  if (attemptResult.kind === "publication_failure") {
+    appendRuntimeSmokeOutcome(deps.logSink, context.runId, attemptResult.failure.runtimeSmokeOutcome);
     return {
       kind: "settled",
       outcome: await settlePublicationResumeFailure(
         store,
         context,
         store.recordAttemptStart(context.runId),
-        pushOnly.kind,
+        attemptResult.failure.kind,
         0,
-        pushOnly.error?.message ?? pushOnly.kind,
+        attemptResult.failure.error?.message ?? attemptResult.failure.kind,
         deps.logSink,
         REVIEW_MUTATION_RESUME_POLICY,
       ),
     };
   }
 
-  const verification = await verifyDiffDerivedMutations({
-    worktreePath: context.worktreePath,
-    runBase: context.baseRef,
-  });
-  if (verification.kind === "surviving-mutation") {
-    return {
-      kind: "retry",
-      mutationError: new SurvivingMutationError(
-        verification.mutation,
-        verification.sourceSite.file,
-        verification.sourceSite.line,
-        verification.killingTests,
-        verification.killingSetObservedResult,
-        verification.dualConstraint,
-      ),
-    };
-  }
-
-  // No push/PR/gate once `run kill` aborted the resumed tail.
-  throwIfAborted(deps.signal);
-  const publication = await publishWithReadyRepair(repairArgs, store, result, attempt, {
-    worktreePath: context.worktreePath,
-    baseRef: context.baseRef,
-    specPath: context.specPath,
-    branch: context.branch,
-    creationTitle,
-    ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
-    ...(body.specTemplate ? { specTemplate: true } : {}),
-    ...externalSpecGitScope(context),
-    ...reviewMutationRequiredIntegrationScope(context),
-    ...leaseFromShaField(context),
-  });
-  throwIfAborted(deps.signal);
-  if (
-    publication.failure?.kind === "surviving_mutation_failed" &&
-    publication.failure.error instanceof SurvivingMutationError
-  ) {
-    return { kind: "retry", mutationError: publication.failure.error };
-  }
-  if (publication.failure !== undefined) {
-    appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.failure.runtimeSmokeOutcome);
-    return {
-      kind: "settled",
-      outcome: await settlePublicationResumeFailure(
-        store,
-        context,
-        store.recordAttemptStart(context.runId),
-        publication.failure.kind,
-        0,
-        publication.failure.error?.message ?? publication.failure.kind,
-        deps.logSink,
-        REVIEW_MUTATION_RESUME_POLICY,
-      ),
-    };
-  }
-
+  appendRuntimeSmokeOutcome(deps.logSink, context.runId, attemptResult.success.runtimeSmokeOutcome);
   const finalAttemptId = store.recordAttemptStart(context.runId);
-  appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
   store.commitCompletionBoundary({
     attemptId: finalAttemptId,
     runStatus: "completed",
     outcomeKind: "done",
-    ...completedPublicationBoundaryFields(publication.success),
+    ...completedPublicationBoundaryFields(attemptResult.success),
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   });
   deps.logSink?.append(context.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "complete",
-    iterationsConsumed: publication.iterationsConsumed,
+    iterationsConsumed: attemptResult.iterationsConsumed,
     resumable: false,
   });
   return {
     kind: "settled",
     outcome: {
       ok: true,
-      ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
-      ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
+      ...(attemptResult.success.prNumber !== undefined ? { prNumber: attemptResult.success.prNumber } : {}),
+      ...(attemptResult.success.prUrl !== undefined ? { prUrl: attemptResult.success.prUrl } : {}),
     },
   };
 }
@@ -2713,6 +2662,7 @@ async function runReviewMutationCommitAndPublish(
       ...externalSpecGitScope(context),
       ...reviewMutationRequiredIntegrationScope(context),
       ...leaseFromShaField(context),
+      skipPublicationMutationRepairLoop: true,
     },
   );
   throwIfAborted(deps.signal);

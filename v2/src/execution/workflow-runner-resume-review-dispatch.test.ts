@@ -19,6 +19,7 @@ import type { PipelineDefinition } from "./pipeline-definition.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { validateReadyIntent } from "./publication-workflow-steps.ts";
 import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { MAX_MUTATION_REPAIR_ATTEMPTS } from "./write-loop.ts";
 import {
   config,
   createBindingFactory,
@@ -2380,7 +2381,7 @@ describe("executeWorkflow review dispatch", () => {
 
       expect(result.kind).toBe("surviving_mutation_failed");
       expect(result.resumable).toBe(true);
-      expect(verifyCalls()).toBe(2);
+      expect(verifyCalls()).toBe(1 + MAX_MUTATION_REPAIR_ATTEMPTS + 1);
 
       const reviewRun = store.findRunByProjectBranch({
         project: "demo",
@@ -2431,7 +2432,7 @@ describe("executeWorkflow review dispatch", () => {
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
-      expect(verifyCalls()).toBe(2);
+      expect(verifyCalls()).toBe(1 + MAX_MUTATION_REPAIR_ATTEMPTS + 1);
       const invocationsAfterPublicationFailure = implementInvocations();
 
       const implementRun = store.findRunByProjectBranch({

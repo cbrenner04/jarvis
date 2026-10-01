@@ -14,6 +14,7 @@ A write-step agent can rebase, reset, or amend the lane during an iteration. Rea
 - On rewrite: `git reset --keep <pre-iteration HEAD>`, log `agent_history_rewrite_reverted` with `fromSha`/`toSha`, then continue the iteration. When `reset --keep` fails, settle resumable `completion_commit_failed` naming both SHAs and push nothing.
 - Descendant `HEAD` moves from agent-created commits are not rewrites.
 - Publisher lease authorization (`leaseFromSha` only) is unchanged.
+- `write-loop-ready-repair.test.ts` is a normal `test:v2` execution test (not `*.sandbox-unrunnable.test.ts`).
 
 ## Acceptance criteria
 

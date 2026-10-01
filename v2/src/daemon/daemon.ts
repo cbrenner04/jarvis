@@ -1812,11 +1812,13 @@ export async function startDaemonRuntime(
     store,
     readSinkCommand: readSink,
     wakeNotificationWaiters,
+    logReader: logReaderInstance,
     ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
   const notificationSweepState = { sweepInProgress: false };
   reconcileNotificationKeyFormat({
     store,
+    logReader: logReaderInstance,
     daemonStartedAtMs: Date.now() - Math.round(process.uptime() * 1000),
   });
   runNotificationSweep(notificationSweepDeps);

@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
+import type { LogReader } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import {
   deriveOperatorIncidents,
+  type DeriveOperatorIncidentsOptions,
   NOTIFICATION_KEY_FORMAT_VERSION,
   type OperatorIncident,
   serializeOperatorIncident,
 } from "./operator-incidents.ts";
+import { findTerminalLogRecord, type TerminalLogRecord } from "./run-operator-error.ts";
 
 export const NOTIFICATION_SWEEP_INTERVAL_MS = 5_000;
 
@@ -36,7 +39,27 @@ export type NotificationSweepDeps = {
   spawnSink?: NotificationSinkSpawner;
   nowMs?: () => number;
   wakeNotificationWaiters?: (store: StateStore) => void;
+  logReader?: LogReader;
+  deriveOperatorIncidentsOptions?: DeriveOperatorIncidentsOptions;
 };
+
+/** Terminal `loop_finished` lane signal for notification derivation (same source as run list/wait). */
+export function notificationSweepDeriveOptions(
+  deps: Pick<NotificationSweepDeps, "logReader" | "deriveOperatorIncidentsOptions">,
+): DeriveOperatorIncidentsOptions {
+  const explicit = deps.deriveOperatorIncidentsOptions ?? {};
+  const fromLog =
+    deps.logReader === undefined
+      ? undefined
+      : (runId: string): TerminalLogRecord | undefined => findTerminalLogRecord(deps.logReader!.tail(runId));
+  const explicitForRun = explicit.terminalLogRecordForRun;
+  if (fromLog === undefined) return explicit;
+  if (explicitForRun === undefined) return { ...explicit, terminalLogRecordForRun: fromLog };
+  return {
+    ...explicit,
+    terminalLogRecordForRun: (runId) => explicitForRun(runId) ?? fromLog(runId),
+  };
+}
 
 function deliverIncident(
   store: StateStore,
@@ -105,15 +128,18 @@ export function isPreStartIncident(incident: Pick<OperatorIncident, "sinceMs">, 
  * boot sweep; a store already at the current version is untouched.
  */
 export function reconcileNotificationKeyFormat(
-  deps: Pick<NotificationSweepDeps, "store" | "nowMs"> & { daemonStartedAtMs: number },
+  deps: Pick<NotificationSweepDeps, "store" | "nowMs" | "logReader" | "deriveOperatorIncidentsOptions"> & {
+    daemonStartedAtMs: number;
+  },
 ): { suppressed: number } | null {
   const store = deps.store;
   if (store.isClosed()) return null;
   if (store.loadNotificationKeyFormatVersion() === NOTIFICATION_KEY_FORMAT_VERSION) return null;
 
   const nowMs = deps.nowMs?.() ?? Date.now();
+  const deriveOptions = notificationSweepDeriveOptions(deps);
   let suppressed = 0;
-  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+  for (const incident of deriveOperatorIncidents(store, nowMs, deriveOptions)) {
     if (!isPreStartIncident(incident, deps.daemonStartedAtMs)) continue;
     const { incidentId, transition } = incident;
     if (store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt: nowMs })) suppressed += 1;
@@ -132,7 +158,8 @@ export function runNotificationSweep(deps: NotificationSweepDeps): void {
   const nowMs = deps.nowMs?.() ?? Date.now();
 
   const wakeNotificationWaiters = deps.wakeNotificationWaiters;
-  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+  const deriveOptions = notificationSweepDeriveOptions(deps);
+  for (const incident of deriveOperatorIncidents(store, nowMs, deriveOptions)) {
     deliverIncident(store, incident, sinkCommand, spawnSink, nowMs, wakeNotificationWaiters);
   }
   wakeNotificationWaiters?.(store);

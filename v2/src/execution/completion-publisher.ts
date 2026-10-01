@@ -52,7 +52,7 @@ export type CompletionPublisherInput = ExternalSpecGitScope & {
 
 export type LanePrOutcome = { kind: "lane_pr_closed"; prNumber: number } | { kind: "lane_pr_merged"; prNumber: number };
 
-export type CompletionPublisherResult = {
+type CompletionPublisherResult = {
   pushSha?: string;
   prNumber?: number;
   prUrl?: string;

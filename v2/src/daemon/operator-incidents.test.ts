@@ -995,6 +995,13 @@ test("terminal pipeline with publication failure emits pipeline-terminal when a 
   const incidents = deriveOperatorIncidents(store);
   expect(incidents.some((row) => row.kind === "publication-failure")).toBe(false);
   expect(incidents).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId, cause: "failed" })]);
+  store.tryRecordNotificationDelivery({
+    incidentId: `pipeline:${pipelineId}`,
+    transition: "publication-failed",
+    deliveredAt: 1,
+  });
+  // In `previewPipelineIncidentKeys`, flipping `pipelineSettledLanePrOutcome(pipeline) === undefined` to `!==` treats `publication-failed` as the only preview key and suppresses the pipeline after that stale delivery.
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
 });
 
 test("a succeeded implement stage with lanePrOutcome and null endedAt derives no stage-succeeded incident", () => {

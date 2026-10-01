@@ -217,6 +217,7 @@ function parsePipelineResumeArgs(argv: readonly string[]):
       pipelineId: string;
       branchKey?: string;
       addressReviewStageId?: string;
+      allowLanePrRepublish?: true;
     } & PipelineStaleResetOverrideFlags)
   | { ok: false } {
   let values: Record<string, string | boolean | undefined>;
@@ -241,6 +242,8 @@ function parsePipelineResumeArgs(argv: readonly string[]):
   if (branchKey !== undefined && branchKey.trim().length === 0) return { ok: false };
 
   const staleReset = readStaleResetOverrideFlags(values);
+  const allowLanePrRepublish =
+    values["allow-lane-pr-republish"] === true ? { allowLanePrRepublish: true as const } : {};
   const addressReviewRaw = values["address-review"];
   if (addressReviewRaw !== undefined) {
     if (staleReset.resetDespiteDirty || staleReset.resetDespiteLandedCriteria) return { ok: false };
@@ -250,6 +253,7 @@ function parsePipelineResumeArgs(argv: readonly string[]):
       pipelineId,
       ...(branchKey !== undefined ? { branchKey } : {}),
       addressReviewStageId: addressReviewRaw,
+      ...allowLanePrRepublish,
     };
   }
 
@@ -258,6 +262,7 @@ function parsePipelineResumeArgs(argv: readonly string[]):
     pipelineId,
     ...(branchKey !== undefined ? { branchKey } : {}),
     ...staleReset,
+    ...allowLanePrRepublish,
   };
 }
 
@@ -944,6 +949,40 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
   return runPipelineControlSubcommand(subcommand, argv, io, deps);
 }
 
+async function runPipelineResumeControlCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const parsed = parsePipelineResumeArgs(argv);
+  if (!parsed.ok) {
+    io.stderr(PIPELINE_RESUME_USAGE);
+    return 1;
+  }
+  if (parsed.addressReviewStageId !== undefined) {
+    return runPipelineStageReviewFeedbackLaunchCommand(
+      {
+        pipelineId: parsed.pipelineId,
+        stageId: parsed.addressReviewStageId,
+        ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
+      },
+      io,
+      deps,
+    );
+  }
+  return runPipelineMutationCommand(
+    "pipeline_resume",
+    parsed.pipelineId,
+    // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped resume RPC test RED.
+    {
+      pipelineId: parsed.pipelineId,
+      ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
+      ...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+      ...(parsed.resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+      ...(parsed.allowLanePrRepublish ? { allowLanePrRepublish: true } : {}),
+    },
+    "resumed",
+    io,
+    deps,
+  );
+}
+
 /** Tail of the pipeline dispatcher: resume/recover/dismiss/undismiss and the usage fallback,
  * split out of {@link runPipelineCommand} to keep each under the cognitive-complexity budget. */
 async function runPipelineControlSubcommand(
@@ -953,36 +992,7 @@ async function runPipelineControlSubcommand(
   deps: CliDeps,
 ): Promise<number> {
   if (subcommand === "resume") {
-    const parsed = parsePipelineResumeArgs(argv.slice(1));
-    if (!parsed.ok) {
-      io.stderr(PIPELINE_RESUME_USAGE);
-      return 1;
-    }
-    if (parsed.addressReviewStageId !== undefined) {
-      return runPipelineStageReviewFeedbackLaunchCommand(
-        {
-          pipelineId: parsed.pipelineId,
-          stageId: parsed.addressReviewStageId,
-          ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
-        },
-        io,
-        deps,
-      );
-    }
-    return runPipelineMutationCommand(
-      "pipeline_resume",
-      parsed.pipelineId,
-      // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped resume RPC test RED.
-      {
-        pipelineId: parsed.pipelineId,
-        ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
-        ...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {}),
-        ...(parsed.resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
-      },
-      "resumed",
-      io,
-      deps,
-    );
+    return runPipelineResumeControlCommand(argv.slice(1), io, deps);
   }
   if (subcommand === "recover") {
     const parsed = parsePipelineRecoverArgs(argv.slice(1));

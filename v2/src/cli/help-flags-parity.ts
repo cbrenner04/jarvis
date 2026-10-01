@@ -18,6 +18,7 @@ import {
   RUN_KILL_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
   RUN_LOG_PARSE_ARG_OPTIONS,
+  RUN_RESUME_PARSE_ARG_OPTIONS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
 import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
@@ -41,6 +42,8 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parityFlagsFromParseOptions(RUN_LOG_PARSE_ARG_OPTIONS);
     case "run kill":
       return parseOptionKeysToLongFlags(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS));
+    case "run resume":
+      return parseOptionKeysToLongFlags(Object.keys(RUN_RESUME_PARSE_ARG_OPTIONS));
     case "run dismiss":
       return parseOptionKeysToLongFlags(Object.keys(RUN_DISMISS_PARSE_ARG_OPTIONS));
     case "daemon log":

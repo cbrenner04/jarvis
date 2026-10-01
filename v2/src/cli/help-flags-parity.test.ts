@@ -3,8 +3,11 @@ import {
   INIT_HELP_FLAGS,
   INIT_PARSE_ARG_OPTIONS,
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
+  PIPELINE_RESUME_HELP_FLAGS,
   RUN_KILL_HELP_FLAGS,
   RUN_KILL_PARSE_ARG_OPTIONS,
+  RUN_RESUME_HELP_FLAGS,
+  RUN_RESUME_PARSE_ARG_OPTIONS,
   WRITE_HELP_FLAGS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
@@ -88,5 +91,18 @@ describe("help flag parser parity", () => {
     expect(parserFlags).toEqual(["--force"]);
     expect(parserFlags).toEqual(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS).map((key) => `--${key}`));
     expect(missingParserFlagsInHelp(parserFlags, RUN_KILL_HELP_FLAGS)).toEqual([]);
+  });
+
+  test("run resume parser and help flags stay aligned", () => {
+    const parserFlags = parserAcceptedLongFlags(["run", "resume"]);
+    expect(parserFlags).toEqual(["--allow-lane-pr-republish"]);
+    expect(parserFlags).toEqual(Object.keys(RUN_RESUME_PARSE_ARG_OPTIONS).map((key) => `--${key}`));
+    expect(missingParserFlagsInHelp(parserFlags, RUN_RESUME_HELP_FLAGS)).toEqual([]);
+  });
+
+  test("pipeline resume parser and help flags stay aligned", () => {
+    const parserFlags = parserAcceptedLongFlags(["pipeline", "resume"]);
+    expect(parserFlags).toContain("--allow-lane-pr-republish");
+    expect(missingParserFlagsInHelp(parserFlags, PIPELINE_RESUME_HELP_FLAGS)).toEqual([]);
   });
 });

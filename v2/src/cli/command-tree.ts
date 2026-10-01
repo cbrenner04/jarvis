@@ -11,6 +11,7 @@ import {
   RUN_KILL_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
   RUN_LOG_HELP_FLAGS,
+  RUN_RESUME_HELP_FLAGS,
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
   WORKFLOW_INTENT_HELP_FLAGS,
   WORKFLOW_PLAN_HELP_FLAGS,
@@ -41,6 +42,7 @@ import {
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
+  RUN_RESUME_USAGE,
   RUN_START_USAGE,
   RUN_UNDISMISS_USAGE,
   RUN_USAGE,
@@ -155,6 +157,8 @@ export const commandTree: CommandNode = {
         {
           name: "resume",
           summary: "Resume a paused run.",
+          usage: RUN_RESUME_USAGE,
+          flags: RUN_RESUME_HELP_FLAGS,
         },
         {
           name: "kill",

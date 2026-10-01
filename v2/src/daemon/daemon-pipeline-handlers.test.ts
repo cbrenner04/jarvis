@@ -661,3 +661,36 @@ test("pipeline_resume rejects malformed branchKey with invalid_params", async ()
     message: "branchKey must be a non-blank string",
   });
 });
+
+test("pipeline_resume rejects allowLanePrRepublish false and admits omitted or true", async () => {
+  const handlers = pipelineHandlers();
+  const pipelineId = seedPipeline(stateStore, { terminal: true });
+
+  const falseResponse = await handlers.pipeline_resume(
+    requestFrame("resume-republish-false", "pipeline_resume", { pipelineId, allowLanePrRepublish: false }),
+    new AbortController().signal,
+  );
+  expect(falseResponse).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "allowLanePrRepublish must be true when present",
+  });
+
+  const omittedResponse = await handlers.pipeline_resume(
+    requestFrame("resume-republish-omitted", "pipeline_resume", { pipelineId }),
+    new AbortController().signal,
+  );
+  expect(omittedResponse).toEqual({
+    kind: "response",
+    result: { kind: "refused", pipelineId, reason: "pipeline_terminal_succeeded" },
+  });
+
+  const trueResponse = await handlers.pipeline_resume(
+    requestFrame("resume-republish-true", "pipeline_resume", { pipelineId, allowLanePrRepublish: true }),
+    new AbortController().signal,
+  );
+  expect(trueResponse).toEqual({
+    kind: "response",
+    result: { kind: "refused", pipelineId, reason: "pipeline_terminal_succeeded" },
+  });
+});

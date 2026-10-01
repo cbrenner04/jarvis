@@ -1955,6 +1955,92 @@ describe("pipeline resume", () => {
     if (!resetDespiteLandedCriteria) expect(frame.params).not.toHaveProperty("resetDespiteLandedCriteria");
   });
 
+  test("pipeline resume --allow-lane-pr-republish forwards allowLanePrRepublish on pipeline_resume", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await main(["pipeline", "resume", "pipe-1", "--allow-lane-pr-republish"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() =>
+        pipelineListClient({ kind: "resumed", pipelineId: "pipe-1" }, sent),
+      ),
+    });
+
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", allowLanePrRepublish: true } }),
+    ]);
+    const frame = ipcFramesWithMethod(sent, "pipeline_resume")[0] as { params: Record<string, unknown> };
+    expect(frame.params).not.toHaveProperty("allowLanePrRepublish", false);
+  });
+
+  test("pipeline resume omits allowLanePrRepublish on pipeline_resume when the flag is absent", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await main(["pipeline", "resume", "pipe-failed"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() =>
+        pipelineListClient({ kind: "resumed", pipelineId: "pipe-failed" }, sent),
+      ),
+    });
+
+    expect(code).toBe(0);
+    const frame = ipcFramesWithMethod(sent, "pipeline_resume")[0] as { params: Record<string, unknown> };
+    expect(frame.params).not.toHaveProperty("allowLanePrRepublish");
+  });
+
+  test("pipeline recover --allow-lane-pr-republish errors on usage before daemon connect", async () => {
+    const cap = captureIo();
+    let connected = false;
+
+    const code = await main(["pipeline", "recover", "pipe-1", "alpha", "--allow-lane-pr-republish"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        connected = true;
+        throw new Error("should not connect");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(connected).toBe(false);
+    expect(cap.read().stderr).toContain(PIPELINE_RECOVER_USAGE.trim());
+  });
+
+  test("pipeline resume --address-review --allow-lane-pr-republish keeps review launch free of allowLanePrRepublish and still forwards it on pipeline_resume when resume proceeds", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const reviewCode = await main(
+      ["pipeline", "resume", "pipe-1", "--address-review", "implement", "--allow-lane-pr-republish"],
+      cap.io,
+      {
+        ...pipelineDeps(undefined),
+        connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient({ runId: "rf-run-1" }, sent)),
+      },
+    );
+
+    expect(reviewCode).toBe(0);
+    const launchFrame = ipcFramesWithMethod(sent, "pipeline_stage_review_feedback_launch")[0] as {
+      params: Record<string, unknown>;
+    };
+    expect(launchFrame.params).not.toHaveProperty("allowLanePrRepublish");
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toHaveLength(0);
+
+    sent.length = 0;
+    const resumeCode = await main(["pipeline", "resume", "pipe-1", "--allow-lane-pr-republish"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() =>
+        pipelineListClient({ kind: "resumed", pipelineId: "pipe-1" }, sent),
+      ),
+    });
+
+    expect(resumeCode).toBe(0);
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", allowLanePrRepublish: true } }),
+    ]);
+  });
+
   test("pipeline resume --address-review sends pipeline_stage_review_feedback_launch without pipeline_resume", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -2789,6 +2875,7 @@ describe("pipeline help", () => {
     expect(PIPELINE_RESUME_USAGE).toContain("--address-review");
     expect(PIPELINE_RESUME_USAGE).toContain("--reset-despite-dirty");
     expect(PIPELINE_RESUME_USAGE).toContain("--reset-despite-landed-criteria");
+    expect(PIPELINE_RESUME_USAGE).toContain("--allow-lane-pr-republish");
   });
 
   test("help pipeline dismiss matches dismiss usage", async () => {

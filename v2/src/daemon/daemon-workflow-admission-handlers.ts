@@ -23,6 +23,7 @@ import {
   resolveReviewMutationLineageContext,
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
+import { completionPublishLaneRepublishFields } from "../execution/write-loop.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
 import {
@@ -78,6 +79,7 @@ export type WorkflowStartAdmission = {
     admitRun?: ResumeRunAdmission,
     rollbackRunAdmission?: () => void,
     settleStagesAfterResume?: (runId: string) => void,
+    resumePublicationOptions?: { allowLanePrRepublish?: true },
   ) => WorkflowStartResult;
   admitWorkflowStart: (lifecycle: WorkflowStartLifecycle) => Promise<Awaited<WorkflowStartResult>>;
   check_workflow_start_claim: RpcHandler;
@@ -233,6 +235,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     freshDispatch = true,
     workflowSnapshot?: WorkflowSnapshot,
     settleStagesAfterResume?: (runId: string) => void,
+    resumePublicationOptions?: { allowLanePrRepublish?: true },
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
@@ -279,6 +282,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           stateStore: store,
           freshDispatch,
           ...(workflowSnapshot !== undefined ? { workflowSnapshot } : {}),
+          ...completionPublishLaneRepublishFields(resumePublicationOptions ?? {}),
           ...(logSink !== undefined ? { logSink } : {}),
           ...(telemetry !== undefined ? { telemetry } : {}),
           onReviewDebateProgress: reportReviewProgress,
@@ -512,6 +516,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     admitRun?: ResumeRunAdmission,
     rollbackRunAdmission?: () => void,
     settleStagesAfterResume?: (runId: string) => void,
+    resumePublicationOptions?: { allowLanePrRepublish?: true },
   ): WorkflowStartResult => {
     const workflowKey = workflowStartOwnershipKey(steps);
     const firstStep = steps[0];
@@ -539,6 +544,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           false,
           workflowSnapshot,
           settleStagesAfterResume,
+          resumePublicationOptions,
         ),
     });
   };

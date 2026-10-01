@@ -16,22 +16,22 @@
 
 ## Task checklist
 
-- [ ] Parse `--allow-lane-pr-republish` in `run.ts` `run resume` and forward through `request(client, "resume", …)`.
-- [ ] Parse the same flag in `parsePipelineResumeArgs` and forward through `pipeline_resume` params in `pipeline.ts`.
-- [ ] Extend `daemon-pipeline-handlers.ts` `pipeline_resume` param typing and `resumePipeline(…)` options bag only as needed to carry the boolean through to run resume (field may be ignored until subspec 01).
-- [ ] Extend `daemon-run-lifecycle-handlers.ts` `resumeHandler` and `pipeline_resume` validation to accept omitted or `allowLanePrRepublish: true` only; reject other values.
-- [ ] Add `RUN_RESUME_USAGE` (or equivalent) documenting the flag; update `PIPELINE_RESUME_USAGE` / command-tree help.
-- [ ] Do not add the flag to `PIPELINE_RECOVER_PARSE_ARG_OPTIONS`, recover usage, or `pipeline_recover` handler params.
+- [x] Parse `--allow-lane-pr-republish` in `run.ts` `run resume` and forward through `request(client, "resume", …)`.
+- [x] Parse the same flag in `parsePipelineResumeArgs` and forward through `pipeline_resume` params in `pipeline.ts`.
+- [x] Extend `daemon-pipeline-handlers.ts` `pipeline_resume` param typing and `resumePipeline(…)` options bag only as needed to carry the boolean through to run resume (field may be ignored until subspec 01).
+- [x] Extend `daemon-run-lifecycle-handlers.ts` `resumeHandler` and `pipeline_resume` validation to accept omitted or `allowLanePrRepublish: true` only; reject other values.
+- [x] Add `RUN_RESUME_USAGE` (or equivalent) documenting the flag; update `PIPELINE_RESUME_USAGE` / command-tree help.
+- [x] Do not add the flag to `PIPELINE_RECOVER_PARSE_ARG_OPTIONS`, recover usage, or `pipeline_recover` handler params.
 
 ## Acceptance criteria
 
-- [ ] `run.test.ts`: `jarvis run resume <id> --allow-lane-pr-republish` sends `params: { runId, allowLanePrRepublish: true }`; plain `jarvis run resume <id>` sends `params: { runId }` only; fails against pre-fix `{ runId }`-only payloads.
-- [ ] `pipeline.test.ts`: `jarvis pipeline resume … --allow-lane-pr-republish` sends `allowLanePrRepublish: true` on `pipeline_resume`; the same command without the flag omits it; fails against pre-fix omission.
-- [ ] `pipeline.test.ts`: `jarvis pipeline recover … --allow-lane-pr-republish` errors on usage before daemon connect (flag not in recover parser); forward regression guard only (not a pre-fix-failing new-behavior AC).
-- [ ] `pipeline.test.ts`: `jarvis pipeline resume … --address-review --allow-lane-pr-republish` sends address-review RPC params without `allowLanePrRepublish`; any `pipeline_resume` payload on the same invocation still includes `allowLanePrRepublish: true` when resume proceeds — fails against pre-fix if review dispatch swallowed the republish flag.
-- [ ] `run.test.ts` or daemon resume tests: RPC `resume` / `pipeline_resume` with `allowLanePrRepublish: false` is rejected without resume side effects — fails against pre-fix silent accept.
-- [ ] `help-flags-parity.test.ts` (or equivalent help coverage) lists `--allow-lane-pr-republish` on run resume and pipeline resume help surfaces.
-- [ ] `bun run typecheck` and `bun run test:v2` pass for touched surfaces.
+- [x] `run.test.ts`: `jarvis run resume <id> --allow-lane-pr-republish` sends `params: { runId, allowLanePrRepublish: true }`; plain `jarvis run resume <id>` sends `params: { runId }` only; fails against pre-fix `{ runId }`-only payloads.
+- [x] `pipeline.test.ts`: `jarvis pipeline resume … --allow-lane-pr-republish` sends `allowLanePrRepublish: true` on `pipeline_resume`; the same command without the flag omits it; fails against pre-fix omission.
+- [x] `pipeline.test.ts`: `jarvis pipeline recover … --allow-lane-pr-republish` errors on usage before daemon connect (flag not in recover parser); forward regression guard only (not a pre-fix-failing new-behavior AC).
+- [x] `pipeline.test.ts`: `jarvis pipeline resume … --address-review --allow-lane-pr-republish` sends address-review RPC params without `allowLanePrRepublish`; any `pipeline_resume` payload on the same invocation still includes `allowLanePrRepublish: true` when resume proceeds — fails against pre-fix if review dispatch swallowed the republish flag.
+- [x] `run.test.ts` or daemon resume tests: RPC `resume` / `pipeline_resume` with `allowLanePrRepublish: false` is rejected without resume side effects — fails against pre-fix silent accept.
+- [x] `help-flags-parity.test.ts` (or equivalent help coverage) lists `--allow-lane-pr-republish` on run resume and pipeline resume help surfaces.
+- [x] `bun run typecheck` and `bun run test:v2` pass for touched surfaces.
 
 ## Documentation updates
 

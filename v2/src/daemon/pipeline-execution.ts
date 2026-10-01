@@ -113,6 +113,7 @@ export type PipelineExecutionDeps = {
     pipeline: Pipeline & { stages: PipelineStageRecord[] },
     pipelineId: string,
     branchScope: string | undefined,
+    resumePublicationOptions?: { allowLanePrRepublish?: true },
   ) => Promise<ResumePipelineOutcome | undefined>;
 };
 
@@ -960,6 +961,7 @@ export async function resumePipeline(
     branchKey?: string;
     resetDespiteDirty?: boolean;
     resetDespiteLandedCriteria?: boolean;
+    allowLanePrRepublish?: boolean;
   } = {},
 ): Promise<ResumePipelineOutcome> {
   const { store } = deps;
@@ -969,6 +971,8 @@ export async function resumePipeline(
   }
 
   const branchScope = normalizeContinuationBranchKey(options.branchKey);
+  const resumePublicationOptions =
+    options.allowLanePrRepublish === true ? ({ allowLanePrRepublish: true } as const) : undefined;
 
   let branchAdmission: Extract<ReturnType<typeof resolveBranchResumeAdmission>, { kind: "ok" }> | undefined;
   if (branchScope !== undefined) {
@@ -1034,7 +1038,12 @@ export async function resumePipeline(
         : undefined;
     if (resetStatus !== undefined) {
       if (resetStatus === "failed") {
-        const inPlace = await deps.attemptFailedImplementPipelineResume?.(pipeline, pipelineId, branchScope);
+        const inPlace = await deps.attemptFailedImplementPipelineResume?.(
+          pipeline,
+          pipelineId,
+          branchScope,
+          resumePublicationOptions,
+        );
         if (inPlace !== undefined) return inPlace;
       }
       const reopen =
@@ -1142,7 +1151,12 @@ export async function resumePipeline(
   }
 
   if (resumeFailedRequiresReopen(derivedState)) {
-    const inPlace = await deps.attemptFailedImplementPipelineResume?.(current, pipelineId, undefined);
+    const inPlace = await deps.attemptFailedImplementPipelineResume?.(
+      current,
+      pipelineId,
+      undefined,
+      resumePublicationOptions,
+    );
     if (inPlace !== undefined) return inPlace;
     const reopenedStageReset = buildReopenedStageReset(current, findFailedStageForReopen(current, undefined), options);
     const reopen = store.reopenFailedPipeline({ pipelineId });

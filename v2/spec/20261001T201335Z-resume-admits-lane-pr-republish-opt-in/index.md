@@ -8,5 +8,5 @@ Prerequisites: [lane-pr-history-blocks-republish](../completed/20261001T010442Z-
 
 - After subspec 00 merges alone, CLI/RPC may accept `--allow-lane-pr-republish` without completion-publication effect until subspec 01 lands — rules out operator docs or runbook copy implying republish works mid-rollout.
 
-- [ ] [00 — Resume republish opt-in CLI and RPC admission](./00-resume-republish-opt-in-cli-rpc.md)
-- [ ] [01 — Resume dispatch threads republish opt-in to completion publication](./01-resume-republish-opt-in-publication-wiring.md)
+- [x] [00 — Resume republish opt-in CLI and RPC admission](./00-resume-republish-opt-in-cli-rpc.md)
+- [x] [01 — Resume dispatch threads republish opt-in to completion publication](./01-resume-republish-opt-in-publication-wiring.md)

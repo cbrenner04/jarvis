@@ -7,6 +7,7 @@ export const RUN_USAGE =
   "usage: jarvis run <start|list|log|pause|resume|kill|dismiss|undismiss|wait|workflow> [args]\n";
 export const RUN_LOG_USAGE = "usage: jarvis run log <run-id> [--follow]\n";
 export const RUN_KILL_USAGE = "usage: jarvis run kill <run-id> [--force]\n";
+export const RUN_RESUME_USAGE = "usage: jarvis run resume <run-id> [--allow-lane-pr-republish]\n";
 export const RUN_DISMISS_USAGE = "usage: jarvis run dismiss <run-id> | --project <name>\n";
 export const RUN_UNDISMISS_USAGE = "usage: jarvis run undismiss <run-id>\n";
 export const RUN_LIST_USAGE =
@@ -34,7 +35,7 @@ export const PIPELINE_WAIT_USAGE = "usage: jarvis pipeline wait <pipeline-id>\n"
 export const PIPELINE_APPROVE_USAGE = "usage: jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>\n";
 export const PIPELINE_REJECT_USAGE = "usage: jarvis pipeline reject <pipeline-id> <stage-id> <branch-key>\n";
 export const PIPELINE_RESUME_USAGE =
-  "usage: jarvis pipeline resume <pipeline-id> [<branch-key>] [--address-review <stage-id>] [--reset-despite-dirty] [--reset-despite-landed-criteria]\n";
+  "usage: jarvis pipeline resume <pipeline-id> [<branch-key>] [--address-review <stage-id>] [--allow-lane-pr-republish] [--reset-despite-dirty] [--reset-despite-landed-criteria]\n";
 export const PIPELINE_RECOVER_USAGE =
   "usage: jarvis pipeline recover <pipeline-id> <branch-key> [--reset-despite-dirty] [--reset-despite-landed-criteria]\n";
 export const PIPELINE_DISMISS_USAGE = "usage: jarvis pipeline dismiss <pipeline-id>\n";

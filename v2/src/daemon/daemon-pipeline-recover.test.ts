@@ -7,11 +7,13 @@ import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts"
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { createCompletionPublisher } from "../execution/completion-publisher.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
 import { createStubMarkdownlintRunner, writeLintCleanPlanStage } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
-import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
+import { type PlanStageRecoveryRequest, recoverPlanStage } from "../execution/workflow-runner-resume.ts";
+import { completionPublishLaneRepublishFields } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { makeStaleResetIpcClient, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
@@ -1278,4 +1280,126 @@ test("pipeline_recover admits dirty worktree when resetDespiteDirty is set", asy
   } finally {
     recoverHandlers.close();
   }
+});
+
+function ghClosedHistoryNoCreate(
+  _branch: string,
+  closedNumber: number,
+): {
+  gh: (cwd: string, args: readonly string[]) => Promise<string>;
+  ghCalls: string[];
+} {
+  const ghCalls: string[] = [];
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    ghCalls.push(args.join(" "));
+    if (args[0] === "pr" && args[1] === "list") {
+      const state = args[args.indexOf("--state") + 1];
+      if (state === "open") return JSON.stringify([]);
+      if (state === "all") {
+        return JSON.stringify([{ number: closedNumber, baseRefName: "main", state: "CLOSED" }]);
+      }
+    }
+    if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
+    if (args[0] === "pr" && args[1] === "view") {
+      return JSON.stringify({
+        number: closedNumber,
+        url: `https://github.com/user/repo/pull/${closedNumber}`,
+        baseRefName: "main",
+      });
+    }
+    return "";
+  };
+  return { gh, ghCalls };
+}
+
+test("pipeline_recover republication omits allowLanePrRepublish and does not create after CLOSED head+base history", async () => {
+  const stagedMarkdownLintRunner = createStubMarkdownlintRunner();
+  const worktreePath = createPlanWorktree("jarvis-pipeline-recover-closed-history-");
+  const stage = join(worktreePath, ".jarvis-plan-stage");
+  writeLintCleanPlanStage(stage, "00-first.md");
+  const specPath = "spec/2026-recover-closed-history";
+  const _durable = join(worktreePath, specPath);
+  const branch = "plan/recover-closed-history";
+  const closedNumber = 88;
+  const entryRunId = seedBlockedPlanDraftRun(stateStore, {
+    project: "demo",
+    branch,
+    worktreePath,
+    specPath,
+    stepId: "plan",
+    invocationId: "recover-closed-history-inv",
+  });
+  const pipelineId = seedFanOutPipeline(stateStore, { targetBranchKey: "branch-a", entryRunId });
+
+  const recoveryRequests: PlanStageRecoveryRequest[] = [];
+  const { gh, ghCalls } = ghClosedHistoryNoCreate(branch, closedNumber);
+  const republicationGit = async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === "rev-parse" && args.includes(`${branch}@{u}`)) throw new Error("no upstream");
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+    return "";
+  };
+  const publisher = createCompletionPublisher({
+    git: republicationGit,
+    gh,
+    delay: async () => {},
+    fetchPrBody: async () => "",
+    writePrBody: async () => {},
+    renderFooter: async () => "",
+  });
+
+  let settleAttempt!: () => void;
+  const attemptSettled = new Promise<void>((resolve) => {
+    settleAttempt = resolve;
+  });
+  let recoverHandlers!: ReturnType<typeof createRunControlHandlers>;
+  recoverHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    daemonSocketPath: "/unused-pipeline-recover-closed-history.sock",
+    connectStaleResetClient: async () => makeStaleResetIpcClient([]),
+    pipelineDispatch: async () => ({ ok: true, entryRunId: "unexpected-run", invocationId: "unexpected-inv" }),
+    pipelineWait: async () => "completed",
+    recoveryAttempt: async (request) => {
+      try {
+        recoveryRequests.push(request);
+        const outcome = await recoverPlanStage({ ...request, runner: stagedMarkdownLintRunner });
+        if (outcome.ok && outcome.kind === "complete") {
+          const run = stateStore.loadRun(request.runId);
+          await publisher({
+            worktreePath: request.worktreePath,
+            baseRef: run?.specRef ?? "main",
+            specPath: request.recoveryLanding.landing?.durablePath ?? specPath,
+            branch: request.branch,
+            creationTitle: "recovered plan",
+            ...completionPublishLaneRepublishFields(request),
+          });
+        }
+        return outcome;
+      } finally {
+        settleAttempt();
+      }
+    },
+    resolveStage: recoveryStageResolver({ branch, worktreePath, specPath }),
+  });
+
+  const response = await recoverHandlers.pipeline_recover(
+    requestFrame("recover-closed-history", "pipeline_recover", {
+      pipelineId,
+      branchKey: "branch-a",
+      resetDespiteDirty: true,
+      resetDespiteLandedCriteria: true,
+    }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({
+    kind: "response",
+    result: { kind: "admitted", pipelineId, branchKey: "branch-a", stageId: "plan", entryRunId },
+  });
+  await attemptSettled;
+  await flushBackgroundRuns(5);
+  expect(recoveryRequests.every((request) => request.allowLanePrRepublish !== true)).toBe(true);
+  expect(ghCalls.some((call) => call.includes("pr create"))).toBe(false);
 });

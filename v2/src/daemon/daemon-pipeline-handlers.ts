@@ -289,10 +289,18 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
           branchKey?: unknown;
           resetDespiteDirty?: boolean;
           resetDespiteLandedCriteria?: boolean;
+          allowLanePrRepublish?: unknown;
         }
       | undefined;
     if (!params?.pipelineId) {
       return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+    }
+    if (params.allowLanePrRepublish !== undefined && params.allowLanePrRepublish !== true) {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: "allowLanePrRepublish must be true when present",
+      };
     }
     if (params.branchKey !== undefined && (typeof params.branchKey !== "string" || params.branchKey.trim() === "")) {
       return { kind: "error", code: "invalid_params", message: "branchKey must be a non-blank string" };
@@ -307,6 +315,7 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       ...(branchKey !== undefined ? { branchKey } : {}),
       resetDespiteDirty: params.resetDespiteDirty === true,
       resetDespiteLandedCriteria: params.resetDespiteLandedCriteria === true,
+      ...(params.allowLanePrRepublish === true ? { allowLanePrRepublish: true } : {}),
     });
     if (outcome.kind === "dispatch_refused") {
       const message = outcome.message.endsWith("\n") ? outcome.message.slice(0, -1) : outcome.message;

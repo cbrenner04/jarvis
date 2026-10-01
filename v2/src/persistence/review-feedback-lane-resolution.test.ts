@@ -445,6 +445,36 @@ describe("resolveReviewFeedbackLane pipeline", () => {
     }
   });
 
+  test("refuses pipeline_stage when another run on the entry-run branch is in flight", () => {
+    const entryRun = baseRun({
+      id: "pipeline-intent-entry",
+      stepId: "intent-step",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-intent", {
+        stepId: "intent-step",
+        role: "author",
+        promptId: "intent.prompt.split",
+      }),
+    });
+    const inFlight = baseRun({
+      id: "other-run",
+      status: "in-progress",
+      stepId: "other-step",
+      workflowSnapshot: workflowSnapshot("inv-other", { stepId: "other-step", role: "author" }),
+    });
+    const pipeline = pipelineFixture({
+      pipelineId: "pipe-1",
+      stageId: "intent-stage",
+      workflow: "intent",
+      entryRun,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [entryRun, inFlight], pipelines: [pipeline] }), {
+      mode: "pipeline_stage",
+      pipelineId: "pipe-1",
+      stageId: "intent-stage",
+    });
+    expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_in_flight" });
+  });
+
   test("refuses unknown stage, non-succeeded stage, and fan-out without branchKey", () => {
     const entryRun = baseRun({
       id: "pipeline-intent-entry",

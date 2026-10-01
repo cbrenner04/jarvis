@@ -10,7 +10,8 @@ name: ready-repair-prompt-allowed-paths
 
 ## Decisions
 
-- Add `ALLOWED_PATHS` to `prompts/write/ready-repair.md` (revision bump): one path per line from `resolveAttributableRepairAllowset(frozenRepairAllowset, current ReadyGateError)` computed before the repair agent runs, plus one sentence that edits outside the list are reverted and end the run.
+- Add `ALLOWED_PATHS` to `prompts/write/ready-repair.md` (revision bump); frontmatter `placeholders` must list `ALLOWED_PATHS` (revision bump alone is not the contract).
+- One path per line from `resolveAttributableRepairAllowset(frozenRepairAllowset, current ReadyGateError)` computed before the repair agent runs, plus one sentence that edits outside the list are reverted and end the run.
 - Render the placeholder in the write-loop ready-repair reprompt path; generic across target repos.
 
 ## Acceptance criteria
@@ -28,3 +29,5 @@ name: ready-repair-prompt-allowed-paths
 v2/src/execution/write-loop.ts
 
 ## Prerequisites
+
+- When planned with `ready-gate-repair-event-gate-context`, one spec with ordered subspecs sharing `write-loop-ready-repair.test.ts` avoids duplicate scaffolding.

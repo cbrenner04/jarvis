@@ -16,7 +16,8 @@ name: ready-gate-repair-event-gate-context
 ## Acceptance criteria
 
 - [ ] `v2/src/execution/write-loop-ready-repair.test.ts` (new; `write-loop.test.ts` is over budget pending its split): the `ready_gate_repair` event carries `failingStep` and a `gateOutputTail` ending with the gate output's last line and capped at 4 KiB; fails against the pre-fix two-field event.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [ ] `write-loop.test.ts` and `workflow-runner-publication.test.ts` `ready_gate_repair` shape pins updated for the new fields; fail against pre-fix two-field assertions.
+- [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
@@ -24,6 +25,8 @@ name: ready-gate-repair-event-gate-context
 
 ## Primary implementation surface
 
-v2/src/persistence/log-stream.ts
+v2/src/execution/write-loop.ts, v2/src/persistence/log-stream.ts
 
 ## Prerequisites
+
+- When planned with `ready-repair-prompt-allowed-paths`, one spec with ordered subspecs sharing `write-loop-ready-repair.test.ts` avoids duplicate scaffolding.

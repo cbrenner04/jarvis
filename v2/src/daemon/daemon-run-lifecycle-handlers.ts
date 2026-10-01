@@ -997,6 +997,7 @@ export function createRunLifecycleHandlers(
       failure: _entryFailure,
       error: _entryError,
       worktreePath: _entryWorktreePath,
+      lanePrOutcome: _entryLanePrOutcome,
       ...entryOutcomeFields
     } = rowOutcome ?? { runStatus: reportedStatus };
 

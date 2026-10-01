@@ -969,6 +969,7 @@ test("list and wait project lanePrOutcome when terminal run row is loaded", asyn
     const row = (listed.result as { runs: Array<Record<string, unknown>> }).runs.find(
       (candidate) => candidate.runId === runId,
     );
+    // Mutation checkpoint: flipping `fullRun === undefined` on buildRunListRow lanePrOutcome guard must turn this RED.
     expect(row).toMatchObject({ status: "completed", lanePrOutcome: expectedLane });
   } finally {
     rmSync(logsPath, { force: true });

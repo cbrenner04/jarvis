@@ -1203,10 +1203,6 @@ async function runCodexBinding(args: {
     pickAgentRunOptions(args),
   );
 
-  if (result.kind !== "ok") {
-    return result;
-  }
-
   const resolved = resolveCodexSessionUsage({
     sessionsDir,
     beforeSnapshot,
@@ -1225,7 +1221,11 @@ async function runCodexBinding(args: {
   return finalizeCodexInvocationResult(result, resolved.sessionFile, args.priceKey);
 }
 
-function finalizeCodexInvocationResult(result: InvocationOk, sessionFile: string, priceKey: string): InvocationOk {
+function finalizeCodexInvocationResult(
+  result: InvocationResult,
+  sessionFile: string,
+  priceKey: string,
+): InvocationResult {
   const rollout = readCodexSessionRollout(sessionFile);
   if (rollout.kind === "read-error") {
     return {

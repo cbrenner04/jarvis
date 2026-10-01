@@ -24,9 +24,9 @@ Authors and operators have no durable guidance that a green structural inventory
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` includes a self-parsing locator subsection covering fixture placement, `_` prefix tolerance, the parse-only marker, and anchor-count proof.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust includes a bullet that a green structural inventory test may be validating a fixture and operators should check parsed anchor count.
-- [ ] `bun run lint:md` passes on the edited doc paths.
+- [x] `v2/docs/test-writing.md` includes a self-parsing locator subsection covering fixture placement, `_` prefix tolerance, the parse-only marker, and anchor-count proof.
+- [x] `v2/docs/operator-runbook.md` § Gate trust includes a bullet that a green structural inventory test may be validating a fixture and operators should check parsed anchor count.
+- [x] `bun run lint:md` passes on the edited doc paths.
 
 ## Documentation updates
 

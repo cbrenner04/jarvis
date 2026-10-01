@@ -404,7 +404,7 @@ test("a single failed stage produces one incident across stage, entry-run, and s
     expect.objectContaining({
       kind: "pipeline-terminal",
       pipelineId,
-      transition: "terminal:failed",
+      transition: `terminal:failed:${String(store.loadPipeline(pipelineId)?.stages[0]?.endedAt)}`,
       cause: "failed",
     }),
   ]);

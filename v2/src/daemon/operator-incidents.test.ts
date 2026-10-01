@@ -929,6 +929,31 @@ test("a single-lane pipeline whose implement stage succeeded and is terminal emi
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
 });
 
+test("a terminal-failed pipeline whose resumed stage re-fails notifies pipeline-terminal again", () => {
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "single-lane-refail",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "none" }],
+    },
+  });
+  const firstAt = Date.now() - 2_000;
+  const fail = (endedAt: number) =>
+    store.updateStage({ pipelineId, stageId: "implement", patch: { status: "failed", endedAt } });
+  fail(firstAt);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "pipeline-terminal", transition: `terminal:failed:${firstAt}` }),
+  ]);
+  store.tryRecordNotificationDelivery({
+    incidentId: `pipeline:${pipelineId}`,
+    transition: `terminal:failed:${firstAt}`,
+    deliveredAt: firstAt,
+  });
+  fail(firstAt + 1_000);
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "pipeline-terminal", transition: `terminal:failed:${firstAt + 1_000}` }),
+  ]);
+});
+
 test("a resumed linked row's settle without a marker write does not re-fire", () => {
   setSystemTime(new Date(1_000_000));
   const runId = seedInvocationRow("plan~link-0", "in-progress");

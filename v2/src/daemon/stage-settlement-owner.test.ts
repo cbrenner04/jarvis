@@ -430,6 +430,15 @@ describe("resolveInvocationEntryRunId", () => {
     expect(resolveInvocationEntryRunId(store, entryRunId)).toBe(entryRunId);
   });
 
+  test("a linked invocation with no step-0 row resolves to its earliest row, the `~link-0` the stage links", () => {
+    const workflowSnapshot = implementSnapshot("inv-linked-only");
+    const linkZeroRunId = seedRun(store, { stepId: "implement~link-0", workflowSnapshot });
+    seedRun(store, { stepId: "implement~link-1", workflowSnapshot });
+    const reviewRunId = seedRun(store, { stepId: "implement-review", workflowSnapshot });
+    expect(resolveInvocationEntryRunId(store, reviewRunId)).toBe(linkZeroRunId);
+    expect(resolveInvocationEntryRunId(store, linkZeroRunId)).toBe(linkZeroRunId);
+  });
+
   test("a row with no snapshot, or whose entry row is absent, is its own entry run", () => {
     const bareRunId = seedRun(store);
     expect(resolveInvocationEntryRunId(store, bareRunId)).toBe(bareRunId);

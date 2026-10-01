@@ -2457,6 +2457,43 @@ describe("write loop", () => {
       false,
     );
 
+    const suffixedShapeSink = new TestLogSink();
+    const suffixedShapeResult = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "plan-draft-shape-suffixed-excluded",
+      artifactPath: ".jarvis-plan-stage",
+      specPath: PLAN_DRAFT_SPEC_PATH,
+      promptId: "plan.prompt.draft",
+      intentSeed: PLAN_DRAFT_INTENT_SEED,
+      logSink: suffixedShapeSink,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            const stagePath = join(cwd, ".jarvis-plan-stage");
+            mkdirSync(stagePath, { recursive: true });
+            writeFileSync(join(stagePath, "intent.md"), PLAN_DRAFT_INTENT_SEED, "utf8");
+            writeFileSync(join(stagePath, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+    expect(suffixedShapeResult).toMatchObject({ kind: "contract_miss", iterationsConsumed: 1 });
+    const suffixedDetail = suffixedShapeSink
+      .getEventsForRun(suffixedShapeResult.runId)
+      .find((event) => event.kind === "contract_miss_detail");
+    expect(suffixedDetail).toMatchObject({
+      kind: "contract_miss_detail",
+      failureReason: "plan.draft.shape:no-index",
+    });
+    expect(
+      suffixedShapeSink
+        .getEventsForRun(suffixedShapeResult.runId)
+        .some((event) => event.kind === "draft_contract_reprompt"),
+    ).toBe(false);
+
     const blockerSink = new TestLogSink();
     const blockerResult = await runPlanDraftAgentBlocker(
       jarvisRoot,
@@ -2858,7 +2895,9 @@ describe("write loop", () => {
       .find((event) => event.kind === "contract_miss_detail");
     expect(shapeDetail).toMatchObject({ kind: "contract_miss_detail", failedContractId: "artifact.exists" });
     const shapeIntentPath = join(jarvisRoot, "worktrees", "demo", shapeBranch, ".jarvis-plan-stage", "intent.md");
-    expect(readFileSync(shapeIntentPath, "utf8")).toContain("Artifact contract check failed: plan.draft.shape");
+    expect(readFileSync(shapeIntentPath, "utf8")).toContain(
+      "Artifact contract check failed: plan.draft.shape:no-index",
+    );
   });
 
   test("contract_miss skips absent, directory, or symlink blocker append target", async () => {
@@ -4141,6 +4180,31 @@ describe("write loop", () => {
         setSystemTime();
         store.close();
       }
+    });
+
+    test("publishCompletionArtifacts accepts pushSha with lane_pr_closed without completion_commit_failed", async () => {
+      let readyFinalizerInvoked = false;
+      const input = {
+        worktreePath: "/tmp/worktree",
+        baseRef: "main",
+        specPath: "spec.md",
+        branch: "feature",
+      };
+      const outcome = await publishCompletionArtifacts(
+        {
+          completionPublisher: async () => ({
+            pushSha: "abc123def456",
+            lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 },
+          }),
+          readyFinalizer: async () => {
+            readyFinalizerInvoked = true;
+          },
+        },
+        input,
+      );
+      expect(outcome.kind).toBe("success");
+      expect(outcome).toMatchObject({ lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 } });
+      expect(readyFinalizerInvoked).toBe(false);
     });
 
     test("routes markdown-only workflow prompts around the ready gate", async () => {
@@ -7990,6 +8054,73 @@ export function isLoadSensitive(file: string): boolean {
       expect(result.kind).toBe("ready_flip_failed");
       expect(result.readyFlipPrNumber).toBeUndefined();
       expect(result.readyFlipError).toContain("gh pr ready failed");
+    });
+
+    test("lane_pr_closed publication settles complete with lanePrOutcome on loop_finished", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({
+          pushSha: "abc123def456",
+          lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 },
+        }),
+        readyFinalizer: async () => {
+          throw new Error("should not finalize when lane PR is closed");
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.prNumber).toBeUndefined();
+      const loopFinished = logSink.getEventsForRun(result.runId).at(-1);
+      expect(loopFinished).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 },
+      });
+      const storedRun = loadRunOnce(stateDbPath, result.runId);
+      expect(storedRun?.status).toBe("completed");
+      expect(storedRun?.terminalCause).toBe("complete");
+      expect(storedRun?.prNumber).toBeNull();
+    });
+
+    test("retargeted publication base lands on loop_finished for fresh and completed-run republish", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const branchName = "retarget-republish";
+      const hooks = {
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({
+          prNumber: 91,
+          prUrl: "https://github.com/user/repo/pull/91",
+          pushSha: "abc123def456",
+          requestedBase: "plan/merged-first",
+          resolvedBase: "main",
+        }),
+        readyFinalizer: async () => {},
+      };
+      const retarget = { kind: "loop_finished", requestedBase: "plan/merged-first", resolvedBase: "main" };
+
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...hooks,
+      });
+      expect(first.kind).toBe("complete");
+      expect(logSink.getEventsForRun(first.runId).at(-1)).toMatchObject(retarget);
+
+      mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+      const retryLog = new TestLogSink();
+      const retry = await runLoop({ jarvisRoot, stateDbPath, branchName, logSink: retryLog, bindings: [], ...hooks });
+      expect(retry.kind).toBe("complete");
+      expect(retryLog.getEventsForRun(retry.runId).at(-1)).toMatchObject(retarget);
     });
 
     test("returns retryable completion_commit_failed when pushed without PR evidence", async () => {

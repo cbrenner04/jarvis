@@ -27,7 +27,7 @@ type OperatorIncidentKind =
  * changes shape or a new incident kind is added; `reconcileNotificationKeyFormat` then marks
  * already-settled incidents delivered under the new format instead of re-sending them.
  */
-export const NOTIFICATION_KEY_FORMAT_VERSION = 4;
+export const NOTIFICATION_KEY_FORMAT_VERSION = 5;
 
 /** One operator-actionable incident at derived altitude. */
 export type OperatorIncident = {
@@ -112,6 +112,21 @@ function stageFailedTransition(stage: PipelineStageRecord): string {
   return `failed:${stage.endedAt ?? stage.startedAt ?? 0}`;
 }
 
+/**
+ * A resumed failed stage reuses its row, so a pipeline that re-fails keeps state `failed`; keying on
+ * the latest failed-stage settlement makes each re-failure its own transition.
+ */
+function pipelineTerminalTransition(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  state: PipelineDerivedState,
+): string {
+  if (state !== "failed") return `terminal:${state}`;
+  const failedAts = pipeline.stages.flatMap((stage) =>
+    stage.status === "failed" && stage.endedAt !== null ? [stage.endedAt] : [],
+  );
+  return failedAts.length > 0 ? `terminal:failed:${Math.max(...failedAts)}` : "terminal:failed";
+}
+
 /** True when the stage's admitted definition entry is a workflow stage running the `implement` workflow. */
 function isImplementWorkflowStage(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
@@ -187,7 +202,10 @@ function previewPipelineIncidentKeys(
     if (hasPipelineTerminalPublicationFailure(pipeline)) {
       keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: "publication-failed" });
     } else {
-      keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: `terminal:${state}` });
+      keys.push({
+        incidentId: pipelineIncidentId(pipeline.id),
+        transition: pipelineTerminalTransition(pipeline, state),
+      });
     }
   }
 
@@ -524,7 +542,7 @@ function pushPipelineTerminalIncident(
   incidents.push({
     incidentId: pipelineIncidentId(pipeline.id),
     kind: "pipeline-terminal",
-    transition: `terminal:${state}`,
+    transition: pipelineTerminalTransition(pipeline, state),
     project,
     pipelineId: pipeline.id,
     cause: hasTimedOutStage ? "run_timeout" : state,

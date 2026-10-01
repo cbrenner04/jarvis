@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -39,11 +40,43 @@ describe("createCompletionPublisher", () => {
   };
   const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
 
+  function ghListJsonFields(args: readonly string[]): string {
+    const index = args.indexOf("--json");
+    return index >= 0 ? String(args[index + 1] ?? "") : "";
+  }
+
   const republicationGit = async (_cwd: string, args: readonly string[]) => {
     if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
     if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
     return "";
   };
+
+  function ghOpenEmptyThenAllHistory(history: { number: number; state: string } | "throw"): {
+    gh: (_cwd: string, args: readonly string[]) => Promise<string>;
+    ghCalls: string[];
+  } {
+    const ghCalls: string[] = [];
+    const gh = async (_cwd: string, args: readonly string[]) => {
+      ghCalls.push(args.join(" "));
+      if (args[0] === "pr" && args[1] === "list") {
+        const state = args[args.indexOf("--state") + 1];
+        if (state === "open") return JSON.stringify([]);
+        if (state === "all") {
+          if (history === "throw") throw new Error("gh api unavailable");
+          const fields = ghListJsonFields(args);
+          const row: { number: number; baseRefName: string; state?: string } = {
+            number: history.number,
+            baseRefName: "main",
+          };
+          if (fields.includes("state")) row.state = history.state;
+          return JSON.stringify([row]);
+        }
+      }
+      if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
+      return "";
+    };
+    return { gh, ghCalls };
+  }
 
   function republicationGhForPr(prNumber: number, options?: { afterUndo?: "draft" | "gone" | "closed" }) {
     const ghCalls: string[] = [];
@@ -1372,22 +1405,92 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 
-  it("creates a fresh draft PR when the branch's only PR history is merged/closed", async () => {
+  it("reuses matching open draft over closed head+base history without probing all-state", async () => {
     const ghCalls: string[] = [];
-
+    const openNumber = 101;
     const publisher = createCompletionPublisher({
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
-        return "";
-      },
+      git: republicationGit,
       gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
-          expect(args).toContain("open");
-          expect(args).not.toContain("merged");
-          return JSON.stringify([]); // No open PRs; a merged #88 exists but is never queried
+          const state = args[args.indexOf("--state") + 1];
+          if (state === "open") {
+            return JSON.stringify([{ number: openNumber, baseRefName: "main", isDraft: true, title: "lane draft" }]);
+          }
+          if (state === "all") {
+            throw new Error("all-state probe must not run when open draft matches");
+          }
         }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(openNumber, `https://github.com/user/repo/pull/${openNumber}`);
+        }
+        if (args[0] === "pr" && args[1] === "create") {
+          throw new Error("unexpected pr create");
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(openNumber);
+    expect(result.lanePrOutcome).toBeUndefined();
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    expect(ghCalls.some((c) => c.includes("--state all"))).toBe(false);
+  });
+
+  it.each([
+    { state: "CLOSED" as const, number: 88, kind: "lane_pr_closed" as const },
+    { state: "MERGED" as const, number: 77, kind: "lane_pr_merged" as const },
+  ])("returns $kind without create when newest head+base history is $state", async ({ state, number, kind }) => {
+    let writeBodyCalls = 0;
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number, state });
+
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      fetchPrBody: async () => "",
+      writePrBody: async () => {
+        writeBodyCalls += 1;
+      },
+      renderFooter: async () => "",
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.lanePrOutcome).toEqual({ kind, prNumber: number });
+    expect(result.prNumber).toBeUndefined();
+    expect(result.prUrl).toBeUndefined();
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    expect(
+      ghCalls.find((c) => c.startsWith("pr list") && c.includes("--state all"))?.includes("number,baseRefName,state"),
+    ).toBe(true);
+    expect(writeBodyCalls).toBe(0);
+  });
+
+  it("requests isDraft on the open probe and state on the all-state history probe", async () => {
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number: 88, state: "CLOSED" });
+    const publisher = createCompletionPublisher({ git: republicationGit, gh, delay: noopDelay, ...noopRefreshSeams });
+
+    await publisher(baseInput);
+
+    const listJson = (state: string) =>
+      ghCalls.find((c) => c.startsWith("pr list") && c.includes(`--state ${state}`))?.split("--json ")[1];
+    expect(listJson("open")).toBe("number,baseRefName,isDraft");
+    expect(listJson("all")).toBe("number,baseRefName,state");
+  });
+
+  it("creates a fresh draft when allowLanePrRepublish is set despite closed history", async () => {
+    const ghCalls: string[] = [];
+
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list" && args.includes("open")) return JSON.stringify([]);
         if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/99";
         if (args[0] === "pr" && args[1] === "view") {
           return viewPr(99, "https://github.com/user/repo/pull/99");
@@ -1398,12 +1501,32 @@ describe("createCompletionPublisher", () => {
       ...noopRefreshSeams,
     });
 
-    const result = await publisher(baseInput);
+    const result = await publisher({ ...baseInput, allowLanePrRepublish: true });
 
     expect(result.prNumber).toBe(99);
-    expect(result.prUrl).toBe("https://github.com/user/repo/pull/99");
+    expect(result.lanePrOutcome).toBeUndefined();
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
-    expect(ghCalls.filter((c) => c.startsWith("pr list")).length).toBe(1);
+    expect(ghCalls.some((c) => c.includes("--state all"))).toBe(false);
+  });
+
+  it("fails pr publication permanently when all-state history probe throws", async () => {
+    const { gh } = ghOpenEmptyThenAllHistory("throw");
+
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const error = await publisher(baseInput).then(
+      () => {
+        throw new Error("expected publication failure");
+      },
+      (caught: unknown) => caught,
+    );
+    expect(publicationFailureFor(error)?.operation).toBe("pr");
+    expect(errorMessage(error)).toContain("gh api unavailable");
   });
 
   it("awaits push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
@@ -1449,7 +1572,16 @@ describe("createCompletionPublisher", () => {
 
     await publisher(baseInput);
 
-    expect(events).toEqual(["push", "head", "pr-lookup", "pr-create", "pr-confirm", "fetch-body", "write-body"]);
+    expect(events).toEqual([
+      "push",
+      "head",
+      "pr-lookup",
+      "pr-lookup",
+      "pr-create",
+      "pr-confirm",
+      "fetch-body",
+      "write-body",
+    ]);
   });
 
   it("fails refresh when attribution git read is rejected", async () => {

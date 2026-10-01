@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type CliRepoFixture,
@@ -14,6 +14,19 @@ import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import type { TuiDaemonClient } from "../tui/tui-daemon-client.ts";
 import { runTuiEntry as productionRunTuiEntry } from "../tui/tui-entry.tsx";
 import type { DetachedPipelineStartAdmission, TuiMonitorControls } from "../tui/tui-monitor-types.ts";
+import * as supervisorModule from "../tui/tui-supervisor.ts";
+import { TUI_SUPERVISOR_WORKER_ENV } from "../tui/tui-supervisor.ts";
+
+async function asTuiSupervisorWorker<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = process.env[TUI_SUPERVISOR_WORKER_ENV];
+  process.env[TUI_SUPERVISOR_WORKER_ENV] = "1";
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env[TUI_SUPERVISOR_WORKER_ENV];
+    else process.env[TUI_SUPERVISOR_WORKER_ENV] = previous;
+  }
+}
 
 const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
   claude: {
@@ -94,14 +107,16 @@ describe("tui command", () => {
     const paths = tempPaths();
     let seenSocketPath: string | undefined;
 
-    const code = await main(["tui"], captureIo().io, {
-      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
-      socketPath: paths.socketPath,
-      runTuiEntry: async (deps) => {
-        seenSocketPath = deps?.socketPath;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
+        socketPath: paths.socketPath,
+        runTuiEntry: async (deps) => {
+          seenSocketPath = deps?.socketPath;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenSocketPath).toBe(paths.socketPath);
@@ -111,14 +126,16 @@ describe("tui command", () => {
     const paths = tempPaths();
     let seenDeps: Record<string, unknown> | undefined;
 
-    const code = await main(["tui"], captureIo().io, {
-      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
-      socketPath: paths.socketPath,
-      runTuiEntry: async (deps) => {
-        seenDeps = deps as unknown as Record<string, unknown>;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
+        socketPath: paths.socketPath,
+        runTuiEntry: async (deps) => {
+          seenDeps = deps as unknown as Record<string, unknown>;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenDeps?.socketPath).toBe(paths.socketPath);
@@ -131,15 +148,17 @@ describe("tui command", () => {
     let seenSocketPath: string | undefined;
     let seenMachineProfile: string | undefined;
 
-    const code = await main(["tui"], captureIo().io, {
-      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
-      socketPath,
-      runTuiEntry: async (deps) => {
-        seenSocketPath = deps.socketPath;
-        seenMachineProfile = deps.machineProfile;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
+        socketPath,
+        runTuiEntry: async (deps) => {
+          seenSocketPath = deps.socketPath;
+          seenMachineProfile = deps.machineProfile;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenSocketPath).toBe(socketPath);
@@ -184,14 +203,16 @@ describe("tui command", () => {
     let seenRunId: string | undefined;
     let seenSocketPath: string | undefined;
 
-    const code = await main(["tui", "log", "run-abc"], captureIo().io, {
-      socketPath: paths.socketPath,
-      runTuiLogFollow: async (runId, deps) => {
-        seenRunId = runId;
-        seenSocketPath = deps?.socketPath;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui", "log", "run-abc"], captureIo().io, {
+        socketPath: paths.socketPath,
+        runTuiLogFollow: async (runId, deps) => {
+          seenRunId = runId;
+          seenSocketPath = deps?.socketPath;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenRunId).toBe("run-abc");
@@ -203,14 +224,16 @@ describe("tui command", () => {
     let seenRunId: string | undefined;
     let seenDeps: Record<string, unknown> | undefined;
 
-    const code = await main(["tui", "log", "run-abc"], captureIo().io, {
-      socketPath: paths.socketPath,
-      runTuiLogFollow: async (runId, deps) => {
-        seenRunId = runId;
-        seenDeps = deps as unknown as Record<string, unknown>;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui", "log", "run-abc"], captureIo().io, {
+        socketPath: paths.socketPath,
+        runTuiLogFollow: async (runId, deps) => {
+          seenRunId = runId;
+          seenDeps = deps as unknown as Record<string, unknown>;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenRunId).toBe("run-abc");
@@ -263,28 +286,30 @@ describe("tui command", () => {
         }),
     };
 
-    const tuiPending = main(["tui"], captureIo().io, {
-      ...sharedDeps,
-      runTuiEntry: (entryDeps) => {
-        entryAdmission = entryDeps.admitDetachedPipelineStart;
-        return productionRunTuiEntry({
-          ...entryDeps,
-          viewHost: {
-            show() {},
-            async openMonitor(_state, controls) {
-              monitorControls = controls;
-              resolveOpened();
-              return {
-                update() {},
-                waitUntilExit: () => new Promise(() => {}),
-                close() {},
-              };
+    const tuiPending = asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        ...sharedDeps,
+        runTuiEntry: (entryDeps) => {
+          entryAdmission = entryDeps.admitDetachedPipelineStart;
+          return productionRunTuiEntry({
+            ...entryDeps,
+            viewHost: {
+              show() {},
+              async openMonitor(_state, controls) {
+                monitorControls = controls;
+                resolveOpened();
+                return {
+                  update() {},
+                  waitUntilExit: () => new Promise(() => {}),
+                  close() {},
+                };
+              },
             },
-          },
-          connectTuiDaemon: async () => healthyTuiDaemonClient(),
-        });
-      },
-    });
+            connectTuiDaemon: async () => healthyTuiDaemonClient(),
+          });
+        },
+      }),
+    );
 
     await opened;
     expect(entryAdmission).toBeDefined();
@@ -360,5 +385,37 @@ describe("tui command", () => {
 
     controls.quit();
     expect(await tuiPending).toBe(0);
+  });
+});
+
+describe("tui supervisor CLI routing", () => {
+  afterAll(() => {
+    mock.restore();
+  });
+
+  test("jarvis tui log starts the supervisor with full argv when not a worker", async () => {
+    const seenArgv: (readonly string[])[] = [];
+    mock.module("../tui/tui-supervisor.ts", () => ({
+      ...supervisorModule,
+      isTuiSupervisorWorker: () => false,
+      runTuiSupervisor: async (params: { argv: readonly string[] }) => {
+        seenArgv.push(params.argv);
+        return 0;
+      },
+    }));
+
+    const { runTuiCommand } = await import("./tui.ts");
+    const originalArgv = process.argv;
+    process.argv = ["/usr/bin/node", "/path/jarvis", "tui", "log", "run-direct"];
+    try {
+      const code = await runTuiCommand(["log", "run-direct"], captureIo().io, {
+        socketPath: "/tmp/s.sock",
+        runTuiLogFollow: async () => 0,
+      } as unknown as import("../cli/deps.ts").CliDeps);
+      expect(code).toBe(0);
+      expect(seenArgv).toEqual([["/usr/bin/node", "/path/jarvis", "tui", "log", "run-direct"]]);
+    } finally {
+      process.argv = originalArgv;
+    }
   });
 });

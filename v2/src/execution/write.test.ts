@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -144,19 +145,6 @@ function validatePlanDraftShapeTopLevelOnly(specDir: string): { valid: boolean; 
   return subspecCount === 0 ? { valid: false, reason: "plan.draft.shape" } : { valid: true };
 }
 
-function writeNestedPlanDraftStage(
-  stagePath: string,
-  specName: string,
-  files: { index: string; subspecs: Record<string, string> },
-): void {
-  const nested = join(stagePath, "spec", specName);
-  mkdirSync(nested, { recursive: true });
-  writeFileSync(join(nested, "index.md"), files.index, "utf8");
-  for (const [name, content] of Object.entries(files.subspecs)) {
-    writeFileSync(join(nested, name), content, "utf8");
-  }
-}
-
 function writePrefixedPlanDraftStage(
   stagePath: string,
   prefixSegments: readonly string[],
@@ -176,6 +164,17 @@ function writeFlatPlanDraftStage(stagePath: string, intentSeed: string): void {
   writeFileSync(join(stagePath, "intent.md"), intentSeed, "utf8");
   writeFileSync(join(stagePath, "index.md"), MINIMAL_PLAN_DRAFT_INDEX, "utf8");
   writeFileSync(join(stagePath, "00-one.md"), MINIMAL_PLAN_DRAFT_SUBSPEC, "utf8");
+}
+
+function writeMinimalDurablePlanDraftTree(cwd: string, subspecFile = "00-one.md"): void {
+  const durablePath = join(cwd, "v2/spec/2099-01-01T00-00-00Z-plan-draft");
+  mkdirSync(durablePath, { recursive: true });
+  writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+  writeFileSync(
+    join(durablePath, subspecFile),
+    `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
+    "utf8",
+  );
 }
 
 describe("write behavior", () => {
@@ -776,20 +775,12 @@ describe("write behavior", () => {
   test("plan-draft contract_miss on staging index failure does not pass via durable fallback", async () => {
     const { jarvisRoot } = createJarvisHome();
     const subspecFile = "00-one.md";
-    const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
 
     const result = await runPlanDraftWrite({
       jarvisRoot,
       branchName: "plan-staging-normalizer-durable-pass",
       agentSetup: (cwd, stagePath) => {
-        const durablePath = join(cwd, durableSpecPath);
-        mkdirSync(durablePath, { recursive: true });
-        writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
-        writeFileSync(
-          join(durablePath, subspecFile),
-          `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
-          "utf8",
-        );
+        writeMinimalDurablePlanDraftTree(cwd, subspecFile);
 
         mkdirSync(stagePath, { recursive: true });
         writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
@@ -848,9 +839,68 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
     if (result.result.kind === "contract_miss") {
       expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-index");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
       expect(result.result.failureReason).not.toContain("Plan index");
       expect(result.result.failureReason).not.toContain("multi-surface");
+    }
+  });
+
+  test("plan-draft contract_miss on absent staging directory settles plan.draft.shape:missing-dir", async () => {
+    const { jarvisRoot } = createJarvisHome();
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-missing-stage-dir",
+      agentSetup: (cwd, stagePath) => {
+        writeMinimalDurablePlanDraftTree(cwd);
+        rmSync(stagePath, { recursive: true, force: true });
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toBe("plan.draft.shape:missing-dir");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
+    }
+  });
+
+  test("plan-draft shape-family staging miss passes via durable fallback when durable satisfies shape", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-shape-fallback-durable-pass",
+      agentSetup: (cwd, stagePath) => {
+        writeMinimalDurablePlanDraftTree(cwd, subspecFile);
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, subspecFile), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+  });
+
+  test("plan-draft shape-family staging miss settles suffixed reason when durable cannot repair staging", async () => {
+    const { jarvisRoot } = createJarvisHome();
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-shape-fallback-durable-fail",
+      agentSetup: (_cwd, stagePath) => {
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-index");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
     }
   });
 
@@ -870,7 +920,7 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
     if (result.result.kind === "contract_miss") {
       expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-subspecs");
       expect(result.result.failureReason).not.toContain("Plan index");
       expect(result.result.failureReason).not.toContain("multi-surface");
     }
@@ -1217,7 +1267,7 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), intentSeed, "utf8");
-        writeNestedPlanDraftStage(stage, specName, {
+        writePrefixedPlanDraftStage(stage, ["spec"], specName, {
           index: MINIMAL_PLAN_DRAFT_INDEX,
           subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
         });
@@ -1239,6 +1289,67 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("complete");
     expect(validationCalls).toBeGreaterThan(0);
     expect(existsSync(join(stagePath, "spec"))).toBe(false);
+    expect(readdirSync(stagePath).sort()).toEqual(["00-one.md", "index.md", "intent.md"]);
+  });
+
+  test("plan-draft completion accepts immediate-child timestamp staging and flattens before normalization", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const specPath = "v2/spec/2099-01-01T00-00-10Z-immediate-child";
+    const branchName = "plan-immediate-child-flatten";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const specName = "20261001T010529Z-example";
+    const nestedBeforeFlatten = join(stagePath, specName);
+    const intentSeed = "---\nname: immediate-child\n---\n\n## Prerequisites\n\nnone\n";
+    let validationCalls = 0;
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName,
+      specPath,
+      intentSeed,
+      agentSetup: (_cwd, stage) => {
+        mkdirSync(stage, { recursive: true });
+        writeFileSync(join(stage, "intent.md"), intentSeed, "utf8");
+        writePrefixedPlanDraftStage(stage, [], specName, {
+          index: MINIMAL_PLAN_DRAFT_INDEX,
+          subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
+        });
+      },
+      completionValidator: (stagingDir) => {
+        validationCalls += 1;
+        expect(stagingDir).toBe(stagePath);
+        if (validationCalls === 1) {
+          expect(existsSync(nestedBeforeFlatten)).toBe(true);
+          expect(existsSync(join(stagePath, "spec"))).toBe(false);
+          expect(existsSync(join(stagePath, "index.md"))).toBe(false);
+          expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
+          expect(validatePlanDraftShapeTopLevelOnly(nestedBeforeFlatten).valid).toBe(true);
+        }
+        return { valid: true };
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+    expect(validationCalls).toBeGreaterThan(0);
+    expect(existsSync(nestedBeforeFlatten)).toBe(false);
+    expect(readdirSync(stagePath).sort()).toEqual(["00-one.md", "index.md", "intent.md"]);
+  });
+
+  test("checkStagedPlanDraft accepts immediate-child timestamp staging after resolve-and-flatten", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-check-staged-immediate-child";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const specName = "20261001T010529Z-check-immediate";
+    mkdirSync(stagePath, { recursive: true });
+    writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+    writePrefixedPlanDraftStage(stagePath, [], specName, {
+      index: MINIMAL_PLAN_DRAFT_INDEX,
+      subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
+    });
+
+    expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
+    expect(checkStagedPlanDraft(stagePath).ok).toBe(true);
+    expect(existsSync(join(stagePath, specName))).toBe(false);
     expect(readdirSync(stagePath).sort()).toEqual(["00-one.md", "index.md", "intent.md"]);
   });
 
@@ -1272,21 +1383,23 @@ describe("write behavior", () => {
 
   test("plan-draft contract_miss rejects ambiguous nested spec/ directories", async () => {
     const { jarvisRoot } = createJarvisHome();
-    const ambiguousFixtures: Array<{ label: string; setup: (stagePath: string) => void }> = [
+    const ambiguousFixtures: Array<{ label: string; expectedReason: string; setup: (stagePath: string) => void }> = [
       {
         label: "zero nested spec directories",
+        expectedReason: "plan.draft.shape:nested-roots=0",
         setup: (stagePath) => {
           mkdirSync(join(stagePath, "spec"), { recursive: true });
         },
       },
       {
         label: "multiple nested spec directories",
+        expectedReason: "plan.draft.shape:nested-roots=2",
         setup: (stagePath) => {
-          writeNestedPlanDraftStage(stagePath, "first", {
+          writePrefixedPlanDraftStage(stagePath, ["spec"], "first", {
             index: MINIMAL_PLAN_DRAFT_INDEX,
             subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
           });
-          writeNestedPlanDraftStage(stagePath, "second", {
+          writePrefixedPlanDraftStage(stagePath, ["spec"], "second", {
             index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
             subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
           });
@@ -1310,10 +1423,70 @@ describe("write behavior", () => {
       expect(result.result.kind).toBe("contract_miss");
       if (result.result.kind === "contract_miss") {
         expect(result.result.failedContractId).toBe("artifact.exists");
-        expect(result.result.failureReason).toBe("plan.draft.shape");
+        expect(result.result.failureReason).toBe(fixture.expectedReason);
       }
       expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
     }
+  });
+
+  test("plan-draft contract_miss rejects multiple immediate-child shape-valid directories", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-ambiguous-immediate-children";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName,
+      agentSetup: (_cwd, stage) => {
+        mkdirSync(stage, { recursive: true });
+        writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writePrefixedPlanDraftStage(stage, [], "20261001T010529Z-first", {
+          index: MINIMAL_PLAN_DRAFT_INDEX,
+          subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
+        });
+        writePrefixedPlanDraftStage(stage, [], "20261001T010530Z-second", {
+          index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
+          subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
+        });
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toBe("plan.draft.shape:nested-roots=2");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
+    }
+    expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
+  });
+
+  test("plan-draft contract_miss rejects mixed spec/ and immediate-child nested roots", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-ambiguous-spec-and-immediate";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName,
+      agentSetup: (_cwd, stage) => {
+        mkdirSync(stage, { recursive: true });
+        writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writePrefixedPlanDraftStage(stage, ["spec"], "under-spec", {
+          index: MINIMAL_PLAN_DRAFT_INDEX,
+          subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
+        });
+        writePrefixedPlanDraftStage(stage, [], "20261001T010529Z-immediate", {
+          index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
+          subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
+        });
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toBe("plan.draft.shape:nested-roots=2");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
+    }
+    expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
   });
 
   test("plan-draft shape contract_miss preserves nested-only staging for redraft", async () => {
@@ -1329,7 +1502,125 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
-        writeNestedPlanDraftStage(stage, specName, {
+        writePrefixedPlanDraftStage(stage, ["spec"], specName, {
+          index: "# Index\n\n",
+          subspecs: {},
+        });
+      },
+    });
+
+    expect(first.result.kind).toBe("contract_miss");
+    expect(existsSync(nestedRoot)).toBe(true);
+    expect(existsSync(join(stagePath, "index.md"))).toBe(false);
+
+    let secondAgentSawNested = false;
+    const second = await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            secondAgentSawNested = existsSync(nestedRoot) && !existsSync(join(stagePath, "index.md"));
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(secondAgentSawNested).toBe(true);
+    expect(second.result.kind).toBe("contract_miss");
+  });
+
+  test("plan redraft preserves a single nested spec/ root beside a sibling staging dir", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-nested-with-sibling-redraft";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const specName = "2099-01-01T00-00-13Z-nested-with-sibling";
+    const nestedRoot = join(stagePath, "spec", specName);
+    // Two immediate children, so only the single-nested-root clause keeps the stage alive.
+    mkdirSync(join(stagePath, "notes"), { recursive: true });
+    writeFileSync(join(stagePath, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
+    writePrefixedPlanDraftStage(stagePath, ["spec"], specName, { index: "# Index\n\n", subspecs: {} });
+
+    let agentSawNested = false;
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            agentSawNested = existsSync(nestedRoot) && existsSync(join(stagePath, "notes"));
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(agentSawNested).toBe(true);
+  });
+
+  test("plan redraft drops ambiguous nested spec/ staging when multiple immediate children block the single-child clause", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-ambiguous-nested-redraft-wipe";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const firstNested = join(stagePath, "spec", "2099-01-01T00-00-14Z-first");
+    const secondNested = join(stagePath, "spec", "2099-01-01T00-00-15Z-second");
+
+    const first = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName,
+      agentSetup: (_cwd, stage) => {
+        mkdirSync(join(stage, "notes"), { recursive: true });
+        writeFileSync(join(stage, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
+        writePrefixedPlanDraftStage(stage, ["spec"], "2099-01-01T00-00-14Z-first", {
+          index: MINIMAL_PLAN_DRAFT_INDEX,
+          subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
+        });
+        writePrefixedPlanDraftStage(stage, ["spec"], "2099-01-01T00-00-15Z-second", {
+          index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
+          subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
+        });
+      },
+    });
+
+    expect(first.result.kind).toBe("contract_miss");
+    expect(existsSync(firstNested)).toBe(true);
+    expect(existsSync(secondNested)).toBe(true);
+
+    let agentSawAmbiguousNested = false;
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            agentSawAmbiguousNested = existsSync(firstNested) || existsSync(secondNested);
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(agentSawAmbiguousNested).toBe(false);
+  });
+
+  test("plan-draft shape contract_miss preserves immediate-child-only staging for redraft", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-immediate-child-only-redraft";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const specName = "20261001T010529Z-nested-only";
+    const nestedRoot = join(stagePath, specName);
+
+    const first = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName,
+      agentSetup: (_cwd, stage) => {
+        mkdirSync(stage, { recursive: true });
+        writeFileSync(join(stage, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
+        writePrefixedPlanDraftStage(stage, [], specName, {
           index: "# Index\n\n",
           subspecs: {},
         });
@@ -1366,7 +1657,7 @@ describe("write behavior", () => {
     const specName = "2099-01-01T00-00-13Z-check-staged";
     mkdirSync(stagePath, { recursive: true });
     writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-    writeNestedPlanDraftStage(stagePath, specName, {
+    writePrefixedPlanDraftStage(stagePath, ["spec"], specName, {
       index: MINIMAL_PLAN_DRAFT_INDEX,
       subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
     });
@@ -1384,19 +1675,22 @@ describe("write behavior", () => {
     writeFileSync(join(ambiguousPaths[0]!, "intent.md"), "---\nname: test\n---\n", "utf8");
     mkdirSync(ambiguousPaths[1]!, { recursive: true });
     writeFileSync(join(ambiguousPaths[1]!, "intent.md"), "---\nname: test\n---\n", "utf8");
-    writeNestedPlanDraftStage(ambiguousPaths[1]!, "first", {
+    writePrefixedPlanDraftStage(ambiguousPaths[1]!, ["spec"], "first", {
       index: MINIMAL_PLAN_DRAFT_INDEX,
       subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
     });
-    writeNestedPlanDraftStage(ambiguousPaths[1]!, "second", {
+    writePrefixedPlanDraftStage(ambiguousPaths[1]!, ["spec"], "second", {
       index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
       subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
     });
 
-    for (const ambiguousPath of ambiguousPaths) {
+    for (const [index, ambiguousPath] of ambiguousPaths.entries()) {
       const result = checkStagedPlanDraft(ambiguousPath);
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.reason).toBe("plan.draft.shape");
+      if (!result.ok) {
+        const expectedReason = index === 0 ? "plan.draft.shape:nested-roots=0" : "plan.draft.shape:nested-roots=2";
+        expect(result.reason).toBe(expectedReason);
+      }
       expect(validatePlanDraftShapeTopLevelOnly(ambiguousPath).valid).toBe(false);
     }
   });
@@ -1554,7 +1848,7 @@ describe("write behavior", () => {
       {
         label: "spec and v2/spec candidates",
         setup: (stagePath) => {
-          writeNestedPlanDraftStage(stagePath, "under-spec", {
+          writePrefixedPlanDraftStage(stagePath, ["spec"], "under-spec", {
             index: MINIMAL_PLAN_DRAFT_INDEX,
             subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
           });
@@ -1591,7 +1885,7 @@ describe("write behavior", () => {
       expect(result.result.kind).toBe("contract_miss");
       if (result.result.kind === "contract_miss") {
         expect(result.result.failedContractId).toBe("artifact.exists");
-        expect(result.result.failureReason).toBe("plan.draft.shape");
+        expect(result.result.failureReason).toBe("plan.draft.shape:nested-roots=2");
       }
       expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
     }
@@ -1633,7 +1927,7 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
     if (result.result.kind === "contract_miss") {
       expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-index");
     }
     expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
     expect(validatePlanDraftShapeTopLevelOnly(deepLeaf).valid).toBe(true);

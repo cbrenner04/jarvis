@@ -5,4 +5,4 @@ Lane worktrees that diff against moving `baseRef` treat post-fork `main` edits a
 - [x] [00-main-sync-scope-module.md](./00-main-sync-scope-module.md)
 - [x] [01-completion-commit-main-sync-refusal.md](./01-completion-commit-main-sync-refusal.md)
 - [x] [02-shrink-prompt-merge-base-diffs.md](./02-shrink-prompt-merge-base-diffs.md)
-- [ ] [03-iteration-commit-main-sync-telemetry.md](./03-iteration-commit-main-sync-telemetry.md)
+- [x] [03-iteration-commit-main-sync-telemetry.md](./03-iteration-commit-main-sync-telemetry.md)

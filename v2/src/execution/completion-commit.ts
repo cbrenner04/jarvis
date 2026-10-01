@@ -53,7 +53,7 @@ type CompletionCommitInput = ExternalSpecGitScope & {
    * this and keeps the stored message's own step classification. */
   step?: CompletionStepMetadata;
 };
-export type CompletionCommitResult = {
+type CompletionCommitResult = {
   commitSha?: string;
   filesChanged?: number;
   mainSyncRevertedPaths?: string[];

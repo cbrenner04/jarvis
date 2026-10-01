@@ -1,45 +1,41 @@
 # Structural-recovery traceability ledger
 
-Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-09-21 against `main` @ `a076cafff`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
+Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md). One row per open item in `v2/spec/`: what it is, what it waits on, and the last evidence. Rebuilt 2026-09-18 from a source audit of every item; refreshed 2026-10-01 against `main` @ `6e2255e05`; session narratives live in `reports/`, not here. Line numbers inside seeds drift; treat them as pointers and verify against `main` before planning. When an item lands, delete its row and add one line under § Reaped or § Landed with the PR; no journal paragraphs.
 
 ## Open specs (1)
 
 | Spec | Plan PR | Subspecs | Status |
 | --- | --- | --- | --- |
-| `20260930T095610Z-skipped-durable-successor-rollup-completed` | #4240 | 0/1 | implement in flight |
+| `20260930T223106Z-review-feedback-item-traceability` | #4298 | — | implement PR #4303 open, reviewed; 2 green CI pending; merge next session |
 
-`tui-consumes-retained-pipeline-list` landed #4172. Every other landed spec is archived under `completed/`.
+Every other landed spec is archived under `completed/`.
 
-## Ready-intents (7 queued: 3 dispatchable or in flight, 2 chained, 2 not startable)
+## Ready-intents (5 queued: 3 dispatchable, 2 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
-| `review-feedback-write-run` | plan in flight | — |
-| `roll-and-retain-monthly-telemetry` | plan in flight | — |
-| `live-serial-test-confirmation` | dispatchable (plan) | — |
-| `reopened-implement-stage-settles-succeeded` | chained | `skipped-durable-successor-rollup-completed` |
-| `review-feedback-item-traceability` | chained | `review-feedback-write-run` |
+| `agent-bindings-recover-usage-on-failed-settlement` | dispatchable (standalone plan) | — (#4301 landed its prerequisite) |
+| `publication-inflow-mutation-repair` | dispatchable; replan from the ready-intent (plan PR #4284 closed) and carry its reviewed decisions: re-verify HEAD before repair, revert weakened killing tests, revert uncommitted repair edits on timeout | — |
+| `retire-superseded-pipeline-branches` | dispatchable | — (#4290, #4296 landed) |
 | `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Contradicts #4087 (persisted row) | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
-## Seeds (22)
+## Seeds (20)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
-| `capture-token-usage-on-failed-invocations` | P2 | — | open (#4080); usage fields live on `InvocationOk` only, so failed calls are unpriced |
-| `review-roles-check-falsifiability-not-plausibility` | P2 | — | open; no falsifiability mandate in `prompts/implement/review-*.md` |
+| `harness-commits-stay-in-run-scope` | P1 | — | new 2026-10-01; 3 lanes swept out-of-scope content on 2026-09-30 (d39f5071c, bf1e5cbc6, 658c18963) |
+| `terminal-publication-accepts-operator-merged-pr` | P1 | — | new 2026-10-01; pipelines 998a665f, 66f666ad + once prior session |
+| `closed-lane-is-not-republished` | P1 | — | new 2026-10-01; #4302 republished closed #4286; prior #4243/#4244 |
+| `tui-revision-follow-replaces-itself` | P2 | — | new 2026-10-01; 19-process TUI chain on ttys001 |
 | `implement-respects-target-repo-doc-layout` | P2 | #3426 | open; leak 3 closed by #4029; `intent-split.test.ts` pins leak 1 |
 | `intent-split-covers-sibling-repo-surfaces` | P2 | #3439 | re-scoped to split-internal prerequisite consistency (`siblings` was v1-only) |
 | `detached-pipeline-plan-stage-consumes-ready-intents` | P2 | #3041 | AC2 landed #3534, AC3 landed #3657; in-repo git-chained silent skip remains; chosen mechanism over the retired merge-at-gate seed |
 | `per-project-config-overrides-seam` | P2 | #3026, #3150 | open; `agents` / `idleOutputTimeoutMs` machine-level only |
 | `implement-can-run-integration-slice-tests` | P2 | — | re-scoped to measurement criteria after #3867 |
-| `mutation-verifier-ignores-whitespace-only-line-changes` | P2 | — | open; no normalized base-line comparison |
 | `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | P2 | — | open; scope corrected to one file |
-| `completed-write-step-rows-stamp-finished-at` | P2 | — | rewritten; producer fixed incidentally by #3982, fallback UPDATE + backfill + test remain |
-| `cleanup-retires-subsumed-and-landed-worktrees` | P1 | — | new 2026-09-30; 29 manual `--abandon` calls across two sessions |
-| `superseded-pipeline-pr-hygiene` | P2 | — | unblocked by #3745; absorbs stacked-PR cleanup from the retired merge-at-gate seed |
 | `pipeline-fan-out-per-lane-terminal-settlement` | P2 | — | ready-flip half served by #3970; per-lane `merge` + spurious `failed` remain; doc target moved to `pipeline-execution.md` |
 | `pipeline-fan-out-lanes-serial-chained-bases` | P2 | — | open; prerequisite (per-lane settlement) not landed |
 | `agent-confinement-is-per-vendor-and-unexpressed` | P3 | #1453 | open; depends on `per-project-config-overrides-seam` |
@@ -54,6 +50,15 @@ P is the brief's priority. Issue is the intake issue where one exists.
 ## Open intake issues without a seed
 
 None; #3029 closed 2026-09-30. Closed: #3423 (#4090), #3417 (#4076), #3040 (#4085), #4004 (#4076), #3949, #3974, #3372.
+
+## Reaped 2026-10-01
+
+| Item | Reason |
+| --- | --- |
+| seeds `capture-token-usage-on-failed-invocations`, `review-roles-check-falsifiability-not-plausibility`, `mutation-verifier-ignores-whitespace-only-line-changes`, `completed-write-step-rows-stamp-finished-at`, `cleanup-retires-subsumed-and-landed-worktrees`, `superseded-pipeline-pr-hygiene` | consumed by intents #4247 #4248 #4251 #4256 #4257 #4274 #4275 #4276 #4277 |
+| 14 ready-intents (`backfill-terminal-null-finished-at-migration`, `cleanup-retires-subsumed-and-landed-worktrees`, `completion-boundary-terminal-stamps-finished-at`, `configure-pipeline-supersede-policy`, `invocation-completed-records-failure-usage`, `mutation-reprompt-colocated-fix-line`, `mutation-verifier-ignores-whitespace-only-line-changes`, `pipeline-verbs-accept-full-ids-on-degraded-listing`, `plan-stage-bases-on-fetched-default-branch`, `review-roles-falsifiability-implement`, `review-roles-falsifiability-plan`, `settle-superseded-pipeline-prs`, `shrink-post-mutation-reverify`, `skipped-durable-successor-rollup-completed`) | landed or consumed; not reaped by their implement PRs (some reintroduced by merged intent/plan PRs) |
+| landed spec dirs | archived (closeout 2026-09-30b) |
+| PRs #4286, #4302 | closed: #4286 swept stale-`main` content (rebuilt as #4301); #4302 duplicate republication of the closed lane |
 
 ## Reaped 2026-09-30 (second session)
 
@@ -125,6 +130,12 @@ Ledger stated 31 seeds with 31 rows, but 9 rows named seeds already consumed by 
 | seed `merge-pipeline-stage-pr-at-its-approval-gate` | contradicted `detached-pipeline-plan-stage-consumes-ready-intents`; self-admitted merge-at-gate alone is a no-op; stacked-PR half moved to `superseded-pipeline-pr-hygiene` |
 | seeds `ready-gate-repair-out-of-diff-edits`, `render-observer-verification-keeps-a-fixed-deadline`, `implement-admission-persists-its-run-row`, `publication-failures-settle-failed`, `gate-allowset-derivation-fails-on-external-spec-home` | consumed into ready-intents by #4031, #4032, #4033, #4035, #4036, #4038 |
 | ready-intent `single-spec-home-predicate` | landed #3916/#3917 (`specsHome`, `resolveSpecsHome`); residual is a two-line wrapper, not worth a lane |
+
+## Landed 2026-09-30 (second session; details in `reports/`)
+
+- Implements: #4260 #4263 #4264 #4266 #4267 #4268 #4278 #4282 #4287 #4290 #4292 #4293 #4294 #4295 #4296 #4297 #4300 #4301.
+- Direct fixes: #4265 #4271 #4291 #4299.
+- Plans: #4250 #4253 #4288 #4289 #4298. Seeds: #4252 #4270.
 
 ## Landed 2026-09-29 → 2026-09-30 (for tracing; details in `reports/`)
 

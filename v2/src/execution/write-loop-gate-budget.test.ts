@@ -1,18 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
+import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
+import { createStubMarkdownlintRunner } from "./workflow-runner.test-support.ts";
 import {
   executeWriteLoop,
   liveGateInvocationLeaseCount,
@@ -134,6 +135,7 @@ async function runGateBudgetLoop(args: {
   const store = openStateStore(args.stateDbPath);
   try {
     return await executeWriteLoop({
+      stagedMarkdownLintRunner: createStubMarkdownlintRunner(),
       worktree: {
         projectRoot: "/fake",
         projectName: "demo",

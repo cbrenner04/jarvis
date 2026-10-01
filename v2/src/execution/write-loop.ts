@@ -39,13 +39,13 @@ import {
   type DraftContractRepromptContext,
   type DraftContractRepromptEvent,
   dualConstraintRepromptDetail,
+  type GateInvocationBudgetRefusedEvent,
   type LandingContractRepromptEvent,
   type LogEvent,
   type LogSink,
   type LoopFinishedEvent,
   type PersistedRecord,
   priorLogRecordsFromSink,
-  type GateInvocationBudgetRefusedEvent,
   type StagedMarkdownLintRepromptEvent,
   type SurvivingMutationRepromptContext,
   type SurvivingMutationRepromptEvent,
@@ -590,7 +590,7 @@ export function findStagedMarkdownLintRepromptFromLog(
 }
 
 /** Last gate-budget reprompt context from a run's persisted log tail (resume after pause). */
-export function findGateBudgetRepromptFromLog(
+function findGateBudgetRepromptFromLog(
   logRecords: readonly PersistedRecord[] | undefined,
 ): WriteLoopInput["gateBudgetReprompt"] {
   if (logRecords === undefined) return undefined;

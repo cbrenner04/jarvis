@@ -12,6 +12,10 @@ When the ready finalizer's diff-derived mutation check survives, completion publ
 
 - On publication-time `SurvivingMutationError`, drive the existing `runMutationRepairIteration` loop in-flow before settling `surviving_mutation_failed`, sharing `MAX_MUTATION_REPAIR_ATTEMPTS` with resume.
 - Exhaustion or blocked repair still settles terminal `surviving_mutation_failed` resumable as today.
+- Re-verify the worktree `HEAD` equals the published tip before each repair iteration; a mismatch settles without repairing.
+- A repair that weakens or deletes a killing test is reverted, not committed.
+- A repair iteration that times out reverts its uncommitted edits before settling.
+- Carried from the debate review of closed plan PR #4284.
 
 ## Acceptance criteria
 

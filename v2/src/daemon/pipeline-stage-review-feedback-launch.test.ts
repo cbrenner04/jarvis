@@ -176,19 +176,31 @@ describe("executePipelineStageReviewFeedbackLaunch", () => {
   });
 
   test("forwards explicit branchKey to select a fan-out stage row", async () => {
+    // Mutation checkpoint: in-body mutation on `params.branchKey !== undefined` at pipeline-stage-review-feedback-launch.ts:65 must turn this RED.
     const { store, pipelineId, stageId } = succeededIntentPipelineStage(["b1", "b2"]);
-    const result = await executePipelineStageReviewFeedbackLaunch(
+    const deps = {
+      store,
+      subprocessRunner: noopRunner,
+      machineConfigPath,
+      resolveProjectRoot: () => undefined,
+      builder: WORKFLOW_PRESET_BUILDERS["review-feedback"],
+      handleWorkflowStart: (): { kind: "response"; result: null } => ({ kind: "response", result: null }),
+    };
+    const withoutBranchKey = await executePipelineStageReviewFeedbackLaunch({ pipelineId, stageId }, deps);
+    expect(withoutBranchKey).toEqual({
+      kind: "error",
+      code: "review_feedback_lane_unmatched",
+      message: "missing required flag --branch-key for fan-out stage",
+    });
+    const withBranchKey = await executePipelineStageReviewFeedbackLaunch(
       { pipelineId, stageId, branchKey: "b2" },
-      {
-        store,
-        subprocessRunner: noopRunner,
-        machineConfigPath,
-        resolveProjectRoot: () => undefined,
-        builder: WORKFLOW_PRESET_BUILDERS["review-feedback"],
-        handleWorkflowStart: () => ({ kind: "response", result: null }),
-      },
+      deps,
     );
-    expect(result).toMatchObject({ kind: "error", code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE });
+    expect(withBranchKey).toEqual({
+      kind: "error",
+      code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
+      message: `review-feedback: unregistered project ${PROJECT}`,
+    });
   });
 
   test("continues when lane resolves and refuses unregistered project", async () => {

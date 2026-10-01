@@ -1,6 +1,6 @@
 # Structural recovery brief
 
-Standing document: what is open, in what order, and the operating rules that still earn their place. Rewritten 2026-09-18 from a full backlog audit; refreshed 2026-09-21 against `main` @ `a076cafff`. Session narratives live in `reports/`; per-item tracing in [`structural-recovery-seed-ledger.md`](./structural-recovery-seed-ledger.md). Neither document is a journal: when a session lands something, move the row, do not append a paragraph.
+Standing document: what is open, in what order, and the operating rules that still earn their place. Rewritten 2026-09-18 from a full backlog audit; refreshed 2026-10-01 against `main` @ `6e2255e05`. Session narratives live in `reports/`; per-item tracing in [`structural-recovery-seed-ledger.md`](./structural-recovery-seed-ledger.md). Neither document is a journal: when a session lands something, move the row, do not append a paragraph.
 
 ## Where it stands
 
@@ -12,24 +12,28 @@ The 2026-09-21 session closed the regression P0 (#4132) and every dispatchable t
 
 What is left is no longer a fixed point that strands complete work. It is chain tails, the resume-surfaces chain, dogfood quality, and parked display work.
 
-Counts after the 2026-09-21 closeout: 1 open spec dir and 8 queued ready-intents; 4 dispatchable, 2 chained behind them, 1 evidence-gated, 1 needs a rewrite. 22 seeds. Landed: ledger § Landed.
+Counts after the 2026-10-01 closeout: 1 open spec dir and 5 queued ready-intents; 3 dispatchable, 1 evidence-gated, 1 needs a rewrite. 20 seeds. Landed: ledger § Landed.
 
 ## Priority-ordered work
 
-2026-09-30 closeout landed every P0 and the chain D, pipeline-resume, resume-surfaces and cursor-quota rows (ledger § Landed). Open P1: [[cleanup-retires-subsumed-and-landed-worktrees]]; rollup chain `skipped-durable-successor-rollup-completed` → `reopened-implement-stage-settles-succeeded`.
+2026-09-30 second session landed the rollup chain, review-feedback write run, roll-and-retain telemetry, live-serial confirmation, review-roles falsifiability, mutation whitespace, `finished_at` stamping, and superseded-PR settle + policy (ledger § Landed).
 
 | P | Item | Why |
 | --- | --- | --- |
 | **P1** | [[detach-admission-refuses-without-a-run-row]] — **rewrite before planning**, not dispatchable | Its decisions contradict the landed `linked-implement-routing-settles-a-real-outcome`, which deliberately ruled out an id-less refusal; rewrite it to the persisted-row contract (#4087) |
 | **P1** | [[wal-lock-holder-child-survives-to-marker]] — **evidence-gated**, do not plan | Must not be planned until an operator pastes a captured rejection into it (#4101); plan PR #4100 was rejected for un-tickable criteria |
-| **P1** | Cleanup and home: `roll-and-retain-monthly-telemetry` (last retention lane; session-log tiers landed #4173 #4188 #4223, node_modules link #4168 #4237) | Orphan telemetry lives forever |
+| **P1** | [[harness-commits-stay-in-run-scope]] | Three lanes swept out-of-scope or stale-`main` content on 2026-09-30; one broke a test |
+| **P1** | [[terminal-publication-accepts-operator-merged-pr]]; [[closed-lane-is-not-republished]] | Operator merge/close reads as failure or is undone by a duplicate PR |
+| **P1** | Mutation coverage: #4293 #4299 #4300 landed → `publication-inflow-mutation-repair` (ready-intent; replan) | Inflow mutation survivors at publication still need hand repair |
+| **P1** | Review feedback: #4208 #4209 #4234 #4294 landed; `review-feedback-item-traceability` #4303 pending merge; then [[pipeline-stage-addresses-review-feedback]] | Every post-publication review fix is hand-edited outside the harness |
+| **P1** | Cleanup: #4291 #4296 landed → `retire-superseded-pipeline-branches` (ready-intent) | Superseded pipeline branches accumulate |
+| **P2** | `agent-bindings-recover-usage-on-failed-settlement` (ready-intent; #4301 landed its prerequisite) | Failed settlements stay unpriced |
+| **P2** | Dogfood quality: [[tui-revision-follow-replaces-itself]]; [[implement-respects-target-repo-doc-layout]] (#3426); [[intent-split-covers-sibling-repo-surfaces]] (#3439); [[detached-pipeline-plan-stage-consumes-ready-intents]] (#3041); [[per-project-config-overrides-seam]] (#3026/#3150); [[implement-can-run-integration-slice-tests]]; [[self-parsing-structural-tests-can-bind-to-their-own-fixtures]] | Each recurs but none strands a lane |
+| **P2** | Fan-out: [[pipeline-fan-out-per-lane-terminal-settlement]]; [[pipeline-fan-out-lanes-serial-chained-bases]] | Fan-out pipelines still derive `failed` after every lane succeeds |
 | **P3** | [[fold-shared-into-v2]] → [[retire-v2-nomenclature]] (fold in; lowish priority) | `v2` is a planning-era label; there is no v3 |
-| **P1** | Review feedback: capture #4208, preset #4209, lane admission #4234 landed; `review-feedback-write-run` → `review-feedback-item-traceability`; then [[pipeline-stage-addresses-review-feedback]] | Every post-publication review fix is hand-edited outside the harness |
-| **P2** | Dogfood quality: [[review-roles-check-falsifiability-not-plausibility]]; [[implement-respects-target-repo-doc-layout]] (#3426); [[intent-split-covers-sibling-repo-surfaces]] (#3439); [[detached-pipeline-plan-stage-consumes-ready-intents]] (#3041); [[per-project-config-overrides-seam]] (#3026/#3150); [[implement-can-run-integration-slice-tests]]; [[mutation-verifier-ignores-whitespace-only-line-changes]]; [[self-parsing-structural-tests-can-bind-to-their-own-fixtures]]; [[completed-write-step-rows-stamp-finished-at]]; `live-serial-test-confirmation` (ready-intent) | Each recurs but none strands a lane |
-| **P2** | Fan-out: [[superseded-pipeline-pr-hygiene]]; [[pipeline-fan-out-per-lane-terminal-settlement]]; [[pipeline-fan-out-lanes-serial-chained-bases]]; spec `tui-consumes-retained-pipeline-list` (0/2, genuinely open) | Fan-out pipelines still derive `failed` after every lane succeeds |
 | **P3** | [[agent-confinement-is-per-vendor-and-unexpressed]] (#1453); [[cli-retire-run-start-pause-and-config]]; [[tui-dock-command-grammar-mirrors-cli]]; [[tui-typed-run-steering-clears-command-input]] | Parked; see the open decision on `run pause` below |
 
-Dispatch order for the next session: plan the four dispatchable ready-intents in parallel (chain D tail, pipeline resume, both resume-surfaces heads); the two resume-surfaces successors follow their heads. Rewrite [[detach-admission-refuses-without-a-run-row]] by hand before it is planned at all, and leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
+Dispatch order for the next session: merge #4303 after its second green CI; plan the three dispatchable ready-intents in parallel; intent the three new P1 seeds. Rewrite [[detach-admission-refuses-without-a-run-row]] by hand before it is planned at all, and leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
 
 ## Contradictions and decisions surfaced by the audit
 
@@ -37,7 +41,7 @@ Dispatch order for the next session: plan the four dispatchable ready-intents in
 
 - **Retired 2026-09-29 as a false premise:** `run-resume-returns-admission-refusal`, `run-projection-names-resume-refusal`, `tui-surfaces-resume-refusal`. `run resume` never reaches the stale-reset gates (`maybeResetStaleWorkspace` is called only from workflow start and pipeline re-dispatch), and its admission refusals already return RPC error frames. The gap is pipeline-only.
 
-- **Retired 2026-09-18 as a contradiction:** `merge-pipeline-stage-pr-at-its-approval-gate` prescribed merging the intent PR at `approve-intent` and re-resolving the plan base, the opposite of [[detached-pipeline-plan-stage-consumes-ready-intents]] (consume from the source the plan actually read) and of `first-workflow-walkthrough.md`, which says inter-stage merging is not required. Consume-from-source is kept; the stacked-PR cleanup half moved to [[superseded-pipeline-pr-hygiene]]. Revert by restoring the seed if you prefer merge-at-gate.
+- **Retired 2026-09-18 as a contradiction:** `merge-pipeline-stage-pr-at-its-approval-gate` prescribed merging the intent PR at `approve-intent` and re-resolving the plan base, the opposite of [[detached-pipeline-plan-stage-consumes-ready-intents]] (consume from the source the plan actually read) and of `first-workflow-walkthrough.md`, which says inter-stage merging is not required. Consume-from-source is kept; the stacked-PR cleanup half moved to `superseded-pipeline-pr-hygiene` (consumed 2026-09-30). Revert by restoring the seed if you prefer merge-at-gate.
 - **Open decision, `run pause`:** [[cli-retire-run-start-pause-and-config]] deletes it first, while #3853 added a `run-paused` incident on every paused row and [[tui-dock-command-grammar-mirrors-cli]] aligns the dock to it. Decide whether pause stays before planning either seed.
 - **Corrected in place:** [[implement-can-run-integration-slice-tests]] decision 3 contradicted `prompts/implement/rules.md:29` (#3867, tick harness-run suites on in-sandbox checks); re-scoped to measurement criteria. [[intent-split-covers-sibling-repo-surfaces]] relied on a `siblings` key that exists only in frozen v1. Spec `stage-success-reopens-skipped-successors` intent said same-transaction, its subspec says separate; the intent now matches the subspec.
 - **A seed PR is not a fix.** The brief once marked #3833 and #3832 landed by citing the seed PRs themselves; #3833 has since landed for real (#4065), and `daemon-status-reports-stopped-on-a-busy-daemon` landed #4143.
@@ -51,7 +55,6 @@ Dispatch order for the next session: plan the four dispatchable ready-intents in
 
 - Implement reports complete after only subspec 00 of a multi-subspec tree; twice (#4149, #4154), caught only by diff review.
 - TUI hides a live resumed run whose invocation entry row is terminal.
-- Pipeline terminal publication runs `ready` after an operator hand-merge and fails `exit unknown` (once).
 - `run-ad-hoc-terminal` / `pipeline-terminal` `failed` notifications fire on every `slot_contention` gate refusal; mostly addressed by #4149.
 - A leaked `launchd`-parented test orphan (`bun -e ... CURRENT_OWNER_IDENTITY ... setInterval`) held a worktree for hours and plausibly produced false mutation-gate verdicts.
 
@@ -69,7 +72,7 @@ Dispatch order for the next session: plan the four dispatchable ready-intents in
 
 **Guards that destroy treat inconclusive as "do not act".** `ENOENT` from a sandboxed caller, a failed `gh` probe, a timed-out socket probe: none is authoritative. `daemon status` now reports an inconclusive probe as such (#4143).
 
-**Land-a-slice.** A multi-subspec spec converges only with immediate re-dispatch after each merged slice. Implement PRs carry the spec tree, so close the plan-stage PR as subsumed once the implement merges; intent-stage PRs must merge because they carry the seed deletion.
+**Land-a-slice.** A multi-subspec spec converges only with immediate re-dispatch after each merged slice.
 
 **Quota is a window.** `five_hour` rejected with `seven_day` headroom means pause until `resetsAt`; only a rejected `seven_day` ends a session.
 
@@ -77,7 +80,9 @@ Dispatch order for the next session: plan the four dispatchable ready-intents in
 
 **Two green CI runs pinned to `headSha` for daemon or publication PRs.** One green run proves little for flaky tests, and a conflicting PR runs no CI at all.
 
-**Close a pipeline's plan PR, never merge it before its implement lands.** Merging deletes the plan branch and strands the implement stage, and caused a spec-tick rebase conflict twice on 2026-09-21.
+**Close a pipeline's intent or plan PR as subsumed once its next stage has completed — never merge it:** the next stage consumed it from the branch, and merging re-adds stale ready-intents. Close plan PRs as soon as the implement starts.
+
+**Every harness repair/resume commit is suspect:** diff each lane against its merge base and reject out-of-scope paths before merge (three lanes on 2026-09-30).
 
 **Fix, don't seed, mechanical defects.** A leak or test-hygiene defect with an obvious fix lands as a fix PR (#4068), not a seed.
 

@@ -87,13 +87,16 @@ import {
   findFirstRepairFenceViolation,
   gateInvocationAdmits,
   getUncommittedPaths,
+  isShrinkWriteLoop,
   liveGateInvocationLeaseCount,
   MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
   persistRetainedFinalizationCheckpoint,
   publishCompletionArtifacts,
   publishWithReadyRepair,
+  resolvePreShrinkHead,
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
+  runsInLoopDiffDerivedMutationVerification,
   shouldFailTerminalCompletionForDirtyWorktree,
   subscribeGateInvocationLeaseReleased,
   validateReadyGateRepairCompletion,
@@ -558,6 +561,8 @@ async function runLoop(args: {
   iterationTimeoutMs?: number;
   readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
   verifyDiffDerivedMutations?: WriteLoopInput["verifyDiffDerivedMutations"];
+  bindingResolution?: WriteLoopInput["bindingResolution"];
+  preShrinkHead?: WriteLoopInput["preShrinkHead"];
   externalPlanSpec?: WriteLoopInput["externalPlanSpec"];
   specReadRoot?: WriteLoopInput["specReadRoot"];
   completionValidator?: WriteLoopInput["completionValidator"];
@@ -611,6 +616,8 @@ async function runLoop(args: {
     ...(args.verifyDiffDerivedMutations !== undefined
       ? { verifyDiffDerivedMutations: args.verifyDiffDerivedMutations }
       : {}),
+    ...(args.bindingResolution !== undefined ? { bindingResolution: args.bindingResolution } : {}),
+    ...(args.preShrinkHead !== undefined ? { preShrinkHead: args.preShrinkHead } : {}),
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
     ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
     ...(args.completionValidator !== undefined ? { completionValidator: args.completionValidator } : {}),
@@ -629,6 +636,13 @@ const IN_LOOP_SURVIVING_SOURCE_LINE = 17;
 const IN_LOOP_NON_TERMINATING_MUTATION = "guard-flip: while (true) → while (false)";
 const IN_LOOP_NON_TERMINATING_SOURCE_FILE = "v2/src/daemon/daemon-run-control-handler-guard.ts";
 const IN_LOOP_NON_TERMINATING_SOURCE_LINE = 42;
+
+const SHRINK_LOOP_TEST_PLACEHOLDERS = {
+  SPEC_TREE: "# Spec\n",
+  ALLOWLIST: "- proof.txt",
+  BRANCH_DIFF: "(no changes)",
+  RUN_SCOPED_DIFF: "(no changes)",
+} as const;
 
 function writeSpecIndex(jarvisRoot: string, branchName: string, content: string): void {
   const specDir = join(jarvisRoot, "worktrees", "demo", branchName, "spec");
@@ -8370,6 +8384,230 @@ export function isLoadSensitive(file: string): boolean {
         candidates: [inconclusive],
       });
       expect(events.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete" });
+    });
+
+    test("runsInLoopDiffDerivedMutationVerification gates implement and shrink prompts only", () => {
+      const shrinkBinding = {
+        role: "shrink",
+        agents: ["claude"],
+        agentModelConfig: stubAgentModelConfig(["claude"]),
+      };
+      expect(runsInLoopDiffDerivedMutationVerification({ promptId: "implement.prompt.body" })).toBe(true);
+      expect(
+        runsInLoopDiffDerivedMutationVerification({
+          promptId: "implement.prompt.shrink",
+          bindingResolution: shrinkBinding,
+        }),
+      ).toBe(true);
+      expect(runsInLoopDiffDerivedMutationVerification({ promptId: "write.execute" })).toBe(false);
+      expect(runsInLoopDiffDerivedMutationVerification({ bindingResolution: shrinkBinding })).toBe(true);
+      expect(isShrinkWriteLoop({ promptId: "implement.prompt.body" })).toBe(false);
+      expect(isShrinkWriteLoop({ promptId: "implement.prompt.shrink", bindingResolution: shrinkBinding })).toBe(true);
+    });
+
+    test("shrink complete surviving mutation reprompts before loop complete", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      let verifyCalls = 0;
+      let invocations = 0;
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "implement.prompt.shrink",
+        promptPlaceholders: SHRINK_LOOP_TEST_PLACEHOLDERS,
+        maxIterations: 3,
+        logSink,
+        bindings: [
+          {
+            id: "shrink",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => {
+          verifyCalls += 1;
+          if (verifyCalls === 1) {
+            return {
+              kind: "surviving-mutation",
+              mutation: IN_LOOP_SURVIVING_MUTATION,
+              killingTests: ["v2/src/guard.test.ts"],
+              killingSetObservedResult: "passed-confirmed",
+              sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
+              dualConstraint: true,
+            };
+          }
+          return {
+            kind: "pass",
+            runBase: "HEAD",
+            inspectedPaths: [],
+            candidateCount: 0,
+            acceptedSites: [],
+            skippedCandidates: [],
+          };
+        },
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(invocations).toBe(2);
+      expect(verifyCalls).toBe(2);
+      expect(result.kind).toBe("complete");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("surviving_mutation_reprompt");
+      expect(events).not.toContain("surviving_mutation_failed");
+      const completeIndex = events.lastIndexOf("loop_finished");
+      expect(completeIndex).toBeGreaterThan(events.indexOf("surviving_mutation_reprompt"));
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+      });
+    });
+
+    test("resolvePreShrinkHead prefers the logged pre-shrink head over a caller-supplied head", () => {
+      const logged = [{ event: { kind: "pre_shrink_head", head: "logged-sha" } }] as unknown as Parameters<
+        typeof resolvePreShrinkHead
+      >[1];
+      expect(resolvePreShrinkHead("fresh-post-shrink-sha", logged)).toBe("logged-sha");
+      expect(resolvePreShrinkHead("fresh-sha", [])).toBe("fresh-sha");
+      expect(resolvePreShrinkHead("fresh-sha", undefined)).toBe("fresh-sha");
+      expect(resolvePreShrinkHead(undefined, logged)).toBe("logged-sha");
+    });
+
+    test("shrink surviving mutation reprompt budget exhaustion reverts to pre-shrink HEAD and completes", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "shrink-mutation-revert";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktreePath, ".gitignore"), ".scratch/\n", "utf8");
+      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+      writeFileSync(join(worktreePath, "proof.txt"), "verified\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "verified"], { stdio: "pipe" });
+      const preShrinkHead = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+        encoding: "utf8",
+      }).trim();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        promptId: "implement.prompt.shrink",
+        preShrinkHead,
+        promptPlaceholders: SHRINK_LOOP_TEST_PLACEHOLDERS,
+        maxIterations: 2,
+        logSink,
+        bindings: [
+          {
+            id: "shrink",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              writeFileSync(join(cwd, "proof.txt"), "shrunk\n", "utf8");
+              mkdirSync(join(cwd, ".scratch"), { recursive: true });
+              writeFileSync(join(cwd, ".scratch", "shrink-narrative.md"), "reverted simplification\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => ({
+          kind: "surviving-mutation",
+          mutation: IN_LOOP_SURVIVING_MUTATION,
+          killingTests: [],
+          killingSetObservedResult: "not-run",
+          sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
+          dualConstraint: true,
+        }),
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(
+        Number(
+          execFileSync("git", ["-C", worktreePath, "rev-list", "--count", `${preShrinkHead}..HEAD`], {
+            encoding: "utf8",
+          }).trim(),
+        ),
+      ).toBe(0);
+      expect(execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()).toBe(
+        preShrinkHead,
+      );
+      expect(execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
+      expect(existsSync(join(worktreePath, ".scratch", "shrink-narrative.md"))).toBe(false);
+      expect(result.kind).toBe("complete");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("surviving_mutation_reprompt");
+      expect(events).not.toContain("surviving_mutation_failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+      });
+    });
+
+    test("shrink complete non-terminating mutation reverts to pre-shrink HEAD and completes", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "shrink-non-terminating-revert";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktreePath, ".gitignore"), "\n", "utf8");
+      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+      writeFileSync(join(worktreePath, "proof.txt"), "verified\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "verified"], { stdio: "pipe" });
+      const preShrinkHead = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+        encoding: "utf8",
+      }).trim();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        promptId: "implement.prompt.shrink",
+        preShrinkHead,
+        promptPlaceholders: SHRINK_LOOP_TEST_PLACEHOLDERS,
+        maxIterations: 1,
+        logSink,
+        bindings: [
+          {
+            id: "shrink",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              writeFileSync(join(cwd, "proof.txt"), "shrunk\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => ({
+          kind: "non-terminating-mutation",
+          mutation: "hang-mutant",
+          sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
+        }),
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()).toBe(
+        preShrinkHead,
+      );
+      expect(result.kind).toBe("complete");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("non_terminating_mutation_failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+      });
     });
 
     test("implement complete surviving mutation reprompts before publication", async () => {

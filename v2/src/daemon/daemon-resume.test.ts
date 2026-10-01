@@ -3536,6 +3536,38 @@ function createPausedImplementRepromptRun(branchName: string): string {
   return runId;
 }
 
+function createPausedHiddenShrinkRun(branchName: string): string {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(join(worktreePath, "00-subspec.md"), "## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath,
+    branch: branchName,
+    specPath: "spec/index.md",
+    stepId: "implement~shrink",
+    workflowSnapshot: {
+      invocationId: branchName,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "00-subspec.md",
+          promptId: "implement.prompt.body",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "paused");
+  return runId;
+}
+
 const PAUSED_LOOP_FINISHED = {
   kind: "loop_finished",
   loopOutcomeKind: "paused",
@@ -3651,6 +3683,20 @@ test("paused implement run resumes surviving mutation reprompt context", async (
     sourceLine: 42,
     dualConstraint: true,
   });
+});
+
+test("paused implement~shrink run resumes preShrinkHead from durable log", async () => {
+  const preShrinkHead = "abc123deadbeef";
+  const runId = createPausedHiddenShrinkRun("shrink-paused-pre-shrink-head");
+  const response = await resumeDirect(
+    createHandlers(logReader(runId, [{ kind: "pre_shrink_head", head: preShrinkHead }, PAUSED_LOOP_FINISHED])),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.bindingResolution?.role).toBe("shrink");
+  expect(starts[0]?.preShrinkHead).toBe(preShrinkHead);
 });
 
 test("paused implement resume restores landing-contract but ignores checkpoint reprompt when co-present", async () => {

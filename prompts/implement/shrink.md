@@ -3,7 +3,7 @@ id: implement.prompt.shrink
 behavior: implement
 kind: step
 fragmentPolicy: global
-revision: 5
+revision: 6
 remove: [global.documentation, global.naming]
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, BRANCH_DIFF:string!, RUN_SCOPED_DIFF:string!, STEP_RULES:string!]
 ---
@@ -62,6 +62,7 @@ Hunt and remove bloat matching these patterns only — no numeric line-count tar
 - Do not add features, tests for new behavior, or expand scope.
 - Preserve observable behavior; run tests before finishing.
 - Prefer deletion. Reuse existing `shared/*` helpers before inlining; inline only when nothing shared fits.
+- Do not delete or empty co-located killing tests (`<stem>.test.ts`, `<stem>-*.test.ts`) that cover changed guards.
 
 ## Narrative
 

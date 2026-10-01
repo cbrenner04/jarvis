@@ -667,7 +667,7 @@ test("pause rejects a workflow-started run's step-0 runId with run_not_active", 
 test("workflow claim and step activeRuns rows share one AbortController", async () => {
   const branch = "shared-abort-branch";
   const steps: AnyWorkflowStep[] = [
-    createWriteStep("step-1", branch, doneWithArtifactBindingFactory),
+    createWriteStep("step-1", branch, doneWithArtifactBindingFactory, { suppressShrink: true }),
     createWriteStep("step-2", branch, heldLiveBindingFactory()),
   ];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
@@ -693,7 +693,7 @@ test("workflow claim and step activeRuns rows share one AbortController", async 
 test("kill on a completed sibling step runId aborts the in-flight step via the shared controller", async () => {
   const branch = "workflow-kill-completed-sibling-branch";
   const steps: AnyWorkflowStep[] = [
-    createWriteStep("step-1", branch, doneWithArtifactBindingFactory),
+    createWriteStep("step-1", branch, doneWithArtifactBindingFactory, { suppressShrink: true }),
     createWriteStep("step-2", branch, heldLiveBindingFactory()),
   ];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
@@ -745,7 +745,7 @@ test("kill aborts the daemon-injected workflow step signal and unwinds the in-fl
 test("after kill settles, list reports killed rollup and preserves worktree and completed siblings", async () => {
   const branch = "workflow-kill-settle-branch";
   const steps: AnyWorkflowStep[] = [
-    createWriteStep("step-1", branch, doneWithArtifactBindingFactory),
+    createWriteStep("step-1", branch, doneWithArtifactBindingFactory, { suppressShrink: true }),
     createWriteStep("step-2", branch, heldLiveBindingFactory()),
   ];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
@@ -812,7 +812,7 @@ test("kill authorization accepts a live workflow row and rejects a mismatched or
 
 test("kill accepts a later step's runId once onStepRunCreated has tracked it; pause still rejects", async () => {
   const steps: AnyWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-branch", doneWithArtifactBindingFactory),
+    createWriteStep("step-1", "workflow-branch", doneWithArtifactBindingFactory, { suppressShrink: true }),
     createWriteStep("step-2", "workflow-branch", heldLiveBindingFactory()),
   ];
   await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);

@@ -2380,7 +2380,7 @@ describe("executeWorkflow review dispatch", () => {
 
       expect(result.kind).toBe("surviving_mutation_failed");
       expect(result.resumable).toBe(true);
-      expect(verifyCalls()).toBe(1);
+      expect(verifyCalls()).toBe(2);
 
       const reviewRun = store.findRunByProjectBranch({
         project: "demo",
@@ -2431,7 +2431,7 @@ describe("executeWorkflow review dispatch", () => {
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
-      expect(verifyCalls()).toBe(1);
+      expect(verifyCalls()).toBe(2);
       const invocationsAfterPublicationFailure = implementInvocations();
 
       const implementRun = store.findRunByProjectBranch({

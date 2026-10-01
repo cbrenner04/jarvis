@@ -5,6 +5,7 @@ import { PromptRenderingError } from "../../../shared/prompts/render.ts";
 import { buildReviewFeedbackWritePrompt } from "../../../shared/prompts/review-feedback-write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
 import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
+import { SHRINK_FORBID_GUARD_TEST_DELETION_RULE, SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 /** v2 write-step rendering is the shared assembler; the shim keeps the historical call shape. */
 function renderStepPrompt(promptId: string, placeholders: Record<string, string>): string {
@@ -113,6 +114,27 @@ describe("write prompt", () => {
     expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
     expect(rendered).not.toContain("Before editing code, read the relevant durable docs/specs");
     expect(rendered).not.toContain("Never put planning labels");
+  });
+
+  // Mutation checkpoint: sentinel body-line mutation on `implement.prompt.shrink` must turn this RED.
+  test("implement.prompt.shrink forbids deleting guard killing tests in Rules and STEP_RULES", () => {
+    const rendered = renderStepPrompt("implement.prompt.shrink", {
+      SPEC_PATH: "spec/example/index.md",
+      SPEC_TREE: "tree",
+      ALLOWLIST: "allow",
+      BRANCH_DIFF: "diff",
+      RUN_SCOPED_DIFF: "diff",
+      STEP_RULES: SHRINK_WRITE_STEP_RULES,
+    });
+
+    const rulesStart = rendered.indexOf("## Rules");
+    const narrativeStart = rendered.indexOf("## Narrative");
+    expect(rulesStart).toBeGreaterThanOrEqual(0);
+    expect(narrativeStart).toBeGreaterThan(rulesStart);
+    const rulesSection = rendered.slice(rulesStart, narrativeStart);
+    expect(rulesSection).toContain(`- ${SHRINK_FORBID_GUARD_TEST_DELETION_RULE}`);
+    expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+    expect(rendered.trimEnd().endsWith(SHRINK_WRITE_STEP_RULES)).toBe(true);
   });
 
   test("write.execute isolates the shared human-only step rules", () => {

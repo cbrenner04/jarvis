@@ -7,7 +7,7 @@ import {
   tuiRevisionReexecChannelFromEnv,
 } from "./tui-reexec-channel.ts";
 
-export { TUI_REVISION_REEXEC_EXIT_CODE, type TuiReexecCarriedState } from "./tui-reexec-channel.ts";
+export type { TuiReexecCarriedState } from "./tui-reexec-channel.ts";
 
 /** Env var carrying the daemon revision this process already re-exec'd for. */
 export const TUI_REEXEC_REVISION_ENV = "JARVIS_TUI_REEXEC_REVISION";

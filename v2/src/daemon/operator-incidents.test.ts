@@ -519,6 +519,52 @@ function seedInvocationRow(stepId: string, status: "completed" | "in-progress" |
   return runId;
 }
 
+test("invocation lane incident prUrl is taken from the row whose prNumber matches the outcome", () => {
+  setSystemTime(new Date(1_000_000));
+  const closedNumber = 88;
+  const matchingUrl = `https://github.com/org/repo/pull/${closedNumber}`;
+  const decoyUrl = "https://github.com/org/repo/pull/1";
+  const decoyRunId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: "two-step",
+    specPath: "s.md",
+    stepId: "plan~link-0",
+    workflowSnapshot: TWO_STEP_SNAPSHOT,
+  });
+  store.commitTerminalRunSettlement({
+    runId: decoyRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: 1,
+    prUrl: decoyUrl,
+  });
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.commitTerminalRunSettlement({
+    runId: entryRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+  });
+  const reviewRunId = seedInvocationRow("review", "completed");
+  store.commitTerminalRunSettlement({
+    runId: reviewRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+    prUrl: matchingUrl,
+  });
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_005_000);
+  const incident = deriveOperatorIncidents(store).find((row) => row.runId === entryRunId);
+  expect(incident).toMatchObject({
+    kind: "run-ad-hoc-terminal",
+    cause: "lane_pr_closed",
+    prNumber: closedNumber,
+    prUrl: matchingUrl,
+  });
+});
+
 test("multi-row workflow invocation emits one terminal incident", () => {
   setSystemTime(new Date(1_000_000));
   const entryRunId = seedInvocationRow("plan", "completed");

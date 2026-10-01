@@ -823,6 +823,7 @@ test("deriveOperatorIncidents names lane_pr_merged and prNumber when loop_finish
   expect(incident).toMatchObject({
     cause: "lane_pr_merged",
     prNumber: mergedNumber,
+    prUrl: mergedUrl,
     transition: `lane_pr_merged:${mergedNumber}:${settledAt}`,
   });
 });

@@ -542,6 +542,39 @@ describe("createCompletionCommitter", () => {
     expect(result.mainSyncRevertedPaths).toEqual(checkpointSyncPaths);
   });
 
+  test("strict restaging surfaces main-sync reverts found during restage when checkpoint omitted them", async () => {
+    const { worktreePath, mergeBaseHead } = initForkedLaneAtMergeBase();
+    writeFileSync(join(worktreePath, "x.txt"), readPathAtRef(worktreePath, "main", "x.txt") ?? "");
+    writeFileSync(join(worktreePath, "w.txt"), readPathAtRef(worktreePath, "main", "w.txt") ?? "");
+    rmSync(join(worktreePath, "z.txt"));
+    writeFileSync(join(worktreePath, "y.txt"), "y-lane-edit\n");
+
+    const gitDir = join(worktreePath, ".git");
+    const branchRef = execFileSync("git", ["symbolic-ref", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    writeFileSync(
+      join(gitDir, "jarvis-completion-pending.json"),
+      `${JSON.stringify({
+        baseHead: mergeBaseHead,
+        tree: "checkpoint-tree",
+        branchRef,
+        message: "Test Spec Title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude\nJarvis-Step: write",
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        formatMode: "checkpoint",
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.mainSyncRevertedPaths).toEqual(["w.txt", "x.txt", "z.txt"]);
+    expect(result.commitSha).toBeDefined();
+  });
+
   test("defaults absent and legacy pending step metadata to write", async () => {
     // Fresh direct completion: bare title, `Jarvis-Step: write` added beside `Jarvis-Agent`.
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");

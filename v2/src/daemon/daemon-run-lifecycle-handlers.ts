@@ -100,8 +100,8 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isStalePublicationCause,
-  resolveRunLanePrOutcome,
   RUN_OPERATOR_ERROR_RECOVERY,
+  resolveRunLanePrOutcome,
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";

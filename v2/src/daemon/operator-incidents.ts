@@ -2,15 +2,15 @@ import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts"
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
-import { resolveRunLanePrOutcome, type TerminalLogRecord } from "./run-operator-error.ts";
 import {
   derivePipelineState,
   isPipelineTerminal,
   narrowPipelineStageArtifact,
-  terminalPublicationFailureForcesPipelineFailed,
   type PipelineDerivedState,
+  terminalPublicationFailureForcesPipelineFailed,
 } from "./pipeline-execution.ts";
 import { derivePipelineAwaitingGates } from "./pipeline-observation.ts";
+import { resolveRunLanePrOutcome, type TerminalLogRecord } from "./run-operator-error.ts";
 
 type OperatorIncidentKind =
   | "pipeline-awaiting-approval"

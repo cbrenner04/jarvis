@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import type { LogReader } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import {
-  deriveOperatorIncidents,
   type DeriveOperatorIncidentsOptions,
+  deriveOperatorIncidents,
   NOTIFICATION_KEY_FORMAT_VERSION,
   type OperatorIncident,
   serializeOperatorIncident,

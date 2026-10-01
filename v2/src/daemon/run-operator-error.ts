@@ -1,5 +1,6 @@
 import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
+import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import {
   type BindingAttemptSummary,
   type InvocationFailureDetail,
@@ -13,7 +14,6 @@ import {
   type SurvivingMutationKillingSetResult,
   survivingMutationLogFields,
 } from "../execution/ready-finalize.ts";
-import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import {
   type ContractMissDetailEvent,

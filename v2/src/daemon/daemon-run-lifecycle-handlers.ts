@@ -229,20 +229,20 @@ function restoreRunAfterFailedResume(store: StateStore, prior: Run, reopened: re
 }
 
 /**
- * A genuinely failed republication downgrades an existing settled marker to `failed`. Skips a
- * markerless invocation (settled before markers, or crash-orphaned) so no cause is fabricated.
- * Best-effort like the marker's writer.
+ * A resume that re-settles its workflow invocation rewrites the entry run's settled marker, so the
+ * settle mints a fresh `run-ad-hoc-terminal` transition. Cause rolls up the invocation's durable rows
+ * (`failed` when the resumed tail itself failed, whatever status it restored); skipped while any row is live. Best-effort like the marker's writer.
  */
-function rewriteSettledMarkerAfterFailedRepublication(store: StateStore, run: Run): void {
+function rewriteSettledMarkerAfterResume(store: StateStore, runId: string, tailFailed = false): void {
   try {
-    const snapshot = run.workflowSnapshot;
-    if (snapshot === null || snapshot === undefined) return;
-    const entryStepId = snapshot.steps[0]?.stepId;
-    const entryRun = store.findRunsByInvocationId(snapshot.invocationId).find((row) => row.stepId === entryStepId);
-    if (entryRun === undefined || store.readWorkflowInvocationSettledMarker(entryRun.id) === null) return;
-    store.writeWorkflowInvocationSettledMarker(entryRun.id, "failed", Date.now());
+    const invocationId = store.loadRun(runId)?.workflowSnapshot?.invocationId;
+    if (invocationId === undefined) return;
+    const rows = store.findRunsByInvocationId(invocationId);
+    if (rows.length === 0 || !rows.every((row) => isTerminalRunStatus(row.status))) return;
+    const cause = !tailFailed && rows.every((row) => row.status === "completed") ? "completed" : "failed";
+    store.writeWorkflowInvocationSettledMarker(resolveInvocationEntryRunId(store, runId), cause, Date.now());
   } catch (markerError) {
-    console.error(`Workflow invocation settled marker rewrite for ${run.id} failed:`, markerError);
+    console.error(`Workflow invocation settled marker rewrite for ${runId} failed:`, markerError);
   }
 }
 
@@ -257,7 +257,6 @@ function failedFinalizationTailResult(
 ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
   if (!aborted) {
     restoreRunAfterFailedResume(store, run, reopened);
-    rewriteSettledMarkerAfterFailedRepublication(store, run);
   }
   return failureAsResponse
     ? { kind: "response", result: outcome }
@@ -734,7 +733,13 @@ export function createRunLifecycleHandlers(
     }
   };
 
-  const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
+  const spawnWriteLoop = (
+    key: OwnershipKey,
+    runId: string,
+    worktreePath: string,
+    input: WriteLoopInput,
+    resumed = false,
+  ): void => {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
     const pauseController = new AbortController();
@@ -746,6 +751,11 @@ export function createRunLifecycleHandlers(
       abortController,
       undefined,
     );
+
+    // A resumed loop re-settles its invocation; `run kill` (abort) keeps the prior marker.
+    const rewriteMarkerAfterResumedLoop = (): void => {
+      if (resumed && !abortController.signal.aborted) rewriteSettledMarkerAfterResume(store, runId);
+    };
 
     (async () => {
       try {
@@ -775,6 +785,7 @@ export function createRunLifecycleHandlers(
         activeRuns.delete(ks);
         registry.release(key);
         settleStagesAfterWriteLoop(runId);
+        rewriteMarkerAfterResumedLoop();
         promoteQueuedRun();
         ctx.slotRedrive.enqueue(runId);
       }
@@ -1280,7 +1291,7 @@ export function createRunLifecycleHandlers(
     if (claimError) return claimError;
     const admission = await admitRunForResumeOrRefusal(store, runId, reopenStage);
     if (!Array.isArray(admission)) return admission;
-    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
+    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input, true);
     return { kind: "response", result: { ok: true } };
   };
 
@@ -1302,6 +1313,7 @@ export function createRunLifecycleHandlers(
     activeRuns.set(activeKey, { kind: "finalization", runId: run.id, abortController });
     // Publication-only tail: bounded per dispatch on the same controller, never charged to or refused by the write-run budget.
     const runTimeout = armDispatchRunTimeout(run, abortController, logSink, false);
+    let tailFailed = false;
     try {
       const resumeDeps: IntentFinalizationResumeDeps = {
         ...intentFinalizationResumeDeps,
@@ -1310,6 +1322,7 @@ export function createRunLifecycleHandlers(
       };
       const outcome = await execute(resumeDeps);
       if (!outcome.ok) {
+        tailFailed = true;
         return failedFinalizationTailResult(
           store,
           run,
@@ -1322,9 +1335,9 @@ export function createRunLifecycleHandlers(
       return { kind: "response", result: outcome };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      tailFailed = true;
       // `run kill` aborted the tail: settlement happens in `finally`, after unwind.
       if (abortController.signal.aborted) return { kind: "error", code: "internal_error", message };
-      rewriteSettledMarkerAfterFailedRepublication(store, run);
       const attemptId = store.recordAttemptStart(run.id);
       store.commitCompletionBoundary({
         attemptId,
@@ -1343,11 +1356,14 @@ export function createRunLifecycleHandlers(
       // Settle only once the tail has unwound; a boundary the tail already committed stays (both settlements no-op on terminal rows).
       // A fired run timeout settles first so its `run_timeout` cause wins over the plain kill.
       runTimeout.settle();
-      if (abortController.signal.aborted) settleGuardedKill(store, run.id);
+      const killed = abortController.signal.aborted;
+      if (killed) settleGuardedKill(store, run.id);
       activeRuns.delete(activeKey);
       logSink?.close();
       registry.release(key);
       settleStagesAfterWriteLoop(run.id);
+      // `run kill` is the operator's own act: it keeps the prior marker rather than notifying.
+      if (!killed) rewriteSettledMarkerAfterResume(store, run.id, tailFailed);
     }
   };
 
@@ -1453,7 +1469,7 @@ export function createRunLifecycleHandlers(
     if (claimError) return claimError;
     const admission = await admitRunForResumeOrRefusal(store, runId, reopenStage);
     if (!Array.isArray(admission)) return admission;
-    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
+    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input, true);
     return { kind: "response", result: { ok: true } };
   };
 

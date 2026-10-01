@@ -15,6 +15,7 @@ import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../test
 import type { WriteLoopBindingSourceDeps } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
+import { deriveOperatorIncidents } from "./operator-incidents.ts";
 
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
@@ -357,6 +358,12 @@ test("resume admits a paused workflow write step with exact snapshot stepId", as
     expect(resumed).toEqual({ kind: "response", result: { ok: true } });
     expect(resumedInputs).toHaveLength(1);
     expect(resumedInputs[0]?.stepId).toBe("implement");
+
+    // The resumed loop settling the invocation writes a settled marker, so the settle notifies.
+    commitReviewBoundary(runId, "completed");
+    localFake.settleAll();
+    await flushBackgroundRuns();
+    expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("completed");
   } finally {
     localFake.abortAll();
     if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
@@ -1248,18 +1255,20 @@ test("a republication tail returning a failure as an error rewrites the settled 
   expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("failed");
 });
 
-test("a successful republication leaves the settled marker untouched", async () => {
+test("a successful republication re-settles the marker completed with a fresh settle", async () => {
   const { handlers } = lifecycleHandlers();
   const runId = settledInvocationRun("inv-republish-ok", "republish-ok");
   await handlers.resumeFinalizationOnly(
     loadRunOrThrow(stateStore, runId),
     { project: "republish", branch: "republish-ok" },
-    async () => ({ ok: true }),
+    async () => commitReviewBoundary(runId, "completed"),
   );
-  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toEqual({ cause: "completed", settledAt: 1 });
+  const marker = stateStore.readWorkflowInvocationSettledMarker(runId);
+  expect(marker?.cause).toBe("completed");
+  expect(marker?.settledAt).toBeGreaterThan(1);
 });
 
-test("a failed republication of a markerless invocation writes no marker", async () => {
+test("a failed republication of a markerless invocation writes a failed marker", async () => {
   const { handlers } = lifecycleHandlers();
   const runId = settledInvocationRun("inv-republish-markerless", "republish-markerless", false);
   await handlers.resumeFinalizationOnly(
@@ -1268,8 +1277,115 @@ test("a failed republication of a markerless invocation writes no marker", async
     async () => ({ ok: false, message: "publish refused" }),
     true,
   );
-  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toBeNull();
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)?.cause).toBe("failed");
 });
+
+/** Linked-implement invocation as dispatched: no step-0 row, `~link-0` is the entry; the review row failed. */
+function failedLinkedInvocation(invocationId: string, branch: string): { entryRunId: string; reviewRunId: string } {
+  const snapshot = workflowSnapshot(invocationId, [
+    { stepId: "implement", role: "implement" },
+    { stepId: "implement-review", role: "review" },
+  ]);
+  const row = (stepId: string, status: RunStatus, createdAtMs: number): string => {
+    setSystemTime(new Date(createdAtMs));
+    return stateStore.createRun({
+      project: "resume-notify",
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch,
+      specPath: "/tmp/spec.md",
+      status,
+      stepId,
+      workflowSnapshot: snapshot,
+    });
+  };
+  const base = Date.now() - 10_000;
+  const entryRunId = row("implement~link-0", "completed", base);
+  row("implement~shrink", "completed", base + 1_000);
+  const reviewRunId = row("implement-review", "failed", base + 2_000);
+  setSystemTime();
+  stateStore.commitTerminalRunSettlement({
+    runId: reviewRunId,
+    status: "failed",
+    terminalCause: "surviving_mutation_failed",
+  });
+  stateStore.writeWorkflowInvocationSettledMarker(entryRunId, "failed", base + 3_000);
+  stateStore.tryRecordNotificationDelivery({
+    incidentId: `run:${entryRunId}`,
+    transition: `terminal:failed:${base + 3_000}`,
+    deliveredAt: base + 3_000,
+  });
+  return { entryRunId, reviewRunId };
+}
+
+function commitReviewBoundary(runId: string, runStatus: "completed" | "failed"): { ok: true } {
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary(
+    runStatus === "completed"
+      ? { attemptId, runStatus, outcomeKind: "done", completionAgent: "codex" }
+      : {
+          attemptId,
+          runStatus,
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "repair exhausted" },
+        },
+  );
+  return { ok: true };
+}
+
+for (const runStatus of ["completed", "failed"] as const) {
+  test(`resuming a failed non-entry row that settles ${runStatus} notifies the invocation again`, async () => {
+    const { handlers } = lifecycleHandlers();
+    const { entryRunId, reviewRunId } = failedLinkedInvocation(`inv-resume-${runStatus}`, `resume-${runStatus}`);
+    await handlers.resumeFinalizationOnly(
+      loadRunOrThrow(stateStore, reviewRunId),
+      { project: "resume-notify", branch: `resume-${runStatus}` },
+      async () => commitReviewBoundary(reviewRunId, runStatus),
+    );
+    const incidents = deriveOperatorIncidents(stateStore).filter((incident) => incident.runId === entryRunId);
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]).toMatchObject({ kind: "run-ad-hoc-terminal", cause: runStatus });
+  });
+
+  test(`resuming a failed non-entry row of a failed pipeline stage that settles ${runStatus} re-settles and re-notifies the stage`, async () => {
+    const { handlers } = lifecycleHandlers();
+    const { entryRunId, reviewRunId } = failedLinkedInvocation(`inv-stage-${runStatus}`, `stage-${runStatus}`);
+    const pipelineId = stateStore.createPipeline({
+      definition: {
+        name: `stage-${runStatus}`,
+        stages: [
+          { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+          { stageId: "gate", kind: "approval" },
+        ],
+      },
+    });
+    const failedAt = Date.now() - 1_000;
+    stateStore.updateStage({
+      pipelineId,
+      stageId: "implement",
+      patch: { status: "failed", workflowInvocationId: entryRunId, startedAt: failedAt - 100, endedAt: failedAt },
+    });
+    stateStore.updateStage({ pipelineId, stageId: "gate", patch: { status: "skipped", skipProvenance: "terminal" } });
+    // The first failure already notified (a linear pipeline's only lane failing is `pipeline-terminal`).
+    for (const { incidentId, transition } of deriveOperatorIncidents(stateStore)) {
+      stateStore.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt: failedAt });
+    }
+
+    await handlers.resumeFinalizationOnly(
+      loadRunOrThrow(stateStore, reviewRunId),
+      { project: "resume-notify", branch: `stage-${runStatus}` },
+      async () => commitReviewBoundary(reviewRunId, runStatus),
+    );
+
+    const stage = stateStore.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "implement");
+    expect(stage?.status).toBe(runStatus === "completed" ? "succeeded" : "failed");
+    expect(stage?.endedAt).toBeGreaterThan(failedAt);
+    const stageIncidents = deriveOperatorIncidents(stateStore).filter((incident) => incident.pipelineId === pipelineId);
+    expect(stageIncidents.map((incident) => incident.kind)).toContain(
+      runStatus === "completed" ? "stage-succeeded" : "pipeline-terminal",
+    );
+  });
+}
 
 test("a republication tail aborted by run kill leaves the settled marker completed", async () => {
   const { handlers } = lifecycleHandlers();

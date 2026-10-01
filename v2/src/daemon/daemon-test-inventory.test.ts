@@ -205,6 +205,9 @@ export function countParityPreservationViolation(
  * falls back to local handling instead of erroring` in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
+  // Renamed: a resume that re-settles an invocation now rewrites its settled marker.
+  "a successful republication leaves the settled marker untouched",
+  "a failed republication of a markerless invocation writes no marker",
   // Renamed: publication failures now settle the run as failed, not completed.
   "resume retries a completed run after a resumable publication failure",
   // Legacy modes.plan.commit spec-home knob replaced by projects.<key>.specs (rejected, covered by chainedStageSpecsHome tests).

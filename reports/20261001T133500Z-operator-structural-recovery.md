@@ -68,12 +68,11 @@ Plans: [#4312](https://github.com/cbrenner04/jarvis/pull/4312) [#4313](https://g
 - Seed: `notifications wait` survives daemon handoff.
 - Seed: pipeline fan-out per-lane terminal settlement.
 - Check that leaked test trees 55854 and 69074 were reaped.
-- Operator `/cost` is pending; fill in the cost rows.
 
 ## Cost
 
 | | Cost | Notes |
 | --- | --- | --- |
-| Operator (`/cost`) | pending /cost | claude-opus-5-5 |
+| Operator (`/cost`) | $91.64 (1h57m API, 13h35m wall) | claude-opus-5-5 |
 | Agents (telemetry) | $23.65 | 204 invocations, 88 runs; cursor Composer 2.5 only (implement 111/$15.56, plan 66/$5.49, intent 27/$2.59) |
-| **Total** | pending | agents alone → $1.97 per landed fix |
+| **Total** | $115.29 | $8.24 per landed implement (14) |

@@ -22,14 +22,14 @@
 
 ## Acceptance criteria
 
-- [ ] `_RESUME_PATH_INVENTORY_ANCHORS` in `v2/src/execution/workflow-runner-resume-inventory.test.ts` is immediately preceded by `PARSE_ONLY_INVENTORY_MARKER_COMMENT` imported from `shared/structural-test-locator.ts`.
-- [ ] `parseResumePathInventoryAnchors` in `v2/src/execution/workflow-runner-resume-inventory.test.ts` binds merge-base and in-memory inventory source through `locateParseOnlyInventoryArrayBody` for `RESUME_PATH_INVENTORY_ANCHORS`, not the pre-fix prefix-blind `_?` first-match regex over `RESUME_PATH_INVENTORY_ANCHORS|SOURCE_BUCKETS` (reachable on main in the same file).
-- [ ] A regression in `v2/src/execution/workflow-runner-resume-inventory.test.ts` (extended `preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations` or a dedicated bind/count test) fails on main and passes after the shared-helper binding, asserting parsed anchor count equals `_RESUME_PATH_INVENTORY_ANCHORS.length`, not only non-emptiness.
-- [ ] The file-header comment on `v2/src/execution/workflow-runner-resume-inventory.test.ts` records the `*-anchors` self-parsing audit (2026-09-18): only this file on main, updated to the shared contract.
-- [ ] `parses resume-path inventory anchors from inventory test source` in `workflow-runner-resume-inventory.test.ts` stays green with fixtures shaped so `locateParseOnlyInventoryArrayBody` cannot bind them as `RESUME_PATH_INVENTORY_ANCHORS`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `_RESUME_PATH_INVENTORY_ANCHORS` in `v2/src/execution/workflow-runner-resume-inventory.test.ts` is immediately preceded by `PARSE_ONLY_INVENTORY_MARKER_COMMENT` imported from `shared/structural-test-locator.ts`.
+- [x] `parseResumePathInventoryAnchors` in `v2/src/execution/workflow-runner-resume-inventory.test.ts` binds merge-base and in-memory inventory source through `locateParseOnlyInventoryArrayBody` for `RESUME_PATH_INVENTORY_ANCHORS`, not the pre-fix prefix-blind `_?` first-match regex over `RESUME_PATH_INVENTORY_ANCHORS|SOURCE_BUCKETS` (reachable on main in the same file).
+- [x] A regression in `v2/src/execution/workflow-runner-resume-inventory.test.ts` (extended `preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations` or a dedicated bind/count test) fails on main and passes after the shared-helper binding, asserting parsed anchor count equals `_RESUME_PATH_INVENTORY_ANCHORS.length`, not only non-emptiness.
+- [x] The file-header comment on `v2/src/execution/workflow-runner-resume-inventory.test.ts` records the `*-anchors` self-parsing audit (2026-09-18): only this file on main, updated to the shared contract.
+- [x] `parses resume-path inventory anchors from inventory test source` in `workflow-runner-resume-inventory.test.ts` stays green with fixtures shaped so `locateParseOnlyInventoryArrayBody` cannot bind them as `RESUME_PATH_INVENTORY_ANCHORS`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

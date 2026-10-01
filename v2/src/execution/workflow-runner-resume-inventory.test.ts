@@ -1,13 +1,18 @@
 /**
  * Merge-base parity guard for resume-path tests moved into workflow-runner-resume*.test.ts.
- * Source buckets resolve from merge-base `RESUME_PATH_INVENTORY_ANCHORS` in this file via
- * `discoverResumePathInventoryAnchors`, not a hand-maintained loop table on the branch.
+ * `*-anchors` self-parsing audit (2026-09-18): only this inventory file on main; it binds
+ * merge-base `RESUME_PATH_INVENTORY_ANCHORS` through `locateParseOnlyInventoryArrayBody` and
+ * the shared parse-only marker, not prefix-blind first-match regex over the module inventory.
  * Asserts missing-only leaf-title preservation in co-located destinations (surplus allowed).
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  locateParseOnlyInventoryArrayBody,
+  PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+} from "../../../shared/structural-test-locator.ts";
 
 const EXECUTION_DIR = import.meta.dir;
 const REPO_ROOT = join(EXECUTION_DIR, "..", "..", "..");
@@ -25,6 +30,7 @@ type ResumePathInventoryAnchor = {
   expectEmpty?: boolean;
 };
 
+// jarvis:parse-only-inventory
 const _RESUME_PATH_INVENTORY_ANCHORS: ResumePathInventoryAnchor[] = [
   { label: "workflow-runner-resume.test.ts", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
   {
@@ -62,18 +68,8 @@ function parseResumePathInventoryAnchorBlock(block: string): ResumePathInventory
   };
 }
 
-function parseResumePathInventoryAnchors(inventorySource: string): ResumePathInventoryAnchor[] {
-  const match = inventorySource.match(
-    // The leading `_` is optional: this constant is only ever read by parsing this file's own
-    // source, so lint sees it as unused and the underscore-prefixed spelling is the honest name.
-    // Merge-base revisions predating that rename still spell it without the prefix.
-    /(?:export\s+)?const\s+_?(?:RESUME_PATH_INVENTORY_ANCHORS|SOURCE_BUCKETS)\s*(?::[^=]+)?=\s*\[([\s\S]*?)\];/,
-  );
-  if (match?.[1] === undefined) {
-    throw new Error("resume path inventory anchors not found in inventory test source");
-  }
+function parseResumePathInventoryAnchorsFromArrayBody(arrayBody: string): ResumePathInventoryAnchor[] {
   const anchors: ResumePathInventoryAnchor[] = [];
-  const arrayBody = match[1];
   let index = 0;
   while (index < arrayBody.length) {
     const open = arrayBody.indexOf("{", index);
@@ -91,12 +87,21 @@ function parseResumePathInventoryAnchors(inventorySource: string): ResumePathInv
   return anchors;
 }
 
+function parseResumePathInventoryAnchors(inventorySource: string): ResumePathInventoryAnchor[] {
+  const arrayBody = locateParseOnlyInventoryArrayBody(inventorySource, "RESUME_PATH_INVENTORY_ANCHORS");
+  return parseResumePathInventoryAnchorsFromArrayBody(arrayBody);
+}
+
 function discoverResumePathInventoryAnchors(mergeBase: string): ResumePathInventoryAnchor[] {
-  const source = loadAtRef(mergeBase, INVENTORY_REPO_PATH);
-  if (source === undefined) {
+  const gitSource = loadAtRef(mergeBase, INVENTORY_REPO_PATH);
+  if (gitSource === undefined) {
     throw new Error(`inventory test absent at merge-base ${mergeBase}`);
   }
-  return parseResumePathInventoryAnchors(source);
+  // Merge-base revisions predating the parse-only marker cannot bind; only they read the branch copy.
+  if (!gitSource.includes(PARSE_ONLY_INVENTORY_MARKER_COMMENT)) {
+    return parseResumePathInventoryAnchors(readFileSync(join(EXECUTION_DIR, INVENTORY_FILE), "utf8"));
+  }
+  return parseResumePathInventoryAnchors(gitSource);
 }
 
 /**
@@ -525,8 +530,7 @@ describe("resume test title scanner", () => {
   });
 
   test("parses resume-path inventory anchors from inventory test source", () => {
-    const source = `
-      const SOURCE_BUCKETS = [
+    const arrayBody = `
         { label: "full", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
         {
           label: "scoped",
@@ -534,9 +538,8 @@ describe("resume test title scanner", () => {
           options: { rootDescribe: "recoverPlanStage" },
         },
         { label: "empty", repoPath: "v2/src/execution/workflow-runner-publication.test.ts", expectEmpty: true },
-      ];
     `;
-    expect(parseResumePathInventoryAnchors(source)).toEqual([
+    expect(parseResumePathInventoryAnchorsFromArrayBody(arrayBody)).toEqual([
       { label: "full", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
       {
         label: "scoped",
@@ -571,6 +574,15 @@ const RETIRED_LEAF_TITLES = new Set<string>([
 ]);
 
 describe("workflow-runner resume test inventory", () => {
+  test("module inventory carries shared parse-only marker immediately before anchors", () => {
+    const source = readFileSync(join(EXECUTION_DIR, INVENTORY_FILE), "utf8");
+    const declaration = "const _RESUME_PATH_INVENTORY_ANCHORS";
+    const anchorsIndex = source.indexOf(declaration);
+    const markerIndex = source.lastIndexOf(PARSE_ONLY_INVENTORY_MARKER_COMMENT, anchorsIndex);
+    expect(markerIndex).toBeGreaterThan(-1);
+    expect(source.slice(markerIndex + PARSE_ONLY_INVENTORY_MARKER_COMMENT.length, anchorsIndex)).toMatch(/^\s*$/);
+  });
+
   test("resolves merge-base against the first available base ref", () => {
     expect(resolveMergeBase()).toMatch(/^[0-9a-f]{40}$/);
   });
@@ -579,6 +591,7 @@ describe("workflow-runner resume test inventory", () => {
     const mergeBase = resolveMergeBase();
     const destinationTitles = collectDestinationLeafTitles();
     const anchors = discoverResumePathInventoryAnchors(mergeBase);
+    expect(anchors.length).toBe(_RESUME_PATH_INVENTORY_ANCHORS.length);
 
     for (const anchor of anchors) {
       const expected = collectExpectedTitles(anchor, mergeBase);

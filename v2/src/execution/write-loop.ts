@@ -4793,6 +4793,7 @@ async function runPublisher(
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
     leaseFromSha?: string;
+    allowLanePrRepublish?: boolean;
   } & ExternalSpecGitScope,
   publicationOwner?: { runId: string; store: StateStore },
 ): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
@@ -4954,6 +4955,7 @@ export async function publishCompletionArtifacts(
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
     leaseFromSha?: string;
+    allowLanePrRepublish?: boolean;
   } & ExternalSpecGitScope,
   verifierProcessGroups?: VerifierProcessGroupRecorder,
   recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void,

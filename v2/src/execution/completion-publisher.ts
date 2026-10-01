@@ -46,12 +46,17 @@ export type CompletionPublisherInput = ExternalSpecGitScope & {
   /** Run abort signal: aborts in-flight push/PR calls (network-bounded regardless). */
   signal?: AbortSignal;
   findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
+  /** When true, create a fresh draft even when newest head+base PR history is closed or merged. */
+  allowLanePrRepublish?: boolean;
 };
 
-type CompletionPublisherResult = {
+export type LanePrOutcome = { kind: "lane_pr_closed"; prNumber: number } | { kind: "lane_pr_merged"; prNumber: number };
+
+export type CompletionPublisherResult = {
   pushSha?: string;
   prNumber?: number;
   prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
   requestedBase?: string;
   resolvedBase?: string;
 };
@@ -230,7 +235,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       }
 
       const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
-      const prEvidence = await runPublicationWithRetry(
+      const prResult = await runPublicationWithRetry(
         "pr",
         () =>
           findOrCreatePr(gh, input.worktreePath, effectiveBaseRef, input.branch, specPath, creationTitle, {
@@ -238,32 +243,35 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
             ...(input.findHarnessReadyFlipEvidenceInLineage !== undefined
               ? { findHarnessReadyFlipEvidenceInLineage: input.findHarnessReadyFlipEvidenceInLineage }
               : {}),
+            ...(input.allowLanePrRepublish === true ? { allowLanePrRepublish: true } : {}),
           }),
         { delay, retryNotice },
       );
 
-      if (prEvidence) {
-        result.prNumber = prEvidence.number;
-        result.prUrl = prEvidence.url;
-      }
+      if (prResult.kind === "lane") {
+        result.lanePrOutcome = prResult.outcome;
+      } else {
+        result.prNumber = prResult.evidence.number;
+        result.prUrl = prResult.evidence.url;
 
-      await runPublicationWithRetry(
-        "pr-body-refresh",
-        async () => {
-          const bodySummary = input.specTemplate
-            ? await deriveSpecRunBodySummary({
-                worktreePath: input.worktreePath,
-                specPath: input.specPath,
-                baseRef: effectiveBaseRef,
-                git: async (cwd, args) => git(cwd, args),
-                ...externalSpecGitScope(input),
-              })
-            : input.bodySummary;
-          await refreshPrBody(buildRefreshPrBodyInput(input, specPath, effectiveBaseRef, git, bodySummary, seams));
-          return true;
-        },
-        { delay, retryNotice },
-      );
+        await runPublicationWithRetry(
+          "pr-body-refresh",
+          async () => {
+            const bodySummary = input.specTemplate
+              ? await deriveSpecRunBodySummary({
+                  worktreePath: input.worktreePath,
+                  specPath: input.specPath,
+                  baseRef: effectiveBaseRef,
+                  git: async (cwd, args) => git(cwd, args),
+                  ...externalSpecGitScope(input),
+                })
+              : input.bodySummary;
+            await refreshPrBody(buildRefreshPrBodyInput(input, specPath, effectiveBaseRef, git, bodySummary, seams));
+            return true;
+          },
+          { delay, retryNotice },
+        );
+      }
 
       if (retargetMeta !== undefined) {
         result.requestedBase = retargetMeta.requestedBase;
@@ -288,6 +296,7 @@ type PrEvidence = {
 };
 
 type OpenPrRecord = { number: number; baseRefName: string; isDraft?: boolean };
+type AllStatePrRecord = { number: number; baseRefName: string; state: string };
 
 /** Raised when a branch carries more than one open PR matching the same base; no safe default to pick. */
 export class AmbiguousOpenPrError extends Error {
@@ -354,6 +363,32 @@ async function listMatchingOpenPrs(
   return prs.filter((pr) => pr.baseRefName === baseRef);
 }
 
+async function listMatchingPrsAllStates(
+  gh: GhCommand,
+  cwd: string,
+  branch: string,
+  baseRef: string,
+): Promise<AllStatePrRecord[]> {
+  const prListJson = await gh(cwd, [
+    "pr",
+    "list",
+    "--head",
+    branch,
+    "--state",
+    "all",
+    "--json",
+    "number,baseRefName,state",
+  ]);
+  const prs = JSON.parse(prListJson) as AllStatePrRecord[];
+  return prs.filter((pr) => pr.baseRefName === baseRef);
+}
+
+function laneOutcomeFromNewestHistory(newest: AllStatePrRecord): LanePrOutcome | undefined {
+  if (newest.state === "CLOSED") return { kind: "lane_pr_closed", prNumber: newest.number };
+  if (newest.state === "MERGED") return { kind: "lane_pr_merged", prNumber: newest.number };
+  return undefined;
+}
+
 /**
  * Resolve the open PR matching branch/base, ignoring merged/closed history. Returns `undefined`
  * when none matches. Refuses when more than one matches (no safe default) or when the sole match
@@ -362,7 +397,10 @@ async function listMatchingOpenPrs(
 type ResolveOpenDraftPrOptions = {
   requestedBaseRef: string;
   findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
+  allowLanePrRepublish?: boolean;
 };
+
+type FindOrCreatePrResult = { kind: "evidence"; evidence: PrEvidence } | { kind: "lane"; outcome: LanePrOutcome };
 
 async function undoHarnessReadyFlip(gh: GhCommand, cwd: string, prNumber: number): Promise<void> {
   try {
@@ -452,13 +490,29 @@ async function findOrCreatePr(
   specPath: string,
   creationTitle: string,
   draftPrOptions?: ResolveOpenDraftPrOptions,
-): Promise<PrEvidence> {
+): Promise<FindOrCreatePrResult> {
   const existing = await resolveOpenDraftPr(gh, cwd, branch, baseRef, draftPrOptions);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) return { kind: "evidence", evidence: existing };
+
+  if (draftPrOptions?.allowLanePrRepublish !== true) {
+    try {
+      const history = await listMatchingPrsAllStates(gh, cwd, branch, baseRef);
+      const newest = history[0];
+      if (newest !== undefined) {
+        const laneOutcome = laneOutcomeFromNewestHistory(newest);
+        if (laneOutcome !== undefined) return { kind: "lane", outcome: laneOutcome };
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      stampPublicationFailure(err, "pr", error);
+      throw err;
+    }
+  }
 
   await createDraftPr(gh, cwd, baseRef, branch, specPath, creationTitle);
 
-  return confirmPr(gh, cwd, branch, baseRef);
+  const evidence = await confirmPr(gh, cwd, branch, baseRef);
+  return { kind: "evidence", evidence };
 }
 
 async function confirmPr(

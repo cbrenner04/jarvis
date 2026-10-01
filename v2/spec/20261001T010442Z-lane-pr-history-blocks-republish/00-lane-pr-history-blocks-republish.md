@@ -28,13 +28,13 @@
 
 ## Acceptance criteria
 
-- [ ] `completion-publisher.test.ts`: fake `gh` with newest same-base PR `CLOSED` → no `gh pr create`, `lanePrOutcome` `lane_pr_closed` with that number, no `prNumber`/`prUrl`, body-refresh seams not invoked; fails against pre-fix `findOrCreatePr`.
-- [ ] Same file: newest `MERGED` → no create, `lanePrOutcome` `lane_pr_merged` with that number, no `prNumber`/`prUrl`; fails against pre-fix create path.
-- [ ] Same file: `allowLanePrRepublish` on publisher input with only closed history → `gh pr create` runs and confirms a new draft.
-- [ ] Same file: list probe throws → no create, permanent publication failure carries the probe cause; fails against pre-fix create-on-empty-open-list.
-- [ ] `completion-publisher.test.ts` — `reuses existing open PR with matching base` and `reuses an open draft PR without changing its title` stay green.
-- [ ] `completion-publisher.test.ts` — `creates a fresh draft PR when the branch's only PR history is merged/closed` is rewritten or retired in favor of the CLOSED/MERGED guard cases above.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `completion-publisher.test.ts`: fake `gh` with newest same-base PR `CLOSED` → no `gh pr create`, `lanePrOutcome` `lane_pr_closed` with that number, no `prNumber`/`prUrl`, body-refresh seams not invoked; fails against pre-fix `findOrCreatePr`.
+- [x] Same file: newest `MERGED` → no create, `lanePrOutcome` `lane_pr_merged` with that number, no `prNumber`/`prUrl`; fails against pre-fix create path.
+- [x] Same file: `allowLanePrRepublish` on publisher input with only closed history → `gh pr create` runs and confirms a new draft.
+- [x] Same file: list probe throws → no create, permanent publication failure carries the probe cause; fails against pre-fix create-on-empty-open-list.
+- [x] `completion-publisher.test.ts` — `reuses existing open PR with matching base` and `reuses an open draft PR without changing its title` stay green.
+- [x] `completion-publisher.test.ts` — `creates a fresh draft PR when the branch's only PR history is merged/closed` is rewritten or retired in favor of the CLOSED/MERGED guard cases above.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

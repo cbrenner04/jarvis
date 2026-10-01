@@ -145,32 +145,6 @@ function validatePlanDraftShapeTopLevelOnly(specDir: string): { valid: boolean; 
   return subspecCount === 0 ? { valid: false, reason: "plan.draft.shape" } : { valid: true };
 }
 
-function writeNestedPlanDraftStage(
-  stagePath: string,
-  specName: string,
-  files: { index: string; subspecs: Record<string, string> },
-): void {
-  const nested = join(stagePath, "spec", specName);
-  mkdirSync(nested, { recursive: true });
-  writeFileSync(join(nested, "index.md"), files.index, "utf8");
-  for (const [name, content] of Object.entries(files.subspecs)) {
-    writeFileSync(join(nested, name), content, "utf8");
-  }
-}
-
-function writeImmediateChildPlanDraftStage(
-  stagePath: string,
-  specName: string,
-  files: { index: string; subspecs: Record<string, string> },
-): void {
-  const nested = join(stagePath, specName);
-  mkdirSync(nested, { recursive: true });
-  writeFileSync(join(nested, "index.md"), files.index, "utf8");
-  for (const [name, content] of Object.entries(files.subspecs)) {
-    writeFileSync(join(nested, name), content, "utf8");
-  }
-}
-
 function writePrefixedPlanDraftStage(
   stagePath: string,
   prefixSegments: readonly string[],
@@ -190,6 +164,17 @@ function writeFlatPlanDraftStage(stagePath: string, intentSeed: string): void {
   writeFileSync(join(stagePath, "intent.md"), intentSeed, "utf8");
   writeFileSync(join(stagePath, "index.md"), MINIMAL_PLAN_DRAFT_INDEX, "utf8");
   writeFileSync(join(stagePath, "00-one.md"), MINIMAL_PLAN_DRAFT_SUBSPEC, "utf8");
+}
+
+function writeMinimalDurablePlanDraftTree(cwd: string, subspecFile = "00-one.md"): void {
+  const durablePath = join(cwd, "v2/spec/2099-01-01T00-00-00Z-plan-draft");
+  mkdirSync(durablePath, { recursive: true });
+  writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+  writeFileSync(
+    join(durablePath, subspecFile),
+    `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
+    "utf8",
+  );
 }
 
 describe("write behavior", () => {
@@ -790,20 +775,12 @@ describe("write behavior", () => {
   test("plan-draft contract_miss on staging index failure does not pass via durable fallback", async () => {
     const { jarvisRoot } = createJarvisHome();
     const subspecFile = "00-one.md";
-    const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
 
     const result = await runPlanDraftWrite({
       jarvisRoot,
       branchName: "plan-staging-normalizer-durable-pass",
       agentSetup: (cwd, stagePath) => {
-        const durablePath = join(cwd, durableSpecPath);
-        mkdirSync(durablePath, { recursive: true });
-        writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
-        writeFileSync(
-          join(durablePath, subspecFile),
-          `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
-          "utf8",
-        );
+        writeMinimalDurablePlanDraftTree(cwd, subspecFile);
 
         mkdirSync(stagePath, { recursive: true });
         writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
@@ -871,21 +848,12 @@ describe("write behavior", () => {
 
   test("plan-draft contract_miss on absent staging directory settles plan.draft.shape:missing-dir", async () => {
     const { jarvisRoot } = createJarvisHome();
-    const subspecFile = "00-one.md";
-    const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
 
     const result = await runPlanDraftWrite({
       jarvisRoot,
       branchName: "plan-missing-stage-dir",
       agentSetup: (cwd, stagePath) => {
-        const durablePath = join(cwd, durableSpecPath);
-        mkdirSync(durablePath, { recursive: true });
-        writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
-        writeFileSync(
-          join(durablePath, subspecFile),
-          `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
-          "utf8",
-        );
+        writeMinimalDurablePlanDraftTree(cwd);
         rmSync(stagePath, { recursive: true, force: true });
       },
     });
@@ -901,20 +869,12 @@ describe("write behavior", () => {
   test("plan-draft shape-family staging miss passes via durable fallback when durable satisfies shape", async () => {
     const { jarvisRoot } = createJarvisHome();
     const subspecFile = "00-one.md";
-    const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
 
     const result = await runPlanDraftWrite({
       jarvisRoot,
       branchName: "plan-shape-fallback-durable-pass",
       agentSetup: (cwd, stagePath) => {
-        const durablePath = join(cwd, durableSpecPath);
-        mkdirSync(durablePath, { recursive: true });
-        writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
-        writeFileSync(
-          join(durablePath, subspecFile),
-          `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
-          "utf8",
-        );
+        writeMinimalDurablePlanDraftTree(cwd, subspecFile);
         mkdirSync(stagePath, { recursive: true });
         writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
         writeFileSync(join(stagePath, subspecFile), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
@@ -1307,7 +1267,7 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), intentSeed, "utf8");
-        writeNestedPlanDraftStage(stage, specName, {
+        writePrefixedPlanDraftStage(stage, ["spec"], specName, {
           index: MINIMAL_PLAN_DRAFT_INDEX,
           subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
         });
@@ -1350,7 +1310,7 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), intentSeed, "utf8");
-        writeImmediateChildPlanDraftStage(stage, specName, {
+        writePrefixedPlanDraftStage(stage, [], specName, {
           index: MINIMAL_PLAN_DRAFT_INDEX,
           subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
         });
@@ -1382,7 +1342,7 @@ describe("write behavior", () => {
     const specName = "20261001T010529Z-check-immediate";
     mkdirSync(stagePath, { recursive: true });
     writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-    writeImmediateChildPlanDraftStage(stagePath, specName, {
+    writePrefixedPlanDraftStage(stagePath, [], specName, {
       index: MINIMAL_PLAN_DRAFT_INDEX,
       subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
     });
@@ -1435,11 +1395,11 @@ describe("write behavior", () => {
         label: "multiple nested spec directories",
         expectedReason: "plan.draft.shape:nested-roots=2",
         setup: (stagePath) => {
-          writeNestedPlanDraftStage(stagePath, "first", {
+          writePrefixedPlanDraftStage(stagePath, ["spec"], "first", {
             index: MINIMAL_PLAN_DRAFT_INDEX,
             subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
           });
-          writeNestedPlanDraftStage(stagePath, "second", {
+          writePrefixedPlanDraftStage(stagePath, ["spec"], "second", {
             index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
             subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
           });
@@ -1479,11 +1439,11 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
-        writeImmediateChildPlanDraftStage(stage, "20261001T010529Z-first", {
+        writePrefixedPlanDraftStage(stage, [], "20261001T010529Z-first", {
           index: MINIMAL_PLAN_DRAFT_INDEX,
           subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
         });
-        writeImmediateChildPlanDraftStage(stage, "20261001T010530Z-second", {
+        writePrefixedPlanDraftStage(stage, [], "20261001T010530Z-second", {
           index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
           subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
         });
@@ -1509,11 +1469,11 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
-        writeNestedPlanDraftStage(stage, "under-spec", {
+        writePrefixedPlanDraftStage(stage, ["spec"], "under-spec", {
           index: MINIMAL_PLAN_DRAFT_INDEX,
           subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
         });
-        writeImmediateChildPlanDraftStage(stage, "20261001T010529Z-immediate", {
+        writePrefixedPlanDraftStage(stage, [], "20261001T010529Z-immediate", {
           index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
           subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
         });
@@ -1542,7 +1502,7 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
-        writeNestedPlanDraftStage(stage, specName, {
+        writePrefixedPlanDraftStage(stage, ["spec"], specName, {
           index: "# Index\n\n",
           subspecs: {},
         });
@@ -1585,7 +1545,7 @@ describe("write behavior", () => {
       agentSetup: (_cwd, stage) => {
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
-        writeImmediateChildPlanDraftStage(stage, specName, {
+        writePrefixedPlanDraftStage(stage, [], specName, {
           index: "# Index\n\n",
           subspecs: {},
         });
@@ -1622,7 +1582,7 @@ describe("write behavior", () => {
     const specName = "2099-01-01T00-00-13Z-check-staged";
     mkdirSync(stagePath, { recursive: true });
     writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-    writeNestedPlanDraftStage(stagePath, specName, {
+    writePrefixedPlanDraftStage(stagePath, ["spec"], specName, {
       index: MINIMAL_PLAN_DRAFT_INDEX,
       subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
     });
@@ -1640,11 +1600,11 @@ describe("write behavior", () => {
     writeFileSync(join(ambiguousPaths[0]!, "intent.md"), "---\nname: test\n---\n", "utf8");
     mkdirSync(ambiguousPaths[1]!, { recursive: true });
     writeFileSync(join(ambiguousPaths[1]!, "intent.md"), "---\nname: test\n---\n", "utf8");
-    writeNestedPlanDraftStage(ambiguousPaths[1]!, "first", {
+    writePrefixedPlanDraftStage(ambiguousPaths[1]!, ["spec"], "first", {
       index: MINIMAL_PLAN_DRAFT_INDEX,
       subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
     });
-    writeNestedPlanDraftStage(ambiguousPaths[1]!, "second", {
+    writePrefixedPlanDraftStage(ambiguousPaths[1]!, ["spec"], "second", {
       index: "# Index\n\n- [ ] [00 - Two](./00-two.md)\n",
       subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
     });
@@ -1813,7 +1773,7 @@ describe("write behavior", () => {
       {
         label: "spec and v2/spec candidates",
         setup: (stagePath) => {
-          writeNestedPlanDraftStage(stagePath, "under-spec", {
+          writePrefixedPlanDraftStage(stagePath, ["spec"], "under-spec", {
             index: MINIMAL_PLAN_DRAFT_INDEX,
             subspecs: { "00-one.md": MINIMAL_PLAN_DRAFT_SUBSPEC },
           });

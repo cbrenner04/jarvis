@@ -141,10 +141,6 @@ export function isPlanDraftShapeFamilyReason(reason: string): boolean {
   return reason === PLAN_DRAFT_SHAPE_REASON || reason.startsWith(`${PLAN_DRAFT_SHAPE_REASON}:`);
 }
 
-function isDefinitiveTopLevelStructuralShapeReason(reason: string | undefined): boolean {
-  return reason === planDraftShapeReason("no-index") || reason === planDraftShapeReason("no-subspecs");
-}
-
 function visitStagingSubdirectories(root: string, visit: (dir: string) => void): void {
   for (const name of readdirSync(root)) {
     const path = join(root, name);
@@ -173,19 +169,20 @@ function discoverNestedPlanDraftLayoutRoots(stagingDir: string): string[] {
   return candidates;
 }
 
-function discoverImmediateChildPlanDraftLayoutRoots(stagingDir: string): string[] {
+function listImmediateChildStagingDirectories(stagingDir: string): string[] {
   if (!existsSync(stagingDir) || !statSync(stagingDir).isDirectory()) {
     return [];
   }
-  const candidates: string[] = [];
+  const dirs: string[] = [];
   for (const name of readdirSync(stagingDir)) {
     const path = join(stagingDir, name);
-    if (!statSync(path).isDirectory()) continue;
-    if (validatePlanDraftShapeAtRoot(path).valid) {
-      candidates.push(path);
-    }
+    if (statSync(path).isDirectory()) dirs.push(path);
   }
-  return candidates;
+  return dirs;
+}
+
+function discoverImmediateChildPlanDraftLayoutRoots(stagingDir: string): string[] {
+  return listImmediateChildStagingDirectories(stagingDir).filter((path) => validatePlanDraftShapeAtRoot(path).valid);
 }
 
 function discoverPlanDraftNestedLayoutRoots(stagingDir: string): string[] {
@@ -202,23 +199,11 @@ function discoverPlanDraftNestedLayoutRoots(stagingDir: string): string[] {
   return combined;
 }
 
-function countImmediateChildStagingDirectories(stagingDir: string): number {
-  if (!existsSync(stagingDir) || !statSync(stagingDir).isDirectory()) {
-    return 0;
-  }
-  let count = 0;
-  for (const name of readdirSync(stagingDir)) {
-    const path = join(stagingDir, name);
-    if (statSync(path).isDirectory()) count += 1;
-  }
-  return count;
-}
-
 function hasPreservablePlanDraftStageContent(stagingDir: string): boolean {
   return (
     existsSync(join(stagingDir, "index.md")) ||
     discoverNestedPlanDraftLayoutRoots(stagingDir).length === 1 ||
-    countImmediateChildStagingDirectories(stagingDir) === 1
+    listImmediateChildStagingDirectories(stagingDir).length === 1
   );
 }
 
@@ -239,16 +224,15 @@ function resolvePlanDraftStagingRoot(stagingDir: string): ResolvedPlanDraftStagi
     return { ok: true, root: candidates[0]! };
   }
 
-  const candidateCount = candidates.length;
   if (
-    candidateCount === 0 &&
+    candidates.length === 0 &&
     !existsSync(join(stagingDir, "spec")) &&
-    isDefinitiveTopLevelStructuralShapeReason(top.reason)
+    (top.reason === planDraftShapeReason("no-index") || top.reason === planDraftShapeReason("no-subspecs"))
   ) {
-    return { ok: false, reason: top.reason! };
+    return { ok: false, reason: top.reason };
   }
 
-  return { ok: false, reason: planDraftShapeReason(`nested-roots=${candidateCount}`) };
+  return { ok: false, reason: planDraftShapeReason(`nested-roots=${candidates.length}`) };
 }
 
 function flattenNestedPlanDraftStaging(stagingDir: string, nestedRoot: string): void {

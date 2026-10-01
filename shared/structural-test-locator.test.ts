@@ -144,7 +144,9 @@ describe("structural test locators", () => {
     const constantName = "UNMARKED_INVENTORY";
     const source = [`const ${constantName} = [`, '  { id: "only" },', "];"].join("\n");
 
-    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+    expect(() => locateParseOnlyInventoryArrayBody(source, constantName)).toThrow(
+      `parse-only inventory marker missing on ${constantName}`,
+    );
   });
 
   test("parse-only inventory distinguishes missing marker from missing constant", () => {
@@ -189,7 +191,9 @@ describe("structural test locators", () => {
     const silentBody = silentUnprefixedInventoryBody(source, constantName);
     expect(silentBody).toContain("fixture-only");
 
-    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+    expect(() => locateParseOnlyInventoryArrayBody(source, constantName)).toThrow(
+      `parse-only inventory marker missing on ${constantName}`,
+    );
   });
 
   test("parse-only inventory throws when same-shaped unprefixed fixture precedes a different named inventory", () => {
@@ -204,7 +208,9 @@ describe("structural test locators", () => {
       "];",
     ].join("\n");
 
-    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+    expect(() => locateParseOnlyInventoryArrayBody(source, constantName)).toThrow(
+      `parse-only inventory marker missing on ${constantName}`,
+    );
   });
 
   test("parse-only inventory throws when unmarked same-name const precedes marked module inventory", () => {
@@ -222,7 +228,9 @@ describe("structural test locators", () => {
     const contrastBody = silentUnprefixedInventoryBody(source, constantName);
     expect(contrastBody).toContain("first-match-fixture");
 
-    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+    expect(() => locateParseOnlyInventoryArrayBody(source, constantName)).toThrow(
+      `unmarked ${constantName} would bind before marked inventory declaration`,
+    );
   });
 
   test("parse-only inventory does not treat one marker as marking a later unprefixed fixture before module const", () => {
@@ -237,6 +245,20 @@ describe("structural test locators", () => {
       "];",
     ].join("\n");
 
-    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+    expect(() => locateParseOnlyInventoryArrayBody(source, constantName)).toThrow(
+      `parse-only inventory marker missing on ${constantName}`,
+    );
+  });
+
+  test("parse-only inventory resolves when only the marked module declaration exists", () => {
+    const constantName = "MARKED_ONLY_INVENTORY";
+    const source = [
+      PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+      `const ${constantName} = [`,
+      '  { id: "marked-only" },',
+      "];",
+    ].join("\n");
+
+    expect(locateParseOnlyInventoryArrayBody(source, constantName)).toContain("marked-only");
   });
 });

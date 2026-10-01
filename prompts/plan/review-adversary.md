@@ -3,8 +3,9 @@ id: plan.prompt.review.adversary
 behavior: plan
 kind: step
 fragmentPolicy: behavior
-revision: 8
+revision: 9
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, REVIEW_PASS_CONTEXT:string!]
+add: [implement.review.falsifiability]
 remove: [global.naming]
 ---
 # Plan Mode — Review: Adversary

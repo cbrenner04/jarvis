@@ -8,6 +8,7 @@ import { bindHarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
 import {
+  createDefaultSupersedeGh,
   createExecuteTerminalPublication,
   TerminalPublicationError,
   type TerminalPublicationInput,
@@ -655,4 +656,23 @@ describe("executeTerminalPublication production ready gate", () => {
       expect(flipCalls).toEqual([42]);
     });
   }
+});
+
+describe("createDefaultSupersedeGh", () => {
+  it("prState returns gh state when state is a string", async () => {
+    const supersede = createDefaultSupersedeGh({
+      gh: async (_cwd, args) => {
+        expect(args).toEqual(["pr", "view", "7", "--json", "state"]);
+        return JSON.stringify({ state: "OPEN" });
+      },
+    });
+    await expect(supersede.prState("/repo", 7)).resolves.toEqual({ state: "OPEN" });
+  });
+
+  it("prState throws when gh state field is not a string", async () => {
+    const supersede = createDefaultSupersedeGh({
+      gh: async () => JSON.stringify({ state: 1 }),
+    });
+    await expect(supersede.prState("/repo", 7)).rejects.toThrow("unexpected gh pr view state for #7");
+  });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -48,7 +48,11 @@ function loadRunOnce(stateDbPath: string, runId: string) {
   }
 }
 
-describe("write loop idle-output watchdog", () => {
+describe.serial("write loop idle-output watchdog", () => {
+  afterEach(() => {
+    mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+  });
+
   test("a healthy iteration with the idle watchdog armed completes without stall or timeout", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));

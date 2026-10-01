@@ -78,6 +78,7 @@ import { resolveCompletionCommitFailedResumeContext } from "./workflow-runner-re
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
   acquireGateInvocationLease,
+  admitCoLocatedTestsOfAllowedPaths,
   appendRuntimeSmokeOutcome,
   applyOperatorSessionId,
   buildSubspecCompletionInventory,
@@ -784,6 +785,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     restoreReopenedFailedStages: (reopened) => inner.restoreReopenedFailedStages(reopened),
     commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
     commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+    appendSupersedeFailures: (args) => inner.appendSupersedeFailures(args),
     dismissPipeline: (args) => inner.dismissPipeline(args),
     undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
@@ -906,6 +908,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     restoreReopenedFailedStages: (reopened) => inner.restoreReopenedFailedStages(reopened),
     commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
     commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+    appendSupersedeFailures: (args) => inner.appendSupersedeFailures(args),
     dismissPipeline: (args) => inner.dismissPipeline(args),
     undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
@@ -6497,6 +6500,58 @@ export function isLoadSensitive(file: string): boolean {
         expect(existsSync(join(worktreePath, "v2/src/new-untracked.ts"))).toBe(false);
       });
 
+      test("admits a new co-located test of an in-diff production file", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-colocated-test";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          expectedArtifactPath: "v2/src/widget.ts",
+          repairEdit: (cwd) => writeFileSync(join(cwd, "v2/src/widget.test.ts"), "export {}\n", "utf8"),
+        });
+
+        expect(fenced.result.kind).not.toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toBeUndefined();
+        expect(readFileSync(join(worktreePath, "v2/src/widget.test.ts"), "utf8")).toBe("export {}\n");
+      });
+
+      describe("admitCoLocatedTestsOfAllowedPaths", () => {
+        const noSiblings = () => [];
+
+        test("admits the exact-stem and existing sibling tests of an allowed production path", () => {
+          const admitted = admitCoLocatedTestsOfAllowedPaths(new Set(["v2/src/widget.ts"]), "/wt", (dir) =>
+            dir === "/wt/v2/src" ? ["widget-render.test.ts", "widget.ts", "other-x.test.ts"] : [],
+          );
+          expect(findFirstRepairFenceViolation(["v2/src/widget.test.ts"], admitted)).toBeUndefined();
+          expect(findFirstRepairFenceViolation(["v2/src/widget-render.test.ts"], admitted)).toBeUndefined();
+        });
+
+        test("still refuses an unrelated out-of-diff test", () => {
+          const admitted = admitCoLocatedTestsOfAllowedPaths(new Set(["v2/src/widget.ts"]), "/wt", noSiblings);
+          expect(findFirstRepairFenceViolation(["v2/src/untouched.test.ts"], admitted)).toBe(
+            "v2/src/untouched.test.ts",
+          );
+        });
+
+        test("still refuses the co-located test of an out-of-diff production file", () => {
+          const admitted = admitCoLocatedTestsOfAllowedPaths(new Set(["v2/src/widget.ts"]), "/wt", noSiblings);
+          expect(findFirstRepairFenceViolation(["v2/src/other.test.ts"], admitted)).toBe("v2/src/other.test.ts");
+          expect(findFirstRepairFenceViolation(["v2/src/other.ts"], admitted)).toBe("v2/src/other.ts");
+        });
+
+        test("adds nothing for non-code or test paths", () => {
+          const allowed = new Set(["spec.md", "v2/src/widget.test.ts"]);
+          expect([...admitCoLocatedTestsOfAllowedPaths(allowed, "/wt", noSiblings)].sort()).toEqual([
+            "spec.md",
+            "v2/src/widget.test.ts",
+          ]);
+        });
+      });
+
       test("mixed refusal commits the in-diff edit, reverts the out-of-diff path, and stays resumable", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-mixed-refusal";
@@ -8028,6 +8083,7 @@ export function isLoadSensitive(file: string): boolean {
           restoreReopenedFailedStages: (reopened) => inner.restoreReopenedFailedStages(reopened),
           commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
           commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+          appendSupersedeFailures: (args) => inner.appendSupersedeFailures(args),
           dismissPipeline: (args) => inner.dismissPipeline(args),
           undismissPipeline: (args) => inner.undismissPipeline(args),
           recordAttemptStart: (runId) => inner.recordAttemptStart(runId),

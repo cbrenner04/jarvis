@@ -50,23 +50,23 @@ import {
   renderStepCommitTitle,
 } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
+import {
+  type DiffDerivedMutationVerifierInput,
+  type VerificationResult,
+  verifyDiffDerivedMutations,
+} from "./diff-derived-mutation-verifier.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { configuredIntentDurableDir, evaluateIntentSplitLandingGate, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
-import {
-  type DiffDerivedMutationVerifierInput,
-  type VerificationResult,
-  verifyDiffDerivedMutations,
-} from "./diff-derived-mutation-verifier.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
-  nonTerminatingMutationLogFields,
   NonTerminatingMutationError,
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   ReadyGateError,
   readyGateFailureLogFields,

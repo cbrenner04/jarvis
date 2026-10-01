@@ -1876,6 +1876,7 @@ describe("executeWorkflow review dispatch", () => {
         });
 
         expect(outcome.ok).toBe(false);
+        expect(events[0]).toBe("verify");
         expect(events.indexOf("verify")).toBeLessThan(events.indexOf("repair"));
         expect(events.indexOf("repair")).toBeLessThan(events.indexOf("finalizer"));
         expect(finalizerCalls).toBeGreaterThan(0);

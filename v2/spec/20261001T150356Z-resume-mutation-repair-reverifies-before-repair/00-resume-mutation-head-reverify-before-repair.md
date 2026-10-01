@@ -16,10 +16,10 @@
 
 ## Task checklist
 
-- [ ] Add `verifyDiffDerivedMutations` to `ReviewMutationResumeDeps`; in `replayMutationFinalization`, gate auto-derived repair on HEAD verification via that seam (production default).
-- [ ] Map verifier `surviving-mutation` / `non-terminating-mutation` outcomes using the `runReadyFinalizer` `runMutationVerification` field contract in `write-loop.ts` (extract shared helper only if duplication would fork site-picking).
-- [ ] Add `workflow-runner-resume-review-dispatch.test.ts` regressions with injected `verifyDiffDerivedMutations` and update the existing auto-derive order test per acceptance criteria.
-- [ ] Align `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` with HEAD-first resume repair admission (plain review resume, omitted `mutationRepair`).
+- [x] Add `verifyDiffDerivedMutations` to `ReviewMutationResumeDeps`; in `replayMutationFinalization`, gate auto-derived repair on HEAD verification via that seam (production default).
+- [x] Map verifier `surviving-mutation` / `non-terminating-mutation` outcomes using the `runReadyFinalizer` `runMutationVerification` field contract in `write-loop.ts` (extract shared helper only if duplication would fork site-picking).
+- [x] Add `workflow-runner-resume-review-dispatch.test.ts` regressions with injected `verifyDiffDerivedMutations` and update the existing auto-derive order test per acceptance criteria.
+- [x] Align `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` with HEAD-first resume repair admission (plain review resume, omitted `mutationRepair`).
 
 ## Acceptance criteria
 
@@ -30,7 +30,7 @@
 - [x] `v2/docs/operator-runbook.md` states that for plain review resume on `surviving_mutation_failed` (omitted `mutationRepair`), committing a killing test before `jarvis run resume` lets publication continue without entering mutation repair on a stale survivor.
 - [x] `v2/docs/v1-behaviors.md` records **[v2 behavior change]** review `surviving_mutation_failed` resume order: HEAD mutation re-verification before auto-derived repair; terminal survivor evidence is not repair input by itself.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

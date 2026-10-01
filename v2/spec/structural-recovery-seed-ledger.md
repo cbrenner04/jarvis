@@ -10,24 +10,31 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 
 Every other landed spec is archived under `completed/`.
 
-## Ready-intents (7 queued: 5 dispatchable, 1 waiting on in-flight PRs, 1 not startable)
+## Ready-intents (12 queued: 2 dispatchable, 9 waiting on a head lane or in-flight PRs, 1 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
-| `agent-bindings-recover-usage-on-failed-settlement` | dispatchable (standalone plan) | — (#4301 landed its prerequisite) |
-| `publication-inflow-mutation-repair` | dispatchable; replan from the ready-intent (plan PR #4284 closed) and carry its reviewed decisions: re-verify HEAD before repair, revert weakened killing tests, revert uncommitted repair edits on timeout | — |
-| `retire-superseded-pipeline-branches` | dispatchable | — (#4290, #4296 landed) |
-| `completion-commit-run-scope` | dispatchable; rewritten 2026-10-01 after plan rejection: refuses main-sync content (staged blob = `main` tip, lane never changed path) and shrink diffs against the merge base | — (#4328 landed) |
 | `write-loop-test-split` | dispatchable after in-flight `write-loop.test.ts` PRs land; one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`) | in-flight PRs touching `write-loop.test.ts` |
-| `tui-revision-follow-single-supervisor` | dispatchable; one plan, chained subspecs (supervisor + reserved exit together, then log-follow) (replaces seed `tui-revision-follow-replaces-itself`) | — |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
+| `daemon-projects-lane-pr-settlement` | dispatchable after `lane-pr-history-blocks-republish` merged | #4331, then `lane-pr-outcomes-settle-runs-and-stages` |
+| `lane-pr-outcomes-settle-runs-and-stages` | dispatchable after `lane-pr-history-blocks-republish` merged | #4331 |
+| `resume-admits-lane-pr-republish-opt-in` | dispatchable after `lane-pr-history-blocks-republish` merged | #4331, then `lane-pr-outcomes-settle-runs-and-stages` |
+| `pipeline-resume-address-review-cli` | dispatchable (`pipeline-stage-review-feedback-launch` merged #4326) | — |
+| `plan-draft-shape-contract-reprompt` | dispatchable after `plan-draft-shape-reasons-and-nested-child` merged | #4332 |
+| `plan-draft-shape-operator-docs` | dispatchable after `plan-draft-shape-reasons-and-nested-child` merged | #4332, then `plan-draft-shape-contract-reprompt` |
+| `implement-run-records-agent-process-groups` | dispatchable (`agent-abort-reaps-descendant-groups` merged #4335) | — |
+| `daemon-sweeps-recorded-agent-groups` | dispatchable after `implement-run-records-agent-process-groups` (head `agent-abort-reaps-descendant-groups` merged #4335) | `implement-run-records-agent-process-groups` |
+| `resume-path-inventory-binds-real-declaration` | dispatchable after `self-parsing-inventory-locator-contract` merged | #4345 |
+| `self-parsing-structural-test-docs` | dispatchable after `self-parsing-inventory-locator-contract` merged | #4345, then `resume-path-inventory-binds-real-declaration` |
 
-## Seeds (20)
+## Seeds (22)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
+| `resume-mutation-repair-reverifies-before-repair` | P1 | — | new 2026-10-01; resume repaired stale survivors already killed by an operator commit: ff6cc773 (#4331), 5280b7bf (#4332) |
+| `mutation-verifier-fails-fast-on-first-killing-file` | P1 | — | new 2026-10-01; #4332 `write-loop.ts:612` settled non-terminating while a killing file had failed in ~14 ms |
 | `agent-abort-reaps-its-process-tree` | P1 | — | new 2026-10-01; cursor shell-tool sessions escape agent group kill: `bun test` pid 55854 at 97% CPU 45 min after cd5e5790 iteration_timeout, ppid 1; load ~31 |
 | `plan-draft-shape-names-its-failure` | P1 | — | new 2026-10-01; pipeline 62810cc3 plan lane stranded on bare `plan.draft.shape` (nested spec dir); hand-flattened + recover |
 | `terminal-publication-accepts-operator-merged-pr` | P1 | — | new 2026-10-01; pipelines 998a665f, 66f666ad + once prior session |
@@ -61,6 +68,7 @@ None; #3029 closed 2026-09-30. Closed: #3423 (#4090), #3417 (#4076), #3040 (#408
 | seeds `capture-token-usage-on-failed-invocations`, `review-roles-check-falsifiability-not-plausibility`, `mutation-verifier-ignores-whitespace-only-line-changes`, `completed-write-step-rows-stamp-finished-at`, `cleanup-retires-subsumed-and-landed-worktrees`, `superseded-pipeline-pr-hygiene` | consumed by intents #4247 #4248 #4251 #4256 #4257 #4274 #4275 #4276 #4277 |
 | 14 ready-intents (`backfill-terminal-null-finished-at-migration`, `cleanup-retires-subsumed-and-landed-worktrees`, `completion-boundary-terminal-stamps-finished-at`, `configure-pipeline-supersede-policy`, `invocation-completed-records-failure-usage`, `mutation-reprompt-colocated-fix-line`, `mutation-verifier-ignores-whitespace-only-line-changes`, `pipeline-verbs-accept-full-ids-on-degraded-listing`, `plan-stage-bases-on-fetched-default-branch`, `review-roles-falsifiability-implement`, `review-roles-falsifiability-plan`, `settle-superseded-pipeline-prs`, `shrink-post-mutation-reverify`, `skipped-durable-successor-rollup-completed`) | landed or consumed; not reaped by their implement PRs (some reintroduced by merged intent/plan PRs) |
 | landed spec dirs | archived (closeout 2026-09-30b) |
+| ready-intents `agent-bindings-recover-usage-on-failed-settlement`, `publication-inflow-mutation-repair`, `retire-superseded-pipeline-branches`, `completion-commit-run-scope`, `tui-revision-follow-single-supervisor` | consumed by plans #4313 #4315 #4312 #4343 #4344 |
 | seed `harness-commits-stay-in-run-scope` | consumed by ready-intent `completion-commit-run-scope` (658c18963 half closed by #4328) |
 | PRs #4286, #4302 | closed: #4286 swept stale-`main` content (rebuilt as #4301); #4302 duplicate republication of the closed lane |
 

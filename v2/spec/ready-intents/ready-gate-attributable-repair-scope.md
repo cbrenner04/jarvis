@@ -10,8 +10,8 @@ For non-test ready gates, `resolveAttributableRepairAllowset` builds the agent r
 
 ## Decisions
 
-- Intersect attributable failing paths with the frozen diff/spec allowset (plus existing gate extensions); attributable paths outside that intersection do not expand repair authorization.
-- When a gate failure is attributable only to paths outside the run diff allowset, treat it as a pre-existing failure and settle without agent repair (same class of outcome as other out-of-scope ready-gate failures).
+- For non-test gates with attributable paths, agent repair allowset is `{ p ∈ attributable | p ∈ resolveGateRepairAllowset(frozen, error) }` (frozen diff/spec allowset plus `gateRepairAllowsetPaths` extensions); attributable paths outside that envelope do not expand repair authorization.
+- When every attributable failing path lies outside `resolveGateRepairAllowset(frozen, error)`, treat the gate failure as pre-existing and settle without agent repair (same class of outcome as other out-of-scope ready-gate failures).
 
 ## Acceptance criteria
 
@@ -20,7 +20,8 @@ For non-test ready gates, `resolveAttributableRepairAllowset` builds the agent r
 
 ## Documentation updates
 
-- `v2/docs/workflow-runner.md` — ready-gate repair allowset is intersected with the run diff.
+- `v2/docs/workflow-runner.md` — ready-gate repair allowset is intersected with the frozen run diff envelope (including gate extensions).
+- `v2/docs/v1-behaviors.md` — catalog attributable repair allowset intersection with the frozen fence.
 
 ## Prerequisites
 

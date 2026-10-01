@@ -142,19 +142,21 @@ export const RUN_KILL_HELP_FLAGS: readonly CommandFlag[] = [
   },
 ];
 
-/** `parseArgs` options for `runActionCommand` (`resume`) / `jarvis run resume`. */
-export const RUN_RESUME_PARSE_ARG_OPTIONS = {
+const ALLOW_LANE_PR_REPUBLISH_PARSE_OPTION = {
   "allow-lane-pr-republish": { type: "boolean" },
 } as const satisfies Record<string, { type: "boolean" }>;
 
-export const RUN_RESUME_HELP_FLAGS: readonly CommandFlag[] = [
-  {
-    name: "--allow-lane-pr-republish",
-    argumentShape: "",
-    description:
-      "Opt in to lane PR create on resume when closed or merged head+base history would otherwise block republication.",
-  },
-];
+const ALLOW_LANE_PR_REPUBLISH_HELP_FLAG: CommandFlag = {
+  name: "--allow-lane-pr-republish",
+  argumentShape: "",
+  description:
+    "Opt in to lane PR create on resume when closed or merged head+base history would otherwise block republication.",
+};
+
+/** `parseArgs` options for `runActionCommand` (`resume`) / `jarvis run resume`. */
+export const RUN_RESUME_PARSE_ARG_OPTIONS = ALLOW_LANE_PR_REPUBLISH_PARSE_OPTION;
+
+export const RUN_RESUME_HELP_FLAGS: readonly CommandFlag[] = [ALLOW_LANE_PR_REPUBLISH_HELP_FLAG];
 
 /** `parseArgs` options for `jarvis run dismiss`. */
 export const RUN_DISMISS_PARSE_ARG_OPTIONS = {
@@ -262,17 +264,6 @@ const PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS = {
   "reset-despite-dirty": { type: "boolean" },
   "reset-despite-landed-criteria": { type: "boolean" },
 } as const satisfies Record<string, { type: "boolean" }>;
-
-const ALLOW_LANE_PR_REPUBLISH_PARSE_OPTION = {
-  "allow-lane-pr-republish": { type: "boolean" },
-} as const satisfies Record<string, { type: "boolean" }>;
-
-const ALLOW_LANE_PR_REPUBLISH_HELP_FLAG: CommandFlag = {
-  name: "--allow-lane-pr-republish",
-  argumentShape: "",
-  description:
-    "Opt in to lane PR create on resume when closed or merged head+base history would otherwise block republication.",
-};
 
 /** `parseArgs` options for `parsePipelineResumeArgs` / `jarvis pipeline resume`. */
 export const PIPELINE_RESUME_PARSE_ARG_OPTIONS = {

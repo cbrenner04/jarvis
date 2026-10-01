@@ -26,6 +26,7 @@ import {
   findPreShrinkHeadFromLog,
   findStagedMarkdownLintRepromptFromLog,
   findSurvivingMutationRepromptFromLog,
+  completionPublishLaneRepublishFields,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import type { RpcHandler } from "../ipc/server.ts";
@@ -114,13 +115,6 @@ type LifecycleStartResult =
   | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
 type ResumePublicationOptions = { allowLanePrRepublish?: true };
-
-function writeLoopInputWithResumeRepublishOptIn(
-  input: WriteLoopInput,
-  resumePublicationOptions?: ResumePublicationOptions,
-): WriteLoopInput {
-  return resumePublicationOptions?.allowLanePrRepublish === true ? { ...input, allowLanePrRepublish: true } : input;
-}
 
 type RunLifecycleHandlerDeps = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => LifecycleStartResult;
@@ -1311,7 +1305,7 @@ export function createRunLifecycleHandlers(
       key,
       runId,
       run.worktreePath,
-      writeLoopInputWithResumeRepublishOptIn(reconstructed.input, resumePublicationOptions),
+      { ...reconstructed.input, ...completionPublishLaneRepublishFields(resumePublicationOptions ?? {}) },
       true,
     );
     return { kind: "response", result: { ok: true } };
@@ -1340,7 +1334,7 @@ export function createRunLifecycleHandlers(
     try {
       const resumeDeps: IntentFinalizationResumeDeps = {
         ...intentFinalizationResumeDeps,
-        ...(resumePublicationOptions?.allowLanePrRepublish === true ? { allowLanePrRepublish: true } : {}),
+        ...completionPublishLaneRepublishFields(resumePublicationOptions ?? {}),
         ...(logSink !== undefined ? { logSink } : {}),
         signal: abortController.signal,
       };
@@ -1510,7 +1504,7 @@ export function createRunLifecycleHandlers(
       key,
       runId,
       run.worktreePath,
-      writeLoopInputWithResumeRepublishOptIn(reconstructed.input, resumePublicationOptions),
+      { ...reconstructed.input, ...completionPublishLaneRepublishFields(resumePublicationOptions ?? {}) },
       true,
     );
     return { kind: "response", result: { ok: true } };

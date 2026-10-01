@@ -1097,7 +1097,6 @@ export type IntentFinalizationResumeDeps = {
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
-  /** Operator resume opt-in: skip closed/merged head+base history guard on republication. */
   allowLanePrRepublish?: true;
   /** Aborted by `run kill`; reaches the ready gate / required integration / repair invocations. */
   signal?: AbortSignal;

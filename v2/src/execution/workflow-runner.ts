@@ -587,7 +587,6 @@ export type WorkflowRunnerInput = {
    * to match against.
    */
   workflowSnapshot?: WorkflowSnapshot;
-  /** Operator resume opt-in: skip closed/merged head+base history guard on workflow publication tail. */
   allowLanePrRepublish?: true;
 };
 

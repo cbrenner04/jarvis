@@ -23,6 +23,7 @@ import {
   resolveReviewMutationLineageContext,
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
+import { completionPublishLaneRepublishFields } from "../execution/write-loop.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
 import {
@@ -281,7 +282,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           stateStore: store,
           freshDispatch,
           ...(workflowSnapshot !== undefined ? { workflowSnapshot } : {}),
-          ...(resumePublicationOptions?.allowLanePrRepublish === true ? { allowLanePrRepublish: true } : {}),
+          ...completionPublishLaneRepublishFields(resumePublicationOptions ?? {}),
           ...(logSink !== undefined ? { logSink } : {}),
           ...(telemetry !== undefined ? { telemetry } : {}),
           onReviewDebateProgress: reportReviewProgress,

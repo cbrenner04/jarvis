@@ -211,12 +211,6 @@ function readStaleResetOverrideFlags(
   };
 }
 
-function readAllowLanePrRepublishFlag(values: Record<string, string | boolean | undefined>): {
-  allowLanePrRepublish?: true;
-} {
-  return values["allow-lane-pr-republish"] === true ? { allowLanePrRepublish: true } : {};
-}
-
 function parsePipelineResumeArgs(argv: readonly string[]):
   | ({
       ok: true;
@@ -248,7 +242,8 @@ function parsePipelineResumeArgs(argv: readonly string[]):
   if (branchKey !== undefined && branchKey.trim().length === 0) return { ok: false };
 
   const staleReset = readStaleResetOverrideFlags(values);
-  const allowLanePrRepublish = readAllowLanePrRepublishFlag(values);
+  const allowLanePrRepublish =
+    values["allow-lane-pr-republish"] === true ? { allowLanePrRepublish: true as const } : {};
   const addressReviewRaw = values["address-review"];
   if (addressReviewRaw !== undefined) {
     if (staleReset.resetDespiteDirty || staleReset.resetDespiteLandedCriteria) return { ok: false };

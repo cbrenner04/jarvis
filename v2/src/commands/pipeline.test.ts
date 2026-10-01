@@ -1972,6 +1972,29 @@ describe("pipeline resume", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_resume")).toHaveLength(0);
   });
 
+  test("pipeline resume --address-review sends the stable-listing-resolved full pipeline id", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let calls = 0;
+
+    const code = await main(["pipeline", "resume", "abcd1234", "--address-review", "implement"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return pipelineListClient({ pipelines: [{ ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "abcd1234-full-id" }] });
+        }
+        return pipelineListClient({ runId: "rf-run-2" }, sent);
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "rf-run-2\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_stage_review_feedback_launch")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "abcd1234-full-id", stageId: "implement" } }),
+    ]);
+  });
+
   test("pipeline resume --address-review forwards branch positional as branchKey", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -1996,7 +2019,7 @@ describe("pipeline resume", () => {
   test.each([
     {
       label: "with reset-despite-dirty",
-      argv: ["pipeline", "resume", "pipe-1", "--address-review", "--reset-despite-dirty"],
+      argv: ["pipeline", "resume", "pipe-1", "--address-review", "implement", "--reset-despite-dirty"],
     },
     {
       label: "with reset-despite-landed-criteria",

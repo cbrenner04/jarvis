@@ -32,7 +32,7 @@ cli
 - [x] `pipeline.test.ts` proves successful `pipeline resume <id> --address-review <stage>` prints exactly `${runId}\n` on stdout, exits `0`, and does not use ordinary resume stdout (`kind: "resumed"` / pipeline id); fails against the pre-fix dispatcher reachable on main today.
 - [x] `pipeline.test.ts` proves `--address-review` with either stale-reset override flag, or with a missing or blank `--address-review` value when the flag is present, prints `PIPELINE_RESUME_USAGE` on stderr, exits non-zero, and opens no IPC client; fails against the pre-fix parser reachable on main today.
 - [x] `pipeline.test.ts` — `pipeline resume exits 0 on resumed for pipe-failed`, `pipeline resume forwards the branch positional as branchKey`, `pipeline resume usage errors reject malformed branch arity before daemon connect`, and `help pipeline resume matches resume usage` stay green (ordinary resume unchanged).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

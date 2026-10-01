@@ -211,9 +211,7 @@ function readStaleResetOverrideFlags(
   };
 }
 
-function parsePipelineResumeArgs(
-  argv: readonly string[],
-):
+function parsePipelineResumeArgs(argv: readonly string[]):
   | ({
       ok: true;
       pipelineId: string;
@@ -719,8 +717,8 @@ async function runPipelineStageReviewFeedbackLaunchCommand(
   deps: CliDeps,
 ): Promise<number> {
   const { pipelineId, stageId, branchKey } = params;
-  return withStablePipelineClient(pipelineId, io, deps, async (client) => {
-    const rpcParams: PipelineRpcParams = { pipelineId, stageId };
+  return withStablePipelineClient(pipelineId, io, deps, async (client, resolvedPipelineId) => {
+    const rpcParams: PipelineRpcParams = { pipelineId: resolvedPipelineId, stageId };
     if (branchKey !== undefined) rpcParams.branchKey = branchKey;
     const result = await requestPipelineRpc(client, "pipeline_stage_review_feedback_launch", rpcParams, io);
     if (!result.ok) return 1;

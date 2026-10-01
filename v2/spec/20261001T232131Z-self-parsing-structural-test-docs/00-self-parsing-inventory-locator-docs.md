@@ -21,9 +21,9 @@ Authors and operators have no durable guidance that a green structural inventory
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` includes a self-parsing inventory locator subsection covering fixture placement, `_` prefix tolerance, the parse-only marker, and anchor-count proof, with links to `shared/structural-test-locator.test.ts` and `workflow-runner-resume-inventory.test.ts`.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust includes a bullet that a green structural inventory test may be validating a fixture and operators should verify parsed anchor count against the live module inventory.
-- [ ] `bun run lint:md` passes on `v2/docs/test-writing.md` and `v2/docs/operator-runbook.md`.
+- [x] `v2/docs/test-writing.md` includes a self-parsing inventory locator subsection covering fixture placement, `_` prefix tolerance, the parse-only marker, and anchor-count proof, with links to `shared/structural-test-locator.test.ts` and `workflow-runner-resume-inventory.test.ts`.
+- [x] `v2/docs/operator-runbook.md` § Gate trust includes a bullet that a green structural inventory test may be validating a fixture and operators should verify parsed anchor count against the live module inventory.
+- [x] `bun run lint:md` passes on `v2/docs/test-writing.md` and `v2/docs/operator-runbook.md`.
 
 ## Documentation updates
 

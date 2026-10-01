@@ -40,6 +40,16 @@ export function formatSlotRedriveCell(error: DaemonListRunRow["error"]): string 
   return `${error.slotRedriveCount}/${error.slotRedriveBound}`;
 }
 
+function reviewFeedbackItemIdColumns(run: DaemonListRunRow): string[] {
+  const {
+    reviewFeedbackAddressedItemIds: a,
+    reviewFeedbackDeclinedItemIds: d,
+    reviewFeedbackUnaddressedItemIds: u,
+  } = run;
+  if (a === undefined && d === undefined && u === undefined) return [];
+  return [JSON.stringify(a ?? []), JSON.stringify(d ?? []), JSON.stringify(u ?? [])];
+}
+
 function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string {
   const e = run.error;
   const columns = [
@@ -64,7 +74,10 @@ function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string
     formatSlotRedriveCell(e),
     e?.survivingMutationKillingTests === undefined ? "-" : JSON.stringify(e.survivingMutationKillingTests),
     e?.survivingMutationKillingSetResult ?? "-",
+    // Fixed positions first: the `--all` dismissal marker stays at column 22 on every row; review-feedback
+    // item ids trail it only on rows that carry them.
     ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
+    ...reviewFeedbackItemIdColumns(run),
   ];
   return `${columns.join("\t")}\n`;
 }

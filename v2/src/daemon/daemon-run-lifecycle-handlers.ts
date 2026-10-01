@@ -63,6 +63,7 @@ import {
   promoteQueuedRunImpl,
   type ResolvedWriteLoopInput,
   resolveWriteLoopBindings,
+  reviewFeedbackItemIdsProjection,
   runListTerminalFinishAtMs,
   settleGuardedKill,
   signalRecordedVerifierProcessGroups,
@@ -636,7 +637,17 @@ export function createRunLifecycleHandlers(
             ...runFailureField(run ?? undefined),
           };
     const withError = error === undefined ? base : { ...base, error };
-    return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
+    const withReviewFeedback = {
+      ...withError,
+      ...reviewFeedbackItemIdsProjection(
+        loopFinishedEvent?.reviewFeedbackAddressedItemIds,
+        loopFinishedEvent?.reviewFeedbackDeclinedItemIds,
+        loopFinishedEvent?.reviewFeedbackUnaddressedItemIds,
+      ),
+    };
+    return runStatus === "blocked" && run
+      ? { ...withReviewFeedback, worktreePath: run.worktreePath }
+      : withReviewFeedback;
   };
 
   const workflowEntryResult = (
@@ -667,6 +678,13 @@ export function createRunLifecycleHandlers(
       resumeAdmissionDeps,
     );
     const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord, ownerLogTail);
+    const ownerLoopFinished =
+      owner.terminalRecord.event.kind === "loop_finished" ? owner.terminalRecord.event : undefined;
+    const ownerReviewFeedbackIds = reviewFeedbackItemIdsProjection(
+      ownerLoopFinished?.reviewFeedbackAddressedItemIds,
+      ownerLoopFinished?.reviewFeedbackDeclinedItemIds,
+      ownerLoopFinished?.reviewFeedbackUnaddressedItemIds,
+    );
     const entryResult: WaitRunCompletionResult = {
       runStatus: rollupStatus,
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
@@ -674,6 +692,7 @@ export function createRunLifecycleHandlers(
       resumable: ownerAdmission.admitted,
       ...runFailureField(entryRun),
       ...(ownerError === undefined ? {} : { error: ownerError }),
+      ...ownerReviewFeedbackIds,
     };
     const entryAdmission = resolveRunResumeAdmission(
       entryRun,

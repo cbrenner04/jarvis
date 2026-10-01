@@ -945,6 +945,9 @@ test("workflow entry wait reports non_terminating_mutation_failed owned by a dur
       nonTerminatingMutation: "operator-flip: !== → ===",
       nonTerminatingMutationSourceFile: "src/guard.ts",
       nonTerminatingMutationSourceLine: 42,
+      reviewFeedbackAddressedItemIds: ["thread-owned-addressed"],
+      reviewFeedbackDeclinedItemIds: ["comment-owned-declined"],
+      reviewFeedbackUnaddressedItemIds: ["thread-owned-unaddressed"],
     });
     logSink.close();
 
@@ -972,6 +975,9 @@ test("workflow entry wait reports non_terminating_mutation_failed owned by a dur
       runStatus: "failed",
       loopOutcomeKind: "non_terminating_mutation_failed",
       iterationsConsumed: 2,
+      reviewFeedbackAddressedItemIds: ["thread-owned-addressed"],
+      reviewFeedbackDeclinedItemIds: ["comment-owned-declined"],
+      reviewFeedbackUnaddressedItemIds: ["thread-owned-unaddressed"],
       error: {
         reason: "non_terminating_mutation_failed",
         nonTerminatingMutation: "operator-flip: !== → ===",

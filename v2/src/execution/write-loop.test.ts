@@ -27,6 +27,10 @@ import * as sharedGit from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import {
+  REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+  REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+} from "../../../shared/prompts/review-feedback-write.ts";
+import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
@@ -46,6 +50,7 @@ import { createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
+import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import {
   baseRefProbeFailsSeam,
   gateFailureOutput,
@@ -6652,8 +6657,9 @@ export function isLoadSensitive(file: string): boolean {
           const run = reopened.loadRun(fenced.result.runId);
           expect(run?.status).toBe("failed");
           expect(run?.terminalCause).toBe("completion_commit_failed");
+          if (run === null) throw new Error("expected run");
           const operatorError = composeRunOperatorError(
-            { ...run!, attempts: run?.attempts ?? [] },
+            { ...run, attempts: run.attempts },
             finished?.kind === "loop_finished"
               ? { runId: fenced.result.runId, seq: 1, ts: "2026-01-01T00:00:00.000Z", event: finished }
               : undefined,
@@ -9588,6 +9594,74 @@ index 1234567..abcdefg 100644
     expect(events[9]?.kind).toBe("loop_finished");
     expect(events[9]?.kind === "loop_finished" && events[9].loopOutcomeKind).toBe("complete");
     expect(events[9]?.kind === "loop_finished" && events[9].iterationsConsumed).toBe(3);
+  });
+
+  test("terminal loop_finished merges review-feedback item ids only for the review-feedback write prompt", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const defaultSink = new TestLogSink();
+    const defaultResult = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "write-run-default",
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      logSink: defaultSink,
+      completionCommitter: async () => ({ commitSha: "commit-default" }),
+      completionPublisher: async () => ({}),
+      readyFinalizer: async () => {},
+    });
+    expect(defaultResult.kind).toBe("complete");
+    const defaultFinished = defaultSink
+      .getEventsForRun(defaultResult.runId)
+      .findLast((event) => event.kind === "loop_finished");
+    expect(defaultFinished?.kind).toBe("loop_finished");
+    expect(defaultFinished).not.toHaveProperty("reviewFeedbackAddressedItemIds");
+
+    const reviewThreadId = "write-loop-review-thread";
+    const laneWorktreePath = join(jarvisRoot, "worktrees", "demo", "write-run-review");
+    mkdirSync(laneWorktreePath, { recursive: true });
+    writeFileSync(
+      resolvePrReviewInputArtifactPath(laneWorktreePath),
+      `${JSON.stringify({
+        captureVersion: 1,
+        prNumber: 1,
+        threads: [{ threadId: reviewThreadId, outdated: false, comments: [] }],
+        topLevelComments: [],
+      })}\n`,
+      "utf8",
+    );
+
+    const reviewSink = new TestLogSink();
+    const reviewResult = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "write-run-review",
+      promptId: REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+      specPath: REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+      artifactPath: REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+      promptPlaceholders: { LANE_KIND: "plan", ENTRY_SPEC_PATH: "v2/spec/plan/index.md" },
+      bindings: [
+        {
+          id: "review-feedback",
+          metadata: { agent: "test-agent", model: "test" },
+          invoke: async ({ cwd }) => {
+            writeFileSync(join(cwd, REVIEW_FEEDBACK_RESPONSE_SIDECAR), `- ${reviewThreadId}: addressed\n`, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      logSink: reviewSink,
+      completionCommitter: async () => ({ commitSha: "commit-review" }),
+      completionPublisher: async () => ({}),
+      readyFinalizer: async () => {},
+    });
+    expect(reviewResult.kind).toBe("complete");
+    const reviewFinished = reviewSink
+      .getEventsForRun(reviewResult.runId)
+      .findLast((event) => event.kind === "loop_finished");
+    expect(reviewFinished?.kind).toBe("loop_finished");
+    if (reviewFinished?.kind !== "loop_finished") throw new Error("expected terminal loop_finished");
+    expect(reviewFinished.reviewFeedbackAddressedItemIds).toEqual([reviewThreadId]);
+    expect(reviewFinished.reviewFeedbackUnaddressedItemIds).toEqual([]);
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for each outcome", async () => {

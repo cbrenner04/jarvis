@@ -27,6 +27,7 @@ import type { OperatorFailureRecord } from "../../../shared/operator-failure-rec
 import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { INTENT_SPLIT_PROMPT_ID } from "../../../shared/prompts/intent-split.ts";
 import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import { isHumanOnlyCriterion, parseSpec } from "../../../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
@@ -39,6 +40,7 @@ import {
   type DraftContractRepromptEvent,
   dualConstraintRepromptDetail,
   type LandingContractRepromptEvent,
+  type LogEvent,
   type LogSink,
   type LoopFinishedEvent,
   type PersistedRecord,
@@ -112,6 +114,7 @@ import {
   survivingMutationLogFields,
   validateRepoRelativePath,
 } from "./ready-finalize.ts";
+import { reconcileReviewFeedbackItemsAtLaneWorktree } from "./review-feedback-item-reconciliation.ts";
 import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
@@ -1424,7 +1427,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             }
             settleCompletedPublication(store, prepared.result.runId, args.logSink);
           }
-          args.logSink?.append(prepared.result.runId, {
+          appendTerminalLoopFinished(args, prepared.result.runId, {
             kind: "loop_finished",
             loopOutcomeKind: "complete",
             iterationsConsumed: prepared.result.iterationsConsumed,
@@ -1713,7 +1716,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             });
             // Mutation checkpoint: inverting this branch to contract_miss or blocked must turn
             // "intent split landing-contract budget exhaustion settles landing_failed" RED.
-            args.logSink?.append(runId, {
+            appendTerminalLoopFinished(args, runId, {
               kind: "loop_finished",
               loopOutcomeKind: "landing_failed",
               iterationsConsumed,
@@ -1793,7 +1796,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               outcomeKind: "landing_failed",
               runStatus: "failed",
             });
-            args.logSink?.append(runId, {
+            appendTerminalLoopFinished(args, runId, {
               kind: "loop_finished",
               loopOutcomeKind: "landing_failed",
               iterationsConsumed,
@@ -1866,7 +1869,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             outcomeKind: "landing_failed",
             runStatus: "failed",
           });
-          args.logSink?.append(runId, {
+          appendTerminalLoopFinished(args, runId, {
             kind: "loop_finished",
             loopOutcomeKind: "landing_failed",
             iterationsConsumed,
@@ -1923,7 +1926,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               outcomeKind: "landing_failed",
               runStatus: "failed",
             });
-            args.logSink?.append(runId, {
+            appendTerminalLoopFinished(args, runId, {
               kind: "loop_finished",
               loopOutcomeKind: "landing_failed",
               iterationsConsumed,
@@ -1996,7 +1999,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             outcomeKind: "landing_failed",
             runStatus: "failed",
           });
-          args.logSink?.append(runId, {
+          appendTerminalLoopFinished(args, runId, {
             kind: "loop_finished",
             loopOutcomeKind: "landing_failed",
             iterationsConsumed,
@@ -2111,7 +2114,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 outcomeKind: "surviving_mutation_failed",
                 runStatus: "failed",
               });
-              args.logSink?.append(runId, {
+              appendTerminalLoopFinished(args, runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: "surviving_mutation_failed",
                 iterationsConsumed,
@@ -2195,7 +2198,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               outcomeKind: "non_terminating_mutation_failed",
               runStatus: "failed",
             });
-            args.logSink?.append(runId, {
+            appendTerminalLoopFinished(args, runId, {
               kind: "loop_finished",
               loopOutcomeKind: "non_terminating_mutation_failed",
               iterationsConsumed,
@@ -2373,7 +2376,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               terminalCause: "completion_commit_failed",
               terminalFailureDetail: terminalFailureDetailFromError(error),
             });
-            args.logSink?.append(runId, {
+            appendTerminalLoopFinished(args, runId, {
               kind: "loop_finished",
               loopOutcomeKind: "completion_commit_failed",
               iterationsConsumed,
@@ -2389,7 +2392,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             };
           }
         }
-        args.logSink?.append(runId, {
+        appendTerminalLoopFinished(args, runId, {
           kind: "loop_finished",
           loopOutcomeKind: "complete",
           iterationsConsumed,
@@ -2398,7 +2401,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         return attributed;
       }
       if (!existsSync(join(worktreePath, ".git")) && !agent) {
-        args.logSink?.append(runId, {
+        appendTerminalLoopFinished(args, runId, {
           kind: "loop_finished",
           loopOutcomeKind: "complete",
           iterationsConsumed,
@@ -2499,7 +2502,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           }
           settleCompletedPublication(store, runId, args.logSink);
         }
-        args.logSink?.append(runId, {
+        appendTerminalLoopFinished(args, runId, {
           kind: "loop_finished",
           loopOutcomeKind: "complete",
           iterationsConsumed,
@@ -2528,7 +2531,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
-    args.logSink?.append(runId, {
+    appendTerminalLoopFinished(args, runId, {
       kind: "loop_finished",
       loopOutcomeKind: "budget-exhausted",
       iterationsConsumed,
@@ -2807,7 +2810,7 @@ async function finishIterationTimeout(
     remainingSubspecPaths: [...inventory.remainingSubspecPaths],
     ...(inventory.inventoryError !== undefined ? { inventoryError: inventory.inventoryError } : {}),
   };
-  args.logSink?.append(runId, {
+  appendTerminalLoopFinished(args, runId, {
     kind: "loop_finished",
     loopOutcomeKind: "iteration_timeout",
     iterationsConsumed,
@@ -2875,7 +2878,7 @@ async function finishGateInvocationRefused(
     runStatus: "failed",
   });
   const loopResult = finishLoop(args, runId, "gate_invocation_refused", iterationsConsumed, true, undefined, false);
-  args.logSink?.append(runId, {
+  appendTerminalLoopFinished(args, runId, {
     kind: "loop_finished",
     loopOutcomeKind: "gate_invocation_refused",
     iterationsConsumed,
@@ -3022,6 +3025,16 @@ function finishExecuteWriteThrow(
   };
 }
 
+type TerminalLoopFinishedEvent = Extract<LogEvent, { kind: "loop_finished" }>;
+
+function appendTerminalLoopFinished(args: WriteLoopInput, runId: string, event: TerminalLoopFinishedEvent): void {
+  const payload =
+    args.promptId === REVIEW_FEEDBACK_WRITE_PROMPT_ID
+      ? { ...event, ...reconcileReviewFeedbackItemsAtLaneWorktree(getExternalWorktreePath(args.worktree)) }
+      : event;
+  args.logSink?.append(runId, payload);
+}
+
 function finishLoop(
   args: WriteLoopInput,
   runId: string,
@@ -3032,7 +3045,7 @@ function finishLoop(
   emitLog = true,
 ): WriteLoopResult {
   if (emitLog) {
-    args.logSink?.append(runId, {
+    appendTerminalLoopFinished(args, runId, {
       kind: "loop_finished",
       loopOutcomeKind: kind,
       iterationsConsumed,
@@ -4668,7 +4681,7 @@ function completionCommitFailed(
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });
-  args.logSink?.append(result.runId, {
+  appendTerminalLoopFinished(args, result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: result.iterationsConsumed,
@@ -4798,7 +4811,7 @@ function readyFailed(
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });
-  args.logSink?.append(result.runId, {
+  appendTerminalLoopFinished(args, result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,
     iterationsConsumed: result.iterationsConsumed,
@@ -5094,7 +5107,7 @@ function iterationCommitFailed(
     terminalCause: "iteration_commit_failed",
     terminalFailureDetail: terminalFailureDetailFromError(error, iterationCommitErrorMessage),
   });
-  args.logSink?.append(runId, {
+  appendTerminalLoopFinished(args, runId, {
     kind: "loop_finished",
     loopOutcomeKind: "iteration_commit_failed",
     iterationsConsumed,

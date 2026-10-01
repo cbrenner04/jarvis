@@ -90,6 +90,9 @@ export type LoopFinishedEvent = {
   slotRedriveCount?: number;
   gateInvocationCommand?: string;
   gateInvocationElapsedMs?: number;
+  reviewFeedbackAddressedItemIds?: string[];
+  reviewFeedbackDeclinedItemIds?: string[];
+  reviewFeedbackUnaddressedItemIds?: string[];
 };
 
 type LogLoopFinishedEvent =

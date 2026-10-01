@@ -16,6 +16,13 @@ function buildWaitPayload(result: WaitRunCompletionResult, failureText: string |
   if (result.failure !== undefined) payload.failure = result.failure;
   if (failureText !== undefined) payload.failureText = failureText;
   if (result.worktreePath !== undefined) payload.worktreePath = result.worktreePath;
+  for (const key of [
+    "reviewFeedbackAddressedItemIds",
+    "reviewFeedbackDeclinedItemIds",
+    "reviewFeedbackUnaddressedItemIds",
+  ] as const) {
+    if (result[key] !== undefined) payload[key] = result[key];
+  }
   return payload;
 }
 

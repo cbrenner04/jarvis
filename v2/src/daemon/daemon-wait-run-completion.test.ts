@@ -8,7 +8,12 @@ import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-suppor
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { createRunControlHandlers, projectWorkflowEntryResult, type WriteLoopBindingSourceDeps } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  projectWorkflowEntryResult,
+  reviewFeedbackItemIdsProjection,
+  type WriteLoopBindingSourceDeps,
+} from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -1613,4 +1618,64 @@ test("list and wait report failed publication rows as failed and completed rows 
     expect(completed).toMatchObject({ runStatus: "completed", loopOutcomeKind: "complete", resumable: false });
     expect(completed).not.toHaveProperty("error");
   }
+});
+
+test("reviewFeedbackItemIdsProjection omits empty buckets and includes all columns when any id is present", () => {
+  expect(reviewFeedbackItemIdsProjection([], [], [])).toEqual({});
+  expect(reviewFeedbackItemIdsProjection(undefined, undefined, undefined)).toEqual({});
+  expect(reviewFeedbackItemIdsProjection(["thread-a"], [], [])).toEqual({
+    reviewFeedbackAddressedItemIds: ["thread-a"],
+    reviewFeedbackDeclinedItemIds: [],
+    reviewFeedbackUnaddressedItemIds: [],
+  });
+});
+
+test("wait and list project review-feedback item id arrays from the terminal loop_finished", async () => {
+  const withIds = createRun();
+  stateStore.setRunStatus(withIds, "completed");
+  logSink.append(withIds, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+    reviewFeedbackAddressedItemIds: ["thread-addressed"],
+    reviewFeedbackDeclinedItemIds: ["comment-declined"],
+    reviewFeedbackUnaddressedItemIds: ["thread-unaddressed"],
+  });
+
+  expect(await expectResponse(await waitDirect("wait-rf-ids", withIds))).toMatchObject({
+    reviewFeedbackAddressedItemIds: ["thread-addressed"],
+    reviewFeedbackDeclinedItemIds: ["comment-declined"],
+    reviewFeedbackUnaddressedItemIds: ["thread-unaddressed"],
+  });
+
+  const listWithIds = await expectResponse(await listDirect("list-rf-ids"));
+  expect((listWithIds.runs as Array<Record<string, unknown>>).find((row) => row.runId === withIds)).toMatchObject({
+    reviewFeedbackAddressedItemIds: ["thread-addressed"],
+    reviewFeedbackDeclinedItemIds: ["comment-declined"],
+    reviewFeedbackUnaddressedItemIds: ["thread-unaddressed"],
+  });
+
+  const emptyBuckets = createRun();
+  stateStore.setRunStatus(emptyBuckets, "completed");
+  logSink.append(emptyBuckets, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+    reviewFeedbackAddressedItemIds: [],
+    reviewFeedbackDeclinedItemIds: [],
+    reviewFeedbackUnaddressedItemIds: [],
+  });
+
+  const waitEmpty = await expectResponse(await waitDirect("wait-rf-empty", emptyBuckets));
+  expect(waitEmpty).not.toHaveProperty("reviewFeedbackAddressedItemIds");
+  expect(waitEmpty).not.toHaveProperty("reviewFeedbackDeclinedItemIds");
+  expect(waitEmpty).not.toHaveProperty("reviewFeedbackUnaddressedItemIds");
+
+  const listEmpty = await expectResponse(await listDirect("list-rf-empty"));
+  const emptyRow = (listEmpty.runs as Array<Record<string, unknown>>).find((row) => row.runId === emptyBuckets);
+  expect(emptyRow).not.toHaveProperty("reviewFeedbackAddressedItemIds");
+  expect(emptyRow).not.toHaveProperty("reviewFeedbackDeclinedItemIds");
+  expect(emptyRow).not.toHaveProperty("reviewFeedbackUnaddressedItemIds");
 });

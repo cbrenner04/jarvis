@@ -52,6 +52,9 @@ export type DaemonListRunRow = {
   createdAt: number;
   /** Dismissal timestamp (ms since epoch), or `null` when not dismissed. Always present on the wire. */
   dismissedAt?: number | null;
+  reviewFeedbackAddressedItemIds?: string[];
+  reviewFeedbackDeclinedItemIds?: string[];
+  reviewFeedbackUnaddressedItemIds?: string[];
 };
 
 /** Successful daemon `list` wire payload. */

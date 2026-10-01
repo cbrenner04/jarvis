@@ -10,7 +10,7 @@ import { withStateStore } from "../testing/write-fixtures.ts";
 import type { CompletionPublisherInput } from "./completion-publisher.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { buildReviewFeedbackWorkflowSteps } from "./review-feedback-workflow-steps.ts";
-import { externalWorktreeBinding, initGitWorkspace } from "./workflow-runner.test-support.ts";
+import { externalWorktreeBinding, initGitWorkspace, TestLogSink } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 
 const PROJECT = "demo";
@@ -118,6 +118,29 @@ function writeReviewArtifact(workspace: string, marker: string): void {
   );
   execFileSync("git", ["add", artifactPath], { cwd: workspace });
   execFileSync("git", ["commit", "-qm", "review input"], { cwd: workspace });
+}
+
+function writeTwoThreadCapture(workspace: string): void {
+  const artifactPath = resolvePrReviewInputArtifactPath(workspace);
+  writeFileSync(
+    artifactPath,
+    `${JSON.stringify(
+      {
+        captureVersion: 1,
+        prNumber: PR_NUMBER,
+        threads: [
+          { threadId: "capture-thread-one", outdated: false, comments: [] },
+          { threadId: "capture-thread-two", outdated: false, comments: [] },
+        ],
+        topLevelComments: [],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  execFileSync("git", ["add", artifactPath], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "review input two threads"], { cwd: workspace });
 }
 
 async function runReviewFeedbackWrite(args: {
@@ -273,5 +296,44 @@ describe("executeWorkflow review-feedback write preset", () => {
       },
     });
     expect(publicationCalls).toBe(1);
+  });
+
+  test("persists addressed and unaddressed item ids on terminal loop_finished when only one captured item is addressed", async () => {
+    const logSink = new TestLogSink();
+    const { workspace, step } = laneWorkspace({
+      laneKind: "plan",
+      entrySpecPath: "v2/spec/plan-tree/index.md",
+      branchName: "rf-item-reconcile",
+      seed: (ws, entrySpecPath) => {
+        mkdirSync(dirname(join(ws, entrySpecPath)), { recursive: true });
+        writeFileSync(join(ws, entrySpecPath), "# Plan\n", "utf8");
+      },
+    });
+    writeTwoThreadCapture(workspace);
+    step.createBinding = ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke: async ({ cwd }) => {
+        writeFileSync(join(cwd, REVIEW_FEEDBACK_RESPONSE_SIDECAR), "- capture-thread-one: addressed\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      },
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "publication-commit" }),
+        completionPublisher: async () => ({ prNumber: PR_NUMBER }),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      const terminal = logSink.getEventsForRun(result.runId).findLast((event) => event.kind === "loop_finished");
+      expect(terminal?.kind).toBe("loop_finished");
+      if (terminal?.kind !== "loop_finished") throw new Error("expected terminal loop_finished");
+      expect(terminal.reviewFeedbackAddressedItemIds).toEqual(["capture-thread-one"]);
+      expect(terminal.reviewFeedbackUnaddressedItemIds).toEqual(["capture-thread-two"]);
+    });
   });
 });

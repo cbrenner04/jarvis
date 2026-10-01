@@ -15,7 +15,6 @@ import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publ
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
-import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import {
   createDefaultSupersedeGh,
   executeTerminalPublication,
@@ -24,6 +23,7 @@ import {
   type TerminalPublicationInput,
   type TerminalPublicationResult,
 } from "../execution/terminal-publication.ts";
+import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { storeVerifierProcessGroupRecorder } from "../execution/verifier-process-groups.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { IpcClient } from "../ipc/client.ts";

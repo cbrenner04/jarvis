@@ -24,12 +24,12 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
 import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
-import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   classifyNeverLandedLane,
@@ -52,7 +52,6 @@ import {
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
-  supersededPipelinePrHeadAuthorityMatches,
   OPEN_PR_PROBE_UNREACHABLE_REASON,
   parseCheckedOutBranchesFromWorktreePorcelain,
   performWorktreeRemovals,
@@ -68,6 +67,7 @@ import {
   staleResetDirtyWorktreeGateReason,
   staleResetUnlandedCommitsGateReason,
   staleResetUnreachableWorktreeHeadGateReason,
+  supersededPipelinePrHeadAuthorityMatches,
 } from "./cleanup.ts";
 import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
 import type { LegacyDaemonArtifactDeps } from "./daemon.ts";

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   DEAD_EXPORT_ALLOWLIST,
+  DEAD_EXPORT_REPAIR_SUFFIX,
   deadExportDiagnostic,
   findDeadExports,
   moduleSurface,
@@ -15,11 +16,21 @@ import {
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const NO_ALLOWLIST = new Map<string, string>();
-const DEAD_EXPORT_REPAIR_SUFFIX =
-  " (demote to module-private if used in-file, else delete; never add an import to satisfy the guard)";
+const LIMIT_BOUNDED_FIXTURE: Record<string, string> = {
+  "v2/src/execution/self.ts": "export const LIMIT = 1;\nexport function bounded(n: number) { return n < LIMIT; }\n",
+  "v2/src/execution/self.test.ts": 'import { bounded } from "./self.ts";\nbounded(0);\n',
+};
 
 function fixture(files: Record<string, string>) {
   return Object.entries(files).map(([file, source]) => ({ file, source }));
+}
+
+function writeFixtureTree(root: string, files: Record<string, string>) {
+  for (const [rel, source] of Object.entries(files)) {
+    const path = join(root, rel);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, source);
+  }
 }
 
 describe("dead-export gate", () => {
@@ -34,47 +45,27 @@ describe("dead-export gate", () => {
   });
 
   test("an export referenced only inside its own file is dead", () => {
-    const files = fixture({
-      "v2/src/execution/self.ts": "export const LIMIT = 1;\nexport function bounded(n: number) { return n < LIMIT; }\n",
-      "v2/src/execution/self.test.ts": 'import { bounded } from "./self.ts";\nbounded(0);\n',
-    });
-    expect(findDeadExports(files, REPO_ROOT, NO_ALLOWLIST)).toMatchObject([{ symbol: "LIMIT" }]);
-  });
-
-  test("dead-export diagnostic formatter includes repair direction", () => {
-    const files = fixture({
-      "v2/src/execution/self.ts": "export const LIMIT = 1;\nexport function bounded(n: number) { return n < LIMIT; }\n",
-      "v2/src/execution/self.test.ts": 'import { bounded } from "./self.ts";\nbounded(0);\n',
-    });
-    const entry = findDeadExports(files, REPO_ROOT, NO_ALLOWLIST).find((dead) => dead.symbol === "LIMIT");
-    expect(entry).toBeDefined();
+    const files = fixture(LIMIT_BOUNDED_FIXTURE);
+    const entry = findDeadExports(files, REPO_ROOT, NO_ALLOWLIST)[0];
+    expect(entry).toMatchObject({ symbol: "LIMIT" });
     const diagnostic = deadExportDiagnostic(entry!);
     expect(diagnostic).toBe(
       `v2/src/execution/self.ts:${entry!.line}: unreferenced export LIMIT${DEAD_EXPORT_REPAIR_SUFFIX}`,
     );
-    const messageOnly = `${entry!.file}:${entry!.line}: unreferenced export ${entry!.symbol}`;
-    expect(diagnostic).not.toBe(messageOnly);
-    expect(messageOnly).not.toContain(DEAD_EXPORT_REPAIR_SUFFIX.trim());
+    expect(diagnostic).not.toBe(`${entry!.file}:${entry!.line}: unreferenced export ${entry!.symbol}`);
   });
 
   test("CLI main stderr includes repair direction parenthetical", () => {
     const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-dead-export-guard-cli-"));
-    const execDir = join(dir, "v2/src/execution");
-    mkdirSync(execDir, { recursive: true });
-    writeFileSync(
-      join(execDir, "self.ts"),
-      "export const LIMIT = 1;\nexport function bounded(n: number) { return n < LIMIT; }\n",
-    );
-    writeFileSync(join(execDir, "self.test.ts"), 'import { bounded } from "./self.ts";\nbounded(0);\n');
+    writeFixtureTree(dir, LIMIT_BOUNDED_FIXTURE);
     const result = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/guard-dead-exports.ts")], {
       cwd: dir,
       encoding: "utf8",
     });
     expect(result.status).toBe(1);
-    const stderr = result.stderr.trim();
-    expect(stderr).toContain(DEAD_EXPORT_REPAIR_SUFFIX.trim());
-    expect(stderr).toBe(`v2/src/execution/self.ts:1: unreferenced export LIMIT${DEAD_EXPORT_REPAIR_SUFFIX}`);
-    expect(stderr).not.toBe("v2/src/execution/self.ts:1: unreferenced export LIMIT");
+    expect(result.stderr.trim()).toBe(
+      `v2/src/execution/self.ts:1: unreferenced export LIMIT${DEAD_EXPORT_REPAIR_SUFFIX}`,
+    );
   });
 
   test.each([

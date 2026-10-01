@@ -169,7 +169,7 @@ export function runDeadExportGuard(cwd: string): DeadExport[] {
   return findDeadExports(collectReferenceSourceFiles(cwd), cwd);
 }
 
-const DEAD_EXPORT_REPAIR_SUFFIX =
+export const DEAD_EXPORT_REPAIR_SUFFIX =
   " (demote to module-private if used in-file, else delete; never add an import to satisfy the guard)";
 
 export function deadExportDiagnostic(entry: DeadExport): string {

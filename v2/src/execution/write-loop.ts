@@ -3675,7 +3675,7 @@ async function readWorktreeHead(worktreePath: string): Promise<string | undefine
   }
 }
 
-/** Discard repair commits and uncommitted edits back to the pre-repair HEAD, keeping the materialized `node_modules` link and review verdicts. */
+/** Discard repair commits and uncommitted edits back to the pre-repair HEAD, keeping the materialized `node_modules` link, review verdicts, and `.jarvis-*` harness sidecars. */
 async function revertMutationRepairEdits(worktreePath: string, preRepairHead: string | undefined): Promise<void> {
   if (preRepairHead === undefined) return;
   await runRepairFenceGit(worktreePath, ["reset", "--hard", preRepairHead]);
@@ -3686,6 +3686,8 @@ async function revertMutationRepairEdits(worktreePath: string, preRepairHead: st
     `/${MATERIALIZED_NODE_MODULES_PATH}`,
     "-e",
     "verdict-*.md",
+    "-e",
+    ".jarvis-*",
   ]);
 }
 

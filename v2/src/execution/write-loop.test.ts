@@ -9282,6 +9282,8 @@ index 1234567..abcdefg 100644
       const store = openStateStore(stateDbPath);
       const branchName = "mutation-repair-unsettled-revert";
       const { worktreePath } = initMutationRepairGitWorktree(jarvisRoot, branchName);
+      const sidecar = join(worktreePath, ".jarvis-review-feedback-response.md");
+      writeFileSync(sidecar, "response\n", "utf8");
       const runId = store.createRun({
         project: "demo",
         specRef: "HEAD",
@@ -9316,7 +9318,8 @@ index 1234567..abcdefg 100644
         });
         expect(published.failure?.kind).toBe("surviving_mutation_failed");
         expect(store.readMutationRepairAttempts(runId)).toBe(1);
-        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+        expect(existsSync(sidecar)).toBe(true);
+        expect(gitIn(worktreePath, ["status", "--porcelain"]).trim()).toBe("?? .jarvis-review-feedback-response.md");
       } finally {
         store.close();
       }

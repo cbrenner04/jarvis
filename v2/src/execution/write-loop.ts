@@ -493,6 +493,8 @@ export function runsInLoopDiffDerivedMutationVerification(
 async function resetWorktreeToPreShrinkHead(worktreePath: string, preShrinkHead: string): Promise<void> {
   await runRepairFenceGit(worktreePath, ["reset", "--hard", preShrinkHead]);
   await runRepairFenceGit(worktreePath, ["clean", "-fd"]);
+  // Gitignored, so `clean -fd` keeps it; a reverted shrink's narrative must not reach the PR body.
+  rmSync(join(worktreePath, ".scratch", "shrink-narrative.md"), { force: true });
 }
 
 /** Durable pre-shrink HEAD from a shrink row's log (workflow resume after pause). */
@@ -504,6 +506,18 @@ export function findPreShrinkHeadFromLog(logRecords: readonly PersistedRecord[] 
     }
   }
   return undefined;
+}
+
+/**
+ * The logged pre-shrink HEAD wins over a caller-supplied one: a re-entered shrink row (linked resume or
+ * recover) re-reads HEAD after a surviving shrink iteration was already checkpointed, so a fresh value
+ * can include unverified shrink edits.
+ */
+export function resolvePreShrinkHead(
+  callerHead: string | undefined,
+  logRecords: readonly PersistedRecord[] | undefined,
+): string | undefined {
+  return findPreShrinkHeadFromLog(logRecords) ?? callerHead;
 }
 
 function shrinkOptionalPassRevertsOnMutationFailure(
@@ -1439,7 +1453,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     const { runId, worktreePath } = prepared;
     args.onRunCreated?.(runId);
     const priorLogRecords = priorLogRecordsFromSink(args.logSink, runId);
-    const effectivePreShrinkHead = args.preShrinkHead ?? findPreShrinkHeadFromLog(priorLogRecords);
+    const effectivePreShrinkHead = resolvePreShrinkHead(args.preShrinkHead, priorLogRecords);
     if (
       isShrinkWriteLoop(args) &&
       effectivePreShrinkHead !== undefined &&

@@ -92,6 +92,7 @@ import {
   persistRetainedFinalizationCheckpoint,
   publishCompletionArtifacts,
   publishWithReadyRepair,
+  resolvePreShrinkHead,
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
   runsInLoopDiffDerivedMutationVerification,
@@ -8412,6 +8413,16 @@ export function isLoadSensitive(file: string): boolean {
       });
     });
 
+    test("resolvePreShrinkHead prefers the logged pre-shrink head over a caller-supplied head", () => {
+      const logged = [{ event: { kind: "pre_shrink_head", head: "logged-sha" } }] as unknown as Parameters<
+        typeof resolvePreShrinkHead
+      >[1];
+      expect(resolvePreShrinkHead("fresh-post-shrink-sha", logged)).toBe("logged-sha");
+      expect(resolvePreShrinkHead("fresh-sha", [])).toBe("fresh-sha");
+      expect(resolvePreShrinkHead("fresh-sha", undefined)).toBe("fresh-sha");
+      expect(resolvePreShrinkHead(undefined, logged)).toBe("logged-sha");
+    });
+
     test("shrink surviving mutation reprompt budget exhaustion reverts to pre-shrink HEAD and completes", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const branchName = "shrink-mutation-revert";
@@ -8420,7 +8431,7 @@ export function isLoadSensitive(file: string): boolean {
       execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
       execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
-      writeFileSync(join(worktreePath, ".gitignore"), "\n", "utf8");
+      writeFileSync(join(worktreePath, ".gitignore"), ".scratch/\n", "utf8");
       writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
       writeFileSync(join(worktreePath, "proof.txt"), "verified\n", "utf8");
       execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
@@ -8444,6 +8455,8 @@ export function isLoadSensitive(file: string): boolean {
             metadata: { agent: "test-agent", model: "test" },
             invoke: async ({ cwd }) => {
               writeFileSync(join(cwd, "proof.txt"), "shrunk\n", "utf8");
+              mkdirSync(join(cwd, ".scratch"), { recursive: true });
+              writeFileSync(join(cwd, ".scratch", "shrink-narrative.md"), "reverted simplification\n", "utf8");
               return { kind: "ok", stdout: "done", stderr: "" };
             },
           },
@@ -8472,6 +8485,7 @@ export function isLoadSensitive(file: string): boolean {
         preShrinkHead,
       );
       expect(execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
+      expect(existsSync(join(worktreePath, ".scratch", "shrink-narrative.md"))).toBe(false);
       expect(result.kind).toBe("complete");
       const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
       expect(events).toContain("surviving_mutation_reprompt");

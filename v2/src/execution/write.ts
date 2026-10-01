@@ -141,11 +141,11 @@ export function isPlanDraftShapeFamilyReason(reason: string): boolean {
   return reason === PLAN_DRAFT_SHAPE_REASON || reason.startsWith(`${PLAN_DRAFT_SHAPE_REASON}:`);
 }
 
-export function isPlanDraftShapeRepromptIneligible(reason: string): boolean {
+function isPlanDraftShapeRepromptIneligible(reason: string): boolean {
   return reason === PLAN_DRAFT_SHAPE_REASON || reason === planDraftShapeReason("missing-dir");
 }
 
-export const PLAN_DRAFT_SHAPE_REPROMPT_DETAIL =
+const PLAN_DRAFT_SHAPE_REPROMPT_DETAIL =
   "Place intent.md, index.md, and at least one NN-*.md subspec file at the .jarvis-plan-stage root (flat staging layout).";
 
 export function draftContractRepromptDetail(failureReason: string): string {

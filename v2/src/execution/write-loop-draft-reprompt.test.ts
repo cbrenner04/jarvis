@@ -3,13 +3,12 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
-import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
+import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import { createStubMarkdownlintRunner } from "./workflow-runner.test-support.ts";
+import { createStubMarkdownlintRunner, TestLogSink } from "./workflow-runner.test-support.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { executeWriteLoop, isEligibleDraftContractReprompt, type WriteLoopInput } from "./write-loop.ts";
-import { PLAN_DRAFT_SHAPE_REPROMPT_DETAIL } from "./write.ts";
 
 const { roots } = trackedTempRoots();
 const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
@@ -19,20 +18,6 @@ const markdownlintRunner = createStubMarkdownlintRunner();
 const planDraftArgs = { promptId: PLAN_DRAFT_PROMPT_ID } as WriteLoopInput;
 const miss = (failureReason: string) =>
   ({ kind: "contract_miss", token: "done", failedContractId: "artifact.exists", failureReason }) as StepRunResult;
-
-class TestLogSink implements LogSink {
-  events: Array<{ runId: string; event: LogEvent }> = [];
-
-  append(runId: string, event: LogEvent): void {
-    this.events.push({ runId, event });
-  }
-
-  close(): void {}
-
-  getEventsForRun(runId: string): LogEvent[] {
-    return this.events.filter((entry) => entry.runId === runId).map((entry) => entry.event);
-  }
-}
 
 async function runPlanDraftLoop(args: {
   jarvisRoot: string;
@@ -121,18 +106,15 @@ describe("plan-draft shape draft contract reprompt", () => {
       ],
     });
 
-    expect(invocations).toBeGreaterThanOrEqual(2);
     expect(result.iterationsConsumed).toBeGreaterThanOrEqual(2);
+    expect(invocations).toBeGreaterThanOrEqual(2);
     const reprompts = sink.getEventsForRun(result.runId).filter((event) => event.kind === "draft_contract_reprompt");
     expect(reprompts).toHaveLength(1);
-    expect(reprompts[0]).toMatchObject({
-      kind: "draft_contract_reprompt",
-      contractId: "artifact.exists",
-      detail: PLAN_DRAFT_SHAPE_REPROMPT_DETAIL,
-    });
-    expect(PLAN_DRAFT_SHAPE_REPROMPT_DETAIL).toContain("intent.md");
-    expect(PLAN_DRAFT_SHAPE_REPROMPT_DETAIL).toContain("index.md");
-    expect(PLAN_DRAFT_SHAPE_REPROMPT_DETAIL).toContain("NN-*.md");
+    expect(reprompts[0]).toMatchObject({ contractId: "artifact.exists" });
+    const detail = reprompts[0]?.detail;
+    expect(detail).toContain("intent.md");
+    expect(detail).toContain("index.md");
+    expect(detail).toContain("NN-*.md");
   });
 
   test("plan.draft.shape:missing-dir miss does not draft_contract_reprompt", async () => {

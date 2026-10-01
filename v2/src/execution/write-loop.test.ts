@@ -2482,18 +2482,11 @@ describe("write loop", () => {
       ],
     });
     expect(suffixedShapeResult).toMatchObject({ kind: "contract_miss", iterationsConsumed: 2 });
-    const suffixedDetail = suffixedShapeSink
-      .getEventsForRun(suffixedShapeResult.runId)
-      .find((event) => event.kind === "contract_miss_detail");
-    expect(suffixedDetail).toMatchObject({
-      kind: "contract_miss_detail",
+    const suffixedEvents = suffixedShapeSink.getEventsForRun(suffixedShapeResult.runId);
+    expect(suffixedEvents.find((event) => event.kind === "contract_miss_detail")).toMatchObject({
       failureReason: "plan.draft.shape:no-index",
     });
-    expect(
-      suffixedShapeSink
-        .getEventsForRun(suffixedShapeResult.runId)
-        .filter((event) => event.kind === "draft_contract_reprompt"),
-    ).toHaveLength(1);
+    expect(suffixedEvents.filter((event) => event.kind === "draft_contract_reprompt")).toHaveLength(1);
 
     const blockerSink = new TestLogSink();
     const blockerResult = await runPlanDraftAgentBlocker(

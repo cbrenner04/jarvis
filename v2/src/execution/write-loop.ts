@@ -139,7 +139,7 @@ import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorde
 import {
   draftContractRepromptDetail,
   executeWrite,
-  isPlanDraftShapeRepromptIneligible,
+  isPlanDraftShapeFamilyReason,
   type WriteExecuteInput,
 } from "./write.ts";
 
@@ -628,7 +628,8 @@ export function isEligibleDraftContractReprompt(
     args.promptId === PLAN_DRAFT_PROMPT_ID &&
     result.failedContractId === "artifact.exists" &&
     result.failureReason !== undefined &&
-    !isPlanDraftShapeRepromptIneligible(result.failureReason)
+    (!isPlanDraftShapeFamilyReason(result.failureReason) ||
+      draftContractRepromptDetail(result.failureReason) !== result.failureReason)
   );
 }
 

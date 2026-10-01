@@ -114,11 +114,20 @@ function inventoryConstIsUnderscorePrefixed(matchText: string, constantName: str
   return new RegExp(`(?:export\\s+)?const\\s+_${escapeRegExp(constantName)}\\b`).test(matchText);
 }
 
-export function locateParseOnlyInventoryArrayBody(source: string, constantName: string, searchKey?: string): string {
-  const key = searchKey ?? constantName;
-  const pattern = new RegExp(`(?:export\\s+)?const\\s+_?${escapeRegExp(constantName)}\\s*(?::[^=]+)?=\\s*\\[`, "g");
-  type Candidate = { body: string; declarationStart: number; isUnderscore: boolean; marked: boolean };
-  const candidates: Candidate[] = [];
+type ParseOnlyInventoryCandidate = {
+  body: string;
+  declarationStart: number;
+  isUnderscore: boolean;
+  marked: boolean;
+};
+
+function collectParseOnlyInventoryCandidates(
+  source: string,
+  constantName: string,
+  key: string,
+  pattern: RegExp,
+): { candidates: ParseOnlyInventoryCandidate[]; hasUnderscoreVariant: boolean } {
+  const candidates: ParseOnlyInventoryCandidate[] = [];
   let hasUnderscoreVariant = false;
 
   for (const match of source.matchAll(pattern)) {
@@ -139,6 +148,14 @@ export function locateParseOnlyInventoryArrayBody(source: string, constantName: 
     candidates.push({ body, declarationStart, isUnderscore, marked: false });
   }
 
+  return { candidates, hasUnderscoreVariant };
+}
+
+function markParseOnlyInventoryCandidates(
+  source: string,
+  candidates: ParseOnlyInventoryCandidate[],
+  hasUnderscoreVariant: boolean,
+): void {
   for (const candidate of candidates) {
     if (
       hasParseOnlyInventoryMarkerImmediatelyBefore(source, candidate.declarationStart) &&
@@ -147,9 +164,15 @@ export function locateParseOnlyInventoryArrayBody(source: string, constantName: 
       candidate.marked = true;
     }
   }
+}
 
-  let firstUnmarked: Candidate | undefined;
-  let firstMarked: Candidate | undefined;
+function resolveParseOnlyInventoryBody(
+  candidates: ParseOnlyInventoryCandidate[],
+  constantName: string,
+  key: string,
+): string {
+  let firstUnmarked: ParseOnlyInventoryCandidate | undefined;
+  let firstMarked: ParseOnlyInventoryCandidate | undefined;
   for (const candidate of candidates) {
     if (candidate.marked) {
       if (firstMarked === undefined) {
@@ -178,6 +201,14 @@ export function locateParseOnlyInventoryArrayBody(source: string, constantName: 
     );
   }
   throw new StructuralTestLocatorError("inventory-binding", key, `inventory constant ${constantName} not found`);
+}
+
+export function locateParseOnlyInventoryArrayBody(source: string, constantName: string, searchKey?: string): string {
+  const key = searchKey ?? constantName;
+  const pattern = new RegExp(`(?:export\\s+)?const\\s+_?${escapeRegExp(constantName)}\\s*(?::[^=]+)?=\\s*\\[`, "g");
+  const { candidates, hasUnderscoreVariant } = collectParseOnlyInventoryCandidates(source, constantName, key, pattern);
+  markParseOnlyInventoryCandidates(source, candidates, hasUnderscoreVariant);
+  return resolveParseOnlyInventoryBody(candidates, constantName, key);
 }
 
 export function locateFrontmatterField(source: string, field: string, sourceLabel: string): string {

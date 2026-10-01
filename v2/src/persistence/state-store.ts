@@ -789,6 +789,12 @@ export interface StateStore {
   /** Durably record the consumed whole-run wall-clock ms for `budgetKey`. */
   writeRunBudgetConsumedMs(budgetKey: string, consumedMs: number): void;
 
+  /** `write.mutation-repair` attempts consumed on this run (shared by publication in-flow and resume); 0 when unrecorded. */
+  readMutationRepairAttempts(runId: string): number;
+
+  /** Durably record the consumed `write.mutation-repair` attempt count for this run. */
+  recordMutationRepairAttempts(runId: string, consumed: number): void;
+
   /** Read the durable settled marker for one workflow invocation (keyed by entry run id); `null` when unset. */
   readWorkflowInvocationSettledMarker(entryRunId: string): WorkflowInvocationSettledMarker | null;
 
@@ -1300,7 +1306,8 @@ const SCHEMA = `
     operator_failure_record TEXT,
     gate_refusal_recovery_state TEXT,
     status_changed_at INTEGER,
-    harness_ready_flip_evidence TEXT
+    harness_ready_flip_evidence TEXT,
+    mutation_repair_attempts INTEGER NOT NULL DEFAULT 0
   );
   CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -1492,6 +1499,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "runs", "gate_refusal_recovery_state", "TEXT");
   addColumnIfMissing(db, "runs", "status_changed_at", "INTEGER");
   addColumnIfMissing(db, "runs", "harness_ready_flip_evidence", "TEXT");
+  addColumnIfMissing(db, "runs", "mutation_repair_attempts", "INTEGER NOT NULL DEFAULT 0");
   if (!tableExists(db, "pipelines")) {
     db.exec(`
       CREATE TABLE pipelines (
@@ -2114,6 +2122,7 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     addColumnIfMissing(this.db, "pipeline_stages", "awaiting_since", "INTEGER");
     addColumnIfMissing(this.db, "runs", "harness_ready_flip_evidence", "TEXT");
+    addColumnIfMissing(this.db, "runs", "mutation_repair_attempts", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(this.db, "pipelines", "supersede_failures", "TEXT");
     // Guarded: fixture and pre-migration stores can open without a `workflow_snapshot` column.
     if (tableHasColumn(this.db, "runs", "workflow_snapshot")) {
@@ -2243,6 +2252,19 @@ class StateStoreImpl implements StateStore {
         "INSERT INTO run_time_budgets (budget_key, consumed_ms) VALUES (?, ?) ON CONFLICT(budget_key) DO UPDATE SET consumed_ms = excluded.consumed_ms",
       )
       .run(budgetKey, Math.max(0, Math.round(consumedMs)));
+  }
+
+  readMutationRepairAttempts(runId: string): number {
+    const row = this.db.prepare("SELECT mutation_repair_attempts AS consumed FROM runs WHERE id = ?").get(runId) as {
+      consumed: number | null;
+    } | null;
+    return row?.consumed ?? 0;
+  }
+
+  recordMutationRepairAttempts(runId: string, consumed: number): void {
+    this.db
+      .prepare("UPDATE runs SET mutation_repair_attempts = ? WHERE id = ?")
+      .run(Math.max(0, Math.trunc(consumed)), runId);
   }
 
   readWorkflowInvocationSettledMarker(entryRunId: string): WorkflowInvocationSettledMarker | null {

@@ -21,12 +21,12 @@ Publication-time and resume-time `write.mutation-repair` iterations lack the rev
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` publication mutation-repair case: when worktree `HEAD` differs from the recorded published tip before a repair iteration, the harness settles without a `write.mutation-repair` `iteration_started` for that drifted state and durable mutation-repair attempt count stays unchanged so a subsequent `jarvis run resume` still has the full `MAX_MUTATION_REPAIR_ATTEMPTS` budget; fails pre-fix when drift is unreachable or when publication would still invoke repair against a locally advanced `HEAD` (no guard on main).
-- [ ] `workflow-runner-resume-review-dispatch.test.ts` (or `write-loop.test.ts` shared-driver case): a repair iteration that deletes or neuters a named killing test does not retain a `Jarvis-Step: mutation-repair` commit on the branch; fails against the pre-fix path that commits repair output before reverification.
-- [ ] `write-loop.test.ts` sibling test on the publication in-flow repair driver (extend `"mutation repair ignores bounded quiescence and joins a non-cooperative invocation"` only if it exercises that driver): after publication-time repair returns `unsettled`, `git status --porcelain` is empty at `surviving_mutation_failed` settlement; fails pre-fix when revert runs only inside `runMutationRepairIteration` and the publication tail leaves uncommitted repair edits.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `write-loop.test.ts` publication mutation-repair case: when worktree `HEAD` differs from the recorded published tip before a repair iteration, the harness settles without a `write.mutation-repair` `iteration_started` for that drifted state and durable mutation-repair attempt count stays unchanged so a subsequent `jarvis run resume` still has the full `MAX_MUTATION_REPAIR_ATTEMPTS` budget; fails pre-fix when drift is unreachable or when publication would still invoke repair against a locally advanced `HEAD` (no guard on main).
+- [x] `workflow-runner-resume-review-dispatch.test.ts` (or `write-loop.test.ts` shared-driver case): a repair iteration that deletes or neuters a named killing test does not retain a `Jarvis-Step: mutation-repair` commit on the branch; fails against the pre-fix path that commits repair output before reverification.
+- [x] `write-loop.test.ts` sibling test on the publication in-flow repair driver (extend `"mutation repair ignores bounded quiescence and joins a non-cooperative invocation"` only if it exercises that driver): after publication-time repair returns `unsettled`, `git status --porcelain` is empty at `surviving_mutation_failed` settlement; fails pre-fix when revert runs only inside `runMutationRepairIteration` and the publication tail leaves uncommitted repair edits.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

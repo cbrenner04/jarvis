@@ -92,6 +92,7 @@ import {
   findFirstRepairFenceViolation,
   gateInvocationAdmits,
   getUncommittedPaths,
+  isKillingTestWeakened,
   isShrinkWriteLoop,
   liveGateInvocationLeaseCount,
   MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
@@ -99,8 +100,6 @@ import {
   persistRetainedFinalizationCheckpoint,
   publishCompletionArtifacts,
   publishWithReadyRepair,
-  readMutationRepairAttemptsConsumed,
-  writeMutationRepairAttemptsConsumed,
   resolvePreShrinkHead,
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
@@ -647,9 +646,20 @@ const mockVerifyPass = async () => ({
   skippedCandidates: [],
 });
 
-function countMutationRepairHarnessSessions(sessionsDir: string, runId: string): number {
-  if (!existsSync(sessionsDir)) return 0;
-  let count = 0;
+function publicationSurvivor(): SurvivingMutationError {
+  return new SurvivingMutationError(
+    "operator-flip: === → !==",
+    "src/test.ts",
+    42,
+    ["src/test.test.ts"],
+    "passed-unconfirmed",
+  );
+}
+
+/** `write.mutation-repair` attempt numbers recorded in this run's harness session logs, ascending. */
+function mutationRepairSessionAttempts(sessionsDir: string, runId: string): number[] {
+  if (!existsSync(sessionsDir)) return [];
+  const attempts: number[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir)) {
       const path = join(dir, entry);
@@ -658,13 +668,100 @@ function countMutationRepairHarnessSessions(sessionsDir: string, runId: string):
         continue;
       }
       const content = readFileSync(path, "utf8");
-      if (content.includes(`run=${runId}`) && content.includes("mutation-repair=")) {
-        count += 1;
-      }
+      if (!content.includes(`run=${runId}`)) continue;
+      const match = /mutation-repair=(\d+)/.exec(content);
+      if (match?.[1] !== undefined) attempts.push(Number(match[1]));
     }
   };
   walk(sessionsDir);
-  return count;
+  return attempts.sort((a, b) => a - b);
+}
+
+function iterationStartsBeforeLoopFinished(events: readonly LogEvent[]): number {
+  const finished = events.findIndex((event) => event.kind === "loop_finished");
+  return events.slice(0, finished).filter((event) => event.kind === "iteration_started").length;
+}
+
+function loopOutcomeKinds(events: readonly LogEvent[]): string[] {
+  return events.flatMap((event) => (event.kind === "loop_finished" ? [event.loopOutcomeKind] : []));
+}
+
+function gitIn(cwd: string, args: readonly string[]): string {
+  return execFileSync("git", [...args], { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+}
+
+function initMutationRepairGitWorktree(jarvisRoot: string, branchName: string): { worktreePath: string; head: string } {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(join(worktreePath, "src"), { recursive: true });
+  writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+  writeFileSync(join(worktreePath, "spec.md"), "- [x] work\n", "utf8");
+  writeFileSync(join(worktreePath, "src", "guard.ts"), "export const guard = () => true;\n", "utf8");
+  gitIn(worktreePath, ["init", "-q"]);
+  gitIn(worktreePath, ["config", "user.email", "test@example.com"]);
+  gitIn(worktreePath, ["config", "user.name", "Test User"]);
+  gitIn(worktreePath, ["config", "commit.gpgsign", "false"]);
+  gitIn(worktreePath, ["add", "-A"]);
+  gitIn(worktreePath, ["commit", "-qm", "seed"]);
+  return { worktreePath, head: gitIn(worktreePath, ["rev-parse", "HEAD"]) };
+}
+
+function worktreeHeadOrUndefined(worktreePath: string): string | undefined {
+  try {
+    return gitIn(worktreePath, ["rev-parse", "HEAD"]);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Publish once through `publishWithReadyRepair` with a ready finalizer that always reports a survivor. */
+async function publishSurvivingMutation(options: {
+  jarvisRoot: string;
+  store: StateStore;
+  runId: string;
+  branchName: string;
+  worktreePath: string;
+  bindings: readonly InvocationBinding[];
+  logSink?: LogSink;
+  iterationTimeoutMs?: number;
+  /** Tip the fake publisher reports; defaults to the worktree HEAD (as the real publisher does). */
+  publisherPushSha?: () => string | undefined;
+}) {
+  const pushSha = options.publisherPushSha ?? (() => worktreeHeadOrUndefined(options.worktreePath));
+  return publishWithReadyRepair(
+    {
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: options.branchName,
+        baseRef: "HEAD",
+        jarvisRoot: options.jarvisRoot,
+      },
+      specPath: "spec.md",
+      stepRules: "repair",
+      expectedArtifactPath: "proof.txt",
+      bindings: options.bindings,
+      stateStore: options.store,
+      withExternalWorktree: createFakeWithExternalWorktree(options.jarvisRoot),
+      sessionsDir: join(options.jarvisRoot, "sessions"),
+      verifyDiffDerivedMutations: mockVerifyPass,
+      completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+      completionPublisher: async () => {
+        const sha = pushSha();
+        return sha === undefined ? {} : { pushSha: sha, prNumber: 7, prUrl: "https://example.test/pr/7" };
+      },
+      readyFinalizer: async () => {
+        throw publicationSurvivor();
+      },
+      ...(options.logSink !== undefined ? { logSink: options.logSink } : {}),
+      ...(options.iterationTimeoutMs !== undefined
+        ? { iterationTimeoutMs: options.iterationTimeoutMs, quiescenceTimeoutMs: options.iterationTimeoutMs }
+        : {}),
+    },
+    options.store,
+    { kind: "complete", runId: options.runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+    0,
+    { worktreePath: options.worktreePath, baseRef: "HEAD", specPath: "spec.md", branch: options.branchName },
+  );
 }
 
 const IN_LOOP_SURVIVING_MUTATION = "operator-flip: === → !==";
@@ -788,6 +885,8 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
     readRunBudgetConsumedMs: (budgetKey) => inner.readRunBudgetConsumedMs(budgetKey),
     writeRunBudgetConsumedMs: (budgetKey, consumedMs) => inner.writeRunBudgetConsumedMs(budgetKey, consumedMs),
+    readMutationRepairAttempts: (runId) => inner.readMutationRepairAttempts(runId),
+    recordMutationRepairAttempts: (runId, consumed) => inner.recordMutationRepairAttempts(runId, consumed),
     readWorkflowInvocationSettledMarker: (entryRunId) => inner.readWorkflowInvocationSettledMarker(entryRunId),
     writeWorkflowInvocationSettledMarker: (entryRunId, cause, settledAt) =>
       inner.writeWorkflowInvocationSettledMarker(entryRunId, cause, settledAt),
@@ -911,6 +1010,8 @@ function storeObservingCompletedWrites(inner: StateStore): {
     setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
     readRunBudgetConsumedMs: (budgetKey) => inner.readRunBudgetConsumedMs(budgetKey),
     writeRunBudgetConsumedMs: (budgetKey, consumedMs) => inner.writeRunBudgetConsumedMs(budgetKey, consumedMs),
+    readMutationRepairAttempts: (runId) => inner.readMutationRepairAttempts(runId),
+    recordMutationRepairAttempts: (runId, consumed) => inner.recordMutationRepairAttempts(runId, consumed),
     readWorkflowInvocationSettledMarker: (entryRunId) => inner.readWorkflowInvocationSettledMarker(entryRunId),
     writeWorkflowInvocationSettledMarker: (entryRunId, cause, settledAt) =>
       inner.writeWorkflowInvocationSettledMarker(entryRunId, cause, settledAt),
@@ -8085,6 +8186,8 @@ export function isLoadSensitive(file: string): boolean {
           setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
           readRunBudgetConsumedMs: (budgetKey) => inner.readRunBudgetConsumedMs(budgetKey),
           writeRunBudgetConsumedMs: (budgetKey, consumedMs) => inner.writeRunBudgetConsumedMs(budgetKey, consumedMs),
+          readMutationRepairAttempts: (runId) => inner.readMutationRepairAttempts(runId),
+          recordMutationRepairAttempts: (runId, consumed) => inner.recordMutationRepairAttempts(runId, consumed),
           readWorkflowInvocationSettledMarker: (entryRunId) => inner.readWorkflowInvocationSettledMarker(entryRunId),
           writeWorkflowInvocationSettledMarker: (entryRunId, cause, settledAt) =>
             inner.writeWorkflowInvocationSettledMarker(entryRunId, cause, settledAt),
@@ -8987,13 +9090,7 @@ index 1234567..abcdefg 100644
         completionPublisher: async () => ({}),
         verifyDiffDerivedMutations: mockVerifyPass,
         readyFinalizer: async () => {
-          throw new SurvivingMutationError(
-            "operator-flip: === → !==",
-            "src/test.ts",
-            42,
-            ["src/test.test.ts"],
-            "passed-unconfirmed",
-          );
+          throw publicationSurvivor();
         },
       });
 
@@ -9005,10 +9102,13 @@ index 1234567..abcdefg 100644
       expect(result.survivingMutationKillingTests).toEqual(["src/test.test.ts"]);
       expect(result.survivingMutationKillingSetResult).toBe("passed-unconfirmed");
       expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
-      expect(countMutationRepairHarnessSessions(sessionsDir, result.runId)).toBeGreaterThan(0);
+      // Publication runs in-flow `write.mutation-repair` (session evidence) before terminal settlement.
       const events = logSink.getEventsForRun(result.runId);
-      expect(events).not.toContain("mutation_repair_exhausted");
-      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+      const repairAttempts = mutationRepairSessionAttempts(sessionsDir, result.runId);
+      expect(repairAttempts.length).toBeGreaterThan(0);
+      expect(iterationStartsBeforeLoopFinished(events)).toBe(1 + repairAttempts.length);
+      expect(loopOutcomeKinds(events)).toEqual(["surviving_mutation_failed"]);
+      expect(events.at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "surviving_mutation_failed",
         resumable: true,
@@ -9033,20 +9133,24 @@ index 1234567..abcdefg 100644
         completionPublisher: async () => ({}),
         verifyDiffDerivedMutations: mockVerifyPass,
         readyFinalizer: async () => {
-          throw new SurvivingMutationError(
-            "operator-flip: === → !==",
-            "src/test.ts",
-            42,
-            ["src/test.test.ts"],
-            "passed-unconfirmed",
-          );
+          throw publicationSurvivor();
         },
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
       expect(result.resumable).toBe(true);
-      expect(countMutationRepairHarnessSessions(sessionsDir, result.runId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
-      expect(logSink.getEventsForRun(result.runId)).not.toContain("mutation_repair_exhausted");
+      const events = logSink.getEventsForRun(result.runId);
+      expect(mutationRepairSessionAttempts(sessionsDir, result.runId)).toEqual([1, 2, 3]);
+      expect(MAX_MUTATION_REPAIR_ATTEMPTS).toBe(3);
+      expect(iterationStartsBeforeLoopFinished(events)).toBe(1 + MAX_MUTATION_REPAIR_ATTEMPTS);
+      expect(loopOutcomeKinds(events)).toEqual(["surviving_mutation_failed"]);
+      expect(events.at(-1)).toMatchObject({ kind: "loop_finished", resumable: true });
+      const store = openStateStore(stateDbPath);
+      try {
+        expect(store.readMutationRepairAttempts(result.runId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
+      } finally {
+        store.close();
+      }
     });
 
     test("publication in-flow mutation repair blocked settles surviving_mutation_failed without mutation_repair_exhausted", async () => {
@@ -9077,30 +9181,26 @@ index 1234567..abcdefg 100644
         completionPublisher: async () => ({}),
         verifyDiffDerivedMutations: mockVerifyPass,
         readyFinalizer: async () => {
-          throw new SurvivingMutationError(
-            "operator-flip: === → !==",
-            "src/test.ts",
-            42,
-            ["src/test.test.ts"],
-            "passed-unconfirmed",
-          );
+          throw publicationSurvivor();
         },
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
       expect(result.resumable).toBe(true);
-      expect(countMutationRepairHarnessSessions(sessionsDir, result.runId)).toBe(1);
-      expect(logSink.getEventsForRun(result.runId)).not.toContain("mutation_repair_exhausted");
+      expect(agentCalls).toBe(2);
+      expect(mutationRepairSessionAttempts(sessionsDir, result.runId)).toEqual([1]);
+      const events = logSink.getEventsForRun(result.runId);
+      expect(loopOutcomeKinds(events)).toEqual(["surviving_mutation_failed"]);
+      expect(events.at(-1)).toMatchObject({ kind: "loop_finished", resumable: true });
     });
 
-    test("publication mutation repair honors persisted attempt count for the shared budget", async () => {
+    test("publication mutation repair continues the persisted shared attempt budget", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const store = openStateStore(stateDbPath);
       const branchName = "shared-mutation-repair-budget";
       const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
       mkdirSync(worktreePath, { recursive: true });
-      writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
       const runId = store.createRun({
         project: "demo",
         specRef: "HEAD",
@@ -9108,70 +9208,130 @@ index 1234567..abcdefg 100644
         branch: branchName,
         specPath: "spec.md",
       });
-      writeMutationRepairAttemptsConsumed(store, runId, 2);
+      store.recordMutationRepairAttempts(runId, 2);
       const sessionsDir = join(jarvisRoot, "sessions");
       try {
-        await publishWithReadyRepair(
-          {
-            worktree: {
-              projectRoot: "/fake",
-              projectName: "demo",
-              branchName,
-              baseRef: "HEAD",
-              jarvisRoot,
-            },
-            specPath: "spec.md",
-            stepRules: "repair",
-            expectedArtifactPath: "proof.txt",
-            bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
-            stateStore: store,
-            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-            sessionsDir,
-            verifyDiffDerivedMutations: mockVerifyPass,
-            completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
-            completionPublisher: async () => ({}),
-            readyFinalizer: async () => {
-              throw new SurvivingMutationError(
-                "operator-flip: === → !==",
-                "src/test.ts",
-                42,
-                ["src/test.test.ts"],
-                "passed-unconfirmed",
-              );
-            },
-          },
+        const published = await publishSurvivingMutation({
+          jarvisRoot,
           store,
-          { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
-          0,
-          {
-            worktreePath,
-            baseRef: "HEAD",
-            specPath: "spec.md",
-            branch: branchName,
-          },
-        );
-        expect(readMutationRepairAttemptsConsumed(store, runId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
-        expect(countMutationRepairHarnessSessions(sessionsDir, runId)).toBe(1);
-        let sessionText = "";
-        const walkSessions = (dir: string): void => {
-          for (const entry of readdirSync(dir)) {
-            const path = join(dir, entry);
-            if (lstatSync(path).isDirectory()) {
-              walkSessions(path);
-              continue;
-            }
-            const content = readFileSync(path, "utf8");
-            if (content.includes(`run=${runId}`) && content.includes("mutation-repair=")) {
-              sessionText = content;
-            }
-          }
-        };
-        walkSessions(sessionsDir);
-        expect(sessionText).toContain("mutation-repair=3");
-        expect(sessionText).not.toContain("mutation-repair=1");
+          runId,
+          branchName,
+          worktreePath,
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        });
+        expect(published.failure?.kind).toBe("surviving_mutation_failed");
+        expect(store.readMutationRepairAttempts(runId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
+        expect(mutationRepairSessionAttempts(sessionsDir, runId)).toEqual([3]);
       } finally {
         store.close();
       }
+    });
+
+    test("publication mutation repair skips a HEAD that drifted from the published tip without charging budget", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "mutation-repair-head-drift";
+      const { worktreePath, head: publishedTip } = initMutationRepairGitWorktree(jarvisRoot, branchName);
+      writeFileSync(join(worktreePath, "local.txt"), "ahead\n", "utf8");
+      gitIn(worktreePath, ["add", "local.txt"]);
+      gitIn(worktreePath, ["commit", "-qm", "local commit ahead of the published tip"]);
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      const logSink = new TestLogSink();
+      let repairCalls = 0;
+      try {
+        const published = await publishSurvivingMutation({
+          jarvisRoot,
+          store,
+          runId,
+          branchName,
+          worktreePath,
+          logSink,
+          publisherPushSha: () => publishedTip,
+          bindings: [
+            {
+              id: "drift-repair",
+              metadata: { agent: "codex", model: "test" },
+              invoke: async () => {
+                repairCalls += 1;
+                return { kind: "ok", stdout: "done", stderr: "" };
+              },
+            },
+          ],
+        });
+        expect(published.failure?.kind).toBe("surviving_mutation_failed");
+        expect(repairCalls).toBe(0);
+        expect(logSink.getEventsForRun(runId).filter((event) => event.kind === "iteration_started")).toHaveLength(0);
+        expect(mutationRepairSessionAttempts(join(jarvisRoot, "sessions"), runId)).toEqual([]);
+        // A later `jarvis run resume` keeps the full budget.
+        expect(store.readMutationRepairAttempts(runId)).toBe(0);
+      } finally {
+        store.close();
+      }
+    });
+
+    test("publication mutation repair reverts uncommitted edits when the repair iteration does not settle", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "mutation-repair-unsettled-revert";
+      const { worktreePath } = initMutationRepairGitWorktree(jarvisRoot, branchName);
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      try {
+        const published = await publishSurvivingMutation({
+          jarvisRoot,
+          store,
+          runId,
+          branchName,
+          worktreePath,
+          iterationTimeoutMs: 1,
+          bindings: [
+            {
+              id: "unsettled-repair",
+              metadata: { agent: "codex", model: "test" },
+              invoke: async ({ cwd, signal }) => {
+                writeFileSync(join(cwd, "src", "guard.ts"), "export const guard = () => false;\n", "utf8");
+                writeFileSync(join(cwd, "src", "partial-repair.test.ts"), "// half-written\n", "utf8");
+                if (signal !== undefined && !signal.aborted) {
+                  await new Promise<void>((resolve) =>
+                    signal.addEventListener("abort", () => resolve(), { once: true }),
+                  );
+                }
+                return { kind: "ok", stdout: "done", stderr: "" };
+              },
+            },
+          ],
+        });
+        expect(published.failure?.kind).toBe("surviving_mutation_failed");
+        expect(store.readMutationRepairAttempts(runId)).toBe(1);
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+      } finally {
+        store.close();
+      }
+    });
+
+    test("isKillingTestWeakened flags deleted, de-asserted, or disabled killing tests", () => {
+      const before = 'test("kills", () => {\n  expect(guard()).toBe(true);\n});\n';
+      expect(isKillingTestWeakened(before, before)).toBe(false);
+      expect(isKillingTestWeakened(before, `${before}test("more", () => {\n  expect(1).toBe(1);\n});\n`)).toBe(false);
+      expect(isKillingTestWeakened(before, undefined)).toBe(true);
+      expect(isKillingTestWeakened(before, 'test("kills", () => {\n  guard();\n});\n')).toBe(true);
+      expect(isKillingTestWeakened(before, 'test.skip("kills", () => {\n  expect(guard()).toBe(true);\n});\n')).toBe(
+        true,
+      );
+      expect(isKillingTestWeakened(before, "expect(guard()).toBe(true);\n")).toBe(true);
     });
 
     test("returns runtime_smoke_failed when runtime smoke verification fails", async () => {

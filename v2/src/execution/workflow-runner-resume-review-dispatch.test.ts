@@ -19,7 +19,6 @@ import type { PipelineDefinition } from "./pipeline-definition.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { validateReadyIntent } from "./publication-workflow-steps.ts";
 import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
-import { MAX_MUTATION_REPAIR_ATTEMPTS } from "./write-loop.ts";
 import {
   config,
   createBindingFactory,
@@ -56,6 +55,12 @@ import {
   resumeReviewMutationFinalization,
   survivingMutationErrorFromTerminalRecord,
 } from "./workflow-runner-resume.ts";
+import { MAX_MUTATION_REPAIR_ATTEMPTS } from "./write-loop.ts";
+
+/** A fake publisher reports the tip it "pushed": the worktree HEAD, as the real publisher does. */
+function pushedHead(worktreePath: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim();
+}
 
 describe("executeWorkflow review dispatch", () => {
   const mockNotRunRepairSurvivorLogFields = {
@@ -1474,7 +1479,11 @@ describe("executeWorkflow review dispatch", () => {
         const prompts: string[] = [];
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           completionCommitter: createCompletionCommitter(),
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
           readyFinalizer: async (input) => {
             finalizerCalls += 1;
             expect(input.worktreePath).toBe(workspace);
@@ -1588,7 +1597,11 @@ describe("executeWorkflow review dispatch", () => {
         let finalizerCalls = 0;
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           completionCommitter: createCompletionCommitter(),
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
           readyFinalizer: async (input) => {
             finalizerCalls += 1;
             events.push("finalizer");
@@ -1670,7 +1683,7 @@ describe("executeWorkflow review dispatch", () => {
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           logSink,
           completionCommitter: createCompletionCommitter(),
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber, prUrl }),
+          completionPublisher: async ({ worktreePath }) => ({ pushSha: pushedHead(worktreePath), prNumber, prUrl }),
           readyFinalizer: async () => {},
         });
         logSink.close();
@@ -1742,7 +1755,11 @@ describe("executeWorkflow review dispatch", () => {
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           logSink,
           completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
           readyFinalizer: async () => {
             const f = mockNotRunRepairSurvivorLogFields;
             throw new SurvivingMutationError(
@@ -1845,7 +1862,11 @@ describe("executeWorkflow review dispatch", () => {
         await resumeReviewMutationFinalization(run, store, terminalRecord, {
           logSink,
           completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
           readyFinalizer: async () => {
             finalizeCalls += 1;
             if (finalizeCalls === 1) {
@@ -1941,7 +1962,11 @@ describe("executeWorkflow review dispatch", () => {
             commits.push({ title: input.title, step: input.step });
             return createCompletionCommitter()(input);
           },
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
           readyFinalizer: async () => {
             finalizerCalls += 1;
             if (finalizerCalls === 1) {
@@ -1971,6 +1996,109 @@ describe("executeWorkflow review dispatch", () => {
         const repairCommit = commits.find((c) => c.step !== undefined);
         expect(repairCommit?.step).toEqual({ kind: "mutation-repair" });
         expect((repairCommit?.title as string).startsWith("mutation-repair: ")).toBe(true);
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("mutation repair that deletes a named killing test is reverted, not committed", async () => {
+    const workspace = initGitWorkspace("review-mutation-repair-killing-test-");
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      mkdirSync(join(workspace, "src"), { recursive: true });
+      writeFileSync(
+        join(workspace, "src", "guard.test.ts"),
+        'test("kills", () => {\n  expect(guard()).toBe(true);\n});\n',
+        "utf8",
+      );
+      execFileSync("git", ["add", "-A"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot("mutation-repair-killing-test", "implement: killing-test");
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "mutation-repair-killing-test",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(writeRunId),
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(reviewRunId),
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
+        });
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+        });
+        seedSink.close();
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        let repairs = 0;
+        let finalizerCalls = 0;
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
+          readyFinalizer: async () => {
+            finalizerCalls += 1;
+            if (finalizerCalls === 1) {
+              throw new SurvivingMutationError(
+                "operator-flip: === → !==",
+                "src/guard.ts",
+                17,
+                ["src/guard.test.ts"],
+                "passed-confirmed",
+              );
+            }
+            return undefined;
+          },
+          runFixCommand: async () => {},
+          mutationRepair: {
+            bindings: [
+              {
+                id: "current-implement-binding",
+                metadata: { agent: "current-agent", model: "current-model" },
+                invoke: async ({ cwd }) => {
+                  repairs += 1;
+                  rmSync(join(cwd, "src", "guard.test.ts"));
+                  return { kind: "ok", stdout: "done", stderr: "" };
+                },
+              },
+            ],
+            stepRules: "repair rules",
+            iterationTimeoutMs: 60_000,
+            iterationCeilingMs: 120_000,
+          },
+        });
+
+        expect(outcome).toMatchObject({ ok: false, message: "Mutation survived every repair attempt" });
+        expect(repairs).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
+        const log = execFileSync("git", ["log", "--format=%B"], { cwd: workspace, encoding: "utf8" });
+        expect(log).not.toContain("Jarvis-Step: mutation-repair");
+        expect(existsSync(join(workspace, "src", "guard.test.ts"))).toBe(true);
+        expect(store.readMutationRepairAttempts(reviewRunId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
       });
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -2032,9 +2160,9 @@ describe("executeWorkflow review dispatch", () => {
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           logSink,
           completionCommitter: async () => ({ commitSha: `deadbeef-${++commits}`, filesChanged: 1 }),
-          completionPublisher: async () => {
+          completionPublisher: async ({ worktreePath }) => {
             publishes += 1;
-            return { pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" };
+            return { pushSha: pushedHead(worktreePath), prNumber: 3, prUrl: "https://example.test/pr/3" };
           },
           readyFinalizer: async () => {
             const f = mockNotRunRepairSurvivorLogFields;
@@ -2458,6 +2586,98 @@ describe("executeWorkflow review dispatch", () => {
         retryable: true,
         nextAction: "resume",
       });
+    });
+  });
+
+  test("resume continues the in-flow publication mutation-repair budget without a nested repair loop", async () => {
+    const branchName = "publication-repair-shared-budget";
+    const { implementStep, reviewStep, mutation, sourceFile, sourceLine } =
+      publicationRepairIntroducedMutationSteps(branchName);
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+    writeFileSync(join(worktreePath, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+    execFileSync("git", ["init", "-q"], { cwd: worktreePath });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreePath });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: worktreePath });
+    execFileSync("git", ["add", "-A"], { cwd: worktreePath });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: worktreePath });
+    let repairCalls = 0;
+    const blockingImplementStep = {
+      ...implementStep,
+      createBinding: ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd, prompt }: { cwd: string; prompt: string }) => {
+          if (prompt.includes(`Mutation: ${mutation}`)) {
+            repairCalls += 1;
+            return { kind: "ok", stdout: "blocked", stderr: "" } as const;
+          }
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    };
+    const survivor = () => new SurvivingMutationError(mutation, sourceFile, sourceLine, [], "passed-confirmed");
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [blockingImplementStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw survivor();
+        },
+      });
+
+      // In-flow publication repair ran once (blocked) and settled resumable with budget remaining.
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(repairCalls).toBe(1);
+      expect(store.readMutationRepairAttempts(result.runId)).toBe(1);
+
+      const run = store.loadRun(result.runId);
+      if (!run) throw new Error("expected review run");
+      const terminalRecord = findTerminalLogRecord(logSink.tail(result.runId));
+      let resumeRepairs = 0;
+      const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+        logSink,
+        completionCommitter: async () => ({ commitSha: "repair-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw survivor();
+        },
+        runFixCommand: async () => {},
+        persistedRepairFenceEnforcer: async () => undefined,
+        mutationRepair: {
+          bindings: [
+            {
+              id: "current-implement-binding",
+              metadata: { agent: "current-agent", model: "current-model" },
+              invoke: async () => {
+                resumeRepairs += 1;
+                return { kind: "ok", stdout: "done", stderr: "" };
+              },
+            },
+          ],
+          stepRules: "repair rules",
+          iterationTimeoutMs: 60_000,
+          iterationCeilingMs: 120_000,
+        },
+      });
+
+      expect(outcome).toMatchObject({ ok: false, message: "Mutation survived every repair attempt" });
+      // Only the remaining shared budget runs on resume, and its single-shot republish nests no loop.
+      expect(resumeRepairs).toBe(MAX_MUTATION_REPAIR_ATTEMPTS - 1);
+      expect(store.readMutationRepairAttempts(result.runId)).toBe(MAX_MUTATION_REPAIR_ATTEMPTS);
     });
   });
 

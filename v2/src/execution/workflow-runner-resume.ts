@@ -50,8 +50,7 @@ import {
   renderStepCommitTitle,
 } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
-import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
-import { type ExternalSpecGitScope, externalSpecGitScope, withExternalSpecTreeReadOnly } from "./external-spec-git.ts";
+import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { configuredIntentDurableDir, evaluateIntentSplitLandingGate, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
@@ -88,6 +87,7 @@ import { buildReviewInvocationFailureDetail, revalidateStagedPlanContract } from
 import {
   appendRuntimeSmokeOutcome,
   DEFAULT_ITERATION_TIMEOUT_MS,
+  driveMutationRepair,
   enforcePersistedReadyGateRepairFence,
   exhaustedRedTerminalLogFields,
   getUncommittedPaths,
@@ -95,12 +95,9 @@ import {
   isExhaustedRedTerminalEvidence,
   leaseFromShaField,
   MAX_MUTATION_REPAIR_ATTEMPTS,
+  type MutationRepairDriveOutcome,
   type PersistedRepairFenceEnforcer,
-  publishCompletionArtifacts,
   publishWithReadyRepair,
-  readMutationRepairAttemptsConsumed,
-  runMutationRepairPublicationAttempt,
-  writeMutationRepairAttemptsConsumed,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
@@ -2297,6 +2294,7 @@ async function runMutationRepairContinuation(
   initialError: SurvivingMutationError,
   deps: ReviewMutationResumeDeps,
   body: { bodySummary: string | undefined; specTemplate: boolean },
+  publishedTip?: string,
 ): Promise<ReviewMutationResumeOutcome> {
   const repairArgs = mutationRepairLoopInput(context, deps);
   if (repairArgs === undefined) return { ok: false, message: initialError.message };
@@ -2309,56 +2307,12 @@ async function runMutationRepairContinuation(
     runStatus: "in-progress",
   });
 
-  let mutationError = initialError;
-  const consumedBefore = readMutationRepairAttemptsConsumed(store, context.runId);
-  for (let attempt = consumedBefore + 1; attempt <= MAX_MUTATION_REPAIR_ATTEMPTS; attempt += 1) {
-    const attemptResult = await runMutationRepairAttempt(
-      context,
-      store,
-      repairArgs,
-      mutationError,
-      attempt,
-      deps,
-      body,
-    );
-    writeMutationRepairAttemptsConsumed(store, context.runId, attempt);
-    if (attemptResult.kind === "retry") {
-      mutationError = attemptResult.mutationError;
-      continue;
-    }
-    return attemptResult.outcome;
-  }
-  return settleMutationRepairExhausted(
-    store,
-    context,
-    "Mutation survived every repair attempt",
-    MAX_MUTATION_REPAIR_ATTEMPTS,
-    deps,
-    mutationError,
-  );
-}
-
-type MutationRepairAttemptResult =
-  | { kind: "retry"; mutationError: SurvivingMutationError }
-  | { kind: "settled"; outcome: ReviewMutationResumeOutcome };
-
-/** Run a single mutation-repair attempt: repair, recommit, reverify, and (if clean) publish. */
-async function runMutationRepairAttempt(
-  context: ReviewMutationResumeContext,
-  store: StateStore,
-  repairArgs: NonNullable<ReturnType<typeof mutationRepairLoopInput>>,
-  mutationError: SurvivingMutationError,
-  attempt: number,
-  deps: ReviewMutationResumeDeps,
-  body: { bodySummary: string | undefined; specTemplate: boolean },
-): Promise<MutationRepairAttemptResult> {
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
-  let attemptResult: Awaited<ReturnType<typeof runMutationRepairPublicationAttempt>>;
-  try {
-    attemptResult = await runMutationRepairPublicationAttempt({
-      repairArgs,
-      store,
-      runId: context.runId,
+  const outcome = await driveMutationRepair({
+    repairArgs,
+    store,
+    runId: context.runId,
+    publication: {
       worktreePath: context.worktreePath,
       baseRef: context.baseRef,
       specPath: context.specPath,
@@ -2366,119 +2320,120 @@ async function runMutationRepairAttempt(
       creationTitle,
       ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
       ...(body.specTemplate ? { specTemplate: true } : {}),
-      ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
-      externalSpec: externalSpecGitScope(context),
+      ...externalSpecGitScope(context),
       ...reviewMutationRequiredIntegrationScope(context),
       ...leaseFromShaField(context),
-      mutationError,
-      attempt,
       skipPublicationMutationRepairLoop: true,
-      beforeRepairCommit: () => admitRunForResumeOrThrow(store, context.runId),
-      ...(deps.mutationRepair?.iterationTimeoutMs !== undefined
-        ? { iterationTimeoutMs: deps.mutationRepair.iterationTimeoutMs }
-        : {}),
-      ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
-    });
-  } catch (error) {
-    if (deps.signal?.aborted) throw error;
-    return {
-      kind: "settled",
-      outcome: await settlePublicationResumeFailure(
+    },
+    ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+    initialError,
+    ...(publishedTip !== undefined ? { publishedTip } : {}),
+    beforeRepairCommit: () => admitRunForResumeOrThrow(store, context.runId),
+  });
+  return settleMutationRepairDriveOutcome(context, store, outcome, deps, body);
+}
+
+/** Map the shared driver's outcome onto review-mutation resume settlement. */
+async function settleMutationRepairDriveOutcome(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  outcome: MutationRepairDriveOutcome,
+  deps: ReviewMutationResumeDeps,
+  body: { bodySummary: string | undefined; specTemplate: boolean },
+): Promise<ReviewMutationResumeOutcome> {
+  switch (outcome.kind) {
+    case "complete":
+      return settleCompletedMutationRepair(context, store, outcome, deps);
+    case "exhausted":
+      return settleMutationRepairExhausted(
         store,
         context,
-        store.recordAttemptStart(context.runId),
-        "completion_commit_failed",
-        0,
-        errorMessage(error),
-        deps.logSink,
-        REVIEW_MUTATION_RESUME_POLICY,
-      ),
-    };
-  }
-
-  if (attemptResult.kind === "repair_blocked") {
-    return {
-      kind: "settled",
-      outcome: await settleMutationRepairExhausted(
+        "Mutation survived every repair attempt",
+        MAX_MUTATION_REPAIR_ATTEMPTS,
+        deps,
+        outcome.mutationError,
+      );
+    case "repair_blocked":
+      return settleMutationRepairExhausted(
         store,
         context,
         "Mutation repair agent reported blocked",
-        attempt,
+        outcome.attempt,
         deps,
-        mutationError,
-      ),
-    };
-  }
-  if (attemptResult.kind === "repair_unsettled") {
-    return {
-      kind: "settled",
-      outcome: await settleMutationRepairExhausted(
+        outcome.mutationError,
+      );
+    case "repair_unsettled":
+      return settleMutationRepairExhausted(
         store,
         context,
         "Mutation repair agent did not settle",
-        attempt,
+        outcome.attempt,
         deps,
-        mutationError,
-      ),
-    };
-  }
-  if (attemptResult.kind === "completion_commit_failed") {
-    return {
-      kind: "settled",
-      outcome: await settlePublicationResumeFailure(
+        outcome.mutationError,
+      );
+    case "head_drift": {
+      // Drift charges no attempt: settle resumable `surviving_mutation_failed` without the repair continuation.
+      const { mutationRepair: _repair, ...settleDeps } = deps;
+      return settleFailedReviewMutationPublication(
+        context,
+        store,
+        store.recordAttemptStart(context.runId),
+        { failure: { kind: "surviving_mutation_failed", error: outcome.mutationError }, iterationsConsumed: 0 },
+        settleDeps,
+        body,
+      );
+    }
+    case "completion_commit_failed":
+      return settlePublicationResumeFailure(
         store,
         context,
         store.recordAttemptStart(context.runId),
         "completion_commit_failed",
         0,
-        attemptResult.message,
+        outcome.message,
         deps.logSink,
         REVIEW_MUTATION_RESUME_POLICY,
-      ),
-    };
-  }
-  if (attemptResult.kind === "retry") {
-    return { kind: "retry", mutationError: attemptResult.mutationError };
-  }
-  if (attemptResult.kind === "publication_failure") {
-    appendRuntimeSmokeOutcome(deps.logSink, context.runId, attemptResult.failure.runtimeSmokeOutcome);
-    return {
-      kind: "settled",
-      outcome: await settlePublicationResumeFailure(
+      );
+    case "publication_failure":
+      appendRuntimeSmokeOutcome(deps.logSink, context.runId, outcome.failure.runtimeSmokeOutcome);
+      return settlePublicationResumeFailure(
         store,
         context,
         store.recordAttemptStart(context.runId),
-        attemptResult.failure.kind,
+        outcome.failure.kind,
         0,
-        attemptResult.failure.error?.message ?? attemptResult.failure.kind,
+        outcome.failure.error?.message ?? outcome.failure.kind,
         deps.logSink,
         REVIEW_MUTATION_RESUME_POLICY,
-      ),
-    };
+      );
   }
+}
 
-  appendRuntimeSmokeOutcome(deps.logSink, context.runId, attemptResult.success.runtimeSmokeOutcome);
+function settleCompletedMutationRepair(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  outcome: Extract<MutationRepairDriveOutcome, { kind: "complete" }>,
+  deps: ReviewMutationResumeDeps,
+): ReviewMutationResumeOutcome {
+  appendRuntimeSmokeOutcome(deps.logSink, context.runId, outcome.success.runtimeSmokeOutcome);
   const finalAttemptId = store.recordAttemptStart(context.runId);
   store.commitCompletionBoundary({
     attemptId: finalAttemptId,
     runStatus: "completed",
     outcomeKind: "done",
-    ...completedPublicationBoundaryFields(attemptResult.success),
+    ...completedPublicationBoundaryFields(outcome.success),
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   });
   deps.logSink?.append(context.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "complete",
-    iterationsConsumed: attemptResult.iterationsConsumed,
+    iterationsConsumed: outcome.iterationsConsumed,
     resumable: false,
   });
   return {
-    kind: "settled",
-    outcome: {
-      ok: true,
-      ...(attemptResult.success.prNumber !== undefined ? { prNumber: attemptResult.success.prNumber } : {}),
-      ...(attemptResult.success.prUrl !== undefined ? { prUrl: attemptResult.success.prUrl } : {}),
-    },
+    ok: true,
+    ...(outcome.success.prNumber !== undefined ? { prNumber: outcome.success.prNumber } : {}),
+    ...(outcome.success.prUrl !== undefined ? { prUrl: outcome.success.prUrl } : {}),
   };
 }
 
@@ -2516,7 +2471,7 @@ async function settleFailedReviewMutationPublication(
     failure.error instanceof SurvivingMutationError &&
     deps.mutationRepair
   ) {
-    return await runMutationRepairContinuation(context, store, attemptId, failure.error, deps, body);
+    return await runMutationRepairContinuation(context, store, attemptId, failure.error, deps, body, failure.pushSha);
   }
   const isFlip = failure.kind === "ready_flip_failed";
   const message = failure.error?.message ?? failure.kind;

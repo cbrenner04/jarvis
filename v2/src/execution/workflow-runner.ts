@@ -53,6 +53,7 @@ import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
+import { resolveLaneMergeBase } from "./main-sync-scope.ts";
 import { readBranchCommits } from "./pr-attribution.ts";
 import {
   landPublication,
@@ -2358,15 +2359,17 @@ async function runShrinkAfterImplementComplete(
   return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () => executeWriteLoop(shrinkLoopInput));
 }
 
-async function shrinkPromptPlaceholders(
+export async function shrinkPromptPlaceholders(
   step: WriteWorkflowStep,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Record<string, string>> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   const gitScope = externalSpecGitScope(step);
+  const mergeBase = await resolveLaneMergeBase(worktreePath, step.worktree.baseRef, runner);
+  const diffAnchor = mergeBase ?? step.worktree.baseRef;
   const allowlist = excludeExternalSpecGitPaths(
     worktreePath,
-    await changedFiles(worktreePath, step.worktree.baseRef, runner),
+    await changedFiles(worktreePath, diffAnchor, runner),
     gitScope,
   );
   const scopedPaths =
@@ -2379,9 +2382,8 @@ async function shrinkPromptPlaceholders(
       step.externalPlanSpec === true ? resolveLinkedImplementRoutingRoot(step, worktreePath) : worktreePath,
     ),
     ALLOWLIST: scopedPaths.length > 0 ? scopedPaths.map((path) => `- ${path}`).join("\n") : "(no changed files)",
-    BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"], runner)) || "(empty)",
-    RUN_SCOPED_DIFF:
-      (await gitOutput(worktreePath, ["diff", step.worktree.baseRef, "--", ...scopedPaths], runner)) || "(empty)",
+    BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", diffAnchor, "--"], runner)) || "(empty)",
+    RUN_SCOPED_DIFF: (await gitOutput(worktreePath, ["diff", diffAnchor, "--", ...scopedPaths], runner)) || "(empty)",
   };
 }
 

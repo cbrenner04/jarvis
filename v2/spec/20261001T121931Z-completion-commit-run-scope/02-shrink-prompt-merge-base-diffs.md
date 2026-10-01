@@ -17,9 +17,9 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-shrink-placeholders.test.ts` (real git, exported `shrinkPromptPlaceholders`): a path changed only on `main` after the fork is absent from ALLOWLIST, BRANCH_DIFF, and RUN_SCOPED_DIFF; fails pre-fix.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes for `v2/src/execution/workflow-runner-shrink-placeholders.test.ts`.
+- [x] `v2/src/execution/workflow-runner-shrink-placeholders.test.ts` (real git, exported `shrinkPromptPlaceholders`): a path changed only on `main` after the fork is absent from ALLOWLIST, BRANCH_DIFF, and RUN_SCOPED_DIFF; fails pre-fix.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes for `v2/src/execution/workflow-runner-shrink-placeholders.test.ts`.
 
 ## Documentation updates
 

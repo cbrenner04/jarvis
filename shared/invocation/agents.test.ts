@@ -760,6 +760,168 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
   });
 
+  const AGENT_PGID = 999_999;
+  const FOREIGN_DESCENDANT_PGID = 888_888;
+
+  function descendantGroupKillBinding(
+    fake: ReturnType<typeof fakeSpawn>,
+    extra: Parameters<typeof createResolvedAgentBinding>[1] = {},
+  ) {
+    const groupSignals: { pgid: number; signal: string }[] = [];
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        probeAgentDescendantProcessGroups: async () => new Set([AGENT_PGID, FOREIGN_DESCENDANT_PGID]),
+        signalProcessGroup: (pgid, signal) => {
+          groupSignals.push({ pgid, signal });
+        },
+        ...extra,
+      },
+    );
+    return { binding, groupSignals };
+  }
+
+  function closeFakeChild(fake: ReturnType<typeof fakeSpawn>) {
+    const child = fake.calls[0]?.child;
+    child?.stdout.end();
+    child?.stderr.end();
+    child?.emit("close", null);
+  }
+
+  test("abort SIGTERMs every snapshotted descendant process group", async () => {
+    const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
+    const { binding, groupSignals } = descendantGroupKillBinding(fake);
+    const controller = new AbortController();
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
+    controller.abort("operator-kill");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(groupSignals.filter((entry) => entry.signal === "SIGTERM")).toEqual([
+      { pgid: FOREIGN_DESCENDANT_PGID, signal: "SIGTERM" },
+      { pgid: AGENT_PGID, signal: "SIGTERM" },
+    ]);
+    closeFakeChild(fake);
+    await promise;
+  });
+
+  test("iteration timeout SIGTERMs every snapshotted descendant process group", async () => {
+    const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
+    const { binding, groupSignals } = descendantGroupKillBinding(fake);
+    const controller = new AbortController();
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
+    controller.abort("iteration-timeout");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(groupSignals.filter((entry) => entry.signal === "SIGTERM")).toEqual([
+      { pgid: FOREIGN_DESCENDANT_PGID, signal: "SIGTERM" },
+      { pgid: AGENT_PGID, signal: "SIGTERM" },
+    ]);
+    closeFakeChild(fake);
+    await promise;
+  });
+
+  test("SIGKILL escalation survives leader settlement for remaining descendant groups", async () => {
+    const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
+    const graceMs = 25;
+    const groupSignals: { pgid: number; signal: string }[] = [];
+    const escalationCallbacks: Array<() => void> = [];
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        abortKillGraceMs: graceMs,
+        probeAgentDescendantProcessGroups: async () => new Set([AGENT_PGID, FOREIGN_DESCENDANT_PGID]),
+        signalProcessGroup: (pgid, signal) => {
+          groupSignals.push({ pgid, signal });
+        },
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0], delay?: number) => {
+          if (delay === graceMs) {
+            escalationCallbacks.push(callback as () => void);
+            return callback as unknown as ReturnType<typeof setTimeout>;
+          }
+          return setTimeout(callback, delay);
+        }) as typeof setTimeout,
+      },
+    );
+    const controller = new AbortController();
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
+    controller.abort("operator-kill");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(escalationCallbacks).toHaveLength(2);
+    closeFakeChild(fake);
+    await promise;
+    for (const runEscalation of escalationCallbacks) {
+      runEscalation();
+    }
+    expect(
+      groupSignals
+        .filter((entry) => entry.signal === "SIGKILL")
+        .map((entry) => entry.pgid)
+        .sort(),
+    ).toEqual([AGENT_PGID, FOREIGN_DESCENDANT_PGID].sort());
+  });
+
+  test("idle stall with joinProcessOnIdleStall SIGTERMs descendant process groups", async () => {
+    const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
+    const groupSignals: { pgid: number; signal: string }[] = [];
+    let fireIdle: (() => void) | undefined;
+    const bindingWithIdle = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        probeAgentDescendantProcessGroups: async () => new Set([AGENT_PGID, FOREIGN_DESCENDANT_PGID]),
+        signalProcessGroup: (pgid, signal) => {
+          groupSignals.push({ pgid, signal });
+        },
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+          fireIdle = callback;
+          return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout,
+        clearTimeout: (() => {}) as typeof clearTimeout,
+      },
+    );
+    const promise = bindingWithIdle.invoke({
+      prompt: "p",
+      cwd: "/repo",
+      idleOutputMs: 100,
+      joinProcessOnIdleStall: true,
+    });
+    fireIdle?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(groupSignals.filter((entry) => entry.signal === "SIGTERM")).toEqual([
+      { pgid: FOREIGN_DESCENDANT_PGID, signal: "SIGTERM" },
+      { pgid: AGENT_PGID, signal: "SIGTERM" },
+    ]);
+    const child = fake.calls[0]?.child;
+    child?.stdout.end();
+    child?.stderr.end();
+    child?.emit("close", null);
+    await promise;
+  });
+
+  test("process group kill skips own harness ids when snapshot lists them", async () => {
+    const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
+    const groupSignals: { pgid: number; signal: string }[] = [];
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        probeAgentDescendantProcessGroups: async () => new Set([AGENT_PGID, process.pid]),
+        signalProcessGroup: (pgid, signal) => {
+          groupSignals.push({ pgid, signal });
+        },
+      },
+    );
+    const controller = new AbortController();
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
+    controller.abort("operator-kill");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(groupSignals.filter((entry) => entry.signal === "SIGTERM")).toEqual([
+      { pgid: AGENT_PGID, signal: "SIGTERM" },
+    ]);
+    closeFakeChild(fake);
+    await promise;
+  });
+
   test("aborting a settled invocation does not signal its former child", async () => {
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n' }]);
     const controller = new AbortController();

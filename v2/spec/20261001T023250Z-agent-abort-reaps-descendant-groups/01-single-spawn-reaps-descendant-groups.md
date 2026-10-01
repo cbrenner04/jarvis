@@ -28,12 +28,12 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` proves abort with an agent child plus a descendant in a separate process group SIGTERMs every snapshotted group through the shared `killProcessGroup` path; fails against pre-fix (only `-child.pid` signalled).
-- [ ] `shared/invocation/agents.test.ts` proves iteration timeout via `AbortSignal` uses the same `killProcessGroup` path and SIGTERMs every snapshotted group; fails against pre-fix (only the agent group).
-- [ ] `shared/invocation/agents.test.ts` proves that when the leader closes after SIGTERM while a descendant group remains listed, SIGKILL is sent to that group after `abortKillGraceMs`; fails against pre-fix (`settle` clears the escalation timer).
-- [ ] `shared/invocation/agents.test.ts` proves idle stall with `joinProcessOnIdleStall` signals descendant groups the same way as abort; fails against pre-fix (agent group only).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
+- [x] `shared/invocation/agents.test.ts` proves abort with an agent child plus a descendant in a separate process group SIGTERMs every snapshotted group through the shared `killProcessGroup` path; fails against pre-fix (only `-child.pid` signalled).
+- [x] `shared/invocation/agents.test.ts` proves iteration timeout via `AbortSignal` uses the same `killProcessGroup` path and SIGTERMs every snapshotted group; fails against pre-fix (only the agent group).
+- [x] `shared/invocation/agents.test.ts` proves that when the leader closes after SIGTERM while a descendant group remains listed, SIGKILL is sent to that group after `abortKillGraceMs`; fails against pre-fix (`settle` clears the escalation timer).
+- [x] `shared/invocation/agents.test.ts` proves idle stall with `joinProcessOnIdleStall` signals descendant groups the same way as abort; fails against pre-fix (agent group only).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
 
 ## Documentation updates
 

@@ -4,8 +4,10 @@ import { randomUUID } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync, statSync, watch as watchFs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-predicate.ts";
 import { computeCost, type Usage } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
+import { probeAgentDescendantProcessGroups } from "./agent-descendant-process-groups.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
 import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
@@ -28,6 +30,10 @@ type WatchWorktreeActivity = (args: {
   // biome-ignore lint/suspicious/noConfusingVoidType: the `void` arm is an intentional "no teardown" return — a watcher optionally returns a dispose function or nothing.
 }) => void | (() => void);
 
+export type ProbeAgentDescendantProcessGroups = (rootPid: number) => Promise<ReadonlySet<number>>;
+
+export type SignalProcessGroup = (pgid: number, signal: NodeJS.Signals) => void;
+
 export type ResolvedAgentBindingOptions = {
   spawn?: SpawnFn;
   codexSandboxMode?: CodexSandboxMode;
@@ -36,7 +42,20 @@ export type ResolvedAgentBindingOptions = {
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   watchWorktreeActivity?: WatchWorktreeActivity;
+  probeAgentDescendantProcessGroups?: ProbeAgentDescendantProcessGroups;
+  signalProcessGroup?: SignalProcessGroup;
+  abortKillGraceMs?: number;
 };
+
+function bindingAgentRunOptions(opts: ResolvedAgentBindingOptions): AgentRunOptions {
+  return {
+    ...(opts.probeAgentDescendantProcessGroups !== undefined
+      ? { probeAgentDescendantProcessGroups: opts.probeAgentDescendantProcessGroups }
+      : {}),
+    ...(opts.signalProcessGroup !== undefined ? { signalProcessGroup: opts.signalProcessGroup } : {}),
+    ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
+  };
+}
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
   return {
@@ -67,6 +86,7 @@ export function createResolvedAgentBinding(
           cwd: invokeArgs.cwd,
           adapterModel,
           ...pickAgentRunOptions(invokeArgs),
+          ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -87,6 +107,7 @@ export function createResolvedAgentBinding(
           priceKey,
           sandboxMode: opts.codexSandboxMode ?? "workspace-write",
           ...pickAgentRunOptions(invokeArgs),
+          ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -111,6 +132,7 @@ export function createResolvedAgentBinding(
             ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
             ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
             ...pickAgentRunOptions(invokeArgs),
+            ...bindingAgentRunOptions(opts),
             ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
             ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
             ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -134,6 +156,7 @@ export function createResolvedAgentBinding(
           ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
           ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
           ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+          ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -167,6 +190,8 @@ type AgentRunOptions = {
   clearTimeout?: typeof clearTimeout;
   watchWorktreeActivity?: WatchWorktreeActivity;
   additionalReadDirs?: readonly string[];
+  probeAgentDescendantProcessGroups?: ProbeAgentDescendantProcessGroups;
+  signalProcessGroup?: SignalProcessGroup;
 };
 
 export type ShellToolFrameEvent =
@@ -415,6 +440,7 @@ function pickAgentRunOptions(
   args: Pick<
     AgentRunOptions,
     | "signal"
+    | "abortKillGraceMs"
     | "idleOutputMs"
     | "joinProcessOnIdleStall"
     | "onOutputProgress"
@@ -424,10 +450,13 @@ function pickAgentRunOptions(
     | "clearTimeout"
     | "watchWorktreeActivity"
     | "additionalReadDirs"
+    | "probeAgentDescendantProcessGroups"
+    | "signalProcessGroup"
   >,
 ): AgentRunOptions {
   return {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.abortKillGraceMs !== undefined ? { abortKillGraceMs: args.abortKillGraceMs } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
@@ -439,6 +468,10 @@ function pickAgentRunOptions(
     ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
     ...(args.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: args.watchWorktreeActivity } : {}),
     ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
+    ...(args.probeAgentDescendantProcessGroups !== undefined
+      ? { probeAgentDescendantProcessGroups: args.probeAgentDescendantProcessGroups }
+      : {}),
+    ...(args.signalProcessGroup !== undefined ? { signalProcessGroup: args.signalProcessGroup } : {}),
   };
 }
 
@@ -544,20 +577,18 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     let abortReason: string | null = null;
     let forcedResult: InvocationResult | null = null;
     let removeAbortListener: (() => void) | undefined;
-    let abortTimer: ReturnType<typeof setTimeout> | null = null;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let snapshottedProcessGroups: ReadonlySet<number> | null = null;
+    let processGroupKillArmed = false;
+    const groupKillEscalationTimers: ReturnType<typeof setTimeout>[] = [];
     let disposeWorktreeWatcher: (() => void) | undefined;
     let worktreeWatcherController: AbortController | undefined;
     const setTimer = opts.setTimeout ?? setTimeout;
     const clearTimer = opts.clearTimeout ?? clearTimeout;
 
-    const settle = (result: InvocationResult, keepAbortTimer = false) => {
+    const settle = (result: InvocationResult) => {
       if (settled) return;
       settled = true;
-      if (!keepAbortTimer && abortTimer !== null) {
-        clearTimer(abortTimer);
-        abortTimer = null;
-      }
       if (idleTimer !== null) {
         clearTimer(idleTimer);
         idleTimer = null;
@@ -580,29 +611,51 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       });
     };
 
+    const signalProcessGroup =
+      opts.signalProcessGroup ??
+      ((pgid: number, signal: NodeJS.Signals) => {
+        try {
+          process.kill(-pgid, signal);
+        } catch {
+          if (pgid === child.pid) {
+            try {
+              child.kill(signal);
+            } catch {
+              // Best-effort kill.
+            }
+          }
+        }
+      });
+
     const killProcessGroup = () => {
-      const pgid = child.pid;
-      if (pgid === undefined) {
+      if (processGroupKillArmed) return;
+      processGroupKillArmed = true;
+      const agentPgid = child.pid;
+      if (agentPgid === undefined) {
         child.kill("SIGTERM");
         return;
       }
-      try {
-        process.kill(-pgid, "SIGTERM");
-      } catch {
-        child.kill("SIGTERM");
-      }
-      abortTimer = setTimer(() => {
-        try {
-          process.kill(-pgid, "SIGKILL");
-        } catch {
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            // Best-effort kill.
-          }
+      const probe = opts.probeAgentDescendantProcessGroups ?? probeAgentDescendantProcessGroups;
+      void (async () => {
+        const snapshotted = snapshottedProcessGroups ?? (await probe(agentPgid));
+        snapshottedProcessGroups = snapshotted;
+        const own = ownProcessGroupIds();
+        const groups = new Set(snapshotted);
+        groups.add(agentPgid);
+        const foreignGroups = [...groups].filter((pgid) => pgid !== agentPgid && isForeignProcessGroup(pgid, own));
+        for (const pgid of foreignGroups) {
+          signalProcessGroup(pgid, "SIGTERM");
         }
-      }, opts.abortKillGraceMs ?? 2000);
-      abortTimer.unref?.();
+        signalProcessGroup(agentPgid, "SIGTERM");
+        const graceMs = opts.abortKillGraceMs ?? 2000;
+        for (const pgid of groups) {
+          const timer = setTimer(() => {
+            signalProcessGroup(pgid, "SIGKILL");
+          }, graceMs);
+          timer.unref?.();
+          groupKillEscalationTimers.push(timer);
+        }
+      })();
     };
 
     const armIdleTimer = () => {
@@ -615,7 +668,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
           killProcessGroup();
           checkSettlement();
         } else {
-          settle({ kind: "stall", stderr: stallDiagnostics }, true);
+          settle({ kind: "stall", stderr: stallDiagnostics });
         }
       }, opts.idleOutputMs);
       idleTimer.unref?.();

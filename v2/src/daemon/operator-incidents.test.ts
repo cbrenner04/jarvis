@@ -994,7 +994,7 @@ test("terminal pipeline with publication failure emits pipeline-terminal when a 
   });
   const incidents = deriveOperatorIncidents(store);
   expect(incidents.some((row) => row.kind === "publication-failure")).toBe(false);
-  expect(incidents).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId, cause: "failed" })]);
+  expect(incidents).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId, cause: "succeeded" })]);
   store.tryRecordNotificationDelivery({
     incidentId: `pipeline:${pipelineId}`,
     transition: "publication-failed",

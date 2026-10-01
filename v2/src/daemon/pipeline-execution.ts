@@ -11,7 +11,7 @@ import {
 } from "../commands/stale-reset-workspace.ts";
 import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
-import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publisher.ts";
+import { bindHarnessReadyFlipEvidenceLookup, type LanePrOutcome } from "../execution/completion-publisher.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
@@ -1266,6 +1266,33 @@ export function isPipelineContinuable(pipeline: Pipeline & { stages: PipelineSta
 /** True when the pipeline row carries a durable terminal-publication failure. */
 export function hasPipelineTerminalPublicationFailure(pipeline: Pick<Pipeline, "terminalPublicationFailure">): boolean {
   return pipeline.terminalPublicationFailure !== null;
+}
+
+export function narrowPipelineStageArtifact(artifact: unknown): PipelineStageArtifact | undefined {
+  return artifact !== null &&
+    typeof artifact === "object" &&
+    typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
+    typeof (artifact as PipelineStageArtifact).specPath === "string"
+    ? (artifact as PipelineStageArtifact)
+    : undefined;
+}
+
+/** First succeeded stage row carrying durable `artifact.lanePrOutcome`. */
+export function pipelineSettledLanePrOutcome(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): LanePrOutcome | undefined {
+  for (const stage of pipeline.stages) {
+    if (stage.status !== "succeeded") continue;
+    const artifact = narrowPipelineStageArtifact(stage.artifact);
+    if (artifact?.lanePrOutcome !== undefined) return artifact.lanePrOutcome;
+  }
+  return undefined;
+}
+
+function terminalPublicationFailureForcesPipelineFailed(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): boolean {
+  return hasPipelineTerminalPublicationFailure(pipeline) && pipelineSettledLanePrOutcome(pipeline) === undefined;
 }
 
 function areAuthoredStagesSatisfiedForSettlement(
@@ -3615,7 +3642,7 @@ function deriveFanOutSuffixState(
   if (aggregation.anyFailed) return "failed";
   if (!aggregation.allBranchesComplete) return "pending";
   if (isPipelineSettlementPending(pipeline)) return "running";
-  if (hasPipelineTerminalPublicationFailure(pipeline)) return "failed";
+  if (terminalPublicationFailureForcesPipelineFailed(pipeline)) return "failed";
   return "succeeded";
 }
 
@@ -3664,6 +3691,6 @@ export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStage
     }
   }
   if (isPipelineSettlementPending(pipeline)) return "running";
-  if (hasPipelineTerminalPublicationFailure(pipeline)) return "failed";
+  if (terminalPublicationFailureForcesPipelineFailed(pipeline)) return "failed";
   return "succeeded";
 }

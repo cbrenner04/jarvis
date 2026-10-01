@@ -8049,6 +8049,41 @@ export function isLoadSensitive(file: string): boolean {
       expect(storedRun?.prNumber).toBeNull();
     });
 
+    test("retargeted publication base lands on loop_finished for fresh and completed-run republish", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const branchName = "retarget-republish";
+      const hooks = {
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({
+          prNumber: 91,
+          prUrl: "https://github.com/user/repo/pull/91",
+          pushSha: "abc123def456",
+          requestedBase: "plan/merged-first",
+          resolvedBase: "main",
+        }),
+        readyFinalizer: async () => {},
+      };
+      const retarget = { kind: "loop_finished", requestedBase: "plan/merged-first", resolvedBase: "main" };
+
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...hooks,
+      });
+      expect(first.kind).toBe("complete");
+      expect(logSink.getEventsForRun(first.runId).at(-1)).toMatchObject(retarget);
+
+      mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+      const retryLog = new TestLogSink();
+      const retry = await runLoop({ jarvisRoot, stateDbPath, branchName, logSink: retryLog, bindings: [], ...hooks });
+      expect(retry.kind).toBe("complete");
+      expect(retryLog.getEventsForRun(retry.runId).at(-1)).toMatchObject(retarget);
+    });
+
     test("returns retryable completion_commit_failed when pushed without PR evidence", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();

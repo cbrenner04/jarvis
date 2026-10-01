@@ -40,6 +40,11 @@ describe("createCompletionPublisher", () => {
   };
   const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
 
+  function ghListJsonFields(args: readonly string[]): string {
+    const index = args.indexOf("--json");
+    return index >= 0 ? String(args[index + 1] ?? "") : "";
+  }
+
   const republicationGit = async (_cwd: string, args: readonly string[]) => {
     if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
     if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
@@ -58,7 +63,13 @@ describe("createCompletionPublisher", () => {
         if (state === "open") return JSON.stringify([]);
         if (state === "all") {
           if (history === "throw") throw new Error("gh api unavailable");
-          return JSON.stringify([{ ...history, baseRefName: "main" }]);
+          const fields = ghListJsonFields(args);
+          const row: { number: number; baseRefName: string; state?: string } = {
+            number: history.number,
+            baseRefName: "main",
+          };
+          if (fields.includes("state")) row.state = history.state;
+          return JSON.stringify([row]);
         }
       }
       if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
@@ -1454,6 +1465,9 @@ describe("createCompletionPublisher", () => {
     expect(result.prNumber).toBeUndefined();
     expect(result.prUrl).toBeUndefined();
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    expect(
+      ghCalls.find((c) => c.startsWith("pr list") && c.includes("--state all"))?.includes("number,baseRefName,state"),
+    ).toBe(true);
     expect(writeBodyCalls).toBe(0);
   });
 

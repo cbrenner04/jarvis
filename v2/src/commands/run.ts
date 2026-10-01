@@ -74,8 +74,10 @@ function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string
     formatSlotRedriveCell(e),
     e?.survivingMutationKillingTests === undefined ? "-" : JSON.stringify(e.survivingMutationKillingTests),
     e?.survivingMutationKillingSetResult ?? "-",
-    ...reviewFeedbackItemIdColumns(run),
+    // Fixed positions first: the `--all` dismissal marker stays at column 22 on every row; review-feedback
+    // item ids trail it only on rows that carry them.
     ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
+    ...reviewFeedbackItemIdColumns(run),
   ];
   return `${columns.join("\t")}\n`;
 }

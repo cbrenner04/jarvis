@@ -1379,6 +1379,29 @@ describe("run control", () => {
     expect(row().slice(21)).toEqual([JSON.stringify(["thread-one"]), JSON.stringify([]), JSON.stringify([])]);
   });
 
+  test("run list --all keeps the dismissal marker at column 22 before review-feedback item id columns", async () => {
+    const { code, row } = await runSoloList(
+      [
+        {
+          runId: "review-feedback-dismissed",
+          project: "demo",
+          branch: "lane-branch",
+          status: "completed",
+          isLive: false,
+          dismissedAt: 1,
+          reviewFeedbackAddressedItemIds: ["thread-one"],
+          reviewFeedbackDeclinedItemIds: [],
+          reviewFeedbackUnaddressedItemIds: [],
+        },
+      ],
+      ["--all"],
+    );
+
+    expect(code).toBe(0);
+    expect(row()[21]).toBe("dismissed");
+    expect(row().slice(22)).toEqual([JSON.stringify(["thread-one"]), JSON.stringify([]), JSON.stringify([])]);
+  });
+
   test("run list --all keeps the dismissal marker after the refusal cause cells", async () => {
     const { code, row } = await runSoloList(
       [

@@ -10,18 +10,19 @@ Operators cannot see per-lane terminal publication on `pipeline list` stage rows
 
 ## Decisions
 
-- `pipeline_list` stage rows include per-lane terminal publication fields read from durable stage artifacts for fan-out suffix stages.
+- Fan-out suffix `pipeline_list` stage rows surface per-lane terminal publication inside the existing `artifact` object as `terminalPublication` (no new top-level stage-row keys).
 - Single-lane pipeline snapshots and derived-state projection stay byte-for-byte identical to today's `pipeline_list` encoding.
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-handlers.test.ts` or focused list coverage: a settled two-lane fan-out snapshot exposes each lane implement row's terminal publication fields on `pipeline_list`; fails against pre-fix artifacts without those fields.
+- [ ] `daemon-pipeline-handlers.test.ts` or focused list coverage: a settled two-lane fan-out snapshot exposes each lane implement row's `artifact.terminalPublication` on `pipeline_list`; fails against pre-fix artifacts without that nested field.
 - [ ] Same surface plus existing single-lane list tests: a representative single-lane `pipeline_list` response matches a checked-in byte-equality fixture from main; fails if fan-out work alters single-lane JSON shape.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/first-workflow-walkthrough.md` — configured-pipeline fan-out settlement visible on `pipeline list`.
+- `v2/docs/v1-behaviors.md` — `pipeline_list` fan-out stage `artifact.terminalPublication` projection.
 
 ## Prerequisites
 

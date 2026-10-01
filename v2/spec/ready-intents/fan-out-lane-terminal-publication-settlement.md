@@ -18,8 +18,9 @@ name: fan-out-lane-terminal-publication-settlement
 ## Acceptance criteria
 
 - [ ] `pipeline-execution.test.ts`: a two-lane fan-out whose implements both succeed runs terminal publication per lane, derives `succeeded` with `terminalPublicationSucceededAt` set, and does not commit `multi-branch terminal publication is not defined for fan-out pipelines`; fails against the current fan-out refusal.
-- [ ] Same surface with `terminalAction: "merge"`: both lane implement PRs merge and the pipeline derives `succeeded`; fails against the current fan-out refusal.
+- [ ] Same surface with `terminalAction: "merge"`: mocked `executeTerminalPublication` runs once per settled lane against that lane's implement PR evidence, per-lane and pipeline durable rows record success, and derived state is `succeeded`; fails against the current fan-out refusal.
 - [ ] Same surface: one lane's publication failure is durable on that lane's row, the sibling lane still succeeds, and derived state is `failed` naming the failing lane; fails against pre-fix pipeline-only failure attribution.
+- [ ] `pipeline-execution.test.ts`: split `does not supersede when policy is keep, terminal action is leave-draft, or fan-out refuses terminal success` so fan-out `supersede: close` closes each lane's preceding plan PR after that lane's terminal publication and closes the shared intent PR only after every lane succeeded; keep/leave-draft and pre-fix fan-out refusal cases stay pinned; fails against today's fan-out supersede no-op.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

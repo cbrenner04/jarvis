@@ -96,6 +96,19 @@ describe("runTuiSupervisor", () => {
     expect(code).toBe(1);
   });
 
+  test("refuses to supervise when argv is empty", async () => {
+    // Mutation checkpoint: negating `executable === undefined` would skip this throw and
+    // instead attempt to spawn `undefined` as the command.
+    await expect(
+      runTuiSupervisor({
+        argv: [],
+        supervisorBaseEnv: {},
+        channel: createInMemoryTuiRevisionReexecChannel(),
+        channelFilePath: "/tmp/channel",
+      }),
+    ).rejects.toThrow("cannot supervise: process.argv is empty");
+  });
+
   test("respawns log-follow workers on reserved exit without nesting another supervisor child", async () => {
     const logArgv = ["/usr/bin/node", "/path/cli.js", "tui", "log", "run-abc"];
     const channel = createInMemoryTuiRevisionReexecChannel();

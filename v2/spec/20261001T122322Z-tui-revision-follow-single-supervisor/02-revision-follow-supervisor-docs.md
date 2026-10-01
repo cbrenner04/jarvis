@@ -13,8 +13,8 @@ Operator-facing TUI docs and the v1 parity catalog still describe spawn-and-wait
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/tui.md` documents the supervisor/worker split, `TUI_REVISION_REEXEC_EXIT_CODE`, channel-driven `buildTuiReexecEnv` respawn, and the one-child invariant instead of spawning `process.argv` and exiting with the child's code.
-- [ ] `v2/docs/v1-behaviors.md` documents that monitor and log-follow revision re-exec respawn under one supervisor.
+- [x] `v2/docs/tui.md` documents the supervisor/worker split, `TUI_REVISION_REEXEC_EXIT_CODE`, channel-driven `buildTuiReexecEnv` respawn, and the one-child invariant instead of spawning `process.argv` and exiting with the child's code.
+- [x] `v2/docs/v1-behaviors.md` documents that monitor and log-follow revision re-exec respawn under one supervisor.
 
 ## Documentation updates
 

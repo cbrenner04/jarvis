@@ -964,6 +964,39 @@ test("a succeeded implement stage row with a null endedAt derives no stage-succe
   expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
 });
 
+test("terminal pipeline with publication failure emits pipeline-terminal when a succeeded stage settled lane PR", () => {
+  setSystemTime(new Date(1_000_000));
+  const closedNumber = 99;
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "linear-implement",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "none" },
+      ],
+    },
+  });
+  store.updateStage({ pipelineId, stageId: "intent", patch: { status: "succeeded" } });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: "succeeded",
+      artifact: implementArtifact(closedNumber, {
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+      }),
+    },
+  });
+  store.commitTerminalPublicationFailure({
+    pipelineId,
+    terminalAction: "ready",
+    failure: { operation: "gh pr ready", message: "ready failed", exitCode: 1 },
+  });
+  const incidents = deriveOperatorIncidents(store);
+  expect(incidents.some((row) => row.kind === "publication-failure")).toBe(false);
+  expect(incidents).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId, cause: "failed" })]);
+});
+
 test("a succeeded implement stage with lanePrOutcome and null endedAt derives no stage-succeeded incident", () => {
   const pipelineId = seedImplementLanePipeline();
   landBranchAAtImplement(pipelineId, implementArtifact(5, { lanePrOutcome: { kind: "lane_pr_closed", prNumber: 5 } }));

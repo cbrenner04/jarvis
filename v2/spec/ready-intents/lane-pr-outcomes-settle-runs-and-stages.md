@@ -16,7 +16,7 @@ Even when publication stops before `gh pr create`, resume and pipeline recovery 
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts` or `pipeline-execution.test.ts`: `lane_pr_merged` through completion publication settles the run completed with PR evidence and does not append a republication failure; fails against pre-fix behavior.
+- [ ] `workflow-runner-publication.test.ts` or `pipeline-execution.test.ts` (settlement cases only, not daemon list/wait projection owned by sibling intent): `lane_pr_merged` through completion publication settles the run completed with PR evidence and does not append a republication failure; fails against pre-fix behavior.
 - [ ] Same test surface: `lane_pr_closed` settles terminal `lane_pr_closed` without `status: failed` and without a resumable republication recovery path; fails against pre-fix duplicate-draft republication.
 - [ ] Same test surface: list-probe failure settles failed with the probe message on the run and matching pipeline stage failure detail.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
@@ -24,6 +24,7 @@ Even when publication stops before `gh pr create`, resume and pipeline recovery 
 ## Documentation updates
 
 - `v2/docs/pipeline-execution.md` — resumed or recovered lanes whose newest PR is closed or merged settle on `lane_pr_closed` or `lane_pr_merged` instead of opening another draft.
+- `v2/docs/v1-behaviors.md` — lane PR closed/merged terminal settlement on runs and pipeline stages.
 
 ## Prerequisites
 

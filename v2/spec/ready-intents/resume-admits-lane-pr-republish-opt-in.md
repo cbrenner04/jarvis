@@ -12,6 +12,7 @@ Operators who intentionally re-run a lane on a branch whose lane PR was closed h
 
 - `jarvis run resume` and `jarvis pipeline resume` accept one shared opt-in flag (name chosen at plan) that threads through daemon resume dispatch onto `CompletionPublisherInput` republish opt-in.
 - Without the flag, resume-driven publication keeps the closed-or-merged guard from publication resolution.
+- `jarvis pipeline recover` and other non-resume republication entry points do not admit the opt-in flag; they keep the closed-or-merged guard with no supported bypass (intentional republication after a closed lane PR uses resume with opt-in).
 
 ## Acceptance criteria
 

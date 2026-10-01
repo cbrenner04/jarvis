@@ -15,13 +15,15 @@ Runs and stages that settle on `lane_pr_closed` or `lane_pr_merged` do not appea
 
 ## Acceptance criteria
 
+- [ ] `run.test.ts` or daemon list/wait coverage: a run settled `lane_pr_closed` or `lane_pr_merged` projects the outcome and PR number on list/wait operator errors; fails against pre-fix projections that omit the outcome or PR number.
 - [ ] `daemon-test-inventory.test.ts` or focused `operator-notification.test.ts` / `run.test.ts` coverage: a run settled `lane_pr_closed` emits an incident naming `lane_pr_closed` and the PR number; fails against pre-fix projections that omit the outcome.
-- [ ] Pipeline list/wait or `pipeline-execution.test.ts`: a stage settled after `lane_pr_merged` exposes success with the merged PR number in stage observation, not publication-failed; fails against pre-fix free-form failure detail.
+- [ ] Pipeline list/wait or `pipeline-execution.test.ts` (projection-only cases, not settlement logic owned by sibling intent): a stage settled after `lane_pr_merged` exposes success with the merged PR number in stage observation, not publication-failed; fails against pre-fix free-form failure detail.
+- [ ] Same pipeline list/wait or projection test surface: a stage settled after `lane_pr_closed` exposes the terminal `lane_pr_closed` outcome and PR number in stage observation, not publication-failed; fails against pre-fix free-form failure detail.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/daemon-host.md` — operator incidents include lane PR closed/merged settlement outcomes when configured.
+- `v2/docs/daemon-host.md` — run list/wait operator errors and notification incidents include `lane_pr_closed` / `lane_pr_merged` settlement outcomes with PR numbers when configured.
 
 ## Prerequisites
 

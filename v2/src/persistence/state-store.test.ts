@@ -5359,6 +5359,145 @@ describe("terminal publication commits", () => {
     );
   });
 
+  const FAN_OUT_TERMINAL_DEFINITION: PipelineDefinition = {
+    name: "fan-out-terminal",
+    terminalAction: "ready",
+    stages: [
+      { stageId: "intent", kind: "workflow", workflow: "intent", review: "light" },
+      { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+    ],
+  };
+
+  const LANE_PR_ARTIFACT = {
+    entryRunId: "run-implement",
+    specPath: "spec/implement.md",
+    prNumber: 1,
+    prUrl: "https://example.com/pr/1",
+  };
+
+  function seedTwoLaneFanOutTerminalPipeline(): {
+    pipelineId: string;
+    branchKeys: readonly ["lane-a", "lane-b"];
+  } {
+    const branchKeys: readonly ["lane-a", "lane-b"] = ["lane-a", "lane-b"];
+    const pipelineId = store.createPipeline({ definition: FAN_OUT_TERMINAL_DEFINITION });
+    store.updateStage({
+      pipelineId,
+      stageId: "intent",
+      patch: {
+        status: "succeeded",
+        artifact: {
+          entryRunId: "run-intent",
+          specPath: "spec/intent.md",
+          downstreamInputs: ["spec/lane-a.md", "spec/lane-b.md"],
+        },
+      },
+    });
+    for (const branchKey of branchKeys) {
+      store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
+      store.updateStage({
+        pipelineId,
+        stageId: "implement",
+        branchKey,
+        patch: { status: "succeeded", artifact: { ...LANE_PR_ARTIFACT, entryRunId: `run-${branchKey}` } },
+      });
+    }
+    store.updateStage({
+      pipelineId,
+      stageId: "implement",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
+    return { pipelineId, branchKeys };
+  }
+
+  function implementArtifactForLane(pipelineId: string, branchKey: string): Record<string, unknown> {
+    const pipeline = loadPipelineOrThrow(store, pipelineId);
+    const stage = pipeline.stages.find((row) => row.stageId === "implement" && row.branchKey === branchKey);
+    if (stage === undefined) throw new Error(`missing implement stage for ${branchKey}`);
+    if (stage.artifact === null || typeof stage.artifact !== "object") {
+      throw new Error(`missing implement artifact for ${branchKey}`);
+    }
+    return stage.artifact as Record<string, unknown>;
+  }
+
+  test("fan-out per-lane terminal publication success stamps lane artifacts and aggregates pipeline success", () => {
+    const { pipelineId, branchKeys } = seedTwoLaneFanOutTerminalPipeline();
+    const before = Date.now();
+
+    store.commitTerminalPublicationSuccess({ pipelineId, branchKey: branchKeys[0] });
+    let pipeline = loadPipelineOrThrow(store, pipelineId);
+    expect(pipeline.terminalPublicationSucceededAt).toBeNull();
+    expect(pipeline.terminalPublicationFailure).toBeNull();
+    expect(implementArtifactForLane(pipelineId, branchKeys[0]).terminalPublication).toEqual({
+      succeededAt: expect.any(Number),
+    });
+
+    store.commitTerminalPublicationSuccess({ pipelineId, branchKey: branchKeys[1] });
+    pipeline = loadPipelineOrThrow(store, pipelineId);
+    expect(pipeline.terminalPublicationFailure).toBeNull();
+    expect(pipeline.terminalPublicationSucceededAt).toBeGreaterThanOrEqual(before);
+    for (const branchKey of branchKeys) {
+      const stamp = implementArtifactForLane(pipelineId, branchKey).terminalPublication as { succeededAt: number };
+      expect(stamp.succeededAt).toBeGreaterThanOrEqual(before);
+    }
+  });
+
+  test("fan-out per-lane terminal publication failure stamps lane artifact and pipeline failure with branchKey", () => {
+    const { pipelineId, branchKeys } = seedTwoLaneFanOutTerminalPipeline();
+
+    store.commitTerminalPublicationFailure({
+      pipelineId,
+      branchKey: branchKeys[0],
+      terminalAction: "ready",
+      failure: SAMPLE_FAILURE,
+      prNumber: 9,
+      prUrl: "https://example.com/pr/9",
+    });
+    const pipeline = loadPipelineOrThrow(store, pipelineId);
+    expect(pipeline.terminalPublicationSucceededAt).toBeNull();
+    expect(pipeline.terminalPublicationFailure).toEqual({
+      terminalAction: "ready",
+      failure: SAMPLE_FAILURE,
+      prNumber: 9,
+      prUrl: "https://example.com/pr/9",
+      branchKey: branchKeys[0],
+    });
+    expect(implementArtifactForLane(pipelineId, branchKeys[0]).terminalPublication).toEqual({
+      failure: SAMPLE_FAILURE,
+    });
+    expect(implementArtifactForLane(pipelineId, branchKeys[1]).terminalPublication).toBeUndefined();
+  });
+
+  test("fan-out terminal publication pipeline markers stay first-write idempotent after repeat lane commits", () => {
+    const { pipelineId, branchKeys } = seedTwoLaneFanOutTerminalPipeline();
+
+    store.commitTerminalPublicationFailure({
+      pipelineId,
+      branchKey: branchKeys[0],
+      terminalAction: "ready",
+      failure: SAMPLE_FAILURE,
+    });
+    const first = loadPipelineOrThrow(store, pipelineId);
+
+    store.commitTerminalPublicationFailure({
+      pipelineId,
+      branchKey: branchKeys[0],
+      terminalAction: "merge",
+      failure: { operation: "gh pr merge", message: "should not apply" },
+    });
+    store.commitTerminalPublicationFailure({
+      pipelineId,
+      branchKey: branchKeys[1],
+      terminalAction: "merge",
+      failure: { operation: "gh pr merge", message: "sibling should not apply" },
+    });
+    store.commitTerminalPublicationSuccess({ pipelineId, branchKey: branchKeys[1] });
+
+    const after = loadPipelineOrThrow(store, pipelineId);
+    expect(after.terminalPublicationFailure).toEqual(first.terminalPublicationFailure);
+    expect(after.terminalPublicationSucceededAt).toBeNull();
+  });
+
   test("commitTerminalPublicationFailure stamps first write and is idempotent", () => {
     const pipelineId = seedSettledPipeline();
 

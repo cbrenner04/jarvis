@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+
+const notAncestorMergeBase = new AsyncSubprocessError("not an ancestor", 1, "", "", undefined);
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
@@ -45,13 +47,42 @@ describe("createCompletionPublisher", () => {
     return index >= 0 ? String(args[index + 1] ?? "") : "";
   }
 
+  const postPushTip = "abc123def456";
+
   const republicationGit = async (_cwd: string, args: readonly string[]) => {
     if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
-    if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return postPushTip;
+    if (args[0] === "rev-parse" && args[1] === "--verify") {
+      const oid = String(args[2]).replace(/\^\{commit\}$/, "");
+      if (oid === "unreadable-head") throw new Error("bad object");
+      return oid;
+    }
+    if (args[0] === "merge-base" && args[1] === "--is-ancestor") return "";
     return "";
   };
 
-  function ghOpenEmptyThenAllHistory(history: { number: number; state: string } | "throw"): {
+  function lineageGit(options?: {
+    foreignHead?: boolean;
+    leaseBlocks?: { head: string; leaseFromSha: string };
+  }): typeof republicationGit {
+    return async (cwd, args) => {
+      if (args[0] === "merge-base" && args[1] === "--is-ancestor") {
+        const ancestor = args[2];
+        const descendant = args[3];
+        if (options?.leaseBlocks !== undefined) {
+          const { head, leaseFromSha } = options.leaseBlocks;
+          if (ancestor === head && descendant === leaseFromSha) return "";
+          if (ancestor === head && descendant === postPushTip) throw notAncestorMergeBase;
+        }
+        if (options?.foreignHead === true) throw notAncestorMergeBase;
+      }
+      return republicationGit(cwd, args);
+    };
+  }
+
+  function ghOpenEmptyThenAllHistory(
+    history: { number: number; state: string; headRefOid?: string; createPrNumber?: number } | "throw",
+  ): {
     gh: (_cwd: string, args: readonly string[]) => Promise<string>;
     ghCalls: string[];
   } {
@@ -64,17 +95,26 @@ describe("createCompletionPublisher", () => {
         if (state === "all") {
           if (history === "throw") throw new Error("gh api unavailable");
           const fields = ghListJsonFields(args);
-          const row: { number: number; baseRefName: string; state?: string } = {
+          const row: { number: number; baseRefName: string; state?: string; headRefOid?: string } = {
             number: history.number,
             baseRefName: "main",
           };
           if (fields.includes("state")) row.state = history.state;
+          if (fields.includes("headRefOid") && history.headRefOid !== undefined) {
+            row.headRefOid = history.headRefOid;
+          }
           return JSON.stringify([row]);
         }
       }
-      if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
+      if (args[0] === "pr" && args[1] === "create") {
+        if (history !== "throw" && history.createPrNumber !== undefined) {
+          return `https://github.com/user/repo/pull/${history.createPrNumber}`;
+        }
+        throw new Error("unexpected pr create");
+      }
       if (args[0] === "pr" && args[1] === "view" && history !== "throw") {
-        return viewPr(history.number, `https://github.com/user/repo/pull/${history.number}`);
+        const number = history.createPrNumber ?? history.number;
+        return viewPr(number, `https://github.com/user/repo/pull/${number}`);
       }
       return "";
     };
@@ -1449,7 +1489,8 @@ describe("createCompletionPublisher", () => {
     { state: "MERGED" as const, number: 77, kind: "lane_pr_merged" as const },
   ])("returns $kind without create when newest head+base history is $state", async ({ state, number, kind }) => {
     let writeBodyCalls = 0;
-    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number, state });
+    const inLineageHead = "lane-dead-head";
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number, state, headRefOid: inLineageHead });
 
     const publisher = createCompletionPublisher({
       git: republicationGit,
@@ -1474,7 +1515,9 @@ describe("createCompletionPublisher", () => {
     }
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
     expect(
-      ghCalls.find((c) => c.startsWith("pr list") && c.includes("--state all"))?.includes("number,baseRefName,state"),
+      ghCalls
+        .find((c) => c.startsWith("pr list") && c.includes("--state all"))
+        ?.includes("number,baseRefName,state,headRefOid"),
     ).toBe(true);
     expect(writeBodyCalls).toBe(0);
   });
@@ -1488,7 +1531,104 @@ describe("createCompletionPublisher", () => {
     const listJson = (state: string) =>
       ghCalls.find((c) => c.startsWith("pr list") && c.includes(`--state ${state}`))?.split("--json ")[1];
     expect(listJson("open")).toBe("number,baseRefName,isDraft");
-    expect(listJson("all")).toBe("number,baseRefName,state");
+    expect(listJson("all")).toBe("number,baseRefName,state,headRefOid");
+  });
+
+  it("creates a draft when newest CLOSED PR head is outside post-push tip lineage", async () => {
+    const foreignHead = "foreign-closed-head";
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({
+      number: 88,
+      state: "CLOSED",
+      headRefOid: foreignHead,
+      createPrNumber: 99,
+    });
+    const publisher = createCompletionPublisher({
+      git: lineageGit({ foreignHead: true }),
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(99);
+    expect(result.lanePrOutcome).toBeUndefined();
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
+  });
+
+  it("creates a draft when newest MERGED PR head is outside post-push tip lineage", async () => {
+    const foreignHead = "foreign-merged-head";
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({
+      number: 77,
+      state: "MERGED",
+      headRefOid: foreignHead,
+      createPrNumber: 78,
+    });
+    const publisher = createCompletionPublisher({
+      git: lineageGit({ foreignHead: true }),
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(78);
+    expect(result.lanePrOutcome).toBeUndefined();
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
+  });
+
+  it("returns lane_pr_closed when dead PR head is in leaseFromSha lineage but not post-push tip lineage", async () => {
+    const head = "rebased-away-head";
+    const leaseFromSha = "pre-rebase-tip";
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number: 88, state: "CLOSED", headRefOid: head });
+    const publisher = createCompletionPublisher({
+      git: lineageGit({ leaseBlocks: { head, leaseFromSha } }),
+      gh,
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher({ ...baseInput, leaseFromSha });
+
+    expect(result.lanePrOutcome).toEqual({ kind: "lane_pr_closed", prNumber: 88 });
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+  });
+
+  it.each([
+    { state: "CLOSED" as const, kind: "lane_pr_closed" as const },
+    { state: "MERGED" as const, kind: "lane_pr_merged" as const },
+  ])("returns $kind when closed/merged head is unreadable in git", async ({ state, kind }) => {
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({
+      number: 55,
+      state,
+      headRefOid: "unreadable-head",
+    });
+
+    const publisher = createCompletionPublisher({ git: republicationGit, gh, delay: noopDelay, ...noopRefreshSeams });
+
+    const result = await publisher(baseInput);
+
+    expect(result.lanePrOutcome).toEqual({ kind, prNumber: 55 });
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+  });
+
+  it.each([
+    { state: "CLOSED" as const, kind: "lane_pr_closed" as const, omitHeadRefOid: true as const },
+    { state: "MERGED" as const, kind: "lane_pr_merged" as const, headRefOid: "" },
+  ])("returns $kind when closed/merged headRefOid is missing or empty", async ({ state, kind, ...head }) => {
+    const history =
+      "omitHeadRefOid" in head && head.omitHeadRefOid === true
+        ? { number: 44, state }
+        : { number: 44, state, headRefOid: head.headRefOid };
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory(history);
+
+    const publisher = createCompletionPublisher({ git: republicationGit, gh, delay: noopDelay, ...noopRefreshSeams });
+
+    const result = await publisher(baseInput);
+
+    expect(result.lanePrOutcome).toEqual({ kind, prNumber: 44 });
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
   });
 
   it("creates a fresh draft when allowLanePrRepublish is set despite closed history", async () => {

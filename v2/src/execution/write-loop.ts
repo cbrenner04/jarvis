@@ -108,6 +108,7 @@ import {
   readyGateOutOfScopeLogFields,
   resolveAttributableRepairAllowset,
   resolveGateRepairAllowset,
+  selectAttributablePathsWhollyOutsideGateRepairAllowset,
   SurvivingMutationError,
   type SurvivingMutationKillingSetResult,
   selectFailedReadyStepOutput,
@@ -4326,6 +4327,23 @@ export async function publishWithReadyRepair(
     const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, args, iterationsConsumed);
     if ("failure" in initialized) return initialized.failure;
     frozenRepairAllowset = initialized.allowset;
+  }
+
+  const whollyOutside = selectAttributablePathsWhollyOutsideGateRepairAllowset(frozenRepairAllowset, outcome.error);
+  if (whollyOutside !== undefined) {
+    const outOfScopeError = new ReadyGateError(
+      outcome.error.command,
+      outcome.error.exitCode,
+      outcome.error.output,
+      outcome.error.timedOut,
+      { kind: "ready_gate_out_of_scope", outsidePaths: whollyOutside },
+      input.baseRef,
+      outcome.error.spawnCode,
+    );
+    return buildReadyRepairPublishResult(
+      { kind: "ready_gate_out_of_scope", error: outOfScopeError },
+      iterationsConsumed,
+    );
   }
 
   const gateRepairAllowset = resolveAttributableRepairAllowset(frozenRepairAllowset, outcome.error);

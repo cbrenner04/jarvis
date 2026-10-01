@@ -28,7 +28,7 @@
 - [x] The file-header comment on `v2/src/execution/workflow-runner-resume-inventory.test.ts` records the `*-anchors` self-parsing audit (2026-09-18): only this file on main, updated to the shared contract.
 - [x] `parses resume-path inventory anchors from inventory test source` in `workflow-runner-resume-inventory.test.ts` stays green with fixtures shaped so `locateParseOnlyInventoryArrayBody` cannot bind them as `RESUME_PATH_INVENTORY_ANCHORS`.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

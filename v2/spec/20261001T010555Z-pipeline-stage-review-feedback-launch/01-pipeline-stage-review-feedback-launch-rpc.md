@@ -28,8 +28,8 @@ Operators must hand-assemble `jarvis run workflow review-feedback` with pipeline
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-stage-review-feedback-launch.test.ts` proves completed intent, plan, and implement stages with an open reviewed PR each admit on that stage's branch; an unknown stage, an unfinished stage, and a no-review PR each refuse by name; pipeline and stage rows are byte-identical before and after; it fails against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `daemon-pipeline-stage-review-feedback-launch.test.ts` proves completed intent, plan, and implement stages with an open reviewed PR each admit on that stage's branch; an unknown stage, an unfinished stage, and a no-review PR each refuse by name; pipeline and stage rows are byte-identical before and after; it fails against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

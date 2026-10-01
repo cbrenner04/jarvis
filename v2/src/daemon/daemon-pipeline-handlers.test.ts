@@ -73,6 +73,7 @@ function pipelineHandlers(
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     resolveStage,
   });
 }
@@ -420,6 +421,7 @@ test("pipelineExecutionDeps wires executeTerminalPublication from deps", () => {
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     executeTerminalPublication,
   });
   expect(handlers.pipelineExecutionDeps().executeTerminalPublication).toBe(executeTerminalPublication);
@@ -441,6 +443,7 @@ test("pipelineExecutionDeps wires attemptFailedImplementPipelineResume from deps
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     attemptFailedImplementPipelineResume,
   });
   expect(handlers.pipelineExecutionDeps().attemptFailedImplementPipelineResume).toBe(
@@ -470,6 +473,7 @@ test("pipelineExecutionDeps wires staleResetPreflight when daemonSocketPath is s
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     daemonSocketPath: "/marker-daemon.sock",
     connectStaleResetClient: async (socketPath) => {
       connectedTo = socketPath;
@@ -507,6 +511,7 @@ test("pipelineExecutionDeps wires loadLogRecords from logReader", () => {
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
   });
   const deps = handlers.pipelineExecutionDeps();
   expect(deps.loadLogRecords).toBeDefined();

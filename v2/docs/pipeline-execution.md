@@ -236,6 +236,10 @@ A `running` stage whose linked entry run is durably terminal settles from `settl
 
 An entry run this daemon still drives is left alone; on `resume` that surfaces as `pipeline_not_resumable`. Resume settles and then continues only what the settlement unblocked (a pending successor, or the terminal publication a fully-satisfied pipeline owes); a stage it settles `failed` stops there, so reopening — which discards a failure the operator has not yet seen — takes a second resume. See [`operator-runbook.md` § Unsettled pipeline-stage](./operator-runbook.md#unsettled-pipeline-stage-after-daemon-death).
 
+### `pipeline_stage_review_feedback_launch`
+
+Daemon RPC `pipeline_stage_review_feedback_launch` (`daemon-pipeline-handlers.ts`, `pipeline-stage-review-feedback-launch.ts`) admits a detached `review-feedback` workflow from `(pipelineId, stageId[, branchKey])` without `pipeline_resume`, stage settlement, or any mutation of `pipelines` / `pipeline_stages` rows or approval gates. Params: `pipelineId` and `stageId` (non-empty strings); optional `branchKey` (non-empty string when present, required to disambiguate fan-out stage rows). Malformed params → `invalid_params`. Admission reuses `prepareReviewFeedbackWorkflowAdmissionForLaneRequest` / standalone `jarvis run workflow review-feedback` refusal codes (`review_feedback_*`, `review_feedback_write_not_available`) and messages; success returns the same detached workflow `start` shape (`{ runId }`) via `handleWorkflowStart`. The admitted run carries `reviewFeedbackLane` provenance from the resolved stage lane for monitor attribution only. Tests: `daemon-pipeline-stage-review-feedback-launch.test.ts`.
+
 ## Pending boundaries
 
 Merge-day settlement above is not settled architecture. Pending restructure:

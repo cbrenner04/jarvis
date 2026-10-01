@@ -114,6 +114,7 @@ function recoverHandlers() {
     pipelineDispatch: lifecycle.pipelineDispatch,
     pipelineWait: lifecycle.pipelineWait,
     admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
     daemonSocketPath: "/handlers-recover-flags.sock",
   });
 }

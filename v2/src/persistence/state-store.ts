@@ -293,7 +293,7 @@ export function loadPipelineContext(value: unknown): LoadPipelineContextResult {
   return { ok: true, context };
 }
 
-export type StageTerminalPublication = { succeededAt: number } | { failure: PublicationFailure };
+type StageTerminalPublication = { succeededAt: number } | { failure: PublicationFailure };
 
 /** Durable terminal-publication failure recorded on the pipeline row after stage success. */
 type PipelineTerminalPublicationFailure = {

@@ -22,13 +22,14 @@ name: resume-path-inventory-binds-real-declaration
 ## Prerequisites
 
 - Shared self-parsing inventory locator throws on wrong binding, tolerates `_` prefix, and is covered by the three regressions in `shared/structural-test-locator.test.ts`.
-- Parse-only inventory constants use the marker comment contract defined alongside the shared helper.
+- Parse-only inventory constants use the marker comment literal exported from the shared locator module.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-resume-inventory.test.ts` resolves merge-base `RESUME_PATH_INVENTORY_ANCHORS` (or `SOURCE_BUCKETS`) from the real module declaration when an in-file fixture of the same shape exists; a regression fails if first-match regex returns the fixture count instead of the live inventory count.
-- [ ] The resume-path inventory parity test asserts expected anchor count equal to the live `_RESUME_PATH_INVENTORY_ANCHORS` length, not only non-emptiness.
-- [ ] Audit of self-parsing locators under the `*-anchors` corpus is recorded (in test or comment): only `workflow-runner-resume-inventory.test.ts` on main, updated to the contract.
+- [ ] `_RESUME_PATH_INVENTORY_ANCHORS` carries the parse-only inventory marker literal exported from `shared/structural-test-locator.ts`.
+- [ ] Merge-base inventory parsing binds the module `_RESUME_PATH_INVENTORY_ANCHORS` (or `SOURCE_BUCKETS` alias), not a same-shaped in-file fixture; binding fails against the pre-fix prefix-blind `_?` first-match regex in `parseResumePathInventoryAnchors` (reachable on main).
+- [ ] A regression in `workflow-runner-resume-inventory.test.ts` (`preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations` extended or a dedicated bind/count test) fails on main and passes after shared-helper binding with anchor count equal to `_RESUME_PATH_INVENTORY_ANCHORS.length` (not only non-emptiness).
+- [ ] The file-header comment on `workflow-runner-resume-inventory.test.ts` records the `*-anchors` self-parsing audit (2026-09-18): only this file on main, updated to the shared contract.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

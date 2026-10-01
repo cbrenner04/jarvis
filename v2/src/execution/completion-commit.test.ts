@@ -495,6 +495,53 @@ describe("createCompletionCommitter", () => {
     ]);
   });
 
+  test("strict restaging preserves checkpoint mainSyncRevertedPaths on the completion result", async () => {
+    const { worktreePath, gitDir } = setupWorktree();
+    mkdirSync(join(worktreePath, "src"), { recursive: true });
+    writeFileSync(join(worktreePath, "src/code.ts"), "export const x=1;\n");
+    const checkpointSyncPaths = ["src/synced-from-main.ts"];
+    writeFileSync(
+      join(gitDir, "jarvis-completion-pending.json"),
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "checkpoint-tree",
+        branchRef: "refs/heads/feature",
+        message: "Test Spec Title\n\nJarvis-Agent: claude\nJarvis-Step: write",
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        formatMode: "checkpoint",
+        mainSyncRevertedPaths: checkpointSyncPaths,
+      })}\n`,
+      "utf8",
+    );
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args.join("\0") === ["status", "--porcelain=v1", "-z", "--untracked-files=all"].join("\0")) {
+        return " M src/code.ts\0";
+      }
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "strict-tree";
+      if (args[0] === "commit-tree") return "strict-commit";
+      if (args[0] === "diff-tree") return "src/code.ts";
+      if (args[0] === "update-ref") return "";
+      if (args[0] === "reset") return "";
+      if (args[0] === "read-tree") return "";
+      if (args[0] === "add") return "";
+      if (args[0] === "diff" && args.includes("--cached")) return "src/code.ts\0";
+      return "";
+    };
+
+    const result = await createCompletionCommitter(runGit)({
+      worktreePath,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+    });
+
+    expect(result.mainSyncRevertedPaths).toEqual(checkpointSyncPaths);
+  });
+
   test("defaults absent and legacy pending step metadata to write", async () => {
     // Fresh direct completion: bare title, `Jarvis-Step: write` added beside `Jarvis-Agent`.
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");

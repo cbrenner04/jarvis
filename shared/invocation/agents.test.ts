@@ -2568,6 +2568,237 @@ describe("createResolvedAgentBinding", () => {
     }
   });
 
+  function claudeUsageResultLine(
+    usage: {
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    },
+    costUsd?: number,
+  ): string {
+    return JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "done",
+      usage: {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+      },
+      ...(costUsd !== undefined ? { total_cost_usd: costUsd } : {}),
+    });
+  }
+
+  function cursorUsageResultLine(usage: typeof CURSOR_AGENT_USAGE): string {
+    return JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: {
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheReadTokens: usage.cache_read_input_tokens,
+        cacheWriteTokens: usage.cache_creation_input_tokens,
+      },
+    });
+  }
+
+  test("stream-binding recovery on non-ok settlement", async () => {
+    const claudeUsage = {
+      input_tokens: 11,
+      output_tokens: 7,
+      cache_read_input_tokens: 2,
+      cache_creation_input_tokens: 0,
+    };
+    const claudeStream = claudeUsageResultLine(claudeUsage, 0.42);
+    const claudeQuotaEnvelope = JSON.stringify({
+      type: "result",
+      is_error: true,
+      api_error_status: 429,
+      result: "You've hit your weekly limit",
+      usage: {
+        input_tokens: claudeUsage.input_tokens,
+        output_tokens: claudeUsage.output_tokens,
+        cache_read_input_tokens: claudeUsage.cache_read_input_tokens,
+        cache_creation_input_tokens: claudeUsage.cache_creation_input_tokens,
+      },
+      total_cost_usd: 0.42,
+    });
+    const claudeQuota = fakeSpawn([{ kind: "settle", code: 0, stdout: claudeQuotaEnvelope, stderr: "" }]);
+    const claudeQuotaResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: claudeQuota.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(claudeQuotaResult).toMatchObject({
+      kind: "quota",
+      usage: claudeUsage,
+      usage_source: "agent",
+      cost_usd: 0.42,
+      cost_source: "agent",
+    });
+
+    const claudeError = fakeSpawn([{ kind: "settle", code: 2, stdout: claudeStream, stderr: "hard fail" }]);
+    const claudeErrorResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: claudeError.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(claudeErrorResult).toMatchObject({
+      kind: "error",
+      exitCode: 2,
+      usage: claudeUsage,
+      usage_source: "agent",
+    });
+
+    const cursorStream = cursorUsageResultLine(CURSOR_AGENT_USAGE);
+    const cursorQuota = fakeSpawn([
+      { kind: "settle", code: 1, stdout: cursorStream, stderr: "You've hit your usage limit" },
+    ]);
+    const cursorQuotaResult = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: cursorQuota.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(cursorQuotaResult).toMatchObject({
+      kind: "quota",
+      usage: CURSOR_AGENT_USAGE,
+      usage_source: "agent",
+      diagnostics: cursorStream,
+    });
+
+    const stepFinish = JSON.stringify({
+      type: "step_finish",
+      part: { tokens: { input: 3, output: 4, cache: { read: 1, write: 0 } }, cost: 0.01 },
+    });
+    const opencodeStdout = `${stepFinish}\n`;
+    const opencodeQuota = fakeSpawn([
+      { kind: "settle", code: 1, stdout: opencodeStdout, stderr: "rate limit reached" },
+    ]);
+    const opencodeQuotaResult = await createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: opencodeQuota.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(opencodeQuotaResult).toMatchObject({
+      kind: "quota",
+      usage: {
+        input_tokens: 3,
+        output_tokens: 4,
+        cache_read_input_tokens: 1,
+        cache_creation_input_tokens: 0,
+      },
+      usage_source: "agent",
+      diagnostics: opencodeStdout,
+    });
+
+    const stallHarness = hangWithControllableIdle(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { watchWorktreeActivity: () => {} },
+    );
+    const stallRun = stallHarness.binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 50 });
+    await new Promise((resolve) => setImmediate(resolve));
+    stallHarness.fake.calls[0]?.child?.stdout.write(`${claudeStream}\n`);
+    stallHarness.fireIdle();
+    const stallResult = await stallRun;
+    expect(stallResult).toMatchObject({ kind: "stall", usage: claudeUsage, usage_source: "agent" });
+
+    const abortHarness = hangWithControllableIdle(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { watchWorktreeActivity: () => {} },
+    );
+    const controller = new AbortController();
+    const abortRun = abortHarness.binding.invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    abortHarness.fake.calls[0]?.child?.stdout.write(`${claudeStream}\n`);
+    controller.abort("operator");
+    const abortResult = await abortRun;
+    expect(abortResult).toMatchObject({
+      kind: "error",
+      exitCode: -1,
+      stderr: "aborted: operator",
+      diagnostics: `${claudeStream}\n`,
+      usage: claudeUsage,
+      usage_source: "agent",
+    });
+
+    const cumulativeStream = `${claudeUsageResultLine({ input_tokens: 1, output_tokens: 1 })}\n${claudeUsageResultLine({ input_tokens: 99, output_tokens: 88 })}\n`;
+    const cumulative = fakeSpawn([{ kind: "settle", code: 1, stdout: cumulativeStream, stderr: "boom" }]);
+    const cumulativeResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: cumulative.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(cumulativeResult).toMatchObject({
+      kind: "error",
+      usage: { input_tokens: 99, output_tokens: 88 },
+    });
+
+    const firstUsage = claudeUsageResultLine({ input_tokens: 5, output_tokens: 6 });
+    const secondUsage = claudeUsageResultLine({ input_tokens: 50, output_tokens: 60 });
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+          {
+            spawn: fakeSpawn([{ kind: "settle", code: 1, stdout: firstUsage, stderr: "You've hit your weekly limit" }])
+              .spawn,
+          },
+        ),
+        createResolvedAgentBinding(
+          { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+          { spawn: fakeSpawn([{ kind: "settle", code: 0, stdout: secondUsage, stderr: "" }]).spawn },
+        ),
+      ],
+      telemetry: {
+        ...telemetryForRows(rows),
+        invocationIds: ["inv-1", "inv-2"],
+      },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.usage.input_tokens).toBe(5);
+    expect(rows[1]?.usage.input_tokens).toBe(50);
+
+    const missingCounters = fakeSpawn([{ kind: "settle", code: 1, stderr: "boom" }]);
+    const missingResult = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: missingCounters.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(missingResult).toEqual({ kind: "error", exitCode: 1, stderr: "boom" });
+
+    const spawnFailure = fakeSpawn([{ kind: "throw", error: new Error("ENOENT") }]);
+    const spawnFailureResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: spawnFailure.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(spawnFailureResult).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT" });
+
+    const warningStream = '{"type":"system"}\n';
+    const warningFake = fakeSpawn([{ kind: "settle", code: 1, stdout: warningStream, stderr: "err" }]);
+    const warningResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: warningFake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(warningResult).toMatchObject({
+      kind: "error",
+      exitCode: 1,
+      warnings: ["no terminal result event found"],
+    });
+
+    const modelConfigStream = claudeUsageResultLine({ input_tokens: 8, output_tokens: 9 });
+    const modelConfig = fakeSpawn([
+      { kind: "settle", code: 1, stdout: modelConfigStream, stderr: "unknown model: nope" },
+    ]);
+    const modelConfigResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: modelConfig.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(modelConfigResult).toMatchObject({
+      kind: "model_config",
+      usage: { input_tokens: 8, output_tokens: 9 },
+      usage_source: "agent",
+    });
+  });
+
   test("wired bindings forward output progress notifications from stdout and stderr", async () => {
     const wired = [
       { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },

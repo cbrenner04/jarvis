@@ -24,10 +24,10 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` — stream-binding recovery regression (claude, cursor, opencode non-ok and abort teardown with injected NDJSON, cumulative terminal snapshot, distinct fallback-attempt usage, null when counters absent, pre-result spawn failure without usage, partial-then-failure, warnings-only recovery errors) fails against pre-fix finalize early returns on non-ok results.
-- [ ] `shared/invocation/execute.test.ts` — `non-ok bindings copy agent-sourced settlement onto invocation_completed rows` stays green.
-- [ ] `shared/invocation/agents.test.ts` — `cursor binding passes non-ok results through unnormalized` stays green.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] `shared/invocation/agents.test.ts` — stream-binding recovery regression (claude, cursor, opencode non-ok and abort teardown with injected NDJSON, cumulative terminal snapshot, distinct fallback-attempt usage, null when counters absent, pre-result spawn failure without usage, partial-then-failure, warnings-only recovery errors) fails against pre-fix finalize early returns on non-ok results.
+- [x] `shared/invocation/execute.test.ts` — `non-ok bindings copy agent-sourced settlement onto invocation_completed rows` stays green.
+- [x] `shared/invocation/agents.test.ts` — `cursor binding passes non-ok results through unnormalized` stays green.
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

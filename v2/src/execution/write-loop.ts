@@ -63,6 +63,7 @@ import {
 import {
   biomeEligiblePaths,
   type CompletionCommitter,
+  type CompletionStepMetadata,
   completionStageArgs,
   createCompletionCommitter,
   isHarnessTransientRootSidecar,
@@ -81,8 +82,17 @@ import {
   type VerificationResult,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
-import { type ExternalSpecGitScope, excludeExternalSpecGitPaths, externalSpecGitScope } from "./external-spec-git.ts";
-import { getExternalWorktreePath, isMaterializedNodeModulesPath } from "./external-worktree.ts";
+import {
+  type ExternalSpecGitScope,
+  excludeExternalSpecGitPaths,
+  externalSpecGitScope,
+  withExternalSpecTreeReadOnly,
+} from "./external-spec-git.ts";
+import {
+  getExternalWorktreePath,
+  isMaterializedNodeModulesPath,
+  MATERIALIZED_NODE_MODULES_PATH,
+} from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
@@ -121,6 +131,7 @@ import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
+import { throwIfAborted } from "./throw-if-aborted.ts";
 import { type CoverageRunSkipReason, reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { storeVerifierProcessGroupRecorder, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
@@ -3415,6 +3426,8 @@ type CompletionPublishFailure = {
     | "non_terminating_mutation_failed"
     | "runtime_smoke_failed";
   error?: Error;
+  /** Tip the publisher pushed before finalization failed. */
+  pushSha?: string;
   /** `false` when resume cannot clear the failure (every repair edit refused and reverted). */
   resumable?: false;
   prNumber?: number;
@@ -3425,6 +3438,8 @@ type CompletionPublishFailure = {
 };
 
 type CompletionPublishSuccess = {
+  /** Tip the publisher pushed; the mutation-repair HEAD gate compares against it. */
+  pushSha?: string;
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome: SmokePass | undefined;
@@ -3470,7 +3485,10 @@ export function appendRuntimeSmokeOutcome(
   }
 }
 
-type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
+type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1] & {
+  /** When true, `surviving_mutation_failed` returns without the publication in-flow repair loop (resume republish). */
+  skipPublicationMutationRepairLoop?: boolean;
+};
 type CompletionPublishOutcome = CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" });
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
@@ -3592,6 +3610,292 @@ export async function runMutationRepairIteration(
     runStatus: boundary.runStatus,
   });
   return stepResult.kind === "blocked" ? "blocked" : "continue";
+}
+
+/** Terminal outcome of the shared `write.mutation-repair` driver; `head_drift` charged no attempt. */
+export type MutationRepairDriveOutcome =
+  | { kind: "complete"; success: CompletionPublishSuccess; iterationsConsumed: number }
+  | { kind: "exhausted"; mutationError: SurvivingMutationError }
+  | { kind: "repair_blocked"; mutationError: SurvivingMutationError; attempt: number }
+  | { kind: "repair_unsettled"; mutationError: SurvivingMutationError; attempt: number }
+  | { kind: "head_drift"; mutationError: SurvivingMutationError; head: string | undefined; publishedTip: string }
+  | { kind: "completion_commit_failed"; message: string }
+  | { kind: "publication_failure"; failure: CompletionPublishFailure; readyGateOrigin?: ReadyGateOrigin };
+
+type MutationRepairDriveInput = {
+  repairArgs: WriteLoopInput;
+  store: StateStore;
+  runId: string;
+  /** Publication target; republication inside the driver always runs single-shot (no nested repair loop). */
+  publication: CompletionPublishInput & { creationTitle: string };
+  completionAgent?: string;
+  initialError: SurvivingMutationError;
+  /** Tip pushed by the publication that surfaced `initialError`; unknown leaves the HEAD gate open. */
+  publishedTip?: string;
+  /** `iterationsConsumed` handed to republication; defaults to the attempt number. */
+  iterationsConsumed?: number;
+  beforeRepairCommit?: () => Promise<void>;
+};
+
+type MutationRepairAttemptStep =
+  | Exclude<MutationRepairDriveOutcome, { kind: "exhausted" | "head_drift" }>
+  | { kind: "retry"; mutationError: SurvivingMutationError; publishedTip: string | undefined };
+
+/**
+ * Shared publication-time `write.mutation-repair` loop (in-flow publication and `run resume`): one
+ * `MAX_MUTATION_REPAIR_ATTEMPTS` budget persisted on the run, a HEAD-equals-published-tip gate before
+ * each attempt, killing-test regression revert, and dirty-tree revert on unsettled repair.
+ */
+export async function driveMutationRepair(input: MutationRepairDriveInput): Promise<MutationRepairDriveOutcome> {
+  const { store, runId } = input;
+  let mutationError = input.initialError;
+  let publishedTip = input.publishedTip;
+  for (
+    let attempt = store.readMutationRepairAttempts(runId) + 1;
+    attempt <= MAX_MUTATION_REPAIR_ATTEMPTS;
+    attempt += 1
+  ) {
+    const head = await readWorktreeHead(input.publication.worktreePath);
+    if (publishedTip !== undefined && head !== publishedTip) {
+      return { kind: "head_drift", mutationError, head, publishedTip };
+    }
+    const step = await runMutationRepairAttempt(input, mutationError, attempt, head, publishedTip);
+    store.recordMutationRepairAttempts(runId, attempt);
+    if (step.kind !== "retry") return step;
+    mutationError = step.mutationError;
+    publishedTip = step.publishedTip;
+  }
+  return { kind: "exhausted", mutationError };
+}
+
+async function readWorktreeHead(worktreePath: string): Promise<string | undefined> {
+  try {
+    return (await runRepairFenceGit(worktreePath, ["rev-parse", "HEAD"])).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Discard repair commits and uncommitted edits back to the pre-repair HEAD, keeping the materialized `node_modules` link, review verdicts, and `.jarvis-*` harness sidecars. */
+async function revertMutationRepairEdits(worktreePath: string, preRepairHead: string | undefined): Promise<void> {
+  if (preRepairHead === undefined) return;
+  await runRepairFenceGit(worktreePath, ["reset", "--hard", preRepairHead]);
+  await runRepairFenceGit(worktreePath, [
+    "clean",
+    "-fd",
+    "-e",
+    `/${MATERIALIZED_NODE_MODULES_PATH}`,
+    "-e",
+    "verdict-*.md",
+    "-e",
+    ".jarvis-*",
+  ]);
+}
+
+const ASSERTION_PATTERN = /\bexpect\s*\(|\bassert(?:\.\w+)?\s*\(/g;
+const TEST_CASE_PATTERN = /\b(?:test|it)\s*\(/g;
+const DISABLED_TEST_PATTERN = /\b(?:test|it|describe)\s*\.\s*(?:skip|todo|failing)\b|\bx(?:it|test|describe)\s*\(/g;
+
+function countMatches(source: string, pattern: RegExp): number {
+  return source.match(pattern)?.length ?? 0;
+}
+
+/** A killing test is weakened when deleted, or when it loses assertions or test cases, or gains disabled tests. */
+export function isKillingTestWeakened(before: string, after: string | undefined): boolean {
+  if (after === undefined) return true;
+  return (
+    countMatches(after, ASSERTION_PATTERN) < countMatches(before, ASSERTION_PATTERN) ||
+    countMatches(after, TEST_CASE_PATTERN) < countMatches(before, TEST_CASE_PATTERN) ||
+    countMatches(after, DISABLED_TEST_PATTERN) > countMatches(before, DISABLED_TEST_PATTERN)
+  );
+}
+
+async function weakenedKillingTests(
+  worktreePath: string,
+  preRepairHead: string | undefined,
+  killingTests: readonly string[],
+): Promise<string[]> {
+  if (preRepairHead === undefined) return [];
+  const weakened: string[] = [];
+  for (const path of killingTests) {
+    let before: string;
+    try {
+      before = await runRepairFenceGit(worktreePath, ["show", `${preRepairHead}:${path}`]);
+    } catch {
+      continue;
+    }
+    const fullPath = join(worktreePath, path);
+    const after = existsSync(fullPath) ? readFileSync(fullPath, "utf8") : undefined;
+    if (isKillingTestWeakened(before, after)) weakened.push(path);
+  }
+  return weakened;
+}
+
+/** One attempt: repair → commit → killing-test regression check → push-only → reverify → single-shot publish. */
+async function runMutationRepairAttempt(
+  input: MutationRepairDriveInput,
+  mutationError: SurvivingMutationError,
+  attempt: number,
+  preRepairHead: string | undefined,
+  publishedTip: string | undefined,
+): Promise<MutationRepairAttemptStep> {
+  const { repairArgs, store, runId, publication } = input;
+  const result: WriteLoopResult = {
+    kind: "complete",
+    runId,
+    iterationsConsumed: attempt - 1,
+    resumable: false,
+    ...(input.completionAgent !== undefined ? { completionAgent: input.completionAgent } : {}),
+  };
+  const repairOutcome = await withExternalSpecTreeReadOnly(externalSpecGitScope(publication), [], () =>
+    runMutationRepairIteration(repairArgs, store, result, mutationError, attempt),
+  );
+  if (repairOutcome === "unsettled") {
+    await revertMutationRepairEdits(publication.worktreePath, preRepairHead);
+    return { kind: "repair_unsettled", mutationError, attempt };
+  }
+  if (repairOutcome === "blocked") return { kind: "repair_blocked", mutationError, attempt };
+
+  await input.beforeRepairCommit?.();
+  const commitFailure = await commitMutationRepair(input);
+  if (commitFailure !== undefined) return commitFailure;
+
+  const weakened = await weakenedKillingTests(publication.worktreePath, preRepairHead, mutationError.killingTests);
+  if (weakened.length > 0) {
+    await revertMutationRepairEdits(publication.worktreePath, preRepairHead);
+    return { kind: "retry", mutationError, publishedTip };
+  }
+  return publishMutationRepair(input, result, attempt);
+}
+
+async function commitMutationRepair(
+  input: MutationRepairDriveInput,
+): Promise<{ kind: "completion_commit_failed"; message: string } | undefined> {
+  const { repairArgs, publication } = input;
+  const step: CompletionStepMetadata = { kind: "mutation-repair" };
+  try {
+    await (repairArgs.completionCommitter ?? createCompletionCommitter())({
+      worktreePath: publication.worktreePath,
+      baseRef: publication.baseRef,
+      specPath: publication.specPath,
+      agent: input.completionAgent ?? "",
+      allowBranchTrailerFallback: true,
+      title: renderStepCommitTitle(step, publication.creationTitle),
+      iterationTimeoutMs: repairArgs.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+      step,
+      ...externalSpecGitScope(publication),
+    });
+    return undefined;
+  } catch (error) {
+    return { kind: "completion_commit_failed", message: errorMessage(error) };
+  }
+}
+
+async function publishMutationRepair(
+  input: MutationRepairDriveInput,
+  result: WriteLoopResult,
+  attempt: number,
+): Promise<MutationRepairAttemptStep> {
+  const { repairArgs, store, runId, publication } = input;
+  const { skipPublicationMutationRepairLoop: _nested, requiredIntegrationScope: _scope, ...pushInput } = publication;
+  // Push the repair commit (draft PR only, no ready flip) before verification can retry or settle.
+  const pushOnly = await publishCompletionArtifacts(
+    { ...repairArgs, skipReadyFinalization: true },
+    pushInput,
+    undefined,
+    undefined,
+    { runId, store },
+  );
+  throwIfAborted(repairArgs.signal);
+  if (pushOnly.kind !== "success") return { kind: "publication_failure", failure: pushOnly };
+
+  const verification = await (repairArgs.verifyDiffDerivedMutations ?? verifyDiffDerivedMutations)({
+    worktreePath: publication.worktreePath,
+    runBase: publication.baseRef,
+  });
+  if (verification.kind === "surviving-mutation") {
+    return {
+      kind: "retry",
+      mutationError: new SurvivingMutationError(
+        verification.mutation,
+        verification.sourceSite.file,
+        verification.sourceSite.line,
+        verification.killingTests,
+        verification.killingSetObservedResult,
+        verification.dualConstraint,
+      ),
+      publishedTip: pushOnly.pushSha,
+    };
+  }
+
+  // No push/PR/gate once `run kill` aborted the tail.
+  throwIfAborted(repairArgs.signal);
+  const published = await publishWithReadyRepair(repairArgs, store, result, input.iterationsConsumed ?? attempt, {
+    ...publication,
+    skipPublicationMutationRepairLoop: true,
+  });
+  throwIfAborted(repairArgs.signal);
+  const failure = published.failure;
+  if (failure?.kind === "surviving_mutation_failed" && failure.error instanceof SurvivingMutationError) {
+    return { kind: "retry", mutationError: failure.error, publishedTip: failure.pushSha };
+  }
+  if (failure !== undefined) {
+    return {
+      kind: "publication_failure",
+      failure,
+      ...(published.readyGateOrigin !== undefined ? { readyGateOrigin: published.readyGateOrigin } : {}),
+    };
+  }
+  return {
+    kind: "complete",
+    success: published.success ?? { runtimeSmokeOutcome: undefined },
+    iterationsConsumed: published.iterationsConsumed,
+  };
+}
+
+/** In-flow publication repair: drive the shared budget, then map back to a publish result for the write tail. */
+async function repairPublicationSurvivingMutation(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  input: CompletionPublishInput,
+  published: ReadyRepairPublishResult,
+  failure: CompletionPublishFailure,
+  mutationError: SurvivingMutationError,
+): Promise<ReadyRepairPublishResult> {
+  const outcome = await driveMutationRepair({
+    repairArgs: args,
+    store,
+    runId: result.runId,
+    publication: {
+      ...input,
+      creationTitle: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
+    },
+    ...(result.completionAgent !== undefined ? { completionAgent: result.completionAgent } : {}),
+    initialError: mutationError,
+    ...(failure.pushSha !== undefined ? { publishedTip: failure.pushSha } : {}),
+    iterationsConsumed: published.iterationsConsumed,
+  });
+  const iterationsConsumed = published.iterationsConsumed;
+  switch (outcome.kind) {
+    case "complete":
+      return { success: outcome.success, iterationsConsumed: outcome.iterationsConsumed };
+    case "completion_commit_failed":
+      return { failure: { kind: "completion_commit_failed", error: new Error(outcome.message) }, iterationsConsumed };
+    case "publication_failure":
+      return buildReadyRepairPublishResult(outcome.failure, iterationsConsumed, outcome.readyGateOrigin);
+    default:
+      // Exhaustion, blocked/unsettled repair, and HEAD drift all settle resumable `surviving_mutation_failed`.
+      return {
+        failure: {
+          kind: "surviving_mutation_failed",
+          error: outcome.mutationError,
+          ...(failure.prNumber !== undefined ? { prNumber: failure.prNumber } : {}),
+          ...(failure.prUrl !== undefined ? { prUrl: failure.prUrl } : {}),
+        },
+        iterationsConsumed,
+      };
+  }
 }
 
 async function classifyReadyGatePublishFailure(
@@ -4287,7 +4591,32 @@ async function dispatchReadyGateAutofix(
   await (args.runFixCommand ?? runFixCommand)(fixOpts);
 }
 
+/**
+ * Publish with ready-gate repair; a confirm-only `surviving_mutation_failed` then drives the shared
+ * `write.mutation-repair` budget in-flow unless `skipPublicationMutationRepairLoop` (single-shot republish).
+ */
 export async function publishWithReadyRepair(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  iterationsConsumed: number,
+  input: CompletionPublishInput,
+): Promise<ReadyRepairPublishResult> {
+  const published = await publishWithReadyGateRepair(args, store, result, iterationsConsumed, input);
+  const failure = published.failure;
+  if (
+    failure?.kind !== "surviving_mutation_failed" ||
+    !(failure.error instanceof SurvivingMutationError) ||
+    input.skipPublicationMutationRepairLoop === true ||
+    args.bindings.length === 0 ||
+    args.signal?.aborted === true
+  ) {
+    return published;
+  }
+  return repairPublicationSurvivingMutation(args, store, result, input, published, failure, failure.error);
+}
+
+async function publishWithReadyGateRepair(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,
@@ -4667,10 +4996,12 @@ export async function publishCompletionArtifacts(
     }
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
-    return buildFinalizationErrorResponse(err, publisherResult?.prNumber, publisherResult?.prUrl);
+    const failure = buildFinalizationErrorResponse(err, publisherResult?.prNumber, publisherResult?.prUrl);
+    return publisherResult?.pushSha !== undefined ? { ...failure, pushSha: publisherResult.pushSha } : failure;
   }
   return {
     kind: "success",
+    ...(publisherResult?.pushSha !== undefined ? { pushSha: publisherResult.pushSha } : {}),
     ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
     ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
     ...(publisherResult?.requestedBase !== undefined && publisherResult?.resolvedBase !== undefined

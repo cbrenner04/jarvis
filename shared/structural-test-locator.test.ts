@@ -5,7 +5,6 @@ import {
   locateParseOnlyInventoryArrayBody,
   locateSymbolSlice,
   PARSE_ONLY_INVENTORY_MARKER_COMMENT,
-  StructuralTestLocatorError,
   type StructuralTestLocatorKind,
 } from "./structural-test-locator.ts";
 
@@ -37,14 +36,6 @@ function silentUnprefixedInventoryBody(source: string, constantName: string): st
     new RegExp(`(?:export\\s+)?const\\s+${constantName}\\s*(?::[^=]+)?=\\s*\\[([\\s\\S]*?)\\];`),
   );
   return match?.[1] ?? "";
-}
-
-function silentAbsentOrEmptyInventoryBody(source: string, constantName: string): string {
-  const body = silentUnprefixedInventoryBody(source, constantName);
-  if (body === "") {
-    return "";
-  }
-  return body;
 }
 
 function expectLocatorMiss(fn: () => unknown, kind: StructuralTestLocatorKind, searchKey: string): void {
@@ -153,7 +144,6 @@ describe("structural test locators", () => {
     const constantName = "UNMARKED_INVENTORY";
     const source = [`const ${constantName} = [`, '  { id: "only" },', "];"].join("\n");
 
-    expect(() => locateParseOnlyInventoryArrayBody(source, constantName)).toThrow(StructuralTestLocatorError);
     expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
   });
 
@@ -184,7 +174,7 @@ describe("structural test locators", () => {
     const constantName = "FIXTURE_ONLY_INVENTORY";
     const source = [`const ${constantName} = [`, '  { id: "fixture-only" },', "];"].join("\n");
 
-    const silentBody = silentAbsentOrEmptyInventoryBody(source, constantName);
+    const silentBody = silentUnprefixedInventoryBody(source, constantName);
     expect(silentBody).toContain("fixture-only");
 
     expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);

@@ -1,5 +1,4 @@
-export const TERMINAL_SUPERSEDE_SETTLEMENT_COMMENT_BODY_RE =
-  /^Superseded by #(\d+) \(pipeline ([^,]+), stage ([^)]+)\)$/;
+const TERMINAL_SUPERSEDE_SETTLEMENT_COMMENT_BODY_RE = /^Superseded by #(\d+) \(pipeline ([^,]+), stage ([^)]+)\)$/;
 
 export function formatTerminalSupersedeSettlementComment(args: {
   terminalPrNumber: number;

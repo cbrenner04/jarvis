@@ -35,8 +35,10 @@ import {
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   readyGateSubprocessTimeoutMs,
+  resolveAttributableRepairAllowset,
   resolveSpecScopeRoot,
   SurvivingMutationError,
+  selectAttributablePathsWhollyOutsideGateRepairAllowset,
   selectFailedReadyStepOutput,
   selectTerminalFailedReadyStep,
   selectTerminalFailedReadyTestStep,
@@ -1278,6 +1280,33 @@ describe("base-ref probe conclusive reproduction", () => {
 
     const noScope = await classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed, undefined, trapSeams);
     expect(noScope.kind).toBe("ready_gate_failed");
+  });
+
+  it("resolveAttributableRepairAllowset intersects lint attribution with the frozen gate repair allowset", () => {
+    const frozen = new Set(["proof.txt", "spec.md"]);
+    const outsidePath = "v2/src/untouched.test.ts";
+    const error = new ReadyGateError("bun run ready", 1, lintMdOnlyGateFailureOutput(outsidePath));
+    expect(resolveAttributableRepairAllowset(frozen, error).has(outsidePath)).toBe(false);
+    expect(resolveAttributableRepairAllowset(frozen, error).size).toBe(0);
+  });
+
+  it("resolveAttributableRepairAllowset admits in-envelope lint attribution only", () => {
+    const frozen = new Set(["spec.md", "proof.txt"]);
+    const error = new ReadyGateError("bun run ready", 1, lintMdOnlyGateFailureOutput("spec.md"));
+    expect([...resolveAttributableRepairAllowset(frozen, error)]).toEqual(["spec.md"]);
+  });
+
+  it("selectAttributablePathsWhollyOutsideGateRepairAllowset names lint paths outside the frozen envelope", () => {
+    const frozen = new Set(["proof.txt", "spec.md"]);
+    const outsidePath = "v2/src/untouched.test.ts";
+    const error = new ReadyGateError("bun run ready", 1, lintMdOnlyGateFailureOutput(outsidePath));
+    expect(selectAttributablePathsWhollyOutsideGateRepairAllowset(frozen, error)).toEqual([outsidePath]);
+  });
+
+  it("resolveAttributableRepairAllowset keeps the frozen allowset for test terminal failures", () => {
+    const frozen = new Set(["proof.txt"]);
+    const error = new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
+    expect(resolveAttributableRepairAllowset(frozen, error)).toEqual(frozen);
   });
 
   const BASE_REF_PROBE_UNTOUCHED_PATH = "v2/src/untouched.test.ts";

@@ -1027,14 +1027,35 @@ export function resolveAttributableRepairAllowset(frozen: Set<string>, error: Re
   if (attributablePaths === undefined || attributablePaths.length === 0) {
     return resolveGateRepairAllowset(frozen, error);
   }
-  const allowset = new Set<string>(attributablePaths);
-  const extension = error.gateRepairAllowsetPaths;
-  if (extension !== undefined) {
-    for (const path of extension) {
+  const gateRepair = resolveGateRepairAllowset(frozen, error);
+  const allowset = new Set<string>();
+  for (const path of attributablePaths) {
+    if (gateRepair.has(path)) {
       allowset.add(path);
     }
   }
   return allowset;
+}
+
+/** When every lint-style attributable path lies outside the frozen gate repair envelope, names those paths for out-of-scope settlement. */
+export function selectAttributablePathsWhollyOutsideGateRepairAllowset(
+  frozen: Set<string>,
+  error: ReadyGateError,
+): string[] | undefined {
+  const terminalFailed = selectTerminalFailedReadyStep(error.output);
+  if (terminalFailed === undefined || isReadyTestCommand(terminalFailed.command)) {
+    return undefined;
+  }
+  const attributablePaths = selectTerminalAttributablePaths(error.output);
+  if (attributablePaths === undefined || attributablePaths.length === 0) {
+    return undefined;
+  }
+  const gateRepair = resolveGateRepairAllowset(frozen, error);
+  const outside = attributablePaths.filter((path) => !gateRepair.has(path));
+  if (outside.length !== attributablePaths.length) {
+    return undefined;
+  }
+  return outside;
 }
 
 export type SurvivingMutationKillingSetResult = "passed-confirmed" | "passed-unconfirmed" | "not-run" | "unknown";

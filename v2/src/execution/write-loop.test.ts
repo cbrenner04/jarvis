@@ -6833,6 +6833,40 @@ export function isLoadSensitive(file: string): boolean {
         });
       });
 
+      test("settles ready_gate_out_of_scope for lint attribution on a path outside the frozen run diff without repair", async () => {
+        const outsidePath = "v2/src/untouched.test.ts";
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-lint-outside-envelope";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+        const logSink = new TestLogSink();
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          lintMdOnly: true,
+          gateFailurePath: outsidePath,
+          logSink,
+          repairEdit: (cwd) => {
+            writeFileSync(join(cwd, outsidePath), "repair attempt\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("ready_gate_out_of_scope");
+        expect(fenced.invocations).toBe(1);
+        expect(fenced.publishCalls).toBe(1);
+        expect(logSink.getEventsForRun(fenced.result.runId).some((event) => event.kind === "ready_gate_repair")).toBe(
+          false,
+        );
+        expect(readFileSync(join(worktreePath, outsidePath), "utf8")).toBe("export {}\n");
+        expect(logSink.getEventsForRun(fenced.result.runId).at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_out_of_scope",
+          readyGateOutsidePaths: [outsidePath],
+        });
+      });
+
       test("repair refuses a staged path outside the attributable allowset", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-attributable-allowset";

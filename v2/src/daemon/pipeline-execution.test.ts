@@ -4763,7 +4763,7 @@ describe("resumePipeline branch scope", () => {
     const attemptFailedImplementPipelineResume = async (
       _pipeline: Pipeline & { stages: PipelineStageRecord[] },
       _pipelineId: string,
-      branchScope?: string,
+      _branchScope?: string,
       resumePublicationOptions?: { allowLanePrRepublish?: boolean },
     ) => {
       capturedOptions = resumePublicationOptions;

@@ -21,12 +21,12 @@ import {
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
 import {
+  completionPublishLaneRepublishFields,
   findDraftContractRepromptStateFromLog,
   findLandingContractRepromptFromLog,
   findPreShrinkHeadFromLog,
   findStagedMarkdownLintRepromptFromLog,
   findSurvivingMutationRepromptFromLog,
-  completionPublishLaneRepublishFields,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import type { RpcHandler } from "../ipc/server.ts";

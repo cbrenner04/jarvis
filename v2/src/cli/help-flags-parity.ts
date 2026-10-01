@@ -16,9 +16,9 @@ import {
   parityFlagsFromParseOptions,
   RUN_DISMISS_PARSE_ARG_OPTIONS,
   RUN_KILL_PARSE_ARG_OPTIONS,
-  RUN_RESUME_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
   RUN_LOG_PARSE_ARG_OPTIONS,
+  RUN_RESUME_PARSE_ARG_OPTIONS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
 import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";

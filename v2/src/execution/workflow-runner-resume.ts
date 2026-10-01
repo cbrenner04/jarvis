@@ -86,6 +86,7 @@ import type {
 import { buildReviewInvocationFailureDetail, revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import {
   appendRuntimeSmokeOutcome,
+  completionPublishLaneRepublishFields,
   DEFAULT_ITERATION_TIMEOUT_MS,
   driveMutationRepair,
   enforcePersistedReadyGateRepairFence,
@@ -93,7 +94,6 @@ import {
   getUncommittedPaths,
   hasRetainedFinalizationCheckpoint,
   isExhaustedRedTerminalEvidence,
-  completionPublishLaneRepublishFields,
   leaseFromShaField,
   MAX_MUTATION_REPAIR_ATTEMPTS,
   type MutationRepairDriveOutcome,

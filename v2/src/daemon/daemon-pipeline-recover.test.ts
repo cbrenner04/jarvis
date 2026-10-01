@@ -7,12 +7,12 @@ import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts"
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { createCompletionPublisher } from "../execution/completion-publisher.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
 import { createStubMarkdownlintRunner, writeLintCleanPlanStage } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
-import { createCompletionPublisher } from "../execution/completion-publisher.ts";
-import { recoverPlanStage, type PlanStageRecoveryRequest } from "../execution/workflow-runner-resume.ts";
+import { type PlanStageRecoveryRequest, recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import { completionPublishLaneRepublishFields } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { makeStaleResetIpcClient, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
@@ -1283,7 +1283,7 @@ test("pipeline_recover admits dirty worktree when resetDespiteDirty is set", asy
 });
 
 function ghClosedHistoryNoCreate(
-  branch: string,
+  _branch: string,
   closedNumber: number,
 ): {
   gh: (cwd: string, args: readonly string[]) => Promise<string>;
@@ -1318,7 +1318,7 @@ test("pipeline_recover republication omits allowLanePrRepublish and does not cre
   const stage = join(worktreePath, ".jarvis-plan-stage");
   writeLintCleanPlanStage(stage, "00-first.md");
   const specPath = "spec/2026-recover-closed-history";
-  const durable = join(worktreePath, specPath);
+  const _durable = join(worktreePath, specPath);
   const branch = "plan/recover-closed-history";
   const closedNumber = 88;
   const entryRunId = seedBlockedPlanDraftRun(stateStore, {

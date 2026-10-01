@@ -1434,7 +1434,7 @@ function seedImplementGateRefusedSibling(
   return { entryRunId, causeRunId };
 }
 
-function appendGateRefusalLog(store: StateStore, causeRunId: string): string {
+function appendGateRefusalLog(_store: StateStore, causeRunId: string): string {
   const logsPath = join(tmpdir(), `pipeline-resume-log-${causeRunId}.jsonl`);
   const sink = openLogSink(logsPath);
   sink.append(causeRunId, {

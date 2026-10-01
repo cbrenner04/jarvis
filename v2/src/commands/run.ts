@@ -2,9 +2,9 @@ import { parseArgs } from "node:util";
 import {
   RUN_DISMISS_PARSE_ARG_OPTIONS,
   RUN_KILL_PARSE_ARG_OPTIONS,
-  RUN_RESUME_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
   RUN_LOG_PARSE_ARG_OPTIONS,
+  RUN_RESUME_PARSE_ARG_OPTIONS,
 } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -15,9 +15,9 @@ import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import {
   RUN_DISMISS_USAGE,
   RUN_KILL_USAGE,
-  RUN_RESUME_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
+  RUN_RESUME_USAGE,
   RUN_START_USAGE,
   RUN_UNDISMISS_USAGE,
   RUN_USAGE,

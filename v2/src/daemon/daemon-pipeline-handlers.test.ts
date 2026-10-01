@@ -617,6 +617,25 @@ test("pipeline_resume forwards branchKey to resumePipeline when provided", async
   });
 });
 
+test("pipeline_stage_review_feedback_launch rejects malformed params with invalid_params", async () => {
+  const handlers = pipelineHandlers();
+
+  const response = await handlers.pipeline_stage_review_feedback_launch(
+    requestFrame("launch-invalid-branch", "pipeline_stage_review_feedback_launch", {
+      pipelineId: "p1",
+      stageId: "s1",
+      branchKey: "",
+    }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "branchKey must be a non-empty string when provided",
+  });
+});
+
 test("pipeline_resume rejects malformed branchKey with invalid_params", async () => {
   const handlers = pipelineHandlers();
 

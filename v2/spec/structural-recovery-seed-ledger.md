@@ -10,14 +10,13 @@ Supplemental to [`structural-recovery-brief.md`](./structural-recovery-brief.md)
 
 Every other landed spec is archived under `completed/`.
 
-## Ready-intents (5 queued: 3 dispatchable, 2 not startable)
+## Ready-intents (4 queued: 3 dispatchable, 1 not startable)
 
 | Ready-intent | Status | Blocked on |
 | --- | --- | --- |
 | `agent-bindings-recover-usage-on-failed-settlement` | dispatchable (standalone plan) | — (#4301 landed its prerequisite) |
 | `publication-inflow-mutation-repair` | dispatchable; replan from the ready-intent (plan PR #4284 closed) and carry its reviewed decisions: re-verify HEAD before repair, revert weakened killing tests, revert uncommitted repair edits on timeout | — |
 | `retire-superseded-pipeline-branches` | dispatchable | — (#4290, #4296 landed) |
-| `detach-admission-refuses-without-a-run-row` | **not dispatchable — rewrite first.** Contradicts #4087 (persisted row) | a hand rewrite |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
 ## Seeds (20)
@@ -55,6 +54,7 @@ None; #3029 closed 2026-09-30. Closed: #3423 (#4090), #3417 (#4076), #3040 (#408
 
 | Item | Reason |
 | --- | --- |
+| ready-intent `detach-admission-refuses-without-a-run-row` | already closed by #4087 (routing row persisted before its id is reported); deleted, not rewritten |
 | seeds `capture-token-usage-on-failed-invocations`, `review-roles-check-falsifiability-not-plausibility`, `mutation-verifier-ignores-whitespace-only-line-changes`, `completed-write-step-rows-stamp-finished-at`, `cleanup-retires-subsumed-and-landed-worktrees`, `superseded-pipeline-pr-hygiene` | consumed by intents #4247 #4248 #4251 #4256 #4257 #4274 #4275 #4276 #4277 |
 | 14 ready-intents (`backfill-terminal-null-finished-at-migration`, `cleanup-retires-subsumed-and-landed-worktrees`, `completion-boundary-terminal-stamps-finished-at`, `configure-pipeline-supersede-policy`, `invocation-completed-records-failure-usage`, `mutation-reprompt-colocated-fix-line`, `mutation-verifier-ignores-whitespace-only-line-changes`, `pipeline-verbs-accept-full-ids-on-degraded-listing`, `plan-stage-bases-on-fetched-default-branch`, `review-roles-falsifiability-implement`, `review-roles-falsifiability-plan`, `settle-superseded-pipeline-prs`, `shrink-post-mutation-reverify`, `skipped-durable-successor-rollup-completed`) | landed or consumed; not reaped by their implement PRs (some reintroduced by merged intent/plan PRs) |
 | landed spec dirs | archived (closeout 2026-09-30b) |

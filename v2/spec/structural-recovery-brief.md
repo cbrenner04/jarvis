@@ -12,7 +12,7 @@ The 2026-09-21 session closed the regression P0 (#4132) and every dispatchable t
 
 What is left is no longer a fixed point that strands complete work. It is chain tails, the resume-surfaces chain, dogfood quality, and parked display work.
 
-Counts after the 2026-10-01 closeout: 1 open spec dir and 5 queued ready-intents; 3 dispatchable, 1 evidence-gated, 1 needs a rewrite. 20 seeds. Landed: ledger § Landed.
+Counts after the 2026-10-01 closeout: 1 open spec dir and 4 queued ready-intents; 3 dispatchable, 1 evidence-gated. 20 seeds. Landed: ledger § Landed.
 
 ## Priority-ordered work
 
@@ -20,7 +20,6 @@ Counts after the 2026-10-01 closeout: 1 open spec dir and 5 queued ready-intents
 
 | P | Item | Why |
 | --- | --- | --- |
-| **P1** | [[detach-admission-refuses-without-a-run-row]] — **rewrite before planning**, not dispatchable | Its decisions contradict the landed `linked-implement-routing-settles-a-real-outcome`, which deliberately ruled out an id-less refusal; rewrite it to the persisted-row contract (#4087) |
 | **P1** | [[wal-lock-holder-child-survives-to-marker]] — **evidence-gated**, do not plan | Must not be planned until an operator pastes a captured rejection into it (#4101); plan PR #4100 was rejected for un-tickable criteria |
 | **P1** | [[harness-commits-stay-in-run-scope]] | Three lanes swept out-of-scope or stale-`main` content on 2026-09-30; one broke a test |
 | **P1** | [[terminal-publication-accepts-operator-merged-pr]]; [[closed-lane-is-not-republished]] | Operator merge/close reads as failure or is undone by a duplicate PR |
@@ -33,7 +32,7 @@ Counts after the 2026-10-01 closeout: 1 open spec dir and 5 queued ready-intents
 | **P3** | [[fold-shared-into-v2]] → [[retire-v2-nomenclature]] (fold in; lowish priority) | `v2` is a planning-era label; there is no v3 |
 | **P3** | [[agent-confinement-is-per-vendor-and-unexpressed]] (#1453); [[cli-retire-run-start-pause-and-config]]; [[tui-dock-command-grammar-mirrors-cli]]; [[tui-typed-run-steering-clears-command-input]] | Parked; see the open decision on `run pause` below |
 
-Dispatch order for the next session: merge #4303 after its second green CI; plan the three dispatchable ready-intents in parallel; intent the three new P1 seeds. Rewrite [[detach-admission-refuses-without-a-run-row]] by hand before it is planned at all, and leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
+Dispatch order for the next session: merge #4303 after its second green CI; plan the three dispatchable ready-intents in parallel; intent the three new P1 seeds. Leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
 
 ## Contradictions and decisions surfaced by the audit
 
@@ -46,7 +45,7 @@ Dispatch order for the next session: merge #4303 after its second green CI; plan
 - **Corrected in place:** [[implement-can-run-integration-slice-tests]] decision 3 contradicted `prompts/implement/rules.md:29` (#3867, tick harness-run suites on in-sandbox checks); re-scoped to measurement criteria. [[intent-split-covers-sibling-repo-surfaces]] relied on a `siblings` key that exists only in frozen v1. Spec `stage-success-reopens-skipped-successors` intent said same-transaction, its subspec says separate; the intent now matches the subspec.
 - **A seed PR is not a fix.** The brief once marked #3833 and #3832 landed by citing the seed PRs themselves; #3833 has since landed for real (#4065), and `daemon-status-reports-stopped-on-a-busy-daemon` landed #4143.
 - **A ready-intent premise that the source refutes:** `workflow-terminal-waits-await-durable-boundary` blamed a 5 s test deadline; `bunfig.toml` already sets `[test] timeout = 30000` and `workflow.test.ts` contains no `5000`. Plan PR #4105 was rejected on the premise. The real bound is `CONNECT_TIMEOUT_MS = 5_000` in `v2/src/ipc/client.ts:11`, fixed by #4136/#4152. The ready-intent is retired (#4119).
-- **A ready-intent contradicted by the spec that unblocked it:** [[detach-admission-refuses-without-a-run-row]] asks `--detach` to refuse without a run id, which the landed `linked-implement-routing-settles-a-real-outcome` (#4087) deliberately ruled out by persisting a real row first. Rewrite it to the persisted-row contract before planning.
+- **Retired 2026-10-01 as already closed:** `detach-admission-refuses-without-a-run-row` asked `--detach` to refuse without a run id, contradicting #4087. Source shows #4087 closed the gap: `persistLinkedRoutingRow` (`workflow-runner.ts:837`) persists and settles the row before `onStepRunCreated`, every preset's step 0 is a durable write step, and `--detach` exit `0` already means admitted (`operator-runbook.md`). Pinned by `workflow-runner-debate.test.ts` "persists a non-in-progress row for every id reported…".
 - **Decision, interrupted pipelines (#4154):** restart continuation does not auto-continue an interrupted pipeline; explicit `pipeline resume` only.
 - **Deferred, decision-verb prefix resolution (#4153):** older-generation pipelines need the full id.
 - **Issues closed:** #3949, #3974, #3372 (2026-09-18); #3040 (2026-09-20, #4085). #3423 (#4090), #3417 (#4076). #2996 (2026-09-21, #4154).

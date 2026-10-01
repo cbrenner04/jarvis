@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   DEAD_EXPORT_ALLOWLIST,
+  DEAD_EXPORT_REPAIR_SUFFIX,
+  deadExportDiagnostic,
   findDeadExports,
   moduleSurface,
   runDeadExportGuard,
@@ -11,9 +16,21 @@ import {
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const NO_ALLOWLIST = new Map<string, string>();
+const LIMIT_BOUNDED_FIXTURE: Record<string, string> = {
+  "v2/src/execution/self.ts": "export const LIMIT = 1;\nexport function bounded(n: number) { return n < LIMIT; }\n",
+  "v2/src/execution/self.test.ts": 'import { bounded } from "./self.ts";\nbounded(0);\n',
+};
 
 function fixture(files: Record<string, string>) {
   return Object.entries(files).map(([file, source]) => ({ file, source }));
+}
+
+function writeFixtureTree(root: string, files: Record<string, string>) {
+  for (const [rel, source] of Object.entries(files)) {
+    const path = join(root, rel);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, source);
+  }
 }
 
 describe("dead-export gate", () => {
@@ -28,11 +45,27 @@ describe("dead-export gate", () => {
   });
 
   test("an export referenced only inside its own file is dead", () => {
-    const files = fixture({
-      "v2/src/execution/self.ts": "export const LIMIT = 1;\nexport function bounded(n: number) { return n < LIMIT; }\n",
-      "v2/src/execution/self.test.ts": 'import { bounded } from "./self.ts";\nbounded(0);\n',
+    const files = fixture(LIMIT_BOUNDED_FIXTURE);
+    const entry = findDeadExports(files, REPO_ROOT, NO_ALLOWLIST)[0];
+    expect(entry).toMatchObject({ symbol: "LIMIT" });
+    const diagnostic = deadExportDiagnostic(entry!);
+    expect(diagnostic).toBe(
+      `v2/src/execution/self.ts:${entry!.line}: unreferenced export LIMIT${DEAD_EXPORT_REPAIR_SUFFIX}`,
+    );
+    expect(diagnostic).not.toBe(`${entry!.file}:${entry!.line}: unreferenced export ${entry!.symbol}`);
+  });
+
+  test("CLI main stderr includes repair direction parenthetical", () => {
+    const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-dead-export-guard-cli-"));
+    writeFixtureTree(dir, LIMIT_BOUNDED_FIXTURE);
+    const result = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/guard-dead-exports.ts")], {
+      cwd: dir,
+      encoding: "utf8",
     });
-    expect(findDeadExports(files, REPO_ROOT, NO_ALLOWLIST)).toMatchObject([{ symbol: "LIMIT" }]);
+    expect(result.status).toBe(1);
+    expect(result.stderr.trim()).toBe(
+      `v2/src/execution/self.ts:1: unreferenced export LIMIT${DEAD_EXPORT_REPAIR_SUFFIX}`,
+    );
   });
 
   test.each([

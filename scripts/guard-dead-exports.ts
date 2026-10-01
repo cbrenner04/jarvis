@@ -169,8 +169,15 @@ export function runDeadExportGuard(cwd: string): DeadExport[] {
   return findDeadExports(collectReferenceSourceFiles(cwd), cwd);
 }
 
+export const DEAD_EXPORT_REPAIR_SUFFIX =
+  " (demote to module-private if used in-file, else delete; never add an import to satisfy the guard)";
+
+export function deadExportDiagnostic(entry: DeadExport): string {
+  return `${entry.file}:${entry.line}: unreferenced export ${entry.symbol}${DEAD_EXPORT_REPAIR_SUFFIX}`;
+}
+
 if (import.meta.main) {
   const dead = runDeadExportGuard(process.cwd());
-  for (const entry of dead) console.error(`${entry.file}:${entry.line}: unreferenced export ${entry.symbol}`);
+  for (const entry of dead) console.error(deadExportDiagnostic(entry));
   if (dead.length > 0) process.exitCode = 1;
 }

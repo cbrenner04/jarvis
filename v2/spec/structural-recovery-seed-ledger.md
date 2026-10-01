@@ -19,12 +19,13 @@ Every other landed spec is archived under `completed/`.
 | `retire-superseded-pipeline-branches` | dispatchable | — (#4290, #4296 landed) |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
-## Seeds (20)
+## Seeds (21)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
+| `plan-draft-shape-names-its-failure` | P1 | — | new 2026-10-01; pipeline 62810cc3 plan lane stranded on bare `plan.draft.shape` (nested spec dir); hand-flattened + recover |
 | `harness-commits-stay-in-run-scope` | P1 | — | new 2026-10-01; 3 lanes swept out-of-scope content on 2026-09-30 (d39f5071c, bf1e5cbc6, 658c18963) |
 | `terminal-publication-accepts-operator-merged-pr` | P1 | — | new 2026-10-01; pipelines 998a665f, 66f666ad + once prior session |
 | `closed-lane-is-not-republished` | P1 | — | new 2026-10-01; #4302 republished closed #4286; prior #4243/#4244 |

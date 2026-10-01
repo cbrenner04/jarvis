@@ -130,6 +130,8 @@ export const LOAD_SENSITIVE_FILES: readonly string[] = [
   "v2/src/execution/write-loop-idle-watchdog.test.ts",
   // ~84s idle-green but exceeded the 180s per-file spawn budget under agent-pool load (2026-09-30 ready 3.2).
   "v2/src/execution/workflow-runner-resume-review-dispatch.test.ts",
+  // ~112s idle-green but exceeded the 180s per-file spawn budget under agent-pool load (2026-10-01 ready 3.1/3.2).
+  "v2/src/execution/workflow-runner-publication.test.ts",
 ];
 
 /**

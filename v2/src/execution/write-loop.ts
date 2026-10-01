@@ -136,7 +136,7 @@ import { throwIfAborted } from "./throw-if-aborted.ts";
 import { type CoverageRunSkipReason, reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { storeVerifierProcessGroupRecorder, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
-import { executeWrite, type WriteExecuteInput } from "./write.ts";
+import { executeWrite, isPlanDraftShapeFamilyReason, type WriteExecuteInput } from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -613,7 +613,8 @@ export function findDraftContractRepromptStateFromLog(
   return { spent: true, ...(pending !== undefined ? { pending } : {}) };
 }
 
-function isEligibleDraftContractReprompt(
+/** Plan-draft `artifact.exists` misses are repromptable once, except the `plan.draft.shape` family (bare or suffixed). */
+export function isEligibleDraftContractReprompt(
   args: WriteLoopInput,
   result: StepRunResult,
 ): result is Extract<StepRunResult, { kind: "contract_miss" }> & { failureReason: string } {
@@ -622,7 +623,7 @@ function isEligibleDraftContractReprompt(
     args.promptId === PLAN_DRAFT_PROMPT_ID &&
     result.failedContractId === "artifact.exists" &&
     result.failureReason !== undefined &&
-    result.failureReason !== "plan.draft.shape"
+    !isPlanDraftShapeFamilyReason(result.failureReason)
   );
 }
 

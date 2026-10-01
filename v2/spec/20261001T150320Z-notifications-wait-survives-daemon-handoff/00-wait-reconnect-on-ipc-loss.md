@@ -17,13 +17,13 @@
 
 ## Task checklist
 
-- [ ] Add a connection-loss path in `waitForIncident` that catches `RpcConnectionError` from `request` (not from `requestOrReport`'s `RpcError` branch), reconnects via `deps.connectIpcClient`, and re-issues the failing method with unchanged `params` until success or reconnect budget exhaustion.
-- [ ] Thread `CliDeps` (at least `connectIpcClient`, `socketPath`, `now`, `sleep`) into `waitForIncident` from `notificationRpc` without changing `notifications list` behavior.
-- [ ] Add `notifications.test.ts` regression: first fake client closes mid-`notification_wait`, second client serves the owed incident; assert same `sinceCursor` on the retried wait and exit `0` with expected stdout — fails pre-fix (`IPC connection lost`, exit `1`).
-- [ ] Add `notifications.test.ts` regression: `--project` wait where first client dies mid in-loop `notification_list` after a non-matching `notification_wait`; second client completes catch-up and returns the matching incident without skipping it — fails pre-fix.
-- [ ] Add `notifications.test.ts` regression: after first mid-RPC disconnect, every `connectIpcClient` fails; drive exhaustion with injected `deps.now`/`deps.sleep` (no wall-clock ~120s wait) until budget elapses; assert multiple post-loss `connectIpcClient` calls, advancing fake time across backoff, then exit `1` and stderr `IPC connection lost\n` — fails pre-fix (single connect, immediate exit `1`).
-- [ ] Add `notifications.test.ts` preservation: `RpcError` on `notification_wait` still exits `1` immediately with `formatRpcError` stderr (passes on pre-fix).
-- [ ] Update `v2/docs/operator-runbook.md` § Operator notifications (correct `--project` wait catch-up: in-loop `notification_list` plus `notification_wait`, not wait-only) and `v2/docs/v1-behaviors.md` per Documentation updates.
+- [x] Add a connection-loss path in `waitForIncident` that catches `RpcConnectionError` from `request` (not from `requestOrReport`'s `RpcError` branch), reconnects via `deps.connectIpcClient`, and re-issues the failing method with unchanged `params` until success or reconnect budget exhaustion.
+- [x] Thread `CliDeps` (at least `connectIpcClient`, `socketPath`, `now`, `sleep`) into `waitForIncident` from `notificationRpc` without changing `notifications list` behavior.
+- [x] Add `notifications.test.ts` regression: first fake client closes mid-`notification_wait`, second client serves the owed incident; assert same `sinceCursor` on the retried wait and exit `0` with expected stdout — fails pre-fix (`IPC connection lost`, exit `1`).
+- [x] Add `notifications.test.ts` regression: `--project` wait where first client dies mid in-loop `notification_list` after a non-matching `notification_wait`; second client completes catch-up and returns the matching incident without skipping it — fails pre-fix.
+- [x] Add `notifications.test.ts` regression: after first mid-RPC disconnect, every `connectIpcClient` fails; drive exhaustion with injected `deps.now`/`deps.sleep` (no wall-clock ~120s wait) until budget elapses; assert multiple post-loss `connectIpcClient` calls, advancing fake time across backoff, then exit `1` and stderr `IPC connection lost\n` — fails pre-fix (single connect, immediate exit `1`).
+- [x] Add `notifications.test.ts` preservation: `RpcError` on `notification_wait` still exits `1` immediately with `formatRpcError` stderr (passes on pre-fix).
+- [x] Update `v2/docs/operator-runbook.md` § Operator notifications (correct `--project` wait catch-up: in-loop `notification_list` plus `notification_wait`, not wait-only) and `v2/docs/v1-behaviors.md` per Documentation updates.
 
 ## Acceptance criteria
 
@@ -33,9 +33,9 @@
 - [x] `notifications.test.ts` RpcError preservation during wait: daemon error frame exits `1` immediately via `formatRpcError` with no reconnect loop (passes on pre-fix; not the handoff failing-test AC).
 - [x] `notifications.test.ts` `notifications list since duration returns prior ledger incidents` stays green (list stays one-shot; no reconnect loop).
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 
-- [ ] `v2/docs/operator-runbook.md` § Operator notifications — correct `--project` wait semantics (catch-up uses in-loop `notification_list`, not only repeated `notification_wait`); document that `jarvis notifications wait` reconnects on IPC connection loss during blocking wait (including that catch-up path), with bounded backoff, then exits `1` with `IPC connection lost` when reconnect is exhausted; `jarvis notifications list` remains one-shot.
-- [ ] `v2/docs/v1-behaviors.md` — **[v2 behavior change]** bullet: `jarvis notifications wait` reconnects on IPC connection loss inside `waitForIncident` (including `--project` catch-up `notification_list`), bounded backoff, then exit `1` with `IPC connection lost` on exhaustion; `jarvis notifications list` unchanged.
+- [x] `v2/docs/operator-runbook.md` § Operator notifications — correct `--project` wait semantics (catch-up uses in-loop `notification_list`, not only repeated `notification_wait`); document that `jarvis notifications wait` reconnects on IPC connection loss during blocking wait (including that catch-up path), with bounded backoff, then exits `1` with `IPC connection lost` when reconnect is exhausted; `jarvis notifications list` remains one-shot.
+- [x] `v2/docs/v1-behaviors.md` — **[v2 behavior change]** bullet: `jarvis notifications wait` reconnects on IPC connection loss inside `waitForIncident` (including `--project` catch-up `notification_list`), bounded backoff, then exit `1` with `IPC connection lost` on exhaustion; `jarvis notifications list` unchanged.

@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { formatRpcError } from "../cli/ipc.ts";
 import { NOTIFICATIONS_USAGE } from "../cli/usage.ts";
 import {
   createNotificationListHandler,
@@ -9,6 +10,7 @@ import {
   NotificationWaitRegistry,
 } from "../daemon/daemon-notification-wait.ts";
 import { deriveOperatorIncidents, serializeOperatorIncident } from "../daemon/operator-incidents.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import {
   encodeNotificationDeliveryCursor,
@@ -17,8 +19,6 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
-import { formatRpcError } from "../cli/ipc.ts";
-import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { captureIo, cliMain as main, makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 
@@ -639,6 +639,30 @@ test("notifications wait exhausts reconnect budget when connect never succeeds a
   expect(output.stderr).toBe("IPC connection lost\n");
   expect(connectCalls).toBeGreaterThan(2);
   expect(sleepMs.length).toBeGreaterThan(0);
+  expect(nowMs).toBeGreaterThanOrEqual(120_000);
+});
+
+test("notifications wait exhausts reconnect budget when every reconnected client loses the RPC", async () => {
+  let connectCalls = 0;
+  let nowMs = 0;
+
+  const cap = captureIo();
+  const code = await main(["notifications", "wait", "--since", "0"], cap.io, {
+    ...notificationCliDeps(),
+    now: () => nowMs,
+    sleep: async (ms) => {
+      nowMs += ms;
+    },
+    connectIpcClient: async () => {
+      connectCalls += 1;
+      return handlerClientThatClosesOnMethod(handlers, "notification_wait");
+    },
+  });
+
+  expect(code).toBe(1);
+  expect(cap.read().stderr).toBe("IPC connection lost\n");
+  expect(connectCalls).toBeGreaterThan(2);
+  expect(connectCalls).toBeLessThan(1_000);
   expect(nowMs).toBeGreaterThanOrEqual(120_000);
 });
 

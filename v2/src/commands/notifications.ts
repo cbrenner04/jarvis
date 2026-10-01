@@ -111,7 +111,8 @@ function parseNotificationListResult(value: unknown): NotificationWaitResult[] |
 
 type RpcOutcome = { ok: true; response: unknown } | { ok: false };
 
-type WaitClientState = { client: IpcClient; replaced: boolean };
+/** `lossDeadline`/`delayMs` span consecutive losses; a successful RPC resets them. */
+type WaitClientState = { client: IpcClient; replaced: boolean; lossDeadline: number | undefined; delayMs: number };
 
 /** One RPC, reporting an `RpcError` to stderr rather than throwing. Non-RPC errors still throw. */
 async function requestOrReport(
@@ -134,20 +135,27 @@ async function requestOrReport(
 async function reconnectWaitClient(state: WaitClientState, deps: CliDeps): Promise<boolean> {
   const now = deps.now ?? (() => Date.now());
   const sleep = deps.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const deadline = now() + WAIT_RECONNECT_BUDGET_MS;
-  let delayMs = WAIT_RECONNECT_INITIAL_DELAY_MS;
+  if (state.lossDeadline === undefined) {
+    state.lossDeadline = now() + WAIT_RECONNECT_BUDGET_MS;
+  } else {
+    // Connected, then lost again: back off so the budget is consumed rather than spun.
+    const remaining = state.lossDeadline - now();
+    if (remaining <= 0) return false;
+    await sleep(Math.min(state.delayMs, remaining));
+    state.delayMs = Math.min(state.delayMs * 2, WAIT_RECONNECT_MAX_DELAY_MS);
+  }
 
-  while (now() < deadline) {
+  while (now() < state.lossDeadline) {
     state.client.close();
     try {
       state.client = await deps.connectIpcClient(deps.socketPath);
       state.replaced = true;
       return true;
     } catch {
-      const remaining = deadline - now();
+      const remaining = state.lossDeadline - now();
       if (remaining <= 0) break;
-      await sleep(Math.min(delayMs, remaining));
-      delayMs = Math.min(delayMs * 2, WAIT_RECONNECT_MAX_DELAY_MS);
+      await sleep(Math.min(state.delayMs, remaining));
+      state.delayMs = Math.min(state.delayMs * 2, WAIT_RECONNECT_MAX_DELAY_MS);
     }
   }
   return false;
@@ -163,7 +171,10 @@ async function requestOrReportInWait(
 ): Promise<RpcOutcome> {
   for (;;) {
     try {
-      return { ok: true, response: await request(state.client, method, params) };
+      const response = await request(state.client, method, params);
+      state.lossDeadline = undefined;
+      state.delayMs = WAIT_RECONNECT_INITIAL_DELAY_MS;
+      return { ok: true, response };
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));
@@ -190,7 +201,12 @@ async function waitForIncident(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  const state: WaitClientState = { client: initialClient, replaced: false };
+  const state: WaitClientState = {
+    client: initialClient,
+    replaced: false,
+    lossDeadline: undefined,
+    delayMs: WAIT_RECONNECT_INITIAL_DELAY_MS,
+  };
   let params = initial;
   try {
     for (;;) {

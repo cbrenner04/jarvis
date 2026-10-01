@@ -95,6 +95,7 @@ import {
   isMaterializedNodeModulesPath,
   MATERIALIZED_NODE_MODULES_PATH,
 } from "./external-worktree.ts";
+import { acquireGateInvocationLease, type GateInvocationLease } from "./gate-invocation-lease.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
@@ -715,60 +716,19 @@ export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 /** Bound on ordinary iteration quiescence; finalization repairs always join without a bound. */
 const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
+export {
+  acquireGateInvocationLease,
+  awaitGateInvocationLease,
+  gateInvocationAdmits,
+  liveGateInvocationLeaseCount,
+  MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
+  subscribeGateInvocationLeaseReleased,
+  type GateInvocationLease,
+} from "./gate-invocation-lease.ts";
+
 type IterationActiveGate = { command: string; startedAtMs: number; lease: GateInvocationLease };
 
-export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
-
 export const MAX_AGENT_GATE_INVOCATIONS_PER_ITERATION = 2;
-
-/** An owned hold on the machine-wide gate-invocation budget; only its holder can release it. */
-type GateInvocationLease = { release: () => void };
-
-const liveGateInvocationLeases = new Set<GateInvocationLease>();
-const gateInvocationLeaseReleaseListeners = new Set<() => void>();
-
-/** Subscribe to lease releases; listeners run in a microtask after the lease is deleted, and a throwing listener does not affect others. Returns an unsubscribe. */
-export function subscribeGateInvocationLeaseReleased(listener: () => void): () => void {
-  gateInvocationLeaseReleaseListeners.add(listener);
-  return () => {
-    gateInvocationLeaseReleaseListeners.delete(listener);
-  };
-}
-
-function notifyGateInvocationLeaseReleased(): void {
-  const listeners = [...gateInvocationLeaseReleaseListeners];
-  queueMicrotask(() => {
-    for (const listener of listeners) {
-      try {
-        listener();
-      } catch {
-        // A faulty listener must not starve the others.
-      }
-    }
-  });
-}
-
-/** Pure admission: one more full-suite gate invocation fits while the live count is below the limit. */
-export function gateInvocationAdmits(heldCount: number, limit: number): boolean {
-  return heldCount < limit;
-}
-
-/** Acquire an owned lease, or `undefined` when `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` leases are live. Release is idempotent and removes only this lease. */
-export function acquireGateInvocationLease(): GateInvocationLease | undefined {
-  if (!gateInvocationAdmits(liveGateInvocationLeases.size, MAX_CONCURRENT_AGENT_GATE_INVOCATIONS)) return undefined;
-  const lease: GateInvocationLease = {
-    release: () => {
-      if (!liveGateInvocationLeases.delete(lease)) return;
-      notifyGateInvocationLeaseReleased();
-    },
-  };
-  liveGateInvocationLeases.add(lease);
-  return lease;
-}
-
-export function liveGateInvocationLeaseCount(): number {
-  return liveGateInvocationLeases.size;
-}
 
 function createIterationActiveGateTracker(options: {
   clock: () => number;

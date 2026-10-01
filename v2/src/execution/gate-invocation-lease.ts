@@ -1,0 +1,142 @@
+export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
+
+/** An owned hold on the machine-wide gate-invocation budget; only its holder can release it. */
+export type GateInvocationLease = { release: () => void };
+
+const liveGateInvocationLeases = new Set<GateInvocationLease>();
+const gateInvocationLeaseReleaseListeners = new Set<() => void>();
+
+type LeaseWaiter = {
+  grant: (lease: GateInvocationLease) => void;
+  dispose: () => void;
+};
+
+const leaseWaitQueue: LeaseWaiter[] = [];
+
+/** Subscribe to lease releases; listeners run in a microtask after the lease is deleted, and a throwing listener does not affect others. Returns an unsubscribe. */
+export function subscribeGateInvocationLeaseReleased(listener: () => void): () => void {
+  gateInvocationLeaseReleaseListeners.add(listener);
+  return () => {
+    gateInvocationLeaseReleaseListeners.delete(listener);
+  };
+}
+
+function notifyGateInvocationLeaseReleased(): void {
+  const listeners = [...gateInvocationLeaseReleaseListeners];
+  queueMicrotask(() => {
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        // A faulty listener must not starve the others.
+      }
+    }
+  });
+}
+
+/** Pure admission: one more full-suite gate invocation fits while the live count is below the limit. */
+export function gateInvocationAdmits(heldCount: number, limit: number): boolean {
+  return heldCount < limit;
+}
+
+function createGateInvocationLease(): GateInvocationLease | undefined {
+  if (!gateInvocationAdmits(liveGateInvocationLeases.size, MAX_CONCURRENT_AGENT_GATE_INVOCATIONS)) return undefined;
+  const lease: GateInvocationLease = {
+    release: () => {
+      if (!liveGateInvocationLeases.delete(lease)) return;
+      notifyGateInvocationLeaseReleased();
+      drainLeaseWaitQueue();
+    },
+  };
+  liveGateInvocationLeases.add(lease);
+  return lease;
+}
+
+function drainLeaseWaitQueue(): void {
+  while (leaseWaitQueue.length > 0) {
+    const lease = createGateInvocationLease();
+    if (lease === undefined) return;
+    const waiter = leaseWaitQueue.shift();
+    if (waiter === undefined) {
+      lease.release();
+      return;
+    }
+    waiter.grant(lease);
+  }
+}
+
+function dequeueLeaseWaiter(waiter: LeaseWaiter): void {
+  const index = leaseWaitQueue.indexOf(waiter);
+  if (index !== -1) leaseWaitQueue.splice(index, 1);
+}
+
+/** Acquire an owned lease, or `undefined` when `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` leases are live. Release is idempotent and removes only this lease. */
+export function acquireGateInvocationLease(): GateInvocationLease | undefined {
+  return createGateInvocationLease();
+}
+
+export function liveGateInvocationLeaseCount(): number {
+  return liveGateInvocationLeases.size;
+}
+
+/** Wait in FIFO order for an owned lease when the cap is held; refuses never queue here. */
+export function awaitGateInvocationLease(options: {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}): Promise<GateInvocationLease> {
+  const immediate = acquireGateInvocationLease();
+  if (immediate !== undefined) return Promise.resolve(immediate);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let abortListener: (() => void) | undefined;
+
+    const finish = (result: { ok: true; lease: GateInvocationLease } | { ok: false; error: Error }) => {
+      if (settled) {
+        if (result.ok) result.lease.release();
+        return;
+      }
+      settled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (abortListener !== undefined && options.signal !== undefined) {
+        options.signal.removeEventListener("abort", abortListener);
+      }
+      if (result.ok) resolve(result.lease);
+      else reject(result.error);
+    };
+
+    const waiter: LeaseWaiter = {
+      grant: (lease) => {
+        finish({ ok: true, lease });
+      },
+      dispose: () => {
+        dequeueLeaseWaiter(waiter);
+      },
+    };
+
+    const onAbort = () => {
+      waiter.dispose();
+      finish({ ok: false, error: new Error("gate invocation lease wait aborted") });
+    };
+
+    if (options.signal?.aborted) {
+      finish({ ok: false, error: new Error("gate invocation lease wait aborted") });
+      return;
+    }
+
+    if (options.signal !== undefined) {
+      abortListener = onAbort;
+      options.signal.addEventListener("abort", abortListener, { once: true });
+    }
+
+    if (options.timeoutMs !== undefined) {
+      timeoutId = setTimeout(() => {
+        waiter.dispose();
+        finish({ ok: false, error: new Error(`gate invocation lease wait timed out after ${options.timeoutMs}ms`) });
+      }, options.timeoutMs);
+    }
+
+    leaseWaitQueue.push(waiter);
+  });
+}

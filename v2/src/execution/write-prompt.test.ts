@@ -178,6 +178,24 @@ describe("write prompt", () => {
     expect(() => registry.getById("write.keystone-directive-reprompt")).toThrow(/unknown prompt id/);
   });
 
+  test("registers stable id write.gate-budget-reprompt", () => {
+    const registry = loadPromptRegistry();
+    expect(registry.getById("write.gate-budget-reprompt").metadata.id).toBe("write.gate-budget-reprompt");
+  });
+
+  // Mutation checkpoint: sentinel body-line mutation on `write.gate-budget-reprompt` must turn this RED.
+  test("write.gate-budget-reprompt names the refused command, budget cause, and file-scoped verification", () => {
+    const rendered = renderStepPrompt("write.gate-budget-reprompt", {
+      REFUSED_COMMAND: "bun run test:v2",
+    });
+
+    expect(rendered).toContain("two scoped gate runs (`bun run test:*`)");
+    expect(rendered).toContain("bun run test:v2");
+    expect(rendered).toContain("cause `iteration_gate_budget`");
+    expect(rendered).toContain("file-scoped `bun test <file>`");
+    expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+  });
+
   test("registers stable id write.surviving-mutation-reprompt", () => {
     const registry = loadPromptRegistry();
     expect(registry.getById("write.surviving-mutation-reprompt").metadata.id).toBe("write.surviving-mutation-reprompt");

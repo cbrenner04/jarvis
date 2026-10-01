@@ -466,6 +466,29 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("Run the tests target-repo guidance prescribes for the surfaces you touched");
   });
 
+  test.each([
+    ["implement.prompt.body", true],
+    ["write.execute", false],
+  ] as const)("surviving-mutation reprompt renders only for implement writes (%s)", async (promptId, expectReprompt) => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    let capturedPrompt = "";
+    await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName: "surviving-run", baseRef: "HEAD", jarvisRoot },
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: "proof.txt",
+      promptId,
+      survivingMutationReprompt: { mutation: "operator-flip: === → !==", sourceFile: "v2/src/guard.ts", sourceLine: 7 },
+      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    // Mutation checkpoint: flipping the implement promptId guard on the surviving-reprompt branch must turn this RED.
+    expect(capturedPrompt.includes("Mutation verification found an uncovered changed guard")).toBe(expectReprompt);
+    expect(capturedPrompt.includes("v2/src/guard.ts:7")).toBe(expectReprompt);
+  });
+
   test("implement.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {
     const { jarvisRoot } = createJarvisHome();
     let capturedPrompt = "";

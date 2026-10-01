@@ -4,18 +4,18 @@ name: plan-draft-shape-contract-reprompt
 
 # Plan-draft shape misses (except missing dir) get one in-loop draft reprompt
 
-`isEligibleDraftContractReprompt` excludes only bare `failureReason === "plan.draft.shape"`; suffixed shape misses are eligible today by accident and reprompt detail does not name the flat layout. After suffixes land, eligibility must be explicit: prefix `plan.draft.shape` with `:missing-dir` carved out.
+`isEligibleDraftContractReprompt` (`write-loop.ts`) excludes the whole shape family via `!isPlanDraftShapeFamilyReason(...)`, so no `plan.draft.shape:*` miss gets a reprompt, and reprompt detail does not name the flat layout. Eligibility must carve out `:missing-dir` only.
 
 ## Decisions
 
 - Treat `plan.draft.shape:missing-dir` like today: immediate settlement, no reprompt.
 - Treat `:no-index`, `:no-subspecs`, and `:nested-roots=<n>` as eligible for the existing one-shot `draft_contract_reprompt`, with detail naming the expected flat stage layout (`index.md`, `NN-*.md`, `intent.md` at the staging root).
-- Replace bare-reason equality in `isEligibleDraftContractReprompt` with shape-family prefix match and an explicit ineligible list (`:missing-dir` only).
+- Replace the whole-family `isPlanDraftShapeFamilyReason` exclusion in `isEligibleDraftContractReprompt` with an explicit ineligible list (`:missing-dir` only).
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts`: a plan-draft `:no-subspecs` contract miss emits exactly one `draft_contract_reprompt` before re-evaluation whose detail names the flat staging layout; fails against the pre-fix bare `plan.draft.shape` exclusion.
-- [ ] Same file: a plan-draft `:missing-dir` contract miss emits zero `draft_contract_reprompt` events; fails if a reprompt is emitted once suffixes exist.
+- [ ] `v2/src/execution/write-loop.test.ts`: a plan-draft `:no-subspecs` contract miss emits exactly one `draft_contract_reprompt` before re-evaluation whose detail names the flat staging layout; fails against the pre-fix whole-family exclusion.
+- [ ] Same file: a plan-draft `:missing-dir` contract miss emits zero `draft_contract_reprompt` events; fails if `:missing-dir` is made eligible.
 - [ ] `v2/docs/v1-behaviors.md` records which `plan.draft.shape:*` suffixes get one in-loop `draft_contract_reprompt` and that `:missing-dir` does not.
 
 ## Primary implementation surface

@@ -136,7 +136,12 @@ import { throwIfAborted } from "./throw-if-aborted.ts";
 import { type CoverageRunSkipReason, reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { storeVerifierProcessGroupRecorder, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
-import { executeWrite, isPlanDraftShapeFamilyReason, type WriteExecuteInput } from "./write.ts";
+import {
+  draftContractRepromptDetail,
+  executeWrite,
+  isPlanDraftShapeRepromptIneligible,
+  type WriteExecuteInput,
+} from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -613,7 +618,7 @@ export function findDraftContractRepromptStateFromLog(
   return { spent: true, ...(pending !== undefined ? { pending } : {}) };
 }
 
-/** Plan-draft `artifact.exists` misses are repromptable once, except the `plan.draft.shape` family (bare or suffixed). */
+/** Plan-draft `artifact.exists` misses are repromptable once, except bare `plan.draft.shape` and `:missing-dir`. */
 export function isEligibleDraftContractReprompt(
   args: WriteLoopInput,
   result: StepRunResult,
@@ -623,7 +628,7 @@ export function isEligibleDraftContractReprompt(
     args.promptId === PLAN_DRAFT_PROMPT_ID &&
     result.failedContractId === "artifact.exists" &&
     result.failureReason !== undefined &&
-    !isPlanDraftShapeFamilyReason(result.failureReason)
+    !isPlanDraftShapeRepromptIneligible(result.failureReason)
   );
 }
 
@@ -1625,7 +1630,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             error instanceof Error ? error : new Error(String(error)),
           );
         }
-        const context = { contractId: result.failedContractId, detail: result.failureReason };
+        const context = {
+          contractId: result.failedContractId,
+          detail: draftContractRepromptDetail(result.failureReason),
+        };
         args.logSink?.append(runId, { kind: "draft_contract_reprompt", attemptId, ...context });
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {

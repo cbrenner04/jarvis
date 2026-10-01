@@ -1,4 +1,6 @@
-export type StructuralTestLocatorKind = "marker-slice" | "symbol-slice" | "discovered-file";
+export type StructuralTestLocatorKind = "marker-slice" | "symbol-slice" | "discovered-file" | "inventory-binding";
+
+export const PARSE_ONLY_INVENTORY_MARKER_COMMENT = "// jarvis:parse-only-inventory";
 
 export class StructuralTestLocatorError extends Error {
   readonly kind: StructuralTestLocatorKind;
@@ -76,6 +78,79 @@ export function locateDiscoveredFile(discovered: Readonly<Record<string, string>
     throw new StructuralTestLocatorError("discovered-file", relativePath);
   }
   return content;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function indexOfMatchingCloseBracket(source: string, openIndex: number): number {
+  let depth = 0;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "[") {
+      depth += 1;
+    } else if (char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  return -1;
+}
+
+function hasParseOnlyInventoryMarkerBefore(source: string, declarationStart: number): boolean {
+  const markerIndex = source.lastIndexOf(PARSE_ONLY_INVENTORY_MARKER_COMMENT, declarationStart);
+  if (markerIndex === -1) {
+    return false;
+  }
+  const between = source.slice(markerIndex + PARSE_ONLY_INVENTORY_MARKER_COMMENT.length, declarationStart);
+  return /^\s*$/.test(between);
+}
+
+function inventoryConstPattern(constantName: string): RegExp {
+  return new RegExp(`(?:export\\s+)?const\\s+_?${escapeRegExp(constantName)}\\s*(?::[^=]+)?=\\s*\\[`, "g");
+}
+
+export function locateParseOnlyInventoryArrayBody(source: string, constantName: string, searchKey?: string): string {
+  const key = searchKey ?? constantName;
+  const pattern = inventoryConstPattern(constantName);
+  let firstUnmarked: { body: string } | undefined;
+  let firstMarked: { body: string } | undefined;
+
+  for (const match of source.matchAll(pattern)) {
+    const declarationStart = match.index;
+    if (declarationStart === undefined) {
+      continue;
+    }
+    const bracketIndex = match.index + match[0].length - 1;
+    const closeIndex = indexOfMatchingCloseBracket(source, bracketIndex);
+    if (closeIndex === -1) {
+      throw new StructuralTestLocatorError("inventory-binding", key, `unclosed inventory array for ${constantName}`);
+    }
+    const body = source.slice(bracketIndex + 1, closeIndex);
+    const marked = hasParseOnlyInventoryMarkerBefore(source, declarationStart);
+    if (marked) {
+      if (firstMarked === undefined) {
+        firstMarked = { body };
+      }
+    } else if (firstUnmarked === undefined) {
+      firstUnmarked = { body };
+    }
+  }
+
+  if (firstMarked !== undefined) {
+    return firstMarked.body;
+  }
+  if (firstUnmarked !== undefined) {
+    throw new StructuralTestLocatorError(
+      "inventory-binding",
+      key,
+      `parse-only inventory marker missing on ${constantName}`,
+    );
+  }
+  throw new StructuralTestLocatorError("inventory-binding", key, `inventory constant ${constantName} not found`);
 }
 
 export function locateFrontmatterField(source: string, field: string, sourceLabel: string): string {

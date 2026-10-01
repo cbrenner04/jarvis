@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   locateDiscoveredFile,
   locateMarkerSlice,
+  locateParseOnlyInventoryArrayBody,
   locateSymbolSlice,
+  PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+  StructuralTestLocatorError,
   type StructuralTestLocatorKind,
 } from "./structural-test-locator.ts";
 
@@ -27,6 +30,21 @@ function silentSymbolSlice(candidates: readonly string[], start: string, end: st
 
 function silentDiscoveredFile(discovered: Readonly<Record<string, string>>, relativePath: string): string {
   return discovered[relativePath] ?? "";
+}
+
+function silentUnprefixedInventoryBody(source: string, constantName: string): string {
+  const match = source.match(
+    new RegExp(`(?:export\\s+)?const\\s+${constantName}\\s*(?::[^=]+)?=\\s*\\[([\\s\\S]*?)\\];`),
+  );
+  return match?.[1] ?? "";
+}
+
+function silentAbsentOrEmptyInventoryBody(source: string, constantName: string): string {
+  const body = silentUnprefixedInventoryBody(source, constantName);
+  if (body === "") {
+    return "";
+  }
+  return body;
 }
 
 function expectLocatorMiss(fn: () => unknown, kind: StructuralTestLocatorKind, searchKey: string): void {
@@ -107,5 +125,83 @@ describe("structural test locators", () => {
       "discovered-file",
       "shared/prompts/missing.ts",
     );
+  });
+
+  test("parse-only inventory binds marked module const, not later unprefixed fixture", () => {
+    const constantName = "MODULE_INVENTORY_ANCHORS";
+    const source = [
+      PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+      `const _${constantName}: { id: string }[] = [`,
+      '  { id: "module-inventory" },',
+      "];",
+      "",
+      `const ${constantName} = [`,
+      '  { id: "fixture-inventory" },',
+      "];",
+    ].join("\n");
+
+    const contrastBody = silentUnprefixedInventoryBody(source, constantName);
+    expect(contrastBody).toContain("fixture-inventory");
+    expect(contrastBody).not.toContain("module-inventory");
+
+    const bound = locateParseOnlyInventoryArrayBody(source, constantName);
+    expect(bound).toContain("module-inventory");
+    expect(bound).not.toContain("fixture-inventory");
+  });
+
+  test("parse-only inventory requires marker on the named declaration", () => {
+    const constantName = "UNMARKED_INVENTORY";
+    const source = [`const ${constantName} = [`, '  { id: "only" },', "];"].join("\n");
+
+    expect(() => locateParseOnlyInventoryArrayBody(source, constantName)).toThrow(StructuralTestLocatorError);
+    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+  });
+
+  test("parse-only inventory tolerates optional leading underscore on constant name", () => {
+    const constantName = "PREFIXED_INVENTORY";
+    const prefixedSource = [
+      PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+      `const _${constantName} = [`,
+      '  { id: "underscored" },',
+      "];",
+    ].join("\n");
+    const unprefixedSource = [
+      PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+      `const ${constantName} = [`,
+      '  { id: "plain" },',
+      "];",
+    ].join("\n");
+
+    expect(locateParseOnlyInventoryArrayBody(prefixedSource, constantName)).toContain("underscored");
+    expect(locateParseOnlyInventoryArrayBody(unprefixedSource, constantName)).toContain("plain");
+
+    const unprefixedOnly = silentUnprefixedInventoryBody(prefixedSource, constantName);
+    expect(unprefixedOnly).toBe("");
+    expect(unprefixedOnly).not.toContain("underscored");
+  });
+
+  test("parse-only inventory throws on fixture binding that absent-only guards accept", () => {
+    const constantName = "FIXTURE_ONLY_INVENTORY";
+    const source = [`const ${constantName} = [`, '  { id: "fixture-only" },', "];"].join("\n");
+
+    const silentBody = silentAbsentOrEmptyInventoryBody(source, constantName);
+    expect(silentBody).toContain("fixture-only");
+
+    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+  });
+
+  test("parse-only inventory throws when same-shaped unprefixed fixture precedes a different named inventory", () => {
+    const constantName = "REQUESTED_INVENTORY";
+    const source = [
+      `const ${constantName} = [`,
+      '  { id: "wrong-first-match" },',
+      "];",
+      PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+      "const OTHER_INVENTORY = [",
+      '  { id: "marked-other" },',
+      "];",
+    ].join("\n");
+
+    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
   });
 });

@@ -2398,7 +2398,7 @@ describe("implement preflight stale workspace reset", () => {
    * inert on this path, so a case asserting the gate must not use the implement fixture's stable
    * `index.md` and call the result a plan behavior.
    */
-  function resetPlanSteps(branch = resetBranch): AnyWorkflowStep[] {
+  function _resetPlanSteps(branch = resetBranch): AnyWorkflowStep[] {
     const timestamp = `${new Date().toISOString().replace(/[-:]/gu, "").split(".")[0]}Z`;
     return [
       {

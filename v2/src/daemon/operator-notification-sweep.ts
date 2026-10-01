@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
+import type { LogReader, PersistedRecord } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import {
+  type DeriveOperatorIncidentsOptions,
   deriveOperatorIncidents,
   NOTIFICATION_KEY_FORMAT_VERSION,
   type OperatorIncident,
   serializeOperatorIncident,
 } from "./operator-incidents.ts";
+import { findTerminalLogRecord, type TerminalLogRecord } from "./run-operator-error.ts";
 
 export const NOTIFICATION_SWEEP_INTERVAL_MS = 5_000;
 
@@ -36,7 +39,53 @@ export type NotificationSweepDeps = {
   spawnSink?: NotificationSinkSpawner;
   nowMs?: () => number;
   wakeNotificationWaiters?: (store: StateStore) => void;
+  logReader?: LogReader;
+  deriveOperatorIncidentsOptions?: DeriveOperatorIncidentsOptions;
 };
+
+/**
+ * Per-tick memoized terminal-record lookup: the log is read at most once (via `readAllRecords` when the
+ * reader offers it), never once per candidate run.
+ */
+function terminalLogRecordLookup(logReader: LogReader): (runId: string) => TerminalLogRecord | undefined {
+  const memo = new Map<string, TerminalLogRecord | undefined>();
+  let recordsByRun: Map<string, PersistedRecord[]> | undefined;
+  return (runId) => {
+    if (memo.has(runId)) return memo.get(runId);
+    let records: PersistedRecord[];
+    if (logReader.readAllRecords === undefined) {
+      records = logReader.tail(runId);
+    } else {
+      if (recordsByRun === undefined) {
+        recordsByRun = new Map();
+        for (const record of logReader.readAllRecords()) {
+          const bucket = recordsByRun.get(record.runId);
+          if (bucket === undefined) recordsByRun.set(record.runId, [record]);
+          else bucket.push(record);
+        }
+      }
+      records = [...(recordsByRun.get(runId) ?? [])].sort((a, b) => a.seq - b.seq);
+    }
+    const terminal = findTerminalLogRecord(records);
+    memo.set(runId, terminal);
+    return terminal;
+  };
+}
+
+/** Terminal `loop_finished` lane signal for notification derivation (same source as run list/wait). */
+export function notificationSweepDeriveOptions(
+  deps: Pick<NotificationSweepDeps, "logReader" | "deriveOperatorIncidentsOptions">,
+): DeriveOperatorIncidentsOptions {
+  const explicit = deps.deriveOperatorIncidentsOptions ?? {};
+  const fromLog = deps.logReader === undefined ? undefined : terminalLogRecordLookup(deps.logReader);
+  const explicitForRun = explicit.terminalLogRecordForRun;
+  if (fromLog === undefined) return explicit;
+  if (explicitForRun === undefined) return { ...explicit, terminalLogRecordForRun: fromLog };
+  return {
+    ...explicit,
+    terminalLogRecordForRun: (runId) => explicitForRun(runId) ?? fromLog(runId),
+  };
+}
 
 function deliverIncident(
   store: StateStore,
@@ -105,15 +154,18 @@ export function isPreStartIncident(incident: Pick<OperatorIncident, "sinceMs">, 
  * boot sweep; a store already at the current version is untouched.
  */
 export function reconcileNotificationKeyFormat(
-  deps: Pick<NotificationSweepDeps, "store" | "nowMs"> & { daemonStartedAtMs: number },
+  deps: Pick<NotificationSweepDeps, "store" | "nowMs" | "logReader" | "deriveOperatorIncidentsOptions"> & {
+    daemonStartedAtMs: number;
+  },
 ): { suppressed: number } | null {
   const store = deps.store;
   if (store.isClosed()) return null;
   if (store.loadNotificationKeyFormatVersion() === NOTIFICATION_KEY_FORMAT_VERSION) return null;
 
   const nowMs = deps.nowMs?.() ?? Date.now();
+  const deriveOptions = notificationSweepDeriveOptions(deps);
   let suppressed = 0;
-  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+  for (const incident of deriveOperatorIncidents(store, nowMs, deriveOptions)) {
     if (!isPreStartIncident(incident, deps.daemonStartedAtMs)) continue;
     const { incidentId, transition } = incident;
     if (store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt: nowMs })) suppressed += 1;
@@ -132,7 +184,8 @@ export function runNotificationSweep(deps: NotificationSweepDeps): void {
   const nowMs = deps.nowMs?.() ?? Date.now();
 
   const wakeNotificationWaiters = deps.wakeNotificationWaiters;
-  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+  const deriveOptions = notificationSweepDeriveOptions(deps);
+  for (const incident of deriveOperatorIncidents(store, nowMs, deriveOptions)) {
     deliverIncident(store, incident, sinkCommand, spawnSink, nowMs, wakeNotificationWaiters);
   }
   wakeNotificationWaiters?.(store);

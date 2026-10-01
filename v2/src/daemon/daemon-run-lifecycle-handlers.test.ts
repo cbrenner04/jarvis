@@ -1027,6 +1027,68 @@ test("list and wait project a stored operator failure record only when one exist
   expect(absent.result).not.toHaveProperty("failure");
 });
 
+test("list and wait project lanePrOutcome when terminal run row is loaded", async () => {
+  const logsPath = join(tmpdir(), `jarvis-lifecycle-lane-pr-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  try {
+    const closedNumber = 88;
+    const runId = stateStore.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/test-project",
+      branch: `lane-pr-${crypto.randomUUID()}`,
+      specPath: "/tmp/test-project/spec.md",
+    });
+    stateStore.commitTerminalRunSettlement({
+      runId,
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: closedNumber,
+    });
+    logSink.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 1,
+      resumable: false,
+      lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+    });
+    logSink.close();
+
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    });
+    const signal = new AbortController().signal;
+    const expectedLane = { kind: "lane_pr_closed", prNumber: closedNumber };
+
+    const waited = await handlers.wait({ kind: "request", id: "w-lane", method: "wait", params: { runId } }, signal);
+    expect(waited.kind).toBe("response");
+    if (waited.kind !== "response") return;
+    expect(waited.result).toMatchObject({
+      runStatus: "completed",
+      loopOutcomeKind: "complete",
+      lanePrOutcome: expectedLane,
+    });
+
+    const listed = await handlers.list({ kind: "request", id: "l-lane", method: "list" }, signal);
+    if (listed.kind !== "response") throw new Error("list failed");
+    const row = (listed.result as { runs: Array<Record<string, unknown>> }).runs.find(
+      (candidate) => candidate.runId === runId,
+    );
+    // Mutation checkpoint: flipping `fullRun === undefined` on buildRunListRow lanePrOutcome guard must turn this RED.
+    expect(row).toMatchObject({ status: "completed", lanePrOutcome: expectedLane });
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
 test("workflow entry wait reports non_terminating_mutation_failed owned by a durable review step", async () => {
   const logsPath = join(tmpdir(), `jarvis-lifecycle-non-terminating-${process.pid}-${Date.now()}.jsonl`);
   const logSink = openLogSink(logsPath);

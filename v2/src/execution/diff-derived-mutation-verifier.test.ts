@@ -1487,6 +1487,130 @@ index 1234567..abcdefg 100644
       expect(result).toBe(false);
     });
 
+    it("returns caught without awaiting a never-settling sibling and settles the sibling runAsync on abort", async () => {
+      let hangSettled = false;
+      const startedAt = Date.now();
+      const result = await runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
+        runAsync: async (_command, args, _cwd, options) => {
+          if (args[1] === "src/hangs.test.ts") {
+            await new Promise<void>((resolve) => {
+              const onAbort = () => {
+                options?.signal?.removeEventListener("abort", onAbort);
+                hangSettled = true;
+                resolve();
+              };
+              if (options?.signal?.aborted) onAbort();
+              else options?.signal?.addEventListener("abort", onAbort, { once: true });
+            });
+            throw new AsyncSubprocessError("aborted", undefined, "", "", "ABORT_ERR");
+          }
+          throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+        },
+      });
+
+      expect(result).toBe(false);
+      expect(hangSettled).toBe(true);
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    });
+
+    it("returns caught on isolated scoped runs without dequeuing after a never-settling sibling", async () => {
+      const started: string[] = [];
+      let hangSettled = false;
+      const startedAt = Date.now();
+      const scope = ["src/a.test.ts", "src/b.test.ts", "src/c.test.ts", "src/d.test.ts", "src/e.test.ts"];
+      const result = await runDiffDerivedScopedTests(
+        "/test/path",
+        scope,
+        {
+          runAsync: async (_command, args, _cwd, options) => {
+            started.push(args[1] ?? "");
+            if (args[1] === "src/a.test.ts") {
+              throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+            }
+            if (args[1] === "src/b.test.ts") {
+              await new Promise<void>((resolve) => {
+                const onAbort = () => {
+                  options?.signal?.removeEventListener("abort", onAbort);
+                  hangSettled = true;
+                  resolve();
+                };
+                if (options?.signal?.aborted) onAbort();
+                else options?.signal?.addEventListener("abort", onAbort, { once: true });
+              });
+              throw new AsyncSubprocessError("aborted", undefined, "", "", "ABORT_ERR");
+            }
+            return "";
+          },
+        },
+        { isolated: true },
+      );
+
+      expect(result).toBe(false);
+      expect(hangSettled).toBe(true);
+      expect(started).not.toContain("src/e.test.ts");
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    });
+
+    it("does not spawn a semaphore-queued scoped file after the batch fails fast", async () => {
+      const started: string[] = [];
+      const scope = ["src/a.test.ts", "src/b.test.ts", "src/c.test.ts", "src/d.test.ts", "src/queued.test.ts"];
+      const result = await runDiffDerivedScopedTests("/test/path", scope, {
+        runAsync: async (_command, args, _cwd, options) => {
+          started.push(args[1] ?? "");
+          if (args[1] === "src/a.test.ts") throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+          await new Promise<void>((resolve) => {
+            if (options?.signal?.aborted) resolve();
+            else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+          throw new AsyncSubprocessError("aborted", undefined, "", "", "ABORT_ERR");
+        },
+      });
+
+      expect(result).toBe(false);
+      expect(started).not.toContain("src/queued.test.ts");
+    });
+
+    it("kills the candidate when one killing file fails and a sibling never settles through the floor budget", async () => {
+      const result = await verifyTimeout(
+        (cwd, scope, options) =>
+          runDiffDerivedScopedTests(
+            cwd,
+            scope,
+            {
+              runAsync: async (_command, args, _cwd, runOptions) => {
+                if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
+                const path = args[1] ?? "";
+                if (path.endsWith("hangs-extra.test.ts")) {
+                  await new Promise<void>((resolve) => {
+                    const onAbort = () => {
+                      runOptions?.signal?.removeEventListener("abort", onAbort);
+                      resolve();
+                    };
+                    if (runOptions?.signal?.aborted) onAbort();
+                    else runOptions?.signal?.addEventListener("abort", onAbort, { once: true });
+                  });
+                  throw new AsyncSubprocessError("aborted", undefined, "", "", "ABORT_ERR");
+                }
+                if (path.endsWith("hangs.test.ts")) {
+                  throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+                }
+                if (runOptions?.timeoutMs === KILLING_TEST_BUDGET_FLOOR_MS && runOptions.processGroup !== undefined) {
+                  throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+                }
+                await new Promise<void>(() => {});
+                return "";
+              },
+            },
+            options,
+          ),
+        undefined,
+        { listDir: () => ["hangs-extra.test.ts"] },
+      );
+
+      expect(result.kind).toBe("pass");
+      if (result.kind === "pass") expect(result.candidateCount).toBeGreaterThan(0);
+    }, 1_000);
+
     it("treats a caught failure as dominant when co-located and sibling scoped tests run in parallel", async () => {
       const result = await verifyDiffDerivedMutations(
         { worktreePath: "/test/path", runBase: "main" },

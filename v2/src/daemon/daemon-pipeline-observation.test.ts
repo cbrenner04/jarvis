@@ -373,6 +373,103 @@ test("projectPipelineSnapshot projects stored terminal and admission diagnostics
   expect(absentWire).not.toHaveProperty("seedPath");
 });
 
+const LANE_IMPLEMENT_DEFINITION: PipelineDefinition = {
+  name: "lane-implement",
+  terminalAction: "ready",
+  stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+};
+
+const STALE_PUBLICATION_STAGE_FAILURE = {
+  code: "completion_publication_missing_pr_evidence",
+  message: "completion publication left no confirmed PR evidence on linked entry run run-implement",
+};
+
+function laneImplementArtifact(laneOutcome: {
+  kind: "lane_pr_merged" | "lane_pr_closed";
+  prNumber: number;
+}): Record<string, unknown> {
+  return {
+    entryRunId: "run-implement",
+    specPath: "spec/implement.md",
+    prNumber: laneOutcome.prNumber,
+    lanePrOutcome: laneOutcome,
+  };
+}
+
+async function wirePipelineFromStore(pipelineId: string): Promise<PipelineSnapshot | undefined> {
+  const response = await handlers().pipeline_list(
+    requestFrame("list-lane", "pipeline_list"),
+    new AbortController().signal,
+  );
+  const pipelines = (response as { result: { pipelines: PipelineSnapshot[] } }).result.pipelines;
+  return pipelines.find((pipeline) => pipeline.pipelineId === pipelineId);
+}
+
+async function expectLaneStageListProjection(
+  laneOutcome: { kind: "lane_pr_merged" | "lane_pr_closed"; prNumber: number },
+  storedStatus: "failed" | "succeeded",
+): Promise<void> {
+  const pipelineId = stateStore.createPipeline({ definition: LANE_IMPLEMENT_DEFINITION });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "implement",
+    patch: {
+      status: storedStatus,
+      failureDetail: STALE_PUBLICATION_STAGE_FAILURE,
+      artifact: laneImplementArtifact(laneOutcome),
+    },
+  });
+
+  const snapshot = projectPipelineSnapshot(stateStore.loadPipeline(pipelineId)!);
+  const implement = snapshot.stages[0];
+  expect(implement?.status).toBe("succeeded");
+  expect(implement?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: laneOutcome.prNumber });
+  expect(implement?.failureDetail).toBeNull();
+
+  const wire = await wirePipelineFromStore(pipelineId);
+  const wireStage = wire?.stages[0];
+  expect(wireStage?.status).toBe("succeeded");
+  expect(wireStage?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: laneOutcome.prNumber });
+  expect(wireStage?.failureDetail).toBeNull();
+}
+
+test("pipeline_list projects lane_pr_merged stage outcome without publication-failed failureDetail", async () => {
+  await expectLaneStageListProjection({ kind: "lane_pr_merged", prNumber: 77 }, "failed");
+});
+
+test("pipeline_list projects lane_pr_closed stage artifact without publication-failed failureDetail", async () => {
+  await expectLaneStageListProjection({ kind: "lane_pr_closed", prNumber: 88 }, "succeeded");
+});
+
+test("lane-settled stage evidence overrides stale terminalPublicationFailure in pipeline snapshot state", () => {
+  const closedNumber = 99;
+  const pipeline = pipelineWithStages(
+    LANE_IMPLEMENT_DEFINITION,
+    {
+      implement: {
+        status: "succeeded",
+        artifact: laneImplementArtifact({ kind: "lane_pr_closed", prNumber: closedNumber }),
+        failureDetail: null,
+      },
+    },
+    {
+      terminalPublicationFailure: {
+        terminalAction: "ready",
+        failure: { operation: "gh pr ready", message: "ready failed", exitCode: 1 },
+      },
+    },
+  );
+
+  expect(derivePipelineState(pipeline)).toBe("succeeded");
+  const snapshot = projectPipelineSnapshot(pipeline);
+  expect(snapshot.state).toBe("succeeded");
+  expect(snapshot.stages[0]?.failureDetail).toBeNull();
+  // Mutation checkpoint: forcing `pipelineSettledLanePrOutcome(pipeline) === undefined` in `terminalPublicationFailureForcesPipelineFailed` must turn this test RED.
+  expect(snapshot.stages[0]?.artifact).toMatchObject({
+    lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+  });
+});
+
 test("projectPipelineSnapshot projects stored stage identity, position, and falsy JSON diagnostics", () => {
   const pipelineId = stateStore.createPipeline({ definition: THREE_STAGE_DEFINITION });
   stateStore.updateStage({ pipelineId, stageId: "plan", patch: { artifact: false, failureDetail: 0 } });

@@ -102,6 +102,7 @@ import {
   findTerminalLogRecord,
   isStalePublicationCause,
   RUN_OPERATOR_ERROR_RECOVERY,
+  resolveRunLanePrOutcome,
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
@@ -644,9 +645,11 @@ export function createRunLifecycleHandlers(
             ...resumableProjection,
             ...runFailureField(run ?? undefined),
           };
+    const lanePrOutcome = run == null ? undefined : resolveRunLanePrOutcome(run, record);
     const withError = error === undefined ? base : { ...base, error };
+    const withLanePrOutcome = lanePrOutcome === undefined ? withError : { ...withError, lanePrOutcome };
     const withReviewFeedback = {
-      ...withError,
+      ...withLanePrOutcome,
       ...reviewFeedbackItemIdsProjection(
         loopFinishedEvent?.reviewFeedbackAddressedItemIds,
         loopFinishedEvent?.reviewFeedbackDeclinedItemIds,
@@ -985,6 +988,7 @@ export function createRunLifecycleHandlers(
     reportedStatus: RunStatus,
     workflowRuns: Map<string, Map<string, LoadedRun>>,
     liveRunIds: Set<string>,
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat per-field row projection; lane PR outcome adds one branch
   ) => {
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
     const logTail = logReader?.tail(run.id) ?? [];
@@ -1003,6 +1007,7 @@ export function createRunLifecycleHandlers(
       failure: _entryFailure,
       error: _entryError,
       worktreePath: _entryWorktreePath,
+      lanePrOutcome: _entryLanePrOutcome,
       ...entryOutcomeFields
     } = rowOutcome ?? { runStatus: reportedStatus };
 
@@ -1010,6 +1015,7 @@ export function createRunLifecycleHandlers(
       isTerminalRunStatus(reportedStatus) && fullRun !== undefined
         ? runListTerminalFinishAtMs(fullRun.attempts, fullRun.reconciledAt, fullRun.finishedAt)
         : undefined;
+    const lanePrOutcome = fullRun === undefined ? undefined : resolveRunLanePrOutcome(fullRun, terminalRecord);
 
     return {
       runId: run.id,
@@ -1020,6 +1026,7 @@ export function createRunLifecycleHandlers(
       isLive,
       ...entryOutcomeFields,
       ...runFailureField(fullRun),
+      ...(lanePrOutcome !== undefined ? { lanePrOutcome } : {}),
       ...(error !== undefined ? { error } : {}),
       ...runListReviewFields(snapshot),
       ...(fullRun?.stepId !== null && fullRun?.stepId !== undefined ? { stepId: fullRun.stepId } : {}),

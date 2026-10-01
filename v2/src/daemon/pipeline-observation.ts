@@ -7,6 +7,7 @@ import {
   findFanOutSplit,
   isAuthoredStageSatisfied,
   isPipelineTerminal,
+  narrowPipelineStageArtifact,
   type PipelineDerivedState,
 } from "./pipeline-execution.ts";
 
@@ -209,6 +210,48 @@ function derivePipelineFinishedAtMs(
   return finishAts.length > 0 ? Math.max(...finishAts) : pipeline.createdAt;
 }
 
+const STALE_PUBLICATION_STAGE_FAILURE_CODES = new Set(["completion_publication_missing_pr_evidence"]);
+const STALE_PUBLICATION_STAGE_FAILURE_REASONS = new Set([
+  "completion_commit_failed",
+  "iteration_commit_failed",
+  "ready_flip_failed",
+]);
+
+function isStalePublicationFailedStageFailureDetail(failureDetail: unknown): boolean {
+  if (failureDetail === null || typeof failureDetail !== "object") return false;
+  const record = failureDetail as { code?: string; reason?: string };
+  if (record.code !== undefined && STALE_PUBLICATION_STAGE_FAILURE_CODES.has(record.code)) return true;
+  return record.reason !== undefined && STALE_PUBLICATION_STAGE_FAILURE_REASONS.has(record.reason);
+}
+
+function projectObservedPipelineStage(stage: PipelineStageRecord): PipelineSnapshot["stages"][number] {
+  const artifact = narrowPipelineStageArtifact(stage.artifact);
+  const laneOutcome = artifact?.lanePrOutcome;
+  let status = stage.status;
+  let failureDetail = stage.failureDetail;
+  if (laneOutcome !== undefined) {
+    if (laneOutcome.kind === "lane_pr_merged") {
+      status = "succeeded";
+    }
+    if (isStalePublicationFailedStageFailureDetail(failureDetail)) {
+      failureDetail = null;
+    }
+  }
+  return {
+    id: stage.id,
+    stageId: stage.stageId,
+    branchKey: stage.branchKey,
+    position: stage.position,
+    status,
+    workflowInvocationId: stage.workflowInvocationId,
+    startedAt: stage.startedAt,
+    endedAt: stage.endedAt,
+    decidedAt: stage.decidedAt,
+    artifact: stage.artifact,
+    failureDetail,
+  };
+}
+
 export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineSnapshot {
   const state = derivePipelineState(pipeline);
   return {
@@ -222,18 +265,6 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
     createdAt: pipeline.createdAt,
     finishedAtMs: derivePipelineFinishedAtMs(pipeline, state),
     dismissedAt: pipeline.dismissedAt,
-    stages: pipeline.stages.map((stage) => ({
-      id: stage.id,
-      stageId: stage.stageId,
-      branchKey: stage.branchKey,
-      position: stage.position,
-      status: stage.status,
-      workflowInvocationId: stage.workflowInvocationId,
-      startedAt: stage.startedAt,
-      endedAt: stage.endedAt,
-      decidedAt: stage.decidedAt,
-      artifact: stage.artifact,
-      failureDetail: stage.failureDetail,
-    })),
+    stages: pipeline.stages.map(projectObservedPipelineStage),
   };
 }

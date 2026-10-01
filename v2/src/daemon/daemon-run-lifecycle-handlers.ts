@@ -972,7 +972,6 @@ export function createRunLifecycleHandlers(
     };
   };
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat per-field row projection; lane PR outcome adds one branch
   const buildRunListRow = (
     run: Run,
     fullRun: LoadedRun | undefined,
@@ -980,6 +979,7 @@ export function createRunLifecycleHandlers(
     reportedStatus: RunStatus,
     workflowRuns: Map<string, Map<string, LoadedRun>>,
     liveRunIds: Set<string>,
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat per-field row projection; lane PR outcome adds one branch
   ) => {
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
     const logTail = logReader?.tail(run.id) ?? [];

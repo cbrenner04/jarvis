@@ -399,6 +399,158 @@ describe("resolveReviewFeedbackLane pipeline", () => {
     expect(result.target.laneKind).toBe("implement");
   });
 
+  test("resolves pipeline_stage for succeeded intent, plan, and implement rows from entry-run project and branch", () => {
+    const cases: Array<{
+      workflow: string;
+      laneKind: "intent" | "plan" | "implement";
+      promptId: string;
+      role: string;
+    }> = [
+      { workflow: "intent", laneKind: "intent", promptId: "intent.prompt.split", role: "author" },
+      { workflow: "plan", laneKind: "plan", promptId: "plan.prompt.draft", role: "author" },
+      { workflow: "implement", laneKind: "implement", promptId: "implement.prompt.body", role: "implement" },
+    ];
+    for (const caseDef of cases) {
+      const entryRun = baseRun({
+        id: `pipeline-${caseDef.workflow}-entry`,
+        stepId: `${caseDef.workflow}-step`,
+        workflowSnapshot: workflowSnapshot(`inv-pipeline-${caseDef.workflow}`, {
+          stepId: `${caseDef.workflow}-step`,
+          role: caseDef.role,
+          promptId: caseDef.promptId,
+        }),
+      });
+      const pipeline = pipelineFixture({
+        pipelineId: `pipe-${caseDef.workflow}`,
+        stageId: `${caseDef.workflow}-stage`,
+        workflow: caseDef.workflow,
+        entryRun,
+      });
+      const result = resolveReviewFeedbackLane(memoryStore({ runs: [entryRun], pipelines: [pipeline] }), {
+        mode: "pipeline_stage",
+        pipelineId: `pipe-${caseDef.workflow}`,
+        stageId: `${caseDef.workflow}-stage`,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("expected success");
+      expect(result.target.laneKind).toBe(caseDef.laneKind);
+      expect(result.target.project).toBe(PROJECT);
+      expect(result.target.branch).toBe(BRANCH);
+      expect(result.target.provenance).toEqual({
+        kind: "pipeline",
+        pipelineId: `pipe-${caseDef.workflow}`,
+        stageId: `${caseDef.workflow}-stage`,
+        branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+      });
+    }
+  });
+
+  test("refuses unknown stage, non-succeeded stage, and fan-out without branchKey", () => {
+    const entryRun = baseRun({
+      id: "pipeline-intent-entry",
+      stepId: "intent-step",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-intent", {
+        stepId: "intent-step",
+        role: "author",
+        promptId: "intent.prompt.split",
+      }),
+    });
+    const pipeline = pipelineFixture({
+      pipelineId: "pipe-1",
+      stageId: "intent-stage",
+      workflow: "intent",
+      entryRun,
+    });
+    const unknownStage = resolveReviewFeedbackLane(memoryStore({ runs: [entryRun], pipelines: [pipeline] }), {
+      mode: "pipeline_stage",
+      pipelineId: "pipe-1",
+      stageId: "missing-stage",
+    });
+    expect(unknownStage).toMatchObject({ ok: false, code: "review_feedback_lane_unmatched" });
+
+    const pendingPipeline: Pipeline & { stages: PipelineStageRecord[] } = {
+      ...pipeline,
+      stages: [{ ...pipeline.stages[0]!, status: "pending" }],
+    };
+    const nonSucceeded = resolveReviewFeedbackLane(memoryStore({ runs: [entryRun], pipelines: [pendingPipeline] }), {
+      mode: "pipeline_stage",
+      pipelineId: "pipe-1",
+      stageId: "intent-stage",
+    });
+    expect(nonSucceeded).toMatchObject({ ok: false, code: "review_feedback_lane_unmatched" });
+
+    const entryRunA = baseRun({
+      id: "pipeline-intent-entry-a",
+      stepId: "intent-step-a",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-intent-a", {
+        stepId: "intent-step-a",
+        role: "author",
+        promptId: "intent.prompt.split",
+      }),
+    });
+    const entryRunB = baseRun({
+      id: "pipeline-intent-entry-b",
+      stepId: "intent-step-b",
+      workflowSnapshot: workflowSnapshot("inv-pipeline-intent-b", {
+        stepId: "intent-step-b",
+        role: "author",
+        promptId: "intent.prompt.split",
+      }),
+    });
+    const fanOutPipeline: Pipeline & { stages: PipelineStageRecord[] } = {
+      id: "pipe-fanout",
+      name: "test-pipeline",
+      createdAt: 1,
+      ownerIdentity: "owner",
+      status: "active",
+      definition: pipeline.definition,
+      context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
+      supersedeFailures: null,
+      dismissedAt: null,
+      stages: [
+        {
+          id: "stage-row-a",
+          pipelineId: "pipe-fanout",
+          stageId: "intent-stage",
+          branchKey: "feature-a",
+          position: 0,
+          status: "succeeded",
+          workflowInvocationId: entryRunA.id,
+          startedAt: 1,
+          endedAt: 2,
+          artifact: null,
+          failureDetail: null,
+          decidedAt: null,
+        },
+        {
+          id: "stage-row-b",
+          pipelineId: "pipe-fanout",
+          stageId: "intent-stage",
+          branchKey: "feature-b",
+          position: 1,
+          status: "succeeded",
+          workflowInvocationId: entryRunB.id,
+          startedAt: 1,
+          endedAt: 2,
+          artifact: null,
+          failureDetail: null,
+          decidedAt: null,
+        },
+      ],
+    };
+    const fanOutOmitted = resolveReviewFeedbackLane(
+      memoryStore({ runs: [entryRunA, entryRunB], pipelines: [fanOutPipeline] }),
+      {
+        mode: "pipeline_stage",
+        pipelineId: "pipe-fanout",
+        stageId: "intent-stage",
+      },
+    );
+    expect(fanOutOmitted).toMatchObject({ ok: false, code: "review_feedback_lane_unmatched" });
+  });
+
   test("refuses pipeline stage whose workflow is not intent, plan, or implement", () => {
     const entryRun = baseRun({
       id: "pipeline-debate-entry",

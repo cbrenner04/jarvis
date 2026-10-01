@@ -16,7 +16,9 @@ import { RpcError } from "../ipc/rpc-errors.ts";
 import {
   type ReviewFeedbackLaneBareRequest,
   type ReviewFeedbackLanePipelineRequest,
+  type ReviewFeedbackLanePipelineStageRequest,
   type ReviewFeedbackLaneRefusalCode,
+  type ReviewFeedbackLaneRequest,
   type ReviewFeedbackLaneResolutionStore,
   resolveReviewFeedbackLane,
 } from "../persistence/review-feedback-lane-resolution.ts";
@@ -40,6 +42,19 @@ type ReviewFeedbackWorkflowAdmissionRefusal = {
 
 function formatReviewFeedbackWorkflowAdmissionRefusal(refusal: ReviewFeedbackWorkflowAdmissionRefusal): string {
   return `${refusal.code}: ${refusal.message}`;
+}
+
+export function reviewFeedbackLaneRequestFromPipelineStage(
+  pipelineId: string,
+  stageId: string,
+  branchKey?: string,
+): ReviewFeedbackLanePipelineStageRequest {
+  return {
+    mode: "pipeline_stage",
+    pipelineId,
+    stageId,
+    ...(branchKey !== undefined ? { branchKey } : {}),
+  };
 }
 
 function laneRequestFromCli(
@@ -98,14 +113,14 @@ async function startReviewFeedbackWorkflowRun(
   return waitForRunCompletion(client, deps.attachWaitRunIdOverride ?? start.runId, io);
 }
 
-export async function prepareReviewFeedbackWorkflowAdmission(
-  parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
-  deps: ReviewFeedbackWorkflowAdmissionDeps,
+export async function prepareReviewFeedbackWorkflowAdmissionForLaneRequest(
+  laneRequest: ReviewFeedbackLaneRequest,
+  deps: Omit<ReviewFeedbackWorkflowAdmissionDeps, "project">,
 ): Promise<
   | { ok: true; preparation: Extract<WorkflowStartPreparationResult, { ok: true }> }
   | { ok: false; refusal: ReviewFeedbackWorkflowAdmissionRefusal }
 > {
-  const laneResult = resolveReviewFeedbackLane(deps.store, laneRequestFromCli(deps.project, parsed));
+  const laneResult = resolveReviewFeedbackLane(deps.store, laneRequest);
   if (!laneResult.ok) {
     return { ok: false, refusal: { code: laneResult.code, message: laneResult.message } };
   }
@@ -143,6 +158,22 @@ export async function prepareReviewFeedbackWorkflowAdmission(
     return { ok: false, refusal: { code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE, message: preparation.error } };
   }
   return { ok: true, preparation };
+}
+
+export async function prepareReviewFeedbackWorkflowAdmission(
+  parsed: Extract<ReviewFeedbackWorkflowCliInput, { ok: true }>,
+  deps: ReviewFeedbackWorkflowAdmissionDeps,
+): Promise<
+  | { ok: true; preparation: Extract<WorkflowStartPreparationResult, { ok: true }> }
+  | { ok: false; refusal: ReviewFeedbackWorkflowAdmissionRefusal }
+> {
+  return prepareReviewFeedbackWorkflowAdmissionForLaneRequest(laneRequestFromCli(deps.project, parsed), {
+    store: deps.store,
+    subprocessRunner: deps.subprocessRunner,
+    machineConfigPath: deps.machineConfigPath,
+    builder: deps.builder,
+    projectRoot: deps.projectRoot,
+  });
 }
 
 export async function runReviewFeedbackWorkflowCommand(

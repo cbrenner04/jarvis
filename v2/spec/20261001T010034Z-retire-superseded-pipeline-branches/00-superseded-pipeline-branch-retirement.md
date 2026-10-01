@@ -21,12 +21,12 @@ Bulk cleanup refuses branches whose stage PRs were closed without merge even whe
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` proves dry-run preview and apply retirement of a materialized worktree whose branch has a closed head-owning PR with settlement comment and merged successor, and proves ref discovery/prune for a head-only branch under the same proof; proves a merely closed PR without settlement proof and each broken proof component (OPEN PR, list/comment/view probe failure, head OID mismatch, absent or non-exact comment, unmerged or non-merged successor) remain ineligible; fails against the pre-fix baseline.
-- [ ] `cleanup.test.ts` `merged plan worktree with landed criteria-only dirt retires safely`, `merged local head candidate requires matching merged PR head`, and `default merged-worktree retirement prunes origin tracking ref` stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `cleanup.test.ts` proves dry-run preview and apply retirement of a materialized worktree whose branch has a closed head-owning PR with settlement comment and merged successor, and proves ref discovery/prune for a head-only branch under the same proof; proves a merely closed PR without settlement proof and each broken proof component (OPEN PR, list/comment/view probe failure, head OID mismatch, absent or non-exact comment, unmerged or non-merged successor) remain ineligible; fails against the pre-fix baseline.
+- [x] `cleanup.test.ts` `merged plan worktree with landed criteria-only dirt retires safely`, `merged local head candidate requires matching merged PR head`, and `default merged-worktree retirement prunes origin tracking ref` stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 
-- [ ] `v2/docs/operator-runbook.md` § Cleanup: eligibility gate — superseded-pipeline authority (proof components, evaluation order after merged and plan-lane subsumed, ref-prune parity, fail-closed refusals); local-only scope unchanged.
-- [ ] `v2/docs/v1-behaviors.md` — bulk cleanup superseded-pipeline retirement authority (cross-link runbook gate).
+- [x] `v2/docs/operator-runbook.md` § Cleanup: eligibility gate — superseded-pipeline authority (proof components, evaluation order after merged and plan-lane subsumed, ref-prune parity, fail-closed refusals); local-only scope unchanged.
+- [x] `v2/docs/v1-behaviors.md` — bulk cleanup superseded-pipeline retirement authority (cross-link runbook gate).

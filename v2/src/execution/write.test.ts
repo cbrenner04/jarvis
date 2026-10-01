@@ -1532,6 +1532,35 @@ describe("write behavior", () => {
     expect(second.result.kind).toBe("contract_miss");
   });
 
+  test("plan redraft preserves a single nested spec/ root beside a sibling staging dir", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-nested-with-sibling-redraft";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    const specName = "2099-01-01T00-00-13Z-nested-with-sibling";
+    const nestedRoot = join(stagePath, "spec", specName);
+    // Two immediate children, so only the single-nested-root clause keeps the stage alive.
+    mkdirSync(join(stagePath, "notes"), { recursive: true });
+    writeFileSync(join(stagePath, "intent.md"), PLAN_REDRAFT_INTENT_SEED, "utf8");
+    writePrefixedPlanDraftStage(stagePath, ["spec"], specName, { index: "# Index\n\n", subspecs: {} });
+
+    let agentSawNested = false;
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            agentSawNested = existsSync(nestedRoot) && existsSync(join(stagePath, "notes"));
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(agentSawNested).toBe(true);
+  });
+
   test("plan-draft shape contract_miss preserves immediate-child-only staging for redraft", async () => {
     const { jarvisRoot } = createJarvisHome();
     const branchName = "plan-immediate-child-only-redraft";

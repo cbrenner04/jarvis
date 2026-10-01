@@ -6,6 +6,7 @@ import type { OperatorFailureRecord } from "../../../shared/operator-failure-rec
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { deriveOperatorIncidents, serializeOperatorIncident } from "./operator-incidents.ts";
+import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 const dbPath = join(tmpdir(), `jarvis-operator-incidents-${process.pid}.sqlite`);
@@ -562,6 +563,42 @@ test("invocation lane incident prUrl is taken from the row whose prNumber matche
     cause: "lane_pr_closed",
     prNumber: closedNumber,
     prUrl: matchingUrl,
+  });
+});
+
+test("invocation lane outcome is resolved from a sibling row when the entry row has none", () => {
+  setSystemTime(new Date(1_000_000));
+  const mergedNumber = 77;
+  const entryRunId = seedInvocationRow("plan", "completed");
+  store.commitTerminalRunSettlement({
+    runId: entryRunId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: mergedNumber,
+    prUrl: `https://github.com/org/repo/pull/${mergedNumber}`,
+  });
+  const reviewRunId = seedInvocationRow("review", "completed");
+  const reviewLaneLog: TerminalLogRecord = {
+    runId: reviewRunId,
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 1,
+      resumable: false,
+      lanePrOutcome: { kind: "lane_pr_merged", prNumber: mergedNumber },
+    },
+  };
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", 1_005_000);
+  const incident = deriveOperatorIncidents(store, 2_000_000, {
+    terminalLogRecordForRun: (runId) => (runId === reviewRunId ? reviewLaneLog : undefined),
+  }).find((row) => row.runId === entryRunId);
+  expect(incident).toMatchObject({
+    kind: "run-ad-hoc-terminal",
+    cause: "lane_pr_merged",
+    prNumber: mergedNumber,
+    transition: `lane_pr_merged:${mergedNumber}:1005000`,
   });
 });
 

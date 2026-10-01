@@ -14,7 +14,7 @@
 - Lane resolution extends `ReviewFeedbackLaneTarget` with `entryRunId`, `entrySpecPath`, and `baseRef` from the matched completed lane (`entryRun.id`, and the entry row's first snapshot step `specPath` and `worktree.baseRef`); `prepareReviewFeedbackWorkflowAdmission` passes them into the builder — rules out the builder guessing paths from cwd/git alone.
 - `entrySpecPath` meaning per kind: intent → that run's ready-intents root (`…/ready-intents`); plan → that run's admitted plan spec tree root; implement → that run's implement spec path (index or landed spec as stored on the entry step) — rules out using the review-feedback write sidecar as `entrySpecPath`.
 - Write step `worktree` stays the resolved lane (`localPath`, `branchName`) with `baseRef` = the entry lane's `baseRef` (the PR base) and `git: true` when binding the persisted lane `worktreePath` — rules out `baseRef` = lane branch (empty `baseRef..HEAD` diff suppresses publication; `resolveOpenDraftPr` base filter misses the lane PR) and stub `git: false` that breaks diff/publication head reads in `workflow-runner.ts`.
-- Write step `specPath` / `expectedArtifactPath` are harness sidecar paths under the lane worktree (`.jarvis/review-feedback-write` or equivalent), never the published spec tree — rules out writing review edits into the implement spec checkout as the step artifact contract.
+- Write step `specPath` / `expectedArtifactPath` are harness sidecar paths under the lane worktree (`.jarvis-review-feedback-response.md`, the agent-authored per-item response sidecar), never the published spec tree — rules out writing review edits into the implement spec checkout as the step artifact contract.
 - Persist `reviewFeedbackLane` on the workflow snapshot (lane kind, entry run id, entry spec path, `prNumber`, `prUrl`) for the publication tail in subspec `03` — rules out inferring republication targets only from git state.
 - Write-loop prompt assembly calls `buildReviewFeedbackWritePrompt` when `promptId === "review-feedback.prompt.write"`; implement lanes skip linked-index resolution entirely for this prompt id — rules out routing through `resolveActiveLinkedSubspec`.
 - Role mapping stays `implement` role for implement lanes and `plan` role for intent and plan lanes (existing `roleForLaneKind`) — rules out running intent lanes through the implement binding resolver.
@@ -31,12 +31,12 @@
 
 ## Acceptance criteria
 
-- [ ] `review-feedback-workflow-steps.test.ts` (new) test `builds a write step for each lane kind with review-feedback.prompt.write` fails against the pre-fix stub and passes after implementation, asserting worktree branch/path, `worktree.baseRef` equal to the entry lane's `baseRef` (not the lane branch), `worktree.git: true`, snapshot `reviewFeedbackLane.prNumber`, and no pending prompt id.
-- [ ] A test in the same file proves implement-lane steps do not carry linked-index routing bindings in the loaded write payload; it fails against the pre-fix absence and passes after the write-loop wiring.
-- [ ] `review-feedback-lane-resolution.test.ts` case: an implement lane plus a completed review-feedback run on the same branch with PR evidence resolves to the implement lane (not `review_feedback_lane_ambiguous`); fails against pre-fix resolution.
-- [ ] `review-feedback-workflow-admission.test.ts` lane-resolution and prelude refusal cases stay green after subspec `01` prompt-id expectation updates; dispatch expectation changes are subspec `02` only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `review-feedback-workflow-steps.test.ts` (new) test `builds a write step for each lane kind with review-feedback.prompt.write` fails against the pre-fix stub and passes after implementation, asserting worktree branch/path, `worktree.baseRef` equal to the entry lane's `baseRef` (not the lane branch), `worktree.git: true`, snapshot `reviewFeedbackLane.prNumber`, and no pending prompt id.
+- [x] A test in the same file proves implement-lane steps do not carry linked-index routing bindings in the loaded write payload; it fails against the pre-fix absence and passes after the write-loop wiring.
+- [x] `review-feedback-lane-resolution.test.ts` case: an implement lane plus a completed review-feedback run on the same branch with PR evidence resolves to the implement lane (not `review_feedback_lane_ambiguous`); fails against pre-fix resolution.
+- [x] `review-feedback-workflow-admission.test.ts` lane-resolution and prelude refusal cases stay green after subspec `01` prompt-id expectation updates; dispatch expectation changes are subspec `02` only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

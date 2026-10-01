@@ -27,6 +27,7 @@ import {
   type Attempt,
   type OutcomeKind,
   openStateStore,
+  type ReviewFeedbackLaneSnapshot,
   type RunStatus,
   type StateStore,
   type WorkflowSnapshot,
@@ -109,6 +110,7 @@ import { SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 export { isPostCommitReviewRetryableFailureKind };
 
 import { errorMessage } from "../../../shared/error-message.ts";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
@@ -417,6 +419,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   externalPlanSpec?: true;
   /** Linked-index routing root when the spec tree lives outside the implement worktree. */
   specReadRoot?: string;
+  /** Entry lane metadata for review-feedback republication (subspec 03). */
+  reviewFeedbackLane?: ReviewFeedbackLaneSnapshot;
 };
 
 /** Per-role agent fallback orders for a `review-debate` step's four fixed debate roles. */
@@ -645,7 +649,7 @@ async function runWorkflowStep(
     );
   }
 
-  if (step.role === "implement" && step.linkedIndexRouting) {
+  if (step.role === "implement" && step.linkedIndexRouting && step.promptId !== REVIEW_FEEDBACK_WRITE_PROMPT_ID) {
     return runLinkedImplementStep(
       step,
       stepIndex,
@@ -790,6 +794,37 @@ function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktre
     throw new Error(landed.error);
   }
   return landed.specPath;
+}
+
+type WorkflowCompletionPublicationSpecPathInput = {
+  publicationSpecPath?: string;
+  landedSpecPath?: string;
+  writeStepRunSpecPath?: string;
+  completionStepSpecPath: string;
+  reviewFeedbackLane?: ReviewFeedbackLaneSnapshot;
+};
+
+export function resolveWorkflowCompletionPublicationSpecPath(
+  input: WorkflowCompletionPublicationSpecPathInput,
+): string {
+  if (input.reviewFeedbackLane !== undefined) {
+    return input.publicationSpecPath ?? input.reviewFeedbackLane.entrySpecPath;
+  }
+  return (
+    input.publicationSpecPath ?? input.landedSpecPath ?? input.writeStepRunSpecPath ?? input.completionStepSpecPath
+  );
+}
+
+/** Intent PR bullets are keyed by the entry intent invocation, not a review-feedback re-entry invocation. */
+function resolveIntentBodySummaryInvocationId(store: StateStore, workflowSnapshot: WorkflowSnapshot): string {
+  const lane = workflowSnapshot.reviewFeedbackLane;
+  if (lane?.laneKind === "intent") {
+    const entryInvocationId = store.loadRun(lane.entryRunId)?.workflowSnapshot?.invocationId;
+    if (entryInvocationId !== undefined) {
+      return entryInvocationId;
+    }
+  }
+  return workflowSnapshot.invocationId;
 }
 
 interface LinkedRoutingRowContext {
@@ -1426,8 +1461,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         if (landedSpecPath !== undefined) {
           completionStep.specPath = landedSpecPath;
         }
-        const publicationPath =
-          publicationSpecPath ?? landedSpecPath ?? writeStepRun?.specPath ?? completionStep.specPath;
+        const publicationPath = resolveWorkflowCompletionPublicationSpecPath({
+          completionStepSpecPath: completionStep.specPath,
+          ...(publicationSpecPath !== undefined ? { publicationSpecPath } : {}),
+          ...(landedSpecPath !== undefined ? { landedSpecPath } : {}),
+          ...(writeStepRun?.specPath !== undefined ? { writeStepRunSpecPath: writeStepRun.specPath } : {}),
+          ...(workflowSnapshot.reviewFeedbackLane !== undefined
+            ? { reviewFeedbackLane: workflowSnapshot.reviewFeedbackLane }
+            : {}),
+        });
         try {
           const creationTitle = resolvePublicationTitle(worktreePath, publicationPath, workflowSnapshot.creationTitle);
           store.setCreationTitle(lastResult.runId, creationTitle);
@@ -1545,12 +1587,18 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             }
             let bodySummary: string | undefined;
             let specTemplate = false;
-            if (completionStep.landing?.kind === "intent-stage") {
+            const reviewFeedbackLane = workflowSnapshot.reviewFeedbackLane;
+            if (reviewFeedbackLane?.laneKind === "intent" || completionStep.landing?.kind === "intent-stage") {
               bodySummary = deriveIntentRunBodySummary({
                 creationTitle: workflowSnapshot.creationTitle,
-                intentFiles: await listLandedIntentFiles(worktreePath, workflowSnapshot.invocationId),
+                intentFiles: await listLandedIntentFiles(
+                  worktreePath,
+                  resolveIntentBodySummaryInvocationId(store, workflowSnapshot),
+                ),
               });
             } else if (
+              reviewFeedbackLane?.laneKind === "plan" ||
+              reviewFeedbackLane?.laneKind === "implement" ||
               completionStep.landing?.kind === "plan-tree" ||
               completionStep.promptId === "plan.prompt.draft" ||
               completionStep.role === "implement"
@@ -1558,7 +1606,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               specTemplate = true;
               bodySummary = await deriveSpecRunBodySummary({
                 worktreePath,
-                specPath: publicationSpecPath ?? completionStep.specPath,
+                specPath:
+                  reviewFeedbackLane !== undefined ? publicationPath : (publicationSpecPath ?? completionStep.specPath),
                 baseRef: worktree.baseRef,
                 ...externalSpecGitScope(completionStep),
               });
@@ -1989,7 +2038,16 @@ function buildWorkflowSnapshot(
     ...workflowCreationTitleField(steps),
     ...implementReviewPassesField(steps),
     ...implementReviewBehaviorField(steps),
+    ...reviewFeedbackLaneField(steps),
   };
+}
+
+function reviewFeedbackLaneField(
+  steps: readonly AnyWorkflowStep[],
+): { reviewFeedbackLane: ReviewFeedbackLaneSnapshot } | Record<string, never> {
+  const writeStep = steps.find(isWriteStep);
+  const lane = writeStep?.reviewFeedbackLane;
+  return lane === undefined ? {} : { reviewFeedbackLane: lane };
 }
 
 function workflowCreationTitleField(

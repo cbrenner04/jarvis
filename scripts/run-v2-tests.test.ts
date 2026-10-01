@@ -278,6 +278,18 @@ describe("runV2TestFiles", () => {
     expect(stderr.mock.calls.some(([chunk]) => String(chunk).startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
   });
 
+  test("emitFailingTestFileRecords false suppresses failing-file records on a non-zero settlement", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const spawn = async () => ({ status: 1, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    await runV2TestFiles("agent", ["probe-target.test.ts"], spawn, "v2", 1, "ready-3.1", {
+      emitFailingTestFileRecords: false,
+    });
+
+    expect(stderr.mock.calls.some(([chunk]) => String(chunk).startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
+  });
+
   test("uses the forwarded ready attempt identity when no explicit correlation is supplied", async () => {
     const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
     spyOn(process.stdout, "write").mockImplementation(() => true);

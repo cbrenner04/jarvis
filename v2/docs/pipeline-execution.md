@@ -123,6 +123,12 @@ Failures throw `TerminalPublicationError` with normalized `PublicationFailure`; 
 
 Completion publication (per-stage push/draft/ready during implement) and terminal publication are separate boundaries — `skipReadyFinalization` on implement when `terminalAction` is `leave-draft`. Tests: `terminal-publication.test.ts`, `state-store.test.ts` — `terminal publication commits`, `pipeline-execution.test.ts` — `pipeline terminal publication settlement`.
 
+## Terminal supersede settlement
+
+After `commitTerminalPublicationSuccess` stamps `terminalPublicationSucceededAt` for `ready` or `merge` when admitted `supersede` is `close`, `settleSupersededPrecedingStagePrs` runs once in the same `settlePipelineTerminalPublication` call — not on daemon restart (`isPipelineSettlementPending` is false once success is durable). The pass is skipped when `findFanOutSplit` is set, `supersede` is `keep` or omitted on non-admission fixtures, terminal publication did not commit in this settlement, `terminalAction` is `leave-draft`, or both the publication result and resolved input lack a terminal `prNumber`.
+
+Candidates are default-lane workflow stages with `status === "succeeded"` strictly before the terminal workflow stage in authored order, each with an artifact `prNumber`, deduped by `prNumber`, excluding the terminal PR. For each candidate the optional `supersedeGh` seam on `PipelineExecutionDeps` (`prState`, `comment`, `close`; production default `createDefaultSupersedeGh` in `terminal-publication.ts`) runs against `worktreePath` from terminal publication input: skip without comment or close unless `prState` is `OPEN`; comment body exactly `Superseded by #<n> (pipeline <id>, stage <stageId>)` with terminal `#<n>` from `TerminalPublicationResult.prNumber ?? resolved.input.prNumber` and candidate `stageId`; comment must succeed before `gh pr close`; no branch delete. Per-PR GitHub errors append `{ prNumber, message }` via `appendSupersedeFailures` and continue remaining candidates without clearing terminal success or derived `succeeded`. Tests: `pipeline-execution.test.ts` — `pipeline terminal publication settlement` (supersede cases).
+
 ## Daemon restart continuation
 
 Startup order (`daemon-host.md`): IPC listener → `recoverContinuablePipelines` → `reconcilePipelines` → reconciled run resume.
@@ -173,6 +179,7 @@ Terminal stage-run statuses (stamp `endedAt` via `stageLifecyclePatchWithTermina
 | `failureDetail` | Dispatch/settlement failures (`derivePipelineFailureDetail`, deferred marker) |
 | `decidedAt` | Approval decision commit |
 | `terminalPublicationSucceededAt`, `terminalPublicationFailure` | `commitTerminalPublicationSuccess` / `commitTerminalPublicationFailure` |
+| `supersedeFailures` | `appendSupersedeFailures` |
 
 Symbols: `approvalBoundaryAllowsStatus`, `approvalDecisionAllowsStatus`, `reopenPredecessorAllowsStatus`, `reopenSuffixAllowsStatus`, `analyzeFailedPipelineReopenShape` (`state-store.ts`). Tests: `state-store.test.ts` — `pipelines`, `failed pipeline reopen`.
 

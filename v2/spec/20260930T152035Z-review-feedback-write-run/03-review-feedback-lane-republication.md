@@ -26,10 +26,10 @@ No workflow-runner completion path republicates review-feedback writes to the la
 
 ## Acceptance criteria
 
-- [ ] `review-feedback-republication-path.test.ts` (or the named test therein) fails against the pre-fix `publicationPath` fallback and passes after the `reviewFeedbackLane` branch; it asserts entry-run spec paths drive publication, not the write-step sidecar.
-- [ ] `review-feedback-write-run.test.ts` fails against the pre-fix absence and passes after implementation; it covers intent, plan, and implement lanes with assertions for branch, existing PR publication target, review artifact injection, absence of implement index-routing bindings in rendered prompts, and `no-work` after empty actionable capture running the completion tail.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `review-feedback-republication-path.test.ts` (or the named test therein) fails against the pre-fix `publicationPath` fallback and passes after the `reviewFeedbackLane` branch; it asserts entry-run spec paths drive publication, not the write-step sidecar.
+- [x] `review-feedback-write-run.test.ts` fails against the pre-fix absence and passes after implementation; it covers intent, plan, and implement lanes with assertions for branch, existing PR publication target, review artifact injection, absence of implement index-routing bindings in rendered prompts, and `no-work` after empty actionable capture running the completion tail.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

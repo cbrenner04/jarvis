@@ -41,6 +41,7 @@ import {
   discoverMaterializedWorktrees,
   discoverMergedBranchRefCandidates,
   discoverStrandedArtifacts,
+  evaluateImplementLandedElsewhereReport,
   exactOriginTrackingRefOid,
   gateOnOpenPrs,
   handLandedArtifactArchivability,
@@ -53,6 +54,7 @@ import {
   OPEN_PR_PROBE_UNREACHABLE_REASON,
   parseCheckedOutBranchesFromWorktreePorcelain,
   performWorktreeRemovals,
+  planSubsumedPrGateAllows,
   pruneVerifiedMergedBranchRef,
   type ResetStaleWorkspaceOptions,
   resetStaleWorkspace,
@@ -482,6 +484,430 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ),
     ).toBe(0);
     expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+  });
+
+  function ghRunnerForCleanupPrProbe(
+    prState: "CLOSED" | "absent" | "OPEN" | "probe-failure",
+    laneKind: "plan" | "implement",
+  ): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          if (prState === "CLOSED") return JSON.stringify({ state: "CLOSED", mergedAt: null });
+          if (prState === "OPEN") return JSON.stringify({ state: "OPEN", mergedAt: null });
+          throw new AsyncSubprocessError("not found", 1, "", "", undefined);
+        }
+        if (cmd === "gh" && args[1] === "list") {
+          const stateIndex = args.indexOf("--state");
+          const stateArg = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
+          if (stateArg === "open") return "[]";
+          if (stateArg === "all") {
+            if (prState === "probe-failure") throw GH_PR_LIST_PROBE_ERROR;
+            const headIndex = args.indexOf("--head");
+            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            if (branchName === undefined) return "[]";
+            const planLane = branchName.startsWith("plan/");
+            if (laneKind === "plan" ? !planLane : planLane) return "[]";
+            if (prState === "CLOSED") return JSON.stringify([{ state: "CLOSED" }]);
+            if (prState === "OPEN") return JSON.stringify([{ state: "OPEN" }]);
+            return "[]";
+          }
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+  }
+
+  async function setupSubsumedPlanLane(
+    specName: string,
+    branch: string,
+    specOnMain: "open" | "completed",
+  ): Promise<{ worktreePath: string; source: string; configPath: string }> {
+    writeMachineConfig({ plan: { targetDir: "v2/spec" } });
+    const configPath = join(jarvisRoot, "config.json");
+    const intent = "---\nname: subsumed-plan\n---\n";
+    const { source } = createSpec(specName, "[x] Done", intent);
+    await commitFixtures(projectRoot);
+    if (specOnMain === "completed") {
+      const completed = join(projectRoot, "v2", "spec", "completed", specName);
+      mkdirSync(dirname(completed), { recursive: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["mv", source, completed], projectRoot);
+      const mainReadyIntent = join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`);
+      mkdirSync(dirname(mainReadyIntent), { recursive: true });
+      writeFileSync(mainReadyIntent, intent);
+      await commitFixtures(projectRoot);
+    }
+    const worktreePath = await createWorktree(branch);
+    if (specOnMain === "completed") {
+      const laneSource = join(worktreePath, "v2", "spec", specName);
+      mkdirSync(laneSource, { recursive: true });
+      writeFileSync(join(laneSource, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- [x] Done\n`);
+      writeFileSync(join(laneSource, "intent.md"), intent);
+      const readyIntent = join(worktreePath, "v2", "spec", "ready-intents", `${specName}.md`);
+      mkdirSync(dirname(readyIntent), { recursive: true });
+      writeFileSync(readyIntent, intent);
+      await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], worktreePath);
+      await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane spec"], worktreePath);
+    }
+    return {
+      worktreePath,
+      source: specOnMain === "open" ? source : join(worktreePath, "v2", "spec", specName),
+      configPath,
+    };
+  }
+
+  function storeForLaneRun(
+    specName: string,
+    branch: string,
+    worktreePath: string,
+    status: Run["status"] = "completed",
+  ): StateStore {
+    return {
+      listRuns: () => [
+        {
+          status,
+          specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+          project: "project",
+          branch,
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+  }
+
+  test.each([
+    { prState: "CLOSED" as const, specOnMain: "open" as const },
+    { prState: "absent" as const, specOnMain: "open" as const },
+    { prState: "CLOSED" as const, specOnMain: "completed" as const },
+  ])("subsumed plan lane ($prState PR, spec $specOnMain on main) dry-run and apply", async ({
+    prState,
+    specOnMain,
+  }) => {
+    const specName = `20260930T120000Z-subsumed-${prState}-${specOnMain}`;
+    const branch = `plan/subsumed-${prState}-${specOnMain}`;
+    const { worktreePath, source, configPath } = await setupSubsumedPlanLane(specName, branch, specOnMain);
+    const readyIntent = join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe(prState, "plan");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand({ dryRun: true, configPath }, registry, jarvisRoot, runner, async () => [], store, io),
+    ).toBe(0);
+    expect(stdout).toContain(worktreePath);
+    expect(stdout).toContain("dry-run");
+
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true, configPath },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("Retired");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+    expect(existsSync(source)).toBe(specOnMain === "open");
+    expect(stdout).not.toContain("Archived:");
+    expect(stdout).toContain(`Pruned consumed ready-intent: ${readyIntent}`);
+    expect(existsSync(readyIntent)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain(`v2/spec/ready-intents/${specName}.md`);
+  });
+
+  test.each([
+    { case: "OPEN PR", prState: "OPEN" as const },
+    { case: "PR probe failure", prState: "probe-failure" as const },
+  ])("subsumed plan lane ineligible: $case", async ({ prState }) => {
+    const specName = "20260930T120001Z-subsumed-ineligible-pr";
+    const branch = "plan/subsumed-ineligible-pr";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe(prState, "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+    expect(stdout).toContain("No eligible worktrees");
+  });
+
+  test("subsumed plan lane ineligible: commit outside spec scope", async () => {
+    const specName = "20260930T120002Z-subsumed-outside-path";
+    const branch = "plan/subsumed-outside";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    writeFileSync(join(worktreePath, "outside-scope.txt"), "nope\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "outside-scope.txt"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "outside"], worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane retires after the default branch advances past the lane cut", async () => {
+    const specName = "20260930T120006Z-subsumed-main-advanced";
+    const branch = "plan/subsumed-main-advanced";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    writeFileSync(join(worktreePath, "v2", "spec", specName, "notes.md"), "lane refinement\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane spec edit"], worktreePath);
+    writeFileSync(join(projectRoot, "landed-after-cut.txt"), "main moved\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "landed-after-cut.txt"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "main advances"], projectRoot);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe("CLOSED", "plan");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand({ dryRun: true, configPath }, registry, jarvisRoot, runner, async () => [], store, io);
+    expect(stdout).toContain(worktreePath);
+
+    stdout = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true, configPath },
+      registry,
+      jarvisRoot,
+      runner,
+      async () => [],
+      store,
+      io,
+    );
+    expect(stdout).toContain("Retired");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane ineligible: spec absent from default branch", async () => {
+    const specName = "20260930T120003Z-subsumed-no-main-spec";
+    const branch = "plan/subsumed-no-main";
+    writeMachineConfig({ plan: { targetDir: "v2/spec" } });
+    const configPath = join(jarvisRoot, "config.json");
+    createSpec(specName, "[x] Done");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", branch], projectRoot);
+    await commitFixtures(projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], projectRoot).catch(async () => {
+      await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], projectRoot);
+    });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane ineligible: non-terminal durable run", async () => {
+    const specName = "20260930T120004Z-subsumed-active-run";
+    const branch = "plan/subsumed-active-run";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    const store = storeForLaneRun(specName, branch, worktreePath, "in-progress");
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane ineligible: daemon-live run", async () => {
+    const specName = "20260930T120005Z-subsumed-live-daemon";
+    const branch = "plan/subsumed-live-daemon";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [{ isLive: true }],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    expect(stdout).not.toContain(worktreePath);
+    expect(stdout).not.toContain("Retired");
+  });
+
+  async function setupImplementLandedElsewhereLane(
+    specName: string,
+    branch: string,
+  ): Promise<{ worktreePath: string; configPath: string }> {
+    writeMachineConfig({ plan: { targetDir: "v2/spec" } });
+    const configPath = join(jarvisRoot, "config.json");
+    createSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const completed = join(projectRoot, "v2", "spec", "completed", specName);
+    mkdirSync(dirname(completed), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["mv", join(projectRoot, "v2", "spec", specName), completed],
+      projectRoot,
+    );
+    await commitFixtures(projectRoot);
+    const worktreePath = await createWorktree(branch);
+    const laneSource = join(worktreePath, "v2", "spec", specName);
+    mkdirSync(laneSource, { recursive: true });
+    writeFileSync(join(laneSource, "index.md"), `# Implement\n\n## Acceptance criteria\n\n- [x] Done\n`);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane spec"], worktreePath);
+    return { worktreePath, configPath };
+  }
+
+  test("implement lane with CLOSED PR and spec on completed/ prints Landed elsewhere and is not retired", async () => {
+    const specName = "20260930T130000Z-landed-elsewhere";
+    const branch = "20260930T130000Z-landed-elsewhere";
+    const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe("CLOSED", "implement");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand({ dryRun: true, configPath }, registry, jarvisRoot, runner, async () => [], store, io),
+    ).toBe(0);
+    expect(stdout).toContain("Landed elsewhere:");
+    expect(stdout).toContain(worktreePath);
+    expect(stdout).toContain(`jarvis cleanup --abandon ${branch} --discard-unlanded`);
+    expect(stdout).not.toContain("Retired");
+
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true, configPath },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("Landed elsewhere:");
+    expect(stdout).not.toContain("Retired");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test.each([
+    { case: "OPEN PR", prState: "OPEN" as const },
+    { case: "PR probe failure", prState: "probe-failure" as const },
+  ])("implement landed-elsewhere lane ineligible for report: $case", async ({ prState }) => {
+    const specName = "20260930T130001Z-landed-elsewhere-silent";
+    const branch = "20260930T130001Z-landed-elsewhere-silent";
+    const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe(prState, "implement"),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    expect(stdout).not.toContain("Landed elsewhere:");
+  });
+
+  test("evaluateImplementLandedElsewhereReport guard inversion: OPEN PR blocks report", async () => {
+    const specName = "20260930T130002Z-landed-guard";
+    const branch = "20260930T130002Z-landed-guard";
+    const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const worktree: DiscoveredWorktree = { path: worktreePath, branch };
+    const registry = { project: { root: projectRoot } };
+    const openRunner = ghRunnerForCleanupPrProbe("OPEN", "implement");
+    expect(
+      await evaluateImplementLandedElsewhereReport(
+        worktree,
+        "project",
+        branch,
+        projectRoot,
+        openRunner,
+        store,
+        registry,
+        configPath,
+      ),
+    ).toBeUndefined();
+    const closedRunner = ghRunnerForCleanupPrProbe("CLOSED", "implement");
+    expect(
+      await evaluateImplementLandedElsewhereReport(
+        worktree,
+        "project",
+        branch,
+        projectRoot,
+        closedRunner,
+        store,
+        registry,
+        configPath,
+      ),
+    ).toMatch(/^PR not merged:/);
+  });
+
+  test("planSubsumedPrGateAllows guard inversion: OPEN PR blocks retirement", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, _args) => {
+        if (cmd === "gh") return JSON.stringify([{ state: "OPEN" }]);
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await planSubsumedPrGateAllows("plan/x", projectRoot, runner)).toBe(false);
+    const allowRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd) => {
+        if (cmd === "gh") return JSON.stringify([{ state: "CLOSED" }]);
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await planSubsumedPrGateAllows("plan/x", projectRoot, allowRunner)).toBe(true);
   });
 
   test.each([
@@ -2612,9 +3038,57 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).toContain(criteriaWorktree);
     expect(stdout).toContain(`Skipped merged worktree retirement: ${unrelatedWorktree}`);
     expect(stdout).toContain(unrelatedRel);
+    expect(stdout).toContain(`jarvis cleanup --abandon ${unrelatedBranch} --discard-unlanded`);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(criteriaWorktree);
     expect(listOutput).toContain(unrelatedWorktree);
+  });
+
+  test("merged worktree whose spec was archived on main keeps prose dirt refused", async () => {
+    const specName = "20260930-archived-prose-dirt";
+    const specDir = join(projectRoot, "v2", "spec", specName);
+    const subspecRel = `v2/spec/${specName}/00-task.md`;
+    const indexRel = `v2/spec/${specName}/index.md`;
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add spec"], projectRoot);
+
+    const branch = "plan/archived-prose-dirt";
+    const worktreePath = await createWorktree(branch);
+    writeFileSync(
+      join(worktreePath, subspecRel),
+      "# Task\n\nOperator prose edit.\n\n## Acceptance criteria\n\n- [ ] done\n",
+    );
+
+    mkdirSync(join(projectRoot, "v2", "spec", "completed"), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["mv", specDir, join(projectRoot, "v2", "spec", "completed", specName)],
+      projectRoot,
+    );
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "archive spec"], projectRoot);
+
+    const store: StateStore = {
+      listRuns: () => [
+        { project: "project", branch, worktreePath, specPath: join(worktreePath, indexRel), status: "completed" },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(stdout).toContain(`Skipped merged worktree retirement: ${worktreePath}`);
+    expect(stdout).toContain(subspecRel);
+    expect(readFileSync(join(worktreePath, subspecRel), "utf8")).toContain("Operator prose edit.");
   });
 });
 
@@ -7350,6 +7824,34 @@ describe("cleanup: session log retention", () => {
     expect(second.code).toBe(0);
     expect(second.stdout).not.toContain("hot-to-cold");
     expect(second.stdout).not.toContain("cold-to-gone");
+  });
+
+  test("cleanup preserves closed telemetry archives through session log retention apply", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const telemetryDir = join(jarvisRoot, "telemetry");
+    mkdirSync(telemetryDir, { recursive: true });
+    const archiveMay = join(telemetryDir, "2026-05.jsonl.gz");
+    const archiveApr = join(telemetryDir, "2026-04.jsonl.gz");
+    const mayBytes = gzipSync('{"month":"2026-05"}\n');
+    const aprBytes = gzipSync('{"month":"2026-04"}\n');
+    writeFileSync(archiveMay, mayBytes);
+    writeFileSync(archiveApr, aprBytes);
+
+    const warm = runRow(runId(1), "completed", now.getTime() - 20 * dayMs);
+    const coldGzip = runRow(runId(2), "killed", now.getTime() - 45 * dayMs);
+    const warmPath = writeSessionLog(sessionsDir, warm.id, "warm-plain");
+    const coldGzipLogPath = writeSessionLog(sessionsDir, coldGzip.id, "gone-plain");
+    const coldGzipPath = writeColdGzip(coldGzipLogPath, "gone-plain");
+    rmSync(coldGzipLogPath, { force: true });
+
+    const result = await runSessionCleanup(sessionsDir, [warm, coldGzip]);
+    expect(result.code).toBe(0);
+    expect(readFileSync(archiveMay)).toEqual(mayBytes);
+    expect(readFileSync(archiveApr)).toEqual(aprBytes);
+    expect(existsSync(warmPath)).toBe(false);
+    expect(existsSync(`${warmPath}.gz`)).toBe(true);
+    expect(existsSync(coldGzipPath)).toBe(false);
   });
 
   test("tiered session log retention recovers interrupted compression", async () => {

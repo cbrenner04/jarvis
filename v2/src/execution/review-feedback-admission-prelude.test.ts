@@ -17,6 +17,9 @@ function sampleTarget(worktreePath: string): ReviewFeedbackLaneTarget {
     worktreePath,
     prNumber: PR_NUMBER,
     prUrl: "https://github.com/owner/repo/pull/42",
+    entryRunId: "intent-entry",
+    entrySpecPath: "ready-intents",
+    baseRef: "main",
     provenance: { kind: "bare" },
   };
 }
@@ -25,6 +28,7 @@ type AdmissionPrView = {
   state: string;
   headRefName: string;
   url: string;
+  isDraft: boolean;
   reviews: Array<{ submittedAt?: string | null }>;
 };
 
@@ -38,7 +42,7 @@ function createRunner(options: { admissionView: AdmissionPrView; captureThrows?:
   return {
     runAsync: async (cmd, args, cwd) => {
       if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
-      if (args[0] === "pr" && args[1] === "view" && args.includes("state,headRefName,url,reviews")) {
+      if (args[0] === "pr" && args[1] === "view" && args.some((arg) => arg.includes("isDraft"))) {
         return JSON.stringify(options.admissionView);
       }
       if (options.captureThrows != null) throw options.captureThrows;
@@ -57,6 +61,7 @@ function openReviewedAdmissionView(overrides: Partial<AdmissionPrView> = {}): Ad
     state: "OPEN",
     headRefName: LANE_BRANCH,
     url: "https://github.com/owner/repo/pull/42",
+    isDraft: true,
     reviews: [{ submittedAt: "2026-05-10T00:00:00Z" }],
     ...overrides,
   };
@@ -93,6 +98,29 @@ describe("runReviewFeedbackAdmissionPrelude", () => {
       );
       expect(outcome).toMatchObject({ ok: false, code: "review_feedback_pr_no_review" });
       expect(existsSync(resolvePrReviewInputArtifactPath(worktreePath))).toBe(false);
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a non-draft PR without harness ready-flip evidence and admits draft or evidenced non-draft PRs", async () => {
+    const worktreePath = trackedMkdtempSync("review-feedback-admission-not-draft-");
+    const runner = createRunner({ admissionView: openReviewedAdmissionView({ isDraft: false }) });
+    try {
+      const refused = await runReviewFeedbackAdmissionPrelude(sampleTarget(worktreePath), runner);
+      expect(refused).toMatchObject({ ok: false, code: "review_feedback_pr_not_draft" });
+
+      const draftOk = await runReviewFeedbackAdmissionPrelude(
+        sampleTarget(worktreePath),
+        createRunner({ admissionView: openReviewedAdmissionView({ isDraft: true }) }),
+      );
+      expect(draftOk.ok).toBe(true);
+
+      const evidencedOk = await runReviewFeedbackAdmissionPrelude(sampleTarget(worktreePath), runner, {
+        findHarnessReadyFlipEvidenceInLineage: (args) =>
+          args.branch === LANE_BRANCH && args.baseRef === "main" && args.prNumber === PR_NUMBER,
+      });
+      expect(evidencedOk.ok).toBe(true);
     } finally {
       rmSync(worktreePath, { recursive: true, force: true });
     }

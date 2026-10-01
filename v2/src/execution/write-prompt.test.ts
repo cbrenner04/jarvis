@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
+import { buildReviewFeedbackWritePrompt } from "../../../shared/prompts/review-feedback-write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
 import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
 import { SHRINK_FORBID_GUARD_TEST_DELETION_RULE, SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
@@ -210,6 +211,20 @@ describe("write prompt", () => {
         STEP_RULES: "Rules.",
       }),
     ).toThrow(PromptRenderingError);
+  });
+
+  test("review-feedback.prompt.write renders through the shared assembler with lane placeholders", () => {
+    for (const laneKind of ["intent", "plan", "implement"] as const) {
+      const prompt = buildReviewFeedbackWritePrompt({
+        reviewInput: '{"items":[]}',
+        laneKind,
+        entrySpecPath: laneKind === "implement" ? "v2/spec/run/index.md" : "/lane/root",
+        ...(laneKind === "implement" ? { projectRoot: "/wt" } : {}),
+      });
+      expect(prompt).toContain('{"items":[]}');
+      expect(prompt).toContain(laneKind);
+      expect(prompt).not.toContain("ACTIVE_SUBSPEC");
+    }
   });
 
   const mutationRepromptBasePlaceholders = {

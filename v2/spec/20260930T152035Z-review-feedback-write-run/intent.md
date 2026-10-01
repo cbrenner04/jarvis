@@ -14,9 +14,9 @@ A new standalone workflow preset registers with its own `prompts/<preset>/` set 
 
 ## Acceptance criteria
 
-- [ ] A regression test drives the preset through a mocked write loop and completion publisher for an intent, a plan, and an implement lane and fails against the pre-fix absence; it asserts commits stay on the admitted branch, publication targets the existing PR, and prompt rendering includes the review artifact and that kind's context without implement index-routing bindings.
-- [ ] Render-observer tests cover every new registered prompt id.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A regression test drives the preset through a mocked write loop and completion publisher for an intent, a plan, and an implement lane and fails against the pre-fix absence; it asserts commits stay on the admitted branch, publication targets the existing PR, and prompt rendering includes the review artifact and that kind's context without implement index-routing bindings.
+- [x] Render-observer tests cover every new registered prompt id.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

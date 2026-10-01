@@ -102,6 +102,7 @@ function makePipeline(
     context,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     dismissedAt: null,
     stages,
   };

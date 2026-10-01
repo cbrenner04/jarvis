@@ -16,6 +16,7 @@ function activePipeline(ownerIdentity: string): Pipeline & { stages: PipelineSta
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    supersedeFailures: null,
     dismissedAt: null,
     stages: [
       {

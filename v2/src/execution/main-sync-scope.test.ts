@@ -77,17 +77,26 @@ describe("selectMainSyncPaths", () => {
     ).toEqual(["from-origin.txt"]);
   });
 
-  test("ignores absent tip blobs when matching staged content", () => {
+  test("ignores absent staged content when tip blobs are unavailable", () => {
+    const row: MainSyncPathBlobs = {
+      path: "only-main-tip.txt",
+      headBlob: "head-at-fork",
+      mergeBaseBlob: "head-at-fork",
+      stagedBlob: MAIN_SYNC_ABSENT_BLOB,
+    };
+    expect(selectMainSyncPaths([row])).toEqual([]);
+  });
+
+  test("selects absent staged content that matches an absent baseRef tip", () => {
     expect(
       selectMainSyncPaths([
         entry({
-          path: "only-main-tip.txt",
+          path: "deleted-on-main.txt",
           stagedBlob: MAIN_SYNC_ABSENT_BLOB,
           baseRefTipBlob: MAIN_SYNC_ABSENT_BLOB,
-          originBaseRefTipBlob: MAIN_SYNC_ABSENT_BLOB,
         }),
       ]),
-    ).toEqual([]);
+    ).toEqual(["deleted-on-main.txt"]);
   });
 });
 

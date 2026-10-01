@@ -12,15 +12,11 @@ export type MainSyncPathBlobs = {
   originBaseRefTipBlob?: string;
 };
 
-function isResolvedTipBlob(blob: string | undefined): blob is string {
-  return blob !== undefined && blob !== MAIN_SYNC_ABSENT_BLOB;
-}
-
 function stagedMatchesResolvedTip(stagedBlob: string, entry: MainSyncPathBlobs): boolean {
-  if (isResolvedTipBlob(entry.baseRefTipBlob) && stagedBlob === entry.baseRefTipBlob) {
+  if (entry.baseRefTipBlob !== undefined && stagedBlob === entry.baseRefTipBlob) {
     return true;
   }
-  if (isResolvedTipBlob(entry.originBaseRefTipBlob) && stagedBlob === entry.originBaseRefTipBlob) {
+  if (entry.originBaseRefTipBlob !== undefined && stagedBlob === entry.originBaseRefTipBlob) {
     return true;
   }
   return false;

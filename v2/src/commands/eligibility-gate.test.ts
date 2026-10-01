@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
+import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { type RunStatus, type StateStore, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { checkEligibility, type DaemonClient, type DiscoveredWorktree } from "./cleanup.ts";
 
@@ -260,6 +261,71 @@ describe("checkEligibility: eligibility gate", () => {
         // Store error propagates unhandled
         expect(String(err)).toContain("Database error");
       }
+    });
+  });
+
+  describe("superseded-pipeline authority", () => {
+    const headOid = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    const closedPrNumber = 10;
+    const successorPrNumber = 99;
+
+    function supersedeEligibilityRunner(branch: string): AsyncSubprocessRunner {
+      const settlementBody = formatTerminalSupersedeSettlementComment({
+        terminalPrNumber: successorPrNumber,
+        pipelineId: "pipe-1",
+        stageId: "plan",
+      });
+      const baseOid = "cafebabecafebabecafebabecafebabecafebabe";
+      return {
+        runAsync: async (cmd, args) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args[2] === branch) {
+            return JSON.stringify({ state: "CLOSED", mergedAt: null });
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return JSON.stringify([{ number: closedPrNumber, state: "CLOSED", mergedAt: null, headRefOid: headOid }]);
+          }
+          if (cmd === "git" && args[0] === "diff") {
+            return "";
+          }
+          if (cmd === "git" && args[0] === "rev-parse") {
+            if (args.includes(`refs/heads/${branch}`)) return `${headOid}\n`;
+            return `${baseOid}\n`;
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args[2] === String(closedPrNumber)) {
+            return JSON.stringify({ comments: [{ body: settlementBody }] });
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args[2] === String(successorPrNumber)) {
+            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", isCrossRepository: false });
+          }
+          throw new Error(`Unexpected: ${cmd} ${args.join(" ")}`);
+        },
+      };
+    }
+
+    test("eligible when merged-PR authority fails but supersede proof passes", async () => {
+      const branch = "implement/superseded";
+      const result = await checkEligibility(
+        { path: "/wt", branch },
+        "project",
+        supersedeEligibilityRunner(branch),
+        async () => [],
+        emptyStore,
+        { projectRoot: "/repo", registry: {} },
+      );
+      expect(result).toEqual({ status: "eligible" });
+    });
+
+    test("plan/* falls through to supersede when plan-lane subsumed does not succeed", async () => {
+      const branch = "plan/unsubsumed";
+      const result = await checkEligibility(
+        { path: "/wt", branch },
+        "project",
+        supersedeEligibilityRunner(branch),
+        async () => [],
+        emptyStore,
+        { projectRoot: "/repo", registry: {} },
+      );
+      expect(result).toEqual({ status: "eligible" });
     });
   });
 

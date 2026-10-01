@@ -23,6 +23,7 @@ import {
   type TerminalPublicationInput,
   type TerminalPublicationResult,
 } from "../execution/terminal-publication.ts";
+import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { storeVerifierProcessGroupRecorder } from "../execution/verifier-process-groups.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { IpcClient } from "../ipc/client.ts";
@@ -1489,7 +1490,11 @@ async function settleSupersededPrecedingStagePrs(
   const failures: PipelineSupersedeFailure[] = [];
 
   for (const candidate of candidates) {
-    const body = `Superseded by #${args.terminalPrNumber} (pipeline ${args.pipelineId}, stage ${candidate.stageId})`;
+    const body = formatTerminalSupersedeSettlementComment({
+      terminalPrNumber: args.terminalPrNumber,
+      pipelineId: args.pipelineId,
+      stageId: candidate.stageId,
+    });
     let state: string;
     try {
       ({ state } = await supersedeGh.prState(args.worktreePath, candidate.prNumber));

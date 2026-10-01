@@ -45,6 +45,7 @@ import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
 } from "../execution/implement-workflow-steps.ts";
+import { parseTerminalSupersedeSettlementSuccessorPrNumber } from "../execution/terminal-supersede-settlement.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome, managedWorktreePath, specsHome, worktreesRoot as worktreesRootPath } from "../paths.ts";
@@ -338,10 +339,19 @@ export async function checkEligibility(
       context.registry,
       configPath,
     );
-    if (subsumed.status === "ineligible") return subsumed;
-    const guards = await worktreeRetirementGuardEligibility(project, branch, daemonClient, store);
-    if (guards.status === "ineligible") return guards;
-    return { status: "eligible", skipSpecArchival: true };
+    if (subsumed.status === "eligible") {
+      const guards = await worktreeRetirementGuardEligibility(project, branch, daemonClient, store);
+      if (guards.status === "ineligible") return guards;
+      return { status: "eligible", skipSpecArchival: true };
+    }
+  }
+
+  const localHeadOid = await resolveExactRefOid(ghCwd, `refs/heads/${branch}`, runner);
+  if (
+    localHeadOid !== undefined &&
+    (await supersededPipelinePrHeadAuthorityMatches(branch, localHeadOid, ghCwd, runner))
+  ) {
+    return worktreeRetirementGuardEligibility(project, branch, daemonClient, store);
   }
 
   return { status: "ineligible", reason: `PR not merged: ${mergedResult.reason}` };
@@ -498,13 +508,11 @@ async function listLocalHeads(repoRoot: string, runner: AsyncSubprocessRunner): 
   return heads;
 }
 
-/** True when one merged PR in `repoRoot` matches `localHeadOid` and no open PR owns the branch. */
-export async function mergedPrHeadAuthorityMatches(
+async function ghPrHeadRecordsForBranch(
   branch: string,
-  localHeadOid: string,
   repoRoot: string,
   runner: AsyncSubprocessRunner,
-): Promise<boolean> {
+): Promise<GhPrHeadRecord[] | undefined> {
   try {
     const output = await runner.runAsync(
       "gh",
@@ -513,13 +521,100 @@ export async function mergedPrHeadAuthorityMatches(
       networkSubprocessOptions(),
     );
     const parsed = JSON.parse(output) as GhPrHeadRecord[];
-    if (!Array.isArray(parsed)) return false;
-    if (parsed.some((pr) => pr.state === "OPEN")) return false;
-    const mergedMatches = parsed.filter((pr) => pr.state === "MERGED" && pr.mergedAt && pr.headRefOid === localHeadOid);
-    return mergedMatches.length === 1;
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when one merged PR in `repoRoot` matches `localHeadOid` and no open PR owns the branch. */
+export async function mergedPrHeadAuthorityMatches(
+  branch: string,
+  localHeadOid: string,
+  repoRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  const parsed = await ghPrHeadRecordsForBranch(branch, repoRoot, runner);
+  if (parsed === undefined) return false;
+  if (parsed.some((pr) => pr.state === "OPEN")) return false;
+  const mergedMatches = parsed.filter((pr) => pr.state === "MERGED" && pr.mergedAt && pr.headRefOid === localHeadOid);
+  return mergedMatches.length === 1;
+}
+
+async function listGhPrCommentBodies(
+  prNumber: number,
+  repoRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string[] | undefined> {
+  try {
+    const output = await runner.runAsync(
+      "gh",
+      ["pr", "view", String(prNumber), "--json", "comments"],
+      repoRoot,
+      networkSubprocessOptions(),
+    );
+    const parsed = JSON.parse(output) as { comments?: { body?: string }[] };
+    if (!Array.isArray(parsed.comments)) return undefined;
+    const bodies: string[] = [];
+    for (const comment of parsed.comments) {
+      if (typeof comment.body === "string") bodies.push(comment.body);
+    }
+    return bodies;
+  } catch {
+    return undefined;
+  }
+}
+
+async function ghSuccessorPrMergedInRepo(
+  successorPrNumber: number,
+  repoRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    const output = await runner.runAsync(
+      "gh",
+      ["pr", "view", String(successorPrNumber), "--json", "state,mergedAt,isCrossRepository"],
+      repoRoot,
+      networkSubprocessOptions(),
+    );
+    const parsed = JSON.parse(output) as {
+      state?: string;
+      mergedAt?: string | null;
+      isCrossRepository?: boolean;
+    };
+    if (parsed.isCrossRepository === true) return false;
+    return parsed.state === "MERGED" && Boolean(parsed.mergedAt);
   } catch {
     return false;
   }
+}
+
+/** True when a closed head-owning PR bears terminal supersede settlement and its successor PR merged. */
+export async function supersededPipelinePrHeadAuthorityMatches(
+  branch: string,
+  localHeadOid: string,
+  repoRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  const parsed = await ghPrHeadRecordsForBranch(branch, repoRoot, runner);
+  if (parsed === undefined) return false;
+  if (parsed.some((pr) => pr.state === "OPEN")) return false;
+  const closedHeadMatches = parsed.filter(
+    (pr) => pr.state === "CLOSED" && pr.headRefOid === localHeadOid && typeof pr.number === "number",
+  );
+  if (closedHeadMatches.length !== 1) return false;
+  const closedPrNumber = closedHeadMatches[0]?.number;
+  if (closedPrNumber === undefined) return false;
+
+  const commentBodies = await listGhPrCommentBodies(closedPrNumber, repoRoot, runner);
+  if (commentBodies === undefined) return false;
+
+  for (const body of commentBodies) {
+    const successorPrNumber = parseTerminalSupersedeSettlementSuccessorPrNumber(body);
+    if (successorPrNumber === undefined) continue;
+    if (await ghSuccessorPrMergedInRepo(successorPrNumber, repoRoot, runner)) return true;
+  }
+  return false;
 }
 
 /** True when no OPEN PR owns the branch; absent or CLOSED PRs are allowed. Fails closed on probe errors. */
@@ -765,7 +860,11 @@ async function discoverMergedBranchRefCandidatesForRepo(
 
   for (const head of localHeads) {
     if (shouldSkipLocalHeadForRefPrune(head, baseBranch, currentBranch, checkedOut, retiredBranches)) continue;
-    if (!(await mergedPrHeadAuthorityMatches(head.branch, head.oid, root, runner))) continue;
+    if (
+      !(await mergedPrHeadAuthorityMatches(head.branch, head.oid, root, runner)) &&
+      !(await supersededPipelinePrHeadAuthorityMatches(head.branch, head.oid, root, runner))
+    )
+      continue;
     const trackingRefOid = await exactOriginTrackingRefOid(root, head.branch, runner);
     const candidate: MergedBranchRefCandidate = {
       project,
@@ -886,7 +985,10 @@ export async function revalidateMergedBranchRefCandidate(
 
   if (
     options?.skipMergedPrAuthority !== true &&
-    !(await mergedPrHeadAuthorityMatches(branch, currentHeadOid, root, runner))
+    !(
+      (await mergedPrHeadAuthorityMatches(branch, currentHeadOid, root, runner)) ||
+      (await supersededPipelinePrHeadAuthorityMatches(branch, currentHeadOid, root, runner))
+    )
   ) {
     return { status: "ineligible", reason: "merged PR authority no longer matches" };
   }

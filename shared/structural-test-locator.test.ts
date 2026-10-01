@@ -194,4 +194,37 @@ describe("structural test locators", () => {
 
     expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
   });
+
+  test("parse-only inventory throws when unmarked same-name const precedes marked module inventory", () => {
+    const constantName = "ORDERED_INVENTORY";
+    const source = [
+      `const ${constantName} = [`,
+      '  { id: "first-match-fixture" },',
+      "];",
+      PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+      `const _${constantName} = [`,
+      '  { id: "marked-module" },',
+      "];",
+    ].join("\n");
+
+    const contrastBody = silentUnprefixedInventoryBody(source, constantName);
+    expect(contrastBody).toContain("first-match-fixture");
+
+    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+  });
+
+  test("parse-only inventory does not treat one marker as marking a later unprefixed fixture before module const", () => {
+    const constantName = "SHARED_MARKER_INVENTORY";
+    const source = [
+      PARSE_ONLY_INVENTORY_MARKER_COMMENT,
+      `const ${constantName} = [`,
+      '  { id: "fixture-under-marker" },',
+      "];",
+      `const _${constantName} = [`,
+      '  { id: "module-without-marker" },',
+      "];",
+    ].join("\n");
+
+    expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
+  });
 });

@@ -1551,6 +1551,25 @@ index 1234567..abcdefg 100644
       expect(Date.now() - startedAt).toBeLessThan(500);
     });
 
+    it("does not spawn a semaphore-queued scoped file after the batch fails fast", async () => {
+      const started: string[] = [];
+      const scope = ["src/a.test.ts", "src/b.test.ts", "src/c.test.ts", "src/d.test.ts", "src/queued.test.ts"];
+      const result = await runDiffDerivedScopedTests("/test/path", scope, {
+        runAsync: async (_command, args, _cwd, options) => {
+          started.push(args[1] ?? "");
+          if (args[1] === "src/a.test.ts") throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+          await new Promise<void>((resolve) => {
+            if (options?.signal?.aborted) resolve();
+            else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+          throw new AsyncSubprocessError("aborted", undefined, "", "", "ABORT_ERR");
+        },
+      });
+
+      expect(result).toBe(false);
+      expect(started).not.toContain("src/queued.test.ts");
+    });
+
     it("kills the candidate when one killing file fails and a sibling never settles through the floor budget", async () => {
       const result = await verifyTimeout(
         (cwd, scope, options) =>

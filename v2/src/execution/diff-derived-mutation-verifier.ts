@@ -600,6 +600,8 @@ export async function runDiffDerivedScopedTests(
     }
   };
   const runScopedFile = async (testPath: string): Promise<void> => {
+    // A spawn still queued on the semaphore when the batch failed fast must not start.
+    if (failFast) return;
     try {
       await spawnOne(testPath);
     } catch (reason) {

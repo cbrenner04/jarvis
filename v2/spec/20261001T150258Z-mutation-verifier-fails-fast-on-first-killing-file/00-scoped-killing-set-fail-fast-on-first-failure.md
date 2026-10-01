@@ -16,20 +16,20 @@
 
 ## Tasks
 
-- [ ] Implement shared fail-fast wait + abort in `runDiffDerivedScopedTests` for both parallel wait shapes; ensure `spawnOne` passes abort through to `runAsync` and never-settling mocks unblock on abort.
-- [ ] Add `returns caught without awaiting a never-settling sibling and settles the sibling runAsync on abort` (default parallel path) and `returns caught on isolated scoped runs without dequeuing after a never-settling sibling` (`options.isolated` / `settleBounded`) in `diff-derived-mutation-verifier.test.ts`; add `kills the candidate when one killing file fails and a sibling never settles through the floor budget` via `verifyDiffDerivedMutations` / `verifyTimeout`; keep preservation tests cited in acceptance criteria green.
-- [ ] Update `v2/docs/write-behavior.md` and `v2/docs/v1-behaviors.md` per Documentation updates.
+- [x] Implement shared fail-fast wait + abort in `runDiffDerivedScopedTests` for both parallel wait shapes; ensure `spawnOne` passes abort through to `runAsync` and never-settling mocks unblock on abort.
+- [x] Add `returns caught without awaiting a never-settling sibling and settles the sibling runAsync on abort` (default parallel path) and `returns caught on isolated scoped runs without dequeuing after a never-settling sibling` (`options.isolated` / `settleBounded`) in `diff-derived-mutation-verifier.test.ts`; add `kills the candidate when one killing file fails and a sibling never settles through the floor budget` via `verifyDiffDerivedMutations` / `verifyTimeout`; keep preservation tests cited in acceptance criteria green.
+- [x] Update `v2/docs/write-behavior.md` and `v2/docs/v1-behaviors.md` per Documentation updates.
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` — `returns caught without awaiting a never-settling sibling and settles the sibling runAsync on abort`: file A fails fast with a non-timeout `AsyncSubprocessError`, file B's fake `runAsync` never resolves until `options` abort fires and then settles; `runDiffDerivedScopedTests` returns `false` within a short wall-clock bound without awaiting B's hang; fails against pre-fix `allSettled` wait if B still blocks after A fails.
-- [ ] `diff-derived-mutation-verifier.test.ts` — `returns caught on isolated scoped runs without dequeuing after a never-settling sibling`: with `options.isolated: true`, scope sized so `settleBounded` would dequeue a third file after A fails and B never settles, helper returns `false` quickly, B's `runAsync` settles on abort, and the third path is never started; fails against pre-fix if only the default `Promise.allSettled` path is fixed.
-- [ ] `diff-derived-mutation-verifier.test.ts` — `kills the candidate when one killing file fails and a sibling never settles through the floor budget`: through `verifyDiffDerivedMutations` / `verifyTimeout`, one killing file fails non-timeout and a sibling would exceed `KILLING_TEST_BUDGET_FLOOR_MS` if awaited → verification passes (candidate killed), not `non-terminating-mutation` / `non_terminating_mutation_failed`; fails against pre-fix behavior.
-- [ ] `diff-derived-mutation-verifier.test.ts` — `returns caught when a sibling scoped test fails before a parallel timeout` stays green (reachable on `main`).
-- [ ] `diff-derived-mutation-verifier.test.ts` — `treats a caught failure as dominant when co-located and sibling scoped tests run in parallel` stays green (reachable on `main`).
-- [ ] `diff-derived-mutation-verifier.test.ts` — `bounds a never-settling detached subprocess and settles verification` stays green (reachable on `main`).
-- [ ] `diff-derived-mutation-verifier.test.ts` — `classifies scoped-test timeout separately from caught and surviving mutations` stays green (reachable on `main`).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `diff-derived-mutation-verifier.test.ts` — `returns caught without awaiting a never-settling sibling and settles the sibling runAsync on abort`: file A fails fast with a non-timeout `AsyncSubprocessError`, file B's fake `runAsync` never resolves until `options` abort fires and then settles; `runDiffDerivedScopedTests` returns `false` within a short wall-clock bound without awaiting B's hang; fails against pre-fix `allSettled` wait if B still blocks after A fails.
+- [x] `diff-derived-mutation-verifier.test.ts` — `returns caught on isolated scoped runs without dequeuing after a never-settling sibling`: with `options.isolated: true`, scope sized so `settleBounded` would dequeue a third file after A fails and B never settles, helper returns `false` quickly, B's `runAsync` settles on abort, and the third path is never started; fails against pre-fix if only the default `Promise.allSettled` path is fixed.
+- [x] `diff-derived-mutation-verifier.test.ts` — `kills the candidate when one killing file fails and a sibling never settles through the floor budget`: through `verifyDiffDerivedMutations` / `verifyTimeout`, one killing file fails non-timeout and a sibling would exceed `KILLING_TEST_BUDGET_FLOOR_MS` if awaited → verification passes (candidate killed), not `non-terminating-mutation` / `non_terminating_mutation_failed`; fails against pre-fix behavior.
+- [x] `diff-derived-mutation-verifier.test.ts` — `returns caught when a sibling scoped test fails before a parallel timeout` stays green (reachable on `main`).
+- [x] `diff-derived-mutation-verifier.test.ts` — `treats a caught failure as dominant when co-located and sibling scoped tests run in parallel` stays green (reachable on `main`).
+- [x] `diff-derived-mutation-verifier.test.ts` — `bounds a never-settling detached subprocess and settles verification` stays green (reachable on `main`).
+- [x] `diff-derived-mutation-verifier.test.ts` — `classifies scoped-test timeout separately from caught and surviving mutations` stays green (reachable on `main`).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

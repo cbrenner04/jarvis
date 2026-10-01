@@ -1527,6 +1527,243 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
+  test("surviving_mutation_failed resume with recorded survivor skips auto-derived repair when HEAD verification is clean", async () => {
+    const workspace = initGitWorkspace("review-mutation-head-pass-");
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      await withStateStore(async (store) => {
+        const baseSnapshot = reviewMutationWorkflowSnapshot("review-mutation-head-pass", "implement: head-pass");
+        const implementStep = baseSnapshot.steps[0];
+        if (implementStep === undefined) throw new Error("expected implement step");
+        const snapshot = {
+          ...baseSnapshot,
+          steps: [
+            { ...implementStep, agentModelConfig: VALID_TWO_AGENT_CONFIG },
+            baseSnapshot.steps[1] as (typeof baseSnapshot.steps)[1],
+          ],
+        };
+        const project = "demo";
+        const branch = "review-mutation/head-pass";
+        const writeRunId = store.createRun({
+          project,
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch,
+          specPath: "spec.md",
+          stepId: "implement~link-1",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(writeRunId, "completed");
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(writeRunId),
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const reviewRunId = store.createRun({
+          project,
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch,
+          specPath: "spec.md",
+          stepId: "implement-review",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(reviewRunId, "failed");
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+        });
+        seedSink.close();
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+        let repairInvokes = 0;
+        let finalizerCalls = 0;
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
+          readyFinalizer: async () => {
+            finalizerCalls += 1;
+          },
+          persistedRepairFenceEnforcer: async () => undefined,
+          verifyDiffDerivedMutations: async () => ({
+            kind: "pass",
+            runBase: baseRef,
+            inspectedPaths: [],
+            candidateCount: 0,
+            acceptedSites: [],
+            skippedCandidates: [],
+          }),
+          mutationRepairBindingFactory: () => ({
+            id: "must-not-run",
+            metadata: { agent: "current-agent", model: "current-model" },
+            invoke: async () => {
+              repairInvokes += 1;
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          }),
+        });
+        expect(outcome).toMatchObject({ ok: true });
+        expect(repairInvokes).toBe(0);
+        expect(finalizerCalls).toBeGreaterThan(0);
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("surviving_mutation_failed resume repairs HEAD survivor when it differs from terminal-record survivor", async () => {
+    const workspace = initGitWorkspace("review-mutation-head-survivor-b-");
+    const logsPath = join(workspace, "resume.jsonl");
+    const survivorA = {
+      mutation: "operator-flip: === → !==",
+      sourceFile: "src/guard.ts",
+      sourceLine: 17,
+      killingTests: ["legacy.test.ts"] as string[],
+      killingSetObservedResult: "not-run" as const,
+    };
+    const survivorB = {
+      mutation: "operator-flip: < → <=",
+      sourceFile: "src/other.ts",
+      sourceLine: 42,
+      killingTests: ["other.test.ts"],
+      killingSetObservedResult: "passed-confirmed" as const,
+    };
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      await withStateStore(async (store) => {
+        const baseSnapshot = reviewMutationWorkflowSnapshot(
+          "review-mutation-head-survivor-b",
+          "implement: head-survivor-b",
+        );
+        const implementStep = baseSnapshot.steps[0];
+        if (implementStep === undefined) throw new Error("expected implement step");
+        const snapshot = {
+          ...baseSnapshot,
+          steps: [
+            { ...implementStep, agentModelConfig: VALID_TWO_AGENT_CONFIG },
+            baseSnapshot.steps[1] as (typeof baseSnapshot.steps)[1],
+          ],
+        };
+        const project = "demo";
+        const branch = "review-mutation/head-survivor-b";
+        const writeRunId = store.createRun({
+          project,
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch,
+          specPath: "spec.md",
+          stepId: "implement~link-1",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(writeRunId, "completed");
+        store.commitCompletionBoundary({
+          attemptId: store.recordAttemptStart(writeRunId),
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const reviewRunId = store.createRun({
+          project,
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch,
+          specPath: "spec.md",
+          stepId: "implement-review",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(reviewRunId, "failed");
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: survivorA.mutation,
+          survivingMutationSourceFile: survivorA.sourceFile,
+          survivingMutationSourceLine: survivorA.sourceLine,
+          survivingMutationKillingTests: survivorA.killingTests,
+          survivingMutationKillingSetResult: survivorA.killingSetObservedResult,
+        });
+        seedSink.close();
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+        const prompts: string[] = [];
+        const logSink = openLogSink(logsPath);
+        await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          logSink,
+          completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+          completionPublisher: async ({ worktreePath }) => ({
+            pushSha: pushedHead(worktreePath),
+            prNumber: 3,
+            prUrl: "https://example.test/pr/3",
+          }),
+          readyFinalizer: async () => {
+            throw new SurvivingMutationError(
+              survivorB.mutation,
+              survivorB.sourceFile,
+              survivorB.sourceLine,
+              survivorB.killingTests,
+              survivorB.killingSetObservedResult,
+            );
+          },
+          persistedRepairFenceEnforcer: async () => undefined,
+          verifyDiffDerivedMutations: async () => ({
+            kind: "surviving-mutation",
+            mutation: survivorB.mutation,
+            killingTests: survivorB.killingTests,
+            killingSetObservedResult: survivorB.killingSetObservedResult,
+            sourceSite: { file: survivorB.sourceFile, line: survivorB.sourceLine },
+          }),
+          mutationRepairBindingFactory: () => ({
+            id: "auto-derived-implement-binding",
+            metadata: { agent: "current-agent", model: "current-model" },
+            invoke: async ({ prompt, cwd }) => {
+              prompts.push(prompt);
+              writeFileSync(join(cwd, "repair-proof.txt"), "repaired\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          }),
+        });
+        logSink.close();
+        expect(prompts[0]).toContain(`Mutation: ${survivorB.mutation}`);
+        expect(prompts[0]).not.toContain(survivorA.mutation);
+        expect(findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId))?.event).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "mutation_repair_exhausted",
+          survivingMutation: survivorB.mutation,
+          survivingMutationSourceFile: survivorB.sourceFile,
+          survivingMutationSourceLine: survivorB.sourceLine,
+          survivingMutationKillingTests: survivorB.killingTests,
+          survivingMutationKillingSetResult: survivorB.killingSetObservedResult,
+        });
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   test("surviving_mutation_failed resume without explicit mutationRepair auto-derives write.mutation-repair before re-verification", async () => {
     const workspace = initGitWorkspace("review-mutation-auto-repair-");
     const logsPath = join(workspace, "resume.jsonl");
@@ -1595,6 +1832,11 @@ describe("executeWorkflow review dispatch", () => {
 
         const events: string[] = [];
         let finalizerCalls = 0;
+        const survivorA = {
+          mutation: "operator-flip: === → !==",
+          sourceFile: "src/guard.ts",
+          sourceLine: 17,
+        };
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           completionCommitter: createCompletionCommitter(),
           completionPublisher: async ({ worktreePath }) => ({
@@ -1611,19 +1853,31 @@ describe("executeWorkflow review dispatch", () => {
           },
           runFixCommand: async () => {},
           persistedRepairFenceEnforcer: async () => undefined,
+          verifyDiffDerivedMutations: async () => {
+            events.push("verify");
+            return {
+              kind: "surviving-mutation",
+              mutation: survivorA.mutation,
+              killingTests: [],
+              killingSetObservedResult: "not-run",
+              sourceSite: { file: survivorA.sourceFile, line: survivorA.sourceLine },
+            };
+          },
           mutationRepairBindingFactory: () => ({
             id: "auto-derived-implement-binding",
             metadata: { agent: "current-agent", model: "current-model" },
             invoke: async ({ prompt, cwd }) => {
               events.push("repair");
               appendFileSync(join(cwd, "spec.md"), "\n", "utf8");
-              expect(prompt).toContain("Mutation: operator-flip: === → !==");
+              expect(prompt).toContain(`Mutation: ${survivorA.mutation}`);
               return { kind: "ok", stdout: "done", stderr: "" };
             },
           }),
         });
 
         expect(outcome.ok).toBe(false);
+        expect(events[0]).toBe("verify");
+        expect(events.indexOf("verify")).toBeLessThan(events.indexOf("repair"));
         expect(events.indexOf("repair")).toBeLessThan(events.indexOf("finalizer"));
         expect(finalizerCalls).toBeGreaterThan(0);
       });

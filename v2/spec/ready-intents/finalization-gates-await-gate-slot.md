@@ -16,7 +16,9 @@ name: finalization-gates-await-gate-slot
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/ready-finalize.test.ts` proves two concurrent `createReadyFinalizer` runs over a stubbed `asyncSubprocessRunner` never overlap gate spawns (max in-flight 1), required integration holds the lease, and a held agent lease delays the finalization gate until released; fails against pre-fix code with unleased harness spawns (reachable on main today).
+- [ ] `v2/src/execution/ready-finalize.test.ts` proves two concurrent `createReadyFinalizer` runs over a stubbed `asyncSubprocessRunner` never overlap gate spawns (max in-flight 1), required integration holds the lease, a held agent lease delays the finalization gate until released, and each repair re-gate re-acquires the slot after the repair agent releases the prior lease before spawn; fails against pre-fix code with unleased harness spawns (reachable on main today).
+- [ ] `v2/src/execution/ready-finalize.test.ts` proves a non-immediate slot acquire logs `ready_gate_slot_wait` with `gate` and `waitedMs`; fails against pre-fix code with no slot wait logging (reachable on main today).
+- [ ] `v2/src/commands/run.test.ts` proves `jarvis run list` `message` shows `waiting for gate slot` while finalization is queued on the slot; fails against pre-fix code with no slot-wait message (reachable on main today).
 - [ ] `v2/src/execution/ready-finalize.test.ts` proves slot-wait expiry surfaces `ReadyGateError` with `timedOut: true` naming the slot wait; fails against pre-fix code with no slot wait (reachable on main today).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

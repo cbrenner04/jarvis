@@ -11,21 +11,25 @@ name: per-iteration-agent-gate-budget
 ## Decisions
 
 - `MAX_AGENT_GATE_INVOCATIONS_PER_ITERATION = 2`; count admitted invocations classified by `isReadyTestCommand` (`^bun run test(:|$)`); refuse the next with cause `iteration_gate_budget` before headroom and slot checks; `bun test <file>` is not counted.
-- Budget refusal aborts the active invocation like other refusals but is not terminal: checkpoint settled edits via `checkpointBeforeControlledLoss`, count the iteration toward `maxIterations`, continue with next-iteration reprompt from `prompts/write/gate-budget-reprompt.md` (registered in `prompts/registry.txt`, same seam as `stagedMarkdownLintReprompt`) naming the refused command and directing file-scoped `bun test <file>` verification; rules out `finishGateInvocationRefused` / `gate_invocation_refused` settlement and slot re-drive for this cause.
-- Log `gate_invocation_budget_refused` with `command` and `admittedCount` on the run log.
+- Budget refusal aborts the active invocation like other refusals but is not terminal: checkpoint settled edits via `checkpointBeforeControlledLoss`, count the iteration toward `maxIterations`, continue with next-iteration reprompt from `prompts/write/gate-budget-reprompt.md` (registered in `prompts/registry.txt`, same seam as `stagedMarkdownLintReprompt`) naming the refused command and directing file-scoped `bun test <file>` verification; rules out `finishGateInvocationRefused` / `gate_invocation_refused` settlement, durable `gate_refusal_recovery_state`, and slot re-drive for this cause.
+- `iteration_gate_budget` extends in-process `GateInvocationRefusalCause` only; not `GateRefusalRecoveryCause`.
+- Log `gate_invocation_budget_refused` with `command` and `admittedCount` on the run log (contracted via test assertion below).
 - Counter lives in the per-iteration write-loop tracker, not the gate lease; harness finalization gates are not counted.
 
 ## Acceptance criteria
 
 - [ ] `v2/src/execution/write-loop-gate-budget.test.ts` proves a stubbed cursor iteration emitting three serial `bun run test:v2` shell commands refuses the third with cause `iteration_gate_budget` and does not count interleaved `bun test <file>` commands; fails against main where all three are admitted.
 - [ ] Same file proves the refused iteration checkpoints settled edits and the next iteration prompt contains the gate-budget reprompt naming the refused command and `bun test <file>`; the run is not settled `gate_invocation_refused`; fails against main.
+- [ ] Same file asserts run log `gate_invocation_budget_refused` with the refused `command` and `admittedCount` on the third refusal; fails against main.
 - [ ] Same file proves the budget resets per iteration (two admitted invocations in iteration 2 after a budget refusal in iteration 1).
+- [ ] `v2/src/daemon/daemon-slot-redrive.test.ts` `slotRedriveWaiting` pin extended with a synthetic failed row whose `gateRefusalRecoveryState.cause` is `iteration_gate_budget` (cast, same reachability as the existing `ceiling_headroom` pin); never redrive-eligible — fails if redrive eligibility broadens beyond `slot_contention`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` § Concurrency — per-iteration budget and `iteration_gate_budget` cause.
+- `v2/docs/operator-runbook.md` § Concurrency — per-iteration budget, `iteration_gate_budget` cause, slot re-drive still `slot_contention` only.
 - `v2/docs/write-behavior.md` — gate-budget refusal and reprompt.
+- `v2/docs/v1-behaviors.md` — extend the implement agent gate-invocation budget bullet for the per-iteration full-suite cap.
 - `prompts/implement/rules.md` — state the budget up front.
 
 ## Primary implementation surface

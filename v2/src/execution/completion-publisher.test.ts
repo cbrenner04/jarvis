@@ -5,8 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-
-const notAncestorMergeBase = new AsyncSubprocessError("not an ancestor", 1, "", "", undefined);
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
@@ -48,6 +46,7 @@ describe("createCompletionPublisher", () => {
   }
 
   const postPushTip = "abc123def456";
+  const notAncestorMergeBase = new AsyncSubprocessError("not an ancestor", 1, "", "", undefined);
 
   const republicationGit = async (_cwd: string, args: readonly string[]) => {
     if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
@@ -1496,11 +1495,10 @@ describe("createCompletionPublisher", () => {
       git: republicationGit,
       gh,
       delay: noopDelay,
-      fetchPrBody: async () => "",
+      ...noopRefreshSeams,
       writePrBody: async () => {
         writeBodyCalls += 1;
       },
-      renderFooter: async () => "",
     });
 
     const result = await publisher(baseInput);
@@ -1534,13 +1532,20 @@ describe("createCompletionPublisher", () => {
     expect(listJson("all")).toBe("number,baseRefName,state,headRefOid");
   });
 
-  it("creates a draft when newest CLOSED PR head is outside post-push tip lineage", async () => {
-    const foreignHead = "foreign-closed-head";
+  it.each([
+    { state: "CLOSED" as const, number: 88, createPrNumber: 99, head: "foreign-closed-head" },
+    { state: "MERGED" as const, number: 77, createPrNumber: 78, head: "foreign-merged-head" },
+  ])("creates a draft when newest $state PR head is outside post-push tip lineage", async ({
+    state,
+    number,
+    createPrNumber,
+    head,
+  }) => {
     const { gh, ghCalls } = ghOpenEmptyThenAllHistory({
-      number: 88,
-      state: "CLOSED",
-      headRefOid: foreignHead,
-      createPrNumber: 99,
+      number,
+      state,
+      headRefOid: head,
+      createPrNumber,
     });
     const publisher = createCompletionPublisher({
       git: lineageGit({ foreignHead: true }),
@@ -1551,29 +1556,7 @@ describe("createCompletionPublisher", () => {
 
     const result = await publisher(baseInput);
 
-    expect(result.prNumber).toBe(99);
-    expect(result.lanePrOutcome).toBeUndefined();
-    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
-  });
-
-  it("creates a draft when newest MERGED PR head is outside post-push tip lineage", async () => {
-    const foreignHead = "foreign-merged-head";
-    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({
-      number: 77,
-      state: "MERGED",
-      headRefOid: foreignHead,
-      createPrNumber: 78,
-    });
-    const publisher = createCompletionPublisher({
-      git: lineageGit({ foreignHead: true }),
-      gh,
-      delay: noopDelay,
-      ...noopRefreshSeams,
-    });
-
-    const result = await publisher(baseInput);
-
-    expect(result.prNumber).toBe(78);
+    expect(result.prNumber).toBe(createPrNumber);
     expect(result.lanePrOutcome).toBeUndefined();
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
   });

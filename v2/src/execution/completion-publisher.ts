@@ -390,45 +390,6 @@ type ResolveOpenDraftPrOptions = {
   leaseFromSha?: string;
 };
 
-async function isReachableCommit(git: Git, cwd: string, oid: string): Promise<boolean> {
-  try {
-    await git(cwd, ["rev-parse", "--verify", `${oid}^{commit}`]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function mergeBaseIsAncestorDiscriminating(
-  git: Git,
-  cwd: string,
-  ancestor: string,
-  descendant: string,
-): Promise<"ancestor" | "not-ancestor" | "inconclusive"> {
-  try {
-    await git(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
-    return "ancestor";
-  } catch (error) {
-    if (error instanceof AsyncSubprocessError && error.status === 1) {
-      return "not-ancestor";
-    }
-    return "inconclusive";
-  }
-}
-
-async function headInLineageAgainstAnchor(
-  git: Git,
-  cwd: string,
-  headRefOid: string,
-  anchor: string,
-): Promise<LaneHistoryHeadLineage> {
-  if (headRefOid === anchor) return "in-lineage";
-  const outcome = await mergeBaseIsAncestorDiscriminating(git, cwd, headRefOid, anchor);
-  if (outcome === "ancestor") return "in-lineage";
-  if (outcome === "inconclusive") return "inconclusive";
-  return "foreign";
-}
-
 async function classifyLaneHistoryHeadLineage(
   git: Git,
   cwd: string,
@@ -437,19 +398,30 @@ async function classifyLaneHistoryHeadLineage(
   leaseFromSha: string | undefined,
 ): Promise<LaneHistoryHeadLineage> {
   const head = headRefOid?.trim();
-  if (head === undefined || head.length === 0 || postPushTip === undefined || postPushTip.length === 0) {
+  if (!head || !postPushTip) return "inconclusive";
+  try {
+    await git(cwd, ["rev-parse", "--verify", `${head}^{commit}`]);
+  } catch {
     return "inconclusive";
   }
-  if (!(await isReachableCommit(git, cwd, head))) return "inconclusive";
 
-  const onTip = await headInLineageAgainstAnchor(git, cwd, head, postPushTip);
-  if (onTip === "in-lineage" || onTip === "inconclusive") return onTip;
+  const againstAnchor = async (anchor: string): Promise<LaneHistoryHeadLineage> => {
+    if (head === anchor) return "in-lineage";
+    try {
+      await git(cwd, ["merge-base", "--is-ancestor", head, anchor]);
+      return "in-lineage";
+    } catch (error) {
+      if (error instanceof AsyncSubprocessError && error.status === 1) return "foreign";
+      return "inconclusive";
+    }
+  };
 
-  if (leaseFromSha !== undefined && leaseFromSha.length > 0) {
-    const onLease = await headInLineageAgainstAnchor(git, cwd, head, leaseFromSha);
-    if (onLease === "in-lineage" || onLease === "inconclusive") return onLease;
+  const onTip = await againstAnchor(postPushTip);
+  if (onTip !== "foreign") return onTip;
+  if (leaseFromSha) {
+    const onLease = await againstAnchor(leaseFromSha);
+    if (onLease !== "foreign") return onLease;
   }
-
   return "foreign";
 }
 
@@ -560,10 +532,8 @@ async function findOrCreatePr(
           draftPrOptions?.leaseFromSha,
         );
         if (lineage !== "foreign") {
-          if (newest.state === "CLOSED") {
-            return { kind: "lane", outcome: { kind: "lane_pr_closed", prNumber: newest.number } };
-          }
-          return { kind: "lane", outcome: { kind: "lane_pr_merged", prNumber: newest.number } };
+          const kind = newest.state === "CLOSED" ? "lane_pr_closed" : "lane_pr_merged";
+          return { kind: "lane", outcome: { kind, prNumber: newest.number } };
         }
       }
     } catch (error) {

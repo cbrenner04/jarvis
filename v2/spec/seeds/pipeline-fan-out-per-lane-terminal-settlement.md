@@ -24,6 +24,7 @@ The implement stage now flips its own PR ready and emits a per-lane `stage-succe
 ## Acceptance criteria
 
 - [ ] A two-lane pipeline whose implements both succeed publishes each lane's implement PR (`ready`) and derives `succeeded` with `terminalPublicationSucceededAt` set; pinned by a pipeline-execution test that fails against the current fan-out refusal.
+- [ ] With `terminalAction: "merge"`, a two-lane pipeline whose implements both succeed merges each lane's implement PR and derives `succeeded`; pinned by a pipeline-execution test that fails against the current fan-out refusal.
 - [ ] One lane's publication failure lands on that lane's row and the pipeline derives `failed` naming the lane, while the sibling lane's publication still succeeds; pinned by a test.
 - [ ] Single-lane `pipeline_list` payload and derived-state behavior are unchanged; pinned by existing tests plus a byte-equality fixture.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

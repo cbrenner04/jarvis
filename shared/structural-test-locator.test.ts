@@ -147,6 +147,18 @@ describe("structural test locators", () => {
     expectLocatorMiss(() => locateParseOnlyInventoryArrayBody(source, constantName), "inventory-binding", constantName);
   });
 
+  test("parse-only inventory distinguishes missing marker from missing constant", () => {
+    const constantName = "UNMARKED_INVENTORY";
+    const unmarkedSource = [`const ${constantName} = [`, '  { id: "only" },', "];"].join("\n");
+
+    expect(() => locateParseOnlyInventoryArrayBody(unmarkedSource, constantName)).toThrow(
+      `parse-only inventory marker missing on ${constantName}`,
+    );
+    expect(() => locateParseOnlyInventoryArrayBody("const OTHER = [];", constantName)).toThrow(
+      `inventory constant ${constantName} not found`,
+    );
+  });
+
   test("parse-only inventory tolerates optional leading underscore on constant name", () => {
     const constantName = "PREFIXED_INVENTORY";
     const prefixedSource = [

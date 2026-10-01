@@ -41,8 +41,29 @@ function trackPreservationSeams(closeCalls: string[], deleteCalls: string[]) {
 }
 
 /** Mocks the raw `gh` command so the pre-flip resolver sees a single open draft PR. */
-function ghResolvesOpenDraft(prNumber: number, prUrl: string, baseRef = "main") {
+function ghResolvesOpenDraft(
+  prNumber: number,
+  prUrl: string,
+  baseRef = "main",
+  probeState?: "MERGED" | "CLOSED" | "probe_throw",
+) {
   return async (_cwd: string, args: readonly string[]) => {
+    if (
+      probeState !== undefined &&
+      args[0] === "pr" &&
+      args[1] === "view" &&
+      args[2] === String(prNumber) &&
+      args[3] === "--json" &&
+      args[4] === "state,mergedAt"
+    ) {
+      if (probeState === "probe_throw") {
+        throw new Error("gh pr view state probe failed");
+      }
+      return JSON.stringify({
+        state: probeState,
+        mergedAt: probeState === "MERGED" ? "2024-01-01T00:00:00Z" : null,
+      });
+    }
     if (args[0] === "pr" && args[1] === "list") {
       return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: true }]);
     }
@@ -50,28 +71,6 @@ function ghResolvesOpenDraft(prNumber: number, prUrl: string, baseRef = "main") 
       return JSON.stringify({ number: prNumber, url: prUrl, baseRefName: baseRef });
     }
     throw new Error(`unexpected gh args: ${args.join(" ")}`);
-  };
-}
-
-function ghWithPrStateProbe(
-  baseGh: (_cwd: string, args: readonly string[]) => Promise<string>,
-  prNumber: number,
-  state: "MERGED" | "CLOSED" | "probe_throw",
-): (_cwd: string, args: readonly string[]) => Promise<string> {
-  return async (cwd, args) => {
-    if (
-      args[0] === "pr" &&
-      args[1] === "view" &&
-      args[2] === String(prNumber) &&
-      args[3] === "--json" &&
-      args[4] === "state,mergedAt"
-    ) {
-      if (state === "probe_throw") {
-        throw new Error("gh pr view state probe failed");
-      }
-      return JSON.stringify({ state, mergedAt: state === "MERGED" ? "2024-01-01T00:00:00Z" : null });
-    }
-    return baseGh(cwd, args);
   };
 }
 
@@ -404,13 +403,11 @@ describe("executeTerminalPublication", () => {
       const gateCalls: string[] = [];
       const flipCalls: string[] = [];
       const mergeCalls: string[] = [];
-      const baseGh = ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl);
-
       const execute = createExecuteTerminalPublication({
         runReadyGate: async (worktreePath, baseRef) => {
           gateCalls.push(`${worktreePath}:${baseRef}`);
         },
-        gh: ghWithPrStateProbe(baseGh, baseInput.prNumber, "MERGED"),
+        gh: ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl, "main", "MERGED"),
         ghReadyFlip: async (prNumber, worktreePath) => {
           flipCalls.push(`${prNumber}:${worktreePath}`);
         },
@@ -430,13 +427,11 @@ describe("executeTerminalPublication", () => {
   it("fails with pr_closed when probe reports CLOSED", async () => {
     const gateCalls: string[] = [];
     const flipCalls: string[] = [];
-    const baseGh = ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl);
-
     const execute = createExecuteTerminalPublication({
       runReadyGate: async () => {
         gateCalls.push("gate");
       },
-      gh: ghWithPrStateProbe(baseGh, baseInput.prNumber, "CLOSED"),
+      gh: ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl, "main", "CLOSED"),
       ghReadyFlip: async () => {
         flipCalls.push("flip");
       },
@@ -460,13 +455,11 @@ describe("executeTerminalPublication", () => {
   it("runs ready gate and flip when state probe throws", async () => {
     const gateCalls: string[] = [];
     const flipCalls: string[] = [];
-    const baseGh = ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl);
-
     const execute = createExecuteTerminalPublication({
       runReadyGate: async (worktreePath, baseRef) => {
         gateCalls.push(`${worktreePath}:${baseRef}`);
       },
-      gh: ghWithPrStateProbe(baseGh, baseInput.prNumber, "probe_throw"),
+      gh: ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl, "main", "probe_throw"),
       ghReadyFlip: async (prNumber, worktreePath) => {
         flipCalls.push(`${prNumber}:${worktreePath}`);
       },

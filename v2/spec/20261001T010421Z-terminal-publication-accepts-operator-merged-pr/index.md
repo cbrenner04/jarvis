@@ -4,4 +4,4 @@ When terminal publication runs after the operator already merged the implement P
 
 ## Subspecs
 
-- [ ] [00 — Terminal publication PR-state probe](./00-terminal-publication-pr-state-probe.md)
+- [x] [00 — Terminal publication PR-state probe](./00-terminal-publication-pr-state-probe.md)

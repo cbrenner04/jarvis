@@ -264,25 +264,6 @@ async function runMergeOrFail(
   }
 }
 
-type PrStateProbeOutcome = "merged" | "closed" | "inconclusive";
-
-async function probeImplementPrState(
-  gh: GhCommand,
-  worktreePath: string,
-  prNumber: number,
-): Promise<PrStateProbeOutcome> {
-  try {
-    const raw = await gh(worktreePath, ["pr", "view", String(prNumber), "--json", "state,mergedAt"]);
-    const parsed = JSON.parse(raw) as { state?: unknown };
-    if (typeof parsed.state !== "string") return "inconclusive";
-    if (parsed.state === "MERGED") return "merged";
-    if (parsed.state === "CLOSED") return "closed";
-    return "inconclusive";
-  } catch {
-    return "inconclusive";
-  }
-}
-
 async function executeReadyOrMergePublication(
   input: TerminalPublicationInput,
   deps: PublicationDeps,
@@ -292,11 +273,18 @@ async function executeReadyOrMergePublication(
   }
   const { prNumber, prUrl } = input;
 
-  const probe = await probeImplementPrState(deps.gh, input.worktreePath, prNumber);
-  if (probe === "merged") {
+  let probedState: string | undefined;
+  try {
+    const raw = await deps.gh(input.worktreePath, ["pr", "view", String(prNumber), "--json", "state,mergedAt"]);
+    const state = (JSON.parse(raw) as { state?: unknown }).state;
+    probedState = typeof state === "string" ? state : undefined;
+  } catch {
+    probedState = undefined;
+  }
+  if (probedState === "MERGED") {
     return { prNumber, prUrl };
   }
-  if (probe === "closed") {
+  if (probedState === "CLOSED") {
     throw new TerminalPublicationError(
       input.terminalAction,
       {

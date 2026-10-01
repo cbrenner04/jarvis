@@ -1,6 +1,13 @@
-import { spawn } from "node:child_process";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  TUI_REVISION_REEXEC_EXIT_CODE,
+  type TuiReexecCarriedState,
+  type TuiRevisionReexecChannel,
+  tuiRevisionReexecChannelFromEnv,
+} from "./tui-reexec-channel.ts";
+
+export type { TuiReexecCarriedState } from "./tui-reexec-channel.ts";
 
 /** Env var carrying the daemon revision this process already re-exec'd for. */
 export const TUI_REEXEC_REVISION_ENV = "JARVIS_TUI_REEXEC_REVISION";
@@ -8,12 +15,6 @@ export const TUI_REEXEC_REVISION_ENV = "JARVIS_TUI_REEXEC_REVISION";
 export const TUI_REEXEC_SELECTED_NODE_ID_ENV = "JARVIS_TUI_REEXEC_SELECTED_NODE_ID";
 /** Env var carrying the child's initial `expandedPipelineNodeIds`, comma-joined. */
 export const TUI_REEXEC_EXPANDED_PIPELINE_NODE_IDS_ENV = "JARVIS_TUI_REEXEC_EXPANDED_PIPELINE_NODE_IDS";
-
-/** Selection/expansion state carried over from a re-exec'd parent, restored as the child's initial state. */
-export type TuiReexecCarriedState = {
-  selectedNodeId: string | null;
-  expandedPipelineNodeIds: readonly string[];
-};
 
 /** Teardown callbacks invoked, in order, before this process re-execs onto current code. */
 type TuiReexecTeardown = {
@@ -33,6 +34,10 @@ export type PerformTuiRevisionReexecParams = {
   teardown: TuiReexecTeardown;
   /** Explicit argv to re-exec with; defaults to unmodified `process.argv`. */
   argv?: readonly string[];
+  /** Injectable re-exec channel; defaults to the supervisor channel from the worker environment. */
+  channel?: TuiRevisionReexecChannel;
+  /** Injectable process exit; defaults to `process.exit`. */
+  exitProcess?: (code: number) => void;
 };
 
 /** This process's own loaded source revision, via the same resolver the daemon uses for `loadedRevision`. */
@@ -77,30 +82,26 @@ export function buildTuiReexecEnv(
   return env;
 }
 
-/** Resolves a spawned child's exit code, defaulting a signal-terminated (`null`) code to `0`. */
-export function tuiReexecChildExitCode(code: number | null): number {
-  return code ?? 0;
-}
-
 /**
- * Unmounts the monitor, stops scheduling, closes the daemon client, then re-execs this process
- * onto current code: spawns `process.argv` (or `params.argv` when provided) with inherited stdio
- * and the revision marker plus carried-over selection/expansion state in env, and exits with the
- * child's code.
+ * Unmounts the monitor, stops scheduling, closes the daemon client, then publishes revision re-exec
+ * state on the supervisor channel and exits with {@link TUI_REVISION_REEXEC_EXIT_CODE}.
  */
 export async function performTuiRevisionReexec(params: PerformTuiRevisionReexecParams): Promise<void> {
   params.teardown.closeMonitor();
   params.teardown.closeRefreshScheduler();
   params.teardown.closeDaemonClient();
 
-  const [executable, ...args] = params.argv ?? process.argv;
+  const workerArgv = params.argv ?? process.argv;
+  const [executable] = workerArgv;
   if (executable === undefined) throw new Error("cannot re-exec: process.argv is empty");
-  const env = buildTuiReexecEnv(process.env, params.daemonRevision, params.carriedState);
-  // guard-unbounded-subprocess: re-exec spawns a long-lived replacement TUI process; this process exits when it does
-  const child = spawn(executable, args, { stdio: "inherit", env });
-  const code = await new Promise<number | null>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("exit", resolve);
+
+  const channel = params.channel ?? tuiRevisionReexecChannelFromEnv(process.env);
+  channel.publish({
+    daemonRevision: params.daemonRevision,
+    carriedState: params.carriedState,
+    workerArgv,
   });
-  process.exit(tuiReexecChildExitCode(code));
+
+  const exitProcess = params.exitProcess ?? ((code) => process.exit(code));
+  exitProcess(TUI_REVISION_REEXEC_EXIT_CODE);
 }

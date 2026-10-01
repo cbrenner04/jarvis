@@ -213,7 +213,14 @@ function readStaleResetOverrideFlags(
 
 function parsePipelineResumeArgs(
   argv: readonly string[],
-): ({ ok: true; pipelineId: string; branchKey?: string } & PipelineStaleResetOverrideFlags) | { ok: false } {
+):
+  | ({
+      ok: true;
+      pipelineId: string;
+      branchKey?: string;
+      addressReviewStageId?: string;
+    } & PipelineStaleResetOverrideFlags)
+  | { ok: false } {
   let values: Record<string, string | boolean | undefined>;
   let positionals: string[];
   try {
@@ -235,11 +242,24 @@ function parsePipelineResumeArgs(
   const branchKey = positionals[1];
   if (branchKey !== undefined && branchKey.trim().length === 0) return { ok: false };
 
+  const staleReset = readStaleResetOverrideFlags(values);
+  const addressReviewRaw = values["address-review"];
+  if (addressReviewRaw !== undefined) {
+    if (staleReset.resetDespiteDirty || staleReset.resetDespiteLandedCriteria) return { ok: false };
+    if (typeof addressReviewRaw !== "string" || addressReviewRaw.trim().length === 0) return { ok: false };
+    return {
+      ok: true,
+      pipelineId,
+      ...(branchKey !== undefined ? { branchKey } : {}),
+      addressReviewStageId: addressReviewRaw,
+    };
+  }
+
   return {
     ok: true,
     pipelineId,
     ...(branchKey !== undefined ? { branchKey } : {}),
-    ...readStaleResetOverrideFlags(values),
+    ...staleReset,
   };
 }
 
@@ -693,6 +713,31 @@ async function requestPipelineRpc(
   }
 }
 
+async function runPipelineStageReviewFeedbackLaunchCommand(
+  params: { pipelineId: string; stageId: string; branchKey?: string },
+  io: Io,
+  deps: CliDeps,
+): Promise<number> {
+  const { pipelineId, stageId, branchKey } = params;
+  return withStablePipelineClient(pipelineId, io, deps, async (client) => {
+    const rpcParams: PipelineRpcParams = { pipelineId, stageId };
+    if (branchKey !== undefined) rpcParams.branchKey = branchKey;
+    const result = await requestPipelineRpc(client, "pipeline_stage_review_feedback_launch", rpcParams, io);
+    if (!result.ok) return 1;
+    if (typeof result.response !== "object" || result.response === null) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    const runId = (result.response as { runId?: unknown }).runId;
+    if (!isNonEmptyString(runId)) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    io.stdout(`${runId}\n`);
+    return 0;
+  });
+}
+
 async function runPipelineMutationCommand(
   method: "pipeline_approve" | "pipeline_reject" | "pipeline_resume",
   pipelineId: string,
@@ -914,6 +959,17 @@ async function runPipelineControlSubcommand(
     if (!parsed.ok) {
       io.stderr(PIPELINE_RESUME_USAGE);
       return 1;
+    }
+    if (parsed.addressReviewStageId !== undefined) {
+      return runPipelineStageReviewFeedbackLaunchCommand(
+        {
+          pipelineId: parsed.pipelineId,
+          stageId: parsed.addressReviewStageId,
+          ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
+        },
+        io,
+        deps,
+      );
     }
     return runPipelineMutationCommand(
       "pipeline_resume",

@@ -1955,6 +1955,73 @@ describe("pipeline resume", () => {
     if (!resetDespiteLandedCriteria) expect(frame.params).not.toHaveProperty("resetDespiteLandedCriteria");
   });
 
+  test("pipeline resume --address-review sends pipeline_stage_review_feedback_launch without pipeline_resume", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await main(["pipeline", "resume", "pipe-1", "--address-review", "implement"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient({ runId: "rf-run-1" }, sent)),
+    });
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "rf-run-1\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_stage_review_feedback_launch")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "implement" } }),
+    ]);
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toHaveLength(0);
+  });
+
+  test("pipeline resume --address-review forwards branch positional as branchKey", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await main(["pipeline", "resume", "pipe-1", "alpha", "--address-review", "implement"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: stableVerbConnectIpcClient(() => pipelineListClient({ runId: "rf-run-branch" }, sent)),
+    });
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "rf-run-branch\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_stage_review_feedback_launch")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "implement", branchKey: "alpha" } }),
+    ]);
+    const frame = ipcFramesWithMethod(sent, "pipeline_stage_review_feedback_launch")[0] as {
+      params: Record<string, unknown>;
+    };
+    expect(frame.params).not.toHaveProperty("resetDespiteDirty");
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toHaveLength(0);
+  });
+
+  test.each([
+    {
+      label: "with reset-despite-dirty",
+      argv: ["pipeline", "resume", "pipe-1", "--address-review", "--reset-despite-dirty"],
+    },
+    {
+      label: "with reset-despite-landed-criteria",
+      argv: ["pipeline", "resume", "pipe-1", "--address-review", "implement", "--reset-despite-landed-criteria"],
+    },
+    { label: "with empty stage id", argv: ["pipeline", "resume", "pipe-1", "--address-review", ""] },
+    { label: "with whitespace stage id", argv: ["pipeline", "resume", "pipe-1", "--address-review", "   "] },
+    { label: "with missing stage id", argv: ["pipeline", "resume", "pipe-1", "--address-review"] },
+  ] as const)("pipeline resume --address-review usage rejects $label before daemon connect", async ({ argv }) => {
+    const cap = captureIo();
+    let contacted = false;
+
+    const code = await main([...argv], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        contacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(contacted).toBe(false);
+    expect(cap.read()).toEqual({ stdout: "", stderr: PIPELINE_RESUME_USAGE });
+  });
+
   test.each([
     ["pipe-done", "pipeline_terminal_succeeded"],
     ["pipe-rej", "pipeline_terminal_rejected"],
@@ -2696,6 +2763,7 @@ describe("pipeline help", () => {
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toContain(PIPELINE_RESUME_USAGE.trim());
+    expect(PIPELINE_RESUME_USAGE).toContain("--address-review");
     expect(PIPELINE_RESUME_USAGE).toContain("--reset-despite-dirty");
     expect(PIPELINE_RESUME_USAGE).toContain("--reset-despite-landed-criteria");
   });

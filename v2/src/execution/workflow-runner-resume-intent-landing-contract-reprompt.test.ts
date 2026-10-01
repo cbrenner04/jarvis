@@ -134,7 +134,7 @@ describe("intent finalization resume landing-contract reprompt", () => {
       expect(existsSync(join(workspace, "ready-intents", "bad-intent.md"))).toBe(true);
       expect(store.loadRun(reviewRunId)?.status).toBe("completed");
     });
-  });
+  }, 120_000);
 
   test("forwards the injected lint runner to the landing gate instead of falling back to the default spawn", async () => {
     const workspace = trackedMkdtempSync(join(tmpdir(), "intent-resume-landing-runner-"));

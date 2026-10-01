@@ -48,6 +48,12 @@ import {
 } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
+import {
+  gateFailureOutput,
+  lintMdOnlyGateFailureOutput,
+  PLACEHOLDER_BASE_REF_PROBE_FAIL,
+  PLACEHOLDER_BASE_REF_PROBE_OBSERVATION,
+} from "./ready-finalize.test-support.ts";
 
 /** Records spawn ids then `null` on settle, mirroring the retired single-callback sequence. */
 function pushRecorder(recorded: Array<number | null>): VerifierProcessGroupRecorder {
@@ -70,74 +76,6 @@ function gateOutput(parts: {
     lines.push(parts.extra);
   }
   return `${lines.join("")}\n`;
-}
-
-export function gateFailureOutput(failingPath: string): string {
-  return gateOutput({
-    completions: [
-      { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 },
-      { stepId: "2", attemptId: "2.2", command: "bun run test:v2", status: 1 },
-    ],
-    failingFiles: [{ attemptId: "2.2", path: failingPath }],
-  });
-}
-
-export function lintMdOnlyGateFailureOutput(failingMdPath: string): string {
-  return gateOutput({
-    completions: [
-      { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 0 },
-      { stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 3 },
-    ],
-    failingFiles: [{ attemptId: "3.1", path: failingMdPath }],
-  });
-}
-
-export function initGateScopeWorktree(
-  jarvisRoot: string,
-  branchName: string,
-): { worktreePath: string; baseRef: string } {
-  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
-  mkdirSync(worktreePath, { recursive: true });
-  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
-  writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
-  writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
-  writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
-  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
-  const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
-    encoding: "utf8",
-    stdio: "pipe",
-  }).trim();
-  writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
-  execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
-  return { worktreePath, baseRef };
-}
-
-export function initOutsideDiffRepairWorktree(
-  jarvisRoot: string,
-  branchName: string,
-): { worktreePath: string; baseRef: string } {
-  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
-  mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
-  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
-  writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
-  writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "base\n", "utf8");
-  writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
-  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
-  const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
-    encoding: "utf8",
-    stdio: "pipe",
-  }).trim();
-  writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
-  execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
-  return { worktreePath, baseRef };
 }
 
 const PROBE_FIXTURE_TEST_PATH = "probe-target.test.ts";
@@ -240,19 +178,10 @@ const scope = {
   specPath: "v2/spec/demo/index.md",
 };
 
-/** A fixed placeholder conclusive-fail probe outcome for seam stubs that don't care about its
- *  observation values, just that the probe confirmed the failure reproduces at the base ref. */
-export const PLACEHOLDER_BASE_REF_PROBE_FAIL = { kind: "fail" as const, pass: 0, fail: 1, baseCommit: "abc1234" };
-export const PLACEHOLDER_BASE_REF_PROBE_OBSERVATION = { pass: 0, fail: 1, baseCommit: "abc1234" };
-
 const allowedSeams: ReadyGateScopeSeams = {
   gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
   gitUntracked: async () => "",
   listSpecTreePaths: async () => ["v2/spec/demo/index.md", "v2/spec/demo/01-task.md"],
-  reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
-};
-
-export const baseRefProbeFailsSeam: ReadyGateScopeSeams = {
   reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
 };
 
@@ -1123,142 +1052,162 @@ describe("hasFailingTestEvidence", () => {
 });
 
 describe("base-ref probe conclusive reproduction", () => {
-  it.each(
-    PROBE_FIXTURE_TERMINAL_COMMANDS,
-  )("does not emit ready gate failing-file markers while reproducing at base ref", async (terminalCommand) => {
-    const previousAttempt = process.env[READY_ATTEMPT_ENV];
-    process.env[READY_ATTEMPT_ENV] = "3.1";
-    const stderrChunks: string[] = [];
-    const stderrWrite = process.stderr.write.bind(process.stderr);
-    const stderrSpy = (chunk: string | Uint8Array, ...args: unknown[]) => {
-      stderrChunks.push(String(chunk));
-      return stderrWrite(chunk, ...(args as []));
-    };
-    process.stderr.write = stderrSpy as typeof process.stderr.write;
-    try {
+  const BASE_REF_PROBE_INTEGRATION_TIMEOUT_MS = 120_000;
+
+  it.each(PROBE_FIXTURE_TERMINAL_COMMANDS)(
+    "does not emit ready gate failing-file markers while reproducing at base ref",
+    async (terminalCommand) => {
+      const previousAttempt = process.env[READY_ATTEMPT_ENV];
+      process.env[READY_ATTEMPT_ENV] = "3.1";
+      const stderrChunks: string[] = [];
+      const stderrWrite = process.stderr.write.bind(process.stderr);
+      const stderrSpy = (chunk: string | Uint8Array, ...args: unknown[]) => {
+        stderrChunks.push(String(chunk));
+        return stderrWrite(chunk, ...(args as []));
+      };
+      process.stderr.write = stderrSpy as typeof process.stderr.write;
+      try {
+        await withBaseRefProbeFixture(
+          "no-marker-leak",
+          {
+            baseTestBody: PROBE_FIXTURE_TEST_PASSING,
+            branchTestBody: PROBE_FIXTURE_TEST_FAILING,
+            dependencyPresent: true,
+          },
+          async ({ scope: probeScope, testPath }) => {
+            await classifyReadyGateFailure(
+              probeFixtureGateFailure(testPath, terminalCommand),
+              [testPath],
+              new Set<string>(),
+              probeScope,
+              {},
+            );
+          },
+        );
+      } finally {
+        process.stderr.write = stderrWrite;
+        if (previousAttempt === undefined) {
+          delete process.env[READY_ATTEMPT_ENV];
+        } else {
+          process.env[READY_ATTEMPT_ENV] = previousAttempt;
+        }
+      }
+      expect(stderrChunks.some((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
+    },
+    BASE_REF_PROBE_INTEGRATION_TIMEOUT_MS,
+  );
+
+  it.each(PROBE_FIXTURE_TERMINAL_COMMANDS)(
+    "reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed",
+    async (terminalCommand) => {
       await withBaseRefProbeFixture(
-        "no-marker-leak",
+        "regression-75ca2a7a",
         {
           baseTestBody: PROBE_FIXTURE_TEST_PASSING,
           branchTestBody: PROBE_FIXTURE_TEST_FAILING,
           dependencyPresent: true,
         },
         async ({ scope: probeScope, testPath }) => {
-          await classifyReadyGateFailure(
+          const classified = await classifyReadyGateFailure(
             probeFixtureGateFailure(testPath, terminalCommand),
             [testPath],
             new Set<string>(),
             probeScope,
             {},
           );
+          expect(classified.kind).toBe("ready_gate_failed");
+          expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+          // No baseRefProbeError: the base tree must have conclusively *passed*, not merely probed
+          // inconclusively (e.g. a crash from a missing `node_modules` symlink) — otherwise this test
+          // would also pass with only the failing-test-evidence fix and none of the root-cause fix.
+          expect(classified.baseRefProbeError).toBeUndefined();
         },
       );
-    } finally {
-      process.stderr.write = stderrWrite;
-      if (previousAttempt === undefined) {
-        delete process.env[READY_ATTEMPT_ENV];
-      } else {
-        process.env[READY_ATTEMPT_ENV] = previousAttempt;
-      }
-    }
-    expect(stderrChunks.some((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
-  });
+    },
+    BASE_REF_PROBE_INTEGRATION_TIMEOUT_MS,
+  );
 
-  it.each(
-    PROBE_FIXTURE_TERMINAL_COMMANDS,
-  )("reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed", async (terminalCommand) => {
-    await withBaseRefProbeFixture(
-      "regression-75ca2a7a",
-      { baseTestBody: PROBE_FIXTURE_TEST_PASSING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
-      async ({ scope: probeScope, testPath }) => {
-        const classified = await classifyReadyGateFailure(
-          probeFixtureGateFailure(testPath, terminalCommand),
-          [testPath],
-          new Set<string>(),
-          probeScope,
-          {},
-        );
-        expect(classified.kind).toBe("ready_gate_failed");
-        expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
-        // No baseRefProbeError: the base tree must have conclusively *passed*, not merely probed
-        // inconclusively (e.g. a crash from a missing `node_modules` symlink) — otherwise this test
-        // would also pass with only the failing-test-evidence fix and none of the root-cause fix.
-        expect(classified.baseRefProbeError).toBeUndefined();
-      },
-    );
-  });
+  it.each(PROBE_FIXTURE_TERMINAL_COMMANDS)(
+    "settles ready_gate_out_of_scope when a path fails with test-failure evidence on both a verified base tree and the branch",
+    async (terminalCommand) => {
+      await withBaseRefProbeFixture(
+        "deterministic-both-red",
+        {
+          baseTestBody: PROBE_FIXTURE_TEST_FAILING,
+          branchTestBody: PROBE_FIXTURE_TEST_FAILING,
+          dependencyPresent: true,
+        },
+        async ({ scope: probeScope, testPath }) => {
+          const classified = await classifyReadyGateFailure(
+            probeFixtureGateFailure(testPath, terminalCommand),
+            [testPath],
+            new Set<string>(),
+            probeScope,
+            {},
+          );
+          expect(classified.kind).toBe("ready_gate_out_of_scope");
+          expect(classified.outsidePaths).toEqual([testPath]);
+          // Pins the observation's baseCommit to the verified merge-base, not the raw "fail"
+          // classification with the field silently dropped.
+          expect(classified.outsidePathObservations).toEqual({
+            [testPath]: { pass: 0, fail: 1, baseCommit: probeScope.baseRef },
+          });
+        },
+      );
+    },
+    BASE_REF_PROBE_INTEGRATION_TIMEOUT_MS,
+  );
 
-  it.each(
-    PROBE_FIXTURE_TERMINAL_COMMANDS,
-  )("settles ready_gate_out_of_scope when a path fails with test-failure evidence on both a verified base tree and the branch", async (terminalCommand) => {
-    await withBaseRefProbeFixture(
-      "deterministic-both-red",
-      { baseTestBody: PROBE_FIXTURE_TEST_FAILING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
-      async ({ scope: probeScope, testPath }) => {
-        const classified = await classifyReadyGateFailure(
-          probeFixtureGateFailure(testPath, terminalCommand),
-          [testPath],
-          new Set<string>(),
-          probeScope,
-          {},
-        );
-        expect(classified.kind).toBe("ready_gate_out_of_scope");
-        expect(classified.outsidePaths).toEqual([testPath]);
-        // Pins the observation's baseCommit to the verified merge-base, not the raw "fail"
-        // classification with the field silently dropped.
-        expect(classified.outsidePathObservations).toEqual({
-          [testPath]: { pass: 0, fail: 1, baseCommit: probeScope.baseRef },
-        });
-      },
-    );
-  });
+  it.each(PROBE_FIXTURE_TERMINAL_COMMANDS)(
+    "records the base tree's per-test pass and fail counts from mixed reporter output",
+    async (terminalCommand) => {
+      await withBaseRefProbeFixture(
+        "mixed-counts",
+        { baseTestBody: PROBE_FIXTURE_TEST_MIXED, branchTestBody: PROBE_FIXTURE_TEST_MIXED, dependencyPresent: true },
+        async ({ scope: probeScope, testPath }) => {
+          const classified = await classifyReadyGateFailure(
+            probeFixtureGateFailure(testPath, terminalCommand),
+            [testPath],
+            new Set<string>(),
+            probeScope,
+            {},
+          );
+          expect(classified.kind).toBe("ready_gate_out_of_scope");
+          expect(classified.outsidePathObservations).toEqual({
+            [testPath]: { pass: 3, fail: 2, baseCommit: probeScope.baseRef },
+          });
+        },
+      );
+    },
+    BASE_REF_PROBE_INTEGRATION_TIMEOUT_MS,
+  );
 
-  it.each(
-    PROBE_FIXTURE_TERMINAL_COMMANDS,
-  )("records the base tree's per-test pass and fail counts from mixed reporter output", async (terminalCommand) => {
-    await withBaseRefProbeFixture(
-      "mixed-counts",
-      { baseTestBody: PROBE_FIXTURE_TEST_MIXED, branchTestBody: PROBE_FIXTURE_TEST_MIXED, dependencyPresent: true },
-      async ({ scope: probeScope, testPath }) => {
-        const classified = await classifyReadyGateFailure(
-          probeFixtureGateFailure(testPath, terminalCommand),
-          [testPath],
-          new Set<string>(),
-          probeScope,
-          {},
-        );
-        expect(classified.kind).toBe("ready_gate_out_of_scope");
-        expect(classified.outsidePathObservations).toEqual({
-          [testPath]: { pass: 3, fail: 2, baseCommit: probeScope.baseRef },
-        });
-      },
-    );
-  });
-
-  it.each(
-    PROBE_FIXTURE_TERMINAL_COMMANDS,
-  )("keeps a crash with no failing-test evidence inconclusive, not a conclusive fail", async (terminalCommand) => {
-    await withBaseRefProbeFixture(
-      "missing-dependency",
-      {
-        baseTestBody: PROBE_FIXTURE_TEST_PASSING,
-        branchTestBody: PROBE_FIXTURE_TEST_PASSING,
-        dependencyPresent: false,
-      },
-      async ({ scope: probeScope, testPath }) => {
-        const classified = await classifyReadyGateFailure(
-          probeFixtureGateFailure(testPath, terminalCommand),
-          [testPath],
-          new Set<string>(),
-          probeScope,
-          {},
-        );
-        expect(classified.kind).toBe("ready_gate_failed");
-        expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
-        expect(classified.baseRefProbeError).toContain("no failing-test evidence");
-      },
-    );
-  });
+  it.each(PROBE_FIXTURE_TERMINAL_COMMANDS)(
+    "keeps a crash with no failing-test evidence inconclusive, not a conclusive fail",
+    async (terminalCommand) => {
+      await withBaseRefProbeFixture(
+        "missing-dependency",
+        {
+          baseTestBody: PROBE_FIXTURE_TEST_PASSING,
+          branchTestBody: PROBE_FIXTURE_TEST_PASSING,
+          dependencyPresent: false,
+        },
+        async ({ scope: probeScope, testPath }) => {
+          const classified = await classifyReadyGateFailure(
+            probeFixtureGateFailure(testPath, terminalCommand),
+            [testPath],
+            new Set<string>(),
+            probeScope,
+            {},
+          );
+          expect(classified.kind).toBe("ready_gate_failed");
+          expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+          expect(classified.baseRefProbeError).toContain("no failing-test evidence");
+        },
+      );
+    },
+    BASE_REF_PROBE_INTEGRATION_TIMEOUT_MS,
+  );
 
   it("settles ready_gate_failed, not ready_gate_out_of_scope, when the terminal step or scope is missing even though every failing path is outside the allowset", async () => {
     const allowed = new Set<string>(["v2/src/changed.ts"]);

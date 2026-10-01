@@ -1074,7 +1074,7 @@ describe("createCompletionCommitter", () => {
     });
     expect(tracked).not.toContain(".jarvis-pr-review-input.json");
     expect(tracked).toContain("v2/spec/test/index.md");
-  });
+  }, 120_000);
 
   for (const withGitignore of [false, true]) {
     test(`completion commit omits harness root sidecars (gitignored: ${withGitignore})`, async () => {

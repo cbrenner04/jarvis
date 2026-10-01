@@ -1,6 +1,6 @@
 # Operator docs describe plan-draft shape suffixes and nested-child staging
 
-- [ ] [00 - Operator runbook plan-draft shape contract_miss](./00-operator-runbook-plan-draft-shape-contract-miss.md)
+- [x] [00 - Operator runbook plan-draft shape contract_miss](./00-operator-runbook-plan-draft-shape-contract-miss.md)
 - [ ] [01 - Write-behavior plan-draft output shape](./01-write-behavior-plan-draft-output-shape.md)
 - [ ] [02 - v1-behaviors plan-draft shape parity](./02-v1-behaviors-plan-draft-shape-parity.md)
 

@@ -24,9 +24,9 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` **Draft output shape contract** lists flat staging, exactly one immediate child directory, `spec/<name>/`, and repo-relative nested layouts, and documents suffixed `plan.draft.shape:*` failure reasons instead of bare `plan.draft.shape` for structural misses.
-- [ ] Same file **One-shot normalizer-miss repair** documents repairable `plan.draft.shape:no-index`, `:no-subspecs`, and `:nested-roots=<n>` versus ineligible bare `plan.draft.shape` and `:missing-dir`.
-- [ ] Same file stage-preservation prose for plan-draft matches `hasPreservablePlanDraftStageContent` in `v2/src/execution/write.ts`: flat `index.md` at the stage root, exactly one nested byte-discovery candidate, or exactly one immediate child directory under the stage root (that branch does not require shape validity).
+- [x] `v2/docs/write-behavior.md` **Draft output shape contract** lists flat staging, exactly one immediate child directory, `spec/<name>/`, and repo-relative nested layouts, and documents suffixed `plan.draft.shape:*` failure reasons instead of bare `plan.draft.shape` for structural misses.
+- [x] Same file **One-shot normalizer-miss repair** documents repairable `plan.draft.shape:no-index`, `:no-subspecs`, and `:nested-roots=<n>` versus ineligible bare `plan.draft.shape` and `:missing-dir`.
+- [x] Same file stage-preservation prose for plan-draft matches `hasPreservablePlanDraftStageContent` in `v2/src/execution/write.ts`: flat `index.md` at the stage root, exactly one nested byte-discovery candidate, or exactly one immediate child directory under the stage root (that branch does not require shape validity).
 
 ## Documentation updates
 

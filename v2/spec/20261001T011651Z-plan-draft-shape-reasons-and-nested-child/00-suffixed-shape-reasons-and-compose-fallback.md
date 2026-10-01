@@ -24,15 +24,15 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write.test.ts` includes a fixture where the staging directory is absent and settlement carries `plan.draft.shape:missing-dir`, not bare `plan.draft.shape`; fails against the pre-fix bare reason.
-- [ ] Same file, test `plan-draft contract_miss on stage without index.md settles plan.draft.shape` (rename if needed) asserts `failureReason` is `plan.draft.shape:no-index` and not bare `plan.draft.shape`; fails against the pre-fix bare reason.
-- [ ] Same file, test `plan-draft contract_miss on stage with index but zero subspecs settles plan.draft.shape` (rename if needed) asserts `plan.draft.shape:no-subspecs` and not bare `plan.draft.shape`; fails against the pre-fix bare reason.
-- [ ] Same file, `plan-draft contract_miss rejects ambiguous nested spec/ directories` asserts `plan.draft.shape:nested-roots=0` and `plan.draft.shape:nested-roots=2` for the zero- and multi-candidate fixtures respectively, neither bare `plan.draft.shape`; fails against the pre-fix bare reason.
-- [ ] Same file, a shape-family staging miss with valid durable bytes still falls back through `composePlanDraftArtifactCheck` and, when durable cannot satisfy staging, settles the staging suffixed `plan.draft.shape:*` reason; `plan.draft.shape:missing-dir` does not consult durable; fails against pre-fix exact-match compose guard.
-- [ ] Same file, every assertion the task checklist retargets from bare `plan.draft.shape` to a suffixed reason—including ambiguous branches inside `checkStagedPlanDraft accepts nested spec/ staging after resolve-and-flatten` and `plan-draft contract_miss rejects ambiguous nested spec directories across prefixes` (reachable on main)—expects the matching `plan.draft.shape:*` string, not bare `plan.draft.shape`; fails against the pre-fix bare reason.
-- [ ] `write-loop.test.ts` proves shape-family `contract_miss` (e.g. `plan.draft.shape:no-index`) does not enter draft contract reprompt; fails against pre-fix `isEligibleDraftContractReprompt` exact-match guard once subspec 00 emits suffixed reasons without the loop change.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/write.test.ts` includes a fixture where the staging directory is absent and settlement carries `plan.draft.shape:missing-dir`, not bare `plan.draft.shape`; fails against the pre-fix bare reason.
+- [x] Same file, test `plan-draft contract_miss on stage without index.md settles plan.draft.shape` (rename if needed) asserts `failureReason` is `plan.draft.shape:no-index` and not bare `plan.draft.shape`; fails against the pre-fix bare reason.
+- [x] Same file, test `plan-draft contract_miss on stage with index but zero subspecs settles plan.draft.shape` (rename if needed) asserts `plan.draft.shape:no-subspecs` and not bare `plan.draft.shape`; fails against the pre-fix bare reason.
+- [x] Same file, `plan-draft contract_miss rejects ambiguous nested spec/ directories` asserts `plan.draft.shape:nested-roots=0` and `plan.draft.shape:nested-roots=2` for the zero- and multi-candidate fixtures respectively, neither bare `plan.draft.shape`; fails against the pre-fix bare reason.
+- [x] Same file, a shape-family staging miss with valid durable bytes still falls back through `composePlanDraftArtifactCheck` and, when durable cannot satisfy staging, settles the staging suffixed `plan.draft.shape:*` reason; `plan.draft.shape:missing-dir` does not consult durable; fails against pre-fix exact-match compose guard.
+- [x] Same file, every assertion the task checklist retargets from bare `plan.draft.shape` to a suffixed reason—including ambiguous branches inside `checkStagedPlanDraft accepts nested spec/ staging after resolve-and-flatten` and `plan-draft contract_miss rejects ambiguous nested spec directories across prefixes` (reachable on main)—expects the matching `plan.draft.shape:*` string, not bare `plan.draft.shape`; fails against the pre-fix bare reason.
+- [x] `write-loop.test.ts` proves shape-family `contract_miss` (e.g. `plan.draft.shape:no-index`) does not enter draft contract reprompt; fails against pre-fix `isEligibleDraftContractReprompt` exact-match guard once subspec 00 emits suffixed reasons without the loop change.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

@@ -27,12 +27,13 @@ Every other landed spec is archived under `completed/`.
 | `resume-path-inventory-binds-real-declaration` | dispatchable after `self-parsing-inventory-locator-contract` merged | #4345 |
 | `self-parsing-structural-test-docs` | dispatchable after `self-parsing-inventory-locator-contract` merged | #4345, then `resume-path-inventory-binds-real-declaration` |
 
-## Seeds (22)
+## Seeds (23)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
 | Seed | P | Issue | Status (2026-09-18 audit) |
 | --- | --- | --- | --- |
+| `notifications-wait-survives-daemon-handoff` | P1 | — | new 2026-10-01; wait died `IPC connection lost` on 3 handoffs |
 | `resume-mutation-repair-reverifies-before-repair` | P1 | — | new 2026-10-01; resume repaired stale survivors already killed by an operator commit: ff6cc773 (#4331), 5280b7bf (#4332) |
 | `mutation-verifier-fails-fast-on-first-killing-file` | P1 | — | new 2026-10-01; #4332 `write-loop.ts:612` settled non-terminating while a killing file had failed in ~14 ms |
 | `agent-abort-reaps-its-process-tree` | P1 | — | new 2026-10-01; cursor shell-tool sessions escape agent group kill: `bun test` pid 55854 at 97% CPU 45 min after cd5e5790 iteration_timeout, ppid 1; load ~31 |

@@ -19,10 +19,10 @@ The v1 parity catalog in `v2/docs/v1-behaviors.md` still describes bare `plan.dr
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records suffixed `plan.draft.shape:*` settlement reasons and single immediate-child staging acceptance aligned with subspecs 00–01.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/docs/v1-behaviors.md` records suffixed `plan.draft.shape:*` settlement reasons and single immediate-child staging acceptance aligned with subspecs 00–01.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

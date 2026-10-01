@@ -27,6 +27,7 @@ import {
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import {
   prepareReviewFeedbackWorkflowAdmission,
+  reviewFeedbackLaneRequestFromPipelineStage,
   REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
   runReviewFeedbackWorkflowCommand,
 } from "./review-feedback-workflow-admission.ts";
@@ -288,6 +289,24 @@ async function prepareOk(run: Run, runner: AsyncSubprocessRunner) {
   if (!outcome.ok) throw new Error("expected preparation success");
   return outcome.preparation;
 }
+
+describe("reviewFeedbackLaneRequestFromPipelineStage", () => {
+  test("omits branchKey when undefined", () => {
+    const request = reviewFeedbackLaneRequestFromPipelineStage("pipe-1", "stage-1");
+    expect(request).toEqual({ mode: "pipeline_stage", pipelineId: "pipe-1", stageId: "stage-1" });
+    expect("branchKey" in request).toBe(false);
+  });
+
+  test("includes branchKey when provided", () => {
+    const request = reviewFeedbackLaneRequestFromPipelineStage("pipe-1", "stage-1", "feature-a");
+    expect(request).toEqual({
+      mode: "pipeline_stage",
+      pipelineId: "pipe-1",
+      stageId: "stage-1",
+      branchKey: "feature-a",
+    });
+  });
+});
 
 describe("review-feedback workflow admission", () => {
   test("prepares a completed bare intent lane with an open reviewed PR", async () => {

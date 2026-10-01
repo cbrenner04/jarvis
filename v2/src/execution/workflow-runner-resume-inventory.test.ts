@@ -12,7 +12,6 @@ import { join } from "node:path";
 import {
   locateParseOnlyInventoryArrayBody,
   PARSE_ONLY_INVENTORY_MARKER_COMMENT,
-  StructuralTestLocatorError,
 } from "../../../shared/structural-test-locator.ts";
 
 const EXECUTION_DIR = import.meta.dir;
@@ -98,14 +97,11 @@ function discoverResumePathInventoryAnchors(mergeBase: string): ResumePathInvent
   if (gitSource === undefined) {
     throw new Error(`inventory test absent at merge-base ${mergeBase}`);
   }
-  try {
-    return parseResumePathInventoryAnchors(gitSource);
-  } catch (error) {
-    if (!(error instanceof StructuralTestLocatorError) || error.kind !== "inventory-binding") {
-      throw error;
-    }
+  // Merge-base revisions predating the parse-only marker cannot bind; only they read the branch copy.
+  if (!gitSource.includes(PARSE_ONLY_INVENTORY_MARKER_COMMENT)) {
     return parseResumePathInventoryAnchors(readFileSync(join(EXECUTION_DIR, INVENTORY_FILE), "utf8"));
   }
+  return parseResumePathInventoryAnchors(gitSource);
 }
 
 /**

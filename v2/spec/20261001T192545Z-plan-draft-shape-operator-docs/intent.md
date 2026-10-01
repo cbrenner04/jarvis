@@ -23,4 +23,4 @@ Runbook and write-behavior still describe only bare `plan.draft.shape` and omit 
 - Implement after `plan-draft-shape-contract-reprompt` (see `plan-draft-shape-reasons-and-nested-child` plan fan-out).
 - Plan-draft shape validation emits distinct `plan.draft.shape:*` reasons for missing index, zero subspecs, and nested-root ambiguity (not bare `plan.draft.shape`).
 - Staging resolution accepts and flattens exactly one immediate child directory of the stage root when that child holds a valid spec tree.
-- Plan-draft shape misses other than `:missing-dir` are eligible for one in-loop `draft_contract_reprompt` naming the expected flat layout.
+- One in-loop `draft_contract_reprompt` (flat-layout detail in `draft_contract_reprompt.detail`) applies to normalizer `failureReason` text and repairable shape suffixes `plan.draft.shape:no-index`, `plan.draft.shape:no-subspecs`, and `plan.draft.shape:nested-roots=<n>`; bare `plan.draft.shape`, `plan.draft.shape:missing-dir`, and `plan.draft.blocker` are excluded.

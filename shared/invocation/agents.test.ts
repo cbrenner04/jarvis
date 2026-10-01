@@ -2703,8 +2703,39 @@ describe("createResolvedAgentBinding", () => {
       kind: "quota",
       usage: CURSOR_AGENT_USAGE,
       usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
       diagnostics: cursorStream,
     });
+    // Guard inversion: flipping `value === null` to `!==` in recoveredCursorSettlement allNull turns this test RED.
+
+    const pricedCursorStream = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: COMPOSER_25_TERMINAL_USAGE,
+    });
+    const pricedCursorQuota = fakeSpawn([
+      {
+        kind: "settle",
+        code: 1,
+        stdout: pricedCursorStream,
+        stderr: "You've hit your usage limit",
+      },
+    ]);
+    const pricedBinding = { ...COMPOSER_CURSOR_BINDING, priceKey: "Composer 2.5" };
+    const pricedCursorQuotaResult = await createResolvedAgentBinding(pricedBinding, {
+      spawn: pricedCursorQuota.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(pricedCursorQuotaResult).toMatchObject({
+      kind: "quota",
+      usage_source: "agent",
+      cost_source: "computed",
+      diagnostics: pricedCursorStream,
+    });
+    expect(pricedCursorQuotaResult.kind === "quota" && pricedCursorQuotaResult.cost_usd).toBeCloseTo(0.0038492, 10);
+    // Guard inversion: flipping `value === null` to `!==` in recoveredCursorSettlement allNull turns this test RED.
 
     const stepFinish = JSON.stringify({
       type: "step_finish",

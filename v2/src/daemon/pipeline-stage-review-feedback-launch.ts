@@ -6,7 +6,7 @@ import type { ReviewFeedbackLanePipelineStageRequest } from "../persistence/revi
 import type { StateStore } from "../persistence/state-store.ts";
 import type { WorkflowStartResult } from "./daemon-workflow-admission-handlers.ts";
 
-export type PipelineStageReviewFeedbackLaunchParams = {
+type PipelineStageReviewFeedbackLaunchParams = {
   pipelineId: string;
   stageId: string;
   branchKey?: string;

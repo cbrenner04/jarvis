@@ -46,12 +46,17 @@ export type CompletionPublisherInput = ExternalSpecGitScope & {
   /** Run abort signal: aborts in-flight push/PR calls (network-bounded regardless). */
   signal?: AbortSignal;
   findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
+  /** When true, create a fresh draft even when newest head+base PR history is closed or merged. */
+  allowLanePrRepublish?: boolean;
 };
+
+export type LanePrOutcome = { kind: "lane_pr_closed"; prNumber: number } | { kind: "lane_pr_merged"; prNumber: number };
 
 type CompletionPublisherResult = {
   pushSha?: string;
   prNumber?: number;
   prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
   requestedBase?: string;
   resolvedBase?: string;
 };
@@ -230,7 +235,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       }
 
       const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
-      const prEvidence = await runPublicationWithRetry(
+      const prResult = await runPublicationWithRetry(
         "pr",
         () =>
           findOrCreatePr(gh, input.worktreePath, effectiveBaseRef, input.branch, specPath, creationTitle, {
@@ -238,32 +243,35 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
             ...(input.findHarnessReadyFlipEvidenceInLineage !== undefined
               ? { findHarnessReadyFlipEvidenceInLineage: input.findHarnessReadyFlipEvidenceInLineage }
               : {}),
+            ...(input.allowLanePrRepublish === true ? { allowLanePrRepublish: true } : {}),
           }),
         { delay, retryNotice },
       );
 
-      if (prEvidence) {
-        result.prNumber = prEvidence.number;
-        result.prUrl = prEvidence.url;
-      }
+      if (prResult.kind === "lane") {
+        result.lanePrOutcome = prResult.outcome;
+      } else {
+        result.prNumber = prResult.evidence.number;
+        result.prUrl = prResult.evidence.url;
 
-      await runPublicationWithRetry(
-        "pr-body-refresh",
-        async () => {
-          const bodySummary = input.specTemplate
-            ? await deriveSpecRunBodySummary({
-                worktreePath: input.worktreePath,
-                specPath: input.specPath,
-                baseRef: effectiveBaseRef,
-                git: async (cwd, args) => git(cwd, args),
-                ...externalSpecGitScope(input),
-              })
-            : input.bodySummary;
-          await refreshPrBody(buildRefreshPrBodyInput(input, specPath, effectiveBaseRef, git, bodySummary, seams));
-          return true;
-        },
-        { delay, retryNotice },
-      );
+        await runPublicationWithRetry(
+          "pr-body-refresh",
+          async () => {
+            const bodySummary = input.specTemplate
+              ? await deriveSpecRunBodySummary({
+                  worktreePath: input.worktreePath,
+                  specPath: input.specPath,
+                  baseRef: effectiveBaseRef,
+                  git: async (cwd, args) => git(cwd, args),
+                  ...externalSpecGitScope(input),
+                })
+              : input.bodySummary;
+            await refreshPrBody(buildRefreshPrBodyInput(input, specPath, effectiveBaseRef, git, bodySummary, seams));
+            return true;
+          },
+          { delay, retryNotice },
+        );
+      }
 
       if (retargetMeta !== undefined) {
         result.requestedBase = retargetMeta.requestedBase;
@@ -287,7 +295,7 @@ type PrEvidence = {
   url: string;
 };
 
-type OpenPrRecord = { number: number; baseRefName: string; isDraft?: boolean };
+type PrListRecord = { number: number; baseRefName: string; isDraft?: boolean; state?: string };
 
 /** Raised when a branch carries more than one open PR matching the same base; no safe default to pick. */
 export class AmbiguousOpenPrError extends Error {
@@ -334,23 +342,16 @@ class NoPublishableCommitsError extends Error {
   }
 }
 
-async function listMatchingOpenPrs(
+async function listMatchingPrs(
   gh: GhCommand,
   cwd: string,
   branch: string,
   baseRef: string,
-): Promise<OpenPrRecord[]> {
-  const prListJson = await gh(cwd, [
-    "pr",
-    "list",
-    "--head",
-    branch,
-    "--state",
-    "open",
-    "--json",
-    "number,baseRefName,isDraft",
-  ]);
-  const prs = JSON.parse(prListJson) as OpenPrRecord[];
+  state: "open" | "all",
+): Promise<PrListRecord[]> {
+  const jsonFields = state === "open" ? "number,baseRefName,isDraft" : "number,baseRefName,state";
+  const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", state, "--json", jsonFields]);
+  const prs = JSON.parse(prListJson) as PrListRecord[];
   return prs.filter((pr) => pr.baseRefName === baseRef);
 }
 
@@ -362,7 +363,10 @@ async function listMatchingOpenPrs(
 type ResolveOpenDraftPrOptions = {
   requestedBaseRef: string;
   findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
+  allowLanePrRepublish?: boolean;
 };
+
+type FindOrCreatePrResult = { kind: "evidence"; evidence: PrEvidence } | { kind: "lane"; outcome: LanePrOutcome };
 
 async function undoHarnessReadyFlip(gh: GhCommand, cwd: string, prNumber: number): Promise<void> {
   try {
@@ -381,7 +385,7 @@ export async function resolveOpenDraftPr(
   baseRef: string,
   options?: ResolveOpenDraftPrOptions,
 ): Promise<PrEvidence | undefined> {
-  const matches = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
+  const matches = await listMatchingPrs(gh, cwd, branch, baseRef, "open");
   if (matches.length === 0) return undefined;
   if (matches.length > 1) {
     throw new AmbiguousOpenPrError(
@@ -404,7 +408,7 @@ export async function resolveOpenDraftPr(
       throw new OpenPrNotDraftError(match.number, branch);
     }
     await undoHarnessReadyFlip(gh, cwd, match.number);
-    const afterUndo = await listMatchingOpenPrs(gh, cwd, branch, baseRef);
+    const afterUndo = await listMatchingPrs(gh, cwd, branch, baseRef, "open");
     const redrafted = afterUndo.length === 1 ? afterUndo[0] : undefined;
     if (redrafted === undefined || redrafted.number !== match.number || redrafted.isDraft === false) {
       throw new OpenPrUnavailableAfterHarnessUndoError(match.number, branch);
@@ -452,13 +456,30 @@ async function findOrCreatePr(
   specPath: string,
   creationTitle: string,
   draftPrOptions?: ResolveOpenDraftPrOptions,
-): Promise<PrEvidence> {
+): Promise<FindOrCreatePrResult> {
   const existing = await resolveOpenDraftPr(gh, cwd, branch, baseRef, draftPrOptions);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) return { kind: "evidence", evidence: existing };
+
+  if (draftPrOptions?.allowLanePrRepublish !== true) {
+    try {
+      const newest = (await listMatchingPrs(gh, cwd, branch, baseRef, "all"))[0];
+      if (newest?.state === "CLOSED") {
+        return { kind: "lane", outcome: { kind: "lane_pr_closed", prNumber: newest.number } };
+      }
+      if (newest?.state === "MERGED") {
+        return { kind: "lane", outcome: { kind: "lane_pr_merged", prNumber: newest.number } };
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      stampPublicationFailure(err, "pr", error);
+      throw err;
+    }
+  }
 
   await createDraftPr(gh, cwd, baseRef, branch, specPath, creationTitle);
 
-  return confirmPr(gh, cwd, branch, baseRef);
+  const evidence = await confirmPr(gh, cwd, branch, baseRef);
+  return { kind: "evidence", evidence };
 }
 
 async function confirmPr(

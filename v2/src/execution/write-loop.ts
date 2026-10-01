@@ -73,6 +73,7 @@ import {
   bindHarnessReadyFlipEvidenceLookup,
   type CompletionPublisher,
   createCompletionPublisher,
+  type LanePrOutcome,
 } from "./completion-publisher.ts";
 import {
   type DiffDerivedMutationVerifierInput,
@@ -1369,6 +1370,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ...externalSpecGitScope(args),
           });
           let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
+          let lanePrOutcomeForTerminal: LanePrOutcome | undefined;
           if (await shouldPublishSettledHead(worktreePath, args.worktree.baseRef, published.commitSha)) {
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
@@ -1402,30 +1404,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                     publication.readyGateOrigin,
                   );
             }
-            if (
-              publication.success !== undefined &&
-              publication.success.prNumber !== undefined &&
-              publication.success.prUrl !== undefined
-            ) {
-              settleCompletedPublication(
-                store,
-                prepared.result.runId,
-                args.logSink,
-                publication.success.prNumber,
-                publication.success.prUrl,
-              );
-              prepared.result.prNumber = publication.success.prNumber;
-              prepared.result.prUrl = publication.success.prUrl;
-            } else {
-              settleCompletedPublication(store, prepared.result.runId, args.logSink);
+            const absorbed = absorbPublicationSuccess(store, prepared.result.runId, args.logSink, publication.success);
+            if (absorbed.prNumber !== undefined) {
+              prepared.result.prNumber = absorbed.prNumber;
+            }
+            if (absorbed.prUrl !== undefined) {
+              prepared.result.prUrl = absorbed.prUrl;
             }
             appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.success?.runtimeSmokeOutcome);
-            if (publication.success?.requestedBase !== undefined && publication.success.resolvedBase !== undefined) {
-              publicationBaseRetarget = {
-                requestedBase: publication.success.requestedBase,
-                resolvedBase: publication.success.resolvedBase,
-              };
+            if (absorbed.publicationBaseRetarget !== undefined) {
+              publicationBaseRetarget = absorbed.publicationBaseRetarget;
             }
+            lanePrOutcomeForTerminal = absorbed.lanePrOutcome;
           }
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(getExternalWorktreePath(args.worktree), args);
@@ -1446,6 +1436,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             resumable: false,
             ...(prepared.result.prNumber !== undefined ? { prNumber: prepared.result.prNumber } : {}),
             ...(prepared.result.prUrl !== undefined ? { prUrl: prepared.result.prUrl } : {}),
+            ...(lanePrOutcomeForTerminal !== undefined ? { lanePrOutcome: lanePrOutcomeForTerminal } : {}),
             ...(publicationBaseRetarget ?? {}),
           });
           if (published.commitSha === undefined) {
@@ -2440,6 +2431,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           ...externalSpecGitScope(args),
         });
         let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
+        let lanePrOutcomeForTerminal: LanePrOutcome | undefined;
         if (await shouldPublishSettledHead(worktreePath, args.worktree.baseRef, published.commitSha)) {
           store.setRunStatus(runId, "in-progress");
           const publication = await publishWithReadyRepair(args, store, attributed, iterationsConsumed, {
@@ -2477,30 +2469,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                   publication.readyGateOrigin,
                 );
           }
-          if (
-            publication.success !== undefined &&
-            publication.success.prNumber !== undefined &&
-            publication.success.prUrl !== undefined
-          ) {
-            settleCompletedPublication(
-              store,
-              runId,
-              args.logSink,
-              publication.success.prNumber,
-              publication.success.prUrl,
-            );
-            attributed.prNumber = publication.success.prNumber;
-            attributed.prUrl = publication.success.prUrl;
-          } else {
-            settleCompletedPublication(store, runId, args.logSink);
+          const absorbed = absorbPublicationSuccess(store, runId, args.logSink, publication.success);
+          if (absorbed.prNumber !== undefined) {
+            attributed.prNumber = absorbed.prNumber;
+          }
+          if (absorbed.prUrl !== undefined) {
+            attributed.prUrl = absorbed.prUrl;
           }
           appendRuntimeSmokeOutcome(args.logSink, runId, publication.success?.runtimeSmokeOutcome);
-          if (publication.success?.requestedBase !== undefined && publication.success?.resolvedBase !== undefined) {
-            publicationBaseRetarget = {
-              requestedBase: publication.success.requestedBase,
-              resolvedBase: publication.success.resolvedBase,
-            };
+          if (absorbed.publicationBaseRetarget !== undefined) {
+            publicationBaseRetarget = absorbed.publicationBaseRetarget;
           }
+          lanePrOutcomeForTerminal = absorbed.lanePrOutcome;
         }
         if (published.commitSha === undefined) {
           const uncommitted = await getUncommittedPaths(worktreePath, args);
@@ -2521,6 +2501,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           resumable: false,
           ...(attributed.prNumber !== undefined ? { prNumber: attributed.prNumber } : {}),
           ...(attributed.prUrl !== undefined ? { prUrl: attributed.prUrl } : {}),
+          ...(lanePrOutcomeForTerminal !== undefined ? { lanePrOutcome: lanePrOutcomeForTerminal } : {}),
           ...(publicationBaseRetarget ?? {}),
         });
         if (published.commitSha === undefined) {
@@ -3442,10 +3423,44 @@ type CompletionPublishSuccess = {
   pushSha?: string;
   prNumber?: number;
   prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
   runtimeSmokeOutcome: SmokePass | undefined;
   requestedBase?: string;
   resolvedBase?: string;
 };
+
+function absorbPublicationSuccess(
+  store: StateStore,
+  runId: string,
+  logSink: LogSink | undefined,
+  success: CompletionPublishSuccess | undefined,
+): {
+  prNumber?: number;
+  prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
+  publicationBaseRetarget?: { requestedBase: string; resolvedBase: string };
+} {
+  if (success === undefined) {
+    return {};
+  }
+  const publicationBaseRetarget =
+    success.requestedBase !== undefined && success.resolvedBase !== undefined
+      ? { requestedBase: success.requestedBase, resolvedBase: success.resolvedBase }
+      : undefined;
+  if (success.prNumber !== undefined && success.prUrl !== undefined) {
+    settleCompletedPublication(store, runId, logSink, success.prNumber, success.prUrl);
+    return {
+      prNumber: success.prNumber,
+      prUrl: success.prUrl,
+      ...(publicationBaseRetarget ? { publicationBaseRetarget } : {}),
+    };
+  }
+  settleCompletedPublication(store, runId, logSink);
+  return {
+    ...(success.lanePrOutcome !== undefined ? { lanePrOutcome: success.lanePrOutcome } : {}),
+    ...(publicationBaseRetarget ? { publicationBaseRetarget } : {}),
+  };
+}
 
 /** An inconclusive candidate is recorded on the run and never fails it by itself. */
 function appendInconclusiveMutationCandidates(
@@ -4793,6 +4808,7 @@ async function runPublisher(
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
     leaseFromSha?: string;
+    allowLanePrRepublish?: boolean;
   } & ExternalSpecGitScope,
   publicationOwner?: { runId: string; store: StateStore },
 ): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
@@ -4954,6 +4970,7 @@ export async function publishCompletionArtifacts(
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
     leaseFromSha?: string;
+    allowLanePrRepublish?: boolean;
   } & ExternalSpecGitScope,
   verifierProcessGroups?: VerifierProcessGroupRecorder,
   recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void,
@@ -4972,15 +4989,21 @@ export async function publishCompletionArtifacts(
       ...(retarget ?? {}),
     };
   }
-  if (publisherResult?.pushSha !== undefined && publisherResult?.prNumber === undefined) {
+  if (
+    publisherResult?.pushSha !== undefined &&
+    publisherResult.prNumber === undefined &&
+    publisherResult.lanePrOutcome === undefined
+  ) {
     const err = new Error("Pushed completion without PR evidence is a publication failure");
     return {
       kind: "completion_commit_failed",
       error: err,
     };
   }
+  const skipFinalizationForLaneOutcome =
+    publisherResult?.lanePrOutcome !== undefined && publisherResult.prNumber === undefined;
   try {
-    if (!seams.skipReadyFinalization) {
+    if (!seams.skipReadyFinalization && !skipFinalizationForLaneOutcome) {
       runtimeSmokeOutcome = await runReadyFinalizer(
         seams,
         {
@@ -5004,6 +5027,7 @@ export async function publishCompletionArtifacts(
     ...(publisherResult?.pushSha !== undefined ? { pushSha: publisherResult.pushSha } : {}),
     ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
     ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
+    ...(publisherResult?.lanePrOutcome !== undefined ? { lanePrOutcome: publisherResult.lanePrOutcome } : {}),
     ...(publisherResult?.requestedBase !== undefined && publisherResult?.resolvedBase !== undefined
       ? { requestedBase: publisherResult.requestedBase, resolvedBase: publisherResult.resolvedBase }
       : {}),

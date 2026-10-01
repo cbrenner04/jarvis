@@ -4143,6 +4143,31 @@ describe("write loop", () => {
       }
     });
 
+    test("publishCompletionArtifacts accepts pushSha with lane_pr_closed without completion_commit_failed", async () => {
+      let readyFinalizerInvoked = false;
+      const input = {
+        worktreePath: "/tmp/worktree",
+        baseRef: "main",
+        specPath: "spec.md",
+        branch: "feature",
+      };
+      const outcome = await publishCompletionArtifacts(
+        {
+          completionPublisher: async () => ({
+            pushSha: "abc123def456",
+            lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 },
+          }),
+          readyFinalizer: async () => {
+            readyFinalizerInvoked = true;
+          },
+        },
+        input,
+      );
+      expect(outcome.kind).toBe("success");
+      expect(outcome).toMatchObject({ lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 } });
+      expect(readyFinalizerInvoked).toBe(false);
+    });
+
     test("routes markdown-only workflow prompts around the ready gate", async () => {
       const calls: string[] = [];
       const readyFinalizer = createReadyFinalizer({
@@ -7990,6 +8015,73 @@ export function isLoadSensitive(file: string): boolean {
       expect(result.kind).toBe("ready_flip_failed");
       expect(result.readyFlipPrNumber).toBeUndefined();
       expect(result.readyFlipError).toContain("gh pr ready failed");
+    });
+
+    test("lane_pr_closed publication settles complete with lanePrOutcome on loop_finished", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({
+          pushSha: "abc123def456",
+          lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 },
+        }),
+        readyFinalizer: async () => {
+          throw new Error("should not finalize when lane PR is closed");
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.prNumber).toBeUndefined();
+      const loopFinished = logSink.getEventsForRun(result.runId).at(-1);
+      expect(loopFinished).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 },
+      });
+      const storedRun = loadRunOnce(stateDbPath, result.runId);
+      expect(storedRun?.status).toBe("completed");
+      expect(storedRun?.terminalCause).toBe("complete");
+      expect(storedRun?.prNumber).toBeNull();
+    });
+
+    test("retargeted publication base lands on loop_finished for fresh and completed-run republish", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const branchName = "retarget-republish";
+      const hooks = {
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({
+          prNumber: 91,
+          prUrl: "https://github.com/user/repo/pull/91",
+          pushSha: "abc123def456",
+          requestedBase: "plan/merged-first",
+          resolvedBase: "main",
+        }),
+        readyFinalizer: async () => {},
+      };
+      const retarget = { kind: "loop_finished", requestedBase: "plan/merged-first", resolvedBase: "main" };
+
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...hooks,
+      });
+      expect(first.kind).toBe("complete");
+      expect(logSink.getEventsForRun(first.runId).at(-1)).toMatchObject(retarget);
+
+      mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+      const retryLog = new TestLogSink();
+      const retry = await runLoop({ jarvisRoot, stateDbPath, branchName, logSink: retryLog, bindings: [], ...hooks });
+      expect(retry.kind).toBe("complete");
+      expect(retryLog.getEventsForRun(retry.runId).at(-1)).toMatchObject(retarget);
     });
 
     test("returns retryable completion_commit_failed when pushed without PR evidence", async () => {

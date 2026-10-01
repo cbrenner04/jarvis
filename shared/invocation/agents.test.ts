@@ -232,6 +232,15 @@ function spawnWritingCodexRollout(sessionsDir: string, lines: string[], outcomes
   return { spawn, calls: inner.calls };
 }
 
+const CODEX_NO_SESSION_JSONL_WARNING = "codex usage unavailable: no session JSONL changed after this invocation";
+
+const CODEX_SESSION_MISS_SETTLEMENT = {
+  usage_source: "unavailable" as const,
+  cost_usd: null,
+  cost_source: "no-usage" as const,
+  warnings: [CODEX_NO_SESSION_JSONL_WARNING],
+};
+
 function codexBindingOpts(
   sessionsDir: string,
   spawn: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess,
@@ -1354,7 +1363,12 @@ describe("createResolvedAgentBinding", () => {
     controller.abort("operator");
     const result = await settlesWithin(promise);
 
-    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "aborted: operator" });
+    expect(result).toEqual({
+      kind: "error",
+      exitCode: -1,
+      stderr: "aborted: operator",
+      ...CODEX_SESSION_MISS_SETTLEMENT,
+    });
     expect(fake.calls[0]?.binary).toBe("codex");
     expect(fake.calls[0]?.argv).toEqual([
       "exec",
@@ -1478,43 +1492,53 @@ describe("createResolvedAgentBinding", () => {
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: quota.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr: "You've reached your usage limit" });
+    ).resolves.toEqual({ kind: "quota", stderr: "You've reached your usage limit", ...CODEX_SESSION_MISS_SETTLEMENT });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: hitLimit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your usage limit" });
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve hit your usage limit", ...CODEX_SESSION_MISS_SETTLEMENT });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: reachedLimit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr: "you’ve reached your usage limit" });
+    ).resolves.toEqual({ kind: "quota", stderr: "you’ve reached your usage limit", ...CODEX_SESSION_MISS_SETTLEMENT });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: authQuota.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr: "please log out and sign in", authFailure: true });
+    ).resolves.toEqual({
+      kind: "quota",
+      stderr: "please log out and sign in",
+      authFailure: true,
+      ...CODEX_SESSION_MISS_SETTLEMENT,
+    });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: trustedDir.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL, authFailure: true });
+    ).resolves.toEqual({
+      kind: "quota",
+      stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL,
+      authFailure: true,
+      ...CODEX_SESSION_MISS_SETTLEMENT,
+    });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "bad", priceKey: "bad" },
         { spawn: model.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "model_config", stderr: "unknown model: nope" });
+    ).resolves.toEqual({ kind: "model_config", stderr: "unknown model: nope", ...CODEX_SESSION_MISS_SETTLEMENT });
     await expect(
       createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: generic.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom" });
+    ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom", ...CODEX_SESSION_MISS_SETTLEMENT });
   });
 
   test("codex trusted-directory refusal advances fallback", async () => {
@@ -1537,6 +1561,7 @@ describe("createResolvedAgentBinding", () => {
       kind: "quota",
       stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL,
       authFailure: true,
+      ...CODEX_SESSION_MISS_SETTLEMENT,
     });
     expect(result.attempts[1]?.binding.id).toBe("next");
     expect(result.final?.result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
@@ -1556,6 +1581,7 @@ describe("createResolvedAgentBinding", () => {
       kind: "quota",
       stderr: `${stderr}${stdout}`,
       authFailure: true,
+      ...CODEX_SESSION_MISS_SETTLEMENT,
     });
   });
 
@@ -1585,6 +1611,7 @@ describe("createResolvedAgentBinding", () => {
       kind: "quota",
       stderr: `${stderr}${stdout}`,
       authFailure: true,
+      ...CODEX_SESSION_MISS_SETTLEMENT,
     });
   });
 
@@ -1609,6 +1636,7 @@ describe("createResolvedAgentBinding", () => {
       kind: "quota",
       stderr: `${stderr}banner`,
       authFailure: true,
+      ...CODEX_SESSION_MISS_SETTLEMENT,
     });
     expect(result.attempts[1]?.binding.id).toBe("next");
     expect(result.final?.result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
@@ -1644,7 +1672,7 @@ describe("createResolvedAgentBinding", () => {
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: quotaZeroExit.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr: "You've hit your usage limit" });
+    ).resolves.toEqual({ kind: "quota", stderr: "You've hit your usage limit", ...CODEX_SESSION_MISS_SETTLEMENT });
 
     const result2 = await createResolvedAgentBinding(
       { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
@@ -1674,7 +1702,7 @@ describe("createResolvedAgentBinding", () => {
       { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
-    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT" });
+    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT", ...CODEX_SESSION_MISS_SETTLEMENT });
   });
 
   test("codex session usage unavailable remains ok with warning metadata", async () => {
@@ -2642,7 +2670,7 @@ describe("createResolvedAgentBinding", () => {
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr });
+    ).resolves.toEqual({ kind: "quota", stderr, ...CODEX_SESSION_MISS_SETTLEMENT });
     // Quota is not retried: exactly one spawn, no transient backoff.
     expect(fake.calls.length).toBe(1);
   });
@@ -2655,7 +2683,7 @@ describe("createResolvedAgentBinding", () => {
         { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
         { spawn: fake.spawn, codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "quota", stderr, authFailure: true });
+    ).resolves.toEqual({ kind: "quota", stderr, authFailure: true, ...CODEX_SESSION_MISS_SETTLEMENT });
     expect(fake.calls.length).toBe(1);
   });
 
@@ -2758,6 +2786,449 @@ describe("createResolvedAgentBinding", () => {
       // The excluded stdout stream is retained verbatim and separately, never for classification.
       expect(result.diagnostics).toBe(benignStdout);
     }
+  });
+
+  function claudeUsageResultLine(
+    usage: {
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    },
+    costUsd?: number,
+  ): string {
+    return JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "done",
+      usage: {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+      },
+      ...(costUsd !== undefined ? { total_cost_usd: costUsd } : {}),
+    });
+  }
+
+  function cursorUsageResultLine(usage: typeof CURSOR_AGENT_USAGE): string {
+    return JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: {
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheReadTokens: usage.cache_read_input_tokens,
+        cacheWriteTokens: usage.cache_creation_input_tokens,
+      },
+    });
+  }
+
+  test("stream-binding recovery on non-ok settlement", async () => {
+    const claudeUsage = {
+      input_tokens: 11,
+      output_tokens: 7,
+      cache_read_input_tokens: 2,
+      cache_creation_input_tokens: 0,
+    };
+    const claudeStream = claudeUsageResultLine(claudeUsage, 0.42);
+    const claudeQuotaEnvelope = JSON.stringify({
+      type: "result",
+      is_error: true,
+      api_error_status: 429,
+      result: "You've hit your weekly limit",
+      usage: {
+        input_tokens: claudeUsage.input_tokens,
+        output_tokens: claudeUsage.output_tokens,
+        cache_read_input_tokens: claudeUsage.cache_read_input_tokens,
+        cache_creation_input_tokens: claudeUsage.cache_creation_input_tokens,
+      },
+      total_cost_usd: 0.42,
+    });
+    const claudeQuota = fakeSpawn([{ kind: "settle", code: 0, stdout: claudeQuotaEnvelope, stderr: "" }]);
+    const claudeQuotaResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: claudeQuota.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(claudeQuotaResult).toMatchObject({
+      kind: "quota",
+      usage: claudeUsage,
+      usage_source: "agent",
+      cost_usd: 0.42,
+      cost_source: "agent",
+    });
+
+    const claudeError = fakeSpawn([{ kind: "settle", code: 2, stdout: claudeStream, stderr: "hard fail" }]);
+    const claudeErrorResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: claudeError.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(claudeErrorResult).toMatchObject({
+      kind: "error",
+      exitCode: 2,
+      usage: claudeUsage,
+      usage_source: "agent",
+    });
+
+    const cursorStream = cursorUsageResultLine(CURSOR_AGENT_USAGE);
+    const cursorQuota = fakeSpawn([
+      { kind: "settle", code: 1, stdout: cursorStream, stderr: "You've hit your usage limit" },
+    ]);
+    const cursorQuotaResult = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: cursorQuota.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(cursorQuotaResult).toMatchObject({
+      kind: "quota",
+      usage: CURSOR_AGENT_USAGE,
+      usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
+      diagnostics: cursorStream,
+    });
+
+    const pricedCursorStream = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: COMPOSER_25_TERMINAL_USAGE,
+    });
+    const pricedCursorQuota = fakeSpawn([
+      {
+        kind: "settle",
+        code: 1,
+        stdout: pricedCursorStream,
+        stderr: "You've hit your usage limit",
+      },
+    ]);
+    const pricedBinding = { ...COMPOSER_CURSOR_BINDING, priceKey: "Composer 2.5" };
+    const pricedCursorQuotaResult = await createResolvedAgentBinding(pricedBinding, {
+      spawn: pricedCursorQuota.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(pricedCursorQuotaResult).toMatchObject({
+      kind: "quota",
+      usage_source: "agent",
+      cost_source: "computed",
+      diagnostics: pricedCursorStream,
+    });
+    expect(pricedCursorQuotaResult.kind === "quota" && pricedCursorQuotaResult.cost_usd).toBeCloseTo(0.0038492, 10);
+    // Guard inversion: flipping `value === null` to `!==` in recoveredCursorSettlement allNull turns this test RED.
+
+    const stepFinish = JSON.stringify({
+      type: "step_finish",
+      part: { tokens: { input: 3, output: 4, cache: { read: 1, write: 0 } }, cost: 0.01 },
+    });
+    const opencodeStdout = `${stepFinish}\n`;
+    const opencodeQuota = fakeSpawn([
+      { kind: "settle", code: 1, stdout: opencodeStdout, stderr: "rate limit reached" },
+    ]);
+    const opencodeQuotaResult = await createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: opencodeQuota.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(opencodeQuotaResult).toMatchObject({
+      kind: "quota",
+      usage: {
+        input_tokens: 3,
+        output_tokens: 4,
+        cache_read_input_tokens: 1,
+        cache_creation_input_tokens: 0,
+      },
+      usage_source: "agent",
+      diagnostics: opencodeStdout,
+    });
+
+    const stallHarness = hangWithControllableIdle(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { watchWorktreeActivity: () => {} },
+    );
+    const stallRun = stallHarness.binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 50 });
+    await new Promise((resolve) => setImmediate(resolve));
+    stallHarness.fake.calls[0]?.child?.stdout.write(`${claudeStream}\n`);
+    stallHarness.fireIdle();
+    const stallResult = await stallRun;
+    expect(stallResult).toMatchObject({ kind: "stall", usage: claudeUsage, usage_source: "agent" });
+
+    const cursorStallHarness = hangWithControllableIdle(COMPOSER_CURSOR_BINDING, { watchWorktreeActivity: () => {} });
+    const cursorStallRun = cursorStallHarness.binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 50 });
+    await new Promise((resolve) => setImmediate(resolve));
+    cursorStallHarness.fake.calls[0]?.child?.stderr.write(`${cursorStream}\n`);
+    cursorStallHarness.fireIdle();
+    const cursorStallResult = await cursorStallRun;
+    expect(cursorStallResult).toMatchObject({
+      kind: "stall",
+      usage: CURSOR_AGENT_USAGE,
+      usage_source: "agent",
+    });
+
+    const abortHarness = hangWithControllableIdle(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { watchWorktreeActivity: () => {} },
+    );
+    const controller = new AbortController();
+    const abortRun = abortHarness.binding.invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    abortHarness.fake.calls[0]?.child?.stdout.write(`${claudeStream}\n`);
+    controller.abort("operator");
+    const abortResult = await abortRun;
+    expect(abortResult).toMatchObject({
+      kind: "error",
+      exitCode: -1,
+      stderr: "aborted: operator",
+      diagnostics: `${claudeStream}\n`,
+      usage: claudeUsage,
+      usage_source: "agent",
+    });
+
+    const cumulativeStream = `${claudeUsageResultLine({ input_tokens: 1, output_tokens: 1 })}\n${claudeUsageResultLine({ input_tokens: 99, output_tokens: 88 })}\n`;
+    const cumulative = fakeSpawn([{ kind: "settle", code: 1, stdout: cumulativeStream, stderr: "boom" }]);
+    const cumulativeResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: cumulative.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(cumulativeResult).toMatchObject({
+      kind: "error",
+      usage: { input_tokens: 99, output_tokens: 88 },
+    });
+
+    const firstUsage = claudeUsageResultLine({ input_tokens: 5, output_tokens: 6 });
+    const secondUsage = claudeUsageResultLine({ input_tokens: 50, output_tokens: 60 });
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+          {
+            spawn: fakeSpawn([{ kind: "settle", code: 1, stdout: firstUsage, stderr: "You've hit your weekly limit" }])
+              .spawn,
+          },
+        ),
+        createResolvedAgentBinding(
+          { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+          { spawn: fakeSpawn([{ kind: "settle", code: 0, stdout: secondUsage, stderr: "" }]).spawn },
+        ),
+      ],
+      telemetry: {
+        ...telemetryForRows(rows),
+        invocationIds: ["inv-1", "inv-2"],
+      },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.usage.input_tokens).toBe(5);
+    expect(rows[1]?.usage.input_tokens).toBe(50);
+
+    const stderrOnlyUsage = fakeSpawn([{ kind: "settle", code: 1, stdout: "", stderr: `${cursorStream}\nboom` }]);
+    const stderrOnlyResult = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: stderrOnlyUsage.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(stderrOnlyResult).toEqual({
+      kind: "error",
+      exitCode: 1,
+      stderr: `${cursorStream}\nboom`,
+    });
+
+    const missingCounters = fakeSpawn([{ kind: "settle", code: 1, stderr: "boom" }]);
+    const missingResult = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: missingCounters.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(missingResult).toEqual({ kind: "error", exitCode: 1, stderr: "boom" });
+
+    const spawnFailure = fakeSpawn([{ kind: "throw", error: new Error("ENOENT") }]);
+    const spawnFailureResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: spawnFailure.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(spawnFailureResult).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT" });
+
+    const warningStream = '{"type":"system"}\n';
+    const warningFake = fakeSpawn([{ kind: "settle", code: 1, stdout: warningStream, stderr: "err" }]);
+    const warningResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: warningFake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(warningResult).toMatchObject({
+      kind: "error",
+      exitCode: 1,
+      warnings: ["no terminal result event found"],
+    });
+
+    const modelConfigStream = claudeUsageResultLine({ input_tokens: 8, output_tokens: 9 });
+    const modelConfig = fakeSpawn([
+      { kind: "settle", code: 1, stdout: modelConfigStream, stderr: "unknown model: nope" },
+    ]);
+    const modelConfigResult = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: modelConfig.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(modelConfigResult).toMatchObject({
+      kind: "model_config",
+      usage: { input_tokens: 8, output_tokens: 9 },
+      usage_source: "agent",
+    });
+  });
+
+  test("codex session recovery on non-ok settlement", async () => {
+    const pricedUsage = {
+      input_tokens: 24372,
+      output_tokens: 282,
+      cache_read_input_tokens: 11008,
+      cache_creation_input_tokens: null,
+    };
+    const rolloutLines = [codexUserMessageLine(), codexTokenCountLine({ input: 35380, cached: 11008, output: 282 })];
+    const codexBinding = { agentId: "codex" as const, adapterModel: "gpt-5.4", priceKey: "gpt-5.4" };
+
+    const quotaSessions = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const quotaFake = spawnWritingCodexRollout(quotaSessions, rolloutLines, [
+      { kind: "settle", code: 1, stderr: "You've reached your usage limit" },
+    ]);
+    const quotaResult = await createResolvedAgentBinding(
+      codexBinding,
+      codexBindingOpts(quotaSessions, quotaFake.spawn),
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(quotaResult).toMatchObject({
+      kind: "quota",
+      stderr: "You've reached your usage limit",
+      usage: pricedUsage,
+      usage_source: "agent",
+      cost_source: "computed",
+    });
+
+    const errorSessions = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const errorFake = spawnWritingCodexRollout(errorSessions, rolloutLines, [
+      { kind: "settle", code: 2, stderr: "boom" },
+    ]);
+    const errorResult = await createResolvedAgentBinding(
+      codexBinding,
+      codexBindingOpts(errorSessions, errorFake.spawn),
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(errorResult).toMatchObject({
+      kind: "error",
+      exitCode: 2,
+      stderr: "boom",
+      usage: pricedUsage,
+      usage_source: "agent",
+    });
+
+    const modelConfigSessions = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const modelConfigFake = spawnWritingCodexRollout(modelConfigSessions, rolloutLines, [
+      { kind: "settle", code: 1, stderr: "unknown model: nope" },
+    ]);
+    const modelConfigResult = await createResolvedAgentBinding(
+      codexBinding,
+      codexBindingOpts(modelConfigSessions, modelConfigFake.spawn),
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(modelConfigResult).toMatchObject({
+      kind: "model_config",
+      stderr: "unknown model: nope",
+      usage: pricedUsage,
+      usage_source: "agent",
+    });
+
+    const stallUsage = {
+      input_tokens: 12000,
+      output_tokens: 100,
+      cache_read_input_tokens: 8000,
+      cache_creation_input_tokens: null,
+    };
+    const stallRollout = [codexUserMessageLine(), codexTokenCountLine({ input: 20000, cached: 8000, output: 100 })];
+    const stallSessions = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const stallWriter = spawnWritingCodexRollout(stallSessions, stallRollout, [{ kind: "hang" }]);
+    let stallFireIdle: (() => void) | undefined;
+    const stallBinding = createResolvedAgentBinding(codexBinding, {
+      ...codexBindingOpts(stallSessions, stallWriter.spawn),
+      setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+        stallFireIdle = callback;
+        return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+      clearTimeout: (() => {}) as typeof clearTimeout,
+    });
+    const stallRun = stallBinding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 50 });
+    await new Promise((resolve) => setImmediate(resolve));
+    stallFireIdle?.();
+    const stallResult = await stallRun;
+    expect(stallResult).toMatchObject({ kind: "stall", usage: stallUsage, usage_source: "agent" });
+
+    const idleStallSessions = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const idleStallWriter = spawnWritingCodexRollout(idleStallSessions, stallRollout, [{ kind: "hang" }]);
+    let idleFireIdle: (() => void) | undefined;
+    const idleStallBinding = createResolvedAgentBinding(codexBinding, {
+      ...codexBindingOpts(idleStallSessions, idleStallWriter.spawn),
+      setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+        idleFireIdle = callback;
+        return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+      clearTimeout: (() => {}) as typeof clearTimeout,
+    });
+    let idleStallSettled = false;
+    const idleStallRun = idleStallBinding
+      .invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 50, joinProcessOnIdleStall: true })
+      .finally(() => {
+        idleStallSettled = true;
+      });
+    idleStallWriter.calls[0]?.child?.stderr.write(STALL_TEST_STDERR);
+    idleStallWriter.calls[0]?.child?.stdout.write(STALL_TEST_STDOUT);
+    idleFireIdle?.();
+    await Promise.resolve();
+    expect(idleStallSettled).toBe(false);
+    const idleChild = idleStallWriter.calls[0]?.child;
+    idleChild?.stdout.end();
+    idleChild?.stderr.end();
+    idleChild?.emit("close", null);
+    const idleStallResult = await idleStallRun;
+    expect(idleStallResult).toMatchObject({
+      kind: "stall",
+      stderr: STALL_TEST_DIAGNOSTICS,
+      usage: stallUsage,
+      usage_source: "agent",
+    });
+
+    const firstRollout = [codexUserMessageLine(), codexTokenCountLine({ input: 5000, cached: 1000, output: 50 })];
+    const secondRollout = [codexUserMessageLine(), codexTokenCountLine({ input: 50000, cached: 10000, output: 500 })];
+    const fallbackSessions = trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    let fallbackSpawnIndex = 0;
+    const fallbackInner = fakeSpawn([
+      { kind: "settle", code: 1, stderr: "You've reached your usage limit" },
+      { kind: "settle", code: 0, stdout: "done", stderr: "" },
+    ]);
+    const fallbackSpawn = (binary: string, argv: readonly string[], opts: SpawnOptions): ChildProcess => {
+      mkdirSync(fallbackSessions, { recursive: true });
+      const lines = fallbackSpawnIndex === 0 ? firstRollout : secondRollout;
+      fallbackSpawnIndex += 1;
+      writeFileSync(join(fallbackSessions, "session.jsonl"), `${lines.join("\n")}\n`);
+      return fallbackInner.spawn(binary, argv, opts);
+    };
+    const fallbackRows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(codexBinding, codexBindingOpts(fallbackSessions, fallbackSpawn)),
+        createResolvedAgentBinding(codexBinding, codexBindingOpts(fallbackSessions, fallbackSpawn)),
+      ],
+      telemetry: {
+        ...telemetryForRows(fallbackRows),
+        invocationIds: ["inv-codex-1", "inv-codex-2"],
+      },
+    });
+    expect(fallbackRows).toHaveLength(2);
+    expect(fallbackRows[0]?.usage.input_tokens).toBe(4000);
+    expect(fallbackRows[1]?.usage.input_tokens).toBe(40000);
+
+    const missingFake = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
+    const missingResult = await createResolvedAgentBinding(codexBinding, {
+      spawn: missingFake.spawn,
+      codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(missingResult).toMatchObject({
+      kind: "error",
+      exitCode: 2,
+      stderr: "boom",
+      ...CODEX_SESSION_MISS_SETTLEMENT,
+    });
   });
 
   test("wired bindings forward output progress notifications from stdout and stderr", async () => {

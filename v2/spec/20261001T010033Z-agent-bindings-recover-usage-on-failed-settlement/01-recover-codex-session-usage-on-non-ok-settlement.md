@@ -18,8 +18,8 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` — codex non-ok session recovery regression (injected sessions dir, quota/error/model_config/stall/idle-stall with matched rollout usage, distinct fallback-attempt usage, null when correlation or counters missing) fails against pre-fix `runCodexBinding` non-ok early return.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] `shared/invocation/agents.test.ts` — codex non-ok session recovery regression (injected sessions dir, quota/error/model_config/stall/idle-stall with matched rollout usage, distinct fallback-attempt usage, null when correlation or counters missing) fails against pre-fix `runCodexBinding` non-ok early return.
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

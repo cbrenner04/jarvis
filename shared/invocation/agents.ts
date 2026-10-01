@@ -10,7 +10,7 @@ import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-pred
 import { probeAgentDescendantProcessGroups } from "./agent-descendant-process-groups.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
-import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
+import type { InvocationBinding, InvocationOk, InvocationResult, InvocationSettlement } from "./execute.ts";
 import { parseOpencodeJsonOutput } from "./opencode-json.ts";
 
 export type ResolvedAgentBinding = {
@@ -627,11 +627,23 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       resolvePromise(result);
     };
 
+    // Excluded stdout (opencode/cursor scoping) stays on `diagnostics` only; never reclassified.
+    const retainedDiagnosticsSpread = (): { diagnostics?: string } => {
+      if (outBuf.length === 0) return {};
+      if (config.classifier === "opencode") return { diagnostics: outBuf };
+      if (config.classifier === "cursor" && cursorClassifierStdoutText(outBuf) !== outBuf) {
+        return { diagnostics: outBuf };
+      }
+      return {};
+    };
+
     const settleAbort = () => {
+      const spread = retainedDiagnosticsSpread();
       settle({
         kind: "error",
         exitCode: -1,
         stderr: `aborted: ${abortReason}`,
+        ...(spread.diagnostics !== undefined ? spread : outBuf.length > 0 ? { diagnostics: outBuf } : {}),
       });
     };
 
@@ -684,16 +696,6 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         }
       }, opts.idleOutputMs);
       idleTimer.unref?.();
-    };
-
-    // Excluded stdout (opencode/cursor scoping) stays on `diagnostics` only; never reclassified.
-    const retainedDiagnosticsSpread = (): { diagnostics?: string } => {
-      if (outBuf.length === 0) return {};
-      if (config.classifier === "opencode") return { diagnostics: outBuf };
-      if (config.classifier === "cursor" && cursorClassifierStdoutText(outBuf) !== outBuf) {
-        return { diagnostics: outBuf };
-      }
-      return {};
     };
 
     const settleZeroExit = () => {
@@ -925,9 +927,125 @@ async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptio
   throw new Error("Unexpected: retry loop should always return");
 }
 
+function diagnosticsOrStallStreamText(result: InvocationResult): string {
+  if ("diagnostics" in result && typeof result.diagnostics === "string" && result.diagnostics.length > 0) {
+    return result.diagnostics;
+  }
+  if (result.kind === "stall") {
+    return result.stderr;
+  }
+  return "";
+}
+
+function claudeStreamTextForRecovery(result: InvocationResult): string {
+  if ("diagnostics" in result && typeof result.diagnostics === "string" && result.diagnostics.length > 0) {
+    return result.diagnostics;
+  }
+  if (result.kind === "ok") {
+    return "";
+  }
+  const stderr = result.stderr;
+  if (!stderr.includes('{"type"')) {
+    return "";
+  }
+  const parsed = parseClaudeJsonOutput(stderr);
+  if (parsed.usage !== null || parsed.cost_usd !== null) {
+    return stderr;
+  }
+  const jsonStart = stderr.indexOf('{"type"');
+  return jsonStart === -1 ? "" : stderr.slice(jsonStart);
+}
+
+function applyRecoveredSettlement<T extends InvocationResult>(result: T, patch: Partial<InvocationSettlement>): T {
+  const warnings =
+    patch.warnings !== undefined && patch.warnings.length > 0
+      ? mergeWarnings(result.warnings, patch.warnings)
+      : result.warnings;
+  return {
+    ...result,
+    ...patch,
+    warnings,
+  };
+}
+
+function recoveredCursorSettlement(
+  parsed: ReturnType<typeof parseCursorJsonOutput>,
+  priceKey: string,
+): Partial<InvocationSettlement> {
+  if (parsed.usage === undefined) {
+    return {};
+  }
+  const patch: Partial<InvocationSettlement> = {
+    usage: parsed.usage,
+    usage_source: "agent",
+    cost_usd: null,
+  };
+  try {
+    const cost = computeCost(parsed.usage, priceKey, loadPrices());
+    patch.cost_usd = cost.cost_usd;
+    patch.cost_source = cost.cost_source;
+  } catch {
+    patch.cost_source = "no-price";
+  }
+  const allNull = Object.values(parsed.usage).every((value) => value === null);
+  if (allNull) {
+    patch.cost_source = "no-usage";
+  }
+  return patch;
+}
+
+function recoveredOpencodeSettlement(
+  parsed: ReturnType<typeof parseOpencodeJsonOutput>,
+): Partial<InvocationSettlement> {
+  if (!parsed.sawStepFinish) {
+    return {
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: ["opencode: no step_finish events in --format json stream; usage recorded as unavailable."],
+    };
+  }
+  const patch: Partial<InvocationSettlement> = {
+    usage: parsed.usage,
+    usage_source: "agent",
+  };
+  if (parsed.sawAnyCostField) {
+    patch.cost_usd = parsed.cost_usd;
+    patch.cost_source = "agent";
+  } else {
+    patch.cost_usd = null;
+    patch.cost_source = "no-price";
+  }
+  return patch;
+}
+
 function finalizeClaudeInvocationResult(result: InvocationResult): InvocationResult {
   if (result.kind !== "ok") {
-    return result;
+    const stream = claudeStreamTextForRecovery(result);
+    if (stream === "") {
+      return result;
+    }
+    const parsed = parseClaudeJsonOutput(stream);
+    const patch: Partial<InvocationSettlement> = {};
+    if (parsed.usage !== null) {
+      patch.usage = parsed.usage;
+      patch.usage_source = "agent";
+    }
+    if (parsed.cost_usd !== null) {
+      patch.cost_usd = parsed.cost_usd;
+      patch.cost_source = "agent";
+    }
+    if (parsed.warnings.length > 0) {
+      patch.warnings = parsed.warnings;
+    }
+    if (
+      patch.usage === undefined &&
+      patch.cost_usd === undefined &&
+      (patch.warnings === undefined || patch.warnings.length === 0)
+    ) {
+      return result;
+    }
+    return applyRecoveredSettlement(result, patch);
   }
   if (isClaudeZeroExitQuotaEnvelope(result.stdout)) {
     return { kind: "quota", stderr: result.stdout };
@@ -955,7 +1073,16 @@ function finalizeClaudeInvocationResult(result: InvocationResult): InvocationRes
 
 function finalizeCursorInvocationResult(result: InvocationResult, priceKey: string): InvocationResult {
   if (result.kind !== "ok") {
-    return result;
+    const stream = diagnosticsOrStallStreamText(result);
+    if (stream === "") {
+      return result;
+    }
+    const parsed = parseCursorJsonOutput(stream);
+    const patch = recoveredCursorSettlement(parsed, priceKey);
+    if (Object.keys(patch).length === 0) {
+      return result;
+    }
+    return applyRecoveredSettlement(result, patch);
   }
 
   const parsed = parseCursorJsonOutput(result.stdout);
@@ -984,32 +1111,21 @@ function finalizeCursorInvocationResult(result: InvocationResult, priceKey: stri
 
 function finalizeOpencodeInvocationResult(result: InvocationResult): InvocationResult {
   if (result.kind !== "ok") {
-    return result;
+    const stream = diagnosticsOrStallStreamText(result);
+    if (stream === "") {
+      return result;
+    }
+    const parsed = parseOpencodeJsonOutput(stream);
+    return applyRecoveredSettlement(result, recoveredOpencodeSettlement(parsed));
   }
 
   const parsed = parseOpencodeJsonOutput(result.stdout);
-  const output: InvocationOk = {
+  return {
     kind: "ok",
     stdout: parsed.displayText,
     stderr: result.stderr,
+    ...recoveredOpencodeSettlement(parsed),
   };
-  if (parsed.sawStepFinish) {
-    output.usage = parsed.usage;
-    output.usage_source = "agent";
-    if (parsed.sawAnyCostField) {
-      output.cost_usd = parsed.cost_usd;
-      output.cost_source = "agent";
-    } else {
-      output.cost_usd = null;
-      output.cost_source = "no-price";
-    }
-    return output;
-  }
-  output.usage_source = "unavailable";
-  output.cost_usd = null;
-  output.cost_source = "no-usage";
-  output.warnings = ["opencode: no step_finish events in --format json stream; usage recorded as unavailable."];
-  return output;
 }
 
 async function runClaudeBinding(args: {
@@ -1113,10 +1229,6 @@ async function runCodexBinding(args: {
     pickAgentRunOptions(args),
   );
 
-  if (result.kind !== "ok") {
-    return result;
-  }
-
   const resolved = resolveCodexSessionUsage({
     sessionsDir,
     beforeSnapshot,
@@ -1135,7 +1247,11 @@ async function runCodexBinding(args: {
   return finalizeCodexInvocationResult(result, resolved.sessionFile, args.priceKey);
 }
 
-function finalizeCodexInvocationResult(result: InvocationOk, sessionFile: string, priceKey: string): InvocationOk {
+function finalizeCodexInvocationResult(
+  result: InvocationResult,
+  sessionFile: string,
+  priceKey: string,
+): InvocationResult {
   const rollout = readCodexSessionRollout(sessionFile);
   if (rollout.kind === "read-error") {
     return {

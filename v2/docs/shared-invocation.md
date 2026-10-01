@@ -61,7 +61,7 @@ Bindings:
   finalize warnings as appropriate. When a selected non-null `info` event has an
   unextractable usage shape, same `unavailable`/`no-usage` outcome with a
   warning. Selection uses the terminal non-null `token_count` event (not v1
-  max-total). The codex binding settles into `ok | quota | model_config | error` before fallback continues. Resolved `cursor` bindings spawn `cursor agent -p
+  max-total). After subprocess settle, non-`ok` codex exits run the same session correlation and terminal `token_count` selection on changed `~/.codex/sessions/*.jsonl` files before returning; recovered usage and list-price cost merge onto the classified result without changing `kind`, diagnostics, or `authFailure`, and bounded process teardown does not delay settlement. Correlation miss or unextractable counters keep `usage_source: "unavailable"` with resolver/finalize warnings only. The codex binding settles into `ok | quota | model_config | error` before fallback continues. Resolved `cursor` bindings spawn `cursor agent -p
   --output-format stream-json --stream-partial-output --model <resolved-cli-model>
   --force --workspace <cwd> <prompt>`, ignore stdin, parse the stream-json
   NDJSON stream: display text from the terminal `type: "result"` event's `result`
@@ -104,6 +104,7 @@ Bindings:
   `part.cost` was numeric); a stream with none settles `ok` with `usage_source:
   "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and a warning. It
   settles into `ok | quota | model_config | error` before fallback continues.
+  Claude, cursor, opencode, and codex bindings also run the same finalize parsers (codex: session rollout correlation) after subprocess settle when the classified result is not `ok` (`quota`, `stall`, `model_config`, `error`, including abort teardown): stream text comes from observability `diagnostics` when present, else stall `stderr` (opencode/cursor) or classified `stderr` / embedded stream-json (claude, including zero-exit quota envelopes on `stderr`); abort settlement attaches `diagnostics` via the same retention rules as quota/stall when stdout was excluded from classification, or the raw stdout buffer when not. Claude and cursor take the terminal `type: "result"` snapshot only (not summed across multiple cumulative `result` events); opencode keeps summed `step_finish` semantics. Recovered partial counters populate the same optional `usage`, `usage_source`, `cost_usd`, `cost_source`, and `warnings` fields as `ok` without changing `kind`, `stderr`, `exitCode`, `authFailure`, or `diagnostics`; list-price `computeCost` applies on cursor when `priceKey` and fields allow; claude uses agent-reported cost when present. Parser or cost failures append warnings only; absent counters leave usage null and prior unavailable/no-usage defaults. `executeWithQuotaFallback` copies binding settlement onto each `invocation_completed` row for every exit kind — field catalog: [`telemetry-capture.md`](./telemetry-capture.md).
   Other resolved agents still return the terminal
   unwired `error`. Production
   `binding.id` records the resolved rung identity as

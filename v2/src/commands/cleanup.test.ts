@@ -29,6 +29,7 @@ import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
 import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
+import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   classifyNeverLandedLane,
@@ -6982,7 +6983,11 @@ type SupersedeGhFixture = {
 };
 
 function supersedeSettlementBody(successorPr: number, pipelineId = "pipe-1", stageId = "plan"): string {
-  return `Superseded by #${successorPr} (pipeline ${pipelineId}, stage ${stageId})`;
+  return formatTerminalSupersedeSettlementComment({
+    terminalPrNumber: successorPr,
+    pipelineId,
+    stageId,
+  });
 }
 
 function supersedeFixtureForBranch(

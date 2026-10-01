@@ -45,6 +45,7 @@ import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
 } from "../execution/implement-workflow-steps.ts";
+import { parseTerminalSupersedeSettlementSuccessorPrNumber } from "../execution/terminal-supersede-settlement.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome, managedWorktreePath, specsHome, worktreesRoot as worktreesRootPath } from "../paths.ts";
@@ -540,16 +541,6 @@ export async function mergedPrHeadAuthorityMatches(
   return mergedMatches.length === 1;
 }
 
-const SUPERSEDE_SETTLEMENT_COMMENT_BODY_RE = /^Superseded by #(\d+) \(pipeline ([^,]+), stage ([^)]+)\)$/;
-
-function parseSupersedeSettlementSuccessorPrNumber(commentBody: string): number | undefined {
-  const match = SUPERSEDE_SETTLEMENT_COMMENT_BODY_RE.exec(commentBody);
-  if (match === null) return undefined;
-  const successorPrNumber = Number(match[1]);
-  if (!Number.isInteger(successorPrNumber) || successorPrNumber <= 0) return undefined;
-  return successorPrNumber;
-}
-
 async function listGhPrCommentBodies(
   prNumber: number,
   repoRoot: string,
@@ -619,7 +610,7 @@ export async function supersededPipelinePrHeadAuthorityMatches(
   if (commentBodies === undefined) return false;
 
   for (const body of commentBodies) {
-    const successorPrNumber = parseSupersedeSettlementSuccessorPrNumber(body);
+    const successorPrNumber = parseTerminalSupersedeSettlementSuccessorPrNumber(body);
     if (successorPrNumber === undefined) continue;
     if (await ghSuccessorPrMergedInRepo(successorPrNumber, repoRoot, runner)) return true;
   }

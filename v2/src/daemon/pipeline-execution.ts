@@ -15,6 +15,7 @@ import { bindHarnessReadyFlipEvidenceLookup } from "../execution/completion-publ
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
+import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import {
   createDefaultSupersedeGh,
   executeTerminalPublication,
@@ -1489,7 +1490,11 @@ async function settleSupersededPrecedingStagePrs(
   const failures: PipelineSupersedeFailure[] = [];
 
   for (const candidate of candidates) {
-    const body = `Superseded by #${args.terminalPrNumber} (pipeline ${args.pipelineId}, stage ${candidate.stageId})`;
+    const body = formatTerminalSupersedeSettlementComment({
+      terminalPrNumber: args.terminalPrNumber,
+      pipelineId: args.pipelineId,
+      stageId: candidate.stageId,
+    });
     let state: string;
     try {
       ({ state } = await supersedeGh.prState(args.worktreePath, candidate.prNumber));

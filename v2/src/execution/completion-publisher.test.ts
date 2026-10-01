@@ -1394,6 +1394,42 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 
+  it("reuses matching open draft over closed head+base history without probing all-state", async () => {
+    const ghCalls: string[] = [];
+    const openNumber = 101;
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") {
+          const state = args[args.indexOf("--state") + 1];
+          if (state === "open") {
+            return JSON.stringify([{ number: openNumber, baseRefName: "main", isDraft: true, title: "lane draft" }]);
+          }
+          if (state === "all") {
+            throw new Error("all-state probe must not run when open draft matches");
+          }
+        }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(openNumber, `https://github.com/user/repo/pull/${openNumber}`);
+        }
+        if (args[0] === "pr" && args[1] === "create") {
+          throw new Error("unexpected pr create");
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(openNumber);
+    expect(result.lanePrOutcome).toBeUndefined();
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    expect(ghCalls.some((c) => c.includes("--state all"))).toBe(false);
+  });
+
   it.each([
     { state: "CLOSED" as const, number: 88, kind: "lane_pr_closed" as const },
     { state: "MERGED" as const, number: 77, kind: "lane_pr_merged" as const },

@@ -93,7 +93,7 @@ function laneResolutionStore(args: {
   return base as StateStore;
 }
 
-function succeededIntentPipelineStage(): {
+function succeededIntentPipelineStage(branchKeys: string[] = [DEFAULT_PIPELINE_STAGE_BRANCH_KEY]): {
   store: StateStore;
   pipelineId: string;
   stageId: string;
@@ -135,22 +135,20 @@ function succeededIntentPipelineStage(): {
     terminalPublicationSucceededAt: null,
     supersedeFailures: null,
     dismissedAt: null,
-    stages: [
-      {
-        id: "stage-row-1",
-        pipelineId,
-        stageId,
-        branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
-        position: 0,
-        status: "succeeded",
-        workflowInvocationId: entryRun.id,
-        startedAt: 1,
-        endedAt: 2,
-        artifact: null,
-        failureDetail: null,
-        decidedAt: null,
-      },
-    ],
+    stages: branchKeys.map((branchKey, index) => ({
+      id: `stage-row-${index + 1}`,
+      pipelineId,
+      stageId,
+      branchKey,
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: entryRun.id,
+      startedAt: 1,
+      endedAt: 2,
+      artifact: null,
+      failureDetail: null,
+      decidedAt: null,
+    })),
   };
   return { store: laneResolutionStore({ runs: [entryRun], pipelines: [pipeline] }), pipelineId, stageId };
 }
@@ -175,6 +173,22 @@ describe("executePipelineStageReviewFeedbackLaunch", () => {
       code: "review_feedback_lane_unmatched",
       message: "pipeline missing-pipe not found",
     });
+  });
+
+  test("forwards explicit branchKey to select a fan-out stage row", async () => {
+    const { store, pipelineId, stageId } = succeededIntentPipelineStage(["b1", "b2"]);
+    const result = await executePipelineStageReviewFeedbackLaunch(
+      { pipelineId, stageId, branchKey: "b2" },
+      {
+        store,
+        subprocessRunner: noopRunner,
+        machineConfigPath,
+        resolveProjectRoot: () => undefined,
+        builder: WORKFLOW_PRESET_BUILDERS["review-feedback"],
+        handleWorkflowStart: () => ({ kind: "response", result: null }),
+      },
+    );
+    expect(result).toMatchObject({ kind: "error", code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE });
   });
 
   test("continues when lane resolves and refuses unregistered project", async () => {

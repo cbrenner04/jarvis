@@ -4752,6 +4752,42 @@ describe("resumePipeline branch scope", () => {
     });
   });
 
+  test("resumePipeline forwards allowLanePrRepublish to in-place implement resume", async () => {
+    const { store } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    let capturedOptions: { allowLanePrRepublish?: boolean } | undefined;
+    const attemptFailedImplementPipelineResume = async (
+      _pipeline: Pipeline & { stages: PipelineStageRecord[] },
+      _pipelineId: string,
+      branchScope?: string,
+      resumePublicationOptions?: { allowLanePrRepublish?: boolean },
+    ) => {
+      capturedOptions = resumePublicationOptions;
+      return { kind: "resumed" as const, pipelineId: PIPELINE_ID };
+    };
+
+    const outcome = await resumePipeline(
+      PIPELINE_ID,
+      {
+        store,
+        dispatch: async () => {
+          throw new Error("dispatch must not run when in-place resume succeeds");
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageStub(),
+        attemptFailedImplementPipelineResume,
+      },
+      { branchKey: RESUME_BRANCH_FAILED, allowLanePrRepublish: true },
+    );
+
+    expect(capturedOptions).toEqual({ allowLanePrRepublish: true });
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+  });
+
   test("branch-scoped interrupted reopen skips in-place implement resume probe", async () => {
     const { store, stages } = fakeStore(
       FAN_OUT_PIPELINE_DEFINITION,

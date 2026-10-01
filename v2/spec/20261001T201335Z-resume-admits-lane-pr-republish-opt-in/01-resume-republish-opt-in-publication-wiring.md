@@ -15,21 +15,21 @@ Resume RPC may carry `allowLanePrRepublish` after subspec 00, but daemon resume 
 
 ## Task checklist
 
-- [ ] Plumb `allowLanePrRepublish` from `resumeHandler` / `resumeRunForPipeline` / `resumeAdmittedRunLifecycle` into write-loop and workflow-runner resume publication inputs.
-- [ ] Ensure `reconstructWriteResume` / `WriteLoopInput` (or equivalent resume spawn input) preserves the flag into `publishCompletionArtifacts`.
-- [ ] Ensure `workflow-runner-resume.ts` publication tails pass the flag into the completion publisher seam used on resume republication.
-- [ ] Pass the flag through `resumePipeline` → `resumeRunForPipeline` when `pipeline_resume` sets it.
-- [ ] Add focused daemon or execution unit coverage that resume with RPC opt-in reaches publisher input with `allowLanePrRepublish: true` when a publication resume runs (fake publisher or seam capture).
-- [ ] Extend `completion-publisher.test.ts` merged newest-history opt-in create per decisions.
-- [ ] Add end-to-end regression per acceptance criteria; update operator docs and v1 parity baseline.
+- [x] Plumb `allowLanePrRepublish` from `resumeHandler` / `resumeRunForPipeline` / `resumeAdmittedRunLifecycle` into write-loop and workflow-runner resume publication inputs.
+- [x] Ensure `reconstructWriteResume` / `WriteLoopInput` (or equivalent resume spawn input) preserves the flag into `publishCompletionArtifacts`.
+- [x] Ensure `workflow-runner-resume.ts` publication tails pass the flag into the completion publisher seam used on resume republication.
+- [x] Pass the flag through `resumePipeline` → `resumeRunForPipeline` when `pipeline_resume` sets it.
+- [x] Add focused daemon or execution unit coverage that resume with RPC opt-in reaches publisher input with `allowLanePrRepublish: true` when a publication resume runs (fake publisher or seam capture).
+- [x] Extend `completion-publisher.test.ts` merged newest-history opt-in create per decisions.
+- [x] Add end-to-end regression per acceptance criteria; update operator docs and v1 parity baseline.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts` or `pipeline-execution.test.ts`: resume republication with RPC `allowLanePrRepublish: true` and fake `gh` whose newest head+base PR is `CLOSED` calls `gh pr create` and lands draft PR evidence; fails against pre-fix resume path omitting publisher opt-in.
-- [ ] Same fixture resumed without the flag does not call `gh pr create`; `workflow-runner-publication.test.ts` `CLOSED head+base history settles terminal lane_pr_closed without failed status or duplicate create` stays green (paired assertion, preservation).
-- [ ] `completion-publisher.test.ts`: `allowLanePrRepublish: true` with newest head+base `MERGED` history calls `gh pr create`; fails against pre-fix if merged opt-in create is untested at publisher seam.
-- [ ] `pipeline-execution.test.ts` or extended `daemon-pipeline-recover.test.ts`: `pipeline recover` with fake `gh` whose newest head+base PR is `CLOSED` does not call `gh pr create` (no resume opt-in); fails against pre-fix recover republication that recreated drafts after closed lane PR history.
-- [ ] `run.test.ts` and `pipeline.test.ts` — resume CLI/RPC forwarding cases from subspec 00 stay green.
+- [x] `workflow-runner-publication.test.ts` or `pipeline-execution.test.ts`: resume republication with RPC `allowLanePrRepublish: true` and fake `gh` whose newest head+base PR is `CLOSED` calls `gh pr create` and lands draft PR evidence; fails against pre-fix resume path omitting publisher opt-in.
+- [x] Same fixture resumed without the flag does not call `gh pr create`; `workflow-runner-publication.test.ts` `CLOSED head+base history settles terminal lane_pr_closed without failed status or duplicate create` stays green (paired assertion, preservation).
+- [x] `completion-publisher.test.ts`: `allowLanePrRepublish: true` with newest head+base `MERGED` history calls `gh pr create`; fails against pre-fix if merged opt-in create is untested at publisher seam.
+- [x] `pipeline-execution.test.ts` or extended `daemon-pipeline-recover.test.ts`: `pipeline recover` with fake `gh` whose newest head+base PR is `CLOSED` does not call `gh pr create` (no resume opt-in); fails against pre-fix recover republication that recreated drafts after closed lane PR history.
+- [x] `run.test.ts` and `pipeline.test.ts` — resume CLI/RPC forwarding cases from subspec 00 stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

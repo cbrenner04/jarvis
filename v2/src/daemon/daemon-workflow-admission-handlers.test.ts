@@ -275,6 +275,107 @@ test("implement.recover returns not_admitted for excluded outcome kinds", async 
   }
 });
 
+test("implement.recover republication omits allowLanePrRepublish and does not create after CLOSED head+base history", async () => {
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-admission-recovery-closed-"));
+  const worktreePath = root;
+  const branch = "recover";
+  const dbPath = join(root, "state.sqlite");
+  const logsPath = join(root, "logs.jsonl");
+  writeFileSync(join(root, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+  execFileSync("git", ["init"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.test"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+  execFileSync("git", ["add", "."], { cwd: root });
+  execFileSync("git", ["commit", "-m", "initial"], { cwd: root });
+  execFileSync("git", ["branch", branch], { cwd: root });
+
+  const store = openStateStore(dbPath);
+  const snapshot = {
+    invocationId: "ticked-recovery-closed",
+    creationTitle: "implement: recovery",
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "rules",
+        expectedArtifactPath: "spec.md",
+        agents: ["codex"],
+        agentModelConfig: {},
+      },
+      { stepId: "implement-review", role: "", durable: true, behavior: "review" as const },
+    ],
+  };
+  const common = {
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath,
+    branch,
+    specPath: "spec.md",
+    workflowSnapshot: snapshot,
+  };
+  const writeRunId = store.createRun({ ...common, stepId: "implement" });
+  const writeAttemptId = store.recordAttemptStart(writeRunId);
+  store.commitCompletionBoundary({
+    attemptId: writeAttemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    completionAgent: "codex",
+  });
+  const reviewRunId = store.createRun({ ...common, stepId: "implement-review" });
+  const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+  store.commitCompletionBoundary({
+    attemptId: reviewAttemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "prior failure" },
+  });
+  const sink = openLogSink(logsPath);
+  sink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 0,
+    resumable: true,
+  });
+  sink.close();
+
+  const publisherInputs: Array<{ allowLanePrRepublish?: boolean }> = [];
+  const ctx = createRunControlHandlerContext({
+    stateStore: store,
+    logReader: openLogReader(logsPath),
+    registry: new WorktreeOwnershipRegistry(),
+    writeLoopExecutor: async () => {},
+    failureReporter: () => undefined,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    intentFinalizationResumeDeps: {
+      completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+      completionPublisher: async (input) => {
+        publisherInputs.push(input);
+        return { pushSha: "deadbeef", lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 } };
+      },
+      readyFinalizer: async () => {},
+    },
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, { handleWorkflowStart: workflowStart.handleWorkflowStart });
+  const implementRecover = createImplementRecoverHandler(ctx, {
+    resumeFinalizationOnly: lifecycle.resumeFinalizationOnly,
+  });
+
+  try {
+    const frame = await implementRecover(
+      requestFrame("recover", "implement.recover", { project: "demo", branch: "recover", specPath: "spec.md" }),
+      new AbortController().signal,
+    );
+    expect(frame).toMatchObject({ kind: "response", result: { kind: "admitted", ok: true } });
+    expect(publisherInputs.every((input) => input.allowLanePrRepublish !== true)).toBe(true);
+    expect(store.loadRun(reviewRunId)).toMatchObject({ status: "completed", prNumber: 88 });
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 /** After `createRun` for `stepId`, pin paused settlement so later completion writes stay paused. */
 function lockPausedSettlementOnStepCreate(store: StateStore, stepId: string): StateStore {
   const lockedRunIds = new Set<string>();

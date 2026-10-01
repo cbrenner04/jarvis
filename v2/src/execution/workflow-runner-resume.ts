@@ -93,6 +93,7 @@ import {
   getUncommittedPaths,
   hasRetainedFinalizationCheckpoint,
   isExhaustedRedTerminalEvidence,
+  completionPublishLaneRepublishFields,
   leaseFromShaField,
   MAX_MUTATION_REPAIR_ATTEMPTS,
   type MutationRepairDriveOutcome,
@@ -1096,6 +1097,8 @@ export type IntentFinalizationResumeDeps = {
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
+  /** Operator resume opt-in: skip closed/merged head+base history guard on republication. */
+  allowLanePrRepublish?: true;
   /** Aborted by `run kill`; reaches the ready gate / required integration / repair invocations. */
   signal?: AbortSignal;
   /** Test seam: injected runner for the reviewed staged-Markdown lint gate; production default is the real markdownlint spawn resolved inside `lintStagedMarkdown`. */
@@ -1451,6 +1454,7 @@ async function runIntentResumeCommitAndPublish(
       creationTitle,
       ...(bodySummary !== undefined ? { bodySummary } : {}),
       ...leaseFromShaField(context),
+      ...completionPublishLaneRepublishFields(deps),
     },
   );
   // A `run kill` mid-tail owns settlement: never let the aborted publication commit a boundary.
@@ -2636,6 +2640,7 @@ async function runReviewMutationCommitAndPublish(
       ...externalSpecGitScope(context),
       ...reviewMutationRequiredIntegrationScope(context),
       ...leaseFromShaField(context),
+      ...completionPublishLaneRepublishFields(deps),
       skipPublicationMutationRepairLoop: true,
     },
   );

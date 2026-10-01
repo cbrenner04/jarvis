@@ -458,6 +458,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   requiredIntegrationScope?: string;
   /** When true, completion publication skips ready finalization (pipeline leave-draft). */
   skipReadyFinalization?: boolean;
+  /** Operator resume opt-in: skip closed/merged head+base history guard on republication. */
+  allowLanePrRepublish?: true;
   /** When true, idle-output stall waits for the child process to close (finalization repair). */
   joinProcessOnIdleStall?: boolean;
   /** Injection seam for persisted-fence enforcement on completed-run retry and resume recovery; production uses `enforcePersistedReadyGateRepairFence`. */
@@ -502,6 +504,13 @@ export type WriteLoopInput = WriteExecuteInput & {
  */
 export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
+}
+
+/** Spread onto completion publication input when operator resume passed `--allow-lane-pr-republish`. */
+export function completionPublishLaneRepublishFields(source: {
+  allowLanePrRepublish?: boolean;
+}): { allowLanePrRepublish: true } | Record<string, never> {
+  return source.allowLanePrRepublish === true ? { allowLanePrRepublish: true } : {};
 }
 
 export function isShrinkWriteLoop(args: Pick<WriteLoopInput, "promptId" | "bindingResolution">): boolean {
@@ -1388,6 +1397,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ...externalSpecGitScope(args),
               ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
               ...leaseFromShaField(args),
+              ...completionPublishLaneRepublishFields(args),
             });
             if (publication.failure !== undefined) {
               if (args.signal?.aborted) {
@@ -2456,6 +2466,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               : {}),
             ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
             ...leaseFromShaField(args),
+            ...completionPublishLaneRepublishFields(args),
           });
           if (publication.failure !== undefined) {
             if (args.signal?.aborted) {

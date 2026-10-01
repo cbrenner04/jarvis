@@ -1517,6 +1517,31 @@ describe("createCompletionPublisher", () => {
     expect(ghCalls.some((c) => c.includes("--state all"))).toBe(false);
   });
 
+  it("creates a fresh draft when allowLanePrRepublish is set despite merged history", async () => {
+    const ghCalls: string[] = [];
+    const publisher = createCompletionPublisher({
+      git: republicationGit,
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list" && args.includes("open")) return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/77";
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(77, "https://github.com/user/repo/pull/77");
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher({ ...baseInput, allowLanePrRepublish: true });
+
+    expect(result.prNumber).toBe(77);
+    expect(result.lanePrOutcome).toBeUndefined();
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
+    expect(ghCalls.some((c) => c.includes("--state all"))).toBe(false);
+  });
+
   it("fails pr publication permanently when all-state history probe throws", async () => {
     const { gh } = ghOpenEmptyThenAllHistory("throw");
 

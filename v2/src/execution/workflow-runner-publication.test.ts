@@ -3668,10 +3668,11 @@ describe("workflow completion lane PR republication settlement", () => {
     workspace: string,
     branchName: string,
     baseRef: string,
-    history: { number: number; state: string } | "throw",
+    history: { number: number; state: string; republishDraftNumber?: number } | "throw",
   ) {
     const listBaseRef = baseRef.length >= 40 ? "main" : baseRef;
     const ghCalls: string[] = [];
+    let createdDraftNumber: number | undefined;
     const republicationGit = async (_cwd: string, args: readonly string[]) => {
       if (args[0] === "ls-remote") return "";
       if (args[0] === "rev-parse" && args.includes(`${branchName}@{u}`)) throw new Error("no upstream");
@@ -3697,9 +3698,16 @@ describe("workflow completion lane PR republication settlement", () => {
           return JSON.stringify([row]);
         }
       }
-      if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
+      if (args[0] === "pr" && args[1] === "create") {
+        if (history !== "throw" && history.republishDraftNumber !== undefined) {
+          createdDraftNumber = history.republishDraftNumber;
+          return `https://github.com/user/repo/pull/${history.republishDraftNumber}`;
+        }
+        throw new Error("unexpected pr create");
+      }
       if (args[0] === "pr" && args[1] === "view" && history !== "throw") {
-        return viewPrJson(history.number, `https://github.com/user/repo/pull/${history.number}`, listBaseRef);
+        const number = createdDraftNumber ?? history.number;
+        return viewPrJson(number, `https://github.com/user/repo/pull/${number}`, listBaseRef);
       }
       return "";
     };
@@ -3721,6 +3729,9 @@ describe("workflow completion lane PR republication settlement", () => {
         writePrBody: async () => {},
         renderFooter: async () => "",
       }),
+      resetCreatedDraft: () => {
+        createdDraftNumber = undefined;
+      },
     };
   }
 
@@ -3829,6 +3840,61 @@ describe("workflow completion lane PR republication settlement", () => {
       });
       expect(resume.kind).toBe("complete");
       expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    });
+  });
+
+  test("resume republication with allowLanePrRepublish creates draft after CLOSED head+base history", async () => {
+    const branchName = "lane-closed-resume-republish-opt-in";
+    const closedNumber = 88;
+    const newDraftNumber = 99;
+    const { step, workspace } = createImplementBodySummaryStep(branchName);
+    const baseRef = step.worktree.baseRef;
+    const invocationId = `${branchName}-inv`;
+    step.workflowInvocationId = invocationId;
+    step.suppressShrink = true;
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+    const { ghCalls, publisher, resetCreatedDraft } = buildLaneHistoryPublisher(workspace, branchName, baseRef, {
+      number: closedNumber,
+      state: "CLOSED",
+      republishDraftNumber: newDraftNumber,
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+      const first = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
+        completionPublisher: publisher,
+        readyFinalizer: async () => {},
+      });
+      expect(first.kind).toBe("complete");
+      expect(store.loadRun(first.runId)).toMatchObject({ prNumber: closedNumber });
+
+      ghCalls.length = 0;
+      resetCreatedDraft();
+      const snapshot = store.loadRun(first.runId)?.workflowSnapshot;
+      const resume = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        freshDispatch: true,
+        allowLanePrRepublish: true,
+        ...(snapshot !== undefined ? { workflowSnapshot: snapshot } : {}),
+        completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
+        completionPublisher: publisher,
+        readyFinalizer: async () => {},
+      });
+      expect(resume.kind).toBe("complete");
+      expect(ghCalls.some((c) => c.includes("pr create"))).toBe(true);
+      expect(store.loadRun(resume.runId)).toMatchObject({
+        status: "completed",
+        terminalCause: "complete",
+        prNumber: newDraftNumber,
+        prUrl: `https://github.com/user/repo/pull/${newDraftNumber}`,
+      });
     });
   });
 

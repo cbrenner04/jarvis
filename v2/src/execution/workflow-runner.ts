@@ -125,6 +125,7 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   appendRuntimeSmokeOutcome,
+  completionPublishLaneRepublishFields,
   DEFAULT_ITERATION_TIMEOUT_MS,
   executeWriteLoop,
   exhaustedRedTerminalLogFields,
@@ -586,6 +587,8 @@ export type WorkflowRunnerInput = {
    * to match against.
    */
   workflowSnapshot?: WorkflowSnapshot;
+  /** Operator resume opt-in: skip closed/merged head+base history guard on workflow publication tail. */
+  allowLanePrRepublish?: true;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -1680,6 +1683,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 ...(specTemplate ? { specTemplate } : {}),
                 ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
                 ...implementRequiredIntegrationScope(completionStep, worktreePath),
+                ...completionPublishLaneRepublishFields(args),
               },
             );
             totalIterationsConsumed = publication.iterationsConsumed;
@@ -2241,6 +2245,7 @@ function buildCompletionStepWriteLoopInput(
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
     ...(gateCommands.fixCommand !== undefined ? { fixCommand: gateCommands.fixCommand } : {}),
     ...(gateCommands.readyCommand !== undefined ? { readyCommand: gateCommands.readyCommand } : {}),
+    ...completionPublishLaneRepublishFields(args),
     ...(telemetryContext !== undefined
       ? {
           telemetry: {

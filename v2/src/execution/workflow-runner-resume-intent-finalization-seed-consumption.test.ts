@@ -83,4 +83,29 @@ describe("intent finalization resume seed consumption", () => {
       expect(store.loadRun(reviewRunId)?.status).toBe("failed");
     });
   });
+
+  test("resumePopulatedIntentPublication forwards allowLanePrRepublish to completion publisher input", async () => {
+    const { workspace, sourceRoot, seedPath } = stagedWorkspaceWithSeed("intent-resume-republish-opt-in-");
+    await withStateStore(async (store) => {
+      const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+        branch: "intent/republish-opt-in",
+        invocationId: "intent-republish-opt-in",
+        landingInputs: { sourceRoot, paths: [seedPath], consumeFrom: "source" },
+      });
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const captured: Array<{ allowLanePrRepublish?: boolean }> = [];
+      await resumePopulatedIntentPublication(run, store, {
+        allowLanePrRepublish: true,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          captured.push(input);
+          return { pushSha: "commit-1", prNumber: 1, prUrl: "https://example.test/pr/1" };
+        },
+        readyFinalizer: async () => {},
+        runner: DEFAULT_STAGED_MARKDOWN_LINT_RUNNER,
+      });
+      expect(captured.some((input) => input.allowLanePrRepublish === true)).toBe(true);
+    });
+  });
 });

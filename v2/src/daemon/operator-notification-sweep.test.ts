@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { LogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import {
@@ -12,6 +13,7 @@ import {
 import {
   isPreStartIncident,
   type NotificationSweepDeps,
+  notificationSweepDeriveOptions,
   reconcileNotificationKeyFormat,
   runNotificationSweep,
   runNotificationSweepIntervalTick,
@@ -181,4 +183,35 @@ test("key-format reconcile keeps a pre-upgrade settled invocation from re-delive
   });
   expect(spawned).toEqual([]);
   expect(store.hasNotificationDelivery({ incidentId, transition: "terminal:completed:10000" })).toBe(true);
+});
+
+test("one derivation pass over N terminal runs reads the durable log at most once", () => {
+  const runCount = 5;
+  for (let i = 0; i < runCount; i += 1) {
+    const runId = store.createRun({
+      project: "demo",
+      specRef: "main",
+      worktreePath: `/tmp/worktree-${i}`,
+      branch: `feature-${i}`,
+      specPath: "spec.md",
+    });
+    patchRunRow(runId, { status: "completed", finishedAt: 10_000, createdAt: 10_000 });
+  }
+  let reads = 0;
+  const logReader: LogReader = {
+    tail: () => {
+      reads += 1;
+      return [];
+    },
+    readAllRecords: () => {
+      reads += 1;
+      return [];
+    },
+    async *follow() {},
+  };
+
+  const incidents = deriveOperatorIncidents(store, 50_000, notificationSweepDeriveOptions({ logReader }));
+
+  expect(incidents).toHaveLength(runCount);
+  expect(reads).toBe(1);
 });

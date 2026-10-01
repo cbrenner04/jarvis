@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { LogReader } from "../persistence/log-stream.ts";
+import type { LogReader, PersistedRecord } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import {
   type DeriveOperatorIncidentsOptions,
@@ -43,15 +43,41 @@ export type NotificationSweepDeps = {
   deriveOperatorIncidentsOptions?: DeriveOperatorIncidentsOptions;
 };
 
+/**
+ * Per-tick memoized terminal-record lookup: the log is read at most once (via `readAllRecords` when the
+ * reader offers it), never once per candidate run.
+ */
+function terminalLogRecordLookup(logReader: LogReader): (runId: string) => TerminalLogRecord | undefined {
+  const memo = new Map<string, TerminalLogRecord | undefined>();
+  let recordsByRun: Map<string, PersistedRecord[]> | undefined;
+  return (runId) => {
+    if (memo.has(runId)) return memo.get(runId);
+    let records: PersistedRecord[];
+    if (logReader.readAllRecords === undefined) {
+      records = logReader.tail(runId);
+    } else {
+      if (recordsByRun === undefined) {
+        recordsByRun = new Map();
+        for (const record of logReader.readAllRecords()) {
+          const bucket = recordsByRun.get(record.runId);
+          if (bucket === undefined) recordsByRun.set(record.runId, [record]);
+          else bucket.push(record);
+        }
+      }
+      records = [...(recordsByRun.get(runId) ?? [])].sort((a, b) => a.seq - b.seq);
+    }
+    const terminal = findTerminalLogRecord(records);
+    memo.set(runId, terminal);
+    return terminal;
+  };
+}
+
 /** Terminal `loop_finished` lane signal for notification derivation (same source as run list/wait). */
 export function notificationSweepDeriveOptions(
   deps: Pick<NotificationSweepDeps, "logReader" | "deriveOperatorIncidentsOptions">,
 ): DeriveOperatorIncidentsOptions {
   const explicit = deps.deriveOperatorIncidentsOptions ?? {};
-  const fromLog =
-    deps.logReader === undefined
-      ? undefined
-      : (runId: string): TerminalLogRecord | undefined => findTerminalLogRecord(deps.logReader!.tail(runId));
+  const fromLog = deps.logReader === undefined ? undefined : terminalLogRecordLookup(deps.logReader);
   const explicitForRun = explicit.terminalLogRecordForRun;
   if (fromLog === undefined) return explicit;
   if (explicitForRun === undefined) return { ...explicit, terminalLogRecordForRun: fromLog };

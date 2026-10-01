@@ -13,17 +13,17 @@ Completion publication can return `lanePrOutcome` or a permanent head+base list-
 
 ## Tasks
 
-- [ ] Map `lanePrOutcome` from successful completion publication through workflow-runner `publishWithReadyRepair` / terminal settlement into `commitTerminalRunSettlement` (or `commitCompletionBoundary`) with the shapes above.
-- [ ] Map permanent list-probe publication failures through the same workflow-runner publication tail into durable `failed` rows with probe text.
-- [ ] Add `workflow-runner-publication.test.ts` end-to-end fixtures (fake `gh`, stopped-before-create or merged/closed history) per acceptance criteria.
-- [ ] Update operator-facing docs for run-level settlement per Documentation updates.
+- [x] Map `lanePrOutcome` from successful completion publication through workflow-runner `publishWithReadyRepair` / terminal settlement into `commitTerminalRunSettlement` (or `commitCompletionBoundary`) with the shapes above.
+- [x] Map permanent list-probe publication failures through the same workflow-runner publication tail into durable `failed` rows with probe text.
+- [x] Add `workflow-runner-publication.test.ts` end-to-end fixtures (fake `gh`, stopped-before-create or merged/closed history) per acceptance criteria.
+- [x] Update operator-facing docs for run-level settlement per Documentation updates.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts`: completion publication through workflow-runner with fake `gh` where newest head+base history is `MERGED` settles the run `completed` with merged PR evidence on the durable row, does not append a republication failure, and does not call `gh pr create` on resume without republish opt-in; fails against pre-fix behavior that leaves PR evidence missing or re-attempts create.
-- [ ] Same file: newest history `CLOSED` settles terminal `lane_pr_closed` without `status: "failed"` and without a resumable republication recovery path that opens another draft; fails against pre-fix duplicate-draft republication.
-- [ ] Same file: all-state history probe throw settles `failed` with the probe message on the run row; fails against pre-fix retryable publication failure or missing probe text on the durable row.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `workflow-runner-publication.test.ts`: completion publication through workflow-runner with fake `gh` where newest head+base history is `MERGED` settles the run `completed` with merged PR evidence on the durable row, does not append a republication failure, and does not call `gh pr create` on resume without republish opt-in; fails against pre-fix behavior that leaves PR evidence missing or re-attempts create.
+- [x] Same file: newest history `CLOSED` settles terminal `lane_pr_closed` without `status: "failed"` and without a resumable republication recovery path that opens another draft; fails against pre-fix duplicate-draft republication.
+- [x] Same file: all-state history probe throw settles `failed` with the probe message on the run row; fails against pre-fix retryable publication failure or missing probe text on the durable row.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -49,7 +49,7 @@ import {
   mutatingReviewPassCommitFields,
   renderStepCommitTitle,
 } from "./completion-commit.ts";
-import type { CompletionPublisher } from "./completion-publisher.ts";
+import type { CompletionPublisher, LanePrOutcome } from "./completion-publisher.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { configuredIntentDurableDir, evaluateIntentSplitLandingGate, listLandedIntentFiles } from "./intent-output.ts";
@@ -1362,16 +1362,26 @@ function resumePublicationFailureBoundaryFields(
   };
 }
 
-function completedPublicationBoundaryFields(success?: { prNumber?: number; prUrl?: string }): {
+function completedPublicationBoundaryFields(success?: {
+  prNumber?: number;
+  prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
+}): {
   terminalCause: "complete";
   prNumber?: number;
   prUrl?: string;
 } {
-  return {
-    terminalCause: "complete",
-    ...(success?.prNumber !== undefined ? { prNumber: success.prNumber } : {}),
-    ...(success?.prUrl !== undefined ? { prUrl: success.prUrl } : {}),
-  };
+  if (success?.prNumber !== undefined && success.prUrl !== undefined) {
+    return {
+      terminalCause: "complete",
+      prNumber: success.prNumber,
+      prUrl: success.prUrl,
+    };
+  }
+  if (success?.lanePrOutcome !== undefined) {
+    return { terminalCause: "complete", prNumber: success.lanePrOutcome.prNumber };
+  }
+  return { terminalCause: "complete" };
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: intent-resume commit-and-publish orchestrates commit, terminal settlement, and publication branches in sequence
@@ -1501,6 +1511,9 @@ async function runIntentResumeCommitAndPublish(
     loopOutcomeKind: "complete",
     iterationsConsumed: publication.iterationsConsumed,
     resumable: false,
+    ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
+    ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
+    ...(publication.success?.lanePrOutcome !== undefined ? { lanePrOutcome: publication.success.lanePrOutcome } : {}),
   });
   traceCompletionPublication(deps.logSink, context.runId, context.landing, context.branch);
   return {
@@ -2429,6 +2442,9 @@ function settleCompletedMutationRepair(
     loopOutcomeKind: "complete",
     iterationsConsumed: outcome.iterationsConsumed,
     resumable: false,
+    ...(outcome.success.prNumber !== undefined ? { prNumber: outcome.success.prNumber } : {}),
+    ...(outcome.success.prUrl !== undefined ? { prUrl: outcome.success.prUrl } : {}),
+    ...(outcome.success.lanePrOutcome !== undefined ? { lanePrOutcome: outcome.success.lanePrOutcome } : {}),
   });
   return {
     ok: true,
@@ -2543,6 +2559,9 @@ function settleSuccessfulReviewMutationPublication(
     loopOutcomeKind: "complete",
     iterationsConsumed: publication.iterationsConsumed,
     resumable: false,
+    ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
+    ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
+    ...(publication.success?.lanePrOutcome !== undefined ? { lanePrOutcome: publication.success.lanePrOutcome } : {}),
   });
   return {
     ok: true,

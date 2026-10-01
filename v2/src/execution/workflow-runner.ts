@@ -40,7 +40,7 @@ import {
   mutatingReviewPassCommitFields,
   renderStepCommitTitle,
 } from "./completion-commit.ts";
-import type { CompletionPublisher } from "./completion-publisher.ts";
+import type { CompletionPublisher, LanePrOutcome } from "./completion-publisher.ts";
 import {
   type ExternalSpecGitScope,
   excludeExternalSpecGitPaths,
@@ -61,7 +61,11 @@ import {
   type PublicationInputs,
   type PublicationLanding,
 } from "./publication-landing.ts";
-import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
+import {
+  completionCommitFailureResumable,
+  type PublicationFailure,
+  publicationFailureFor,
+} from "./publication-retry.ts";
 import type { BaseRefProbeObservation, ReadyFinalizer, SurvivingMutationKillingSetResult } from "./ready-finalize.ts";
 import {
   nonTerminatingMutationLogFields,
@@ -259,6 +263,44 @@ function settleCompletedPublication(store: StateStore, runId: string, prNumber?:
     ...(prNumber !== undefined ? { prNumber } : {}),
     ...(prUrl !== undefined ? { prUrl } : {}),
   });
+}
+
+type WorkflowPublicationSuccess = {
+  prNumber?: number;
+  prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
+};
+
+function settleWorkflowPublicationSuccess(
+  store: StateStore,
+  runId: string,
+  logSink: LogSink | undefined,
+  success: WorkflowPublicationSuccess | undefined,
+  iterationsConsumed: number,
+): void {
+  if (success?.prNumber !== undefined && success.prUrl !== undefined) {
+    settleCompletedPublication(store, runId, success.prNumber, success.prUrl);
+  } else if (success?.lanePrOutcome !== undefined) {
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: success.lanePrOutcome.prNumber,
+    });
+  } else {
+    settleCompletedPublication(store, runId);
+  }
+  if (success?.lanePrOutcome !== undefined) {
+    logSink?.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed,
+      resumable: false,
+      ...(success.prNumber !== undefined ? { prNumber: success.prNumber } : {}),
+      ...(success.prUrl !== undefined ? { prUrl: success.prUrl } : {}),
+      lanePrOutcome: success.lanePrOutcome,
+    });
+  }
 }
 
 type WorkflowPublicationFailureKind =
@@ -1663,7 +1705,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               const priorRecords = priorLogRecordsFromSink(args.logSink, lastResult.runId);
               const publicationResumable =
                 publication.failure.kind === "completion_commit_failed"
-                  ? publication.failure.resumable !== false
+                  ? publication.failure.resumable !== false &&
+                    completionCommitFailureResumable(publication.failure.error)
                   : readyFailureResumable(
                       publication.failure.kind,
                       gateOutOfScopeFields.readyGateOutsidePaths,
@@ -1746,20 +1789,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               };
             }
             appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.success?.runtimeSmokeOutcome);
-            if (
-              publication.success !== undefined &&
-              publication.success.prNumber !== undefined &&
-              publication.success.prUrl !== undefined
-            ) {
-              settleCompletedPublication(
-                store,
-                lastResult.runId,
-                publication.success.prNumber,
-                publication.success.prUrl,
-              );
-            } else {
-              settleCompletedPublication(store, lastResult.runId);
-            }
+            settleWorkflowPublicationSuccess(
+              store,
+              lastResult.runId,
+              args.logSink,
+              publication.success,
+              totalIterationsConsumed,
+            );
             traceCompletionPublication(args.logSink, lastResult.runId, completionStep.landing, worktree.branchName);
           }
         } catch (error) {

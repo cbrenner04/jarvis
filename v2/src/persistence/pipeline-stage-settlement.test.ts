@@ -507,6 +507,123 @@ describe("settleLinkedStagesFromEntryRunWith failure cause", () => {
   });
 });
 
+describe("settleLinkedStagesFromEntryRunWith lane PR outcomes", () => {
+  const readyDefinition = {
+    name: "ready-lane-pr",
+    terminalAction: "ready" as const,
+    stages: [
+      { stageId: "implement", kind: "workflow" as const, workflow: "implement" as const, review: "light" as const },
+    ],
+  };
+
+  function readyPipelineStore(entry: Partial<Run & { attempts: Attempt[] }>) {
+    const row: Record<string, unknown> = {
+      stageId: "implement",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: "entry-lane",
+    };
+    const pipeline = { id: "p-lane", definition: readyDefinition, stages: [row] };
+    const store = {
+      loadRun: (runId: string) =>
+        runId === "entry-lane"
+          ? entryRun({
+              id: "entry-lane",
+              specPath: "spec/implement.md",
+              terminalCause: "complete",
+              ...entry,
+            })
+          : null,
+      findRunsByInvocationId: () => [],
+      findWorkflowRunsOnLane: () => [],
+      loadPipeline: () => pipeline,
+      listPipelines: () => [pipeline],
+      updateStage: (args: { patch: Record<string, unknown> }) => {
+        Object.assign(row, args.patch);
+        return true;
+      },
+    } as unknown as LinkedStageSettlementStore;
+    return { store, row };
+  }
+
+  test("settles succeeded with merged PR evidence on the artifact", () => {
+    const { store, row } = readyPipelineStore({
+      status: "completed",
+      prNumber: 77,
+      prUrl: "https://example.test/pull/77",
+    });
+
+    settleLinkedStagesFromEntryRunWith(store, "entry-lane");
+
+    expect(row).toMatchObject({
+      status: "succeeded",
+      artifact: {
+        entryRunId: "entry-lane",
+        prNumber: 77,
+        prUrl: "https://example.test/pull/77",
+      },
+    });
+    expect(row.artifact).not.toHaveProperty("lanePrOutcome");
+  });
+
+  test("settles lane_pr_closed without missing-pr failure when only prNumber is on the entry row", () => {
+    const { store, row } = readyPipelineStore({ status: "completed", prNumber: 88 });
+
+    settleLinkedStagesFromEntryRunWith(store, "entry-lane");
+
+    expect(row).toMatchObject({
+      status: "succeeded",
+      failureDetail: null,
+      artifact: {
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: 88 },
+        prNumber: 88,
+      },
+    });
+  });
+
+  test("propagates list-probe publication failure message into stage failure detail", () => {
+    const probeMessage = "gh api unavailable";
+    const row: Record<string, unknown> = {
+      stageId: "implement",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: "entry-probe",
+    };
+    const pipeline = { id: "p-probe", definition: readyDefinition, stages: [row] };
+    const store = {
+      loadRun: (runId: string) =>
+        runId === "entry-probe"
+          ? entryRun({
+              id: "entry-probe",
+              status: "failed",
+              specPath: "spec/implement.md",
+              terminalCause: "completion_commit_failed",
+              terminalFailureDetail: { failureKind: "error", message: probeMessage, bindingAttempts: [] },
+            })
+          : null,
+      findRunsByInvocationId: () => [],
+      findWorkflowRunsOnLane: () => [],
+      loadPipeline: () => pipeline,
+      listPipelines: () => [pipeline],
+      updateStage: (args: { patch: Record<string, unknown> }) => {
+        Object.assign(row, args.patch);
+        return true;
+      },
+    } as unknown as LinkedStageSettlementStore;
+
+    settleLinkedStagesFromEntryRunWith(store, "entry-probe");
+
+    expect(row).toMatchObject({
+      status: "failed",
+      failureDetail: {
+        reason: "completion_commit_failed",
+        message: probeMessage,
+        terminalCause: "completion_commit_failed",
+      },
+    });
+  });
+});
+
 describe("settleLinkedStagesFromEntryRunWith reopened implement", () => {
   const implementSnapshot = {
     invocationId: "inv-current",

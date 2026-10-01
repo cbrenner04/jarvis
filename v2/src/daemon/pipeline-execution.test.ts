@@ -4169,6 +4169,149 @@ describe("resumePipeline", () => {
     expect(store.loadPipeline(PIPELINE_ID)?.terminalPublicationFailure).toBeNull();
   });
 
+  test("resume settles a ready pipeline when the entry run completed with merged lane PR evidence", async () => {
+    const definition: PipelineDefinition = {
+      name: "lane-merged-settlement",
+      terminalAction: "ready",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+    };
+    const entryRunId = "run-resume-lane-merged";
+    const mergedUrl = "https://github.com/example/repo/pull/77";
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: {
+        specPath: "spec/implement.md",
+        status: "completed",
+        terminalCause: "complete",
+        prNumber: 77,
+        prUrl: mergedUrl,
+      },
+    };
+    const { store, stages } = fakeStore(definition, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: { status: "running", workflowInvocationId: entryRunId },
+    });
+
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => {
+        throw new Error("deferred settlement must not redispatch");
+      },
+      wait: restartSweepWait(runs),
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication: async () => {
+        throw new Error("terminal publication must not run before merged evidence is settled");
+      },
+    });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    const implement = stages().find((stage) => stage.stageId === "implement");
+    expect(implement?.status).toBe("succeeded");
+    expect(implement?.failureDetail).toBeNull();
+    expect(implement?.artifact).toMatchObject({
+      entryRunId,
+      prNumber: 77,
+      prUrl: mergedUrl,
+    });
+  });
+
+  test("resume settles lane_pr_closed on the linked stage without publication-missing failure", async () => {
+    const definition: PipelineDefinition = {
+      name: "lane-closed-settlement",
+      terminalAction: "ready",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+    };
+    const entryRunId = "run-resume-lane-closed";
+    const closedNumber = 88;
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: {
+        specPath: "spec/implement.md",
+        status: "completed",
+        terminalCause: "complete",
+        prNumber: closedNumber,
+      },
+    };
+    const { store, stages } = fakeStore(definition, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: { status: "running", workflowInvocationId: entryRunId },
+    });
+
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => {
+        throw new Error("deferred settlement must not redispatch");
+      },
+      wait: restartSweepWait(runs),
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication: async () => {
+        throw new Error("terminal publication must not run for lane_pr_closed settlement");
+      },
+    });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    const implement = stages().find((stage) => stage.stageId === "implement");
+    expect(implement?.status).toBe("succeeded");
+    expect(implement?.failureDetail).toBeNull();
+    expect(implement?.artifact).toMatchObject({
+      entryRunId,
+      lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+      prNumber: closedNumber,
+    });
+  });
+
+  test("resume settles list-probe publication failure onto the linked stage failure detail", async () => {
+    const definition: PipelineDefinition = {
+      name: "lane-probe-settlement",
+      terminalAction: "ready",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+    };
+    const entryRunId = "run-resume-lane-probe";
+    const probeMessage = "gh api unavailable";
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: {
+        specPath: "spec/implement.md",
+        status: "failed",
+        terminalCause: "completion_commit_failed",
+        terminalFailureDetail: { failureKind: "error", message: probeMessage, bindingAttempts: [] },
+      },
+    };
+    const { store, stages } = fakeStore(definition, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: { status: "running", workflowInvocationId: entryRunId },
+    });
+
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => {
+        throw new Error("deferred settlement must not redispatch");
+      },
+      wait: restartSweepWait(runs),
+      resolveStage: resolveStageStub(),
+    });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    const implement = stages().find((stage) => stage.stageId === "implement");
+    expect(implement?.status).toBe("failed");
+    expect(implement?.failureDetail).toMatchObject({
+      reason: "completion_commit_failed",
+      message: probeMessage,
+    });
+  });
+
   test("resume still refuses a running pipeline whose deferred stage entry run is genuinely live", async () => {
     const entryRunId = "run-resume-live-1";
     const runs: Record<string, Partial<Run>> = {

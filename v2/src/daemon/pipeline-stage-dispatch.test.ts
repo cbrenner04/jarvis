@@ -58,6 +58,7 @@ const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
   ["pipeline-stage-settlement.ts:settleLinkedStagesFromEntryRunWith:failed#1", "terminal"],
   ["pipeline-stage-settlement.ts:settleLinkedStagesFromEntryRunWith:failed#2", "terminal"],
   ["pipeline-stage-settlement.ts:settleLinkedStagesFromEntryRunWith:succeeded#1", "terminal"],
+  ["pipeline-stage-settlement.ts:settleLinkedStagesFromEntryRunWith:succeeded#2", "terminal"],
   ["pipeline-execution.ts:admitFanOutBranches:skipped#1", "terminal"],
   ["pipeline-execution.ts:settleApprovalBoundaryFailure:failed#1", "terminal"],
   ["pipeline-execution.ts:skipRemainingStages:skipped#1", "terminal"],

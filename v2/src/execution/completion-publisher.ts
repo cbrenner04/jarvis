@@ -250,6 +250,17 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
       if (prResult.kind === "lane") {
         result.lanePrOutcome = prResult.outcome;
+        if (prResult.outcome.kind === "lane_pr_merged") {
+          const evidence = await confirmPr(
+            gh,
+            input.worktreePath,
+            input.branch,
+            effectiveBaseRef,
+            prResult.outcome.prNumber,
+          );
+          result.prNumber = evidence.number;
+          result.prUrl = evidence.url;
+        }
       } else {
         result.prNumber = prResult.evidence.number;
         result.prUrl = prResult.evidence.url;

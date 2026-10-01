@@ -13,16 +13,16 @@ Linked stage settlement (`settleLinkedStagesFromEntryRunWith`) still applies the
 
 ## Tasks
 
-- [ ] Extend PR-evidence resolution and/or stage settlement branches in `pipeline-stage-settlement.ts` (and any log-derived failure detail hook) for `lane_pr_merged`, `lane_pr_closed`, and list-probe failures aligned with durable run rows from subspec 00.
-- [ ] Add `pipeline-execution.test.ts` restart-sweep or resume-precondition fixtures with linked `running` stages per acceptance criteria (settlement logic only; not list/wait projection tests).
-- [ ] Update operator-facing docs for stage settlement per Documentation updates.
+- [x] Extend PR-evidence resolution and/or stage settlement branches in `pipeline-stage-settlement.ts` (and any log-derived failure detail hook) for `lane_pr_merged`, `lane_pr_closed`, and list-probe failures aligned with durable run rows from subspec 00.
+- [x] Add `pipeline-execution.test.ts` restart-sweep or resume-precondition fixtures with linked `running` stages per acceptance criteria (settlement logic only; not list/wait projection tests).
+- [x] Update operator-facing docs for stage settlement per Documentation updates.
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts`: entry run settled `completed` with merged PR evidence after `lane_pr_merged` publication settles a linked final `ready`/`merge` stage `succeeded` with that PR on the artifact, not `completion_publication_missing_pr_evidence`; fails against pre-fix stage failure reachable via `settlement fails when a ready pipeline's completed entry run lacks publication PR evidence`.
-- [ ] Same file: entry run settled with `lane_pr_closed` settles the linked stage to a terminal non-failure outcome with `lane_pr_closed` and the PR number, not `status: "failed"` with publication-missing code; fails against pre-fix publication-failed stage settlement.
-- [ ] Same file: entry run `failed` from a list-probe publication failure settles the linked stage `failed` with failure detail carrying the same probe message as the run row; fails against pre-fix mismatched or generic stage failure detail.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline-execution.test.ts`: entry run settled `completed` with merged PR evidence after `lane_pr_merged` publication settles a linked final `ready`/`merge` stage `succeeded` with that PR on the artifact, not `completion_publication_missing_pr_evidence`; fails against pre-fix stage failure reachable via `settlement fails when a ready pipeline's completed entry run lacks publication PR evidence`.
+- [x] Same file: entry run settled with `lane_pr_closed` settles the linked stage to a terminal non-failure outcome with `lane_pr_closed` and the PR number, not `status: "failed"` with publication-missing code; fails against pre-fix publication-failed stage settlement.
+- [x] Same file: entry run `failed` from a list-probe publication failure settles the linked stage `failed` with failure detail carrying the same probe message as the run row; fails against pre-fix mismatched or generic stage failure detail.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

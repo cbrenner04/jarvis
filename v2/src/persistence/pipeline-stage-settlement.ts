@@ -1,3 +1,4 @@
+import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { priorLaneRunsForWorkflowRollup } from "./prior-lane-runs-for-workflow-rollup.ts";
@@ -19,6 +20,7 @@ export type PipelineStageArtifact = {
   downstreamInputs?: string[];
   prNumber?: number;
   prUrl?: string;
+  lanePrOutcome?: LanePrOutcome;
   requestedBase?: string;
   resolvedBase?: string;
 };
@@ -45,6 +47,15 @@ export function resolvePrEvidenceAcrossInvocation(
     }
   }
   return undefined;
+}
+
+/** Completed lane-pr-closed settlement leaves `prNumber` without `prUrl` on the entry row. */
+function lanePrClosedEvidenceFromEntryRun(
+  entryRun: Pick<Run, "status" | "terminalCause" | "prNumber" | "prUrl">,
+): LanePrOutcome | undefined {
+  if (entryRun.status !== "completed" || entryRun.terminalCause !== "complete") return undefined;
+  if (entryRun.prNumber == null || entryRun.prUrl != null) return undefined;
+  return { kind: "lane_pr_closed", prNumber: entryRun.prNumber };
 }
 
 export function stageArtifactFromEntryRun(
@@ -147,7 +158,24 @@ function durableOperatorErrorFromEntryRun(entryRun: DurableRunWithAttempts): Dur
   return { reason: "harness_failure", retryable: false, nextAction: "stop" };
 }
 
+function stageFailureDetailFromPublicationFailedRun(entryRun: DurableRunWithAttempts): unknown | undefined {
+  if (entryRun.terminalCause !== "completion_commit_failed") return undefined;
+  const message = entryRun.terminalFailureDetail?.message;
+  if (message === undefined || message.length === 0) return undefined;
+  return {
+    reason: "completion_commit_failed",
+    retryable: false,
+    nextAction: "stop",
+    message,
+    entryRunStatus: entryRun.status,
+    terminalCause: entryRun.terminalCause,
+    terminalFailureDetail: entryRun.terminalFailureDetail,
+  };
+}
+
 export function stageFailureDetailFromEntryRun(entryRun: DurableRunWithAttempts): unknown {
+  const publicationFailed = stageFailureDetailFromPublicationFailedRun(entryRun);
+  if (publicationFailed !== undefined) return publicationFailed;
   return {
     ...durableOperatorErrorFromEntryRun(entryRun),
     entryRunStatus: entryRun.status,
@@ -226,6 +254,20 @@ function linkedRunningStages(
   return found;
 }
 
+function failedRollupStageFailureDetail(
+  failedRun: DurableRunWithAttempts,
+  rollupStatus: Run["status"],
+  options: LinkedStageSettlementOptions,
+): unknown {
+  // No row failed (a durable step never ran): project the rollup, not the completed entry row.
+  if (failedRun.status === "completed") return stageFailureDetailFromEntryRun({ ...failedRun, status: rollupStatus });
+  return (
+    options.failureDetailForRun?.(failedRun.id) ??
+    stageFailureDetailFromPublicationFailedRun(failedRun) ??
+    stageFailureDetailFromEntryRun(failedRun)
+  );
+}
+
 /**
  * The one linked-stage settlement algorithm: map a terminal workflow invocation's durable rows onto
  * every `running` stage linked to its entry run. Idempotent — a stage settles once, and a live or
@@ -270,18 +312,35 @@ export function settleLinkedStagesFromEntryRunWith(
         patch: {
           status: "failed",
           endedAt,
-          failureDetail:
-            failedRun.status === "completed"
-              ? // No row failed (a durable step never ran): project the rollup, not the completed entry row.
-                stageFailureDetailFromEntryRun({ ...failedRun, status: rollupStatus })
-              : (options.failureDetailForRun?.(failedRun.id) ?? stageFailureDetailFromEntryRun(failedRun)),
+          failureDetail: failedRollupStageFailureDetail(failedRun, rollupStatus, options),
         },
       });
       continue;
     }
+    const requiresPublicationPrEvidence = terminalPublicationStageRequiresPrEvidence(
+      pipeline.definition,
+      stage.stageId,
+    );
+    const lanePrClosed = requiresPublicationPrEvidence ? lanePrClosedEvidenceFromEntryRun(entryRun) : undefined;
     const prEvidence = resolvePrEvidenceAcrossInvocation(entryRun, siblingRuns);
-    const missingPrEvidence =
-      terminalPublicationStageRequiresPrEvidence(pipeline.definition, stage.stageId) && prEvidence === undefined;
+    const missingPrEvidence = requiresPublicationPrEvidence && prEvidence === undefined && lanePrClosed === undefined;
+    if (lanePrClosed !== undefined) {
+      store.updateStage({
+        ...target,
+        requiredStatus: "running",
+        patch: {
+          status: "succeeded",
+          endedAt,
+          failureDetail: null,
+          artifact: {
+            ...stageArtifactFromEntryRun(entryRunId, entryRun, undefined, options.publicationBaseRetarget, undefined),
+            prNumber: lanePrClosed.prNumber,
+            lanePrOutcome: lanePrClosed,
+          },
+        },
+      });
+      continue;
+    }
     if (entryRun.specPath.length === 0 || missingPrEvidence) {
       store.updateStage({
         ...target,

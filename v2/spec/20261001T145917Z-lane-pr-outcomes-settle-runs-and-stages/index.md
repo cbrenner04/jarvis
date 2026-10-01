@@ -4,5 +4,5 @@ Resume and pipeline recovery still treat operator-closed or merged lane PRs as p
 
 Prerequisites (publication boundary) are landed in [lane-pr-history-blocks-republish](../completed/20261001T010442Z-lane-pr-history-blocks-republish/index.md); this spec wires durable run and linked-stage settlement to those outcomes.
 
-- [ ] [00 — Workflow-runner lane PR run settlement](./00-workflow-runner-lane-pr-run-settlement.md)
-- [ ] [01 — Pipeline linked-stage lane PR settlement](./01-pipeline-linked-stage-lane-pr-settlement.md)
+- [x] [00 — Workflow-runner lane PR run settlement](./00-workflow-runner-lane-pr-run-settlement.md)
+- [x] [01 — Pipeline linked-stage lane PR settlement](./01-pipeline-linked-stage-lane-pr-settlement.md)

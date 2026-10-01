@@ -73,6 +73,9 @@ describe("createCompletionPublisher", () => {
         }
       }
       if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
+      if (args[0] === "pr" && args[1] === "view" && history !== "throw") {
+        return viewPr(history.number, `https://github.com/user/repo/pull/${history.number}`);
+      }
       return "";
     };
     return { gh, ghCalls };
@@ -1462,8 +1465,13 @@ describe("createCompletionPublisher", () => {
     const result = await publisher(baseInput);
 
     expect(result.lanePrOutcome).toEqual({ kind, prNumber: number });
-    expect(result.prNumber).toBeUndefined();
-    expect(result.prUrl).toBeUndefined();
+    if (kind === "lane_pr_merged") {
+      expect(result.prNumber).toBe(number);
+      expect(result.prUrl).toBe(`https://github.com/user/repo/pull/${number}`);
+    } else {
+      expect(result.prNumber).toBeUndefined();
+      expect(result.prUrl).toBeUndefined();
+    }
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
     expect(
       ghCalls.find((c) => c.startsWith("pr list") && c.includes("--state all"))?.includes("number,baseRefName,state"),

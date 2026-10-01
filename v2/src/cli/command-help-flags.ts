@@ -250,13 +250,22 @@ const PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS = {
 } as const satisfies Record<string, { type: "boolean" }>;
 
 /** `parseArgs` options for `parsePipelineResumeArgs` / `jarvis pipeline resume`. */
-export const PIPELINE_RESUME_PARSE_ARG_OPTIONS = PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS;
+export const PIPELINE_RESUME_PARSE_ARG_OPTIONS = {
+  ...PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS,
+  "address-review": { type: "string" },
+} as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 /** `parseArgs` options for `parsePipelineRecoverArgs` / `jarvis pipeline recover`. */
 export const PIPELINE_RECOVER_PARSE_ARG_OPTIONS = PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS;
 
 /** Flags accepted by `parsePipelineResumeArgs`, in help declaration order. */
 export const PIPELINE_RESUME_HELP_FLAGS: readonly CommandFlag[] = [
+  {
+    name: "--address-review",
+    argumentShape: "<stage-id>",
+    description:
+      "Launch detached review-feedback for a succeeded workflow stage (pipeline_stage_review_feedback_launch); not pipeline resume.",
+  },
   WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
   WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG,
 ];

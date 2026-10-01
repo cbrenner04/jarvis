@@ -7,7 +7,8 @@ After subspec 00, `createCompletionPublisher` can return `pushSha` with `lanePrO
 ## Decisions
 
 - `publishCompletionArtifacts` accepts publisher results that pair `pushSha` with `lanePrOutcome` without entering the missing-`prNumber` failure at the existing guard — rules out leaving lane refusal indistinguishable from a broken publish.
-- Deferred to first consumer: terminal cause, run-row persistence fields, pipeline stage settlement, notification sink copy, and ready-finalization behavior when only `lanePrOutcome` is present — pin when wiring each consumer.
+- Write-loop settlement when only `lanePrOutcome` is present: `terminalCause` and `loopOutcomeKind` stay `complete`; run row has no `prNumber`/`prUrl`; terminal `loop_finished` carries `lanePrOutcome`; ready finalization is skipped in `publishCompletionArtifacts`.
+- Deferred to later consumers: pipeline stage settlement, notification sink copy, and run-row persistence of `lanePrOutcome` beyond the log event.
 
 ## Task checklist
 
@@ -18,8 +19,8 @@ After subspec 00, `createCompletionPublisher` can return `pushSha` with `lanePrO
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` (or colocated publication test): fake publisher returns `pushSha` plus `lanePrOutcome` `lane_pr_closed` with a PR number → `publishCompletionArtifacts` does not return `completion_commit_failed` with `Pushed completion without PR evidence`; fails against pre-fix guard at `publishCompletionArtifacts`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `write-loop.test.ts` (or colocated publication test): fake publisher returns `pushSha` plus `lanePrOutcome` `lane_pr_closed` with a PR number → `publishCompletionArtifacts` does not return `completion_commit_failed` with `Pushed completion without PR evidence`; fails against pre-fix guard at `publishCompletionArtifacts`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

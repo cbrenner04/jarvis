@@ -1,6 +1,6 @@
 # Plan-draft shape failures name their cause and accept a timestamp-named nested dir
 
-- [ ] [00 - Suffixed plan.draft.shape reasons and compose fallback](./00-suffixed-shape-reasons-and-compose-fallback.md)
+- [x] [00 - Suffixed plan.draft.shape reasons and compose fallback](./00-suffixed-shape-reasons-and-compose-fallback.md)
 - [ ] [01 - Accept single immediate-child staging directory](./01-accept-immediate-child-staging-dir.md)
 - [ ] [02 - Record shape reasons and nested-child acceptance in v1-behaviors](./02-record-shape-reasons-in-v1-behaviors.md)
 

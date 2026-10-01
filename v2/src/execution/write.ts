@@ -173,8 +173,53 @@ function discoverNestedPlanDraftLayoutRoots(stagingDir: string): string[] {
   return candidates;
 }
 
+function discoverImmediateChildPlanDraftLayoutRoots(stagingDir: string): string[] {
+  if (!existsSync(stagingDir) || !statSync(stagingDir).isDirectory()) {
+    return [];
+  }
+  const candidates: string[] = [];
+  for (const name of readdirSync(stagingDir)) {
+    const path = join(stagingDir, name);
+    if (!statSync(path).isDirectory()) continue;
+    if (validatePlanDraftShapeAtRoot(path).valid) {
+      candidates.push(path);
+    }
+  }
+  return candidates;
+}
+
+function discoverPlanDraftNestedLayoutRoots(stagingDir: string): string[] {
+  const seen = new Set<string>();
+  const combined: string[] = [];
+  for (const path of [
+    ...discoverNestedPlanDraftLayoutRoots(stagingDir),
+    ...discoverImmediateChildPlanDraftLayoutRoots(stagingDir),
+  ]) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    combined.push(path);
+  }
+  return combined;
+}
+
+function countImmediateChildStagingDirectories(stagingDir: string): number {
+  if (!existsSync(stagingDir) || !statSync(stagingDir).isDirectory()) {
+    return 0;
+  }
+  let count = 0;
+  for (const name of readdirSync(stagingDir)) {
+    const path = join(stagingDir, name);
+    if (statSync(path).isDirectory()) count += 1;
+  }
+  return count;
+}
+
 function hasPreservablePlanDraftStageContent(stagingDir: string): boolean {
-  return existsSync(join(stagingDir, "index.md")) || discoverNestedPlanDraftLayoutRoots(stagingDir).length === 1;
+  return (
+    existsSync(join(stagingDir, "index.md")) ||
+    discoverNestedPlanDraftLayoutRoots(stagingDir).length === 1 ||
+    countImmediateChildStagingDirectories(stagingDir) === 1
+  );
 }
 
 type ResolvedPlanDraftStagingRoot = { ok: true; root: string } | { ok: false; reason: string };
@@ -189,7 +234,7 @@ function resolvePlanDraftStagingRoot(stagingDir: string): ResolvedPlanDraftStagi
     return { ok: true, root: stagingDir };
   }
 
-  const candidates = discoverNestedPlanDraftLayoutRoots(stagingDir);
+  const candidates = discoverPlanDraftNestedLayoutRoots(stagingDir);
   if (candidates.length === 1) {
     return { ok: true, root: candidates[0]! };
   }

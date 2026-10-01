@@ -23,12 +23,12 @@ Plan drafters that write `.jarvis-plan-stage/<timestamp>-<name>/{index.md,00-*.m
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write.test.ts` includes a test (new or extended) where the stage holds only `<stage>/<timestamp>-<name>/index.md` and `00-*.md`, plan-draft completion or `checkStagedPlanDraft` succeeds, nested bytes flatten to the staging root, and `spec/` is not required; fails against the pre-fix resolver that ignores immediate-child directories.
-- [ ] Same file, a stage with two immediate-child shape-valid directories settles `plan.draft.shape:nested-roots=2`, not bare `plan.draft.shape`; fails against pre-fix behavior.
-- [ ] Same file, a stage with one shape-valid `spec/<name>/` and one shape-valid immediate-child directory settles `plan.draft.shape:nested-roots=2`, not bare `plan.draft.shape`; fails against pre-fix behavior.
-- [ ] Same file, nested-only immediate-child staging survives `contract_miss` redraft like `plan-draft shape contract_miss preserves nested-only staging for redraft` (new or extended test with timestamp-named child dir); fails against pre-fix preservation that only recognizes `spec/<name>/`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/write.test.ts` includes a test (new or extended) where the stage holds only `<stage>/<timestamp>-<name>/index.md` and `00-*.md`, plan-draft completion or `checkStagedPlanDraft` succeeds, nested bytes flatten to the staging root, and `spec/` is not required; fails against the pre-fix resolver that ignores immediate-child directories.
+- [x] Same file, a stage with two immediate-child shape-valid directories settles `plan.draft.shape:nested-roots=2`, not bare `plan.draft.shape`; fails against pre-fix behavior.
+- [x] Same file, a stage with one shape-valid `spec/<name>/` and one shape-valid immediate-child directory settles `plan.draft.shape:nested-roots=2`, not bare `plan.draft.shape`; fails against pre-fix behavior.
+- [x] Same file, nested-only immediate-child staging survives `contract_miss` redraft like `plan-draft shape contract_miss preserves nested-only staging for redraft` (new or extended test with timestamp-named child dir); fails against pre-fix preservation that only recognizes `spec/<name>/`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

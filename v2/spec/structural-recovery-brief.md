@@ -1,6 +1,6 @@
 # Structural recovery brief
 
-Standing document: what is open, in what order, and the operating rules that still earn their place. Rewritten 2026-09-18 from a full backlog audit; refreshed 2026-10-01 against `main` @ `6e2255e05`. Session narratives live in `reports/`; per-item tracing in [`structural-recovery-seed-ledger.md`](./structural-recovery-seed-ledger.md). Neither document is a journal: when a session lands something, move the row, do not append a paragraph.
+Standing document: what is open, in what order, and the operating rules that still earn their place. Rewritten 2026-09-18 from a full backlog audit; refreshed 2026-10-01 against `main` @ `cebeb7b39`. Session narratives live in `reports/`; per-item tracing in [`structural-recovery-seed-ledger.md`](./structural-recovery-seed-ledger.md). Neither document is a journal: when a session lands something, move the row, do not append a paragraph.
 
 ## Where it stands
 
@@ -12,27 +12,29 @@ The 2026-09-21 session closed the regression P0 (#4132) and every dispatchable t
 
 What is left is no longer a fixed point that strands complete work. It is chain tails, the resume-surfaces chain, dogfood quality, and parked display work.
 
-Counts after the 2026-10-01 closeout: 1 open spec dir and 4 queued ready-intents; 3 dispatchable, 1 evidence-gated. 20 seeds. Landed: ledger § Landed.
+Counts after the 2026-10-01 second-session closeout: 12 open spec dirs (11 merged awaiting cleanup archive, 1 implement in flight) and 12 queued ready-intents; 5 dispatchable, 1 waiting on the in-flight lane, 5 chained, 1 evidence-gated. 17 seeds. Landed: ledger § Landed.
 
 ## Priority-ordered work
 
-2026-09-30 second session landed the rollup chain, review-feedback write run, roll-and-retain telemetry, live-serial confirmation, review-roles falsifiability, mutation whitespace, `finished_at` stamping, and superseded-PR settle + policy (ledger § Landed).
+2026-10-01 second session landed 13 implements (operator-merged publication, lane-PR history, review-feedback launch, plan-draft shape, agent-abort group reap, self-parsing locator, TUI single supervisor, inflow mutation repair, superseded-branch retirement, failed-settlement usage, ready-gate repair scope, resumed-settle notify) and queued the rejected pipelines' dependents as ready-intents (ledger § Landed).
 
 | P | Item | Why |
 | --- | --- | --- |
 | **P1** | [[wal-lock-holder-child-survives-to-marker]] — **evidence-gated**, do not plan | Must not be planned until an operator pastes a captured rejection into it (#4101); plan PR #4100 was rejected for un-tickable criteria |
-| **P1** | [[harness-commits-stay-in-run-scope]] | Three lanes swept out-of-scope or stale-`main` content on 2026-09-30; one broke a test |
-| **P1** | [[terminal-publication-accepts-operator-merged-pr]]; [[closed-lane-is-not-republished]] | Operator merge/close reads as failure or is undone by a duplicate PR |
-| **P1** | Mutation coverage: #4293 #4299 #4300 landed → `publication-inflow-mutation-repair` (ready-intent; replan) | Inflow mutation survivors at publication still need hand repair |
-| **P1** | Review feedback: #4208 #4209 #4234 #4294 landed; `review-feedback-item-traceability` #4303 pending merge; then [[pipeline-stage-addresses-review-feedback]] | Every post-publication review fix is hand-edited outside the harness |
-| **P1** | Cleanup: #4291 #4296 landed → `retire-superseded-pipeline-branches` (ready-intent) | Superseded pipeline branches accumulate |
-| **P2** | `agent-bindings-recover-usage-on-failed-settlement` (ready-intent; #4301 landed its prerequisite) | Failed settlements stay unpriced |
-| **P2** | Dogfood quality: [[tui-revision-follow-single-supervisor]]; [[implement-respects-target-repo-doc-layout]] (#3426); [[intent-split-covers-sibling-repo-surfaces]] (#3439); [[detached-pipeline-plan-stage-consumes-ready-intents]] (#3041); [[per-project-config-overrides-seam]] (#3026/#3150); [[implement-can-run-integration-slice-tests]]; [[self-parsing-structural-tests-can-bind-to-their-own-fixtures]] | Each recurs but none strands a lane |
+| **P1** | Lane-PR outcomes: [[lane-pr-outcomes-settle-runs-and-stages]] → [[daemon-projects-lane-pr-settlement]], [[resume-admits-lane-pr-republish-opt-in]] | Operator merge/close of a lane PR still does not settle its run and stage (#4322 #4331 landed the publication half) |
+| **P1** | Plan-draft shape: [[plan-draft-shape-contract-reprompt]] → [[plan-draft-shape-operator-docs]] | #4332 names the failure; the planner is not yet reprompted with it |
+| **P1** | Agent process groups: [[implement-run-records-agent-process-groups]] → [[daemon-sweeps-recorded-agent-groups]] | #4335 reaps on abort; agent groups are still invisible to `run kill` and the orphan sweep |
+| **P1** | Self-parsing tests: [[resume-path-inventory-binds-real-declaration]] → [[self-parsing-structural-test-docs]] | #4345 fixed the shared locator; the resume-path inventory still binds the first match |
+| **P1** | [[pipeline-resume-address-review-cli]] | #4326 landed the daemon launch; no CLI verb reaches it |
+| **P1** | Mutation repair: [[resume-mutation-repair-reverifies-before-repair]]; [[mutation-verifier-fails-fast-on-first-killing-file]] | Resume repairs survivors an operator commit already killed (#4331, #4332); the verifier keeps running after a killing file fails |
+| **P1** | [[notifications-wait-survives-daemon-handoff]] | `wait` dies `IPC connection lost` on every daemon handoff |
+| **P1** | [[write-loop-test-split]] (after `completion-commit-run-scope` lands) | `write-loop.test.ts` exceeds the file budget and is classified load-sensitive (#4340) until split |
+| **P2** | Dogfood quality: [[implement-respects-target-repo-doc-layout]] (#3426); [[intent-split-covers-sibling-repo-surfaces]] (#3439); [[detached-pipeline-plan-stage-consumes-ready-intents]] (#3041); [[per-project-config-overrides-seam]] (#3026/#3150); [[implement-can-run-integration-slice-tests]] | Each recurs but none strands a lane |
 | **P2** | Fan-out: [[pipeline-fan-out-per-lane-terminal-settlement]]; [[pipeline-fan-out-lanes-serial-chained-bases]] | Fan-out pipelines still derive `failed` after every lane succeeds |
 | **P3** | [[fold-shared-into-v2]] → [[retire-v2-nomenclature]] (fold in; lowish priority) | `v2` is a planning-era label; there is no v3 |
 | **P3** | [[agent-confinement-is-per-vendor-and-unexpressed]] (#1453); [[cli-retire-run-start-pause-and-config]]; [[tui-dock-command-grammar-mirrors-cli]]; [[tui-typed-run-steering-clears-command-input]] | Parked; see the open decision on `run pause` below |
 
-Dispatch order for the next session: merge #4303 after its second green CI; plan the three dispatchable ready-intents in parallel; intent the three new P1 seeds. Leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
+Dispatch order for the next session: run `cleanup -y` to archive the merged spec dirs; plan the five chain heads in parallel (lane-pr outcomes, plan-draft reprompt, agent process groups, resume-path inventory, address-review CLI) and dispatch each dependent after its head merges; intent the three new P1 seeds; plan `write-loop-test-split` once `completion-commit-run-scope` lands. Leave [[wal-lock-holder-child-survives-to-marker]] alone until a captured rejection exists. Read `## Prerequisites` before approving any fan-out gate.
 
 ## Contradictions and decisions surfaced by the audit
 
@@ -88,3 +90,7 @@ Dispatch order for the next session: merge #4303 after its second green CI; plan
 **A criterion an implement agent cannot demonstrate from inside a run belongs in operator verification, not acceptance criteria.** N consecutive runs, an idle machine, green CI: each strands the lane at no-progress, and two plans (#4100, #4105) were rejected for exactly this.
 
 **Archive a hand-finished spec in the same session.** Cleanup never archives a spec with no run row, so its open dir later reads as unlanded work and blocks dependent plans.
+
+**Intent splits default to over-chaining.** Reject a fan-out whose lanes are coupled (shared file, docs-only lane, strict chain) and hand-assemble one ready-intent with chained subspecs; happened 3x on 2026-10-01 (write-loop 9 lanes, TUI 2 coupled lanes, plan-draft-shape docs-only lane).
+
+**After committing a killing test, resume can still exhaust on a stale survivor** until [[resume-mutation-repair-reverifies-before-repair]] lands; hand-run `verifyDiffDerivedMutations` instead of resuming.

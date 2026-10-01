@@ -1679,3 +1679,123 @@ test("wait and list project review-feedback item id arrays from the terminal loo
   expect(emptyRow).not.toHaveProperty("reviewFeedbackDeclinedItemIds");
   expect(emptyRow).not.toHaveProperty("reviewFeedbackUnaddressedItemIds");
 });
+
+test("list and wait project lane_pr_closed lanePrOutcome and omit stale publication-failure error", async () => {
+  const closedNumber = 88;
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    completionCommitError: "stale publication tail",
+    publicationFailure: { operation: "push", message: "remote rejected", exitCode: 7, stderrTail: "err" },
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 2,
+    resumable: false,
+    lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+  });
+
+  const expectedLane = { kind: "lane_pr_closed", prNumber: closedNumber };
+  const list = await expectResponse(await listDirect("list-lane-closed"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  expect(row).toMatchObject({ status: "completed", lanePrOutcome: expectedLane });
+  expect(row?.error).toBeUndefined();
+
+  expect(await expectResponse(await waitDirect("wait-lane-closed", runId))).toMatchObject({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    lanePrOutcome: expectedLane,
+  });
+
+  const staleLogOnlyId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId: staleLogOnlyId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+  });
+  logSink.append(staleLogOnlyId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+    completionCommitError: "stale publication tail",
+  });
+  const staleRow = (await expectResponse(await listDirect("list-lane-closed-stale"))).runs as Array<
+    Record<string, unknown>
+  >;
+  expect(staleRow.find((candidate) => candidate.runId === staleLogOnlyId)).toMatchObject({
+    status: "completed",
+    lanePrOutcome: expectedLane,
+  });
+  expect(staleRow.find((candidate) => candidate.runId === staleLogOnlyId)?.error).toBeUndefined();
+});
+
+test("list and wait project lane_pr_merged lanePrOutcome from loop_finished not pr evidence alone", async () => {
+  const mergedNumber = 77;
+  const mergedUrl = `https://github.com/org/repo/pull/${mergedNumber}`;
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+    lanePrOutcome: { kind: "lane_pr_merged", prNumber: mergedNumber },
+  });
+
+  const expectedLane = { kind: "lane_pr_merged", prNumber: mergedNumber };
+  const list = await expectResponse(await listDirect("list-lane-merged"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  expect(row).toMatchObject({
+    status: "completed",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+    lanePrOutcome: expectedLane,
+  });
+
+  expect(await expectResponse(await waitDirect("wait-lane-merged", runId))).toMatchObject({
+    runStatus: "completed",
+    lanePrOutcome: expectedLane,
+  });
+});
+
+test("list and wait omit lanePrOutcome when merged history retained only as prNumber and prUrl", async () => {
+  const mergedNumber = 77;
+  const mergedUrl = `https://github.com/org/repo/pull/${mergedNumber}`;
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+  });
+  finishLoop(runId, "completed", 1);
+
+  const list = await expectResponse(await listDirect("list-lane-merged-infer-guard"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  expect(row).toMatchObject({ status: "completed", prNumber: mergedNumber, prUrl: mergedUrl });
+  expect(row).not.toHaveProperty("lanePrOutcome");
+
+  const waitPayload = await expectResponse(await waitDirect("wait-lane-merged-infer-guard", runId));
+  expect(waitPayload).not.toHaveProperty("lanePrOutcome");
+});

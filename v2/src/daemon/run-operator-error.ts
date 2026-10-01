@@ -13,6 +13,7 @@ import {
   type SurvivingMutationKillingSetResult,
   survivingMutationLogFields,
 } from "../execution/ready-finalize.ts";
+import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import {
   type ContractMissDetailEvent,
@@ -94,6 +95,7 @@ export type RunOperatorError = {
   gateRefusalCause?: GateRefusalRecoveryCause;
   slotRedriveCount?: number;
   slotRedriveBound?: number;
+  lanePrOutcome?: LanePrOutcome;
 };
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
@@ -109,7 +111,44 @@ type RunWithAttempts = {
   terminalCause?: WriteLoopOutcomeKind | null;
   terminalFailureDetail?: InvocationFailureDetail | null;
   operatorFailureRecord?: OperatorFailureRecord | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
 };
+
+const PUBLICATION_FAILURE_OPERATOR_REASONS = new Set<RunOperatorErrorReason>([
+  "completion_commit_failed",
+  "iteration_commit_failed",
+  "ready_flip_failed",
+]);
+
+type RunLanePrSource = Pick<RunWithAttempts, "status" | "terminalCause" | "prNumber" | "prUrl">;
+
+/** Completed lane-pr-closed settlement leaves `prNumber` without `prUrl` on the run row. */
+function lanePrOutcomeFromRunRow(run: RunLanePrSource): LanePrOutcome | undefined {
+  if (run.status !== "completed" || run.terminalCause !== "complete") return undefined;
+  if (run.prNumber == null || run.prUrl != null) return undefined;
+  return { kind: "lane_pr_closed", prNumber: run.prNumber };
+}
+
+/** Durable lane outcome for list/wait: terminal log over run-row closed shape; never infer merged from PR evidence alone. */
+export function resolveRunLanePrOutcome(
+  run: RunLanePrSource,
+  terminalRecord?: TerminalLogRecord,
+): LanePrOutcome | undefined {
+  const fromLog = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.lanePrOutcome : undefined;
+  if (fromLog !== undefined) return fromLog;
+  return lanePrOutcomeFromRunRow(run);
+}
+
+function applyLanePrOutcomeOperatorError(
+  error: RunOperatorError | undefined,
+  lanePrOutcome: LanePrOutcome | undefined,
+): RunOperatorError | undefined {
+  if (lanePrOutcome === undefined) return error;
+  if (error === undefined) return undefined;
+  if (PUBLICATION_FAILURE_OPERATOR_REASONS.has(error.reason)) return undefined;
+  return { ...error, lanePrOutcome };
+}
 
 const op = (
   reason: RunOperatorErrorReason,
@@ -595,17 +634,17 @@ export function composeRunOperatorError(
   terminalRecord?: TerminalLogRecord,
   logRecords?: PersistedRecord[],
 ): RunOperatorError | undefined {
-  const error = applyRecordRetryability(
-    composeRunOperatorErrorFromState(run, terminalRecord),
-    run.operatorFailureRecord,
-  );
-  if (error?.reason !== "contract_miss" || !logRecords) return error;
-  let lastDetailEvent: ContractMissDetailEvent | undefined;
-  for (const record of logRecords) {
-    if (record.event.kind === "contract_miss_detail") {
-      lastDetailEvent = record.event;
+  let error = applyRecordRetryability(composeRunOperatorErrorFromState(run, terminalRecord), run.operatorFailureRecord);
+  if (error?.reason === "contract_miss" && logRecords) {
+    let lastDetailEvent: ContractMissDetailEvent | undefined;
+    for (const record of logRecords) {
+      if (record.event.kind === "contract_miss_detail") {
+        lastDetailEvent = record.event;
+      }
     }
+    const failureReason = lastDetailEvent?.failureReason;
+    error = failureReason === undefined ? error : { ...error, contractMissDetail: failureReason };
   }
-  const failureReason = lastDetailEvent?.failureReason;
-  return failureReason === undefined ? error : { ...error, contractMissDetail: failureReason };
+  const lanePrOutcome = resolveRunLanePrOutcome(run, terminalRecord);
+  return applyLanePrOutcomeOperatorError(error, lanePrOutcome);
 }

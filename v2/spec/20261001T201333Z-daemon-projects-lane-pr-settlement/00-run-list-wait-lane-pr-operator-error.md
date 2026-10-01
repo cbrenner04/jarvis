@@ -20,8 +20,8 @@
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` or `daemon-wait-run-completion.test.ts`: a run settled `lane_pr_closed` projects `lanePrOutcome.kind` `lane_pr_closed` and `lanePrOutcome.prNumber` on the list/wait row; fails against pre-fix rows that omit `lanePrOutcome` or substitute publication-failure `error.reason`.
-- [ ] Same test surface: a run settled `lane_pr_merged` projects `lanePrOutcome.kind` `lane_pr_merged` and `lanePrOutcome.prNumber` (not PR number via `runListPrEvidence` alone); fails against pre-fix merged rows that omit outcome kind.
+- [x] `daemon-start-list.test.ts` or `daemon-wait-run-completion.test.ts`: a run settled `lane_pr_closed` projects `lanePrOutcome.kind` `lane_pr_closed` and `lanePrOutcome.prNumber` on the list/wait row; fails against pre-fix rows that omit `lanePrOutcome` or substitute publication-failure `error.reason`.
+- [x] Same test surface: a run settled `lane_pr_merged` projects `lanePrOutcome.kind` `lane_pr_merged` and `lanePrOutcome.prNumber` (not PR number via `runListPrEvidence` alone); fails against pre-fix merged rows that omit outcome kind.
 
 ## Documentation updates
 

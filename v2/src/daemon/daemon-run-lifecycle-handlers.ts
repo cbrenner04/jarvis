@@ -100,6 +100,7 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isStalePublicationCause,
+  resolveRunLanePrOutcome,
   RUN_OPERATOR_ERROR_RECOVERY,
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
@@ -635,9 +636,11 @@ export function createRunLifecycleHandlers(
             ...resumableProjection,
             ...runFailureField(run ?? undefined),
           };
+    const lanePrOutcome = run == null ? undefined : resolveRunLanePrOutcome(run, record);
     const withError = error === undefined ? base : { ...base, error };
+    const withLanePrOutcome = lanePrOutcome === undefined ? withError : { ...withError, lanePrOutcome };
     const withReviewFeedback = {
-      ...withError,
+      ...withLanePrOutcome,
       ...reviewFeedbackItemIdsProjection(
         loopFinishedEvent?.reviewFeedbackAddressedItemIds,
         loopFinishedEvent?.reviewFeedbackDeclinedItemIds,
@@ -1001,6 +1004,7 @@ export function createRunLifecycleHandlers(
       isTerminalRunStatus(reportedStatus) && fullRun !== undefined
         ? runListTerminalFinishAtMs(fullRun.attempts, fullRun.reconciledAt, fullRun.finishedAt)
         : undefined;
+    const lanePrOutcome = fullRun === undefined ? undefined : resolveRunLanePrOutcome(fullRun, terminalRecord);
 
     return {
       runId: run.id,
@@ -1011,6 +1015,7 @@ export function createRunLifecycleHandlers(
       isLive,
       ...entryOutcomeFields,
       ...runFailureField(fullRun),
+      ...(lanePrOutcome !== undefined ? { lanePrOutcome } : {}),
       ...(error !== undefined ? { error } : {}),
       ...runListReviewFields(snapshot),
       ...(fullRun?.stepId !== null && fullRun?.stepId !== undefined ? { stepId: fullRun.stepId } : {}),

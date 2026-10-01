@@ -23,6 +23,7 @@ import {
   isStalePublicationCause,
   RUN_OPERATOR_ERROR_RECOVERY,
   resolveFailedBlockedAttemptPrecedence,
+  resolveRunLanePrOutcome,
 } from "./run-operator-error.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
@@ -1263,4 +1264,72 @@ test("isStalePublicationCause is true only for the two publication causes on com
   expect(isStalePublicationCause("failed", "ready_flip_failed")).toBe(false);
   expect(isStalePublicationCause("completed", "ready_gate_failed")).toBe(false);
   expect(isStalePublicationCause("completed", undefined)).toBe(false);
+});
+
+test("resolveRunLanePrOutcome prefers loop_finished lanePrOutcome over run-row closed shape", () => {
+  const fromLog = { kind: "lane_pr_merged" as const, prNumber: 77 };
+  const runRow = {
+    status: "completed" as const,
+    terminalCause: "complete" as WriteLoopOutcomeKind,
+    prNumber: 88,
+    prUrl: null,
+  };
+  expect(resolveRunLanePrOutcome(runRow, loopFinished("complete", { lanePrOutcome: fromLog }))).toEqual(fromLog);
+});
+
+test("resolveRunLanePrOutcome infers lane_pr_closed from completed row with prNumber and no prUrl", () => {
+  expect(
+    resolveRunLanePrOutcome({
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: 88,
+      prUrl: null,
+    }),
+  ).toEqual({ kind: "lane_pr_closed", prNumber: 88 });
+});
+
+test("resolveRunLanePrOutcome does not infer merged lane outcome from prNumber and prUrl alone", () => {
+  expect(
+    resolveRunLanePrOutcome({
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: 77,
+      prUrl: "https://github.com/org/repo/pull/77",
+    }),
+  ).toBeUndefined();
+});
+
+test("composeRunOperatorError drops publication-failure reason when lane_pr_closed won on the run row", () => {
+  const publicationFailure = {
+    operation: "push" as const,
+    message: "remote rejected",
+    exitCode: 7,
+    stderrTail: "err",
+  };
+  expect(
+    composeRunOperatorError(
+      {
+        status: "completed",
+        terminalCause: "complete",
+        prNumber: 88,
+        prUrl: null,
+        attempts: [],
+      },
+      loopFinished("completion_commit_failed", { resumable: true, publicationFailure }),
+    ),
+  ).toBeUndefined();
+});
+
+test("composeRunOperatorError lane publication-failure suppression guard inversion", () => {
+  const publicationFailure = {
+    operation: "push" as const,
+    message: "remote rejected",
+    exitCode: 7,
+    stderrTail: "err",
+  };
+  const withoutLaneRow = composeRunOperatorError(
+    runWith("failed"),
+    loopFinished("completion_commit_failed", { resumable: true, publicationFailure }),
+  );
+  expect(withoutLaneRow?.reason).toBe("completion_commit_failed");
 });

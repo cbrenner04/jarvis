@@ -21,6 +21,7 @@ import {
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
+import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import { isForeignProcessGroup } from "../execution/verifier-process-groups.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -627,6 +628,7 @@ export type WaitRunCompletionResult = {
   resumable?: boolean;
   failure?: OperatorFailureRecord;
   error?: RunOperatorError;
+  lanePrOutcome?: LanePrOutcome;
   /** Surviving worktree path; present when `runStatus` is `blocked`. */
   worktreePath?: string;
   reviewFeedbackAddressedItemIds?: string[];
@@ -681,6 +683,7 @@ export function projectWorkflowEntryResult(
               : { ...entryResult.error, retryable: false, nextAction: "stop" },
         }),
     ...(entryResult?.failure === undefined ? {} : { failure: entryResult.failure }),
+    ...(entryResult?.lanePrOutcome === undefined ? {} : { lanePrOutcome: entryResult.lanePrOutcome }),
     ...(entryResult === undefined
       ? {}
       : reviewFeedbackItemIdsProjection(

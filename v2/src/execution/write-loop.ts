@@ -510,7 +510,7 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 export function completionPublishLaneRepublishFields(source: {
   allowLanePrRepublish?: boolean;
 }): { allowLanePrRepublish: true } | Record<string, never> {
-  return source.allowLanePrRepublish === true ? { allowLanePrRepublish: true } : {};
+  return source.allowLanePrRepublish !== true ? { allowLanePrRepublish: true } : {};
 }
 
 export function isShrinkWriteLoop(args: Pick<WriteLoopInput, "promptId" | "bindingResolution">): boolean {

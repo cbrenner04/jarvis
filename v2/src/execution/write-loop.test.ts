@@ -83,6 +83,7 @@ import {
   applyOperatorSessionId,
   buildSubspecCompletionInventory,
   compareRepoPathsByUtf8Bytes,
+  completionPublishLaneRepublishFields,
   deriveMarkdownOutputRoots,
   enumerateRepairCompletionCandidates,
   escapeRepoPathForEvidence,
@@ -14334,5 +14335,15 @@ describe("applyOperatorSessionId", () => {
     expect(result.telemetry?.sinkPath).toBe(callerTelemetry.sinkPath);
     expect(result.telemetry?.workflow).toBe(callerTelemetry.workflow);
     expect(result.telemetry?.role).toBe(callerTelemetry.role);
+  });
+});
+
+describe("completionPublishLaneRepublishFields", () => {
+  test("maps RPC true to publisher opt-in and omits the field otherwise", () => {
+    expect(completionPublishLaneRepublishFields({ allowLanePrRepublish: true })).toEqual({
+      allowLanePrRepublish: true,
+    });
+    expect(completionPublishLaneRepublishFields({})).toEqual({});
+    expect(completionPublishLaneRepublishFields({ allowLanePrRepublish: false })).toEqual({});
   });
 });

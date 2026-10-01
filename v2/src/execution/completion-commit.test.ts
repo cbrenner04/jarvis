@@ -514,7 +514,7 @@ describe("createCompletionCommitter", () => {
       })}\n`,
       "utf8",
     );
-    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+    const runGit = async (_cwd: string, args: readonly string[], _env?: Record<string, string>): Promise<string> => {
       if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
       if (args.join("\0") === ["status", "--porcelain=v1", "-z", "--untracked-files=all"].join("\0")) {
         return " M src/code.ts\0";

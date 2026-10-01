@@ -13,13 +13,13 @@ import {
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
-import { readBranchCommits } from "./pr-attribution.ts";
 import {
   MAIN_SYNC_ABSENT_BLOB,
   type MainSyncPathBlobs,
   resolveLaneMergeBase,
   selectMainSyncPaths,
 } from "./main-sync-scope.ts";
+import { readBranchCommits } from "./pr-attribution.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 /** Workflow purpose classification rendered as the `Jarvis-Step` trailer. Defaults to `write`

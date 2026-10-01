@@ -12,11 +12,6 @@ import {
 } from "./tui-reexec-channel.ts";
 import { buildTuiReexecEnv } from "./tui-revision-reexec.ts";
 
-export {
-  createInMemoryTuiRevisionReexecChannel,
-  TUI_REVISION_REEXEC_EXIT_CODE,
-} from "./tui-reexec-channel.ts";
-
 /** Env marker: this `jarvis tui` process is a supervisor-spawned worker, not the supervisor. */
 export const TUI_SUPERVISOR_WORKER_ENV = "JARVIS_TUI_SUPERVISOR_WORKER";
 

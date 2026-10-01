@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type CliRepoFixture,
@@ -14,6 +14,7 @@ import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import type { TuiDaemonClient } from "../tui/tui-daemon-client.ts";
 import { runTuiEntry as productionRunTuiEntry } from "../tui/tui-entry.tsx";
 import type { DetachedPipelineStartAdmission, TuiMonitorControls } from "../tui/tui-monitor-types.ts";
+import * as supervisorModule from "../tui/tui-supervisor.ts";
 import { TUI_SUPERVISOR_WORKER_ENV } from "../tui/tui-supervisor.ts";
 
 async function asTuiSupervisorWorker<T>(fn: () => Promise<T>): Promise<T> {
@@ -384,5 +385,37 @@ describe("tui command", () => {
 
     controls.quit();
     expect(await tuiPending).toBe(0);
+  });
+});
+
+describe("tui supervisor CLI routing", () => {
+  afterAll(() => {
+    mock.restore();
+  });
+
+  test("jarvis tui log starts the supervisor with full argv when not a worker", async () => {
+    const seenArgv: (readonly string[])[] = [];
+    mock.module("../tui/tui-supervisor.ts", () => ({
+      ...supervisorModule,
+      isTuiSupervisorWorker: () => false,
+      runTuiSupervisor: async (params: { argv: readonly string[] }) => {
+        seenArgv.push(params.argv);
+        return 0;
+      },
+    }));
+
+    const { runTuiCommand } = await import("./tui.ts");
+    const originalArgv = process.argv;
+    process.argv = ["/usr/bin/node", "/path/jarvis", "tui", "log", "run-direct"];
+    try {
+      const code = await runTuiCommand(["log", "run-direct"], captureIo().io, {
+        socketPath: "/tmp/s.sock",
+        runTuiLogFollow: async () => 0,
+      } as unknown as import("../cli/deps.ts").CliDeps);
+      expect(code).toBe(0);
+      expect(seenArgv).toEqual([["/usr/bin/node", "/path/jarvis", "tui", "log", "run-direct"]]);
+    } finally {
+      process.argv = originalArgv;
+    }
   });
 });

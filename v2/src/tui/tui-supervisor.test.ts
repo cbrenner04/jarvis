@@ -1,13 +1,41 @@
 import { describe, expect, test } from "bun:test";
-import { TUI_REEXEC_CHANNEL_ENV, TUI_REVISION_REEXEC_EXIT_CODE } from "./tui-reexec-channel.ts";
-import { buildTuiReexecEnv, performTuiRevisionReexec, TUI_REEXEC_REVISION_ENV } from "./tui-revision-reexec.ts";
 import {
   createInMemoryTuiRevisionReexecChannel,
+  TUI_REEXEC_CHANNEL_ENV,
+  TUI_REVISION_REEXEC_EXIT_CODE,
+  type TuiRevisionReexecChannel,
+} from "./tui-reexec-channel.ts";
+import { buildTuiReexecEnv, performTuiRevisionReexec, TUI_REEXEC_REVISION_ENV } from "./tui-revision-reexec.ts";
+import {
   isTuiSupervisorWorker,
   runTuiSupervisor,
   TUI_SUPERVISOR_WORKER_ENV,
   tuiSupervisorWorkerExitCode,
 } from "./tui-supervisor.ts";
+
+const noopReexecTeardown = {
+  closeMonitor: () => {},
+  closeRefreshScheduler: () => {},
+  closeDaemonClient: () => {},
+};
+
+async function workerReservedExitAfterReexec(
+  channel: TuiRevisionReexecChannel,
+  argv: readonly string[],
+): Promise<number> {
+  let exitCode: number | undefined;
+  await performTuiRevisionReexec({
+    daemonRevision: "rev-b",
+    carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
+    argv,
+    channel,
+    teardown: noopReexecTeardown,
+    exitProcess: (code) => {
+      exitCode = code;
+    },
+  });
+  return exitCode ?? TUI_REVISION_REEXEC_EXIT_CODE;
+}
 
 describe("isTuiSupervisorWorker", () => {
   test("is true only when the worker env marker is exactly 1", () => {
@@ -121,24 +149,7 @@ describe("runTuiSupervisor", () => {
       channelFilePath: "/tmp/channel",
       spawnWorker: async () => {
         spawnCount += 1;
-        if (spawnCount === 1) {
-          let exitCode: number | undefined;
-          await performTuiRevisionReexec({
-            daemonRevision: "rev-b",
-            carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
-            argv: logArgv,
-            channel,
-            teardown: {
-              closeMonitor: () => {},
-              closeRefreshScheduler: () => {},
-              closeDaemonClient: () => {},
-            },
-            exitProcess: (code) => {
-              exitCode = code;
-            },
-          });
-          return exitCode ?? TUI_REVISION_REEXEC_EXIT_CODE;
-        }
+        if (spawnCount === 1) return await workerReservedExitAfterReexec(channel, logArgv);
         return 0;
       },
     });
@@ -162,24 +173,7 @@ describe("runTuiSupervisor", () => {
       spawnWorker: async (_env, workerArgv) => {
         spawnCount += 1;
         spawnedArgvs.push(workerArgv);
-        if (spawnCount === 1) {
-          let exitCode: number | undefined;
-          await performTuiRevisionReexec({
-            daemonRevision: "rev-b",
-            carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
-            argv: logReexecArgv,
-            channel,
-            teardown: {
-              closeMonitor: () => {},
-              closeRefreshScheduler: () => {},
-              closeDaemonClient: () => {},
-            },
-            exitProcess: (code) => {
-              exitCode = code;
-            },
-          });
-          return exitCode ?? TUI_REVISION_REEXEC_EXIT_CODE;
-        }
+        if (spawnCount === 1) return await workerReservedExitAfterReexec(channel, logReexecArgv);
         return 0;
       },
     });

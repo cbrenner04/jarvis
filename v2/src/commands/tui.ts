@@ -11,6 +11,13 @@ import type { DetachedPipelineStartAdmission } from "../tui/tui-monitor-types.ts
 import { isTuiSupervisorWorker, runTuiSupervisor } from "../tui/tui-supervisor.ts";
 import { admitPipelineStart } from "./pipeline-start-admission.ts";
 
+function superviseTuiUnlessWorker(runWorker: () => Promise<number>): Promise<number> {
+  if (!isTuiSupervisorWorker(process.env)) {
+    return runTuiSupervisor({ argv: process.argv, supervisorBaseEnv: process.env });
+  }
+  return runWorker();
+}
+
 function detachedPipelineStartAdmission(deps: CliDeps): DetachedPipelineStartAdmission {
   return (input) =>
     admitPipelineStart(input, {
@@ -42,13 +49,7 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
       machineProfile,
       admitDetachedPipelineStart: detachedPipelineStartAdmission(deps),
     };
-    if (!isTuiSupervisorWorker(process.env)) {
-      return runTuiSupervisor({
-        argv: process.argv,
-        supervisorBaseEnv: process.env,
-      });
-    }
-    return deps.runTuiEntry(entryDeps);
+    return superviseTuiUnlessWorker(() => deps.runTuiEntry(entryDeps));
   }
   if (argv[0] === "log") {
     const runId = argv[1];
@@ -56,15 +57,11 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
       io.stderr(TUI_LOG_USAGE);
       return Promise.resolve(1);
     }
-    if (!isTuiSupervisorWorker(process.env)) {
-      return runTuiSupervisor({
-        argv: process.argv,
-        supervisorBaseEnv: process.env,
-      });
-    }
-    return deps.runTuiLogFollow(runId, {
-      socketPath: deps.socketPath,
-    });
+    return superviseTuiUnlessWorker(() =>
+      deps.runTuiLogFollow(runId, {
+        socketPath: deps.socketPath,
+      }),
+    );
   }
   io.stderr(TUI_USAGE);
   return Promise.resolve(1);

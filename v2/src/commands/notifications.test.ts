@@ -17,6 +17,8 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { formatRpcError } from "../cli/ipc.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { captureIo, cliMain as main, makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 
@@ -154,6 +156,40 @@ function makeHandlerClient(rpcHandlers: Record<string, RpcHandler>) {
         });
     },
   };
+}
+
+function handlerClientThatClosesOnMethod(
+  rpcHandlers: Record<string, RpcHandler>,
+  method: string,
+  onMethodSend?: (params: unknown) => void,
+) {
+  const client = makeHandlerClient(rpcHandlers);
+  const baseSend = client.send.bind(client);
+  let closedOnMethod = false;
+  client.send = (frame: unknown) => {
+    baseSend(frame);
+    const request = frame as { method?: string; params?: unknown };
+    if (request.method === method) onMethodSend?.(request.params);
+    if (request.method !== method || closedOnMethod) return;
+    closedOnMethod = true;
+    client.close();
+  };
+  return client;
+}
+
+function handlerClientRecordingMethod(
+  rpcHandlers: Record<string, RpcHandler>,
+  method: string,
+  onMethodSend: (params: unknown) => void,
+) {
+  const client = makeHandlerClient(rpcHandlers);
+  const baseSend = client.send.bind(client);
+  client.send = (frame: unknown) => {
+    baseSend(frame);
+    const request = frame as { method?: string; params?: unknown };
+    if (request.method === method) onMethodSend(request.params);
+  };
+  return client;
 }
 
 function notificationCliDeps() {
@@ -504,6 +540,128 @@ test("list filtered by project narrows ledger output", async () => {
   expect(result.code).toBe(0);
   expect(lines).toHaveLength(1);
   expect(lines[0]).toEqual(sinkShape(demoIncident));
+});
+
+test("notifications wait reconnects notification_wait after IPC loss with same sinceCursor", async () => {
+  const priorCursor = encodeNotificationDeliveryCursor({
+    deliveredAt: 1,
+    incidentId: "run:prior",
+    transition: "blocked",
+  });
+  const incident = blockedIncident();
+  const waitParams: unknown[] = [];
+  let connectCalls = 0;
+
+  const pending = (async () => {
+    const cap = captureIo();
+    const code = await main(["notifications", "wait", "--since", priorCursor], cap.io, {
+      ...notificationCliDeps(),
+      connectIpcClient: async () => {
+        connectCalls += 1;
+        const recordWait = (params: unknown) => waitParams.push(params);
+        if (connectCalls === 1) {
+          return handlerClientThatClosesOnMethod(handlers, "notification_wait", recordWait);
+        }
+        return handlerClientRecordingMethod(handlers, "notification_wait", recordWait);
+      },
+    });
+    return { code, ...cap.read() };
+  })();
+
+  recordDelivery(incident, DERIVATION_NOW_MS);
+  wakeNotificationWaiters();
+  const result = await pending;
+
+  expect(result.code).toBe(0);
+  expect(waitParams).toHaveLength(2);
+  expect(waitParams[0]).toEqual(waitParams[1]);
+  expect(waitParams[0]).toEqual({ sinceCursor: priorCursor });
+  expect(connectCalls).toBeGreaterThanOrEqual(2);
+});
+
+test("notifications wait reconnects in-loop notification_list for project catch-up", async () => {
+  const { other: otherIncident, demo: demoIncident } = demoAndOtherBlockedIncidents();
+  recordDelivery(otherIncident, DERIVATION_NOW_MS - 2);
+  recordDelivery(demoIncident, DERIVATION_NOW_MS - 1);
+  const listParams: unknown[] = [];
+  let connectCalls = 0;
+
+  const pending = (async () => {
+    const cap = captureIo();
+    const code = await main(["notifications", "wait", "--since", "0", "--project", "demo"], cap.io, {
+      ...notificationCliDeps(),
+      connectIpcClient: async () => {
+        connectCalls += 1;
+        const recordList = (params: unknown) => listParams.push(params);
+        if (connectCalls === 1) {
+          return handlerClientThatClosesOnMethod(handlers, "notification_list", recordList);
+        }
+        return handlerClientRecordingMethod(handlers, "notification_list", recordList);
+      },
+    });
+    return { code, ...cap.read() };
+  })();
+
+  wakeNotificationWaiters();
+  const result = await pending;
+
+  expect(result.code).toBe(0);
+  expect(parseWaitIncident(result.stdout.trimEnd().split("\n"))).toEqual(sinkShape(demoIncident));
+  expect(listParams.length).toBeGreaterThanOrEqual(2);
+  expect(listParams[0]).toEqual(listParams[1]);
+  expect(connectCalls).toBeGreaterThanOrEqual(2);
+});
+
+test("notifications wait exhausts reconnect budget when connect never succeeds after IPC loss", async () => {
+  let connectCalls = 0;
+  let nowMs = 0;
+  const sleepMs: number[] = [];
+
+  const cap = captureIo();
+  const code = await main(["notifications", "wait", "--since", "0"], cap.io, {
+    ...notificationCliDeps(),
+    now: () => nowMs,
+    sleep: async (ms) => {
+      sleepMs.push(ms);
+      nowMs += ms;
+    },
+    connectIpcClient: async () => {
+      connectCalls += 1;
+      if (connectCalls === 1) {
+        return handlerClientThatClosesOnMethod(handlers, "notification_wait");
+      }
+      throw new RpcConnectionError("connect failed");
+    },
+  });
+  const output = cap.read();
+
+  expect(code).toBe(1);
+  expect(output.stderr).toBe("IPC connection lost\n");
+  expect(connectCalls).toBeGreaterThan(2);
+  expect(sleepMs.length).toBeGreaterThan(0);
+  expect(nowMs).toBeGreaterThanOrEqual(120_000);
+});
+
+test("notifications wait RpcError on notification_wait exits immediately without reconnect", async () => {
+  const refused = new RpcError("wait_refused", "daemon refused wait");
+  let connectCalls = 0;
+  const errorHandlers = {
+    notification_wait: async () => ({ kind: "error" as const, code: refused.code, message: refused.message }),
+    notification_list: createNotificationListHandler(store),
+  };
+
+  const cap = captureIo();
+  const code = await main(["notifications", "wait"], cap.io, {
+    ...notificationCliDeps(),
+    connectIpcClient: async () => {
+      connectCalls += 1;
+      return makeHandlerClient(errorHandlers);
+    },
+  });
+
+  expect(code).toBe(1);
+  expect(cap.read().stderr).toBe(formatRpcError(refused));
+  expect(connectCalls).toBe(1);
 });
 
 test("wait and list accept project and kind together", async () => {

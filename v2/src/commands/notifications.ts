@@ -2,14 +2,18 @@ import { parseArgs } from "node:util";
 import { NOTIFICATIONS_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import { formatRpcError, request } from "../cli/ipc.ts";
+import { formatConnectionError, formatRpcError, request } from "../cli/ipc.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { NOTIFICATIONS_LIST_USAGE, NOTIFICATIONS_USAGE, NOTIFICATIONS_WAIT_USAGE } from "../cli/usage.ts";
 import type { NotificationWaitResult } from "../daemon/daemon-notification-wait.ts";
-import { RpcError } from "../ipc/rpc-errors.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { decodeNotificationDeliveryCursor } from "../persistence/state-store.ts";
 
 const SINCE_UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 } as const;
+const WAIT_RECONNECT_BUDGET_MS = 120_000;
+const WAIT_RECONNECT_INITIAL_DELAY_MS = 50;
+const WAIT_RECONNECT_MAX_DELAY_MS = 2_000;
 
 function parseSinceBound(value: string, nowMs: number): { sinceMs?: number; sinceCursor?: string } | undefined {
   const durationMatch = /^(\d+)([dhms])$/.exec(value);
@@ -107,6 +111,8 @@ function parseNotificationListResult(value: unknown): NotificationWaitResult[] |
 
 type RpcOutcome = { ok: true; response: unknown } | { ok: false };
 
+type WaitClientState = { client: IpcClient; replaced: boolean };
+
 /** One RPC, reporting an `RpcError` to stderr rather than throwing. Non-RPC errors still throw. */
 async function requestOrReport(
   client: Parameters<typeof request>[0],
@@ -125,42 +131,95 @@ async function requestOrReport(
   }
 }
 
+async function reconnectWaitClient(state: WaitClientState, deps: CliDeps): Promise<boolean> {
+  const now = deps.now ?? (() => Date.now());
+  const sleep = deps.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = now() + WAIT_RECONNECT_BUDGET_MS;
+  let delayMs = WAIT_RECONNECT_INITIAL_DELAY_MS;
+
+  while (now() < deadline) {
+    state.client.close();
+    try {
+      state.client = await deps.connectIpcClient(deps.socketPath);
+      state.replaced = true;
+      return true;
+    } catch {
+      const remaining = deadline - now();
+      if (remaining <= 0) break;
+      await sleep(Math.min(delayMs, remaining));
+      delayMs = Math.min(delayMs * 2, WAIT_RECONNECT_MAX_DELAY_MS);
+    }
+  }
+  return false;
+}
+
+/** Wait-loop RPC: `RpcError` reports and stops; `RpcConnectionError` reconnects and retries the same call. */
+async function requestOrReportInWait(
+  state: WaitClientState,
+  deps: CliDeps,
+  method: string,
+  params: NotificationRpcParams,
+  io: Io,
+): Promise<RpcOutcome> {
+  for (;;) {
+    try {
+      return { ok: true, response: await request(state.client, method, params) };
+    } catch (error) {
+      if (error instanceof RpcError) {
+        io.stderr(formatRpcError(error));
+        return { ok: false };
+      }
+      if (!(error instanceof RpcConnectionError)) throw error;
+      if (!(await reconnectWaitClient(state, deps))) {
+        io.stderr(formatConnectionError(new RpcConnectionError("IPC connection lost")));
+        return { ok: false };
+      }
+    }
+  }
+}
+
 function withKinds(params: NotificationRpcParams, sinceCursor: string): NotificationRpcParams {
   return { sinceCursor, ...(params.kinds !== undefined ? { kinds: params.kinds } : {}) };
 }
 
 /** Blocks until an incident matching `project` (or any, when undefined) is owed, printing one line. */
 async function waitForIncident(
-  client: Parameters<typeof request>[0],
+  initialClient: IpcClient,
   initial: NotificationRpcParams,
   project: string | undefined,
   io: Io,
+  deps: CliDeps,
 ): Promise<number> {
+  const state: WaitClientState = { client: initialClient, replaced: false };
   let params = initial;
-  for (;;) {
-    const waited = await requestOrReport(client, "notification_wait", params, io);
-    if (!waited.ok) return 1;
-    const result = parseNotificationWaitResult(waited.response);
-    if (result === undefined) {
-      io.stderr("invalid daemon response\n");
-      return 1;
-    }
-    if (project === undefined || result.incident.project === project) {
-      io.stdout(`${JSON.stringify(result)}\n`);
-      return 0;
-    }
+  try {
+    for (;;) {
+      const waited = await requestOrReportInWait(state, deps, "notification_wait", params, io);
+      if (!waited.ok) return 1;
+      const result = parseNotificationWaitResult(waited.response);
+      if (result === undefined) {
+        io.stderr("invalid daemon response\n");
+        return 1;
+      }
+      if (project === undefined || result.incident.project === project) {
+        io.stdout(`${JSON.stringify(result)}\n`);
+        return 0;
+      }
 
-    // Non-matching wake: catch up through the ledger from this cursor before re-arming, so an
-    // incident that landed between wakes is not skipped.
-    params = withKinds(initial, result.deliveryCursor);
-    const listed = await requestOrReport(client, "notification_list", params, io);
-    if (!listed.ok) return 1;
-    const scan = scanForProject(parseNotificationListResult(listed.response), project);
-    if (scan.matched !== undefined) {
-      io.stdout(`${JSON.stringify(scan.matched)}\n`);
-      return 0;
+      // Non-matching wake: catch up through the ledger from this cursor before re-arming, so an
+      // incident that landed between wakes is not skipped.
+      params = withKinds(initial, result.deliveryCursor);
+      const listed = await requestOrReportInWait(state, deps, "notification_list", params, io);
+      if (!listed.ok) return 1;
+      const scan = scanForProject(parseNotificationListResult(listed.response), project);
+      if (scan.matched !== undefined) {
+        io.stdout(`${JSON.stringify(scan.matched)}\n`);
+        return 0;
+      }
+      if (scan.lastCursor !== undefined) params = withKinds(initial, scan.lastCursor);
     }
-    if (scan.lastCursor !== undefined) params = withKinds(initial, scan.lastCursor);
+  } finally {
+    if (state.replaced) state.client.close();
   }
 }
 
@@ -176,7 +235,7 @@ async function notificationRpc(
   const project = parsed.project;
 
   return withConnectDispatch(io, deps, async (client) => {
-    if (method === "notification_wait") return waitForIncident(client, parsed.params, project, io);
+    if (method === "notification_wait") return waitForIncident(client, parsed.params, project, io, deps);
 
     const listed = await requestOrReport(client, method, parsed.params, io);
     if (!listed.ok) return 1;

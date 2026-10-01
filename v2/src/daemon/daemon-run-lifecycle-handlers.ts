@@ -23,6 +23,7 @@ import {
 import {
   findDraftContractRepromptStateFromLog,
   findLandingContractRepromptFromLog,
+  findPreShrinkHeadFromLog,
   findStagedMarkdownLintRepromptFromLog,
   findSurvivingMutationRepromptFromLog,
   type WriteLoopInput,
@@ -549,6 +550,7 @@ export function createRunLifecycleHandlers(
     const draftContractReprompt = findDraftContractRepromptStateFromLog(logRecords);
     const survivingMutationReprompt =
       run.status === "paused" ? findSurvivingMutationRepromptFromLog(logRecords) : undefined;
+    const preShrinkHead = hiddenShrink ? findPreShrinkHeadFromLog(logRecords) : undefined;
     return resolveWriteLoopBindings(
       {
         worktree: {
@@ -583,6 +585,7 @@ export function createRunLifecycleHandlers(
           : {}),
         ...(draftContractReprompt.spent ? { draftContractRepromptSpent: true as const } : {}),
         ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
+        ...(preShrinkHead !== undefined ? { preShrinkHead } : {}),
       },
       writeLoopBindingSourceDeps,
     );

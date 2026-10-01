@@ -105,6 +105,7 @@ import {
   wireWorkflowRunnerResumeDeps,
   workflowPublicationFailureTerminalDetail,
 } from "./workflow-runner-resume.ts";
+import { SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 export { isPostCommitReviewRetryableFailureKind };
 
@@ -2316,6 +2317,7 @@ async function runShrinkAfterImplementComplete(
     stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
     role: SHRINK_ROLE,
     promptId: SHRINK_PROMPT_ID,
+    stepRules: SHRINK_WRITE_STEP_RULES,
     ...(step.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
     promptPlaceholders: await shrinkPromptPlaceholders(step),
   };
@@ -2345,13 +2347,15 @@ async function runShrinkAfterImplementComplete(
 
   touchedStepsInExecution.add(shrinkStep.stepId);
 
-  return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () =>
-    executeWriteLoop(
-      onStepRunCreated
-        ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-        : preparedStep.input,
-    ),
-  );
+  const worktreePath = getExternalWorktreePath(step.worktree);
+  const preShrinkHead = existsSync(join(worktreePath, ".git")) ? await getCurrentHeadAsync(worktreePath) : undefined;
+
+  const shrinkLoopInput = {
+    ...preparedStep.input,
+    ...(preShrinkHead !== undefined ? { preShrinkHead } : {}),
+    ...(onStepRunCreated !== undefined ? { onRunCreated: (runId: string) => onStepRunCreated(stepIndex, runId) } : {}),
+  };
+  return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () => executeWriteLoop(shrinkLoopInput));
 }
 
 async function shrinkPromptPlaceholders(

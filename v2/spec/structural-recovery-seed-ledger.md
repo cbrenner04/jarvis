@@ -38,7 +38,7 @@ Every other landed spec is archived under `completed/`.
 | `write-loop-test-split` | one plan, chained subspecs (replaces seed `write-loop-test-fits-file-budget`); other `write-loop.test.ts` PRs landed | `completion-commit-run-scope` implement in flight |
 | `wal-lock-holder-child-survives-to-marker` | **evidence-gated (#4101)** | a captured rejection |
 
-## Seeds (23)
+## Seeds (17)
 
 P is the brief's priority. Issue is the intake issue where one exists.
 
@@ -47,23 +47,17 @@ P is the brief's priority. Issue is the intake issue where one exists.
 | `notifications-wait-survives-daemon-handoff` | P1 | — | new 2026-10-01; wait died `IPC connection lost` on 3 handoffs |
 | `resume-mutation-repair-reverifies-before-repair` | P1 | — | new 2026-10-01; resume repaired stale survivors already killed by an operator commit: ff6cc773 (#4331), 5280b7bf (#4332) |
 | `mutation-verifier-fails-fast-on-first-killing-file` | P1 | — | new 2026-10-01; #4332 `write-loop.ts:612` settled non-terminating while a killing file had failed in ~14 ms |
-| `agent-abort-reaps-its-process-tree` | — | — | consumed: spec landed #4335; remainder in ready-intents `implement-run-records-agent-process-groups` → `daemon-sweeps-recorded-agent-groups`; seed file unreaped |
-| `plan-draft-shape-names-its-failure` | — | — | consumed: spec landed #4332; remainder in ready-intents `plan-draft-shape-contract-reprompt` → `plan-draft-shape-operator-docs`; seed file unreaped |
-| `terminal-publication-accepts-operator-merged-pr` | — | — | landed #4322; seed file unreaped |
-| `closed-lane-is-not-republished` | — | — | consumed: spec landed #4331; remainder in lane-pr chain ready-intents (3); seed file unreaped |
 | `implement-respects-target-repo-doc-layout` | P2 | #3426 | open; leak 3 closed by #4029; `intent-split.test.ts` pins leak 1 |
 | `intent-split-covers-sibling-repo-surfaces` | P2 | #3439 | re-scoped to split-internal prerequisite consistency (`siblings` was v1-only) |
 | `detached-pipeline-plan-stage-consumes-ready-intents` | P2 | #3041 | AC2 landed #3534, AC3 landed #3657; in-repo git-chained silent skip remains; chosen mechanism over the retired merge-at-gate seed |
 | `per-project-config-overrides-seam` | P2 | #3026, #3150 | open; `agents` / `idleOutputTimeoutMs` machine-level only |
 | `implement-can-run-integration-slice-tests` | P2 | — | re-scoped to measurement criteria after #3867 |
-| `self-parsing-structural-tests-can-bind-to-their-own-fixtures` | — | — | consumed: spec landed #4345; remainder in ready-intents `resume-path-inventory-binds-real-declaration` → `self-parsing-structural-test-docs`; seed file unreaped |
 | `pipeline-fan-out-per-lane-terminal-settlement` | P2 | — | ready-flip half served by #3970; per-lane `merge` + spurious `failed` remain; doc target moved to `pipeline-execution.md` |
 | `pipeline-fan-out-lanes-serial-chained-bases` | P2 | — | open; prerequisite (per-lane settlement) not landed |
 | `agent-confinement-is-per-vendor-and-unexpressed` | P3 | #1453 | open; depends on `per-project-config-overrides-seam` |
 | `cli-retire-run-start-pause-and-config` | P3 | — | open decision on `run pause` (see brief) |
 | `tui-dock-command-grammar-mirrors-cli` | P3 | — | open; land with or after `tui-typed-run-steering-clears-command-input` |
 | `tui-typed-run-steering-clears-command-input` | P3 | — | open; `runSteeringAction(method); return;` still no clear |
-| `pipeline-stage-addresses-review-feedback` | — | — | consumed: launch landed #4326; remainder in ready-intent `pipeline-resume-address-review-cli`; seed file unreaped |
 | `harness-exposes-agent-toolset` | — | — | new 2026-09-29; **not dispatchable until owner sign-off** (near a new engine generation) |
 | `fold-shared-into-v2` | P3 | — | new 2026-09-29; prerequisite of `retire-v2-nomenclature` |
 | `retire-v2-nomenclature` | P3 | — | new 2026-09-29; `v2/` → top level; after `fold-shared-into-v2`; fold in at low priority |
@@ -76,6 +70,7 @@ None; #3029 closed 2026-09-30. Closed: #3423 (#4090), #3417 (#4076), #3040 (#408
 
 | Item | Reason |
 | --- | --- |
+| seeds `agent-abort-reaps-its-process-tree`, `plan-draft-shape-names-its-failure`, `terminal-publication-accepts-operator-merged-pr`, `closed-lane-is-not-republished`, `self-parsing-structural-tests-can-bind-to-their-own-fixtures`, `pipeline-stage-addresses-review-feedback` | consumed by this session's pipeline intents; remainders queued as ready-intents; files removed in the closeout PR |
 | ready-intent `detach-admission-refuses-without-a-run-row` | already closed by #4087 (routing row persisted before its id is reported); deleted, not rewritten (#4307) |
 | seed `harness-commits-stay-in-run-scope` | consumed by ready-intent `completion-commit-run-scope` (658c18963 half closed by #4328) |
 | seeds `write-loop-test-fits-file-budget`, `tui-revision-follow-replaces-itself` | consumed by ready-intents `write-loop-test-split` (#4336), `tui-revision-follow-single-supervisor` (#4342; landed #4349) |

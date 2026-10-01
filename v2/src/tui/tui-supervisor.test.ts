@@ -3,10 +3,20 @@ import { TUI_REEXEC_CHANNEL_ENV, TUI_REVISION_REEXEC_EXIT_CODE } from "./tui-ree
 import { buildTuiReexecEnv, performTuiRevisionReexec, TUI_REEXEC_REVISION_ENV } from "./tui-revision-reexec.ts";
 import {
   createInMemoryTuiRevisionReexecChannel,
+  isTuiSupervisorWorker,
   runTuiSupervisor,
   TUI_SUPERVISOR_WORKER_ENV,
   tuiSupervisorWorkerExitCode,
 } from "./tui-supervisor.ts";
+
+describe("isTuiSupervisorWorker", () => {
+  test("is true only when the worker env marker is exactly 1", () => {
+    expect(isTuiSupervisorWorker({ [TUI_SUPERVISOR_WORKER_ENV]: "1" })).toBe(true);
+    expect(isTuiSupervisorWorker({})).toBe(false);
+    expect(isTuiSupervisorWorker({ [TUI_SUPERVISOR_WORKER_ENV]: "0" })).toBe(false);
+    expect(isTuiSupervisorWorker({ [TUI_SUPERVISOR_WORKER_ENV]: "true" })).toBe(false);
+  });
+});
 
 describe("tuiSupervisorWorkerExitCode", () => {
   test("passes through a numeric exit code", () => {

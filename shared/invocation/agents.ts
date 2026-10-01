@@ -588,7 +588,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         kind: "error",
         exitCode: -1,
         stderr: `aborted: ${abortReason}`,
-        ...(Object.keys(spread).length > 0 ? spread : outBuf.length > 0 ? { diagnostics: outBuf } : {}),
+        ...(spread.diagnostics !== undefined ? spread : outBuf.length > 0 ? { diagnostics: outBuf } : {}),
       });
     };
 
@@ -862,56 +862,33 @@ async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptio
   throw new Error("Unexpected: retry loop should always return");
 }
 
-function streamDiagnosticsText(result: InvocationResult): string | undefined {
+function diagnosticsOrStallStreamText(result: InvocationResult): string {
   if ("diagnostics" in result && typeof result.diagnostics === "string" && result.diagnostics.length > 0) {
     return result.diagnostics;
   }
-  return undefined;
+  if (result.kind === "stall") {
+    return result.stderr;
+  }
+  return "";
 }
 
 function claudeStreamTextForRecovery(result: InvocationResult): string {
-  const diagnostics = streamDiagnosticsText(result);
-  if (diagnostics !== undefined) {
-    return diagnostics;
+  if ("diagnostics" in result && typeof result.diagnostics === "string" && result.diagnostics.length > 0) {
+    return result.diagnostics;
   }
-  if (result.kind !== "ok") {
-    const stderr = result.stderr;
-    if (!stderr.includes('{"type"')) {
-      return "";
-    }
-    const parsed = parseClaudeJsonOutput(stderr);
-    if (parsed.usage !== null || parsed.cost_usd !== null) {
-      return stderr;
-    }
-    const jsonStart = stderr.indexOf('{"type"');
-    if (jsonStart !== -1) {
-      return stderr.slice(jsonStart);
-    }
+  if (result.kind === "ok") {
     return "";
   }
-  return "";
-}
-
-function cursorStreamTextForRecovery(result: InvocationResult): string {
-  const diagnostics = streamDiagnosticsText(result);
-  if (diagnostics !== undefined) {
-    return diagnostics;
+  const stderr = result.stderr;
+  if (!stderr.includes('{"type"')) {
+    return "";
   }
-  if (result.kind === "stall") {
-    return result.stderr;
+  const parsed = parseClaudeJsonOutput(stderr);
+  if (parsed.usage !== null || parsed.cost_usd !== null) {
+    return stderr;
   }
-  return "";
-}
-
-function opencodeStreamTextForRecovery(result: InvocationResult): string {
-  const diagnostics = streamDiagnosticsText(result);
-  if (diagnostics !== undefined) {
-    return diagnostics;
-  }
-  if (result.kind === "stall") {
-    return result.stderr;
-  }
-  return "";
+  const jsonStart = stderr.indexOf('{"type"');
+  return jsonStart === -1 ? "" : stderr.slice(jsonStart);
 }
 
 function applyRecoveredSettlement<T extends InvocationResult>(result: T, patch: Partial<InvocationSettlement>): T {
@@ -1031,7 +1008,7 @@ function finalizeClaudeInvocationResult(result: InvocationResult): InvocationRes
 
 function finalizeCursorInvocationResult(result: InvocationResult, priceKey: string): InvocationResult {
   if (result.kind !== "ok") {
-    const stream = cursorStreamTextForRecovery(result);
+    const stream = diagnosticsOrStallStreamText(result);
     if (stream === "") {
       return result;
     }
@@ -1069,7 +1046,7 @@ function finalizeCursorInvocationResult(result: InvocationResult, priceKey: stri
 
 function finalizeOpencodeInvocationResult(result: InvocationResult): InvocationResult {
   if (result.kind !== "ok") {
-    const stream = opencodeStreamTextForRecovery(result);
+    const stream = diagnosticsOrStallStreamText(result);
     if (stream === "") {
       return result;
     }
@@ -1078,28 +1055,12 @@ function finalizeOpencodeInvocationResult(result: InvocationResult): InvocationR
   }
 
   const parsed = parseOpencodeJsonOutput(result.stdout);
-  const output: InvocationOk = {
+  return {
     kind: "ok",
     stdout: parsed.displayText,
     stderr: result.stderr,
+    ...recoveredOpencodeSettlement(parsed),
   };
-  if (parsed.sawStepFinish) {
-    output.usage = parsed.usage;
-    output.usage_source = "agent";
-    if (parsed.sawAnyCostField) {
-      output.cost_usd = parsed.cost_usd;
-      output.cost_source = "agent";
-    } else {
-      output.cost_usd = null;
-      output.cost_source = "no-price";
-    }
-    return output;
-  }
-  output.usage_source = "unavailable";
-  output.cost_usd = null;
-  output.cost_source = "no-usage";
-  output.warnings = ["opencode: no step_finish events in --format json stream; usage recorded as unavailable."];
-  return output;
 }
 
 async function runClaudeBinding(args: {

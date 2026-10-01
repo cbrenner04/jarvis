@@ -1457,6 +1457,18 @@ describe("createCompletionPublisher", () => {
     expect(writeBodyCalls).toBe(0);
   });
 
+  it("requests isDraft on the open probe and state on the all-state history probe", async () => {
+    const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number: 88, state: "CLOSED" });
+    const publisher = createCompletionPublisher({ git: republicationGit, gh, delay: noopDelay, ...noopRefreshSeams });
+
+    await publisher(baseInput);
+
+    const listJson = (state: string) =>
+      ghCalls.find((c) => c.startsWith("pr list") && c.includes(`--state ${state}`))?.split("--json ")[1];
+    expect(listJson("open")).toBe("number,baseRefName,isDraft");
+    expect(listJson("all")).toBe("number,baseRefName,state");
+  });
+
   it("creates a fresh draft when allowLanePrRepublish is set despite closed history", async () => {
     const ghCalls: string[] = [];
 

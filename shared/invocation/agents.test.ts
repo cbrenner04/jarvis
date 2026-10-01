@@ -2741,6 +2741,18 @@ describe("createResolvedAgentBinding", () => {
     const stallResult = await stallRun;
     expect(stallResult).toMatchObject({ kind: "stall", usage: claudeUsage, usage_source: "agent" });
 
+    const cursorStallHarness = hangWithControllableIdle(COMPOSER_CURSOR_BINDING, { watchWorktreeActivity: () => {} });
+    const cursorStallRun = cursorStallHarness.binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 50 });
+    await new Promise((resolve) => setImmediate(resolve));
+    cursorStallHarness.fake.calls[0]?.child?.stderr.write(`${cursorStream}\n`);
+    cursorStallHarness.fireIdle();
+    const cursorStallResult = await cursorStallRun;
+    expect(cursorStallResult).toMatchObject({
+      kind: "stall",
+      usage: CURSOR_AGENT_USAGE,
+      usage_source: "agent",
+    });
+
     const abortHarness = hangWithControllableIdle(
       { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
       { watchWorktreeActivity: () => {} },
@@ -2798,6 +2810,16 @@ describe("createResolvedAgentBinding", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]?.usage.input_tokens).toBe(5);
     expect(rows[1]?.usage.input_tokens).toBe(50);
+
+    const stderrOnlyUsage = fakeSpawn([{ kind: "settle", code: 1, stdout: "", stderr: `${cursorStream}\nboom` }]);
+    const stderrOnlyResult = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: stderrOnlyUsage.spawn,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+    expect(stderrOnlyResult).toEqual({
+      kind: "error",
+      exitCode: 1,
+      stderr: `${cursorStream}\nboom`,
+    });
 
     const missingCounters = fakeSpawn([{ kind: "settle", code: 1, stderr: "boom" }]);
     const missingResult = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {

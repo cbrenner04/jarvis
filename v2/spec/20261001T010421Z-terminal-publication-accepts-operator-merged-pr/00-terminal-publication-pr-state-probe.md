@@ -17,11 +17,11 @@
 
 ## Tasks
 
-- [ ] Extend `PublicationFailure` with optional `cause`; thread through `TerminalPublicationError` / settlement serialization if the store already persists the failure object shape unchanged.
-- [ ] Implement pre-gate probe and branches in `terminal-publication.ts` (`executeReadyOrMergePublication` or a dedicated helper).
-- [ ] Extend `terminal-publication.test.ts` fake `gh` to answer `pr view <n> --json state,mergedAt` without breaking existing list/view mocks used by `resolveOpenDraftPr`.
-- [ ] Add tests: `MERGED` (`ready` and `merge`), `CLOSED`, probe throw fallthrough.
-- [ ] Update documentation listed below.
+- [x] Extend `PublicationFailure` with optional `cause`; thread through `TerminalPublicationError` / settlement serialization if the store already persists the failure object shape unchanged.
+- [x] Implement pre-gate probe and branches in `terminal-publication.ts` (`executeReadyOrMergePublication` or a dedicated helper).
+- [x] Extend `terminal-publication.test.ts` fake `gh` to answer `pr view <n> --json state,mergedAt` without breaking existing list/view mocks used by `resolveOpenDraftPr`.
+- [x] Add tests: `MERGED` (`ready` and `merge`), `CLOSED`, probe throw fallthrough.
+- [x] Update documentation listed below.
 
 ## Acceptance criteria
 
@@ -34,8 +34,8 @@
 
 ## Documentation updates
 
-- [ ] `v2/docs/pipeline-execution.md` — extend the terminal-action matrix (or equivalent) for pre-gate PR-state probe and `MERGED` short-circuit (skip gate/flip/merge); operator-merged implement PR → `terminalPublicationSucceededAt`; closed unmerged → `terminalPublicationFailure` with `cause: "pr_closed"`; reconcile `pipeline resume` / terminal-publication-failure prose so `cause: "pr_closed"` is not recoverable by resume/reopen (resume remains for retriable flip/gate failures).
-- [ ] `v2/docs/operator-runbook.md` — hand-merging the implement PR before terminal publication is safe; closed unmerged implement PR → terminal publication failure with `pr_closed` (operator action is not resume-and-flip).
-- [ ] `v2/docs/write-behavior.md` — pipeline terminal publication probes PR state before ready gate; merged short-circuit (detail in `pipeline-execution.md`).
-- [ ] `v2/docs/v1-behaviors.md` — terminal publication no longer fails ready flip when the implement PR is already merged; closed unmerged PR fails with `pr_closed`.
-- [ ] `v2/docs/workflow-runner.md` — one-line cross-reference: optional `PublicationFailure.cause` (including `pr_closed`) is canonical in `pipeline-execution.md`.
+- [x] `v2/docs/pipeline-execution.md` — extend the terminal-action matrix (or equivalent) for pre-gate PR-state probe and `MERGED` short-circuit (skip gate/flip/merge); operator-merged implement PR → `terminalPublicationSucceededAt`; closed unmerged → `terminalPublicationFailure` with `cause: "pr_closed"`; reconcile `pipeline resume` / terminal-publication-failure prose so `cause: "pr_closed"` is not recoverable by resume/reopen (resume remains for retriable flip/gate failures).
+- [x] `v2/docs/operator-runbook.md` — hand-merging the implement PR before terminal publication is safe; closed unmerged implement PR → terminal publication failure with `pr_closed` (operator action is not resume-and-flip).
+- [x] `v2/docs/write-behavior.md` — pipeline terminal publication probes PR state before ready gate; merged short-circuit (detail in `pipeline-execution.md`).
+- [x] `v2/docs/v1-behaviors.md` — terminal publication no longer fails ready flip when the implement PR is already merged; closed unmerged PR fails with `pr_closed`.
+- [x] `v2/docs/workflow-runner.md` — one-line cross-reference: optional `PublicationFailure.cause` (including `pr_closed`) is canonical in `pipeline-execution.md`.

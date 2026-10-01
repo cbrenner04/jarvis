@@ -608,7 +608,7 @@ The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) 
 
 v2 TUI tests can pass while ink rendering is broken when assertions only walk production monitor state or the injected input hook without inspecting the ink element tree — prefer region-local ink tree walks via `createMonitorDisplay`; see [`test-writing.md` § TUI test strategy](./test-writing.md#tui-test-strategy).
 
-**Structural inventory suites vs fixture binds.** A green structural inventory test can be parsing a same-shaped in-file fixture instead of the marked module `const`; on review, confirm parsed anchor count matches the live module inventory array (not only non-emptiness). Author contract: [`test-writing.md` § Self-parsing inventory locators](./test-writing.md#self-parsing-inventory-locators).
+**Structural inventory vs fixtures.** A green inventory test may parse an in-file fixture — verify parsed anchor count against the live module array, not non-emptiness alone. Authors: [`test-writing.md` § Self-parsing inventory locators](./test-writing.md#self-parsing-inventory-locators).
 
 ## Recovery
 

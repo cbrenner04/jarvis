@@ -23,3 +23,5 @@ On quota, stall, error, model_config, idle stall, and abort teardown, each bindi
 - `v2/docs/v1-behaviors.md` — recovered usage on failed agent settlement before telemetry.
 
 ## Prerequisites
+
+- `20260930T153134Z-invocation-completed-records-failure-usage` — non-ok `InvocationResult` variants and `createInvocationCompletedRecord` copy binding-supplied settlement onto `invocation_completed` rows.

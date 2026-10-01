@@ -254,6 +254,20 @@ function linkedRunningStages(
   return found;
 }
 
+function failedRollupStageFailureDetail(
+  failedRun: DurableRunWithAttempts,
+  rollupStatus: Run["status"],
+  options: LinkedStageSettlementOptions,
+): unknown {
+  // No row failed (a durable step never ran): project the rollup, not the completed entry row.
+  if (failedRun.status === "completed") return stageFailureDetailFromEntryRun({ ...failedRun, status: rollupStatus });
+  return (
+    options.failureDetailForRun?.(failedRun.id) ??
+    stageFailureDetailFromPublicationFailedRun(failedRun) ??
+    stageFailureDetailFromEntryRun(failedRun)
+  );
+}
+
 /**
  * The one linked-stage settlement algorithm: map a terminal workflow invocation's durable rows onto
  * every `running` stage linked to its entry run. Idempotent — a stage settles once, and a live or
@@ -298,13 +312,7 @@ export function settleLinkedStagesFromEntryRunWith(
         patch: {
           status: "failed",
           endedAt,
-          failureDetail:
-            failedRun.status === "completed"
-              ? // No row failed (a durable step never ran): project the rollup, not the completed entry row.
-                stageFailureDetailFromEntryRun({ ...failedRun, status: rollupStatus })
-              : (options.failureDetailForRun?.(failedRun.id) ??
-                stageFailureDetailFromPublicationFailedRun(failedRun) ??
-                stageFailureDetailFromEntryRun(failedRun)),
+          failureDetail: failedRollupStageFailureDetail(failedRun, rollupStatus, options),
         },
       });
       continue;

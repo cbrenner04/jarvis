@@ -1,13 +1,13 @@
 import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
-import type { PipelineStageArtifact } from "../persistence/pipeline-stage-settlement.ts";
 import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
 import { resolveRunLanePrOutcome, type TerminalLogRecord } from "./run-operator-error.ts";
 import {
   derivePipelineState,
-  hasPipelineTerminalPublicationFailure,
   isPipelineTerminal,
+  narrowPipelineStageArtifact,
+  terminalPublicationFailureForcesPipelineFailed,
   type PipelineDerivedState,
 } from "./pipeline-execution.ts";
 import { derivePipelineAwaitingGates } from "./pipeline-observation.ts";
@@ -176,13 +176,6 @@ function lanePrOutcomeIncidentFields(
   };
 }
 
-function runLanePrOutcome(
-  run: Run,
-  terminalLogRecordForRun?: (runId: string) => TerminalLogRecord | undefined,
-): LanePrOutcome | undefined {
-  return resolveRunLanePrOutcome(run, terminalLogRecordForRun?.(run.id));
-}
-
 function invocationLanePrOutcome(
   entryRun: Run,
   rows: readonly Run[],
@@ -196,27 +189,6 @@ function invocationLanePrOutcome(
     if (outcome !== undefined) return outcome;
   }
   return undefined;
-}
-
-function pipelineSettledLanePrOutcome(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-): LanePrOutcome | undefined {
-  for (const stage of pipeline.stages) {
-    if (stage.status !== "succeeded") continue;
-    const artifact = narrowStageArtifact(stage.artifact);
-    if (artifact?.lanePrOutcome !== undefined) return artifact.lanePrOutcome;
-  }
-  return undefined;
-}
-
-/** Same narrowing `pipeline-execution.ts` applies before reading artifact PR fields. */
-function narrowStageArtifact(artifact: unknown): PipelineStageArtifact | undefined {
-  return artifact !== null &&
-    typeof artifact === "object" &&
-    typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
-    typeof (artifact as PipelineStageArtifact).specPath === "string"
-    ? (artifact as PipelineStageArtifact)
-    : undefined;
 }
 
 /**
@@ -267,7 +239,7 @@ function previewPipelineIncidentKeys(
   }
 
   if (isPipelineTerminal(state)) {
-    if (hasPipelineTerminalPublicationFailure(pipeline) && pipelineSettledLanePrOutcome(pipeline) === undefined) {
+    if (terminalPublicationFailureForcesPipelineFailed(pipeline)) {
       keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: "publication-failed" });
     } else {
       keys.push({
@@ -286,7 +258,7 @@ function previewPipelineIncidentKeys(
         });
       }
       if (stage.status === "succeeded" && isImplementWorkflowStage(pipeline, stage)) {
-        const artifact = narrowStageArtifact(stage.artifact);
+        const artifact = narrowPipelineStageArtifact(stage.artifact);
         const laneOutcome = artifact?.lanePrOutcome;
         const transition =
           laneOutcome !== undefined
@@ -352,7 +324,7 @@ function previewRunIncidentKeys(
     return [{ incidentId: runIncidentId(run.id), transition: statusChangeTransition(run, "run_timeout") }];
   }
   if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
-    const laneOutcome = runLanePrOutcome(run, terminalLogRecordForRun);
+    const laneOutcome = resolveRunLanePrOutcome(run, terminalLogRecordForRun?.(run.id));
     if (laneOutcome !== undefined) {
       const settledAt = run.finishedAt ?? run.statusChangedAt ?? run.createdAt;
       return [
@@ -698,7 +670,7 @@ function pushStageSucceededIncident(
   stage: PipelineStageRecord,
   project: string | null,
 ): void {
-  const artifact = narrowStageArtifact(stage.artifact);
+  const artifact = narrowPipelineStageArtifact(stage.artifact);
   const laneOutcome = artifact?.lanePrOutcome;
   const transition =
     laneOutcome !== undefined ? stageLaneSucceededTransition(stage, laneOutcome) : stageSucceededTransition(stage);
@@ -737,7 +709,7 @@ function collectPipelineIncidents(
   }
 
   if (isPipelineTerminal(state)) {
-    if (hasPipelineTerminalPublicationFailure(pipeline) && pipelineSettledLanePrOutcome(pipeline) === undefined) {
+    if (terminalPublicationFailureForcesPipelineFailed(pipeline)) {
       pushPublicationFailureIncident(incidents, pipeline, project);
     } else {
       const hasTimedOutStage = pipeline.stages.some(
@@ -822,7 +794,7 @@ function collectRunIncidents(
     }
     // Workflow rows roll up to their invocation (`collectInvocationIncidents`); only plain rows settle here.
     if (isPlainRun(run) && isTerminalRunStatus(run.status)) {
-      const laneOutcome = runLanePrOutcome(run, terminalLogRecordForRun);
+      const laneOutcome = resolveRunLanePrOutcome(run, terminalLogRecordForRun?.(run.id));
       if (laneOutcome !== undefined) {
         const settledAt = run.finishedAt ?? run.statusChangedAt ?? run.createdAt;
         incidents.push({

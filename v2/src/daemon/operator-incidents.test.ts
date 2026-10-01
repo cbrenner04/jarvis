@@ -950,9 +950,9 @@ test("a lane whose implement stage fails then later succeeds derives both a stag
   expect(succeededIncident.transition).not.toBe(failedIncident.transition);
 });
 
-test("a succeeded implement stage row with a null endedAt derives no stage-succeeded incident", () => {
+function expectNoStageSucceededWhenImplementEndedAtNull(artifact: ReturnType<typeof implementArtifact>): void {
   const pipelineId = seedImplementLanePipeline();
-  landBranchAAtImplement(pipelineId, implementArtifact(5));
+  landBranchAAtImplement(pipelineId, artifact);
   const raw = new Database(dbPath);
   try {
     raw
@@ -962,6 +962,16 @@ test("a succeeded implement stage row with a null endedAt derives no stage-succe
     raw.close();
   }
   expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
+}
+
+test("a succeeded implement stage row with a null endedAt derives no stage-succeeded incident", () => {
+  expectNoStageSucceededWhenImplementEndedAtNull(implementArtifact(5));
+});
+
+test("a succeeded implement stage with lanePrOutcome and null endedAt derives no stage-succeeded incident", () => {
+  expectNoStageSucceededWhenImplementEndedAtNull(
+    implementArtifact(5, { lanePrOutcome: { kind: "lane_pr_closed", prNumber: 5 } }),
+  );
 });
 
 test("terminal pipeline with publication failure emits pipeline-terminal when a succeeded stage settled lane PR", () => {
@@ -1002,20 +1012,6 @@ test("terminal pipeline with publication failure emits pipeline-terminal when a 
   });
   // In `previewPipelineIncidentKeys`, flipping `pipelineSettledLanePrOutcome(pipeline) === undefined` to `!==` treats `publication-failed` as the only preview key and suppresses the pipeline after that stale delivery.
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
-});
-
-test("a succeeded implement stage with lanePrOutcome and null endedAt derives no stage-succeeded incident", () => {
-  const pipelineId = seedImplementLanePipeline();
-  landBranchAAtImplement(pipelineId, implementArtifact(5, { lanePrOutcome: { kind: "lane_pr_closed", prNumber: 5 } }));
-  const raw = new Database(dbPath);
-  try {
-    raw
-      .prepare("UPDATE pipeline_stages SET ended_at = NULL WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?")
-      .run(pipelineId, "implement", "a");
-  } finally {
-    raw.close();
-  }
-  expect(deriveOperatorIncidents(store).some((incident) => incident.kind === "stage-succeeded")).toBe(false);
 });
 
 test("an undelivered stage-succeeded incident is not masked by an already-delivered gate incident", () => {

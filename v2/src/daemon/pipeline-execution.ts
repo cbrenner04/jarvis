@@ -1289,7 +1289,7 @@ export function pipelineSettledLanePrOutcome(
   return undefined;
 }
 
-function terminalPublicationFailureForcesPipelineFailed(
+export function terminalPublicationFailureForcesPipelineFailed(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
 ): boolean {
   return hasPipelineTerminalPublicationFailure(pipeline) && pipelineSettledLanePrOutcome(pipeline) === undefined;

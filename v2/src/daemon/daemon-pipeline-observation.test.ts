@@ -405,15 +405,16 @@ async function wirePipelineFromStore(pipelineId: string): Promise<PipelineSnapsh
   return pipelines.find((pipeline) => pipeline.pipelineId === pipelineId);
 }
 
-test("pipeline_list projects lane_pr_merged stage outcome without publication-failed failureDetail", async () => {
-  const mergedNumber = 77;
-  const laneOutcome = { kind: "lane_pr_merged" as const, prNumber: mergedNumber };
+async function expectLaneStageListProjection(
+  laneOutcome: { kind: "lane_pr_merged" | "lane_pr_closed"; prNumber: number },
+  storedStatus: "failed" | "succeeded",
+): Promise<void> {
   const pipelineId = stateStore.createPipeline({ definition: LANE_IMPLEMENT_DEFINITION });
   stateStore.updateStage({
     pipelineId,
     stageId: "implement",
     patch: {
-      status: "failed",
+      status: storedStatus,
       failureDetail: STALE_PUBLICATION_STAGE_FAILURE,
       artifact: laneImplementArtifact(laneOutcome),
     },
@@ -422,40 +423,22 @@ test("pipeline_list projects lane_pr_merged stage outcome without publication-fa
   const snapshot = projectPipelineSnapshot(stateStore.loadPipeline(pipelineId)!);
   const implement = snapshot.stages[0];
   expect(implement?.status).toBe("succeeded");
-  expect(implement?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: mergedNumber });
+  expect(implement?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: laneOutcome.prNumber });
   expect(implement?.failureDetail).toBeNull();
 
   const wire = await wirePipelineFromStore(pipelineId);
   const wireStage = wire?.stages[0];
   expect(wireStage?.status).toBe("succeeded");
-  expect(wireStage?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: mergedNumber });
+  expect(wireStage?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: laneOutcome.prNumber });
   expect(wireStage?.failureDetail).toBeNull();
+}
+
+test("pipeline_list projects lane_pr_merged stage outcome without publication-failed failureDetail", async () => {
+  await expectLaneStageListProjection({ kind: "lane_pr_merged", prNumber: 77 }, "failed");
 });
 
 test("pipeline_list projects lane_pr_closed stage artifact without publication-failed failureDetail", async () => {
-  const closedNumber = 88;
-  const laneOutcome = { kind: "lane_pr_closed" as const, prNumber: closedNumber };
-  const pipelineId = stateStore.createPipeline({ definition: LANE_IMPLEMENT_DEFINITION });
-  stateStore.updateStage({
-    pipelineId,
-    stageId: "implement",
-    patch: {
-      status: "succeeded",
-      failureDetail: STALE_PUBLICATION_STAGE_FAILURE,
-      artifact: laneImplementArtifact(laneOutcome),
-    },
-  });
-
-  const snapshot = projectPipelineSnapshot(stateStore.loadPipeline(pipelineId)!);
-  const implement = snapshot.stages[0];
-  expect(implement?.status).toBe("succeeded");
-  expect(implement?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: closedNumber });
-  expect(implement?.failureDetail).toBeNull();
-
-  const wire = await wirePipelineFromStore(pipelineId);
-  const wireStage = wire?.stages[0];
-  expect(wireStage?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: closedNumber });
-  expect(wireStage?.failureDetail).toBeNull();
+  await expectLaneStageListProjection({ kind: "lane_pr_closed", prNumber: 88 }, "succeeded");
 });
 
 test("lane-settled stage evidence overrides stale terminalPublicationFailure in pipeline snapshot state", () => {

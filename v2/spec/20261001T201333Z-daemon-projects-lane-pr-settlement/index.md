@@ -10,4 +10,4 @@ Documentation: subspec 02 owns full `v2/docs/daemon-host.md` and `v2/docs/v1-beh
 
 - [x] [00 — Run list/wait lane PR operator error](./00-run-list-wait-lane-pr-operator-error.md)
 - [x] [01 — Operator notification lane PR incidents](./01-operator-notification-lane-pr-incidents.md)
-- [ ] [02 — Pipeline list/wait lane PR stage observation](./02-pipeline-list-wait-lane-pr-stage-observation.md)
+- [x] [02 — Pipeline list/wait lane PR stage observation](./02-pipeline-list-wait-lane-pr-stage-observation.md)

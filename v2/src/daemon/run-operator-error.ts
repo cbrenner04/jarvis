@@ -145,8 +145,7 @@ function applyLanePrOutcomeOperatorError(
   lanePrOutcome: LanePrOutcome | undefined,
 ): RunOperatorError | undefined {
   if (lanePrOutcome === undefined) return error;
-  if (error === undefined) return undefined;
-  if (PUBLICATION_FAILURE_OPERATOR_REASONS.has(error.reason)) return undefined;
+  if (error === undefined || PUBLICATION_FAILURE_OPERATOR_REASONS.has(error.reason)) return undefined;
   return { ...error, lanePrOutcome };
 }
 

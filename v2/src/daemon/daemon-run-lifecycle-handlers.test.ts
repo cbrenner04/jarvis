@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { IntentFinalizationResumeDeps } from "../execution/workflow-runner-resume.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -309,6 +310,91 @@ test("resume rejects allowLanePrRepublish false without changing the run row", a
   });
   expect(loadRunOrThrow(stateStore, runId)).toEqual(before);
   expect(fakeExecutor.pendingCount()).toBe(0);
+});
+
+test.each([
+  { rpcAllowLanePrRepublish: undefined, expectedOnWriteLoopInput: undefined },
+  { rpcAllowLanePrRepublish: true, expectedOnWriteLoopInput: true },
+] as const)("paused write-loop resume sets allowLanePrRepublish on spawnWriteLoop input only when RPC opts in (rpc=$rpcAllowLanePrRepublish)", async ({
+  rpcAllowLanePrRepublish,
+  expectedOnWriteLoopInput,
+}) => {
+  const resumedInputs: WriteLoopInput[] = [];
+  const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    logReader: { tail: () => [], async *follow() {} },
+    writeLoopExecutor: localFake.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+  });
+  const handlers = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+  });
+  const signal = new AbortController().signal;
+  const branchName = `paused-republish-${String(rpcAllowLanePrRepublish)}`;
+  const runId = stateStore.createRun({
+    project: branchName,
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: branchName,
+    specPath: "/tmp/spec.md",
+    status: "paused",
+    queuedInput: mockWriteLoopInput({ projectName: branchName, branchName }),
+  });
+
+  const resumed = await handlers.resume(
+    {
+      kind: "request",
+      id: "r1",
+      method: "resume",
+      params: {
+        runId,
+        ...(rpcAllowLanePrRepublish === true ? { allowLanePrRepublish: true } : {}),
+      },
+    },
+    signal,
+  );
+  expect(resumed).toEqual({ kind: "response", result: { ok: true } });
+  await flushBackgroundRuns();
+  expect(resumedInputs).toHaveLength(1);
+  expect(resumedInputs[0]?.allowLanePrRepublish).toBe(expectedOnWriteLoopInput);
+  localFake.abortAll();
+});
+
+test.each([
+  { resumePublicationOptions: undefined, expectedOnTailDeps: undefined },
+  { resumePublicationOptions: { allowLanePrRepublish: true }, expectedOnTailDeps: true },
+] as const)("resumeFinalizationOnly sets allowLanePrRepublish on tail deps only when publication options opt in (optIn=$expectedOnTailDeps)", async ({
+  resumePublicationOptions,
+  expectedOnTailDeps,
+}) => {
+  const { handlers } = lifecycleHandlers();
+  const branch = `finalization-republish-${String(expectedOnTailDeps)}`;
+  const runId = settledInvocationRun(`inv-finalization-republish-${String(expectedOnTailDeps)}`, branch);
+  let capturedDeps: IntentFinalizationResumeDeps | undefined;
+  const resumeFinalizationWithPublicationOptions = handlers.resumeFinalizationOnly as (
+    run: ReturnType<typeof loadRunOrThrow>,
+    key: { project: string; branch: string },
+    execute: (deps: IntentFinalizationResumeDeps) => Promise<{ ok: true } | { ok: false; message: string }>,
+    failureAsResponse?: boolean,
+    reopenStage?: unknown,
+    publicationOptions?: { allowLanePrRepublish?: true },
+  ) => ReturnType<typeof handlers.resumeFinalizationOnly>;
+  const outcome = await resumeFinalizationWithPublicationOptions(
+    loadRunOrThrow(stateStore, runId),
+    { project: "republish", branch },
+    async (deps) => {
+      capturedDeps = deps;
+      return { ok: true };
+    },
+    false,
+    undefined,
+    resumePublicationOptions,
+  );
+  expect(outcome).toEqual({ kind: "response", result: { ok: true } });
+  expect(capturedDeps?.allowLanePrRepublish).toBe(expectedOnTailDeps);
 });
 
 test("resume admits a paused workflow write step with exact snapshot stepId", async () => {

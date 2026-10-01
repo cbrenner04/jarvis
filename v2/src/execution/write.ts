@@ -133,6 +133,18 @@ function assembleWriteStepPlaceholders(
 
 const PLAN_DRAFT_SHAPE_REASON = "plan.draft.shape";
 
+function planDraftShapeReason(suffix: string): string {
+  return `${PLAN_DRAFT_SHAPE_REASON}:${suffix}`;
+}
+
+export function isPlanDraftShapeFamilyReason(reason: string): boolean {
+  return reason === PLAN_DRAFT_SHAPE_REASON || reason.startsWith(`${PLAN_DRAFT_SHAPE_REASON}:`);
+}
+
+function isDefinitiveTopLevelStructuralShapeReason(reason: string | undefined): boolean {
+  return reason === planDraftShapeReason("no-index") || reason === planDraftShapeReason("no-subspecs");
+}
+
 function visitStagingSubdirectories(root: string, visit: (dir: string) => void): void {
   for (const name of readdirSync(root)) {
     const path = join(root, name);
@@ -168,16 +180,30 @@ function hasPreservablePlanDraftStageContent(stagingDir: string): boolean {
 type ResolvedPlanDraftStagingRoot = { ok: true; root: string } | { ok: false; reason: string };
 
 function resolvePlanDraftStagingRoot(stagingDir: string): ResolvedPlanDraftStagingRoot {
-  if (validatePlanDraftShapeAtRoot(stagingDir).valid) {
+  if (!existsSync(stagingDir)) {
+    return { ok: false, reason: planDraftShapeReason("missing-dir") };
+  }
+
+  const top = validatePlanDraftShapeAtRoot(stagingDir);
+  if (top.valid) {
     return { ok: true, root: stagingDir };
   }
 
   const candidates = discoverNestedPlanDraftLayoutRoots(stagingDir);
-  if (candidates.length !== 1) {
-    return { ok: false, reason: PLAN_DRAFT_SHAPE_REASON };
+  if (candidates.length === 1) {
+    return { ok: true, root: candidates[0]! };
   }
 
-  return { ok: true, root: candidates[0]! };
+  const candidateCount = candidates.length;
+  if (
+    candidateCount === 0 &&
+    !existsSync(join(stagingDir, "spec")) &&
+    isDefinitiveTopLevelStructuralShapeReason(top.reason)
+  ) {
+    return { ok: false, reason: top.reason! };
+  }
+
+  return { ok: false, reason: planDraftShapeReason(`nested-roots=${candidateCount}`) };
 }
 
 function flattenNestedPlanDraftStaging(stagingDir: string, nestedRoot: string): void {
@@ -193,19 +219,19 @@ function flattenNestedPlanDraftStaging(stagingDir: string, nestedRoot: string): 
 
 function validatePlanDraftShapeAtRoot(specDir: string): { valid: boolean; reason?: string } {
   if (!existsSync(specDir)) {
-    return { valid: false, reason: PLAN_DRAFT_SHAPE_REASON };
+    return { valid: false, reason: planDraftShapeReason("missing-dir") };
   }
 
   const indexPath = join(specDir, "index.md");
   if (!existsSync(indexPath)) {
-    return { valid: false, reason: PLAN_DRAFT_SHAPE_REASON };
+    return { valid: false, reason: planDraftShapeReason("no-index") };
   }
 
   const files = readdirSync(specDir);
   const subspecCount = files.filter((f: string) => /^\d{2}-.*\.md$/.test(f)).length;
 
   if (subspecCount === 0) {
-    return { valid: false, reason: PLAN_DRAFT_SHAPE_REASON };
+    return { valid: false, reason: planDraftShapeReason("no-subspecs") };
   }
 
   return { valid: true };
@@ -272,7 +298,11 @@ function composePlanDraftArtifactCheck(
   const staging = validatePlanDraft(stagingDir, shapeValidator, "rewrite-allowed");
   if (staging.ok) return true;
 
-  if (staging.reason !== PLAN_DRAFT_SHAPE_REASON) {
+  if (!isPlanDraftShapeFamilyReason(staging.reason)) {
+    return staging;
+  }
+
+  if (staging.reason === planDraftShapeReason("missing-dir")) {
     return staging;
   }
 

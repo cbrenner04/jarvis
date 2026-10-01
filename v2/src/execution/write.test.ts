@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -848,9 +849,85 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
     if (result.result.kind === "contract_miss") {
       expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-index");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
       expect(result.result.failureReason).not.toContain("Plan index");
       expect(result.result.failureReason).not.toContain("multi-surface");
+    }
+  });
+
+  test("plan-draft contract_miss on absent staging directory settles plan.draft.shape:missing-dir", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-missing-stage-dir",
+      agentSetup: (cwd, stagePath) => {
+        const durablePath = join(cwd, durableSpecPath);
+        mkdirSync(durablePath, { recursive: true });
+        writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+        writeFileSync(
+          join(durablePath, subspecFile),
+          `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
+          "utf8",
+        );
+        rmSync(stagePath, { recursive: true, force: true });
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toBe("plan.draft.shape:missing-dir");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
+    }
+  });
+
+  test("plan-draft shape-family staging miss passes via durable fallback when durable satisfies shape", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-shape-fallback-durable-pass",
+      agentSetup: (cwd, stagePath) => {
+        const durablePath = join(cwd, durableSpecPath);
+        mkdirSync(durablePath, { recursive: true });
+        writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+        writeFileSync(
+          join(durablePath, subspecFile),
+          `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
+          "utf8",
+        );
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, subspecFile), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+  });
+
+  test("plan-draft shape-family staging miss settles suffixed reason when durable cannot repair staging", async () => {
+    const { jarvisRoot } = createJarvisHome();
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-shape-fallback-durable-fail",
+      agentSetup: (_cwd, stagePath) => {
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-index");
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
     }
   });
 
@@ -870,7 +947,7 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
     if (result.result.kind === "contract_miss") {
       expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-subspecs");
       expect(result.result.failureReason).not.toContain("Plan index");
       expect(result.result.failureReason).not.toContain("multi-surface");
     }
@@ -1272,15 +1349,17 @@ describe("write behavior", () => {
 
   test("plan-draft contract_miss rejects ambiguous nested spec/ directories", async () => {
     const { jarvisRoot } = createJarvisHome();
-    const ambiguousFixtures: Array<{ label: string; setup: (stagePath: string) => void }> = [
+    const ambiguousFixtures: Array<{ label: string; expectedReason: string; setup: (stagePath: string) => void }> = [
       {
         label: "zero nested spec directories",
+        expectedReason: "plan.draft.shape:nested-roots=0",
         setup: (stagePath) => {
           mkdirSync(join(stagePath, "spec"), { recursive: true });
         },
       },
       {
         label: "multiple nested spec directories",
+        expectedReason: "plan.draft.shape:nested-roots=2",
         setup: (stagePath) => {
           writeNestedPlanDraftStage(stagePath, "first", {
             index: MINIMAL_PLAN_DRAFT_INDEX,
@@ -1310,7 +1389,7 @@ describe("write behavior", () => {
       expect(result.result.kind).toBe("contract_miss");
       if (result.result.kind === "contract_miss") {
         expect(result.result.failedContractId).toBe("artifact.exists");
-        expect(result.result.failureReason).toBe("plan.draft.shape");
+        expect(result.result.failureReason).toBe(fixture.expectedReason);
       }
       expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
     }
@@ -1393,10 +1472,13 @@ describe("write behavior", () => {
       subspecs: { "00-two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] y\n" },
     });
 
-    for (const ambiguousPath of ambiguousPaths) {
+    for (const [index, ambiguousPath] of ambiguousPaths.entries()) {
       const result = checkStagedPlanDraft(ambiguousPath);
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.reason).toBe("plan.draft.shape");
+      if (!result.ok) {
+        const expectedReason = index === 0 ? "plan.draft.shape:nested-roots=0" : "plan.draft.shape:nested-roots=2";
+        expect(result.reason).toBe(expectedReason);
+      }
       expect(validatePlanDraftShapeTopLevelOnly(ambiguousPath).valid).toBe(false);
     }
   });
@@ -1591,7 +1673,7 @@ describe("write behavior", () => {
       expect(result.result.kind).toBe("contract_miss");
       if (result.result.kind === "contract_miss") {
         expect(result.result.failedContractId).toBe("artifact.exists");
-        expect(result.result.failureReason).toBe("plan.draft.shape");
+        expect(result.result.failureReason).toBe("plan.draft.shape:nested-roots=2");
       }
       expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
     }
@@ -1633,7 +1715,7 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
     if (result.result.kind === "contract_miss") {
       expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).toBe("plan.draft.shape:no-index");
     }
     expect(validatePlanDraftShapeTopLevelOnly(stagePath).valid).toBe(false);
     expect(validatePlanDraftShapeTopLevelOnly(deepLeaf).valid).toBe(true);

@@ -2457,6 +2457,43 @@ describe("write loop", () => {
       false,
     );
 
+    const suffixedShapeSink = new TestLogSink();
+    const suffixedShapeResult = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "plan-draft-shape-suffixed-excluded",
+      artifactPath: ".jarvis-plan-stage",
+      specPath: PLAN_DRAFT_SPEC_PATH,
+      promptId: "plan.prompt.draft",
+      intentSeed: PLAN_DRAFT_INTENT_SEED,
+      logSink: suffixedShapeSink,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            const stagePath = join(cwd, ".jarvis-plan-stage");
+            mkdirSync(stagePath, { recursive: true });
+            writeFileSync(join(stagePath, "intent.md"), PLAN_DRAFT_INTENT_SEED, "utf8");
+            writeFileSync(join(stagePath, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+    expect(suffixedShapeResult).toMatchObject({ kind: "contract_miss", iterationsConsumed: 1 });
+    const suffixedDetail = suffixedShapeSink
+      .getEventsForRun(suffixedShapeResult.runId)
+      .find((event) => event.kind === "contract_miss_detail");
+    expect(suffixedDetail).toMatchObject({
+      kind: "contract_miss_detail",
+      failureReason: "plan.draft.shape:no-index",
+    });
+    expect(
+      suffixedShapeSink
+        .getEventsForRun(suffixedShapeResult.runId)
+        .some((event) => event.kind === "draft_contract_reprompt"),
+    ).toBe(false);
+
     const blockerSink = new TestLogSink();
     const blockerResult = await runPlanDraftAgentBlocker(
       jarvisRoot,
@@ -2858,7 +2895,9 @@ describe("write loop", () => {
       .find((event) => event.kind === "contract_miss_detail");
     expect(shapeDetail).toMatchObject({ kind: "contract_miss_detail", failedContractId: "artifact.exists" });
     const shapeIntentPath = join(jarvisRoot, "worktrees", "demo", shapeBranch, ".jarvis-plan-stage", "intent.md");
-    expect(readFileSync(shapeIntentPath, "utf8")).toContain("Artifact contract check failed: plan.draft.shape");
+    expect(readFileSync(shapeIntentPath, "utf8")).toContain(
+      "Artifact contract check failed: plan.draft.shape:no-index",
+    );
   });
 
   test("contract_miss skips absent, directory, or symlink blocker append target", async () => {

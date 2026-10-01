@@ -949,6 +949,40 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
   return runPipelineControlSubcommand(subcommand, argv, io, deps);
 }
 
+async function runPipelineResumeControlCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const parsed = parsePipelineResumeArgs(argv);
+  if (!parsed.ok) {
+    io.stderr(PIPELINE_RESUME_USAGE);
+    return 1;
+  }
+  if (parsed.addressReviewStageId !== undefined) {
+    return runPipelineStageReviewFeedbackLaunchCommand(
+      {
+        pipelineId: parsed.pipelineId,
+        stageId: parsed.addressReviewStageId,
+        ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
+      },
+      io,
+      deps,
+    );
+  }
+  return runPipelineMutationCommand(
+    "pipeline_resume",
+    parsed.pipelineId,
+    // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped resume RPC test RED.
+    {
+      pipelineId: parsed.pipelineId,
+      ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
+      ...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+      ...(parsed.resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+      ...(parsed.allowLanePrRepublish ? { allowLanePrRepublish: true } : {}),
+    },
+    "resumed",
+    io,
+    deps,
+  );
+}
+
 /** Tail of the pipeline dispatcher: resume/recover/dismiss/undismiss and the usage fallback,
  * split out of {@link runPipelineCommand} to keep each under the cognitive-complexity budget. */
 async function runPipelineControlSubcommand(
@@ -958,37 +992,7 @@ async function runPipelineControlSubcommand(
   deps: CliDeps,
 ): Promise<number> {
   if (subcommand === "resume") {
-    const parsed = parsePipelineResumeArgs(argv.slice(1));
-    if (!parsed.ok) {
-      io.stderr(PIPELINE_RESUME_USAGE);
-      return 1;
-    }
-    if (parsed.addressReviewStageId !== undefined) {
-      return runPipelineStageReviewFeedbackLaunchCommand(
-        {
-          pipelineId: parsed.pipelineId,
-          stageId: parsed.addressReviewStageId,
-          ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
-        },
-        io,
-        deps,
-      );
-    }
-    return runPipelineMutationCommand(
-      "pipeline_resume",
-      parsed.pipelineId,
-      // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped resume RPC test RED.
-      {
-        pipelineId: parsed.pipelineId,
-        ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
-        ...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {}),
-        ...(parsed.resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
-        ...(parsed.allowLanePrRepublish ? { allowLanePrRepublish: true } : {}),
-      },
-      "resumed",
-      io,
-      deps,
-    );
+    return runPipelineResumeControlCommand(argv.slice(1), io, deps);
   }
   if (subcommand === "recover") {
     const parsed = parsePipelineRecoverArgs(argv.slice(1));

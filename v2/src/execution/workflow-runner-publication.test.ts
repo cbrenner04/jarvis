@@ -3653,3 +3653,219 @@ describe("executeWorkflow completion publication", () => {
     expect(commitBullets.every((line) => line.endsWith(`\u2014 ${sharedAgent}`))).toBe(true);
   });
 });
+
+describe("workflow completion lane PR republication settlement", () => {
+  function ghListJsonFields(args: readonly string[]): string {
+    const index = args.indexOf("--json");
+    return index >= 0 ? String(args[index + 1] ?? "") : "";
+  }
+
+  function viewPrJson(number: number, url: string, baseRefName: string) {
+    return JSON.stringify({ number, url, baseRefName });
+  }
+
+  function buildLaneHistoryPublisher(
+    workspace: string,
+    branchName: string,
+    baseRef: string,
+    history: { number: number; state: string } | "throw",
+  ) {
+    const listBaseRef = baseRef.length >= 40 ? "main" : baseRef;
+    const ghCalls: string[] = [];
+    const republicationGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "ls-remote") return "";
+      if (args[0] === "rev-parse" && args.includes(`${branchName}@{u}`)) throw new Error("no upstream");
+      if (args[0] === "rev-parse" && args[1] === "HEAD") {
+        return execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      }
+      if (args[0] === "push") return "";
+      return "";
+    };
+    const gh = async (_cwd: string, args: readonly string[]) => {
+      ghCalls.push(args.join(" "));
+      if (args[0] === "pr" && args[1] === "list") {
+        const state = args[args.indexOf("--state") + 1];
+        if (state === "open") return JSON.stringify([]);
+        if (state === "all") {
+          if (history === "throw") throw new Error("gh api unavailable");
+          const fields = ghListJsonFields(args);
+          const row: { number: number; baseRefName: string; state?: string } = {
+            number: history.number,
+            baseRefName: listBaseRef,
+          };
+          if (fields.includes("state")) row.state = history.state;
+          return JSON.stringify([row]);
+        }
+      }
+      if (args[0] === "pr" && args[1] === "create") throw new Error("unexpected pr create");
+      if (args[0] === "pr" && args[1] === "view" && history !== "throw") {
+        return viewPrJson(history.number, `https://github.com/user/repo/pull/${history.number}`, listBaseRef);
+      }
+      return "";
+    };
+
+    return {
+      ghCalls,
+      publisher: createCompletionPublisher({
+        git: republicationGit,
+        gh,
+        subprocessRunner: {
+          runAsync: async (command, args) => {
+            if (command === "git" && args[0] === "ls-remote") return "";
+            if (command === "gh" && args.includes("defaultBranchRef")) return "main";
+            throw new Error(`unexpected subprocess: ${command} ${args.join(" ")}`);
+          },
+        },
+        delay: async () => {},
+        fetchPrBody: async () => "",
+        writePrBody: async () => {},
+        renderFooter: async () => "",
+      }),
+    };
+  }
+
+  test("MERGED head+base history settles completed with PR evidence and skips create on republication", async () => {
+    const branchName = "lane-merged-settlement";
+    const mergedNumber = 77;
+    const { step, workspace } = createImplementBodySummaryStep(branchName);
+    const baseRef = step.worktree.baseRef;
+    const invocationId = `${branchName}-inv`;
+    step.workflowInvocationId = invocationId;
+    step.suppressShrink = true;
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+    const { ghCalls, publisher } = buildLaneHistoryPublisher(workspace, branchName, baseRef, {
+      number: mergedNumber,
+      state: "MERGED",
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
+        completionPublisher: publisher,
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(store.loadRun(result.runId)).toMatchObject({
+        status: "completed",
+        terminalCause: "complete",
+        prNumber: mergedNumber,
+        prUrl: `https://github.com/user/repo/pull/${mergedNumber}`,
+      });
+      expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+      expect(
+        logSink
+          .getEventsForRun(result.runId)
+          .some((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "completion_commit_failed"),
+      ).toBe(false);
+
+      ghCalls.length = 0;
+      const resume = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
+        completionPublisher: publisher,
+        readyFinalizer: async () => {},
+      });
+      expect(resume.kind).toBe("complete");
+      expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    });
+  });
+
+  test("CLOSED head+base history settles terminal lane_pr_closed without failed status or duplicate create", async () => {
+    const branchName = "lane-closed-settlement";
+    const closedNumber = 88;
+    const { step, workspace } = createImplementBodySummaryStep(branchName);
+    const baseRef = step.worktree.baseRef;
+    const invocationId = `${branchName}-inv`;
+    step.workflowInvocationId = invocationId;
+    step.suppressShrink = true;
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+    const { ghCalls, publisher } = buildLaneHistoryPublisher(workspace, branchName, baseRef, {
+      number: closedNumber,
+      state: "CLOSED",
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
+        completionPublisher: publisher,
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      const row = store.loadRun(result.runId);
+      expect(row?.status).toBe("completed");
+      expect(row?.status).not.toBe("failed");
+      expect(row).toMatchObject({ terminalCause: "complete", prNumber: closedNumber });
+      const terminal = logSink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
+      expect(terminal).toMatchObject({
+        loopOutcomeKind: "complete",
+        resumable: false,
+        lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+      });
+      expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+
+      ghCalls.length = 0;
+      const resume = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
+        completionPublisher: publisher,
+        readyFinalizer: async () => {},
+      });
+      expect(resume.kind).toBe("complete");
+      expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+    });
+  });
+
+  test("all-state history probe throw settles failed with probe text and non-resumable republication", async () => {
+    const branchName = "lane-probe-settlement";
+    const { step, workspace } = createImplementBodySummaryStep(branchName);
+    const baseRef = step.worktree.baseRef;
+    const invocationId = `${branchName}-inv`;
+    step.workflowInvocationId = invocationId;
+    step.suppressShrink = true;
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+    const { publisher } = buildLaneHistoryPublisher(workspace, branchName, baseRef, "throw");
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: headSha, filesChanged: 1 }),
+        completionPublisher: publisher,
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("completion_commit_failed");
+      expect(result.resumable).toBe(false);
+      expect(result.completionCommitError).toContain("gh api unavailable");
+      const row = store.loadRun(result.runId);
+      expect(row?.status).toBe("failed");
+      expect(row?.terminalCause).toBe("completion_commit_failed");
+      expect(row?.terminalFailureDetail?.message).toContain("gh api unavailable");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "completion_commit_failed",
+        resumable: false,
+        completionCommitError: result.completionCommitError,
+      });
+    });
+  });
+});

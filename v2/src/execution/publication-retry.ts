@@ -46,6 +46,16 @@ export function publicationFailureFor(error: unknown): PublicationFailure | unde
   return error instanceof Error ? details.get(error) : undefined;
 }
 
+/** Permanent `"pr"` step failures (e.g. list-probe errors) are not republication-resumable. */
+export function completionCommitFailureResumable(error?: Error): boolean {
+  if (error === undefined) return true;
+  const publicationFailure = publicationFailureFor(error);
+  if (publicationFailure?.operation === "pr") {
+    return isTransientPublicationFailure(publicationFailure);
+  }
+  return true;
+}
+
 /** Only known transport failures retry; explicit permanent diagnostics always win. */
 export function isTransientPublicationFailure(failure: PublicationFailure): boolean {
   const text = `${failure.message}\n${failure.stdoutTail ?? ""}\n${failure.stderrTail ?? ""}`.toLowerCase();

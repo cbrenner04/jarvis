@@ -38,6 +38,11 @@ const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   { file: "workflow-runner.ts", functionName: "settleCompletedPublication", writer: "commitTerminalRunSettlement" },
   {
     file: "workflow-runner.ts",
+    functionName: "settleWorkflowPublicationSuccess",
+    writer: "commitTerminalRunSettlement",
+  },
+  {
+    file: "workflow-runner.ts",
     functionName: "settleWorkflowPublicationFailure",
     writer: "commitTerminalRunSettlement",
   },

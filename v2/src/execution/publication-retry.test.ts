@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
 import {
+  completionCommitFailureResumable,
   formatPublicationFailure,
   isTransientPublicationFailure,
   normalizePublicationFailure,
   publicationFailureFor,
   runPublicationWithRetry,
+  stampPublicationFailure,
 } from "./publication-retry.ts";
 
 test("normalizes bounded labelled command evidence", () => {
@@ -89,4 +91,14 @@ test("a subprocess timeout is a retryable publication failure, never a success",
     "ETIMEDOUT",
   );
   expect(isTransientPublicationFailure(normalizePublicationFailure("pr", timeout))).toBe(true);
+});
+
+test("completionCommitFailureResumable is false for permanent pr step failures", () => {
+  const err = new Error("gh api unavailable");
+  stampPublicationFailure(err, "pr", err);
+  expect(completionCommitFailureResumable(err)).toBe(false);
+});
+
+test("completionCommitFailureResumable stays true without pr publication evidence", () => {
+  expect(completionCommitFailureResumable(new Error("uncommitted changes"))).toBe(true);
 });

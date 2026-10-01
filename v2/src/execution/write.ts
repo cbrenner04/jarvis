@@ -141,6 +141,20 @@ export function isPlanDraftShapeFamilyReason(reason: string): boolean {
   return reason === PLAN_DRAFT_SHAPE_REASON || reason.startsWith(`${PLAN_DRAFT_SHAPE_REASON}:`);
 }
 
+function isPlanDraftShapeRepromptIneligible(reason: string): boolean {
+  return reason === PLAN_DRAFT_SHAPE_REASON || reason === planDraftShapeReason("missing-dir");
+}
+
+const PLAN_DRAFT_SHAPE_REPROMPT_DETAIL =
+  "Place intent.md, index.md, and at least one NN-*.md subspec file at the .jarvis-plan-stage root (flat staging layout).";
+
+export function draftContractRepromptDetail(failureReason: string): string {
+  if (isPlanDraftShapeFamilyReason(failureReason) && !isPlanDraftShapeRepromptIneligible(failureReason)) {
+    return PLAN_DRAFT_SHAPE_REPROMPT_DETAIL;
+  }
+  return failureReason;
+}
+
 function visitStagingSubdirectories(root: string, visit: (dir: string) => void): void {
   for (const name of readdirSync(root)) {
     const path = join(root, name);

@@ -24,12 +24,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop-draft-reprompt.test.ts` asserts `isEligibleDraftContractReprompt` is true for `plan.draft.shape:no-index`, `:no-subspecs`, and `:nested-roots=<n>` and false for bare `plan.draft.shape` and `:missing-dir`; fails against the pre-fix whole-family exclusion (today’s test expects suffixed `:no-index` ineligible).
-- [ ] `v2/src/execution/write-loop-draft-reprompt.test.ts` drives a plan-draft `plan.draft.shape:no-subspecs` `artifact.exists` miss, asserts exactly one `draft_contract_reprompt` whose `detail` names flat staging (`intent.md`, `index.md`, `NN-*.md` at the staging root), then a second write-loop iteration or contract re-evaluation after that reprompt (`iterationsConsumed` ≥ 2 or a second mocked agent invocation); fails against the pre-fix whole-family exclusion.
-- [ ] Same file, a plan-draft `plan.draft.shape:missing-dir` miss asserts zero `draft_contract_reprompt` events; fails if `:missing-dir` is made eligible (constructible via absent `.jarvis-plan-stage` on the pre-fix loop).
-- [ ] `v2/docs/v1-behaviors.md` records which `plan.draft.shape:*` suffixes receive one in-loop `draft_contract_reprompt` and that bare `plan.draft.shape` and `plan.draft.shape:missing-dir` do not.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/write-loop-draft-reprompt.test.ts` asserts `isEligibleDraftContractReprompt` is true for `plan.draft.shape:no-index`, `:no-subspecs`, and `:nested-roots=<n>` and false for bare `plan.draft.shape` and `:missing-dir`; fails against the pre-fix whole-family exclusion (today’s test expects suffixed `:no-index` ineligible).
+- [x] `v2/src/execution/write-loop-draft-reprompt.test.ts` drives a plan-draft `plan.draft.shape:no-subspecs` `artifact.exists` miss, asserts exactly one `draft_contract_reprompt` whose `detail` names flat staging (`intent.md`, `index.md`, `NN-*.md` at the staging root), then a second write-loop iteration or contract re-evaluation after that reprompt (`iterationsConsumed` ≥ 2 or a second mocked agent invocation); fails against the pre-fix whole-family exclusion.
+- [x] Same file, a plan-draft `plan.draft.shape:missing-dir` miss asserts zero `draft_contract_reprompt` events; fails if `:missing-dir` is made eligible (constructible via absent `.jarvis-plan-stage` on the pre-fix loop).
+- [x] `v2/docs/v1-behaviors.md` records which `plan.draft.shape:*` suffixes receive one in-loop `draft_contract_reprompt` and that bare `plan.draft.shape` and `plan.draft.shape:missing-dir` do not.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

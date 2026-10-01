@@ -2444,8 +2444,9 @@ describe("write loop", () => {
       bindings: [
         {
           id: "agent",
-          invoke: async () => {
+          invoke: async ({ cwd }) => {
             shapeCalls += 1;
+            rmSync(join(cwd, ".jarvis-plan-stage"), { recursive: true, force: true });
             return { kind: "ok", stdout: "done", stderr: "" };
           },
         },
@@ -2480,19 +2481,12 @@ describe("write loop", () => {
         },
       ],
     });
-    expect(suffixedShapeResult).toMatchObject({ kind: "contract_miss", iterationsConsumed: 1 });
-    const suffixedDetail = suffixedShapeSink
-      .getEventsForRun(suffixedShapeResult.runId)
-      .find((event) => event.kind === "contract_miss_detail");
-    expect(suffixedDetail).toMatchObject({
-      kind: "contract_miss_detail",
+    expect(suffixedShapeResult).toMatchObject({ kind: "contract_miss", iterationsConsumed: 2 });
+    const suffixedEvents = suffixedShapeSink.getEventsForRun(suffixedShapeResult.runId);
+    expect(suffixedEvents.find((event) => event.kind === "contract_miss_detail")).toMatchObject({
       failureReason: "plan.draft.shape:no-index",
     });
-    expect(
-      suffixedShapeSink
-        .getEventsForRun(suffixedShapeResult.runId)
-        .some((event) => event.kind === "draft_contract_reprompt"),
-    ).toBe(false);
+    expect(suffixedEvents.filter((event) => event.kind === "draft_contract_reprompt")).toHaveLength(1);
 
     const blockerSink = new TestLogSink();
     const blockerResult = await runPlanDraftAgentBlocker(

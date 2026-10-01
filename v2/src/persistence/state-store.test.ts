@@ -33,7 +33,7 @@ import {
 } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
-const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
+const TEST_DB_PATH = join(tmpdir(), `jarvis-test-state-${process.pid}.sqlite`);
 
 function sinkIncident(incident: OperatorIncident): ReturnType<typeof JSON.parse> {
   return JSON.parse(serializeOperatorIncident(incident));
@@ -209,7 +209,7 @@ describe("StateStore", () => {
   });
 
   test("post-squash open backfills run_verifier_process_groups from ready_gate_pgid", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-squashed-ready-gate-pgid.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-squashed-ready-gate-pgid-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -722,7 +722,7 @@ describe("StateStore", () => {
   });
 
   test("migration adds owner_identity to a pre-migration database without backfilling existing rows", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-migration.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-migration-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -796,7 +796,7 @@ describe("StateStore", () => {
   });
 
   test("a pre-migration database migrates dismissed_at onto existing runs as null", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-dismissed-at.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-dismissed-at-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -1280,7 +1280,7 @@ describe("commitGuardedKill", () => {
   });
 
   test("pre-migration runs read terminalCause and terminalFailureDetail as null after migration 029", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-terminal-settlement.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-terminal-settlement-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -1737,7 +1737,7 @@ describe("pipelines", () => {
   });
 
   test("a database created without skip provenance adds the column and loads legacy provenance as absent", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-skip-provenance.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-skip-provenance-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -1801,7 +1801,7 @@ describe("pipelines", () => {
   });
 
   test("a pre-context-migration database opens successfully and loads legacy pipeline context as absent", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-pipeline-context.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-pipeline-context-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -1881,7 +1881,7 @@ describe("pipelines", () => {
   });
 
   test("a pre-027-migration database opens successfully and loads dismissedAt as null", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-dismissed-at.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-dismissed-at-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -2930,7 +2930,7 @@ describe("pipelines", () => {
   });
 
   test("a pre-019 fixture with pipeline_stages rows upgrades through 020, backfills branch_key, and enforces branch uniqueness", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-branch-key.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-branch-key-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
@@ -3054,7 +3054,7 @@ describe("pipelines", () => {
   });
 
   test("a fixture created with the pre-change migrations upgrades and can then admit and load a pipeline", () => {
-    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-pipelines.sqlite");
+    const legacyDbPath = join(tmpdir(), `jarvis-test-state-legacy-pipelines-${process.pid}.sqlite`);
     removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);

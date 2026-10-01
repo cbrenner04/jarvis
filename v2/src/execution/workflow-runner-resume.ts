@@ -56,11 +56,17 @@ import { configuredIntentDurableDir, evaluateIntentSplitLandingGate, listLandedI
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
+import {
+  type DiffDerivedMutationVerifierInput,
+  type VerificationResult,
+  verifyDiffDerivedMutations,
+} from "./diff-derived-mutation-verifier.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
   nonTerminatingMutationLogFields,
+  NonTerminatingMutationError,
   outOfScopeSettlementResumable,
   ReadyGateError,
   readyGateFailureLogFields,
@@ -2102,6 +2108,8 @@ type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
   persistedRepairFenceEnforcer?: PersistedRepairFenceEnforcer;
   /** Injection seam for the auto-derived publication-time mutation repair binding factory. */
   mutationRepairBindingFactory?: (binding: ResolvedAgentBinding) => InvocationBinding;
+  /** Injection seam for HEAD diff-derived mutation verification before auto-derived repair. */
+  verifyDiffDerivedMutations?: (input: DiffDerivedMutationVerifierInput) => Promise<VerificationResult>;
 };
 
 /** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
@@ -2632,6 +2640,25 @@ async function runReviewMutationCommitAndPublish(
   return settleSuccessfulReviewMutationPublication(context, store, attemptId, publication, deps);
 }
 
+function survivingMutationErrorFromHeadVerification(
+  result: Extract<VerificationResult, { kind: "surviving-mutation" }>,
+): SurvivingMutationError {
+  return new SurvivingMutationError(
+    result.mutation,
+    result.sourceSite.file,
+    result.sourceSite.line,
+    result.killingTests,
+    result.killingSetObservedResult,
+    result.dualConstraint,
+  );
+}
+
+function nonTerminatingMutationErrorFromHeadVerification(
+  result: Extract<VerificationResult, { kind: "non-terminating-mutation" }>,
+): NonTerminatingMutationError {
+  return new NonTerminatingMutationError(result.mutation, result.sourceSite.file, result.sourceSite.line);
+}
+
 export function survivingMutationErrorFromTerminalRecord(
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): SurvivingMutationError | undefined {
@@ -2786,9 +2813,41 @@ async function replayMutationFinalization(
       );
     }
 
-    const mutationError = survivingMutationErrorFromTerminalRecord(terminalRecord);
-    if (deps.mutationRepair === undefined && mutationError !== undefined) {
-      return await runAutoDerivedSurvivingMutationRepair(context, store, attemptId, mutationError, deps, writeSibling);
+    const terminalSurvivorEvidence = survivingMutationErrorFromTerminalRecord(terminalRecord);
+    if (deps.mutationRepair === undefined && terminalSurvivorEvidence !== undefined) {
+      const verify = deps.verifyDiffDerivedMutations ?? verifyDiffDerivedMutations;
+      const verificationResult = await verify({
+        worktreePath: context.worktreePath,
+        runBase: context.baseRef,
+      });
+      if (verificationResult.kind === "pass") {
+        return await runReviewMutationCommitAndPublish(context, store, attemptId, deps, writeSibling);
+      }
+      if (verificationResult.kind === "non-terminating-mutation") {
+        const body = await deriveReviewMutationResumeBodySummary(context);
+        return await settleFailedReviewMutationPublication(
+          context,
+          store,
+          attemptId,
+          {
+            failure: {
+              kind: "non_terminating_mutation_failed",
+              error: nonTerminatingMutationErrorFromHeadVerification(verificationResult),
+            },
+            iterationsConsumed: 0,
+          },
+          deps,
+          body,
+        );
+      }
+      return await runAutoDerivedSurvivingMutationRepair(
+        context,
+        store,
+        attemptId,
+        survivingMutationErrorFromHeadVerification(verificationResult),
+        deps,
+        writeSibling,
+      );
     }
 
     return await runReviewMutationCommitAndPublish(context, store, attemptId, deps, writeSibling);

@@ -1,8 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE } from "../commands/review-feedback-workflow-admission.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { ReviewFeedbackLaneResolutionStore } from "../persistence/review-feedback-lane-resolution.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
@@ -18,6 +23,52 @@ import {
 
 const PROJECT = "jarvis";
 const BRANCH = "lane-branch";
+
+let fixtureRoot: string;
+let machineConfigPath: string;
+let worktreePath: string;
+
+beforeAll(() => {
+  fixtureRoot = trackedMkdtempSync(join(process.cwd(), ".scratch", "pipeline-stage-review-feedback-launch-unit-"));
+  mkdirSync(fixtureRoot, { recursive: true });
+  machineConfigPath = writeHomeMachineConfig();
+  worktreePath = trackedMkdtempSync("pipeline-stage-review-feedback-launch-wt-");
+  mkdirSync(worktreePath, { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(fixtureRoot, { recursive: true, force: true });
+});
+
+function openReviewedAdmissionView(branch: string, overrides: Record<string, unknown> = {}) {
+  return {
+    state: "OPEN",
+    headRefName: branch,
+    url: "https://github.com/owner/repo/pull/42",
+    isDraft: true,
+    reviews: [{ submittedAt: "2026-05-10T00:00:00Z" }],
+    ...overrides,
+  };
+}
+
+function createGhRunner(admissionView: ReturnType<typeof openReviewedAdmissionView>): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
+      if (args[0] === "pr" && args[1] === "view" && args.some((arg) => arg.includes("isDraft"))) {
+        return JSON.stringify(admissionView);
+      }
+      if (args[0] === "repo" && args[1] === "view") return "owner/repo\n";
+      if (args[0] === "api" && args[1] === "graphql") {
+        return JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } });
+      }
+      if (args[0] === "pr" && args[1] === "view" && args.includes("reviews,comments")) {
+        return JSON.stringify({ reviews: admissionView.reviews, comments: [] });
+      }
+      throw new Error(`unexpected gh invocation: ${args.join(" ")} in ${cwd}`);
+    },
+  };
+}
 
 function workflowSnapshot(
   invocationId: string,
@@ -53,7 +104,7 @@ function succeededIntentPipelineStage(): {
     createdAt: 1,
     status: "completed",
     attemptCount: 0,
-    worktreePath: "/worktrees/lane",
+    worktreePath,
     branch: BRANCH,
     specPath: "spec.md",
     prNumber: 42,
@@ -132,7 +183,7 @@ describe("executePipelineStageReviewFeedbackLaunch", () => {
       {
         store,
         subprocessRunner: noopRunner,
-        machineConfigPath: "/tmp/machine.json",
+        machineConfigPath,
         resolveProjectRoot: () => undefined,
         builder: WORKFLOW_PRESET_BUILDERS["review-feedback"],
         handleWorkflowStart: () => ({ kind: "response", result: null }),
@@ -143,6 +194,50 @@ describe("executePipelineStageReviewFeedbackLaunch", () => {
       code: REVIEW_FEEDBACK_WRITE_NOT_AVAILABLE,
       message: `review-feedback: unregistered project ${PROJECT}`,
     });
+  });
+
+  test("returns admission refusal when preparation fails without starting workflow", async () => {
+    const runner = createGhRunner(openReviewedAdmissionView(BRANCH, { reviews: [] }));
+    const { store, pipelineId, stageId } = succeededIntentPipelineStage();
+    let startCalled = false;
+    const result = await executePipelineStageReviewFeedbackLaunch(
+      { pipelineId, stageId },
+      {
+        store,
+        subprocessRunner: runner,
+        machineConfigPath,
+        resolveProjectRoot: () => fixtureRoot,
+        builder: WORKFLOW_PRESET_BUILDERS["review-feedback"],
+        handleWorkflowStart: () => {
+          startCalled = true;
+          return { kind: "response", result: { runId: "should-not-run" } };
+        },
+      },
+    );
+    expect(result).toMatchObject({ kind: "error", code: "review_feedback_pr_no_review" });
+    expect(startCalled).toBe(false);
+  });
+
+  test("starts workflow when admission preparation succeeds", async () => {
+    const runner = createGhRunner(openReviewedAdmissionView(BRANCH));
+    const { store, pipelineId, stageId } = succeededIntentPipelineStage();
+    let admittedSteps: AnyWorkflowStep[] | undefined;
+    const result = await executePipelineStageReviewFeedbackLaunch(
+      { pipelineId, stageId },
+      {
+        store,
+        subprocessRunner: runner,
+        machineConfigPath,
+        resolveProjectRoot: () => fixtureRoot,
+        builder: WORKFLOW_PRESET_BUILDERS["review-feedback"],
+        handleWorkflowStart: (steps) => {
+          admittedSteps = steps;
+          return { kind: "response", result: { runId: "rf-run" } };
+        },
+      },
+    );
+    expect(result).toEqual({ kind: "response", result: { runId: "rf-run" } });
+    expect(admittedSteps?.length).toBeGreaterThan(0);
   });
 });
 

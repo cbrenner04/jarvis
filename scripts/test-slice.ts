@@ -128,8 +128,10 @@ export const LOAD_SENSITIVE_FILES: readonly string[] = [
   // `mock.module("./write.ts")` cases must not overlap the healthy-path test; under agent-pool load the
   // first test hit the 30s bunfig timeout while later tests still passed (2026-09-30 ready gate 3.2).
   "v2/src/execution/write-loop-idle-watchdog.test.ts",
-  // ~84s idle-green but exceeded the 180s per-file spawn budget under agent-pool load (2026-09-30 ready 3.2).
+  // ~103s idle / ~147s under agent-pool load after HEAD re-verify resume regressions; exceeded 180s spawn budget (2026-10-01 ready 3.1).
   "v2/src/execution/workflow-runner-resume-review-dispatch.test.ts",
+  // ~178s under agent-pool load with default concurrency; isolated batch keeps it under the spawn budget (2026-10-01 ready 3.1/3.2).
+  "v2/src/commands/cleanup.test.ts",
 ];
 
 /**

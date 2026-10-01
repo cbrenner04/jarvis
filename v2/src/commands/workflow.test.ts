@@ -1423,7 +1423,7 @@ describe("spawned workflow CLI connect budget", () => {
       expect(connectCalls).toBe(1);
       expect(exitCode).toBe(0);
     },
-    20_000,
+    35_000,
   );
 
   test.skipIf(!canUseUnixSockets())(

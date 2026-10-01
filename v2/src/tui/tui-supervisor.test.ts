@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { TUI_REEXEC_CHANNEL_ENV, TUI_REVISION_REEXEC_EXIT_CODE } from "./tui-reexec-channel.ts";
-import { buildTuiReexecEnv, TUI_REEXEC_REVISION_ENV } from "./tui-revision-reexec.ts";
+import { buildTuiReexecEnv, performTuiRevisionReexec, TUI_REEXEC_REVISION_ENV } from "./tui-revision-reexec.ts";
 import {
   createInMemoryTuiRevisionReexecChannel,
   runTuiSupervisor,
@@ -84,5 +84,86 @@ describe("runTuiSupervisor", () => {
       spawnWorker: async () => TUI_REVISION_REEXEC_EXIT_CODE,
     });
     expect(code).toBe(1);
+  });
+
+  test("respawns log-follow workers on reserved exit without nesting another supervisor child", async () => {
+    const logArgv = ["/usr/bin/node", "/path/cli.js", "tui", "log", "run-abc"];
+    const channel = createInMemoryTuiRevisionReexecChannel();
+    let spawnCount = 0;
+
+    const code = await runTuiSupervisor({
+      argv: logArgv,
+      supervisorBaseEnv: { PATH: "/bin" },
+      channel,
+      channelFilePath: "/tmp/channel",
+      spawnWorker: async () => {
+        spawnCount += 1;
+        if (spawnCount === 1) {
+          let exitCode: number | undefined;
+          await performTuiRevisionReexec({
+            daemonRevision: "rev-b",
+            carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
+            argv: logArgv,
+            channel,
+            teardown: {
+              closeMonitor: () => {},
+              closeRefreshScheduler: () => {},
+              closeDaemonClient: () => {},
+            },
+            exitProcess: (code) => {
+              exitCode = code;
+            },
+          });
+          return exitCode ?? TUI_REVISION_REEXEC_EXIT_CODE;
+        }
+        return 0;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(spawnCount).toBe(2);
+  });
+
+  test("in-process monitor log revision re-exec respawns with tui log run-id argv", async () => {
+    const monitorArgv = ["/usr/bin/node", "/path/cli.js", "tui"];
+    const logReexecArgv = ["/usr/bin/node", "/path/cli.js", "tui", "log", "run-456"];
+    const channel = createInMemoryTuiRevisionReexecChannel();
+    const spawnedArgvs: (readonly string[])[] = [];
+    let spawnCount = 0;
+
+    const code = await runTuiSupervisor({
+      argv: monitorArgv,
+      supervisorBaseEnv: { PATH: "/bin" },
+      channel,
+      channelFilePath: "/tmp/channel",
+      spawnWorker: async (_env, workerArgv) => {
+        spawnCount += 1;
+        spawnedArgvs.push(workerArgv);
+        if (spawnCount === 1) {
+          let exitCode: number | undefined;
+          await performTuiRevisionReexec({
+            daemonRevision: "rev-b",
+            carriedState: { selectedNodeId: null, expandedPipelineNodeIds: [] },
+            argv: logReexecArgv,
+            channel,
+            teardown: {
+              closeMonitor: () => {},
+              closeRefreshScheduler: () => {},
+              closeDaemonClient: () => {},
+            },
+            exitProcess: (code) => {
+              exitCode = code;
+            },
+          });
+          return exitCode ?? TUI_REVISION_REEXEC_EXIT_CODE;
+        }
+        return 0;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(spawnCount).toBe(2);
+    expect(spawnedArgvs[0]).toEqual(monitorArgv);
+    expect(spawnedArgvs[1]).toEqual(logReexecArgv);
   });
 });

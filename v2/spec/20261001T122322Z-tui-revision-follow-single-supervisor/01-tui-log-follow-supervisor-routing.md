@@ -17,11 +17,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-supervisor.test.ts` or `v2/src/tui/tui-log-follow-entry.test.ts` proves log-follow revision re-exec from direct `jarvis tui log <run-id>` dispatch and from in-process monitor `log` routes through the supervisor respawn with `tui` / `log` / `<run-id>` argv (not nested child spawn); fails against pre-fix `performTuiRevisionReexec` spawn in `v2/src/tui/tui-revision-reexec.ts`.
-- [ ] `v2/src/tui/tui-log-follow-entry.test.ts` `tuiLogFollowReexecArgv` guard tests stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/tui/tui-supervisor.test.ts` or `v2/src/tui/tui-log-follow-entry.test.ts` proves log-follow revision re-exec from direct `jarvis tui log <run-id>` dispatch and from in-process monitor `log` routes through the supervisor respawn with `tui` / `log` / `<run-id>` argv (not nested child spawn); fails against pre-fix `performTuiRevisionReexec` spawn in `v2/src/tui/tui-revision-reexec.ts`.
+- [x] `v2/src/tui/tui-log-follow-entry.test.ts` `tuiLogFollowReexecArgv` guard tests stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

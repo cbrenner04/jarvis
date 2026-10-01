@@ -51,7 +51,10 @@ function workerSpawnEnv(
   };
 }
 
-export type TuiSupervisorSpawnWorker = (env: NodeJS.ProcessEnv) => Promise<number | null>;
+export type TuiSupervisorSpawnWorker = (
+  env: NodeJS.ProcessEnv,
+  workerArgv: readonly string[],
+) => Promise<number | null>;
 
 export type RunTuiSupervisorParams = {
   argv: readonly string[];
@@ -76,15 +79,19 @@ async function defaultSpawnWorker(argv: readonly string[], env: NodeJS.ProcessEn
 export async function runTuiSupervisor(params: RunTuiSupervisorParams): Promise<number> {
   const channelFilePath = params.channelFilePath ?? defaultChannelFilePath();
   const channel = params.channel ?? createFileTuiRevisionReexecChannel(channelFilePath);
-  const spawnWorker = params.spawnWorker ?? ((env) => defaultSpawnWorker(params.argv, env));
+  let workerArgv = params.argv;
+  const spawnWorker = params.spawnWorker ?? ((env, argv) => defaultSpawnWorker(argv, env));
 
   let workerEnv = workerSpawnEnv(params.supervisorBaseEnv, channelFilePath);
 
   for (;;) {
-    const exitCode = await spawnWorker(workerEnv);
+    const exitCode = await spawnWorker(workerEnv, workerArgv);
     if (exitCode === TUI_REVISION_REEXEC_EXIT_CODE) {
       const payload = channel.take();
       if (payload === undefined) return 1;
+      if (payload.workerArgv !== undefined) {
+        workerArgv = payload.workerArgv;
+      }
       workerEnv = workerSpawnEnv(params.supervisorBaseEnv, channelFilePath, payload);
       continue;
     }

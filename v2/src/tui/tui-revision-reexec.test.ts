@@ -137,6 +137,7 @@ describe("performTuiRevisionReexec", () => {
     expect(published).toEqual({
       daemonRevision: "rev-stable",
       carriedState: { selectedNodeId: "run-a", expandedPipelineNodeIds: ["pipe-a"] },
+      workerArgv: ["/usr/bin/node", "/path/cli.js", "tui"],
     });
     expect(exitCode).toBe(TUI_REVISION_REEXEC_EXIT_CODE);
   });

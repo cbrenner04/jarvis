@@ -56,6 +56,12 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
       io.stderr(TUI_LOG_USAGE);
       return Promise.resolve(1);
     }
+    if (!isTuiSupervisorWorker(process.env)) {
+      return runTuiSupervisor({
+        argv: process.argv,
+        supervisorBaseEnv: process.env,
+      });
+    }
     return deps.runTuiLogFollow(runId, {
       socketPath: deps.socketPath,
     });

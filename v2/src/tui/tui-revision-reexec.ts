@@ -91,13 +91,15 @@ export async function performTuiRevisionReexec(params: PerformTuiRevisionReexecP
   params.teardown.closeRefreshScheduler();
   params.teardown.closeDaemonClient();
 
-  const [executable] = params.argv ?? process.argv;
+  const workerArgv = params.argv ?? process.argv;
+  const [executable] = workerArgv;
   if (executable === undefined) throw new Error("cannot re-exec: process.argv is empty");
 
   const channel = params.channel ?? tuiRevisionReexecChannelFromEnv(process.env);
   channel.publish({
     daemonRevision: params.daemonRevision,
     carriedState: params.carriedState,
+    workerArgv,
   });
 
   const exitProcess = params.exitProcess ?? ((code) => process.exit(code));

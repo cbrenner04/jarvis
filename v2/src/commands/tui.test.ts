@@ -202,14 +202,16 @@ describe("tui command", () => {
     let seenRunId: string | undefined;
     let seenSocketPath: string | undefined;
 
-    const code = await main(["tui", "log", "run-abc"], captureIo().io, {
-      socketPath: paths.socketPath,
-      runTuiLogFollow: async (runId, deps) => {
-        seenRunId = runId;
-        seenSocketPath = deps?.socketPath;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui", "log", "run-abc"], captureIo().io, {
+        socketPath: paths.socketPath,
+        runTuiLogFollow: async (runId, deps) => {
+          seenRunId = runId;
+          seenSocketPath = deps?.socketPath;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenRunId).toBe("run-abc");
@@ -221,14 +223,16 @@ describe("tui command", () => {
     let seenRunId: string | undefined;
     let seenDeps: Record<string, unknown> | undefined;
 
-    const code = await main(["tui", "log", "run-abc"], captureIo().io, {
-      socketPath: paths.socketPath,
-      runTuiLogFollow: async (runId, deps) => {
-        seenRunId = runId;
-        seenDeps = deps as unknown as Record<string, unknown>;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui", "log", "run-abc"], captureIo().io, {
+        socketPath: paths.socketPath,
+        runTuiLogFollow: async (runId, deps) => {
+          seenRunId = runId;
+          seenDeps = deps as unknown as Record<string, unknown>;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenRunId).toBe("run-abc");

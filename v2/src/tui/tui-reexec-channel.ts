@@ -14,6 +14,8 @@ export const TUI_REEXEC_CHANNEL_ENV = "JARVIS_TUI_REEXEC_CHANNEL";
 export type TuiRevisionReexecChannelPayload = {
   daemonRevision: string;
   carriedState: TuiReexecCarriedState;
+  /** Worker argv for the supervisor's next spawn; defaults to the supervisor's current argv when absent. */
+  workerArgv?: readonly string[];
 };
 
 export type TuiRevisionReexecChannel = {

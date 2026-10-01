@@ -8,6 +8,7 @@ import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { DetachedPipelineStartAdmission } from "../tui/tui-monitor-types.ts";
+import { isTuiSupervisorWorker, runTuiSupervisor } from "../tui/tui-supervisor.ts";
 import { admitPipelineStart } from "./pipeline-start-admission.ts";
 
 function detachedPipelineStartAdmission(deps: CliDeps): DetachedPipelineStartAdmission {
@@ -41,6 +42,12 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
       machineProfile,
       admitDetachedPipelineStart: detachedPipelineStartAdmission(deps),
     };
+    if (!isTuiSupervisorWorker(process.env)) {
+      return runTuiSupervisor({
+        argv: process.argv,
+        supervisorBaseEnv: process.env,
+      });
+    }
     return deps.runTuiEntry(entryDeps);
   }
   if (argv[0] === "log") {

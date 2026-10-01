@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { TUI_REVISION_REEXEC_EXIT_CODE, type TuiRevisionReexecChannelPayload } from "./tui-reexec-channel.ts";
 import {
   buildTuiReexecEnv,
   performTuiRevisionReexec,
@@ -7,7 +8,6 @@ import {
   TUI_REEXEC_EXPANDED_PIPELINE_NODE_IDS_ENV,
   TUI_REEXEC_REVISION_ENV,
   TUI_REEXEC_SELECTED_NODE_ID_ENV,
-  tuiReexecChildExitCode,
 } from "./tui-revision-reexec.ts";
 
 describe("readTuiReexecedForRevision", () => {
@@ -107,14 +107,37 @@ describe("performTuiRevisionReexec", () => {
       process.argv = originalArgv;
     }
   });
-});
 
-describe("tuiReexecChildExitCode", () => {
-  test("passes through a numeric exit code", () => {
-    expect(tuiReexecChildExitCode(2)).toBe(2);
-  });
-
-  test("defaults a null (signal-terminated) code to 0", () => {
-    expect(tuiReexecChildExitCode(null)).toBe(0);
+  test("publishes revision/state and exits reserved without spawning", async () => {
+    const closed: string[] = [];
+    let published: TuiRevisionReexecChannelPayload | undefined;
+    let exitCode: number | undefined;
+    await performTuiRevisionReexec({
+      daemonRevision: "rev-stable",
+      carriedState: { selectedNodeId: "run-a", expandedPipelineNodeIds: ["pipe-a"] },
+      argv: ["/usr/bin/node", "/path/cli.js", "tui"],
+      teardown: {
+        closeMonitor: () => closed.push("monitor"),
+        closeRefreshScheduler: () => closed.push("refresh"),
+        closeDaemonClient: () => closed.push("client"),
+      },
+      channel: {
+        publish(payload) {
+          published = payload;
+        },
+        take() {
+          return undefined;
+        },
+      },
+      exitProcess(code) {
+        exitCode = code;
+      },
+    });
+    expect(closed).toEqual(["monitor", "refresh", "client"]);
+    expect(published).toEqual({
+      daemonRevision: "rev-stable",
+      carriedState: { selectedNodeId: "run-a", expandedPipelineNodeIds: ["pipe-a"] },
+    });
+    expect(exitCode).toBe(TUI_REVISION_REEXEC_EXIT_CODE);
   });
 });

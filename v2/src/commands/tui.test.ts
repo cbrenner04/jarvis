@@ -14,6 +14,18 @@ import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import type { TuiDaemonClient } from "../tui/tui-daemon-client.ts";
 import { runTuiEntry as productionRunTuiEntry } from "../tui/tui-entry.tsx";
 import type { DetachedPipelineStartAdmission, TuiMonitorControls } from "../tui/tui-monitor-types.ts";
+import { TUI_SUPERVISOR_WORKER_ENV } from "../tui/tui-supervisor.ts";
+
+async function asTuiSupervisorWorker<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = process.env[TUI_SUPERVISOR_WORKER_ENV];
+  process.env[TUI_SUPERVISOR_WORKER_ENV] = "1";
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env[TUI_SUPERVISOR_WORKER_ENV];
+    else process.env[TUI_SUPERVISOR_WORKER_ENV] = previous;
+  }
+}
 
 const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
   claude: {
@@ -94,14 +106,16 @@ describe("tui command", () => {
     const paths = tempPaths();
     let seenSocketPath: string | undefined;
 
-    const code = await main(["tui"], captureIo().io, {
-      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
-      socketPath: paths.socketPath,
-      runTuiEntry: async (deps) => {
-        seenSocketPath = deps?.socketPath;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
+        socketPath: paths.socketPath,
+        runTuiEntry: async (deps) => {
+          seenSocketPath = deps?.socketPath;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenSocketPath).toBe(paths.socketPath);
@@ -111,14 +125,16 @@ describe("tui command", () => {
     const paths = tempPaths();
     let seenDeps: Record<string, unknown> | undefined;
 
-    const code = await main(["tui"], captureIo().io, {
-      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
-      socketPath: paths.socketPath,
-      runTuiEntry: async (deps) => {
-        seenDeps = deps as unknown as Record<string, unknown>;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
+        socketPath: paths.socketPath,
+        runTuiEntry: async (deps) => {
+          seenDeps = deps as unknown as Record<string, unknown>;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenDeps?.socketPath).toBe(paths.socketPath);
@@ -131,15 +147,17 @@ describe("tui command", () => {
     let seenSocketPath: string | undefined;
     let seenMachineProfile: string | undefined;
 
-    const code = await main(["tui"], captureIo().io, {
-      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
-      socketPath,
-      runTuiEntry: async (deps) => {
-        seenSocketPath = deps.socketPath;
-        seenMachineProfile = deps.machineProfile;
-        return 0;
-      },
-    });
+    const code = await asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
+        socketPath,
+        runTuiEntry: async (deps) => {
+          seenSocketPath = deps.socketPath;
+          seenMachineProfile = deps.machineProfile;
+          return 0;
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect(seenSocketPath).toBe(socketPath);
@@ -263,28 +281,30 @@ describe("tui command", () => {
         }),
     };
 
-    const tuiPending = main(["tui"], captureIo().io, {
-      ...sharedDeps,
-      runTuiEntry: (entryDeps) => {
-        entryAdmission = entryDeps.admitDetachedPipelineStart;
-        return productionRunTuiEntry({
-          ...entryDeps,
-          viewHost: {
-            show() {},
-            async openMonitor(_state, controls) {
-              monitorControls = controls;
-              resolveOpened();
-              return {
-                update() {},
-                waitUntilExit: () => new Promise(() => {}),
-                close() {},
-              };
+    const tuiPending = asTuiSupervisorWorker(() =>
+      main(["tui"], captureIo().io, {
+        ...sharedDeps,
+        runTuiEntry: (entryDeps) => {
+          entryAdmission = entryDeps.admitDetachedPipelineStart;
+          return productionRunTuiEntry({
+            ...entryDeps,
+            viewHost: {
+              show() {},
+              async openMonitor(_state, controls) {
+                monitorControls = controls;
+                resolveOpened();
+                return {
+                  update() {},
+                  waitUntilExit: () => new Promise(() => {}),
+                  close() {},
+                };
+              },
             },
-          },
-          connectTuiDaemon: async () => healthyTuiDaemonClient(),
-        });
-      },
-    });
+            connectTuiDaemon: async () => healthyTuiDaemonClient(),
+          });
+        },
+      }),
+    );
 
     await opened;
     expect(entryAdmission).toBeDefined();

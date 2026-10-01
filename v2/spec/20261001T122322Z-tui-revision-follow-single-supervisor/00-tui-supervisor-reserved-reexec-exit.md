@@ -25,12 +25,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-revision-reexec.test.ts` proves `performTuiRevisionReexec` runs teardown, publishes matching `daemonRevision` and `carriedState` on an injected channel, and exits `TUI_REVISION_REEXEC_EXIT_CODE` via an injected exit hook without spawning; fails against the pre-fix spawn-and-wait implementation in `v2/src/tui/tui-revision-reexec.ts`.
-- [ ] `v2/src/tui/tui-supervisor.test.ts` proves three successive reserved exits produce three sequential worker children of the same supervisor and no worker spawns its own child; respawn env equals `buildTuiReexecEnv` over channel revision/state; any other worker code and reserved exit with no channel record end the supervisor with that code (missing channel → `1`); fails when the supervisor module is absent (reachable on main via nested `performTuiRevisionReexec` spawn).
-- [ ] `v2/src/tui/tui-revision-reexec.test.ts` `buildTuiReexecEnv` and `performTuiRevisionReexec` argv-guard tests stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/tui/tui-revision-reexec.test.ts` proves `performTuiRevisionReexec` runs teardown, publishes matching `daemonRevision` and `carriedState` on an injected channel, and exits `TUI_REVISION_REEXEC_EXIT_CODE` via an injected exit hook without spawning; fails against the pre-fix spawn-and-wait implementation in `v2/src/tui/tui-revision-reexec.ts`.
+- [x] `v2/src/tui/tui-supervisor.test.ts` proves three successive reserved exits produce three sequential worker children of the same supervisor and no worker spawns its own child; respawn env equals `buildTuiReexecEnv` over channel revision/state; any other worker code and reserved exit with no channel record end the supervisor with that code (missing channel → `1`); fails when the supervisor module is absent (reachable on main via nested `performTuiRevisionReexec` spawn).
+- [x] `v2/src/tui/tui-revision-reexec.test.ts` `buildTuiReexecEnv` and `performTuiRevisionReexec` argv-guard tests stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

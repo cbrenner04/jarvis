@@ -6,8 +6,8 @@ import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import { createStubMarkdownlintRunner, TestLogSink } from "./workflow-runner.test-support.ts";
 import type { StepRunResult } from "./step-runner.ts";
+import { createStubMarkdownlintRunner, TestLogSink } from "./workflow-runner.test-support.ts";
 import { executeWriteLoop, isEligibleDraftContractReprompt, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();

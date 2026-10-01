@@ -8,9 +8,9 @@ Runbook and write-behavior still describe only bare `plan.draft.shape` and omit 
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` plan-draft `contract_miss` paragraph names the `plan.draft.shape:*` suffixes and the hand fix (flatten to staging root, then `pipeline recover`).
-- [ ] `v2/docs/write-behavior.md` draft output shape section matches implemented accepted layouts (including single immediate child dir).
-- [ ] `v2/docs/v1-behaviors.md` records suffixed shape reasons and nested-child acceptance.
+- [x] `v2/docs/operator-runbook.md` plan-draft `contract_miss` paragraph names the `plan.draft.shape:*` suffixes and the hand fix (flatten to staging root, then `pipeline recover`).
+- [x] `v2/docs/write-behavior.md` draft output shape section matches implemented accepted layouts (including single immediate child dir).
+- [x] `v2/docs/v1-behaviors.md` records suffixed shape reasons and nested-child acceptance.
 
 ## Primary implementation surface
 

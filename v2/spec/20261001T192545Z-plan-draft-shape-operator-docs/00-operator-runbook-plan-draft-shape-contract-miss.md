@@ -21,7 +21,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` plan-draft `contract_miss` prose names `plan.draft.shape:missing-dir`, `:no-index`, `:no-subspecs`, and `:nested-roots=<n>`, states which suffixes trigger one in-loop `draft_contract_reprompt` vs immediate settlement, and documents flattening a single immediate child directory to the staging root before `jarvis pipeline recover`.
+- [x] `v2/docs/operator-runbook.md` plan-draft `contract_miss` prose names `plan.draft.shape:missing-dir`, `:no-index`, `:no-subspecs`, and `:nested-roots=<n>`, states which suffixes trigger one in-loop `draft_contract_reprompt` vs immediate settlement, and documents flattening a single immediate child directory to the staging root before `jarvis pipeline recover`.
 
 ## Documentation updates
 

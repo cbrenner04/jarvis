@@ -20,7 +20,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records suffixed `plan.draft.shape:*` settlement reasons and single immediate-child staging acceptance, and no plan-draft bullet asserts bare `plan.draft.shape` as the structural miss reason or `spec/<name>/` as the only nested preservation layout.
+- [x] `v2/docs/v1-behaviors.md` records suffixed `plan.draft.shape:*` settlement reasons and single immediate-child staging acceptance, and no plan-draft bullet asserts bare `plan.draft.shape` as the structural miss reason or `spec/<name>/` as the only nested preservation layout.
 
 ## Documentation updates
 

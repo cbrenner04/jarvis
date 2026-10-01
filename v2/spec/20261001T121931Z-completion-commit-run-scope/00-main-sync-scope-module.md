@@ -18,8 +18,8 @@ Completion commit and shrink placeholder logic need a shared merge-base anchor a
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/main-sync-scope.test.ts`: `selectMainSyncPaths` truth table (each of the three conditions false keeps the path) and `resolveLaneMergeBase` returning undefined on unrelated history; fails against the pre-fix code (module absent).
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/execution/main-sync-scope.test.ts`: `selectMainSyncPaths` truth table (each of the three conditions false keeps the path) and `resolveLaneMergeBase` returning undefined on unrelated history; fails against the pre-fix code (module absent).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

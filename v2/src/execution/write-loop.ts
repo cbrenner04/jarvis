@@ -612,7 +612,8 @@ export function findDraftContractRepromptStateFromLog(
   return { spent: true, ...(pending !== undefined ? { pending } : {}) };
 }
 
-function isEligibleDraftContractReprompt(
+/** Plan-draft `artifact.exists` misses are repromptable once, except the `plan.draft.shape` family (bare or suffixed). */
+export function isEligibleDraftContractReprompt(
   args: WriteLoopInput,
   result: StepRunResult,
 ): result is Extract<StepRunResult, { kind: "contract_miss" }> & { failureReason: string } {

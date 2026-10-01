@@ -114,7 +114,6 @@ describe("Test slice boundaries", () => {
     // @mutate scripts/test-slice.ts "v2/src/daemon/daemon-resume.test.ts" -> "v2/src/daemon/daemon-resume-pooled.test.ts"
     expect(isLoadSensitive("v2/src/daemon/daemon-resume.test.ts")).toBeTrue();
     expect(isLoadSensitive("v2/src/execution/write-loop.test.ts")).toBeTrue();
-    expect(isLoadSensitive("v2/src/execution/workflow-runner-publication.test.ts")).toBeTrue();
     // The former workflow-runner.test.ts monolith was split into pooled workflow-runner-*.test.ts
     // files (durable #2181 fix); no split file is load-sensitive without dated evidence.
     expect(isLoadSensitive("v2/src/execution/workflow-runner-core.test.ts")).toBeFalse();

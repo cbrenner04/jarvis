@@ -25,12 +25,13 @@ On resume, `replayMutationFinalization` rebuilds the survivor from the prior `lo
 
 ## Acceptance criteria
 
-- [ ] Test: recorded survivor, verifier at HEAD returns no survivor → no repair invocation, publication tail runs; fails against the pre-fix resume path.
-- [ ] Test: recorded survivor A, verifier at HEAD returns survivor B → repair targets B; exhausted settlement names B.
-- [ ] Test: recorded survivor A still survives at HEAD → repair targets A (unchanged behavior).
+- [ ] `workflow-runner-resume-review-dispatch.test.ts` regression (plan names the test): recorded survivor on `loop_finished`, verifier at HEAD returns no survivor → no repair invocation, publication tail runs; fails against the pre-fix resume path.
+- [ ] Same file regression (plan names the test): recorded survivor A, verifier at HEAD returns B → repair targets B and exhausted settlement names B; pre-fix path repairs stale A when HEAD would return B.
+- [ ] Recorded survivor A and HEAD verifier returns A → repair targets A; `workflow-runner-resume-review-dispatch.test.ts` `"surviving_mutation_failed resume without explicit mutationRepair auto-derives write.mutation-repair before re-verification"` updated to expect HEAD re-verification before repair (order changes, survivor identity unchanged).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — resumed mutation repair re-verifies HEAD first.
 - `v2/docs/operator-runbook.md` — committing a killing test before `resume` lets publication continue without repair.
+- `v2/docs/v1-behaviors.md` — resume order: HEAD mutation re-verification before auto-derived repair.

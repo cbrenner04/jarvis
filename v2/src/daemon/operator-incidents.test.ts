@@ -1293,3 +1293,23 @@ test.each(
   store.commitTerminalRunSettlement({ runId: otherRunId, status: "killed", terminalCause: "run_timeout" });
   expect(stageCauses(linkStagePair(entryRunIdFor(), "failed"))).toEqual({ stageFailed: "failed", terminal: "failed" });
 });
+
+test("serializeOperatorIncident carries detail, prNumber, and prUrl only when present", () => {
+  const base = {
+    incidentId: "run:r1",
+    kind: "run-ad-hoc-terminal" as const,
+    transition: "terminal:failed:1",
+    project: "demo",
+    runId: "r1",
+    cause: "failed",
+    sinceMs: 1,
+  };
+  const full = JSON.parse(
+    serializeOperatorIncident({ ...base, detail: "refused paths: a.ts", prNumber: 7, prUrl: "https://x/7" }),
+  );
+  expect(full).toMatchObject({ detail: "refused paths: a.ts", prNumber: 7, prUrl: "https://x/7" });
+  const bare = JSON.parse(serializeOperatorIncident(base));
+  expect(bare).not.toHaveProperty("detail");
+  expect(bare).not.toHaveProperty("prNumber");
+  expect(bare).not.toHaveProperty("prUrl");
+});

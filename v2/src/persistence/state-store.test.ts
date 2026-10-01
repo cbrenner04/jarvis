@@ -5375,11 +5375,8 @@ describe("terminal publication commits", () => {
     prUrl: "https://example.com/pr/1",
   };
 
-  function seedTwoLaneFanOutTerminalPipeline(): {
-    pipelineId: string;
-    branchKeys: readonly ["lane-a", "lane-b"];
-  } {
-    const branchKeys: readonly ["lane-a", "lane-b"] = ["lane-a", "lane-b"];
+  function seedTwoLaneFanOutTerminalPipeline(): { pipelineId: string; branchKeys: readonly ["lane-a", "lane-b"] } {
+    const branchKeys = ["lane-a", "lane-b"] as const;
     const pipelineId = store.createPipeline({ definition: FAN_OUT_TERMINAL_DEFINITION });
     store.updateStage({
       pipelineId,

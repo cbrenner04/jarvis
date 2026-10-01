@@ -293,11 +293,10 @@ export function loadPipelineContext(value: unknown): LoadPipelineContextResult {
   return { ok: true, context };
 }
 
-/** Per-lane terminal publication stamp on a succeeded workflow stage artifact. */
 export type StageTerminalPublication = { succeededAt: number } | { failure: PublicationFailure };
 
 /** Durable terminal-publication failure recorded on the pipeline row after stage success. */
-export type PipelineTerminalPublicationFailure = {
+type PipelineTerminalPublicationFailure = {
   terminalAction: PipelineTerminalAction;
   failure: PublicationFailure;
   prNumber?: number;
@@ -352,14 +351,6 @@ function stageTerminalPublicationFromArtifact(artifact: unknown): StageTerminalP
     return { failure: stamp.failure as PublicationFailure };
   }
   return null;
-}
-
-function mergeTerminalPublicationIntoArtifact(
-  artifact: unknown,
-  stamp: StageTerminalPublication,
-): Record<string, unknown> {
-  const base = isRecord(artifact) ? { ...artifact } : {};
-  return { ...base, terminalPublication: stamp };
 }
 
 function finalSucceededWorkflowStageForBranch(
@@ -1080,12 +1071,7 @@ export interface StateStore {
   /** Reopen every provisional skip on one branch; omitted `branchKey` defaults to `"default"`. */
   reopenProvisionalSkippedStages(args: { pipelineId: string; branchKey?: string }): ProvisionalSkipReopenOutcome;
 
-  /**
-   * Atomically record a terminal-publication failure on the pipeline row. Omitted `branchKey` or
-   * `default` updates only pipeline columns. A non-`default` `branchKey` on a fan-out pipeline
-   * also stamps that lane's final succeeded workflow stage artifact, then aggregates pipeline
-   * markers from every fan-out branch. Idempotent when a failure or success marker is already present.
-   */
+  /** Record terminal-publication failure on the pipeline row; optional non-`default` `branchKey` stamps fan-out lane artifacts and aggregates. Idempotent when a failure or success marker is already present. */
   commitTerminalPublicationFailure(args: {
     pipelineId: string;
     terminalAction: PipelineTerminalAction;
@@ -1095,12 +1081,7 @@ export interface StateStore {
     branchKey?: string;
   }): void;
 
-  /**
-   * Atomically record terminal-publication success on the pipeline row. Omitted `branchKey` or
-   * `default` updates only pipeline columns. A non-`default` `branchKey` on a fan-out pipeline
-   * also stamps that lane's final succeeded workflow stage artifact, then aggregates pipeline
-   * markers when every fan-out branch has succeeded. Idempotent when already set.
-   */
+  /** Stamp terminal-publication success on the pipeline row; optional non-`default` `branchKey` stamps fan-out lane artifacts and aggregates. Idempotent when already set or when a failure is recorded. */
   commitTerminalPublicationSuccess(args: { pipelineId: string; branchKey?: string }): void;
 
   /** Concatenate supersede failures onto the pipeline row; no-op when `failures` is empty. */
@@ -2996,7 +2977,12 @@ class StateStoreImpl implements StateStore {
       })();
       return;
     }
-    this.commitPipelineTerminalPublicationFailureOnly(args);
+    this.commitPipelineTerminalPublicationFailureOnly(args.pipelineId, {
+      terminalAction: args.terminalAction,
+      failure: args.failure,
+      ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
+      ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
+    });
   }
 
   commitTerminalPublicationSuccess(args: { pipelineId: string; branchKey?: string }): void {
@@ -3011,22 +2997,9 @@ class StateStoreImpl implements StateStore {
   }
 
   private commitPipelineTerminalPublicationFailureOnly(
-    args: {
-      pipelineId: string;
-      terminalAction: PipelineTerminalAction;
-      failure: PublicationFailure;
-      prNumber?: number;
-      prUrl?: string;
-    } & Partial<Pick<PipelineTerminalPublicationFailure, "branchKey" | "branchKeys">>,
+    pipelineId: string,
+    payload: PipelineTerminalPublicationFailure,
   ): void {
-    const payload: PipelineTerminalPublicationFailure = {
-      terminalAction: args.terminalAction,
-      failure: args.failure,
-      ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
-      ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
-      ...(args.branchKey !== undefined ? { branchKey: args.branchKey } : {}),
-      ...(args.branchKeys !== undefined ? { branchKeys: args.branchKeys } : {}),
-    };
     this.db
       .prepare(
         `UPDATE pipelines
@@ -3035,7 +3008,7 @@ class StateStoreImpl implements StateStore {
            AND terminal_publication_failure IS NULL
            AND terminal_publication_succeeded_at IS NULL`,
       )
-      .run(JSON.stringify(payload), args.pipelineId);
+      .run(JSON.stringify(payload), pipelineId);
   }
 
   private commitPipelineTerminalPublicationSuccessOnly(pipelineId: string, succeededAt = Date.now()): void {
@@ -3048,6 +3021,24 @@ class StateStoreImpl implements StateStore {
            AND terminal_publication_failure IS NULL`,
       )
       .run(succeededAt, pipelineId);
+  }
+
+  private stampFanOutLaneTerminalPublication(
+    pipelineId: string,
+    pipeline: Pipeline & { stages: PipelineStageRecord[] },
+    split: FanOutTerminalPublicationSplit,
+    branchKey: string,
+    stamp: StageTerminalPublication,
+  ): void {
+    const stage = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, branchKey);
+    if (stage === undefined || stageTerminalPublicationFromArtifact(stage.artifact) !== null) return;
+    const base = isRecord(stage.artifact) ? stage.artifact : {};
+    this.updateStage({
+      pipelineId,
+      stageId: stage.stageId,
+      branchKey: stage.branchKey,
+      patch: { artifact: { ...base, terminalPublication: stamp } },
+    });
   }
 
   private commitFanOutLaneTerminalPublicationFailure(
@@ -3064,24 +3055,20 @@ class StateStoreImpl implements StateStore {
     if (pipeline === null) return;
     const split = findFanOutTerminalPublicationSplit(pipeline);
     if (split === null || !split.branchKeys.includes(branchKey)) {
-      this.commitPipelineTerminalPublicationFailureOnly(args);
+      this.commitPipelineTerminalPublicationFailureOnly(args.pipelineId, {
+        terminalAction: args.terminalAction,
+        failure: args.failure,
+        ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
+        ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
+      });
       return;
     }
-    const stage = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, branchKey);
-    if (stage !== undefined && stageTerminalPublicationFromArtifact(stage.artifact) === null) {
-      this.updateStage({
-        pipelineId: args.pipelineId,
-        stageId: stage.stageId,
-        branchKey: stage.branchKey,
-        patch: {
-          artifact: mergeTerminalPublicationIntoArtifact(stage.artifact, { failure: args.failure }),
-        },
-      });
-    }
+    this.stampFanOutLaneTerminalPublication(args.pipelineId, pipeline, split, branchKey, {
+      failure: args.failure,
+    });
     this.reconcileFanOutTerminalPublicationMarkers(args.pipelineId, split, {
       terminalAction: args.terminalAction,
       failure: args.failure,
-      branchKey,
       ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
       ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
     });
@@ -3095,31 +3082,14 @@ class StateStoreImpl implements StateStore {
       this.commitPipelineTerminalPublicationSuccessOnly(pipelineId);
       return;
     }
-    const stage = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, branchKey);
-    const succeededAt = Date.now();
-    if (stage !== undefined && stageTerminalPublicationFromArtifact(stage.artifact) === null) {
-      this.updateStage({
-        pipelineId,
-        stageId: stage.stageId,
-        branchKey: stage.branchKey,
-        patch: {
-          artifact: mergeTerminalPublicationIntoArtifact(stage.artifact, { succeededAt }),
-        },
-      });
-    }
+    this.stampFanOutLaneTerminalPublication(pipelineId, pipeline, split, branchKey, { succeededAt: Date.now() });
     this.reconcileFanOutTerminalPublicationMarkers(pipelineId, split);
   }
 
   private reconcileFanOutTerminalPublicationMarkers(
     pipelineId: string,
     split: FanOutTerminalPublicationSplit,
-    triggeringFailure?: {
-      terminalAction: PipelineTerminalAction;
-      failure: PublicationFailure;
-      prNumber?: number;
-      prUrl?: string;
-      branchKey: string;
-    },
+    triggeringFailure?: Pick<PipelineTerminalPublicationFailure, "terminalAction" | "failure" | "prNumber" | "prUrl">,
   ): void {
     const markerRow = this.db
       .prepare(
@@ -3145,9 +3115,8 @@ class StateStoreImpl implements StateStore {
     );
     if (failedLanes.length > 0) {
       const branchKeys = failedLanes.map((lane) => lane.branchKey).sort();
-      const failure = failedLanes[0]?.publication.failure ?? triggeringFailure?.failure;
-      if (failure === undefined) return;
-      const terminalAction = pipeline.definition.terminalAction ?? triggeringFailure?.terminalAction ?? "ready";
+      const failure = failedLanes[0]!.publication.failure;
+      const terminalAction = pipeline.definition.terminalAction ?? "ready";
       const laneField =
         branchKeys.length === 1 && branchKeys[0] !== undefined ? { branchKey: branchKeys[0] } : { branchKeys };
       const payload: PipelineTerminalPublicationFailure = {
@@ -3157,7 +3126,7 @@ class StateStoreImpl implements StateStore {
         ...(triggeringFailure?.prNumber !== undefined ? { prNumber: triggeringFailure.prNumber } : {}),
         ...(triggeringFailure?.prUrl !== undefined ? { prUrl: triggeringFailure.prUrl } : {}),
       };
-      this.commitPipelineTerminalPublicationFailureOnly({ pipelineId, ...payload });
+      this.commitPipelineTerminalPublicationFailureOnly(pipelineId, payload);
       return;
     }
 

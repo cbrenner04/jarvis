@@ -273,6 +273,30 @@ async function executeReadyOrMergePublication(
   }
   const { prNumber, prUrl } = input;
 
+  let probedState: string | undefined;
+  try {
+    const raw = await deps.gh(input.worktreePath, ["pr", "view", String(prNumber), "--json", "state,mergedAt"]);
+    const state = (JSON.parse(raw) as { state?: unknown }).state;
+    probedState = typeof state === "string" ? state : undefined;
+  } catch {
+    probedState = undefined;
+  }
+  if (probedState === "MERGED") {
+    return { prNumber, prUrl };
+  }
+  if (probedState === "CLOSED") {
+    throw new TerminalPublicationError(
+      input.terminalAction,
+      {
+        operation: "gh pr view",
+        message: `PR #${prNumber} is closed and not merged`,
+        cause: "pr_closed",
+      },
+      prNumber,
+      prUrl,
+    );
+  }
+
   await runReadyGateOrFail(input, prNumber, prUrl, deps);
   await runReadyFlipOrFail(input, prNumber, prUrl, deps);
 

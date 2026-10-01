@@ -3,6 +3,7 @@ const OUTPUT_TAIL_MAX_CHARS = 4096;
 export type PublicationFailure = {
   operation: string;
   message: string;
+  cause?: "pr_closed";
   exitCode?: number;
   stdoutTail?: string;
   stderrTail?: string;

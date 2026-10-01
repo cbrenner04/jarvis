@@ -41,8 +41,29 @@ function trackPreservationSeams(closeCalls: string[], deleteCalls: string[]) {
 }
 
 /** Mocks the raw `gh` command so the pre-flip resolver sees a single open draft PR. */
-function ghResolvesOpenDraft(prNumber: number, prUrl: string, baseRef = "main") {
+function ghResolvesOpenDraft(
+  prNumber: number,
+  prUrl: string,
+  baseRef = "main",
+  probeState?: "MERGED" | "CLOSED" | "probe_throw",
+) {
   return async (_cwd: string, args: readonly string[]) => {
+    if (
+      probeState !== undefined &&
+      args[0] === "pr" &&
+      args[1] === "view" &&
+      args[2] === String(prNumber) &&
+      args[3] === "--json" &&
+      args[4] === "state,mergedAt"
+    ) {
+      if (probeState === "probe_throw") {
+        throw new Error("gh pr view state probe failed");
+      }
+      return JSON.stringify({
+        state: probeState,
+        mergedAt: probeState === "MERGED" ? "2024-01-01T00:00:00Z" : null,
+      });
+    }
     if (args[0] === "pr" && args[1] === "list") {
       return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: true }]);
     }
@@ -375,6 +396,79 @@ describe("executeTerminalPublication", () => {
     expect(flipCalls).toHaveLength(0);
     expect(closeCalls).toHaveLength(0);
     expect(deleteCalls).toHaveLength(0);
+  });
+
+  for (const terminalAction of ["ready", "merge"] as const satisfies PipelineTerminalAction[]) {
+    it(`succeeds without gate or flip when probe reports MERGED (${terminalAction})`, async () => {
+      const gateCalls: string[] = [];
+      const flipCalls: string[] = [];
+      const mergeCalls: string[] = [];
+      const execute = createExecuteTerminalPublication({
+        runReadyGate: async (worktreePath, baseRef) => {
+          gateCalls.push(`${worktreePath}:${baseRef}`);
+        },
+        gh: ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl, "main", "MERGED"),
+        ghReadyFlip: async (prNumber, worktreePath) => {
+          flipCalls.push(`${prNumber}:${worktreePath}`);
+        },
+        ghMerge: async (branch, worktreePath) => {
+          mergeCalls.push(`${branch}:${worktreePath}`);
+        },
+      });
+
+      const result = await execute({ ...baseInput, terminalAction });
+      expect(result).toEqual({ prNumber: baseInput.prNumber, prUrl: baseInput.prUrl });
+      expect(gateCalls).toHaveLength(0);
+      expect(flipCalls).toHaveLength(0);
+      expect(mergeCalls).toHaveLength(0);
+    });
+  }
+
+  it("fails with pr_closed when probe reports CLOSED", async () => {
+    const gateCalls: string[] = [];
+    const flipCalls: string[] = [];
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {
+        gateCalls.push("gate");
+      },
+      gh: ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl, "main", "CLOSED"),
+      ghReadyFlip: async () => {
+        flipCalls.push("flip");
+      },
+    });
+
+    try {
+      await execute({ ...baseInput, terminalAction: "ready" });
+      throw new Error("expected closed PR failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TerminalPublicationError);
+      const publicationError = error as TerminalPublicationError;
+      expect(publicationError.failure.cause).toBe("pr_closed");
+      expect(publicationError.failure.operation).toBe("gh pr view");
+      expect(publicationError.failure.message).toContain("closed and not merged");
+    }
+
+    expect(gateCalls).toHaveLength(0);
+    expect(flipCalls).toHaveLength(0);
+  });
+
+  it("runs ready gate and flip when state probe throws", async () => {
+    const gateCalls: string[] = [];
+    const flipCalls: string[] = [];
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async (worktreePath, baseRef) => {
+        gateCalls.push(`${worktreePath}:${baseRef}`);
+      },
+      gh: ghResolvesOpenDraft(baseInput.prNumber, baseInput.prUrl, "main", "probe_throw"),
+      ghReadyFlip: async (prNumber, worktreePath) => {
+        flipCalls.push(`${prNumber}:${worktreePath}`);
+      },
+    });
+
+    const result = await execute({ ...baseInput, terminalAction: "ready" });
+    expect(result).toEqual({ prNumber: baseInput.prNumber, prUrl: baseInput.prUrl });
+    expect(gateCalls).toEqual(["/tmp/worktree:main"]);
+    expect(flipCalls).toEqual(["42:/tmp/worktree"]);
   });
 
   it("propagates an unexpected resolution error unwrapped, without destroying PR evidence", async () => {

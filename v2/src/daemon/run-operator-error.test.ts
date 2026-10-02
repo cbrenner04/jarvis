@@ -9,6 +9,9 @@ import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stre
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { acquireGateInvocationLease, HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE } from "../execution/gate-invocation-lease.ts";
+import { createReadyFinalizer } from "../execution/ready-finalize.ts";
 import { MAX_SLOT_REDRIVES } from "./daemon-slot-redrive.ts";
 import type {
   RunOperatorError,
@@ -1055,6 +1058,39 @@ test("composeRunOperatorError omits killing-set fields for mutation_repair_exhau
 test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {
   expect(composeRunOperatorError(runWith("in-progress"))).toBeUndefined();
   expect(composeRunOperatorError(runWith("completed"), loopFinished("complete"))).toBeUndefined();
+});
+
+test("composeRunOperatorError surfaces harness gate slot wait for in-progress runs with an id", async () => {
+  const runId = "operator-error-slot-wait";
+  const agentLease = acquireGateInvocationLease();
+  let releaseGate!: () => void;
+  const gateHeld = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  const runner: AsyncSubprocessRunner = {
+    runAsync: async () => {
+      await gateHeld;
+      return "";
+    },
+  };
+  const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+  const pending = finalizer({
+    worktreePath: "/tmp/worktree",
+    baseRef: "main",
+    branch: "feature",
+    prNumber: 1,
+    runId,
+  });
+  await Bun.sleep(5);
+  expect(composeRunOperatorError({ id: runId, status: "in-progress" })).toEqual({
+    reason: "harness_failure",
+    retryable: false,
+    nextAction: "stop",
+    message: HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE,
+  });
+  releaseGate();
+  agentLease?.release();
+  await pending;
 });
 
 test("findTerminalLogRecord selects chronologically last terminal event", () => {

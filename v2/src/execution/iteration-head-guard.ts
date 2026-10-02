@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentHistoryRewriteRevertedEvent } from "../persistence/log-stream.ts";
@@ -26,13 +26,45 @@ export function isHistoryRewrite(preSha: string, postSha: string, mergeBase: str
   return preSha !== postSha && mergeBase !== preSha;
 }
 
-/** Pre-iteration `HEAD`, or undefined when `cwd` is not a git checkout (guard skipped). */
-export async function readIterationHead(
-  cwd: string,
-  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
-): Promise<string | undefined> {
-  if (!existsSync(join(cwd, ".git"))) return undefined;
-  return git(runner, cwd, ["rev-parse", "HEAD"]).catch(() => undefined);
+const OBJECT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
+function readTrimmed(path: string): string | undefined {
+  return existsSync(path) ? readFileSync(path, "utf8").trim() : undefined;
+}
+
+/** `.git` directory, or the `gitdir:` target of a linked worktree's `.git` file. */
+function resolveGitDir(cwd: string): string | undefined {
+  const dotGit = join(cwd, ".git");
+  const stat = statSync(dotGit, { throwIfNoEntry: false });
+  if (stat === undefined) return undefined;
+  if (stat.isDirectory()) return dotGit;
+  const target = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1];
+  return target === undefined ? undefined : resolve(cwd, target.trim());
+}
+
+function resolveRef(gitDir: string, ref: string): string | undefined {
+  const commonPointer = readTrimmed(join(gitDir, "commondir"));
+  const commonDir = commonPointer === undefined ? gitDir : resolve(gitDir, commonPointer);
+  const loose = readTrimmed(join(gitDir, ref)) ?? readTrimmed(join(commonDir, ref));
+  if (loose !== undefined) return loose;
+  const packed = readTrimmed(join(commonDir, "packed-refs")) ?? "";
+  return packed
+    .split("\n")
+    .map((line) => line.split(" "))
+    .find(([, name]) => name === ref)?.[0];
+}
+
+/**
+ * Pre-iteration `HEAD` read from the git dir on disk, or undefined when `cwd` is not a git
+ * checkout or the ref is unresolvable (guard skipped). Synchronous and spawn-free so recording adds
+ * no async gap between the loop's abort check and the agent's dispatch.
+ */
+export function readIterationHead(cwd: string): string | undefined {
+  const gitDir = resolveGitDir(cwd);
+  const head = gitDir === undefined ? undefined : readTrimmed(join(gitDir, "HEAD"));
+  if (gitDir === undefined || head === undefined) return undefined;
+  const sha = head.startsWith("ref: ") ? resolveRef(gitDir, head.slice(5).trim()) : head;
+  return sha !== undefined && OBJECT_ID.test(sha) ? sha : undefined;
 }
 
 /**

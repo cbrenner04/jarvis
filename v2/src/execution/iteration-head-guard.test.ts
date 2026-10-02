@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentHistoryRewriteRevertedEvent } from "../persistence/log-stream.ts";
 import { guardIterationHead, isHistoryRewrite, readIterationHead } from "./iteration-head-guard.ts";
@@ -74,12 +74,26 @@ describe("isHistoryRewrite", () => {
 });
 
 describe("readIterationHead", () => {
-  test("reads HEAD in a git checkout and skips a non-git directory", async () => {
+  test("reads a loose branch ref and skips a non-git directory", () => {
     const { cwd, preSha } = laneRepo();
-    expect(await readIterationHead(cwd)).toBe(preSha);
+    expect(readIterationHead(cwd)).toBe(preSha);
     const plain = trackedMkdtempSync(join(tmpdir(), "iteration-head-plain-"));
     roots.push(plain);
-    expect(await readIterationHead(plain)).toBeUndefined();
+    expect(readIterationHead(plain)).toBeUndefined();
+  });
+
+  test("reads packed refs, detached HEAD, and a linked worktree's HEAD", () => {
+    const { cwd, preSha } = laneRepo();
+    git(cwd, ["pack-refs", "--all"]);
+    expect(readIterationHead(cwd)).toBe(preSha);
+    const linked = join(cwd, "..", `${basename(cwd)}-linked`);
+    roots.push(linked);
+    git(cwd, ["worktree", "add", "-b", "linked", linked, "main"]);
+    expect(readIterationHead(linked)).toBe(git(cwd, ["rev-parse", "main"]));
+    const linkedSha = commit(linked, "linked.txt");
+    expect(readIterationHead(linked)).toBe(linkedSha);
+    git(cwd, ["checkout", "--detach", "main"]);
+    expect(readIterationHead(cwd)).toBe(git(cwd, ["rev-parse", "main"]));
   });
 });
 

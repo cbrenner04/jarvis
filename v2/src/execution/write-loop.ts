@@ -2691,7 +2691,7 @@ async function awaitIteration(
   ...reprompts: IterationRepromptArgs
 ): Promise<IterationSettlement> {
   const worktreePath = getExternalWorktreePath(args.worktree);
-  const preSha = args.promptId === "write.mutation-repair" ? undefined : await readIterationHead(worktreePath);
+  const preSha = args.promptId === "write.mutation-repair" ? undefined : readIterationHead(worktreePath);
   const settlement = await raceIterationSettlement(
     args,
     store,

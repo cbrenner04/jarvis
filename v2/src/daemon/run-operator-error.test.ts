@@ -1080,7 +1080,7 @@ test("composeRunOperatorError surfaces harness gate slot wait for in-progress ru
     prNumber: 1,
     runId,
   });
-  await Bun.sleep(5);
+  await Promise.resolve();
   expect(composeRunOperatorError({ id: runId, status: "in-progress" })).toEqual({
     reason: "harness_failure",
     retryable: false,

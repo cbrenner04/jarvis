@@ -2595,20 +2595,27 @@ describe("harness finalization gate slot", () => {
   });
 
   it("serializes concurrent default finalizer gate spawns", async () => {
+    let releaseHeld!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseHeld = resolve;
+    });
     let inFlight = 0;
     let maxInFlight = 0;
     const runner: AsyncSubprocessRunner = {
       runAsync: async () => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        await Bun.sleep(20);
+        await held;
         inFlight -= 1;
         return "";
       },
     };
     const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
-    await Promise.all([finalizer(baseInput), finalizer(baseInput)]);
+    const pending = Promise.all([finalizer(baseInput), finalizer(baseInput)]);
+    await Promise.resolve();
     expect(maxInFlight).toBe(1);
+    releaseHeld();
+    await pending;
   });
 
   it("holds the slot lease through required integration", async () => {
@@ -2682,7 +2689,7 @@ describe("harness finalization gate slot", () => {
       ...baseInput,
       onReadyGateSlotWait: (fields) => slotWaits.push(fields),
     });
-    await Bun.sleep(5);
+    await Promise.resolve();
     agentLease?.release();
     await pending;
     expect(slotWaits).toEqual([expect.objectContaining({ gate: "bun run ready", waitedMs: expect.any(Number) })]);

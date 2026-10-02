@@ -164,7 +164,7 @@ export function awaitGateInvocationLease(options: {
   });
 }
 
-export type HarnessFullSuiteGateSlotOptions = {
+type HarnessFullSuiteGateSlotOptions = {
   gate: string;
   runId?: string;
   signal?: AbortSignal;

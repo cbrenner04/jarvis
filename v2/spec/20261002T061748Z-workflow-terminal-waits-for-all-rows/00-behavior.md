@@ -10,12 +10,12 @@ The invocation finally path writes a settled marker even while a linked row rema
 
 ## Tasks
 
-- [ ] Implement the behavior and focused regression coverage.
+- [x] Implement the behavior and focused regression coverage.
 
 ## Acceptance criteria
 
-- [ ] daemon-workflow-admission-handlers.test.ts and operator-incidents.test.ts prove an active or paused sibling suppresses settled markers and finished incidents, while fully terminal invocations publish them; regression fails against pre-fix writers.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md` and `bun run test:v2` pass; integration coverage runs in CI.
+- [x] daemon-workflow-admission-handlers.test.ts and operator-incidents.test.ts prove an active or paused sibling suppresses settled markers and finished incidents, while fully terminal invocations publish them; regression fails against pre-fix writers.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md` and `bun run test:v2` pass; integration coverage runs in CI.
 
 ## Documentation updates
 

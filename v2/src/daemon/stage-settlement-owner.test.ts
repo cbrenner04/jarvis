@@ -5,11 +5,17 @@ import { join } from "node:path";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import {
+  isTerminalRunStatus,
+  openStateStore,
+  type StateStore,
+  type WorkflowSnapshot,
+} from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
 import {
   hasLiveForeignOwnerSibling,
+  invocationDurableRowsAllTerminal,
   resolveInvocationEntryRunId,
   settleOrphanedRunningStages,
   settleStagesForEntryRun,
@@ -447,5 +453,51 @@ describe("resolveInvocationEntryRunId", () => {
       workflowSnapshot: implementSnapshot("inv-orphan"),
     });
     expect(resolveInvocationEntryRunId(store, orphanRunId)).toBe(orphanRunId);
+  });
+});
+
+describe("invocationDurableRowsAllTerminal", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_OWNER });
+  });
+
+  afterEach(() => {
+    store.close();
+  });
+
+  test("returns true when every invocation row is terminal", () => {
+    const snapshot = implementSnapshot("inv-all-terminal");
+    const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
+    seedRun(store, { status: "failed", stepId: "implement~shrink", workflowSnapshot: snapshot });
+    expect(invocationDurableRowsAllTerminal(store, entryRunId)).toBe(true);
+  });
+
+  test.each(["in-progress", "paused"] as const)("returns false while a sibling row is %s", (siblingStatus) => {
+    const snapshot = implementSnapshot(`inv-live-${siblingStatus}`);
+    const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
+    seedRun(store, { status: siblingStatus, stepId: "implement~shrink", workflowSnapshot: snapshot });
+    const rows = store.findRunsByInvocationId(snapshot.invocationId);
+    const anyTerminalRow = rows.some((row) => isTerminalRunStatus(row.status));
+    expect(invocationDurableRowsAllTerminal(store, entryRunId)).toBe(false);
+    if (siblingStatus === "paused")
+      expect(invocationDurableRowsAllTerminal(store, entryRunId)).not.toBe(anyTerminalRow);
+  });
+
+  test.each([
+    ["completed", true],
+    ["in-progress", false],
+  ] as const)("empty invocation lookup falls back to entry row terminality", (status, expected) => {
+    const snapshot = implementSnapshot(`inv-empty-${status}`);
+    const entryRunId = seedRun(store, { status, stepId: "implement", workflowSnapshot: snapshot });
+    const emptyLookup = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property === "findRunsByInvocationId") return () => [];
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(invocationDurableRowsAllTerminal(emptyLookup, entryRunId)).toBe(expected);
   });
 });

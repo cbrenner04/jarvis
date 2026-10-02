@@ -935,6 +935,43 @@ for (const outcome of ["complete", "blocked", "throw", "kill"] as const) {
   });
 }
 
+test.each([
+  "in-progress",
+  "paused",
+] as const)("workflow invocation settled marker: suppressed while a %s sibling row remains", async (siblingStatus) => {
+  const branch = `settled-marker-sibling-${siblingStatus}`;
+  const { createWriteStep } = writeStepFixtures();
+  const seedSiblingThenDone = createBindingFactory(async ({ cwd }) => {
+    const entryRun = stateStore.listRuns().find((run) => run.branch === branch);
+    if (entryRun?.workflowSnapshot == null) throw new Error("entry run snapshot missing");
+    const siblingRunId = stateStore.createRun({
+      project: entryRun.project,
+      specRef: entryRun.specRef,
+      worktreePath: entryRun.worktreePath,
+      branch,
+      specPath: entryRun.specPath,
+      stepId: "step-1~sibling",
+      workflowSnapshot: entryRun.workflowSnapshot,
+    });
+    if (siblingStatus === "paused") stateStore.setRunStatus(siblingRunId, "paused");
+    writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
+    return { kind: "ok", stdout: "done", stderr: "" };
+  });
+  const step = createWriteStep("step-1", branch, seedSiblingThenDone, { suppressShrink: true });
+  const { ctx, lifecycle } = workflowAdmission();
+
+  const response = await lifecycle.start(
+    requestFrame(`s-sibling-${siblingStatus}`, "start", { steps: [step] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+  await ctx.workflowPromisesByEntryRunId.get(runId);
+
+  expect(stateStore.loadRun(runId)?.status).toBe("completed");
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toBeNull();
+});
+
 test("workflow invocation settled marker: completed", async () => {
   const branch = "settled-marker-completed";
   const { createWriteStep } = writeStepFixtures();
@@ -952,7 +989,7 @@ test("workflow invocation settled marker: completed", async () => {
   expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "completed" });
 });
 
-test("workflow invocation settled marker: failed when the workflow resolves non-complete", async () => {
+test("workflow invocation settled marker: paused entry row writes no marker", async () => {
   const branch = "settled-marker-failed-result";
   const blockedBinding = createBindingFactory(
     async () => ({ kind: "ok", stdout: "## Blocker\n\nneeds a decision\n\nblocked", stderr: "" }) as const,
@@ -969,7 +1006,7 @@ test("workflow invocation settled marker: failed when the workflow resolves non-
   const runId = (response as { result: { runId: string } }).result.runId;
   await ctx.workflowPromisesByEntryRunId.get(runId);
 
-  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "failed" });
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toBeNull();
 });
 
 test("workflow invocation settled marker: failed when execute() throws after the entry run exists", async () => {

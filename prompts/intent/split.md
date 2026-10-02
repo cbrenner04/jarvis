@@ -3,7 +3,7 @@ id: intent.prompt.split
 behavior: intent
 kind: step
 fragmentPolicy: global
-revision: 6
+revision: 7
 placeholders: [WORKDIR:string!, SEED_LABEL:string!, SEED_CONTENT:string!, SPEC_GUIDANCE:string!]
 remove: [global.naming]
 ---
@@ -43,7 +43,7 @@ Reference material between the markers below.
 
 - Each intent must include `name: <kebab-case>`.
 - Each intent must include a `## Prerequisites` section.
-- `## Prerequisites` lists prerequisite behaviors, not intent names, declared for the operator
+- `## Prerequisites` lists behaviors, marked per output rules, declared for the operator
   and later plan runs to honor.
 - Use one bullet per prerequisite behavior line.
 - List only true dependencies.

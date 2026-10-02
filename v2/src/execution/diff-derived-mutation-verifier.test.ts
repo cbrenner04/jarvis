@@ -12,12 +12,14 @@ import {
 } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
+  createCrossFileMutantGate,
   type DiffDerivedMutationVerifierInput,
   exclusiveHoldOverlappedConcurrentRun,
   exclusiveRunMustQueue,
   extractRenderObserverMapFromSource,
   KILLING_TEST_BUDGET_CEILING_MS,
   KILLING_TEST_BUDGET_FLOOR_MS,
+  killingSetImportsProductionFile,
   killingTestBudgetMs,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_INSPECTED_MUTATIONS,
@@ -2607,6 +2609,149 @@ index 1234567..abcdefg 100644
   });
 });
 
+describe("killingSetImportsProductionFile", () => {
+  const worktreePath = "/wt";
+  const readFrom = (sources: Record<string, string>) => async (path: string) => {
+    const rel = path.slice(`${worktreePath}/`.length);
+    const content = sources[rel];
+    if (content === undefined) throw new Error(`missing ${rel}`);
+    return content;
+  };
+
+  it("follows direct relative imports from a killing test to a production file", async () => {
+    expect(
+      await killingSetImportsProductionFile(
+        worktreePath,
+        ["src/target.test.ts"],
+        "src/target.ts",
+        readFrom({
+          "src/target.ts": "export const target = 1;\n",
+          "src/target.test.ts": 'import { target } from "./target";\n',
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("follows chained relative imports from a killing test to a production file", async () => {
+    expect(
+      await killingSetImportsProductionFile(
+        worktreePath,
+        ["src/mid.test.ts"],
+        "src/leaf.ts",
+        readFrom({
+          "src/leaf.ts": "export const leaf = 1;\n",
+          "src/mid.ts": 'import { leaf } from "./leaf";\nexport const mid = leaf;\n',
+          "src/mid.test.ts": 'import { mid } from "./mid";\n',
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false when killing tests do not reach the target production file", async () => {
+    expect(
+      await killingSetImportsProductionFile(
+        worktreePath,
+        ["src/consumer.test.ts"],
+        "src/target.ts",
+        readFrom({
+          "src/target.ts": "export const target = 1;\n",
+          "src/other.ts": "export const other = 1;\n",
+          "src/consumer.test.ts": 'import { other } from "./other";\n',
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("createCrossFileMutantGate", () => {
+  const worktreePath = "/wt";
+  const sources: Record<string, string> = {
+    "src/a.ts": "export const a = 1;\n",
+    "src/a.test.ts": 'import { a } from "./a";\n',
+    "src/b.ts": "export const b = 1;\n",
+    "src/b.test.ts": 'import { a } from "./a";\nimport { b } from "./b";\n',
+    "src/d.ts": "export const d = 1;\n",
+    "src/d.test.ts": 'import { d } from "./d";\n',
+  };
+  const flushMicrotasks = async () => {
+    for (let i = 0; i < 200; i += 1) await Promise.resolve();
+  };
+
+  it("admits a conflicting candidate whose scan read settles after the in-flight candidate released", async () => {
+    const gate = createCrossFileMutantGate();
+    let releaseBRead!: () => void;
+    const bReadGate = new Promise<void>((resolve) => {
+      releaseBRead = resolve;
+    });
+    let bReadRequested = false;
+    const readFile = async (path: string) => {
+      const rel = path.slice(`${worktreePath}/`.length);
+      if (rel === "src/b.test.ts") {
+        bReadRequested = true;
+        await bReadGate;
+      }
+      const content = sources[rel];
+      if (content === undefined) throw new Error(`missing ${rel}`);
+      return content;
+    };
+    let finishA!: () => void;
+    const aRunning = new Promise<void>((resolve) => {
+      finishA = resolve;
+    });
+    let aStarted = false;
+    const a = gate.runWithAdmission("src/a.ts", ["src/a.test.ts"], worktreePath, readFile, async () => {
+      aStarted = true;
+      await aRunning;
+      return "a";
+    });
+    await flushMicrotasks();
+    expect(aStarted).toBe(true);
+
+    let bSettled = false;
+    const b = gate
+      .runWithAdmission("src/b.ts", ["src/b.test.ts"], worktreePath, readFile, async () => "b")
+      .then((value) => {
+        bSettled = true;
+        return value;
+      });
+    await flushMicrotasks();
+    expect(bReadRequested).toBe(true);
+
+    finishA();
+    expect(await a).toBe("a");
+    releaseBRead();
+    await flushMicrotasks();
+    expect(bSettled).toBe(true);
+    expect(await b).toBe("b");
+  });
+
+  it("reads each killing test's import closure once across admission attempts", async () => {
+    const gate = createCrossFileMutantGate();
+    const reads = new Map<string, number>();
+    const readFile = async (path: string) => {
+      const rel = path.slice(`${worktreePath}/`.length);
+      reads.set(rel, (reads.get(rel) ?? 0) + 1);
+      const content = sources[rel];
+      if (content === undefined) throw new Error(`missing ${rel}`);
+      return content;
+    };
+    let finishA!: () => void;
+    const aRunning = new Promise<void>((resolve) => {
+      finishA = resolve;
+    });
+    const a = gate.runWithAdmission("src/a.ts", ["src/a.test.ts"], worktreePath, readFile, () => aRunning);
+    await flushMicrotasks();
+    const b = gate.runWithAdmission("src/b.ts", ["src/b.test.ts"], worktreePath, readFile, async () => undefined);
+    await flushMicrotasks();
+    // An unrelated release wakes b while a is still in flight, forcing a second conflict scan.
+    await gate.runWithAdmission("src/d.ts", ["src/d.test.ts"], worktreePath, readFile, async () => undefined);
+    await flushMicrotasks();
+    finishA();
+    await Promise.all([a, b]);
+    expect(reads.get("src/b.test.ts")).toBe(1);
+  });
+});
+
 describe("per-file candidate scheduling", () => {
   async function waitForCondition(condition: () => boolean, label: string): Promise<void> {
     for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -2758,6 +2903,137 @@ index 1234567..abcdefg 100644
     const otherWrites = writeEvents.filter((event) => event.file === "src/other.ts").map((event) => event.content);
     expect(multiWrites).toEqual([multi.mutant1, multi.content, multi.mutant2, multi.content]);
     expect(otherWrites).toEqual([other.mutant1, other.content, other.mutant2, other.content]);
+  });
+
+  it("does not mis-settle non_terminating_mutation_failed on a cross-importing killing set while another file's mutant hangs", async () => {
+    const x = dualGuardFixture("src/x.ts", "xFn", "xa", "xb");
+    const y = dualGuardFixture("src/y.ts", "yFn", "ya", "yb");
+    const xKillingTest = 'import { yFn } from "./y";\nimport { xFn } from "./x";\nexport {};\n';
+    const worktreePath = "/test/path";
+    const rel = (path: string) => path.slice(`${worktreePath}/`.length);
+    const isYMutant = (content: string) => content !== y.content;
+
+    function verifyOverContents(
+      contents: Map<string, string>,
+      gitDiff: () => Promise<string>,
+      defaultProd: string,
+      runScopedTests: (cwd: string, scope: readonly string[]) => Promise<boolean>,
+      options?: { xKillingTest?: string; onWrite?: (file: string, content: string) => void },
+    ) {
+      return verifyDiffDerivedMutations(
+        { worktreePath, runBase: "main" },
+        {
+          gitDiff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => {
+            if (options?.xKillingTest && path.endsWith("src/x.test.ts")) return options.xKillingTest;
+            if (path.endsWith(".test.ts")) return "export {};\n";
+            return contents.get(rel(path)) ?? defaultProd;
+          },
+          writeFile: async (path, content) => {
+            const file = rel(path);
+            contents.set(file, content);
+            options?.onWrite?.(file, content);
+          },
+          listDir: () => [],
+          runScopedTests,
+        },
+      );
+    }
+
+    const yOnlyContents = new Map([
+      ["src/x.ts", x.content],
+      ["src/y.ts", y.content],
+    ]);
+    const yOnlyHang = await verifyOverContents(
+      yOnlyContents,
+      async () => y.diff,
+      y.content,
+      async (_cwd, scope) => {
+        if (scope.includes("src/y.test.ts") && isYMutant(yOnlyContents.get("src/y.ts") ?? y.content)) {
+          throw new AsyncSubprocessError("y killing set hung", undefined, "", "", "ETIMEDOUT");
+        }
+        return false;
+      },
+    );
+    expect(yOnlyHang.kind).toBe("non-terminating-mutation");
+    if (yOnlyHang.kind === "non-terminating-mutation") {
+      expect(yOnlyHang.sourceSite.file).toBe("src/y.ts");
+    }
+
+    const xOnlyContents = new Map([
+      ["src/x.ts", x.content],
+      ["src/y.ts", y.content],
+    ]);
+    const xOnlyBaseline = await verifyOverContents(
+      xOnlyContents,
+      async () => x.diff,
+      x.content,
+      async () => false,
+      {
+        xKillingTest,
+      },
+    );
+
+    let releaseBlockedScopedTests: (() => void) | undefined;
+    const blockedScopedTests = new Promise<void>((resolve) => {
+      releaseBlockedScopedTests = resolve;
+    });
+    let xScopedActive = false;
+    let yMutatedDuringXScoped = false;
+    const concurrentContents = new Map([
+      ["src/x.ts", x.content],
+      ["src/y.ts", y.content],
+    ]);
+    const concurrentVerification = verifyOverContents(
+      concurrentContents,
+      async () => x.diff + y.diff,
+      x.content,
+      async (_cwd, scope) => {
+        if (scope.includes("src/x.test.ts")) {
+          xScopedActive = true;
+          await blockedScopedTests;
+        }
+        return false;
+      },
+      {
+        xKillingTest,
+        onWrite: (file, content) => {
+          if (xScopedActive && file === "src/y.ts" && isYMutant(content)) yMutatedDuringXScoped = true;
+        },
+      },
+    );
+
+    await waitForCondition(() => xScopedActive, "x killing-set scoped run");
+    expect(yMutatedDuringXScoped).toBe(false);
+    releaseBlockedScopedTests?.();
+    const concurrentResult = await concurrentVerification;
+    const xFile = "src/x.ts";
+    const xVerifierSlice = (result: Awaited<ReturnType<typeof verifyDiffDerivedMutations>>) => {
+      if (result.kind === "pass") {
+        return {
+          kind: result.kind,
+          acceptedSites: result.acceptedSites.filter((site) => site.file === xFile),
+          skippedCandidates: result.skippedCandidates.filter((candidate) => candidate.file === xFile),
+        };
+      }
+      if (result.sourceSite.file !== xFile) {
+        return { kind: "pass" as const, acceptedSites: [], skippedCandidates: [] };
+      }
+      return {
+        kind: result.kind,
+        mutation: result.mutation,
+        sourceSite: result.sourceSite,
+        ...("killingTests" in result
+          ? {
+              killingTests: result.killingTests,
+              killingSetObservedResult: result.killingSetObservedResult,
+            }
+          : {}),
+      };
+    };
+    expect(xVerifierSlice(concurrentResult)).toEqual(xVerifierSlice(xOnlyBaseline));
+    expect(concurrentResult.kind).not.toBe("non-terminating-mutation");
   });
 
   it("records concurrent applied mutants separately and clears only the restored owner's record", async () => {

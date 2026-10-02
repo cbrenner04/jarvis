@@ -248,9 +248,9 @@ export function signalReadyGateProcessGroup(pgid: number, own?: ReadonlySet<numb
 }
 
 /**
- * Reap every recorded finalization verifier process group (ready gate, required integration,
- * diff-derived mutation verifier, runtime smoke probe, base-ref reproduction probe) whose owning
- * run is not live, clearing exactly the swept id so sibling groups recorded later stay bound.
+ * Reap every recorded process group on non-live run rows (ready gate, required integration,
+ * diff-derived mutation verifier, runtime smoke and base-ref probes, implement-iteration agent
+ * tree, snapshotted shell-tool descendants), clearing exactly the swept id so sibling recordings stay bound.
  */
 export async function sweepOrphanReadyGateGroups(store: StateStore): Promise<void> {
   for (const { runId, readyGatePgid } of await store.listReadyGateSweepCandidates()) {

@@ -12,20 +12,20 @@ Depends on implement iterations recording agent and snapshotted descendant pgids
 
 ## Task checklist
 
-- [ ] Read `sweepOrphanReadyGateGroups`, `listReadyGateSweepCandidates`, and `signalRecordedVerifierProcessGroups`; confirm dead-owner rows sweep every `store.verifierProcessGroups` id without a second path.
-- [ ] Add or extend `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` for the agent-only dead-owner scenario (SIGTERM then SIGKILL per pgid, per-id clear).
-- [ ] If the regression test fails, fix `v2/src/daemon/daemon.ts` (or store listing) so agent recordings are swept; keep a single sweep entrypoint.
-- [ ] Replace finalization-only orphan-reap / recorded-group wording in `v2/docs/operator-runbook.md` and `v2/docs/daemon-host.md`; align `sweepOrphanReadyGateGroups` and related listing/sweep comments with the operator contract.
+- [x] Read `sweepOrphanReadyGateGroups`, `listReadyGateSweepCandidates`, and `signalRecordedVerifierProcessGroups`; confirm dead-owner rows sweep every `store.verifierProcessGroups` id without a second path.
+- [x] Add or extend `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` for the agent-only dead-owner scenario (SIGTERM then SIGKILL per pgid, per-id clear).
+- [x] If the regression test fails, fix `v2/src/daemon/daemon.ts` (or store listing) so agent recordings are swept; keep a single sweep entrypoint.
+- [x] Replace finalization-only orphan-reap / recorded-group wording in `v2/docs/operator-runbook.md` and `v2/docs/daemon-host.md`; align `sweepOrphanReadyGateGroups` and related listing/sweep comments with the operator contract.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` adds a regression that seeds, via `storeVerifierProcessGroupRecorder(store, runId).record(pgid)`, a dead-owner run row with only implement-iteration agent (and optionally snapshotted descendant) pgid(s) on `run_verifier_process_groups`, drives `sweepOrphanReadyGateGroups`, and asserts SIGTERM→SIGKILL per id and per-id clear; pins agent-only dead-owner reachability when listing and sweep stay general (may pass on merge-base without production changes); fails if orphan listing or startup sweep omits child-table agent pgids for dead-owner runs.
-- [ ] `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` tests `sweeps a ready-gate pgid when the owning run owner is dead` and `sweeps every recorded verifier group for a dead-owner run, not only the ready-gate group` stay green.
-- [ ] `v2/docs/operator-runbook.md` and `v2/docs/daemon-host.md` contain no operator-visible text that limits daemon-start orphan reap or recorded process groups to finalization verifier spawns only; runbook states orphan reap covers every recorded pgid on the run row, including the implement-iteration agent tree and snapshotted shell-tool descendants; a leaked `bun test` (or other jarvis-owned test tree) after iteration timeout or daemon loss is a bug to fix, not expected operator cleanup.
-- [ ] `sweepOrphanReadyGateGroups` and related orphan listing/sweep comments in `v2/src/daemon/daemon.ts` (and store helpers they document) describe every recorded process group on the run row, not finalization verifier spawns only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` adds a regression that seeds, via `storeVerifierProcessGroupRecorder(store, runId).record(pgid)`, a dead-owner run row with only implement-iteration agent (and optionally snapshotted descendant) pgid(s) on `run_verifier_process_groups`, drives `sweepOrphanReadyGateGroups`, and asserts SIGTERM→SIGKILL per id and per-id clear; pins agent-only dead-owner reachability when listing and sweep stay general (may pass on merge-base without production changes); fails if orphan listing or startup sweep omits child-table agent pgids for dead-owner runs.
+- [x] `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` tests `sweeps a ready-gate pgid when the owning run owner is dead` and `sweeps every recorded verifier group for a dead-owner run, not only the ready-gate group` stay green.
+- [x] `v2/docs/operator-runbook.md` and `v2/docs/daemon-host.md` contain no operator-visible text that limits daemon-start orphan reap or recorded process groups to finalization verifier spawns only; runbook states orphan reap covers every recorded pgid on the run row, including the implement-iteration agent tree and snapshotted shell-tool descendants; a leaked `bun test` (or other jarvis-owned test tree) after iteration timeout or daemon loss is a bug to fix, not expected operator cleanup.
+- [x] `sweepOrphanReadyGateGroups` and related orphan listing/sweep comments in `v2/src/daemon/daemon.ts` (and store helpers they document) describe every recorded process group on the run row, not finalization verifier spawns only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

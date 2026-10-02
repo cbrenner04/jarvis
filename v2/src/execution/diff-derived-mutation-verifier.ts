@@ -717,6 +717,35 @@ async function testDirectlyImportsProductionModule(
   return false;
 }
 
+async function importClosureFromFileReachesProduction(
+  worktreePath: string,
+  startPath: string,
+  targetProductionPath: string,
+  readFile: ReadFile,
+): Promise<boolean> {
+  const pending = [startPath];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (!file || visited.has(file)) continue;
+    visited.add(file);
+    let source: string;
+    try {
+      source = await readFile(`${worktreePath}/${file}`);
+    } catch {
+      continue;
+    }
+    for (const modulePath of importedModulePaths(source)) {
+      for (const importedFile of resolveImportedModule(worktreePath, file, modulePath)) {
+        if (importedFile.length === 0) continue;
+        if (importedFile === targetProductionPath) return true;
+        if (!visited.has(importedFile)) pending.push(importedFile);
+      }
+    }
+  }
+  return false;
+}
+
 export async function killingSetImportsProductionFile(
   worktreePath: string,
   killingTestPaths: readonly string[],
@@ -724,25 +753,8 @@ export async function killingSetImportsProductionFile(
   readFile: ReadFile,
 ): Promise<boolean> {
   for (const testPath of killingTestPaths) {
-    const pending = [testPath];
-    const visited = new Set<string>();
-    while (pending.length > 0) {
-      const file = pending.pop();
-      if (!file || visited.has(file)) continue;
-      visited.add(file);
-      let source: string;
-      try {
-        source = await readFile(`${worktreePath}/${file}`);
-      } catch {
-        continue;
-      }
-      for (const modulePath of importedModulePaths(source)) {
-        for (const importedFile of resolveImportedModule(worktreePath, file, modulePath)) {
-          if (importedFile.length === 0) continue;
-          if (importedFile === targetProductionPath) return true;
-          if (!visited.has(importedFile)) pending.push(importedFile);
-        }
-      }
+    if (await importClosureFromFileReachesProduction(worktreePath, testPath, targetProductionPath, readFile)) {
+      return true;
     }
   }
   return false;

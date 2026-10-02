@@ -64,7 +64,7 @@ type CompletionPublisherResult = {
 
 export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<CompletionPublisherResult>;
 
-export type ArchiveReadyPublicationInput = {
+type ArchiveReadyPublicationInput = {
   worktreePath: string;
   branch: string;
   baseRef: string;
@@ -73,7 +73,7 @@ export type ArchiveReadyPublicationInput = {
   signal?: AbortSignal;
 };
 
-export type ArchiveReadyPublicationResult = {
+type ArchiveReadyPublicationResult = {
   pushSha: string;
   prNumber: number;
   prUrl: string;

@@ -2596,34 +2596,39 @@ index 1234567..abcdefg 100644
 
 describe("killingSetImportsProductionFile", () => {
   const worktreePath = "/wt";
-
-  function readFrom(sources: Record<string, string>) {
-    return async (path: string) => {
-      const rel = path.slice(`${worktreePath}/`.length);
-      const content = sources[rel];
-      if (content === undefined) throw new Error(`missing ${rel}`);
-      return content;
-    };
-  }
+  const readFrom = (sources: Record<string, string>) => async (path: string) => {
+    const rel = path.slice(`${worktreePath}/`.length);
+    const content = sources[rel];
+    if (content === undefined) throw new Error(`missing ${rel}`);
+    return content;
+  };
 
   it("follows direct relative imports from a killing test to a production file", async () => {
-    const sources = {
-      "src/target.ts": "export const target = 1;\n",
-      "src/target.test.ts": 'import { target } from "./target";\n',
-    };
     expect(
-      await killingSetImportsProductionFile(worktreePath, ["src/target.test.ts"], "src/target.ts", readFrom(sources)),
+      await killingSetImportsProductionFile(
+        worktreePath,
+        ["src/target.test.ts"],
+        "src/target.ts",
+        readFrom({
+          "src/target.ts": "export const target = 1;\n",
+          "src/target.test.ts": 'import { target } from "./target";\n',
+        }),
+      ),
     ).toBe(true);
   });
 
   it("follows chained relative imports from a killing test to a production file", async () => {
-    const sources = {
-      "src/leaf.ts": "export const leaf = 1;\n",
-      "src/mid.ts": 'import { leaf } from "./leaf";\nexport const mid = leaf;\n',
-      "src/mid.test.ts": 'import { mid } from "./mid";\n',
-    };
     expect(
-      await killingSetImportsProductionFile(worktreePath, ["src/mid.test.ts"], "src/leaf.ts", readFrom(sources)),
+      await killingSetImportsProductionFile(
+        worktreePath,
+        ["src/mid.test.ts"],
+        "src/leaf.ts",
+        readFrom({
+          "src/leaf.ts": "export const leaf = 1;\n",
+          "src/mid.ts": 'import { leaf } from "./leaf";\nexport const mid = leaf;\n',
+          "src/mid.test.ts": 'import { mid } from "./mid";\n',
+        }),
+      ),
     ).toBe(true);
   });
 });

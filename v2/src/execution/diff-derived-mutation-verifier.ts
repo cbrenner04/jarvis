@@ -717,35 +717,6 @@ async function testDirectlyImportsProductionModule(
   return false;
 }
 
-async function productionFileReachableFromModule(
-  worktreePath: string,
-  startFile: string,
-  targetProductionPath: string,
-  readFile: ReadFile,
-): Promise<boolean> {
-  const pending = [startFile];
-  const visited = new Set<string>();
-  while (pending.length > 0) {
-    const file = pending.pop();
-    if (!file || visited.has(file)) continue;
-    visited.add(file);
-    let source: string;
-    try {
-      source = await readFile(`${worktreePath}/${file}`);
-    } catch {
-      continue;
-    }
-    for (const modulePath of importedModulePaths(source)) {
-      for (const importedFile of resolveImportedModule(worktreePath, file, modulePath)) {
-        if (importedFile.length === 0) continue;
-        if (importedFile === targetProductionPath) return true;
-        if (!visited.has(importedFile)) pending.push(importedFile);
-      }
-    }
-  }
-  return false;
-}
-
 export async function killingSetImportsProductionFile(
   worktreePath: string,
   killingTestPaths: readonly string[],
@@ -753,8 +724,25 @@ export async function killingSetImportsProductionFile(
   readFile: ReadFile,
 ): Promise<boolean> {
   for (const testPath of killingTestPaths) {
-    if (await productionFileReachableFromModule(worktreePath, testPath, targetProductionPath, readFile)) {
-      return true;
+    const pending = [testPath];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const file = pending.pop();
+      if (!file || visited.has(file)) continue;
+      visited.add(file);
+      let source: string;
+      try {
+        source = await readFile(`${worktreePath}/${file}`);
+      } catch {
+        continue;
+      }
+      for (const modulePath of importedModulePaths(source)) {
+        for (const importedFile of resolveImportedModule(worktreePath, file, modulePath)) {
+          if (importedFile.length === 0) continue;
+          if (importedFile === targetProductionPath) return true;
+          if (!visited.has(importedFile)) pending.push(importedFile);
+        }
+      }
     }
   }
   return false;
@@ -791,7 +779,6 @@ function createCrossFileMutantGate() {
         }
         if (!conflict) {
           inFlight.set(candidateFile, killingTests);
-          releaseRegister();
           return;
         }
       } finally {

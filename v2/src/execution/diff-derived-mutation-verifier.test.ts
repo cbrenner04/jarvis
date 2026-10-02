@@ -2785,38 +2785,51 @@ index 1234567..abcdefg 100644
     const x = dualGuardFixture("src/x.ts", "xFn", "xa", "xb");
     const y = dualGuardFixture("src/y.ts", "yFn", "ya", "yb");
     const xKillingTest = 'import { yFn } from "./y";\nimport { xFn } from "./x";\nexport {};\n';
-    const combinedDiff = x.diff + y.diff;
+    const worktreePath = "/test/path";
+    const rel = (path: string) => path.slice(`${worktreePath}/`.length);
+    const isYMutant = (content: string) => content !== y.content;
 
-    const fileContents = new Map<string, string>([
+    function verifyOverContents(
+      contents: Map<string, string>,
+      gitDiff: () => Promise<string>,
+      defaultProd: string,
+      runScopedTests: (cwd: string, scope: readonly string[]) => Promise<boolean>,
+      options?: { xKillingTest?: string; onWrite?: (file: string, content: string) => void },
+    ) {
+      return verifyDiffDerivedMutations(
+        { worktreePath, runBase: "main" },
+        {
+          gitDiff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => {
+            if (options?.xKillingTest && path.endsWith("src/x.test.ts")) return options.xKillingTest;
+            if (path.endsWith(".test.ts")) return "export {};\n";
+            return contents.get(rel(path)) ?? defaultProd;
+          },
+          writeFile: async (path, content) => {
+            const file = rel(path);
+            contents.set(file, content);
+            options?.onWrite?.(file, content);
+          },
+          listDir: () => [],
+          runScopedTests,
+        },
+      );
+    }
+
+    const yOnlyContents = new Map([
       ["src/x.ts", x.content],
       ["src/y.ts", y.content],
     ]);
-
-    function isYMutant(content: string): boolean {
-      return content !== y.content;
-    }
-
-    const yOnlyHang = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => y.diff,
-        untrackedFiles: async () => [],
-        readFile: async (path) => {
-          if (path.endsWith(".test.ts")) return "export {};\n";
-          const file = path.replace("/test/path/", "");
-          return fileContents.get(file) ?? y.content;
-        },
-        writeFile: async (path, content) => {
-          const file = path.replace("/test/path/", "");
-          fileContents.set(file, content);
-        },
-        listDir: () => [],
-        runScopedTests: async (_cwd, scope) => {
-          if (scope.some((path) => path === "src/y.test.ts") && isYMutant(fileContents.get("src/y.ts") ?? y.content)) {
-            throw new AsyncSubprocessError("y killing set hung", undefined, "", "", "ETIMEDOUT");
-          }
-          return false;
-        },
+    const yOnlyHang = await verifyOverContents(
+      yOnlyContents,
+      async () => y.diff,
+      y.content,
+      async (_cwd, scope) => {
+        if (scope.includes("src/y.test.ts") && isYMutant(yOnlyContents.get("src/y.ts") ?? y.content)) {
+          throw new AsyncSubprocessError("y killing set hung", undefined, "", "", "ETIMEDOUT");
+        }
+        return false;
       },
     );
     expect(yOnlyHang.kind).toBe("non-terminating-mutation");
@@ -2824,23 +2837,17 @@ index 1234567..abcdefg 100644
       expect(yOnlyHang.sourceSite.file).toBe("src/y.ts");
     }
 
-    const xOnlyBaseline = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
+    const xOnlyContents = new Map([
+      ["src/x.ts", x.content],
+      ["src/y.ts", y.content],
+    ]);
+    const xOnlyBaseline = await verifyOverContents(
+      xOnlyContents,
+      async () => x.diff,
+      x.content,
+      async () => false,
       {
-        gitDiff: async () => x.diff,
-        untrackedFiles: async () => [],
-        readFile: async (path) => {
-          if (path.endsWith("src/x.test.ts")) return xKillingTest;
-          if (path.endsWith(".test.ts")) return "export {};\n";
-          const file = path.replace("/test/path/", "");
-          return fileContents.get(file) ?? x.content;
-        },
-        writeFile: async (path, content) => {
-          const file = path.replace("/test/path/", "");
-          fileContents.set(file, content);
-        },
-        listDir: () => [],
-        runScopedTests: async () => false,
+        xKillingTest,
       },
     );
 
@@ -2850,37 +2857,25 @@ index 1234567..abcdefg 100644
     });
     let xScopedActive = false;
     let yMutatedDuringXScoped = false;
-
-    const concurrentContents = new Map<string, string>([
+    const concurrentContents = new Map([
       ["src/x.ts", x.content],
       ["src/y.ts", y.content],
     ]);
-    const concurrentVerification = verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
+    const concurrentVerification = verifyOverContents(
+      concurrentContents,
+      async () => x.diff + y.diff,
+      x.content,
+      async (_cwd, scope) => {
+        if (scope.includes("src/x.test.ts")) {
+          xScopedActive = true;
+          await blockedScopedTests;
+        }
+        return false;
+      },
       {
-        gitDiff: async () => combinedDiff,
-        untrackedFiles: async () => [],
-        readFile: async (path) => {
-          if (path.endsWith("src/x.test.ts")) return xKillingTest;
-          if (path.endsWith(".test.ts")) return "export {};\n";
-          const file = path.replace("/test/path/", "");
-          return concurrentContents.get(file) ?? x.content;
-        },
-        writeFile: async (path, content) => {
-          const file = path.replace("/test/path/", "");
-          concurrentContents.set(file, content);
-          if (xScopedActive && file === "src/y.ts" && isYMutant(content)) {
-            yMutatedDuringXScoped = true;
-          }
-        },
-        listDir: () => [],
-        runScopedTests: async (_cwd, scope) => {
-          const hitsX = scope.some((path) => path === "src/x.test.ts");
-          if (hitsX) {
-            xScopedActive = true;
-            await blockedScopedTests;
-          }
-          return false;
+        xKillingTest,
+        onWrite: (file, content) => {
+          if (xScopedActive && file === "src/y.ts" && isYMutant(content)) yMutatedDuringXScoped = true;
         },
       },
     );
@@ -2889,7 +2884,6 @@ index 1234567..abcdefg 100644
     expect(yMutatedDuringXScoped).toBe(false);
     releaseBlockedScopedTests?.();
     const concurrentResult = await concurrentVerification;
-
     expect(concurrentResult.kind).toBe(xOnlyBaseline.kind);
     expect(concurrentResult.kind).not.toBe("non-terminating-mutation");
   });

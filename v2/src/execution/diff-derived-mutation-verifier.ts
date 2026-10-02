@@ -746,7 +746,6 @@ async function productionFileReachableFromModule(
   return false;
 }
 
-/** Transitive static relative-import closure from any killing test path to a production file. */
 export async function killingSetImportsProductionFile(
   worktreePath: string,
   killingTestPaths: readonly string[],
@@ -761,42 +760,10 @@ export async function killingSetImportsProductionFile(
   return false;
 }
 
-type CrossFileMutantGate = {
-  runWithAdmission<T>(
-    candidateFile: string,
-    killingTests: readonly string[],
-    worktreePath: string,
-    readFile: ReadFile,
-    run: () => Promise<T>,
-  ): Promise<T>;
-};
-
-function createCrossFileMutantGate(): CrossFileMutantGate {
+function createCrossFileMutantGate() {
   const inFlight = new Map<string, readonly string[]>();
   let registerLock: Promise<void> = Promise.resolve();
   const releaseWaiters: Array<() => void> = [];
-
-  function wakeWaiters(): void {
-    const waiters = releaseWaiters.splice(0);
-    for (const wake of waiters) wake();
-  }
-
-  async function symmetricConflict(
-    candidateFile: string,
-    killingTests: readonly string[],
-    worktreePath: string,
-    readFile: ReadFile,
-  ): Promise<boolean> {
-    for (const [inFlightFile, inFlightKillingTests] of inFlight) {
-      if (await killingSetImportsProductionFile(worktreePath, killingTests, inFlightFile, readFile)) {
-        return true;
-      }
-      if (await killingSetImportsProductionFile(worktreePath, inFlightKillingTests, candidateFile, readFile)) {
-        return true;
-      }
-    }
-    return false;
-  }
 
   async function acquireAdmission(
     candidateFile: string,
@@ -812,7 +779,17 @@ function createCrossFileMutantGate(): CrossFileMutantGate {
       });
       await previous;
       try {
-        if (!(await symmetricConflict(candidateFile, killingTests, worktreePath, readFile))) {
+        let conflict = false;
+        for (const [inFlightFile, inFlightKillingTests] of inFlight) {
+          if (
+            (await killingSetImportsProductionFile(worktreePath, killingTests, inFlightFile, readFile)) ||
+            (await killingSetImportsProductionFile(worktreePath, inFlightKillingTests, candidateFile, readFile))
+          ) {
+            conflict = true;
+            break;
+          }
+        }
+        if (!conflict) {
           inFlight.set(candidateFile, killingTests);
           releaseRegister();
           return;
@@ -827,13 +804,19 @@ function createCrossFileMutantGate(): CrossFileMutantGate {
   }
 
   return {
-    async runWithAdmission(candidateFile, killingTests, worktreePath, readFile, run) {
+    async runWithAdmission<T>(
+      candidateFile: string,
+      killingTests: readonly string[],
+      worktreePath: string,
+      readFile: ReadFile,
+      run: () => Promise<T>,
+    ): Promise<T> {
       await acquireAdmission(candidateFile, killingTests, worktreePath, readFile);
       try {
         return await run();
       } finally {
         inFlight.delete(candidateFile);
-        wakeWaiters();
+        for (const wake of releaseWaiters.splice(0)) wake();
       }
     },
   };

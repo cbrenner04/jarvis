@@ -311,6 +311,28 @@ describe("cleanup archive publication session", () => {
     expect(branches).toContain(stagedBranch);
     expect(branches).not.toContain(`cleanup/archive-${newStamp}`);
   });
+
+  test("publicationTargetSession keeps session branch when this run already archived", async () => {
+    const freshSpecName = "20261002T100003Z-fresh-archive";
+    const stagedSpecName = "20261002T100004Z-staged-other";
+    const stagedBranch = "cleanup/archive-20261002T100004Z";
+    const runStamp = "20261002T777777Z";
+    const runBranch = `cleanup/archive-${runStamp}`;
+    const { spec: freshSpec } = inRepoSpec(freshSpecName, "[x] Done");
+    const { spec: stagedSpec } = inRepoSpec(stagedSpecName, "[x] Done");
+    await commitFixtures(projectRoot);
+    await stageSpecOnCleanupBranch(stagedBranch, stagedSpecName);
+    const sessions = createArchivePublicationSessions(realAsyncSubprocessRunner, jarvisRoot, runStamp);
+    const session = sessions.for("project", projectRoot);
+    expect(await session.publish(freshSpec)).toMatchObject({ status: "archived", branch: runBranch });
+    expect(session.commits()).toBe(1);
+    expect(await session.publish(stagedSpec)).toMatchObject({ status: "skipped" });
+
+    const resolved = sessions.publicationTargetSession("project", projectRoot);
+    expect(resolved?.branch).toBe(runBranch);
+    expect(resolved?.commits()).toBe(1);
+    expect(resolved).toBe(session);
+  });
 });
 
 describe("cleanup apply-end archive publication", () => {

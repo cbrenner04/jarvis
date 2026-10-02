@@ -18,22 +18,8 @@ import {
   ReadyFlipError,
   ReadyGateError,
   RuntimeSmokeFailedError,
-  selectFailedReadyStepOutput,
   SurvivingMutationError,
 } from "./ready-finalize.ts";
-
-function pinnedReadyGateRepairEvent(gateCommand: string, gateOutput: string, attempt: number, gateExitCode: number) {
-  const failedStep = selectFailedReadyStepOutput(gateCommand, gateOutput);
-  const stepOutput = failedStep.output;
-  const tailMax = 4096;
-  return {
-    kind: "ready_gate_repair" as const,
-    attempt,
-    gateExitCode,
-    failingStep: failedStep.step,
-    gateOutputTail: stepOutput.length <= tailMax ? stepOutput : stepOutput.slice(-tailMax),
-  };
-}
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import { resolveCompletionCommitFailedResumeContext } from "./workflow-runner-resume.ts";
 import {
@@ -72,6 +58,7 @@ import {
   MAX_MUTATION_REPAIR_ATTEMPTS,
   publishCompletionArtifacts,
   publishWithReadyRepair,
+  readyGateRepairLogFields,
   resolvePreShrinkHead,
   runMutationRepairIteration,
   runsInLoopDiffDerivedMutationVerification,
@@ -821,9 +808,12 @@ describe("write loop", () => {
       expect(prompts[1]).toContain("Command: bun run ready");
       expect(prompts[1]).toContain("Exit code: 1");
       expect(prompts[1]).toContain("tests failed");
-      expect(logSink.getEventsForRun(result.runId)).toContainEqual(
-        pinnedReadyGateRepairEvent("bun run ready", "tests failed", 1, 1),
-      );
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "ready_gate_repair",
+        attempt: 1,
+        gateExitCode: 1,
+        ...readyGateRepairLogFields("bun run ready", "tests failed"),
+      });
     });
 
     test("caps red-gate repairs at three attempts", async () => {

@@ -88,6 +88,7 @@ Shared rendering follows this contract:
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics
   change, unless the active subspec explicitly says no docs are required for a
   purely internal change.
+- `global.documentation` names the target repo's own durable doc home, never a jarvis path; no artifact or injected guidance may contain a `v[12]/(docs|spec|src)/` literal (see [`prompts.md`](./prompts.md)).
 - `global.terse` applies everywhere, code included; required docs are owned by `global.documentation`, so terseness never reads as license to skip them.
 
 Template substitution is non-recursive:

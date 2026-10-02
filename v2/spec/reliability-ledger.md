@@ -15,7 +15,6 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | [Finalization gates share the gate slot](./20261001T193311Z-finalization-ready-gates-share-the-gate-slot/index.md) | Implement in flight (`c6030e65`; lane hand-rebased past #4428) | 00 at 2/3. Concurrent gates false-redded every lane under load; repair then edited unrelated files. |
 | [Ready-repair prompt lists allowed paths](./20261001T193407Z-ready-repair-prompt-allowed-paths/index.md) | After gate-slot | Shares new `write-loop-ready-repair.test.ts` with event-context: serial. |
 | [`ready_gate_repair` logs gate context](./20261001T193416Z-ready-gate-repair-event-gate-context/index.md) | After allowed-paths | Failing step + 4 KiB tail on the event. |
-| [Implement rules forbid history rewrite](./ready-intents/implement-rules-forbid-history-rewrite.md) | After revert lane | Prompt rule; one-line change plus render tests. |
 | [Mutation candidates isolated across files](./seeds/mutation-candidates-isolated-across-files.md) | Intent | Concurrent cross-file mutants contaminate killing sets (false non-terminating on `ready-finalize.ts:1470`, 2026-10-02 gate-slot lane). |
 | [Shrink failure status matches resume](./seeds/shrink-invocation-failure-status-matches-resume.md) | Intent | Shrink `invocation_failure` settles `paused` but resume refuses → stuck row (run `3dd4be83`, 2026-10-02). |
 | [Hung killing test kills the mutant](./seeds/hung-killing-test-counts-as-killed.md) | Intent | Per-test timeout == kill floor (30 s), so a test hanging under a mutant strands `non_terminating_mutation_failed`; hand-fixed twice on the gate-slot lane 2026-10-02. |
@@ -24,7 +23,6 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 
 | Item | Next action / dependency | Remaining scope |
 | --- | --- | --- |
-| [Target-repo documentation layout](./seeds/implement-respects-target-repo-doc-layout.md) | Intent; #3426 | Inject guidance; use the target's doc layout. |
 | [Sibling-repo prerequisite coverage](./seeds/intent-split-covers-sibling-repo-surfaces.md) | Intent; #3439 | Split-internal prerequisite coverage check. |
 | [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Re-scoped 2026-10-02 to cleanup pruning on plan-spec landing (consume-from-source plan rejected, #4448). |
 | [Review-feedback matches linked lanes](./seeds/review-feedback-matches-linked-implement-lanes.md) | Intent | `review-feedback --branch` refused a linked implement lane (PR on review row only); #4440 hand-fixed. |
@@ -62,6 +60,7 @@ Added by the owner in #4419; not part of this reliability target. Do not dispatc
 
 ## Review caveats and follow-ups
 
+- Iteration-head guard (#4479) checks only settled iterations; timeout/abort/gate-budget-refused outcomes still checkpoint a rewritten lane.
 - Lineage guard (#4416) does not fetch `pull/<n>/head`; a foreign closed PR whose head is not in the local object store stays blocked (safe, narrower than intended). No test for non-1 `merge-base` exit.
 - Lane-PR settlement (#4375): closed-PR state is inferred from `prNumber` without `prUrl`; a closed lane still reaches terminal publication and fails "missing PR evidence" rather than "PR closed".
 - Suite cap (#4407) does not apply to codex (shell calls not observable); documented in the runbook.

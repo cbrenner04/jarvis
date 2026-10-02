@@ -717,6 +717,128 @@ async function testDirectlyImportsProductionModule(
   return false;
 }
 
+async function productionFileReachableFromModule(
+  worktreePath: string,
+  startFile: string,
+  targetProductionPath: string,
+  readFile: ReadFile,
+): Promise<boolean> {
+  const pending = [startFile];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (!file || visited.has(file)) continue;
+    visited.add(file);
+    let source: string;
+    try {
+      source = await readFile(`${worktreePath}/${file}`);
+    } catch {
+      continue;
+    }
+    for (const modulePath of importedModulePaths(source)) {
+      for (const importedFile of resolveImportedModule(worktreePath, file, modulePath)) {
+        if (importedFile.length === 0) continue;
+        if (importedFile === targetProductionPath) return true;
+        if (!visited.has(importedFile)) pending.push(importedFile);
+      }
+    }
+  }
+  return false;
+}
+
+/** Transitive static relative-import closure from any killing test path to a production file. */
+export async function killingSetImportsProductionFile(
+  worktreePath: string,
+  killingTestPaths: readonly string[],
+  targetProductionPath: string,
+  readFile: ReadFile,
+): Promise<boolean> {
+  for (const testPath of killingTestPaths) {
+    if (await productionFileReachableFromModule(worktreePath, testPath, targetProductionPath, readFile)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+type CrossFileMutantGate = {
+  runWithAdmission<T>(
+    candidateFile: string,
+    killingTests: readonly string[],
+    worktreePath: string,
+    readFile: ReadFile,
+    run: () => Promise<T>,
+  ): Promise<T>;
+};
+
+function createCrossFileMutantGate(): CrossFileMutantGate {
+  const inFlight = new Map<string, readonly string[]>();
+  let registerLock: Promise<void> = Promise.resolve();
+  const releaseWaiters: Array<() => void> = [];
+
+  function wakeWaiters(): void {
+    const waiters = releaseWaiters.splice(0);
+    for (const wake of waiters) wake();
+  }
+
+  async function symmetricConflict(
+    candidateFile: string,
+    killingTests: readonly string[],
+    worktreePath: string,
+    readFile: ReadFile,
+  ): Promise<boolean> {
+    for (const [inFlightFile, inFlightKillingTests] of inFlight) {
+      if (await killingSetImportsProductionFile(worktreePath, killingTests, inFlightFile, readFile)) {
+        return true;
+      }
+      if (await killingSetImportsProductionFile(worktreePath, inFlightKillingTests, candidateFile, readFile)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function acquireAdmission(
+    candidateFile: string,
+    killingTests: readonly string[],
+    worktreePath: string,
+    readFile: ReadFile,
+  ): Promise<void> {
+    while (true) {
+      const previous = registerLock;
+      let releaseRegister!: () => void;
+      registerLock = new Promise<void>((resolve) => {
+        releaseRegister = resolve;
+      });
+      await previous;
+      try {
+        if (!(await symmetricConflict(candidateFile, killingTests, worktreePath, readFile))) {
+          inFlight.set(candidateFile, killingTests);
+          releaseRegister();
+          return;
+        }
+      } finally {
+        releaseRegister();
+      }
+      await new Promise<void>((resolve) => {
+        releaseWaiters.push(resolve);
+      });
+    }
+  }
+
+  return {
+    async runWithAdmission(candidateFile, killingTests, worktreePath, readFile, run) {
+      await acquireAdmission(candidateFile, killingTests, worktreePath, readFile);
+      try {
+        return await run();
+      } finally {
+        inFlight.delete(candidateFile);
+        wakeWaiters();
+      }
+    },
+  };
+}
+
 type KillingTestResolution = {
   killingTests: string[];
   capExceeded: boolean;
@@ -1939,6 +2061,7 @@ async function verifyCandidates(
   const skippedCandidates: SkippedCandidate[] = [];
   const fileCache = new Map<string, string>();
   const fileChains = new Map<string, Promise<void>>();
+  const crossFileMutantGate = createCrossFileMutantGate();
   const baselineFor = createBaselineMeasurer(input, runScopedTests, now, deadline);
 
   async function getFileContent(file: string): Promise<string | null> {
@@ -1999,17 +2122,24 @@ async function verifyCandidates(
           if (mutationFailure === null) mutationFailure = missingKillingTest(candidate);
           return;
         }
-        const result = await testCandidate(
-          candidate,
-          content,
-          input,
-          writeFile,
-          runScopedTests,
+        const result = await crossFileMutantGate.runWithAdmission(
+          candidate.file,
           resolution.killingTests,
-          mutationRecordStore,
-          baselineFor,
-          now,
-          deadline,
+          input.worktreePath,
+          readFile,
+          () =>
+            testCandidate(
+              candidate,
+              content,
+              input,
+              writeFile,
+              runScopedTests,
+              resolution.killingTests,
+              mutationRecordStore,
+              baselineFor,
+              now,
+              deadline,
+            ),
         );
         if (result !== null) {
           if ("kind" in result) {

@@ -118,6 +118,24 @@ describe("gate-invocation-lease", () => {
     expect(liveGateInvocationLeaseCount()).toBe(0);
   });
 
+  test("awaitGateInvocationLease removes its abort listener when the wait settles after a signal was registered", async () => {
+    const holder = acquireGateInvocationLease();
+    expect(holder).toBeDefined();
+    const abort = new AbortController();
+    const removeListenerSpy = spyOn(abort.signal, "removeEventListener");
+    try {
+      const granted = awaitGateInvocationLease({ signal: abort.signal });
+      holder?.release();
+      const lease = await granted;
+      expect(removeListenerSpy.mock.calls.length).toBe(1);
+      lease.release();
+    } finally {
+      removeListenerSpy.mockRestore();
+      holder?.release();
+      expect(liveGateInvocationLeaseCount()).toBe(0);
+    }
+  });
+
   test("awaitGateInvocationLease clears its timeout when granted before expiry", async () => {
     const holder = acquireGateInvocationLease();
     expect(holder).toBeDefined();

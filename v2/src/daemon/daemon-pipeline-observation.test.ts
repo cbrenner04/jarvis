@@ -1369,7 +1369,7 @@ test("pipeline_list exposes per-lane artifact.terminalPublication on settled two
   const betaWire = snapshot.stages.find((row) => row.stageId === "implement" && row.branchKey === "beta");
   if (!alphaWire || !betaWire) throw new Error("expected implement wire rows");
 
-  // Mutation checkpoint: skipping fan-out suffix terminal workflow artifact projection must turn this test RED.
+  // Regression pin: projectPipelineSnapshot passes stage artifacts through, so lane stamps written by #4413 surface unchanged.
   expect((alphaWire.artifact as { terminalPublication?: unknown }).terminalPublication).toEqual(
     (alphaDurable.artifact as { terminalPublication?: unknown }).terminalPublication,
   );

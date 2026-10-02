@@ -14,14 +14,14 @@ Durable per-lane `artifact.terminalPublication` stamps exist on fan-out suffix w
 
 ## Tasks
 
-- [x] Adjust `v2/src/daemon/pipeline-observation.ts` stage artifact projection so fan-out lane terminal stamps on durable implement (final workflow) rows appear on `pipeline_list` wire `stages[].artifact.terminalPublication` without altering single-lane artifact shapes.
+- [x] No production change: `projectPipelineSnapshot` already passes stage artifacts through, so lane stamps from #4413 surface on `pipeline_list` (verified in review); this subspec pins that behavior.
 - [x] Add `v2/src/daemon/daemon-pipeline-observation.test.ts` coverage: two-lane fan-out fixture with per-lane `commitTerminalPublicationSuccess` / failure stamps on final workflow stage artifacts, assert `handlers().pipeline_list` exposes each lane implement row's `artifact.terminalPublication`; reuse `admitFanOutObservationPipeline` / `FAN_OUT_OBS_*` patterns where they fit.
 - [x] Add checked-in fixture under `v2/src/daemon/fixtures/` (or adjacent test fixture path matching repo convention) plus a test that `JSON.stringify` of one representative single-lane `pipeline_list` pipeline snapshot matches the fixture bytes exactly.
 - [x] Update documentation listed under Documentation updates.
 
 ## Acceptance criteria
 
-- [x] `daemon-pipeline-observation.test.ts` — new test `pipeline_list exposes per-lane artifact.terminalPublication on settled two-lane fan-out implement rows`: after durable per-lane terminal publication stamps on both lanes' final workflow stage artifacts, `pipeline_list` returns each lane's implement row with matching `artifact.terminalPublication`; fails against pre-fix projection that omits the nested field on fan-out suffix rows.
+- [x] `daemon-pipeline-observation.test.ts` — new test `pipeline_list exposes per-lane artifact.terminalPublication on settled two-lane fan-out implement rows`: after durable per-lane terminal publication stamps on both lanes' final workflow stage artifacts, `pipeline_list` returns each lane's implement row with matching `artifact.terminalPublication`; regression pin (passes on main, which already projects the stamps).
 - [x] Same test file — new test `pipeline_list single-lane snapshot matches main byte fixture`: representative single-lane admitted pipeline `pipeline_list` entry matches the checked-in fixture bytes; fails if fan-out projection work alters default-lane artifact keys, stage order, or pipeline-level terminal fields on that fixture.
 - [x] `daemon-pipeline-observation.test.ts` — `projectPipelineSnapshot projects stored terminal and admission diagnostics with JSON omission semantics` stays green.
 - [x] `daemon-pipeline-handlers.test.ts` — `pipeline_list projects admitted pipelines with derived state` stays green.

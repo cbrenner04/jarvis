@@ -1,6 +1,7 @@
 import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
+import { harnessGateSlotWaitListMessage } from "../execution/gate-invocation-lease.ts";
 import {
   type BindingAttemptSummary,
   type InvocationFailureDetail,
@@ -15,7 +16,6 @@ import {
   survivingMutationLogFields,
 } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
-import { harnessGateSlotWaitListMessage } from "../execution/gate-invocation-lease.ts";
 import {
   type ContractMissDetailEvent,
   type LoopFinishedEvent,

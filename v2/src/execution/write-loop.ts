@@ -3577,6 +3577,7 @@ async function runReadyRepairIteration(
   result: WriteLoopResult,
   gateError: ReadyGateError,
   iterationNumber: number,
+  frozenRepairAllowset: Set<string>,
 ): Promise<RepairIterationOutcome> {
   const attemptId = store.recordAttemptStart(result.runId);
   args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
@@ -3597,6 +3598,7 @@ async function runReadyRepairIteration(
       GATE_STEP: failedStep.step,
       GATE_EXIT_CODE: String(gateError.exitCode ?? "unknown"),
       GATE_OUTPUT: failedStep.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
+      ALLOWED_PATHS: [...resolveAttributableRepairAllowset(frozenRepairAllowset, gateError)].sort().join("\n"),
     },
   };
   const settled = await awaitIteration(repairArgs, store, result.runId, attemptId, sessionLog, "finalization-repair");
@@ -4371,6 +4373,7 @@ async function runReadyGateRepairLoop(
       result,
       currentOutcome.error,
       currentIterations + 1,
+      frozenRepairAllowset,
     );
     if (repairOutcome === "unsettled") {
       return { kind: "early", result: { failure: currentOutcome, iterationsConsumed: currentIterations } };

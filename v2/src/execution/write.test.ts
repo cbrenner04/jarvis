@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -574,10 +575,40 @@ describe("write behavior", () => {
     expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
   });
 
+  // Mutation checkpoint: sentinel body-line mutation on `write.ready-repair` must turn this RED.
+  test("write.ready-repair renders gate failure details and the attributable allowlist", () => {
+    const rendered = renderPromptForStep({
+      stepPromptId: "write.ready-repair",
+      placeholders: {
+        SPEC_PATH: "spec/example/00-sub.md",
+        STEP_RULES: DEFAULT_WRITE_STEP_RULES,
+        GATE_COMMAND: "bun test",
+        GATE_STEP: "bun run check",
+        GATE_EXIT_CODE: "1",
+        GATE_OUTPUT: "failure",
+        ALLOWED_PATHS: "spec.md\nproof.txt",
+      },
+    });
+
+    expect(rendered).toContain("Read the spec at spec/example/00-sub.md.");
+    expect(rendered).toContain("Failing step: bun run check");
+    expect(rendered).toContain("## Allowed paths");
+    expect(rendered).toContain("spec.md");
+    expect(rendered).toContain("proof.txt");
+    expect(rendered).toContain("Edits outside these paths are reverted and end the run.");
+    expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+  });
+
   test.each([
     [
       "write.ready-repair",
-      { GATE_COMMAND: "bun test", GATE_STEP: "bun run check", GATE_EXIT_CODE: "1", GATE_OUTPUT: "failure" },
+      {
+        GATE_COMMAND: "bun test",
+        GATE_STEP: "bun run check",
+        GATE_EXIT_CODE: "1",
+        GATE_OUTPUT: "failure",
+        ALLOWED_PATHS: "spec.md\nproof.txt",
+      },
       DEFAULT_WRITE_STEP_RULES,
     ],
     [
@@ -607,6 +638,10 @@ describe("write behavior", () => {
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
     if (promptId === "write.ready-repair") {
       expect(capturedPrompt).toContain("Failing step: bun run check");
+      expect(capturedPrompt).toContain("## Allowed paths");
+      expect(capturedPrompt).toContain("spec.md");
+      expect(capturedPrompt).toContain("proof.txt");
+      expect(capturedPrompt).toContain("Edits outside these paths are reverted and end the run.");
     }
     if (promptId === "write.mutation-repair") {
       expect(capturedPrompt).toContain("importer discovery only when that union is empty");

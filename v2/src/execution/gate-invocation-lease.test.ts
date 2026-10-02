@@ -3,8 +3,11 @@ import {
   acquireGateInvocationLease,
   awaitGateInvocationLease,
   gateInvocationAdmits,
+  harnessGateSlotWaitListMessage,
+  leasedHarnessFullSuiteGateSpawnCount,
   liveGateInvocationLeaseCount,
   MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
+  runHarnessFullSuiteGateWithSlot,
   subscribeGateInvocationLeaseReleased,
 } from "./gate-invocation-lease.ts";
 
@@ -189,6 +192,63 @@ describe("gate-invocation-lease", () => {
       holder?.release();
       expect(liveGateInvocationLeaseCount()).toBe(0);
     }
+  });
+
+  test("runHarnessFullSuiteGateWithSlot runs immediately when the slot is free", async () => {
+    let ran = false;
+    const onSlotWaitCalls: Array<{ gate: string; waitedMs: number }> = [];
+    await runHarnessFullSuiteGateWithSlot(
+      {
+        gate: "ready",
+        slotWaitTimeoutMs: 5_000,
+        runId: "free-slot-run",
+        onSlotWait: (fields) => {
+          onSlotWaitCalls.push(fields);
+        },
+      },
+      async () => {
+        ran = true;
+        expect(harnessGateSlotWaitListMessage("free-slot-run")).toBeUndefined();
+        expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(1);
+      },
+    );
+    expect(ran).toBe(true);
+    expect(onSlotWaitCalls).toEqual([]);
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+    expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
+  });
+
+  test("runHarnessFullSuiteGateWithSlot waits for the slot, surfaces list wait, then runs", async () => {
+    const holder = acquireGateInvocationLease();
+    expect(holder).toBeDefined();
+    let finishRun: (() => void) | undefined;
+    const runBody = new Promise<void>((resolve) => {
+      finishRun = resolve;
+    });
+    let onSlotWaitFields: { gate: string; waitedMs: number } | undefined;
+    const harnessGate = runHarnessFullSuiteGateWithSlot(
+      {
+        gate: "integration",
+        slotWaitTimeoutMs: 5_000,
+        runId: "held-slot-run",
+        onSlotWait: (fields) => {
+          onSlotWaitFields = fields;
+        },
+      },
+      async () => {
+        await runBody;
+      },
+    );
+    await flushMicrotasks();
+    expect(harnessGateSlotWaitListMessage("held-slot-run")).toBe("waiting for gate slot");
+    holder?.release();
+    await flushMicrotasks();
+    finishRun?.();
+    await harnessGate;
+    expect(onSlotWaitFields).toEqual({ gate: "integration", waitedMs: expect.any(Number) });
+    expect(harnessGateSlotWaitListMessage("held-slot-run")).toBeUndefined();
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+    expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
   });
 
   test("a release notifies subscribers once, asynchronously, after the lease is deleted", async () => {

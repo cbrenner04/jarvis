@@ -22,21 +22,21 @@ Successful cleanup apply commits in-repo archives locally then prints manual pus
 
 ## Task checklist
 
-- [ ] Replace successful-path `reportArchiveSessions` manual instructions with apply-end `publishArchiveReady` per publication target (depends on subspec 00 targets).
-- [ ] Wire dry-run preview lines for archive push/PR without network.
-- [ ] Map push and PR failures to non-zero exit with failing step plus `reportArchiveSessions`-shaped manual fallback text.
-- [ ] Update `cleanup.test.ts` success-path archive stdout from the manual `reportArchiveSessions` line to the published PR URL.
-- [ ] Add apply-level tests in `cleanup-archive-publication.test.ts` and `cleanup.test.ts` per acceptance criteria.
+- [x] Replace successful-path `reportArchiveSessions` manual instructions with apply-end `publishArchiveReady` per publication target (depends on subspec 00 targets).
+- [x] Wire dry-run preview lines for archive push/PR without network.
+- [x] Map push and PR failures to non-zero exit with failing step plus `reportArchiveSessions`-shaped manual fallback text.
+- [x] Update `cleanup.test.ts` success-path archive stdout from the manual `reportArchiveSessions` line to the published PR URL.
+- [x] Add apply-level tests in `cleanup-archive-publication.test.ts` and `cleanup.test.ts` per acceptance criteria.
 
 ## Acceptance criteria
 
-- [ ] `cleanup-archive-publication.test.ts`: an apply that produced new archive commits on the session branch pushes the branch and calls `gh pr create` once with the default base and title `Archive completed specs for <project>`; stdout names the PR URL; fails against current code (`reportArchiveSessions` manual line only, no push/PR).
-- [ ] The same file: a pre-existing local `cleanup/archive-*` branch carrying a staged archive (no new archive commit this run) is pushed and gets `gh pr create` once on apply end; stdout names the PR URL; fails against current "already staged" skip-only behavior without apply-end publication.
-- [ ] The same file: an existing open PR for the branch is reused (no second `gh pr create`) and stdout names that PR URL; fails against current code as above.
-- [ ] The same file: push failure leaves local archive commits intact, prints the failing step plus an `Archive branch for <project>: … — push it and open one archive PR.` line matching the `cleanup.test.ts` ~1546–1548 pattern, and exits non-zero; fails against current code that never attempts push.
-- [ ] The same file: PR open/create failure after a successful push leaves local commits and the remote branch, prints the failing step plus the same manual fallback line shape as above, and exits non-zero; fails against current code as above.
-- [ ] `cleanup.test.ts`: `--dry-run` prints `push: <branch>` and `open PR: Archive completed specs for <project>` and performs no `git push` or `gh` invocation; fails against current dry-run output that omits archive publication preview.
-- [ ] `cleanup.test.ts`: successful in-repo archive apply stdout names the archive PR URL and does not match the `reportArchiveSessions` manual line (`Archive branch for … — push it and open one archive PR.`); fails against current code at ~1546–1548.
+- [x] `cleanup-archive-publication.test.ts`: an apply that produced new archive commits on the session branch pushes the branch and calls `gh pr create` once with the default base and title `Archive completed specs for <project>`; stdout names the PR URL; fails against current code (`reportArchiveSessions` manual line only, no push/PR).
+- [x] The same file: a pre-existing local `cleanup/archive-*` branch carrying a staged archive (no new archive commit this run) is pushed and gets `gh pr create` once on apply end; stdout names the PR URL; fails against current "already staged" skip-only behavior without apply-end publication.
+- [x] The same file: an existing open PR for the branch is reused (no second `gh pr create`) and stdout names that PR URL; fails against current code as above.
+- [x] The same file: push failure leaves local archive commits intact, prints the failing step plus an `Archive branch for <project>: … — push it and open one archive PR.` line matching the `cleanup.test.ts` ~1546–1548 pattern, and exits non-zero; fails against current code that never attempts push.
+- [x] The same file: PR open/create failure after a successful push leaves local commits and the remote branch, prints the failing step plus the same manual fallback line shape as above, and exits non-zero; fails against current code as above.
+- [x] `cleanup.test.ts`: `--dry-run` prints `push: <branch>` and `open PR: Archive completed specs for <project>` and performs no `git push` or `gh` invocation; fails against current dry-run output that omits archive publication preview.
+- [x] `cleanup.test.ts`: successful in-repo archive apply stdout names the archive PR URL and does not match the `reportArchiveSessions` manual line (`Archive branch for … — push it and open one archive PR.`); fails against current code at ~1546–1548.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

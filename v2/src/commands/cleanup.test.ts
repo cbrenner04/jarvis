@@ -132,13 +132,45 @@ function connectWithDeadSocket(
 
 /** A cleanup archive branch never has a PR in these fixtures: `gh` reports it open / unlisted, as production would before the operator pushes it. */
 function isCleanupArchiveBranchProbe(cmd: string, args: readonly string[]): boolean {
-  if (cmd !== "gh" || args[0] !== "pr") return false;
-  const branch = args[1] === "view" ? args[2] : args.includes("--head") ? args[args.indexOf("--head") + 1] : undefined;
+  if (cmd !== "gh" || args[0] !== "pr" || args[1] !== "view") return false;
+  const branch = args[2];
   return typeof branch === "string" && branch.startsWith("cleanup/archive-");
 }
 
 function cleanupArchiveBranchProbeResponse(args: readonly string[]): string {
-  return args[1] === "view" ? JSON.stringify({ state: "OPEN", mergedAt: null }) : "[]";
+  if (args[1] === "view") {
+    const jsonIndex = args.indexOf("--json");
+    if (jsonIndex >= 0) {
+      return JSON.stringify({
+        number: 42,
+        url: "https://github.com/example/test/pull/42",
+        baseRefName: "main",
+      });
+    }
+    return JSON.stringify({ state: "OPEN", mergedAt: null });
+  }
+  return "[]";
+}
+
+function mergeArchivePublicationRunner(base: AsyncSubprocessRunner, projectRoot: string): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "git" && args[0] === "push") return "";
+      if (cmd === "git" && args[0] === "ls-remote") return "";
+      if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/example/test/pull/42";
+      }
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
+        return JSON.stringify({
+          number: 42,
+          url: "https://github.com/example/test/pull/42",
+          baseRefName: "main",
+        });
+      }
+      return base.runAsync(cmd, args, cwd ?? projectRoot);
+    },
+  };
 }
 
 /** Archive publication moves committed specs on a cleanup branch, so fixtures must be committed first. */
@@ -204,34 +236,38 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   }
 
   function ghRunnerForPr(state: "MERGED" | "OPEN"): AsyncSubprocessRunner {
-    return {
-      runAsync: async (cmd, args, cwd) => {
-        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
-          return JSON.stringify(
-            state === "MERGED"
-              ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
-              : { state: "OPEN", mergedAt: null },
-          );
-        if (cmd === "gh" && args[1] === "list") {
-          if (state !== "MERGED" || (args.includes("--state") && args[args.indexOf("--state") + 1] === "open")) {
-            return "[]";
+    return mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
+            return JSON.stringify(
+              state === "MERGED"
+                ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
+                : { state: "OPEN", mergedAt: null },
+            );
+          if (cmd === "gh" && args[1] === "list") {
+            if (state !== "MERGED" || (args.includes("--state") && args[args.indexOf("--state") + 1] === "open")) {
+              return "[]";
+            }
+            const headIndex = args.indexOf("--head");
+            const branch = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            if (branch === undefined) return "[]";
+            try {
+              const oid = (
+                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+              ).trim();
+              return JSON.stringify([
+                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+              ]);
+            } catch {
+              return "[]";
+            }
           }
-          const headIndex = args.indexOf("--head");
-          const branch = headIndex >= 0 ? args[headIndex + 1] : undefined;
-          if (branch === undefined) return "[]";
-          try {
-            const oid = (
-              await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
-            ).trim();
-            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
-          } catch {
-            return "[]";
-          }
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
       },
-    };
+      projectRoot,
+    );
   }
 
   function storeForStrandedSpec(specName: string, branch: string): StateStore {
@@ -421,35 +457,37 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const store: StateStore = { findRunByProjectBranch: () => null, listRuns: () => [run] } as unknown as StateStore;
     const order: string[] = [];
     let retired = false;
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args, cwd) => {
-        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
-        if (cmd === "gh" && args[1] === "view")
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        if (cmd === "gh" && args[1] === "list") {
-          if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
-            const headIndex = args.indexOf("--head");
-            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
-            if (branchName === branch) {
-              const oid = (
-                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
-              ).trim();
-              return JSON.stringify([
-                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
-              ]);
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[1] === "view")
+            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          if (cmd === "gh" && args[1] === "list") {
+            if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+              const headIndex = args.indexOf("--head");
+              const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+              if (branchName === branch) {
+                const oid = (
+                  await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+                ).trim();
+                return JSON.stringify([
+                  { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+                ]);
+              }
+              return "[]";
             }
+            order.push(retired ? "post-retire pr list" : "pre-retire pr list");
             return "[]";
           }
-          order.push(retired ? "post-retire pr list" : "pre-retire pr list");
-          return "[]";
-        }
-        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
-          order.push("retire");
-          retired = true;
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+            order.push("retire");
+            retired = true;
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
       },
-    };
+      projectRoot,
+    );
     let stdout = "";
     const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
 
@@ -492,33 +530,35 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     prState: "CLOSED" | "absent" | "OPEN" | "probe-failure",
     laneKind: "plan" | "implement",
   ): AsyncSubprocessRunner {
-    return {
-      runAsync: async (cmd, args, cwd) => {
-        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          if (prState === "CLOSED") return JSON.stringify({ state: "CLOSED", mergedAt: null });
-          if (prState === "OPEN") return JSON.stringify({ state: "OPEN", mergedAt: null });
-          throw new AsyncSubprocessError("not found", 1, "", "", undefined);
-        }
-        if (cmd === "gh" && args[1] === "list") {
-          const stateIndex = args.indexOf("--state");
-          const stateArg = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
-          if (stateArg === "open") return "[]";
-          if (stateArg === "all") {
-            if (prState === "probe-failure") throw GH_PR_LIST_PROBE_ERROR;
-            const headIndex = args.indexOf("--head");
-            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
-            if (branchName === undefined) return "[]";
-            const planLane = branchName.startsWith("plan/");
-            if (laneKind === "plan" ? !planLane : planLane) return "[]";
-            if (prState === "CLOSED") return JSON.stringify([{ state: "CLOSED" }]);
-            if (prState === "OPEN") return JSON.stringify([{ state: "OPEN" }]);
-            return "[]";
+    return mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+            if (prState === "CLOSED") return JSON.stringify({ state: "CLOSED", mergedAt: null });
+            if (prState === "OPEN") return JSON.stringify({ state: "OPEN", mergedAt: null });
+            throw new AsyncSubprocessError("not found", 1, "", "", undefined);
           }
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+          if (cmd === "gh" && args[1] === "list") {
+            const stateIndex = args.indexOf("--state");
+            const stateArg = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
+            if (stateArg === "open") return "[]";
+            if (stateArg === "all") {
+              if (prState === "probe-failure") throw GH_PR_LIST_PROBE_ERROR;
+              const headIndex = args.indexOf("--head");
+              const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+              if (branchName === undefined) return "[]";
+              const planLane = branchName.startsWith("plan/");
+              if (laneKind === "plan" ? !planLane : planLane) return "[]";
+              if (prState === "CLOSED") return JSON.stringify([{ state: "CLOSED" }]);
+              if (prState === "OPEN") return JSON.stringify([{ state: "OPEN" }]);
+              return "[]";
+            }
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
       },
-    };
+      projectRoot,
+    );
   }
 
   async function setupSubsumedPlanLane(
@@ -1182,30 +1222,32 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
           },
         ] as never[],
     } as unknown as StateStore;
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args, cwd) => {
-        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
-        if (cmd === "gh" && args[1] === "view")
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        if (cmd === "gh" && args[1] === "list") {
-          if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
-            const headIndex = args.indexOf("--head");
-            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
-            if (branchName === branch) {
-              const oid = (
-                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
-              ).trim();
-              return JSON.stringify([
-                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
-              ]);
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[1] === "view")
+            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          if (cmd === "gh" && args[1] === "list") {
+            if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+              const headIndex = args.indexOf("--head");
+              const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+              if (branchName === branch) {
+                const oid = (
+                  await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+                ).trim();
+                return JSON.stringify([
+                  { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+                ]);
+              }
+              return "[]";
             }
             return "[]";
           }
-          return "[]";
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
       },
-    };
+      projectRoot,
+    );
     let stdout = "";
 
     await commitFixtures(projectRoot);
@@ -1352,6 +1394,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     ).toBe(0);
     expect(stdout).toContain(`archive: ${source} -> ${join(projectRoot, "v2", "spec", "completed", specName)}`);
     expect(stdout).toContain("prune consumed ready-intent");
+    expect(stdout).toMatch(/push: cleanup\/archive-\d{8}T\d{6}Z/);
+    expect(stdout).toContain("open PR: Archive completed specs for project");
     expect(existsSync(worktreePath)).toBe(true);
     expect(existsSync(source)).toBe(true);
     expect(existsSync(readyIntent)).toBe(true);
@@ -1382,13 +1426,16 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     mkdirSync(join(home, "completed", "ignored"), { recursive: true });
     mkdirSync(join(home, "seeds", "ignored"), { recursive: true });
     mkdirSync(join(home, "ready-intents", "ignored"), { recursive: true });
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[1] === "view") return JSON.stringify({ state: "CLOSED", mergedAt: null });
-        if (cmd === "gh" && args[1] === "list") return args[3] === open ? '[{"number":1}]' : "[]";
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[1] === "view") return JSON.stringify({ state: "CLOSED", mergedAt: null });
+          if (cmd === "gh" && args[1] === "list") return args[3] === open ? '[{"number":1}]' : "[]";
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
       },
-    };
+      projectRoot,
+    );
     const store: StateStore = {
       listRuns: () =>
         [complete, incomplete, open, owned].map((name) => ({
@@ -1543,7 +1590,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(tree).not.toContain(`v2/spec/${specName}/index.md`);
     expect(tree).not.toContain(`v2/spec/ready-intents/${specName}.md`);
     expect(stdout).toMatch(/committed on cleanup\/archive-\d{8}T\d{6}Z; the operator checkout is unchanged/);
-    expect(stdout).toMatch(
+    expect(stdout).toContain("https://github.com/example/test/pull/42");
+    expect(stdout).not.toMatch(
       /Archive branch for project: cleanup\/archive-\d{8}T\d{6}Z \(1 commit\(s\)\) at .* — push it and open one archive PR\./,
     );
     expect(existsSync(join(jarvisRoot, "worktrees", "project", "cleanup"))).toBe(true);

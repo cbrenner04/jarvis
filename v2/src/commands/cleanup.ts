@@ -20,6 +20,7 @@ import {
   isGitRepoAsync,
   originTrackingRefResolvesAsync,
 } from "../../../shared/git.ts";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
@@ -45,6 +46,7 @@ import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
 } from "../execution/implement-workflow-steps.ts";
+import { publishArchiveReady } from "../execution/completion-publisher.ts";
 import { parseTerminalSupersedeSettlementSuccessorPrNumber } from "../execution/terminal-supersede-settlement.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
@@ -1477,12 +1479,151 @@ async function archiveArtifactSpec(
   return sessions.for(project, projectRoot).publish(spec);
 }
 
-function reportArchiveSessions(sessions: ArchivePublicationSessions, io: { stdout: (s: string) => void }): void {
+function cleanupArchiveBranchStamp(now = new Date()): string {
+  return now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z");
+}
+
+function archivePublicationTitle(project: string): string {
+  return `Archive completed specs for ${project}`;
+}
+
+function reportArchivePublicationManualFallback(
+  target: ArchivePublicationTargetEntry,
+  commitCount: number,
+  io: { stdout: (s: string) => void },
+): void {
+  io.stdout(
+    `Archive branch for ${target.project}: ${target.branch} (${commitCount} commit(s)) at ${target.worktreePath} — push it and open one archive PR.\n`,
+  );
+}
+
+async function archivePublicationCommitCount(
+  target: ArchivePublicationTargetEntry,
+  sessions: ArchivePublicationSessions,
+  runner: AsyncSubprocessRunner,
+): Promise<number> {
   for (const [project, session] of sessions.all()) {
-    if (session.commits() === 0) continue;
-    io.stdout(
-      `Archive branch for ${project}: ${session.branch} (${session.commits()} commit(s)) at ${session.worktreePath} — push it and open one archive PR.\n`,
-    );
+    if (project === target.project && session.branch === target.branch && session.commits() > 0) {
+      return session.commits();
+    }
+  }
+  const baseRef = await getBaseBranch(target.projectRoot, runner);
+  try {
+    const count = (
+      await runner.runAsync("git", ["rev-list", "--count", `${baseRef}..${target.branch}`], target.projectRoot)
+    ).trim();
+    const parsed = Number.parseInt(count, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  } catch {
+    return 1;
+  }
+}
+
+type ArchivePublicationStepFailure = { step: "push" | "pr"; error: unknown };
+
+async function applyEndArchivePublication(
+  sessions: ArchivePublicationSessions,
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<number> {
+  const targets = sessions.publicationTargets();
+  if (targets.length === 0) return 0;
+  let exit = 0;
+  for (const target of targets) {
+    const baseRef = await getBaseBranch(target.projectRoot, runner);
+    const title = archivePublicationTitle(target.project);
+    const body = `Branch ${target.branch} at ${target.worktreePath}.`;
+    let pastPush = false;
+    const git = async (cwd: string, args: readonly string[]) => {
+      try {
+        const out = await runner.runAsync("git", [...args], cwd);
+        if (args[0] === "push") pastPush = true;
+        return out;
+      } catch (error) {
+        const failure: ArchivePublicationStepFailure = { step: pastPush ? "pr" : "push", error };
+        throw failure;
+      }
+    };
+    const gh = async (cwd: string, args: readonly string[]) => {
+      try {
+        return await runner.runAsync("gh", [...args], cwd);
+      } catch (error) {
+        const failure: ArchivePublicationStepFailure = { step: "pr", error };
+        throw failure;
+      }
+    };
+    try {
+      const result = await publishArchiveReady(
+        { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },
+        { git, gh },
+      );
+      io.stdout(`${result.prUrl}\n`);
+    } catch (failure: unknown) {
+      exit = 1;
+      const stepFailure = failure as Partial<ArchivePublicationStepFailure>;
+      const step = stepFailure.step === "push" || stepFailure.step === "pr" ? stepFailure.step : "push";
+      io.stderr(`Archive publication failed at ${step}: ${errorMessage(stepFailure.error ?? failure)}\n`);
+      const commitCount = await archivePublicationCommitCount(target, sessions, runner);
+      reportArchivePublicationManualFallback(target, commitCount, io);
+    }
+  }
+  return exit;
+}
+
+async function registerDryRunInRepoArchiveTarget(
+  spec: ArtifactSpec,
+  project: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+  jarvisRoot: string,
+  stamp: string,
+  targets: Map<string, ArchivePublicationTargetEntry>,
+): Promise<void> {
+  if (spec.queue !== undefined || isExternalPlanArtifact(spec)) return;
+  if (!existsSync(spec.source)) return;
+  const relDest = relative(projectRoot, join(spec.home, "completed", basename(spec.source))).replace(/\\/g, "/");
+  if (relDest.startsWith("..") || isAbsolute(relDest)) return;
+  const staged = await cleanupBranchCarryingArchive(runner, projectRoot, relDest);
+  const branch = staged ?? `cleanup/archive-${stamp}`;
+  targets.set(`${project}\0${branch}`, {
+    project,
+    projectRoot,
+    branch,
+    worktreePath: stagedArchiveWorktreePath(jarvisRoot, project, branch),
+  });
+}
+
+async function previewArchivePublicationTargets(
+  ctx: CleanupDiscoveryContext,
+  registry: Record<string, ProjectRegistryEntry>,
+  store: StateStore,
+  runner: AsyncSubprocessRunner,
+  jarvisRoot: string,
+  clock: () => Date,
+  io: { stdout: (s: string) => void },
+): Promise<void> {
+  const stamp = cleanupArchiveBranchStamp(clock());
+  const targets = new Map<string, ArchivePublicationTargetEntry>();
+  for (const candidate of ctx.candidates) {
+    if (candidate.skipSpecArchival === true) continue;
+    const projectRoot = registry[candidate.project]?.root;
+    if (projectRoot === undefined) continue;
+    const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
+    if (spec !== undefined) {
+      await registerDryRunInRepoArchiveTarget(spec, candidate.project, projectRoot, runner, jarvisRoot, stamp, targets);
+    }
+  }
+  for (const spec of ctx.stranded) {
+    const projectRoot = registry[spec.project]?.root;
+    if (projectRoot === undefined) continue;
+    await registerDryRunInRepoArchiveTarget(spec, spec.project, projectRoot, runner, jarvisRoot, stamp, targets);
+  }
+  for (const target of targets.values()) {
+    io.stdout(`push: ${target.branch}\n`);
+    io.stdout(`open PR: ${archivePublicationTitle(target.project)}\n`);
   }
 }
 
@@ -2557,6 +2698,8 @@ async function previewAllCleanupTargets(
   registry: Record<string, ProjectRegistryEntry>,
   store: StateStore,
   runner: AsyncSubprocessRunner,
+  jarvisRoot: string,
+  clock: () => Date,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<void> {
   previewWorktreeCandidates(ctx.candidates, registry, store, io);
@@ -2586,6 +2729,7 @@ async function previewAllCleanupTargets(
   if (ctx.sessionLogPlan !== null) {
     printSessionLogSummary("Found", ctx.sessionLogPlan, io);
   }
+  await previewArchivePublicationTargets(ctx, registry, store, runner, jarvisRoot, clock, io);
 }
 
 async function executeConfirmedCleanup(
@@ -2687,11 +2831,19 @@ async function executeConfirmedCleanup(
     )
   ).filter((spec) => !skipArchivalSources.has(canonicalArtifactPath(spec.source)));
   await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, store, io, ctx.skips, sessions);
-  reportArchiveSessions(sessions, io);
+  const archivePublicationExit = await applyEndArchivePublication(sessions, runner, io);
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
     io.stdout("No worktrees remain eligible after re-check.\n");
   }
-  if (result !== 0 || branchRefExit !== 0 || sessionLogExit !== 0 || artifactRemoval !== 0) return 1;
+  if (
+    result !== 0 ||
+    branchRefExit !== 0 ||
+    sessionLogExit !== 0 ||
+    artifactRemoval !== 0 ||
+    archivePublicationExit !== 0
+  ) {
+    return 1;
+  }
   if (recheck.daemonUnreachable || ctx.discoveryExit !== 0) return 1;
   return daemonBlockedExit;
 }
@@ -2788,7 +2940,7 @@ async function runCleanupCommandWithSkipLedger(
     return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, ctx.daemonUnreachableExit);
   }
 
-  await previewAllCleanupTargets(ctx, registry, store, runner, io);
+  await previewAllCleanupTargets(ctx, registry, store, runner, jarvisRoot, options.clock ?? (() => new Date()), io);
 
   const headOnlyDaemonUnreachableExit = (await hasHeadOnlyDaemonUnreachableSkip(
     ctx.branchRefDiscovery.candidates,

@@ -654,6 +654,9 @@ test("slotRedriveWaiting accepts only failed, undismissed slot-contention refusa
   expect(
     slotRedriveWaiting({ ...base, gateRefusalRecoveryState: { cause: "ceiling_headroom" } } as unknown as Run),
   ).toBe(false);
+  expect(
+    slotRedriveWaiting({ ...base, gateRefusalRecoveryState: { cause: "iteration_gate_budget" } } as unknown as Run),
+  ).toBe(false);
   expect(slotRedriveWaiting({ ...base, gateRefusalRecoveryState: null })).toBe(false);
   expect(slotRedriveWaiting({ ...base, dismissedAt: 5 })).toBe(false);
   expect(slotRedriveWaiting(null)).toBe(false);

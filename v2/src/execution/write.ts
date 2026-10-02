@@ -377,6 +377,7 @@ export type WriteExecuteInput = {
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
+  gateBudgetReprompt?: { refusedCommand: string };
   draftContractReprompt?: DraftContractRepromptContext;
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
   /** Admitted external plan implement: grant adapter read access to `specReadRoot` only. */
@@ -779,7 +780,17 @@ async function executeDefaultWrite(
   let prompt: string;
   try {
     const survivingReprompt = args.survivingMutationReprompt;
-    if (promptId === "implement.prompt.body" && survivingReprompt !== undefined) {
+    const gateBudgetReprompt = args.gateBudgetReprompt;
+    if (promptId === "implement.prompt.body" && gateBudgetReprompt !== undefined) {
+      prompt = renderPromptForStep({
+        stepPromptId: "write.gate-budget-reprompt",
+        placeholders: {
+          SPEC_PATH: expectedArtifactPath,
+          STEP_RULES: args.stepRules,
+          REFUSED_COMMAND: gateBudgetReprompt.refusedCommand,
+        },
+      });
+    } else if (promptId === "implement.prompt.body" && survivingReprompt !== undefined) {
       prompt = renderPromptForStep({
         stepPromptId: "write.surviving-mutation-reprompt",
         placeholders: {

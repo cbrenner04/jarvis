@@ -2,11 +2,13 @@
 id: implement.rules
 behavior: implement-rules
 kind: fragment
-revision: 14
+revision: 15
 ---
 # Implement
 
 Execute the active spec only.
+
+Gate budget: at most two scoped test-suite script invocations per iteration; a third is refused. While iterating, run single test files; save the scoped suite script for the final check.
 
 ## Scope
 - Modify only files named by spec.

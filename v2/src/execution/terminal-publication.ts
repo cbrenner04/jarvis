@@ -8,6 +8,7 @@ import {
   OpenPrNotDraftError,
   resolveOpenDraftPr,
 } from "./completion-publisher.ts";
+import { runHarnessFullSuiteGateWithSlot } from "./gate-invocation-lease.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
 import {
@@ -16,6 +17,8 @@ import {
   type GhReadyFlipByNumber,
   type ReadyGate,
   ReadyGateError,
+  readyGateSubprocessTimeoutMs,
+  resolveReadyGateCommand,
 } from "./ready-finalize.ts";
 import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
@@ -144,12 +147,22 @@ async function runReadyGateOrFail(
   prUrl: string,
   deps: PublicationDeps,
 ): Promise<void> {
+  const gateCommand = resolveReadyGateCommand(input.readyCommand).display;
   try {
-    await deps.runReadyGate(input.worktreePath, input.baseRef, {
-      signal: input.signal,
-      processGroups: input.verifierProcessGroups,
-      readyCommand: input.readyCommand,
-    });
+    await runHarnessFullSuiteGateWithSlot(
+      {
+        gate: gateCommand,
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+        slotWaitTimeoutMs: readyGateSubprocessTimeoutMs(),
+      },
+      async () => {
+        await deps.runReadyGate(input.worktreePath, input.baseRef, {
+          signal: input.signal,
+          processGroups: input.verifierProcessGroups,
+          readyCommand: input.readyCommand,
+        });
+      },
+    );
   } catch (error) {
     // Mutation checkpoint: dropping this branch ready-flips over a red gate and must turn
     // `does not ready-flip or merge after a red ready gate` RED.

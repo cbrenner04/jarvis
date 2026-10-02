@@ -1435,7 +1435,12 @@ index 1234567..abcdefg 100644
       );
       expect(result).toMatchObject({ kind: "non-terminating-mutation", sourceSite: { file: "src/hangs.ts", line: 2 } });
       expect(() =>
-        simulateScopedBunOutcome(tlaKillingTest, ["test", "--timeout", "25000", "src/hangs.test.ts"]),
+        simulateScopedBunOutcome(tlaKillingTest, [
+          "test",
+          "--timeout",
+          String(SCOPED_BUN_PER_TEST_TIMEOUT_MS),
+          "src/hangs.test.ts",
+        ]),
       ).toThrow(expect.objectContaining({ code: "ETIMEDOUT" }));
     });
 
@@ -1507,6 +1512,15 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
         kind: "non-terminating-mutation",
         sourceSite: { file: "src/hangs.ts", line: 2 },
       });
+    });
+
+    it("the subprocess floor exceeds the repo bunfig per-test timeout, which overrides CLI --timeout", () => {
+      const bunfig = readFileSync(join(import.meta.dir, "../../../bunfig.toml"), "utf8");
+      const match = /^\[test\][^[]*?^timeout\s*=\s*(\d+)/m.exec(bunfig);
+      expect(match?.[1]).toBeDefined();
+      const bunfigPerTestTimeoutMs = Number(match?.[1]);
+      expect(KILLING_TEST_BUDGET_FLOOR_MS - bunfigPerTestTimeoutMs).toBeGreaterThanOrEqual(5_000);
+      expect(KILLING_TEST_BUDGET_FLOOR_MS).toBeGreaterThan(SCOPED_BUN_PER_TEST_TIMEOUT_MS);
     });
 
     it("the per-candidate bound scales with the whole resolved killing set and is clamped", async () => {

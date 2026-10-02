@@ -2631,6 +2631,21 @@ describe("killingSetImportsProductionFile", () => {
       ),
     ).toBe(true);
   });
+
+  it("returns false when killing tests do not reach the target production file", async () => {
+    expect(
+      await killingSetImportsProductionFile(
+        worktreePath,
+        ["src/consumer.test.ts"],
+        "src/target.ts",
+        readFrom({
+          "src/target.ts": "export const target = 1;\n",
+          "src/other.ts": "export const other = 1;\n",
+          "src/consumer.test.ts": 'import { other } from "./other";\n',
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("per-file candidate scheduling", () => {

@@ -4,6 +4,7 @@ import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
 import { buildReviewFeedbackWritePrompt } from "../../../shared/prompts/review-feedback-write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
+import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
 import { SHRINK_FORBID_GUARD_TEST_DELETION_RULE, SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
@@ -85,22 +86,28 @@ describe("write prompt", () => {
     expect(body.indexOf("Gate budget:")).toBeLessThan(body.indexOf("## Scope"));
   });
 
-  test("rendered implement prompt forbids git history mutation; ready-repair step rules unchanged", () => {
-    const rendered = renderStepPrompt("implement.prompt.body", {
+  test("implement and plan prompts rendered for a non-jarvis repo carry no jarvis-layout doc paths", () => {
+    const implementRendered = renderStepPrompt("implement.prompt.body", {
       SPEC_PATH: "spec/example/index.md",
       SIBLINGS_BLOCK: "",
-      REPO_GUIDANCE: "Follow repo guidance.",
+      REPO_GUIDANCE: "Vite SPA. Durable docs live in README.md.",
       ACTIVE_SUBSPEC_PATH: "spec/example/00-sub.md",
       ACTIVE_SUBSPEC_BODY: "Body.",
       PATCH_RULES: loadPromptRegistry().getById("implement.rules").body.trim(),
       TIMEOUT_CHECKPOINT_CONTEXT: "",
       STEP_RULES: DEFAULT_WRITE_STEP_RULES,
     });
+    const planRendered = renderStepPrompt("plan.prompt.draft", {
+      WORKDIR: "/tmp/homestead-client",
+      NAME: "example-spec",
+      INTENT: "Do the thing.",
+      SPEC_GUIDANCE: readSpecGuidance(),
+    });
 
-    expect(rendered).toContain(
-      "Do not mutate git history or branches: no `rebase`, `merge`, `reset`, `commit --amend`, `push`, or `checkout`/`switch` to another branch. Jarvis owns history and base integration.",
-    );
-    expect(DEFAULT_WRITE_STEP_RULES).not.toContain("Do not mutate git history");
+    for (const rendered of [implementRendered, planRendered]) {
+      expect(rendered).toContain("target repo's own durable doc home");
+      expect(rendered).not.toMatch(/v[12]\/(docs|spec|src)\//);
+    }
   });
 
   test("implement.prompt.body includes no-hard-wrap after global.terse", () => {
@@ -320,5 +327,23 @@ describe("write prompt", () => {
         MUTATION_COVERAGE_FIX_DETAIL: "",
       }),
     ).not.toContain("v2/src/execution/foo.test.ts");
+  });
+
+  test("rendered implement prompt forbids git history mutation; ready-repair step rules unchanged", () => {
+    const rendered = renderStepPrompt("implement.prompt.body", {
+      SPEC_PATH: "spec/example/index.md",
+      SIBLINGS_BLOCK: "",
+      REPO_GUIDANCE: "Follow repo guidance.",
+      ACTIVE_SUBSPEC_PATH: "spec/example/00-sub.md",
+      ACTIVE_SUBSPEC_BODY: "Body.",
+      PATCH_RULES: loadPromptRegistry().getById("implement.rules").body.trim(),
+      TIMEOUT_CHECKPOINT_CONTEXT: "",
+      STEP_RULES: DEFAULT_WRITE_STEP_RULES,
+    });
+
+    expect(rendered).toContain(
+      "Do not mutate git history or branches: no `rebase`, `merge`, `reset`, `commit --amend`, `push`, or `checkout`/`switch` to another branch. Jarvis owns history and base integration.",
+    );
+    expect(DEFAULT_WRITE_STEP_RULES).not.toContain("Do not mutate git history");
   });
 });

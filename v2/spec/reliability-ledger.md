@@ -1,6 +1,6 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 22 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 21 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
 ## Highest priority: active spec (1)
 
@@ -21,11 +21,10 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | [Shrink failure status matches resume](./seeds/shrink-invocation-failure-status-matches-resume.md) | Intent | Shrink `invocation_failure` settles `paused` but resume refuses → stuck row (run `3dd4be83`, 2026-10-02). |
 | [Hung killing test kills the mutant](./seeds/hung-killing-test-counts-as-killed.md) | Intent | Per-test timeout == kill floor (30 s), so a test hanging under a mutant strands `non_terminating_mutation_failed`; hand-fixed twice on the gate-slot lane 2026-10-02. |
 
-## Follow-on workflow quality: seeds (7)
+## Follow-on workflow quality: seeds (6)
 
 | Item | Next action / dependency | Remaining scope |
 | --- | --- | --- |
-| [Target-repo documentation layout](./seeds/implement-respects-target-repo-doc-layout.md) | Intent; #3426 | Inject guidance; use the target's doc layout. |
 | [Sibling-repo prerequisite coverage](./seeds/intent-split-covers-sibling-repo-surfaces.md) | Intent; #3439 | Split-internal prerequisite coverage check. |
 | [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Re-scoped 2026-10-02 to cleanup pruning on plan-spec landing (consume-from-source plan rejected, #4448). |
 | [Per-project configuration seam](./seeds/per-project-config-overrides-seam.md) | Intent; #3026 / #3150 | Bounded agent-order and idle-timeout overrides resolved once at admission. |

@@ -27,7 +27,7 @@ Each iteration the agent is told to inspect the target repo for guidance, read t
 
 ## Specs in this repo
 
-Specs live under `v2/spec/` (the jarvis project `plan.targetDir`). Long-lived reference docs live in `v2/docs/`. Multi-file specs go in `<targetDir>/<UTC-timestamp>-<name>/` with an `index.md`. The index is the routing file: a checklist of subspec pointers, each checked when done. Each subspec is **atomic, independently testable**, and carries a **Documentation updates** section (docs are part of the work). Create with `jarvis run workflow intent|plan`. On completion Jarvis archives the spec dir to `<targetDir>/completed/` — archive presence is not proof the work merged; verify the feature on `main` before trusting it. Full conventions: [v2/docs/spec-guidance.md](v2/docs/spec-guidance.md).
+Specs live under `v2/spec/` (the jarvis project `plan.targetDir`). Long-lived reference docs live in `v2/docs/`. Multi-file specs go in `<targetDir>/<UTC-timestamp>-<name>/` with an `index.md`. The index is the routing file: a checklist of subspec pointers, each checked when done. Each subspec is **atomic, independently testable**, and carries a **Documentation updates** section (docs are part of the work). Create with `jarvis run workflow intent|plan`. On completion Jarvis archives the spec dir to `<targetDir>/completed/` — archive presence is not proof the work merged; verify the feature on `main` before trusting it. Full conventions: [v2/docs/spec-guidance.md](v2/docs/spec-guidance.md). Specs changing existing functionality update the behavior catalog [v2/docs/v1-behaviors.md](v2/docs/v1-behaviors.md); doc placement follows [v2/docs/documentation-standard.md](v2/docs/documentation-standard.md).
 
 ## Working rules for agents
 

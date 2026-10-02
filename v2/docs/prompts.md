@@ -14,6 +14,8 @@ A `fragment` artifact is prose prepended to step prompts; a `step` artifact is t
 
 The lane label is load-bearing: `intent.prompt.split` carries `behavior: intent` (a lane with no fragments) precisely so it does not inherit the plan fragments, and `implement/review-*.md` carry `behavior: implement` for the same reason.
 
+Target-repo path neutrality: every artifact, and the injected `SPEC_GUIDANCE`, renders on any registered project, so none names a jarvis-layout path (`v[12]/(docs|spec|src)/`); doc-update instructions point at the target repo's own doc home, and jarvis-specific doc conventions live in jarvis's `AGENTS.md`. The corpus guard is `shared/prompts/registry.test.ts` § target-repo path neutrality.
+
 ## Render path
 
 One assembler serves every engine: `renderPromptForStep` in `shared/prompts/assemble.ts`. It assembles the step template per the artifact's declared `fragmentPolicy`, then `renderArtifactTemplate` (`shared/prompts/render.ts`) applies variants, optional sections, and placeholder substitution, and the result is trimmed. Every step-prompt call site — the shared builders (`plan-draft.ts`, `intent-split.ts`, `review-plan.ts`, `review-intent.ts`, `review-implement.ts`, `review-feedback-write.ts`) and the v2 write loop (`write.ts`, `write-loop.ts`, `step-runner.ts`, `reviewed-staged-markdown-lint.ts`) — reaches it; `step-prompt-dispatch-guard.test.ts` fails when production code outside the assembler calls `assemblePromptForStep`, `renderStepPrompt`, or bare `renderArtifactTemplate`, and `cross-path-render.test.ts` proves every registered step assembles exactly as its policy declares. `executeWrite` resolves the step-owned placeholders (`REPO_GUIDANCE`, `ACTIVE_SUBSPEC_*`, `PATCH_RULES`, `STEP_RULES`, `SPEC_GUIDANCE`) before invocation; see [`write-behavior.md § Write-step prompt placeholders`](./write-behavior.md#write-step-prompt-placeholders).
@@ -39,7 +41,7 @@ Declared policies: `plan.prompt.*` (draft, review roles, review-actuator) are `b
 
 ### Intent
 
-- `intent.prompt.split` — pinned by the `intent` preset; placeholders `WORKDIR`, `SEED_LABEL`, `SEED_CONTENT`; no `SPEC_GUIDANCE` injection (the prompt directs the agent to read the agent core for sizing). Landing-shape violations reprompt via `write.landing-contract-reprompt`; see [`write-behavior.md § Intent split landing contracts`](./write-behavior.md#intent-split-landing-contracts).
+- `intent.prompt.split` — pinned by the `intent` preset; placeholders `WORKDIR`, `SEED_LABEL`, `SEED_CONTENT`, `SPEC_GUIDANCE` (injected from `readSpecGuidance()`, as plan draft/review do). Landing-shape violations reprompt via `write.landing-contract-reprompt`; see [`write-behavior.md § Intent split landing contracts`](./write-behavior.md#intent-split-landing-contracts).
 - `intent.prompt.review` / `intent.prompt.review-actuator` — light review critic and actuator over the staged ready-intent (`STAGED_INTENT`, `SPEC_GUIDANCE`, `VERDICT_PATH` / `VERDICT`).
 
 ### Review feedback

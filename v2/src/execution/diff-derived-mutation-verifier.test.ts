@@ -23,7 +23,6 @@ import {
   MAX_INSPECTED_MUTATIONS,
   MAX_KILLING_TEST_MS,
   MAX_VERIFICATION_MS,
-  SCOPED_BUN_PER_TEST_TIMEOUT_MS,
   maskNonCodeSpans,
   mutationCoverageFixDetail,
   mutationRecordFileName,
@@ -35,6 +34,7 @@ import {
   resolveImporterScanRoots,
   resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
+  SCOPED_BUN_PER_TEST_TIMEOUT_MS,
   sharedRunMustQueue,
   VerifierTestRunSemaphore,
   verifyDiffDerivedMutations,
@@ -1486,7 +1486,7 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
         { worktreePath: "/test/path", runBase: "main" },
         {
           ...sharedDeps,
-          runScopedTests: async (cwd, scope, options) => {
+          runScopedTests: async (_cwd, scope, options) => {
             if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return true;
             const testPath = scope[0];
             if (testPath === undefined) return true;

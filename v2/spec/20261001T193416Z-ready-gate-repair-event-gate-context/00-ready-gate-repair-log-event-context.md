@@ -14,10 +14,10 @@
 
 ## Tasks
 
-- [ ] Extend `ReadyGateRepairEvent` and emit `failingStep` + `gateOutputTail` from `publishWithReadyRepair`.
-- [ ] Add `write-loop-ready-repair.test.ts` (step-marker log layout, tail ends on the failing step's last line, 4 KiB cap case).
-- [ ] Refresh `ready_gate_repair` shape assertions in `write-loop.test.ts` and `workflow-runner-publication.test.ts`.
-- [ ] Document the new fields in `workflow-runner.md` § Ready gate repair.
+- [x] Extend `ReadyGateRepairEvent` and emit `failingStep` + `gateOutputTail` from `publishWithReadyRepair`.
+- [x] Add `write-loop-ready-repair.test.ts` (step-marker log layout, tail ends on the failing step's last line, 4 KiB cap case).
+- [x] Refresh `ready_gate_repair` shape assertions in `write-loop.test.ts` and `workflow-runner-publication.test.ts`.
+- [x] Document the new fields in `workflow-runner.md` § Ready gate repair.
 
 ## Acceptance criteria
 

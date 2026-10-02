@@ -261,6 +261,55 @@ describe("refreshPrReviewInputCapture", () => {
     );
   });
 
+  test("captures CHANGES_REQUESTED and APPROVED submitted review bodies", async () => {
+    const changesRequestedId = "PRR_changes_requested";
+    const approvedId = "PRR_approved";
+    await withFixtureArtifact(
+      (artifact) => {
+        expect(artifact.reviewBodies).toEqual([
+          {
+            reviewId: changesRequestedId,
+            author: "reviewer-cr",
+            body: "please fix",
+            submittedAt: "2026-05-10T00:00:00Z",
+            state: "CHANGES_REQUESTED",
+          },
+          {
+            reviewId: approvedId,
+            author: "reviewer-ap",
+            body: "looks good",
+            submittedAt: "2026-05-11T00:00:00Z",
+            state: "APPROVED",
+          },
+        ]);
+      },
+      {
+        graphqlPayload: JSON.stringify({
+          data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
+        }),
+        prViewPayload: JSON.stringify({
+          reviews: [
+            {
+              id: changesRequestedId,
+              author: { login: "reviewer-cr" },
+              body: "please fix",
+              submittedAt: "2026-05-10T00:00:00Z",
+              state: "CHANGES_REQUESTED",
+            },
+            {
+              id: approvedId,
+              author: { login: "reviewer-ap" },
+              body: "looks good",
+              submittedAt: "2026-05-11T00:00:00Z",
+              state: "APPROVED",
+            },
+          ],
+          comments: [],
+        }),
+      },
+    );
+  });
+
   test("bot comments and pre-review top-level comments are dropped", async () => {
     await withFixtureArtifact((artifact) => {
       const active = artifact.threads.find((thread) => thread.threadId === FIXTURE.threadActive);

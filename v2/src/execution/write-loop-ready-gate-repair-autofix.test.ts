@@ -35,6 +35,7 @@ import {
   enumerateRepairCompletionCandidates,
   findFirstRepairFenceViolation,
   publishWithReadyRepair,
+  readyGateRepairLogFields,
   runBuiltInReadyGateAutofixBiome,
 } from "./write-loop.ts";
 
@@ -1265,7 +1266,12 @@ describe("write loop", () => {
           typecheckOutput,
         });
         expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
-          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+          {
+            kind: "ready_gate_repair",
+            attempt: 1,
+            gateExitCode: 1,
+            ...readyGateRepairLogFields("bun run ready", "formatting required"),
+          },
         ]);
       });
 
@@ -1383,7 +1389,12 @@ describe("write loop", () => {
         expect(inScope.kind).toBe("complete");
         expect(inScopeGateCalls).toBe(3);
         expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
-          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+          {
+            kind: "ready_gate_repair",
+            attempt: 1,
+            gateExitCode: 1,
+            ...readyGateRepairLogFields("bun run ready", gateFailureOutput("proof.txt")),
+          },
         ]);
       });
 
@@ -1432,7 +1443,12 @@ describe("write loop", () => {
         expect(result.iterationsConsumed).toBe(2);
         const events = logSink.getEventsForRun(result.runId);
         expect(events.filter((event) => event.kind === "ready_gate_repair")).toEqual([
-          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+          {
+            kind: "ready_gate_repair",
+            attempt: 1,
+            gateExitCode: 1,
+            ...readyGateRepairLogFields("bun run ready", gateFailureOutput("proof.txt")),
+          },
         ]);
         expect(events.at(-1)).toMatchObject({
           kind: "loop_finished",

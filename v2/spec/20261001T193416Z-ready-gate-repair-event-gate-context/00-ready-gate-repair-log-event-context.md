@@ -14,16 +14,16 @@
 
 ## Tasks
 
-- [ ] Extend `ReadyGateRepairEvent` and emit `failingStep` + `gateOutputTail` from `publishWithReadyRepair`.
-- [ ] Add `write-loop-ready-repair.test.ts` (step-marker log layout, tail ends on the failing step's last line, 4 KiB cap case).
-- [ ] Refresh `ready_gate_repair` shape assertions in `write-loop.test.ts` and `workflow-runner-publication.test.ts`.
-- [ ] Document the new fields in `workflow-runner.md` § Ready gate repair.
+- [x] Extend `ReadyGateRepairEvent` and emit `failingStep` + `gateOutputTail` from `publishWithReadyRepair`.
+- [x] Add `write-loop-ready-repair.test.ts` (step-marker log layout, tail ends on the failing step's last line, 4 KiB cap case).
+- [x] Refresh `ready_gate_repair` shape assertions in `write-loop.test.ts` and `workflow-runner-publication.test.ts`.
+- [x] Document the new fields in `workflow-runner.md` § Ready gate repair.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop-ready-repair.test.ts`: the first `ready_gate_repair` event includes `failingStep` matching the terminal failed step command and a `gateOutputTail` whose last line matches that step's output last line, with length ≤ 4096 when step output exceeds the cap; fails against the pre-fix two-field event.
-- [ ] `v2/src/execution/write-loop.test.ts` and `v2/src/execution/workflow-runner-publication.test.ts`: every pinned `ready_gate_repair` object includes `failingStep` and `gateOutputTail`; fails against pre-fix two-field assertions.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/execution/write-loop-ready-repair.test.ts`: the first `ready_gate_repair` event includes `failingStep` matching the terminal failed step command and a `gateOutputTail` whose last line matches that step's output last line, with length ≤ 4096 when step output exceeds the cap; fails against the pre-fix two-field event.
+- [x] `v2/src/execution/write-loop.test.ts` and `v2/src/execution/workflow-runner-publication.test.ts`: every pinned `ready_gate_repair` object includes `failingStep` and `gateOutputTail`; fails against pre-fix two-field assertions.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

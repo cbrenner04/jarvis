@@ -1,110 +1,88 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readyStepCompletionRecord, readyStepStartRecord } from "../../../scripts/ready.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
-import { createCompletionCommitter } from "./completion-commit.ts";
-import { gateOutput, lintMdOnlyGateFailureOutput } from "./ready-finalize.test-support.ts";
-import { ReadyGateError, resolveAttributableRepairAllowset } from "./ready-finalize.ts";
-import {
-  deriveAllowedOrUndefined,
-  initRepairFenceWorktree,
-  registerWriteLoopExecuteWriteMockHooks,
-  roots,
-  runLoop,
-} from "./write-loop.test-support.ts";
+import { ReadyGateError } from "./ready-finalize.ts";
+import { runLoop, TestLogSink } from "./write-loop.test-support.ts";
+import { readyGateRepairLogFields } from "./write-loop.ts";
 
-function allowedPathLinesFromRepairPrompt(prompt: string): string[] {
-  const heading = "## Allowed paths";
-  const start = prompt.indexOf(heading);
-  expect(start).toBeGreaterThanOrEqual(0);
-  const afterHeading = prompt.slice(start + heading.length).trimStart();
-  const revertAt = afterHeading.indexOf("Edits outside these paths are reverted and end the run.");
-  expect(revertAt).toBeGreaterThanOrEqual(0);
-  const block = afterHeading.slice(0, revertAt).trim();
-  expect(block.length).toBeGreaterThan(0);
-  return block.split("\n");
+const GATE_COMMAND = "bun run ready";
+function readyGateRepairPin(gateOutput: string, attempt: number, gateExitCode: number) {
+  return {
+    kind: "ready_gate_repair" as const,
+    attempt,
+    gateExitCode,
+    ...readyGateRepairLogFields(GATE_COMMAND, gateOutput),
+  };
 }
 
-function expectRepairAllowset(repairPrompt: string, frozen: Set<string>, gateOutputText: string): string[] {
-  const error = new ReadyGateError("bun run ready", 1, gateOutputText);
-  const expected = [...resolveAttributableRepairAllowset(frozen, error)].sort();
-  expect(allowedPathLinesFromRepairPrompt(repairPrompt)).toEqual(expected);
-  return expected;
-}
-
-async function captureReadyRepairPrompt(args: {
-  branchName: string;
-  gateOutput: string;
-  touchUntouchedInIteration?: boolean;
-}): Promise<{ repairPrompt: string; frozen: Set<string> }> {
+async function firstReadyGateRepairEvent(gateOutput: string) {
   const { jarvisRoot, stateDbPath } = createJarvisHome();
-  roots.push(join(jarvisRoot, ".."));
-  const { baseRef, worktreePath } = initRepairFenceWorktree(jarvisRoot, args.branchName, {
-    touchUntouchedInIteration: args.touchUntouchedInIteration === true,
-  });
-  const frozen = await deriveAllowedOrUndefined(
-    { worktreePath, baseRef, specPath: "spec.md" },
-    { gitUntracked: async () => "\0" },
-  );
-  expect(frozen).toBeDefined();
-  const prompts: string[] = [];
+  const logSink = new TestLogSink();
   let invocations = 0;
-
-  await runLoop({
+  const result = await runLoop({
     jarvisRoot,
     stateDbPath,
-    branchName: args.branchName,
-    baseRef,
     bindings: [
       {
         id: "sim.1",
         metadata: { agent: "sim-agent-1", model: "sim-model-1" },
-        invoke: async ({ prompt, cwd }) => {
+        invoke: async ({ cwd }) => {
           invocations += 1;
-          prompts.push(prompt);
-          writeFileSync(join(cwd, "proof.txt"), invocations === 1 ? "ok\n" : "fixed\n", "utf8");
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
       },
     ],
-    completionCommitter: createCompletionCommitter(),
+    logSink,
+    completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
     completionPublisher: async () => ({}),
     runFixCommand: async () => {},
     readyFinalizer: async () => {
       if (invocations === 1) {
-        throw new ReadyGateError("bun run ready", 1, args.gateOutput);
+        throw new ReadyGateError(GATE_COMMAND, 1, gateOutput);
       }
     },
   });
-
-  const repairPrompt = prompts.find((prompt) => prompt.includes("## Allowed paths"));
-  expect(repairPrompt).toBeDefined();
-  return { repairPrompt: repairPrompt!, frozen: frozen! };
+  const events = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair");
+  return { result, first: events[0], repairCount: events.length };
 }
 
-describe("write loop ready repair prompt", () => {
-  registerWriteLoopExecuteWriteMockHooks();
+describe("ready_gate_repair log event context", () => {
+  test("first ready_gate_repair includes the terminal failed step and its output tail", async () => {
+    const start = (stepId: string, attemptId: string, command: string) =>
+      readyStepStartRecord({ stepId, attemptId, command });
+    const done = (stepId: string, attemptId: string, command: string, status: number) =>
+      readyStepCompletionRecord({ stepId, attemptId, command, status });
+    const stdout = `${start("1", "1.1", "bun install")}${start("2", "2.1", "bun run check")}warning: unrelated\n${start("3", "3.1", "bun run typecheck")}error TS1: boom\nterminal step last line\n`;
+    const stderr = `${start("1", "1.1", "bun install")}${done("1", "1.1", "bun install", 0)}${start("2", "2.1", "bun run check")}${done("2", "2.1", "bun run check", 0)}${start("3", "3.1", "bun run typecheck")}${done("3", "3.1", "bun run typecheck", 2)}`;
+    const gateOutput = `${stdout}${stderr}`;
 
-  test("marker-attributed lint failure lists attributable paths only", async () => {
-    const gateOutputText = lintMdOnlyGateFailureOutput("spec.md");
-    const { repairPrompt, frozen } = await captureReadyRepairPrompt({
-      branchName: "ready-repair-prompt-lint-attributed",
-      gateOutput: gateOutputText,
-      touchUntouchedInIteration: true,
-    });
-    const expected = expectRepairAllowset(repairPrompt, frozen, gateOutputText);
-    expect(frozen.has("v2/src/untouched.test.ts")).toBe(true);
-    expect(expected).not.toContain("v2/src/untouched.test.ts");
+    const { result, first, repairCount } = await firstReadyGateRepairEvent(gateOutput);
+    expect(result.kind).toBe("complete");
+    expect(repairCount).toBe(1);
+    expect(first).toEqual(readyGateRepairPin(gateOutput, 1, 1));
+    expect(first?.gateOutputTail).toContain("error TS1: boom\nterminal step last line\n");
+    expect(first?.gateOutputTail).not.toContain("warning: unrelated");
   });
 
-  test("gate failure without lint attribution lists the frozen run-diff allowset", async () => {
-    const gateOutputText = gateOutput({
-      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run check", status: 1 }],
+  test("gateOutputTail is capped at 4096 bytes when step output exceeds the cap", async () => {
+    const start = readyStepStartRecord({ stepId: "1", attemptId: "1.1", command: "bun run test:v2" });
+    const done = readyStepCompletionRecord({
+      stepId: "1",
+      attemptId: "1.1",
+      command: "bun run test:v2",
+      status: 1,
     });
-    const { repairPrompt, frozen } = await captureReadyRepairPrompt({
-      branchName: "ready-repair-prompt-frozen-fallback",
-      gateOutput: gateOutputText,
-    });
-    expectRepairAllowset(repairPrompt, frozen, gateOutputText);
+    const padding = "p".repeat(5000);
+    const gateOutput = `${start}${padding}\ncap tail last line\n${start}${done}`;
+
+    const { result, first } = await firstReadyGateRepairEvent(gateOutput);
+    expect(result.kind).toBe("complete");
+    expect(first).toEqual(readyGateRepairPin(gateOutput, 1, 1));
+    expect(first?.failingStep).toBe("bun run test:v2");
+    expect(first?.gateOutputTail.length).toBe(4096);
+    expect(first?.gateOutputTail).toContain("cap tail last line");
   });
 });

@@ -25,10 +25,10 @@ Primary: `v2/src/execution/write-loop-work-boundary-ready-finalization.test.ts` 
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` and `write-loop-work-boundary-ready-finalization.test.ts` stay green (behavior unchanged by the move).
-- [ ] `write-loop-test-inventory.test.ts` passes.
-- [ ] `bun run typecheck` and `bun run check` pass.
-- [ ] `describe("work_boundary_recorded telemetry")` and the moved `ready finalization` prelude cases run only from `write-loop-work-boundary-ready-finalization.test.ts`, not from `write-loop.test.ts`.
+- [x] `write-loop.test.ts` and `write-loop-work-boundary-ready-finalization.test.ts` stay green (behavior unchanged by the move).
+- [x] `write-loop-test-inventory.test.ts` passes.
+- [x] `bun run typecheck` and `bun run check` pass.
+- [x] `describe("work_boundary_recorded telemetry")` and the moved `ready finalization` prelude cases run only from `write-loop-work-boundary-ready-finalization.test.ts`, not from `write-loop.test.ts`.
 
 ## Documentation updates
 

@@ -28,9 +28,9 @@ Primary: `v2/src/execution/write-loop-test-inventory.test.ts` (new).
 
 ## Acceptance criteria
 
-- [ ] `write-loop-test-inventory.test.ts` fails against the pre-fix tree where the file does not exist.
-- [ ] `write-loop-test-inventory.test.ts` passes with all merge-base `write-loop.test.ts` leaf titles present in owned destinations (single-file pre-move tree included).
-- [ ] `bun run typecheck` passes.
+- [x] `write-loop-test-inventory.test.ts` fails against the pre-fix tree where the file does not exist.
+- [x] `write-loop-test-inventory.test.ts` passes with all merge-base `write-loop.test.ts` leaf titles present in owned destinations (single-file pre-move tree included).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

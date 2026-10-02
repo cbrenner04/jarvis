@@ -27,12 +27,12 @@ Primary: `v2/src/execution/write-loop-ready-gate-repair-fence-refusal-revert.tes
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts`, `write-loop-ready-gate-repair-fence.test.ts`, and `write-loop-ready-gate-repair-fence-refusal-revert.test.ts` stay green (behavior unchanged by the move).
-- [ ] `write-loop-test-inventory.test.ts` passes.
-- [ ] `bun run typecheck` and `bun run check` pass.
-- [ ] `describe("ready-gate repair fence")`, `describe("admitCoLocatedTestsOfAllowedPaths")`, and `describe("refusal revert preserves pre-repair dirt")` run only from `write-loop-ready-gate-repair-fence.test.ts` and `write-loop-ready-gate-repair-fence-refusal-revert.test.ts`, not from `write-loop.test.ts`.
-- [ ] Each fence sibling introduced in subspecs 06–07 holds at most 120 leaf tests.
-- [ ] Each owned `write-loop-ready-gate-repair-fence*.test.ts` stem runs under 60 s alone on an idle machine, or an additional time-driven split from subspec 06–07 is landed first. (Manual)
+- [x] `write-loop.test.ts`, `write-loop-ready-gate-repair-fence.test.ts`, and `write-loop-ready-gate-repair-fence-refusal-revert.test.ts` stay green (behavior unchanged by the move).
+- [x] `write-loop-test-inventory.test.ts` passes.
+- [x] `bun run typecheck` and `bun run check` pass.
+- [x] `describe("ready-gate repair fence")`, `describe("admitCoLocatedTestsOfAllowedPaths")`, and `describe("refusal revert preserves pre-repair dirt")` run only from `write-loop-ready-gate-repair-fence.test.ts` and `write-loop-ready-gate-repair-fence-refusal-revert.test.ts`, not from `write-loop.test.ts`.
+- [x] Each fence sibling introduced in subspecs 06–07 holds at most 120 leaf tests.
+- [x] Each owned `write-loop-ready-gate-repair-fence*.test.ts` stem runs under 60 s alone on an idle machine, or an additional time-driven split from subspec 06–07 is landed first. (Manual)
 
 ## Documentation updates
 

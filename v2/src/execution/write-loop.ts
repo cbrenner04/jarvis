@@ -4338,6 +4338,20 @@ type ReadyGateRepairLoopResult =
   | { kind: "done"; outcome: CompletionPublishOutcome; iterationsConsumed: number; repairBudgetExhausted: boolean }
   | { kind: "early"; result: ReadyRepairPublishResult };
 
+const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
+
+function boundedAutofixOutputTail(output: string): string {
+  return output.length <= AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX ? output : output.slice(-AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX);
+}
+
+export function readyGateRepairLogFields(
+  gateCommand: string,
+  gateOutput: string,
+): { failingStep: string; gateOutputTail: string } {
+  const failedStep = selectFailedReadyStepOutput(gateCommand, gateOutput);
+  return { failingStep: failedStep.step, gateOutputTail: boundedAutofixOutputTail(failedStep.output) };
+}
+
 async function runReadyGateRepairLoop(
   args: WriteLoopInput,
   store: StateStore,
@@ -4364,6 +4378,7 @@ async function runReadyGateRepairLoop(
       kind: "ready_gate_repair",
       attempt: repairAttempt,
       gateExitCode: currentOutcome.error.exitCode,
+      ...readyGateRepairLogFields(currentOutcome.error.command, currentOutcome.error.output),
     });
 
     const repairBaseline = await snapshotAutofixBaseline(input.worktreePath);
@@ -4453,8 +4468,6 @@ function buildReadyRepairPublishResult(
     ? { success: outcome, iterationsConsumed }
     : { failure: outcome, iterationsConsumed, ...(readyGateOrigin !== undefined ? { readyGateOrigin } : {}) };
 }
-
-const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
 
 type AutofixTypecheckResult = {
   exitCode: number;
@@ -4779,10 +4792,7 @@ async function publishWithReadyGateRepair(
     args.logSink?.append(result.runId, {
       kind: "ready_gate_autofix_discarded",
       typecheckExitCode: typecheckResult.exitCode,
-      typecheckOutput:
-        typecheckResult.output.length <= AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX
-          ? typecheckResult.output
-          : typecheckResult.output.slice(-AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX),
+      typecheckOutput: boundedAutofixOutputTail(typecheckResult.output),
     });
     const loopResult = await runReadyGateRepairLoop(
       args,

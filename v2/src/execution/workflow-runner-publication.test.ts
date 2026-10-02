@@ -48,6 +48,7 @@ import {
   writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type ReviewWorkflowStep, type WriteWorkflowStep } from "./workflow-runner.ts";
+import { readyGateRepairLogFields } from "./write-loop.ts";
 
 describe("executeWorkflow fresh dispatch", () => {
   test("creates a new run row for a completed step when freshDispatch is set", async () => {
@@ -850,6 +851,7 @@ describe("executeWorkflow completion publication", () => {
         kind: "ready_gate_repair",
         attempt: 1,
         gateExitCode: 1,
+        ...readyGateRepairLogFields("bun run ready", "tests failed"),
       });
     });
   });
@@ -1045,7 +1047,12 @@ describe("executeWorkflow completion publication", () => {
       expect(inScope.kind).toBe("complete");
       expect(inScopeGateCalls).toBe(3);
       expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
-        { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+        {
+          kind: "ready_gate_repair",
+          attempt: 1,
+          gateExitCode: 1,
+          ...readyGateRepairLogFields("bun run ready", gateFailureOutput("proof.txt")),
+        },
       ]);
     });
   });
@@ -1968,6 +1975,7 @@ describe("executeWorkflow completion publication", () => {
         kind: "ready_gate_repair",
         attempt: 1,
         gateExitCode: 1,
+        ...readyGateRepairLogFields("bun run ready", "tests failed"),
       });
     });
   });

@@ -58,6 +58,7 @@ import {
   MAX_MUTATION_REPAIR_ATTEMPTS,
   publishCompletionArtifacts,
   publishWithReadyRepair,
+  readyGateRepairLogFields,
   resolvePreShrinkHead,
   runMutationRepairIteration,
   runsInLoopDiffDerivedMutationVerification,
@@ -811,6 +812,7 @@ describe("write loop", () => {
         kind: "ready_gate_repair",
         attempt: 1,
         gateExitCode: 1,
+        ...readyGateRepairLogFields("bun run ready", "tests failed"),
       });
     });
 

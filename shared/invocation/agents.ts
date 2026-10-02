@@ -10,7 +10,13 @@ import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-pred
 import { probeAgentDescendantProcessGroups } from "./agent-descendant-process-groups.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
-import type { InvocationBinding, InvocationOk, InvocationResult, InvocationSettlement } from "./execute.ts";
+import type {
+  InvocationBinding,
+  InvocationOk,
+  InvocationResult,
+  InvocationSettlement,
+  ProcessGroupRecorder,
+} from "./execute.ts";
 import { parseOpencodeJsonOutput } from "./opencode-json.ts";
 
 export type ResolvedAgentBinding = {
@@ -172,20 +178,17 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
+      invoke: (invokeArgs) =>
         runOpencodeBinding({
-          prompt,
-          cwd,
+          prompt: invokeArgs.prompt,
+          cwd: invokeArgs.cwd,
           adapterModel,
-          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
-          ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+          ...pickAgentRunOptions(invokeArgs),
           ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
-          ...(signal !== undefined ? { signal } : {}),
         }),
     };
   }
@@ -207,6 +210,7 @@ type AgentRunOptions = {
   sleepMs?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
+  processGroupRecorder?: ProcessGroupRecorder;
   onOutputProgress?: () => void;
   onAgentShellCommand?: (command: string) => void | Promise<void>;
   onAgentShellCommandComplete?: () => void | Promise<void>;
@@ -467,6 +471,7 @@ function pickAgentRunOptions(
     | "abortKillGraceMs"
     | "idleOutputMs"
     | "joinProcessOnIdleStall"
+    | "processGroupRecorder"
     | "onOutputProgress"
     | "onAgentShellCommand"
     | "onAgentShellCommandComplete"
@@ -483,6 +488,7 @@ function pickAgentRunOptions(
     ...(args.abortKillGraceMs !== undefined ? { abortKillGraceMs: args.abortKillGraceMs } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(args.processGroupRecorder !== undefined ? { processGroupRecorder: args.processGroupRecorder } : {}),
     ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
     ...(args.onAgentShellCommand !== undefined ? { onAgentShellCommand: args.onAgentShellCommand } : {}),
     ...(args.onAgentShellCommandComplete !== undefined
@@ -549,6 +555,34 @@ type SpawnConfig = {
   spawn?: SpawnFn;
 };
 
+/** Recorder failures must not replace invocation results; late snapshots cannot leave stale ids. */
+function trackInvocationProcessGroups(recorder: ProcessGroupRecorder | undefined) {
+  const recorded = new Set<number>();
+  let settled = false;
+  return {
+    record: (pgid: number | undefined) => {
+      if (settled || pgid === undefined || recorded.has(pgid) || !isForeignProcessGroup(pgid)) return;
+      recorded.add(pgid);
+      try {
+        recorder?.record(pgid);
+      } catch {
+        // Preserve the agent outcome if persistence is unavailable.
+      }
+    },
+    settle: () => {
+      settled = true;
+      for (const pgid of recorded) {
+        try {
+          recorder?.clear(pgid);
+        } catch {
+          // Clear every id even if an earlier clear failed.
+        }
+      }
+      recorded.clear();
+    },
+  };
+}
+
 function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<InvocationResult> {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one invocation runtime coordinates spawn, stdout/stderr buffering, the idle-timer + worktree-activity watchdog, and settle in a single executor closure; splitting it would fragment the shared timer/stream/settle state.
   return new Promise((resolvePromise) => {
@@ -574,11 +608,14 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       return;
     }
 
+    const processGroups = trackInvocationProcessGroups(opts.processGroupRecorder);
+    processGroups.record(child.pid);
     const stdin = config.stdio[0] === "pipe" ? child.stdin : null;
     const stdout = child.stdout;
     const stderr = child.stderr;
 
     if (stdout === null || stderr === null || (config.stdio[0] === "pipe" && stdin === null)) {
+      processGroups.settle();
       resolvePromise({
         kind: "error",
         exitCode: -1,
@@ -624,6 +661,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         // Watcher disposal must not prevent invocation settlement.
       }
       removeAbortListener?.();
+      processGroups.settle();
       resolvePromise(result);
     };
 
@@ -663,6 +701,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       void (async () => {
         const snapshotted = snapshottedProcessGroups ?? (await probe(agentPgid));
         snapshottedProcessGroups = snapshotted;
+        for (const pgid of snapshotted) processGroups.record(pgid);
         const own = ownProcessGroupIds();
         const groups = new Set(snapshotted);
         groups.add(agentPgid);

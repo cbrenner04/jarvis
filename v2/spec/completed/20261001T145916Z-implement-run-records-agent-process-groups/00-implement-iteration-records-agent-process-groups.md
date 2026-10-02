@@ -10,7 +10,7 @@ Only verifier spawns record process groups on the run row (`recordVerifierProces
 - Shared `AgentRunOptions` accepts an optional `{ record, clear }` seam structurally matching v2 `VerifierProcessGroupRecorder`; v2 constructs `storeVerifierProcessGroupRecorder(store, runId)` on the bounded `awaitIteration` path and passes it through step/invoke threading — rules out importing v2 persistence types into `shared/` or constructing the recorder inside `buildWriteExecuteInput`.
 - After the detached agent child has a pid, `record` the agent process group when `isForeignProcessGroup` passes; when `killProcessGroup` takes a descendant snapshot (abort, idle stall with `joinProcessOnIdleStall`, iteration-timeout abort, or any path that already arms group kill), `record` each distinct foreign snapshotted pgid not yet recorded; on invocation `settle`, `clear` every pgid recorded for that invocation — rules out recording only at kill time (no mid-iteration visibility) or never clearing on normal completion.
 - Thread the recorder from bounded `awaitIteration` (`settlementPolicy === "bounded"`) through `executeWrite` / `runStep` / `sharedInvocationExtras` and `executeWithQuotaFallback` → binding `invoke` so production agent calls record — rules out wiring only inside `shared/invocation/agents.ts` without invoke forwarding or recording `finalization-repair` iterations (out of intent scope).
-- Deferred to first consumer: exact settle-time clear ordering when kill-path recording races normal child close — pin when the integration test observes concurrent record/clear.
+- Settlement clears every recorded id before resolving invocation; a snapshot resolving after settlement still signals groups but cannot add stale persisted ids. The focused production-path race test pins this ordering.
 
 ## Out of scope
 
@@ -20,21 +20,21 @@ Only verifier spawns record process groups on the run row (`recordVerifierProces
 
 ## Task checklist
 
-- Add optional process-group recorder to `AgentRunOptions` and `pickAgentRunOptions`; implement record-at-spawn, record-on-snapshot, clear-on-settle in `singleSpawn` (`shared/invocation/agents.ts`).
-- Forward the recorder through `shared/invocation/execute.ts` (`executeWithQuotaFallback` → binding `invoke`) via the same `pickAgentRunOptions` path as idle stall and related fields.
-- Extend `StepRunInput` / `sharedInvocationExtras` and `WriteExecuteInput` to carry an optional recorder; in `awaitIteration` when `settlementPolicy === "bounded"`, construct `storeVerifierProcessGroupRecorder(store, runId)` and pass it into `executeWrite` (`v2/src/execution/step-runner.ts`, `v2/src/execution/write.ts`, `v2/src/execution/write-loop.ts`).
-- Add integration tests in a new `v2/src/execution/write-loop-agent-process-groups.test.ts` (not `write-loop.test.ts`, which is over budget pending its split) that drive the production step → `executeWithQuotaFallback` → invoke path (real bindings; injectable spawn / probe / group-kill seams only where `shared/invocation/agents.test.ts` does) against a real `StateStore` run row — not a mock that skips invoke forwarding.
-- Update operator docs, v1 parity catalog, and stale module comments on the recorder helper.
+- [x] Add optional process-group recorder to `AgentRunOptions` and `pickAgentRunOptions`; implement record-at-spawn, record-on-snapshot, clear-on-settle in `singleSpawn` (`shared/invocation/agents.ts`).
+- [x] Forward the recorder through `shared/invocation/execute.ts` (`executeWithQuotaFallback` → binding `invoke`) via the same `pickAgentRunOptions` path as idle stall and related fields.
+- [x] Extend `StepRunInput` / `sharedInvocationExtras` and `WriteExecuteInput` to carry an optional recorder; in `awaitIteration` when `settlementPolicy === "bounded"`, construct `storeVerifierProcessGroupRecorder(store, runId)` and pass it into `executeWrite` (`v2/src/execution/step-runner.ts`, `v2/src/execution/write.ts`, `v2/src/execution/write-loop.ts`).
+- [x] Add integration tests in a new `v2/src/execution/write-loop-agent-process-groups.test.ts` (not `write-loop.test.ts`, which is over budget pending its split) that drive the production step → `executeWithQuotaFallback` → invoke path (real bindings; injectable spawn / probe / group-kill seams only where `shared/invocation/agents.test.ts` does) against a real `StateStore` run row — not a mock that skips invoke forwarding.
+- [x] Update operator docs, v1 parity catalog, and stale module comments on the recorder helper.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop-agent-process-groups.test.ts`: a bounded implement iteration records the agent pgid on the run row (`store.verifierProcessGroups(runId)`) while the agent invocation is in flight and clears it after the iteration settles, via the production step → invoke path; fails against pre-fix (empty).
-- [ ] `v2/src/execution/write-loop-agent-process-groups.test.ts`: after a snapshotted descendant group exists on the abort/stall/timeout snapshot path, that foreign pgid is recorded on the run row and cleared on settle on the same production path; fails against pre-fix (agent pgid only or empty).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/write-loop-agent-process-groups.test.ts`: a bounded implement iteration records the agent pgid on the run row (`store.verifierProcessGroups(runId)`) while the agent invocation is in flight and clears it after the iteration settles, via the production step → invoke path; fails against pre-fix (empty).
+- [x] `v2/src/execution/write-loop-agent-process-groups.test.ts`: after a snapshotted descendant group exists on the abort/stall/timeout snapshot path, that foreign pgid is recorded on the run row and cleared on settle on the same production path; fails against pre-fix (agent pgid only or empty).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

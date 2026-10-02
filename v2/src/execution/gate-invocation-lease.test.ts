@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   acquireGateInvocationLease,
   awaitGateInvocationLease,
@@ -116,6 +116,23 @@ describe("gate-invocation-lease", () => {
     );
     holder?.release();
     expect(liveGateInvocationLeaseCount()).toBe(0);
+  });
+
+  test("awaitGateInvocationLease clears its timeout when granted before expiry", async () => {
+    const holder = acquireGateInvocationLease();
+    expect(holder).toBeDefined();
+    const clearTimeoutSpy = spyOn(globalThis, "clearTimeout");
+    try {
+      const granted = awaitGateInvocationLease({ timeoutMs: 60_000 });
+      holder?.release();
+      const lease = await granted;
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+      lease.release();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      holder?.release();
+      expect(liveGateInvocationLeaseCount()).toBe(0);
+    }
   });
 
   test("a release notifies subscribers once, asynchronously, after the lease is deleted", async () => {

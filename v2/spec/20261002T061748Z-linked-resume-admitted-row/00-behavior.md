@@ -10,11 +10,11 @@ Resuming a linked implement row currently re-enters the snapshot’s base step a
 
 ## Tasks
 
-- [ ] Implement the behavior and focused regression coverage.
+- [x] Implement the behavior and focused regression coverage.
 
 ## Acceptance criteria
 
-- [ ] daemon-run-lifecycle-handlers.test.ts and workflow-runner-resume-reconstruct-linked-workflow.test.ts cover resume of paused and resumable failed linked rows: the admitted row settles terminal (with replacement evidence if execution moved), later links remain reachable, and failure or kill cannot strand the admitted row. Tests fail against the pre-fix resume path.
+- [x] daemon-run-lifecycle-handlers.test.ts, daemon-workflow-admission-handlers.test.ts and workflow-runner-resume-reconstruct-linked-workflow.test.ts cover resume of paused and resumable failed linked rows: the admitted row settles terminal (with replacement evidence if execution moved), later links remain reachable, and failure or kill cannot strand the admitted row. Tests fail against the pre-fix resume path.
 - [ ] `bun run typecheck`, `bun run check`, `bun run lint:md` and `bun run test:v2` pass; integration coverage runs in CI.
 
 ## Documentation updates

@@ -80,6 +80,7 @@ export type WorkflowStartAdmission = {
     rollbackRunAdmission?: () => void,
     settleStagesAfterResume?: (runId: string) => void,
     resumePublicationOptions?: { allowLanePrRepublish?: true },
+    resumedRunId?: string,
   ) => WorkflowStartResult;
   admitWorkflowStart: (lifecycle: WorkflowStartLifecycle) => Promise<Awaited<WorkflowStartResult>>;
   check_workflow_start_claim: RpcHandler;
@@ -111,6 +112,66 @@ function resolveWorkflowInvocationSettledCause(
   if (hasKilledRuns) return "killed";
   if (workflowSettledFailed || timedOut) return "failed";
   return "completed";
+}
+
+function resolveReplacedLinkedResumeStatus(
+  killed: boolean,
+  completed: boolean,
+  failedStatus: RunStatus | undefined,
+): "completed" | "failed" | "blocked" | "killed" {
+  if (killed) return "killed";
+  if (failedStatus === "blocked") return "blocked";
+  return completed ? "completed" : "failed";
+}
+
+/** Settle an admitted linked row when routing continued on a different durable row. */
+function settleReplacedLinkedResume(args: {
+  store: StateStore;
+  runId: string;
+  replacementRunId: string;
+  executedRunIds: ReadonlySet<string>;
+  killed: boolean;
+  workflowFailed: boolean;
+  workflowThrew: boolean;
+  logSink?: LogSink;
+}): void {
+  try {
+    const { store, runId } = args;
+    const admitted = store.loadRun(runId);
+    if (admitted === null) return;
+    if (isSettledRunStatus(admitted.status)) {
+      args.logSink?.append(runId, { kind: "run_resume_replaced", replacementRunId: args.replacementRunId });
+      return;
+    }
+    const rows = [...args.executedRunIds].map((id) => store.loadRun(id)).filter((row) => row !== null);
+    const killedRow = rows.find((row) => row.status === "killed");
+    const failedRow = rows.find((row) => row.status === "failed" || row.status === "blocked");
+    const killed = args.killed || killedRow !== undefined;
+    const completed = !args.workflowFailed && rows.length > 0 && rows.every((row) => row.status === "completed");
+    const evidence = killed ? killedRow : failedRow;
+    const status = resolveReplacedLinkedResumeStatus(killed, completed, failedRow?.status);
+    if (!killed && !args.workflowThrew && rows.some((row) => row.status === "paused")) {
+      store.setRunStatus(runId, "paused");
+    } else {
+      const settlement = store.commitTerminalRunSettlement({
+        runId,
+        status,
+        terminalCause: evidence?.terminalCause ?? (killed ? null : completed ? "complete" : "invocation_failure"),
+        terminalFailureDetail: evidence?.terminalFailureDetail ?? null,
+      });
+      if (settlement.kind === "rejected") {
+        args.logSink?.append(runId, {
+          kind: "run_settlement_rejected",
+          attemptedStatus: settlement.attemptedStatus,
+          reportingIdentity: settlement.reportingIdentity,
+        });
+        return;
+      }
+    }
+    args.logSink?.append(runId, { kind: "run_resume_replaced", replacementRunId: args.replacementRunId });
+  } catch (settlementError) {
+    console.error(`Resumed linked row settlement for ${args.runId} failed:`, settlementError);
+  }
 }
 
 /** Best-effort like stage settlement: the owning `finally` can outlive the store at shutdown. */
@@ -236,18 +297,25 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     workflowSnapshot?: WorkflowSnapshot,
     settleStagesAfterResume?: (runId: string) => void,
     resumePublicationOptions?: { allowLanePrRepublish?: true },
+    resumedRunId?: string,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
+      const executedRunIds = new Set<string>();
       let entryRunId: string | undefined;
       let canonicalEntryRunId: string | undefined;
       let workflowInvocationId: string | undefined;
       let workflowSettledFailed = false;
+      let workflowThrew = false;
       let trackPromiseResolve: (() => void) | undefined;
       const trackPromise = new Promise<void>((res) => {
         trackPromiseResolve = () => res();
       });
       const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
+      if (resumedRunId !== undefined) {
+        workflowRunIds.add(resumedRunId);
+        activeRuns.set(resumedRunId, { kind: "workflow", runId: resumedRunId, abortController });
+      }
       const telemetry =
         operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
       const stepsForExecution = steps.map((step) => ({ ...step, signal: abortController.signal }));
@@ -287,6 +355,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           ...(telemetry !== undefined ? { telemetry } : {}),
           onReviewDebateProgress: reportReviewProgress,
           onStepRunCreated: (stepIndex, runId) => {
+            executedRunIds.add(runId);
             workflowRunIds.add(runId);
             activeRuns.set(runId, { kind: "workflow", runId, abortController });
             // Linked-implement link and shrink rows also report step 0; only the first is the entry.
@@ -330,6 +399,20 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
         );
         writeWorkflowInvocationSettledMarkerBestEffort(store, settlementEntryRunId, settledCause);
       };
+      const settleResumedLinkedRow = (killedWorkflowRuns: readonly string[]): void => {
+        if (resumedRunId !== undefined && entryRunId !== undefined && !executedRunIds.has(resumedRunId)) {
+          settleReplacedLinkedResume({
+            store,
+            runId: resumedRunId,
+            replacementRunId: entryRunId,
+            executedRunIds,
+            killed: killedWorkflowRuns.length > 0,
+            workflowFailed: workflowSettledFailed,
+            workflowThrew,
+            ...(logSink !== undefined ? { logSink } : {}),
+          });
+        }
+      };
       execute()
         .then((result) => {
           // A workflow that returns a non-`complete` outcome is not an exception, so the catch
@@ -347,9 +430,10 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
         })
         .catch((err) => {
           workflowSettledFailed = true;
+          workflowThrew = true;
           const message = err instanceof Error ? err.message : String(err);
           console.error(`Workflow execution failed (${workflowTelemetryLabel(steps)}): ${message}`);
-          if (workflowRunIds.size === 0) {
+          if (entryRunId === undefined) {
             resolve({
               kind: "error",
               code:
@@ -361,17 +445,21 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
               message,
             });
           }
-          for (const runId of workflowRunIds) {
+          for (const runId of executedRunIds) {
             settleFailedWorkflowRun(runId, message, logSink);
           }
         })
         .finally(() => {
           runTimeout.settle();
-          logSink?.close();
-          const killedWorkflowRuns = [...workflowRunIds].filter((runId) => {
+          let killedWorkflowRuns = [...workflowRunIds].filter((runId) => {
             const activeRun = activeRuns.get(runId);
             return activeRun?.kind === "workflow" && activeRun.pendingKill;
           });
+          if (resumedRunId !== undefined && killedWorkflowRuns.length > 0) {
+            killedWorkflowRuns = [...workflowRunIds];
+          }
+          settleResumedLinkedRow(killedWorkflowRuns);
+          logSink?.close();
           for (const runId of workflowRunIds) activeRuns.delete(runId);
           settleKilledWorkflowOwnership({
             killedRunIds: killedWorkflowRuns,
@@ -517,6 +605,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     rollbackRunAdmission?: () => void,
     settleStagesAfterResume?: (runId: string) => void,
     resumePublicationOptions?: { allowLanePrRepublish?: true },
+    resumedRunId?: string,
   ): WorkflowStartResult => {
     const workflowKey = workflowStartOwnershipKey(steps);
     const firstStep = steps[0];
@@ -545,6 +634,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           workflowSnapshot,
           settleStagesAfterResume,
           resumePublicationOptions,
+          resumedRunId,
         ),
     });
   };

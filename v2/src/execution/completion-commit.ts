@@ -13,6 +13,7 @@ import {
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
+import { HARNESS_TEST_SLICE_REQUEST_FILE } from "./harness-test-slice.ts";
 import {
   MAIN_SYNC_ABSENT_BLOB,
   type MainSyncPathBlobs,
@@ -361,12 +362,13 @@ const EXCLUDE_MATERIALIZED_NODE_MODULES = ["--", ".", `:(exclude)${NODE_MODULES_
 // completion commit stages the whole worktree. The `glob` magic word (not the default pathspec
 // matching) is required for `**/` to match both the root and nested depths.
 const EXCLUDE_REVIEW_VERDICTS = ":(exclude,glob)**/verdict-*.md";
-// Harness-owned root sidecars: PR review capture (pr-review-input-capture.ts) and the agent-authored
-// review-feedback response. Never durable output. Glob-classified via a bracketed final character
-// (like NODE_MODULES_GLOB): a literal exclusion of a gitignored path hard-fails `add -A`.
+// Harness-owned root sidecars: PR review capture (pr-review-input-capture.ts), the agent-authored
+// review-feedback response, and the implement integration-slice test request. Never durable
+// output. Glob-classified via a bracketed final character (like NODE_MODULES_GLOB): a literal exclusion of a gitignored path hard-fails `add -A`.
 const HARNESS_TRANSIENT_ROOT_SIDECARS: readonly string[] = [
   ".jarvis-pr-review-input.json",
   REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+  HARNESS_TEST_SLICE_REQUEST_FILE,
 ];
 const EXCLUDE_HARNESS_TRANSIENT_SIDECARS = HARNESS_TRANSIENT_ROOT_SIDECARS.map(
   (path) => `:(exclude)${path.slice(0, -1)}[${path.slice(-1)}]`,

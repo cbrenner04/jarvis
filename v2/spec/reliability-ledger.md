@@ -6,15 +6,15 @@ Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20
 
 None — all immediate workstreams merged.
 
-## Follow-on workflow quality: seed (1)
+## Follow-on workflow quality: seeds (0)
 
-| Item | Next action / dependency | Remaining scope |
+None queued.
+
+## Operator features and ergonomics: seed (1)
+
+| Item | Next action | Remaining scope |
 | --- | --- | --- |
-| [Harness-run integration measurements](./seeds/implement-can-run-integration-slice-tests.md) | Intent | Observable harness execution for measurement criteria. |
-
-## Operator features and ergonomics: seeds (0)
-
-None — serial chained fan-out lanes merged.
+| [Chained lane rebases after predecessor merge](./seeds/chained-lane-rebases-after-predecessor-merge.md) | Intent | Serial chained fan-out lanes landed; a dependent lane stays stacked on its predecessor's implement branch and conflicts after squash-merge. |
 
 ## Parked design and cleanup: seeds (6)
 

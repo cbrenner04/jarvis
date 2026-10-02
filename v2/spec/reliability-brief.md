@@ -13,8 +13,8 @@ There are **0 open active spec plans, 1 ready-intent, and 10 seeds**. Nine merge
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |
 | Immediate reliability | 0 | 0 | 0 | Target closed below |
-| Follow-on workflow quality | 0 | 0 | 1 | Separate prioritization after the immediate queue |
-| Operator features and ergonomics | 0 | 0 | 0 | Useful additions, outside the completion target |
+| Follow-on workflow quality | 0 | 0 | 0 | Separate prioritization after the immediate queue |
+| Operator features and ergonomics | 0 | 0 | 1 | Useful additions, outside the completion target |
 | Parked design and cleanup | 0 | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
 | Parked owner seeds (outside target) | 0 | 0 | 3 | #4419 — not in the backlog |
 | Evidence-gated investigation | 0 | 1 | 0 | WAL failure capture required |

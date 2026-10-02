@@ -131,9 +131,15 @@ describe("gate-invocation-lease", () => {
   test("awaitGateInvocationLease rejects when timeoutMs elapses", async () => {
     const holder = acquireGateInvocationLease();
     expect(holder).toBeDefined();
-    await expect(awaitGateInvocationLease({ timeoutMs: 5 })).rejects.toThrow(
-      "gate invocation lease wait timed out after 5ms",
-    );
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    try {
+      const waiting = awaitGateInvocationLease({ timeoutMs: 5 });
+      // Assert the timer is armed before awaiting: an unarmed wait never settles and would hang the test.
+      expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+      await expect(waiting).rejects.toThrow("gate invocation lease wait timed out after 5ms");
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
     holder?.release();
     expect(liveGateInvocationLeaseCount()).toBe(0);
   });

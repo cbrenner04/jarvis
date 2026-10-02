@@ -220,14 +220,16 @@ test("post-commit shrink contract_miss composes to resume", () => {
 });
 
 test("post-commit shrink invocation_failure error composes to resume", () => {
-  const run = {
-    ...runWith("paused", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]),
-    terminalCause: "invocation_failure" as const,
-    terminalFailureDetail: { failureKind: "error" as const, bindingAttempts: [] },
-  };
-  expect(composeRunOperatorError(run, loopFinished("invocation_failure", { resumable: true }))).toEqual(
-    err("invocation_error", "resume", true),
-  );
+  expect(
+    composeRunOperatorError(
+      {
+        ...runWith("paused", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]),
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: { failureKind: "error", bindingAttempts: [] },
+      },
+      loopFinished("invocation_failure", { resumable: true }),
+    ),
+  ).toEqual(err("invocation_error", "resume", true));
 });
 
 test("composeRunOperatorError projects iteration_timeout inventoryError", () => {

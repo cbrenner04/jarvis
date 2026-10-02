@@ -4,7 +4,7 @@ repo: cbrenner04/jarvis
 
 Post-commit `implement~shrink` `invocation_failure` with `failureKind: "error"` settles `paused` without a corrective terminal `loop_finished`, and `composeRunOperatorErrorFromState` maps `terminalCause: "invocation_failure"` through `mapInvocationFailureDetail` before a resumable shrink-row `loop_finished` can advertise resume — list/wait and `jarvis run resume` refuse while the row stays `paused`.
 
-- [ ] [00 - Corrective loop_finished for post-commit shrink invocation error](./00-post-commit-shrink-invocation-error-loop-finished.md)
+- [x] [00 - Corrective loop_finished for post-commit shrink invocation error](./00-post-commit-shrink-invocation-error-loop-finished.md)
 
 ## Prerequisites
 

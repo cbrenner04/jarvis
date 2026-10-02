@@ -1620,26 +1620,37 @@ export async function startDaemonRuntime(
     runControlContext.retiring = false;
   };
 
+  const discoverDecisionPeerSocketPaths = (): readonly string[] => {
+    const ownSocketPath = startupDeps.privateSocketPath ?? socketPath;
+    const discovered = enumerateSockets(jarvisHome(), ownSocketPath);
+    const all =
+      startupDeps.predecessorSocketPath === undefined ? discovered : [startupDeps.predecessorSocketPath, ...discovered];
+    return [...new Set(all)].filter((path) => path !== ownSocketPath && path !== socketPath);
+  };
   const ownsRunLocally = (runId: string): boolean =>
     [...runControlContext.activeRuns.values()].some((activeRun) => activeRun.runId === runId);
-  const stableRunHandlers =
-    startupDeps.predecessorSocketPath === undefined
-      ? undefined
+  const stableRunHandlers = {
+    ...createStableRunHandlers(
+      { wait: runControlHandlers.wait, pause: runControlHandlers.pause, kill: runControlHandlers.kill },
+      {
+        ...(startupDeps.predecessorSocketPath === undefined
+          ? {}
+          : { predecessorSocketPath: startupDeps.predecessorSocketPath }),
+        discoverPeerSocketPaths: discoverDecisionPeerSocketPaths,
+        ownsRunLocally,
+        resolvePredecessorOwner: ownershipDirectory.resolveOwner,
+        connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
+      },
+    ),
+    ...(startupDeps.predecessorSocketPath === undefined
+      ? {}
       : {
-          ...createStableRunHandlers(
-            { wait: runControlHandlers.wait, pause: runControlHandlers.pause, kill: runControlHandlers.kill },
-            {
-              predecessorSocketPath: startupDeps.predecessorSocketPath,
-              ownsRunLocally,
-              resolvePredecessorOwner: ownershipDirectory.resolveOwner,
-              connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
-            },
-          ),
           pipeline_list: createStablePipelineListHandler(runControlHandlers.pipeline_list, {
             predecessorSocketPath: startupDeps.predecessorSocketPath,
             connectOwnerClient: startupDeps.connectRunOwnerClient ?? connectIpcClient,
           }),
-        };
+        }),
+  };
   // Stable-address-only, like `stableRunHandlers` above: a reachable direct predecessor still
   // owning the target run or worktree key is an admission conflict, refused before the local
   // `resume`/`start` handler ever runs. Never wired for the private endpoint.
@@ -1655,13 +1666,6 @@ export async function startDaemonRuntime(
   // `claimPipelineForDecision` still refuses a not-locally-owned, non-adoptable pipeline with
   // `pipeline_no_live_owner` instead of letting the plain local handler run unchecked.
   // Rediscovered per claim so a peer that appeared after startup is still consulted.
-  const discoverDecisionPeerSocketPaths = (): readonly string[] => {
-    const ownSocketPath = startupDeps.privateSocketPath ?? socketPath;
-    const discovered = enumerateSockets(jarvisHome(), ownSocketPath);
-    const all =
-      startupDeps.predecessorSocketPath === undefined ? discovered : [startupDeps.predecessorSocketPath, ...discovered];
-    return [...new Set(all)].filter((path) => path !== ownSocketPath && path !== socketPath);
-  };
   const stablePipelineDecisionHandlers = createStablePipelineDecisionHandlers(
     {
       pipeline_approve: runControlHandlers.pipeline_approve,

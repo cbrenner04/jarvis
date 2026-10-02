@@ -10,12 +10,12 @@ A live retiring daemon identity blocks force-killing a non-terminal row even whe
 
 ## Tasks
 
-- [ ] Implement the behavior and focused regression coverage.
+- [x] Implement the behavior and focused regression coverage.
 
 ## Acceptance criteria
 
-- [ ] daemon-run-lifecycle-kill.test.ts, daemon ownership-routing tests and state-store.test.ts prove a live owner with no active execution can settle killed with force, active owners are routed normally, and unavailable ownership evidence cannot authorize force; tests fail against pre-fix refusal.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md` and `bun run test:v2` pass; integration coverage runs in CI.
+- [x] daemon-force-kill-owner.test.ts (routing via `createStableRunHandlers` and `startDaemonRuntime` wiring; existing `forceKillOwnerAdmits` guard, unchanged) proves a live owner with no active execution can settle killed with force, active owners are routed normally, and unavailable ownership evidence cannot authorize force; tests fail against pre-fix refusal.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md` and `bun run test:v2` pass; integration coverage runs in CI.
 
 ## Documentation updates
 

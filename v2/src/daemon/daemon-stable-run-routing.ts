@@ -21,7 +21,8 @@ type DirectOwnerRunMethod = (typeof DIRECT_OWNER_RUN_METHODS)[number];
 type DirectOwnerRunHandlers = Record<DirectOwnerRunMethod, RpcHandler>;
 
 type DirectOwnerRunRoutingDeps = {
-  predecessorSocketPath: string;
+  predecessorSocketPath?: string;
+  discoverPeerSocketPaths?: () => readonly string[];
   ownsRunLocally: (runId: string) => boolean;
   resolvePredecessorOwner: (runId: string) => Promise<boolean>;
   connectOwnerClient: (socketPath: string) => Promise<IpcClient>;
@@ -37,14 +38,16 @@ async function forwardToDirectOwner(
   params: unknown,
   signal: AbortSignal,
   deps: DirectOwnerRunRoutingDeps,
+  socketPath: string,
+  timeoutMs?: number,
 ): Promise<Awaited<ReturnType<RpcHandler>>> {
-  const client = await deps.connectOwnerClient(deps.predecessorSocketPath);
+  const client = await deps.connectOwnerClient(socketPath);
   const transport = createRpcTransport(client);
   const close = (): void => transport.close();
   signal.addEventListener("abort", close, { once: true });
   try {
     if (signal.aborted) throw new Error("request aborted");
-    const result = await transport.request(method, params);
+    const result = await transport.request(method, params, timeoutMs === undefined ? undefined : { timeoutMs });
     return { kind: "response", result };
   } catch (error) {
     if (error instanceof RpcError) {
@@ -55,6 +58,35 @@ async function forwardToDirectOwner(
     signal.removeEventListener("abort", close);
     transport.close();
   }
+}
+
+async function tryForceKillPeer(
+  frame: Parameters<RpcHandler>[0],
+  signal: AbortSignal,
+  deps: DirectOwnerRunRoutingDeps,
+): Promise<Awaited<ReturnType<RpcHandler>> | undefined> {
+  if (!isRecord(frame.params) || frame.params.force !== true) return undefined;
+  const peers = new Set(deps.discoverPeerSocketPaths?.() ?? []);
+  if (deps.predecessorSocketPath !== undefined) peers.add(deps.predecessorSocketPath);
+  for (const socketPath of peers) {
+    if (signal.aborted) return undefined;
+    try {
+      // The owning generation settles inactive rows under its own identity. Other live
+      // generations still refuse through forceKillOwnerAdmits; no ownership is stolen.
+      const reply = await forwardToDirectOwner(
+        "kill",
+        frame.params,
+        signal,
+        deps,
+        socketPath,
+        PIPELINE_OWNER_RPC_TIMEOUT_MS,
+      );
+      if (reply.kind === "response") return reply;
+    } catch {
+      // A missing peer is no proof of dead ownership. The local force guard decides.
+    }
+  }
+  return undefined;
 }
 
 // Strictly shorter than PIPELINE_OWNER_RPC_TIMEOUT_MS, leaving headroom for local processing so a
@@ -116,8 +148,12 @@ export function createStableRunHandlers(
       const runId = runIdFromFrame(frame);
       if (runId === undefined || deps.ownsRunLocally(runId)) return localHandlers[method](frame, signal);
       const predecessorOwnsRun = await ownedOrLocal(() => deps.resolvePredecessorOwner(runId));
-      if (deps.ownsRunLocally(runId) || !predecessorOwnsRun) return localHandlers[method](frame, signal);
-      return forwardToDirectOwner(method, frame.params, signal, deps);
+      if (deps.ownsRunLocally(runId)) return localHandlers[method](frame, signal);
+      if (predecessorOwnsRun && deps.predecessorSocketPath !== undefined) {
+        return forwardToDirectOwner(method, frame.params, signal, deps, deps.predecessorSocketPath);
+      }
+      const forcedReply = method === "kill" ? await tryForceKillPeer(frame, signal, deps) : undefined;
+      return forcedReply ?? localHandlers[method](frame, signal);
     };
   }
   return routed;

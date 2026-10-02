@@ -1,22 +1,22 @@
 # Harness reliability brief
 
-Reviewed 2026-10-02 (close) against `main` after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Scope: active `v2/spec/` files, excluding `completed/`. [Ledger](./reliability-ledger.md) owns the item inventory, dependencies, and review caveats. Historical evidence stays in git and `reports/`.
+Reviewed 2026-10-02 (late) against `main` after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md), the 2026-10-02 day session, and the 2026-10-02 intent-split session. Scope: active `v2/spec/` files, excluding `completed/`. [Ledger](./reliability-ledger.md) owns the item inventory, dependencies, and review caveats. Historical evidence stays in git and `reports/`.
 
 ## Structural recovery is closed
 
-The August 29 charter's five retirements are complete. This is a separate, bounded reliability backlog; later defects and feature requests do not reopen that charter. CLI retirement is an unfinished original side item, parked (the `run pause` decision is made: retire).
+The August 29 charter's five retirements are complete. This is a separate, bounded reliability backlog; later defects and feature requests do not reopen that charter. CLI retirement is an unfinished original side item, now split into ready-intents (the `run pause` decision is made: retire).
 
 ## Current inventory
 
-There are **0 open active spec plans, 1 ready-intent, and 10 seeds**. Merged specs are archived (#4486 #4487, published by cleanup itself via #4469). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **0 open active spec plans, 33 ready-intents, and 0 seeds**. Every seed was split by surface into ready-intents on 2026-10-02 (#4489–#4498); the queue is now plan-ready, not executable: a ready-intent still needs `plan` and a merged spec before `implement`.
 
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |
 | Immediate reliability | 0 | 0 | 0 | Target closed below |
-| Follow-on workflow quality | 0 | 0 | 0 | Separate prioritization after the immediate queue |
-| Operator features and ergonomics | 0 | 0 | 1 | Useful additions, outside the completion target |
-| Parked design and cleanup | 0 | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
-| Parked owner seeds (outside target) | 0 | 0 | 3 | #4419 — not in the backlog |
+| Operator features and ergonomics | 0 | 1 | 0 | Plan when wanted |
+| Parked design and cleanup | 0 | 19 | 0 | Preserve decisions and dependencies; plan in chain order |
+| Owner features (outside target) | 0 | 6 | 0 | #4419 — owner direction decides when |
+| Held: owner sign-off | 0 | 6 | 0 | Toolset split; do not plan until signed off |
 | Evidence-gated investigation | 0 | 1 | 0 | WAL failure capture required |
 
 ## Immediate reliability target
@@ -28,7 +28,8 @@ There are **0 open active spec plans, 1 ready-intent, and 10 seeds**. Merged spe
 ## Execution order and boundaries
 
 - Load is the main gate-flake source: `v2/src/commands/cleanup.test.ts` runs ~69 s alone and times out under load; re-run named failures in isolation before believing a red gate.
-- WAL work requires a real captured rejection. Harness-owned agent tools require explicit owner sign-off. `run pause` retires (owner decision 2026-10-02); CLI retirement and dock grammar are unblocked but remain parked.
+- Plan chained intents in `(delivered by: …)` order, one at a time against the merged predecessor ([spec-guidance.md § Plan same-seam siblings serially](../docs/spec-guidance.md#plan-same-seam-siblings-serially)). Cross-split chains: tui grammar after `retire-run-pause`; `move-v2-to-top-level` after the shared fold; free-text dispatch and the toolset after `shared-git-operations-boundary`.
+- WAL work requires a real captured rejection. The toolset intents require explicit owner sign-off.
 
 ## Maintenance
 

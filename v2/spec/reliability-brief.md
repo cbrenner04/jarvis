@@ -8,7 +8,7 @@ The August 29 charter's five retirements are complete. This is a separate, bound
 
 ## Current inventory
 
-There are **0 open active spec plans, 1 ready-intent, and 11 seeds**. Nine merged spec dirs and seven consumed ready-intents still sit in `v2/spec/` until the next `jarvis cleanup` archives and prunes them (#4469 now publishes that archive PR itself). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **0 open active spec plans, 1 ready-intent, and 10 seeds**. Nine merged spec dirs and seven consumed ready-intents still sit in `v2/spec/` until the next `jarvis cleanup` archives and prunes them (#4469 now publishes that archive PR itself). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
 
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |

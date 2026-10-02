@@ -1,6 +1,6 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 11 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 10 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
 ## Immediate reliability: seeds (0)
 
@@ -14,7 +14,7 @@ None — all immediate workstreams merged.
 
 ## Operator features and ergonomics: seeds (0)
 
-None. Serial chained fan-out lanes landed by hand.
+None — serial chained fan-out lanes merged.
 
 ## Parked design and cleanup: seeds (6)
 

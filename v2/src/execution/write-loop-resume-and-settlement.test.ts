@@ -357,6 +357,7 @@ describe("write loop", () => {
         prNumber: 1,
         threads: [{ threadId: reviewThreadId, outdated: false, comments: [] }],
         topLevelComments: [],
+        reviewBodies: [],
       })}\n`,
       "utf8",
     );

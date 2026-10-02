@@ -113,7 +113,7 @@ function writeReviewArtifact(workspace: string, marker: string): void {
   const artifactPath = resolvePrReviewInputArtifactPath(workspace);
   writeFileSync(
     artifactPath,
-    `${JSON.stringify({ captureVersion: 1, prNumber: PR_NUMBER, threads: [{ marker }], topLevelComments: [] }, null, 2)}\n`,
+    `${JSON.stringify({ captureVersion: 1, prNumber: PR_NUMBER, threads: [{ marker }], topLevelComments: [], reviewBodies: [] }, null, 2)}\n`,
     "utf8",
   );
   execFileSync("git", ["add", artifactPath], { cwd: workspace });
@@ -133,6 +133,7 @@ function writeTwoThreadCapture(workspace: string): void {
           { threadId: "capture-thread-two", outdated: false, comments: [] },
         ],
         topLevelComments: [],
+        reviewBodies: [],
       },
       null,
       2,

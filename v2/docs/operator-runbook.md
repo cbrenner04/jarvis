@@ -190,8 +190,8 @@ After settlement, addressed, declined, and unaddressed capture ids (`threadId` /
 | Code | Meaning |
 | --- | --- |
 | `review_feedback_lane_in_flight` | Any non-terminal run remains on `(project, branch)` (including `paused`); finish or kill the in-flight run before starting another review-feedback round on that branch. |
-| `review_feedback_lane_unmatched` | No completed eligible lane matched (includes rollup-completed rows without both `prNumber` and `prUrl`, and missing pipeline disambiguators). |
-| `review_feedback_lane_ambiguous` | More than one completed eligible bare lane on the branch. |
+| `review_feedback_lane_unmatched` | No completed eligible lane matched (includes rollup-completed rows without both `prNumber` and `prUrl` anywhere on the invocation, and missing pipeline disambiguators). Does not apply to a completed linked implement lane (bare or pipeline) when rollup and PR evidence resolve across invocation siblings. |
+| `review_feedback_lane_ambiguous` | More than one completed eligible bare lane on the branch (including two eligible invocations such as one plain `implement` and one completed linked implement). |
 | `review_feedback_lane_not_eligible` | First workflow step is not base intent, plan, or implement. |
 | `review_feedback_pr_branch_mismatch` | Open PR `headRefName` ≠ resolved lane branch. |
 | `review_feedback_pr_no_review` | Open PR has no submitted review (`submittedAt` on any review). |

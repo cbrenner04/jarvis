@@ -17,6 +17,7 @@ import {
   LeaseRejectedError,
   OpenPrNotDraftError,
   OpenPrUnavailableAfterHarnessUndoError,
+  publishArchiveReady,
 } from "./completion-publisher.ts";
 import * as prBodyRefreshModule from "./pr-body-refresh.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
@@ -2209,6 +2210,122 @@ describe("createCompletionPublisher lease-forced push", () => {
     expect(error).toBeInstanceOf(LeaseRejectedError);
     expect((error as Error).message).toContain("expected remote cafe1234");
     expect((error as Error).message).toContain("actual beef5678");
+  });
+});
+
+describe("publishArchiveReady", () => {
+  const archiveInput = {
+    worktreePath: "/tmp/archive-worktree",
+    branch: "cleanup/archive-20261002T120000Z",
+    baseRef: "main",
+    title: "Archive completed specs",
+    body: "Moves completed spec dirs into completed/.",
+  };
+  const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
+
+  it("creates a ready PR with caller title and body when no open PR exists", async () => {
+    const ghCalls: string[] = [];
+    const result = await publishArchiveReady(archiveInput, {
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/501";
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(501, "https://github.com/user/repo/pull/501");
+        }
+        return "";
+      },
+    });
+
+    expect(result.pushSha).toBe("archive-push-sha");
+    expect(result.prNumber).toBe(501);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/501");
+    const creates = ghCalls.filter((c) => c.startsWith("pr create"));
+    expect(creates).toHaveLength(1);
+    expect(creates[0]).not.toContain("--draft");
+    expect(creates[0]).toContain(`--base ${archiveInput.baseRef}`);
+    expect(creates[0]).toContain(archiveInput.title);
+    expect(creates[0]).toContain(archiveInput.body);
+    expect(ghCalls.some((c) => c.startsWith("pr view"))).toBe(true);
+  });
+
+  it("reuses a sole open ready PR without create", async () => {
+    const ghCalls: string[] = [];
+    const result = await publishArchiveReady(archiveInput, {
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 88, baseRefName: archiveInput.baseRef, isDraft: false }]);
+        }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(88, "https://github.com/user/repo/pull/88");
+        }
+        return "";
+      },
+    });
+
+    expect(result.prNumber).toBe(88);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/88");
+    expect(ghCalls.some((c) => c.startsWith("pr create"))).toBe(false);
+    expect(ghCalls.filter((c) => c.startsWith("pr view"))).toHaveLength(1);
+  });
+
+  it("promotes a sole open draft with gh pr ready and reuses without create", async () => {
+    const ghCalls: string[] = [];
+    const result = await publishArchiveReady(archiveInput, {
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 77, baseRefName: archiveInput.baseRef, isDraft: true }]);
+        }
+        if (args[0] === "pr" && args[1] === "ready" && args[2] !== "--undo") return "";
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(77, "https://github.com/user/repo/pull/77");
+        }
+        return "";
+      },
+    });
+
+    expect(result.prNumber).toBe(77);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/77");
+    expect(ghCalls.filter((c) => c === "pr ready 77")).toHaveLength(1);
+    expect(ghCalls.some((c) => c.startsWith("pr create"))).toBe(false);
+  });
+
+  it("surfaces confirmPr failure after create without a second create", async () => {
+    let createCount = 0;
+    await expect(
+      publishArchiveReady(archiveInput, {
+        git: async (_cwd, args) => {
+          if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
+          return "";
+        },
+        gh: async (_cwd, args) => {
+          if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+          if (args[0] === "pr" && args[1] === "create") {
+            createCount += 1;
+            return "https://github.com/user/repo/pull/502";
+          }
+          if (args[0] === "pr" && args[1] === "view") {
+            throw new Error("no pull requests found for this branch");
+          }
+          return "";
+        },
+      }),
+    ).rejects.toThrow("no pull requests found for this branch");
+    expect(createCount).toBe(1);
   });
 });
 

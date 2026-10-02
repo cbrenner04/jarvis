@@ -64,6 +64,21 @@ type CompletionPublisherResult = {
 
 export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<CompletionPublisherResult>;
 
+export type ArchiveReadyPublicationInput = {
+  worktreePath: string;
+  branch: string;
+  baseRef: string;
+  title: string;
+  body: string;
+  signal?: AbortSignal;
+};
+
+export type ArchiveReadyPublicationResult = {
+  pushSha: string;
+  prNumber: number;
+  prUrl: string;
+};
+
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 type Delay = (ms: number) => Promise<void>;
@@ -192,6 +207,27 @@ async function pushBranch(git: Git, cwd: string, branch: string, leaseFromSha: s
     if (!stale && (actual === undefined || actual === leaseTip)) throw error;
     throw new LeaseRejectedError(branch, leaseTip, actual, error);
   }
+}
+
+/** Push archive branch (no lease) and open or reuse a ready PR for the caller title/body. */
+export async function publishArchiveReady(
+  input: ArchiveReadyPublicationInput,
+  seams?: Partial<Pick<PublisherSeams, "git" | "gh">>,
+): Promise<ArchiveReadyPublicationResult> {
+  const git: Git = seams?.git ?? ((cwd, args, env) => defaultCommand("git", cwd, args, env, input.signal));
+  const gh: GhCommand = seams?.gh ?? ((cwd, args, env) => defaultCommand("gh", cwd, args, env, input.signal));
+
+  await pushBranch(git, input.worktreePath, input.branch, undefined);
+  const pushSha = await git(input.worktreePath, ["rev-parse", "HEAD"]);
+  const evidence = await findOrOpenReuseArchivePr(
+    gh,
+    input.worktreePath,
+    input.branch,
+    input.baseRef,
+    input.title,
+    input.body,
+  );
+  return { pushSha, prNumber: evidence.number, prUrl: evidence.url };
 }
 
 /** Publishes completion commit: push to origin and ensure open draft PR. Retryable on transient failures. */
@@ -478,6 +514,14 @@ export async function resolveOpenDraftPr(
   return confirmPr(gh, cwd, branch, baseRef, match.number);
 }
 
+function mapNoPublishableCommits(error: unknown, branch: string, baseRef: string): never {
+  const message = errorMessage(error);
+  if (/no commits between/i.test(message)) {
+    throw new NoPublishableCommitsError(branch, baseRef);
+  }
+  throw error;
+}
+
 async function createDraftPr(
   gh: GhCommand,
   cwd: string,
@@ -499,12 +543,52 @@ async function createDraftPr(
       `Spec: ${specPath}`,
     ]);
   } catch (error) {
-    const message = errorMessage(error);
-    if (/no commits between/i.test(message)) {
-      throw new NoPublishableCommitsError(branch, baseRef);
-    }
-    throw error;
+    mapNoPublishableCommits(error, branch, baseRef);
   }
+}
+
+async function createReadyPr(
+  gh: GhCommand,
+  cwd: string,
+  baseRef: string,
+  branch: string,
+  title: string,
+  body: string,
+): Promise<void> {
+  try {
+    await gh(cwd, ["pr", "create", "--base", baseRef, "--title", title, "--body", body]);
+  } catch (error) {
+    mapNoPublishableCommits(error, branch, baseRef);
+  }
+}
+
+async function findOrOpenReuseArchivePr(
+  gh: GhCommand,
+  cwd: string,
+  branch: string,
+  baseRef: string,
+  title: string,
+  body: string,
+): Promise<PrEvidence> {
+  const matches = await listMatchingPrs(gh, cwd, branch, baseRef, "open");
+  if (matches.length > 1) {
+    throw new AmbiguousOpenPrError(
+      branch,
+      baseRef,
+      matches.map((pr) => pr.number),
+    );
+  }
+  const sole = matches[0];
+  if (sole !== undefined) {
+    if (sole.isDraft === false) {
+      return confirmPr(gh, cwd, branch, baseRef, sole.number);
+    }
+    await gh(cwd, ["pr", "ready", String(sole.number)]);
+    return confirmPr(gh, cwd, branch, baseRef, sole.number);
+  }
+
+  await createReadyPr(gh, cwd, baseRef, branch, title, body);
+  return confirmPr(gh, cwd, branch, baseRef);
 }
 
 async function findOrCreatePr(

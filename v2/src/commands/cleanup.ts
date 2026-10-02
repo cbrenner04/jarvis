@@ -54,6 +54,7 @@ import {
   type ArchivePublicationResult,
   type ArchivePublicationSession,
   cleanupBranchCarryingArchive,
+  committedBlobIdsAtRef,
   createArchivePublicationSession,
 } from "./cleanup-archive-publication.ts";
 import {
@@ -1481,15 +1482,16 @@ async function archiveRetiredArtifact(
   reportArchive(spec, await archiveArtifactSpec(spec, candidate.project, projectRoot, sessions), "artifact", io);
 }
 
-type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
-type StrandedArtifact = DiscoveredStrandedArtifact & {
-  branch: string;
+type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & {
+  project: string;
+  /** In-repo ready-intent queue entries only: the open spec proven (on the default branch) to consume it. */
   inRepoReadyIntentConsumer?: Pick<ArtifactSpec, "home" | "source" | "name">;
 };
+type StrandedArtifact = DiscoveredStrandedArtifact & { branch: string };
 
 function previewArtifact(spec: StrandedArtifact | ArtifactSpec, io: { stdout: (s: string) => void }): void {
   if (spec.queue !== undefined) {
-    const inRepoConsumer = "inRepoReadyIntentConsumer" in spec ? spec.inRepoReadyIntentConsumer : undefined;
+    const inRepoConsumer = "project" in spec ? spec.inRepoReadyIntentConsumer : undefined;
     if (inRepoConsumer !== undefined) {
       io.stdout(`  prune: ready-intents/${basename(spec.source)} (consumed by open spec ${inRepoConsumer.name})\n`);
       return;
@@ -1612,65 +1614,36 @@ function discoverExternalQueueStrandedArtifacts(
   return artifacts;
 }
 
-async function listChildNamesOnRef(
+/** Open spec directory names under `relHome` as committed on `ref` (trees only; not `completed/` or queues). */
+async function openInRepoSpecDirNamesOnRef(
   projectRoot: string,
+  relHome: string,
   ref: string,
-  relDir: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string[]> {
   let listing: string;
   try {
-    listing = await runner.runAsync("git", ["ls-tree", "--name-only", `${ref}:${relDir}`], projectRoot);
+    listing = await runner.runAsync("git", ["ls-tree", "-z", `${ref}:${relHome}`], projectRoot);
   } catch {
     return [];
   }
-  return listing.split("\n").filter((line) => line.length > 0);
-}
-
-/** Open spec directory names under `home` as committed on `ref` (not under `completed/`). */
-async function openInRepoSpecDirNamesOnRef(
-  projectRoot: string,
-  home: string,
-  ref: string,
-  runner: AsyncSubprocessRunner,
-): Promise<string[]> {
-  const relHome = relative(projectRoot, home);
-  if (relHome === "" || relHome.startsWith("..") || isAbsolute(relHome)) return [];
-  const children = await listChildNamesOnRef(projectRoot, ref, relHome, runner);
-  return children.filter(
-    (name) =>
-      !QUEUE_DIR_NAMES.includes(name) &&
-      name !== "completed" &&
-      !name.startsWith(".") &&
-      !isHarnessWorkflowStagingPath(name),
-  );
-}
-
-async function findInRepoOpenSpecConsumingReadyIntent(
-  artifact: DiscoveredStrandedArtifact,
-  projectRoot: string,
-  runner: AsyncSubprocessRunner,
-): Promise<StrandedArtifact["inRepoReadyIntentConsumer"]> {
-  const baseBranch = await getBaseBranch(projectRoot, runner);
-  const homeFs = await specTreeFsAtRef(projectRoot, artifact.home, baseBranch, runner);
-  if (homeFs === undefined) return undefined;
-
-  for (const name of await openInRepoSpecDirNamesOnRef(projectRoot, artifact.home, baseBranch, runner)) {
-    const specAbs = join(artifact.home, name);
-    const specArtifact: ArtifactSpec = { home: artifact.home, source: specAbs, name, branch: "" };
-    let readyIntent: string | undefined;
-    try {
-      readyIntent = resolveConsumedReadyIntent(specArtifact, homeFs);
-    } catch {
-      continue;
-    }
-    if (readyIntent !== undefined && resolve(readyIntent) === resolve(artifact.source)) {
-      return { home: artifact.home, source: specAbs, name };
-    }
+  const names: string[] = [];
+  for (const entry of listing.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab < 0 || entry.slice(0, tab).split(" ")[1] !== "tree") continue;
+    const name = entry.slice(tab + 1);
+    if (QUEUE_DIR_NAMES.includes(name) || name === "completed" || name.startsWith(".")) continue;
+    if (isHarnessWorkflowStagingPath(name)) continue;
+    names.push(name);
   }
-  return undefined;
+  return names;
 }
 
+/**
+ * In-repo ready-intents committed on each project's default branch, each paired with the open spec
+ * whose `intent.md` carries its bytes there. Constant git calls per project: one default-branch
+ * lookup, one home listing, one blob-id listing (byte equality is blob-id equality; no blob is read).
+ */
 async function discoverInRepoReadyIntentQueueArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
   runner: AsyncSubprocessRunner,
@@ -1679,21 +1652,34 @@ async function discoverInRepoReadyIntentQueueArtifacts(
   for (const [project, entry] of Object.entries(registry)) {
     const home = join(entry.root, "v2", "spec");
     const relHome = relative(entry.root, home);
-    if (relHome.startsWith("..") || isAbsolute(relHome)) continue;
-    let baseBranch: string;
-    try {
-      baseBranch = await getBaseBranch(entry.root, runner);
-    } catch {
-      continue;
+    const baseBranch = await getBaseBranch(entry.root, runner);
+    const openSpecs = await openInRepoSpecDirNamesOnRef(entry.root, relHome, baseBranch, runner);
+    const queueDir = join(home, "ready-intents");
+    const committed = await committedBlobIdsAtRef(runner, entry.root, entry.root, baseBranch, [
+      join(relHome, "ready-intents"),
+      ...openSpecs.map((name) => join(relHome, name, "intent.md")),
+    ]);
+    if (committed === undefined) continue;
+
+    const consumers = new Map<string, NonNullable<DiscoveredStrandedArtifact["inRepoReadyIntentConsumer"]>>();
+    for (const name of openSpecs) {
+      const source = join(home, name);
+      const readyIntent = resolveConsumedReadyIntent({ home, source, name, branch: "" }, committed.fs);
+      if (readyIntent !== undefined && !consumers.has(resolve(readyIntent))) {
+        consumers.set(resolve(readyIntent), { home, source, name });
+      }
     }
-    for (const name of await listChildNamesOnRef(entry.root, baseBranch, join(relHome, "ready-intents"), runner)) {
-      if (name.startsWith(".") || !name.endsWith(".md")) continue;
+    for (const source of committed.paths) {
+      const name = basename(source);
+      if (dirname(source) !== resolve(queueDir) || name.startsWith(".") || !name.endsWith(".md")) continue;
+      const consumer = consumers.get(source);
       artifacts.push({
         home,
-        source: join(home, "ready-intents", name),
+        source,
         name: name.slice(0, -3),
         project,
         queue: "ready-intent",
+        ...(consumer === undefined ? {} : { inRepoReadyIntentConsumer: consumer }),
       });
     }
   }
@@ -1701,27 +1687,20 @@ async function discoverInRepoReadyIntentQueueArtifacts(
 }
 
 /** Queue entries are never spec trees: decide them here so no completeness or branch check runs. */
-async function inspectQueueEntry(
+function inspectQueueEntry(
   artifact: DiscoveredStrandedArtifact,
   skips: ArtifactSkipLedger,
-  projectRoot: string,
-  runner: AsyncSubprocessRunner,
-  registry: Record<string, ProjectRegistryEntry>,
-  allWorktrees: readonly DiscoveredWorktree[],
-  jarvisRoot: string,
-  store: StateStore,
-): Promise<StrandedArtifact | undefined> {
+): StrandedArtifact | undefined {
   if (artifact.queue === "seed") {
     skips.skip(artifact.source, "pending seed: consumed by intent admission, not cleanup");
     return undefined;
   }
   if (!QUEUE_DIR_NAMES.includes(basename(artifact.home))) {
-    const consumer = await findInRepoOpenSpecConsumingReadyIntent(artifact, projectRoot, runner);
-    if (consumer === undefined) {
+    if (artifact.inRepoReadyIntentConsumer === undefined) {
       skips.skip(artifact.source, "unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
       return undefined;
     }
-    return { ...artifact, branch: "", inRepoReadyIntentConsumer: consumer };
+    return { ...artifact, branch: "" };
   }
   const consumer = consumedExternalReadyIntentPlan({ ...artifact, branch: "" });
   if (consumer === undefined) {
@@ -1941,12 +1920,21 @@ export async function inspectStrandedArtifacts(
     if (projectRoot === undefined) continue;
     const inspected =
       artifact.queue !== undefined
-        ? await inspectQueueEntry(artifact, skips, projectRoot, runner, registry, allWorktrees, jarvisRoot, store)
+        ? inspectQueueEntry(artifact, skips)
         : await inspectSpecArtifact(artifact, projectRoot, registry, allWorktrees, jarvisRoot, store, runner, skips);
     if (inspected !== undefined) eligible.push(inspected);
   }
   if (sharedSkips === undefined) skips.flush();
-  return eligible;
+  return withoutPrunesOfArchivingSpecs(eligible);
+}
+
+/** A ready-intent whose consuming open spec archives this run is pruned by that archive; drop the separate prune. */
+function withoutPrunesOfArchivingSpecs(eligible: StrandedArtifact[]): StrandedArtifact[] {
+  const archiving = new Set(eligible.filter((a) => a.queue === undefined).map((a) => resolve(a.source)));
+  return eligible.filter((a) => {
+    const consumer = a.inRepoReadyIntentConsumer;
+    return consumer === undefined || !archiving.has(resolve(consumer.source));
+  });
 }
 
 function reportArchive(
@@ -2441,7 +2429,7 @@ async function retireStrandedArtifacts(
         const consumer: ArtifactSpec = { ...spec.inRepoReadyIntentConsumer, branch: "" };
         reportArchive(
           consumer,
-          await sessions.for(spec.project, projectRoot).publishConsumedReadyIntentOnly(consumer),
+          await sessions.for(spec.project, projectRoot).publishConsumedReadyIntentOnly(consumer, spec.source),
           "stranded artifact",
           io,
         );

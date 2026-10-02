@@ -5,7 +5,7 @@ import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../
 import type { AgentHistoryRewriteRevertedEvent } from "../persistence/log-stream.ts";
 
 /** `HEAD` as recorded on disk: its SHA and symbolic ref (undefined when detached). */
-export type IterationHead = { sha: string; ref: string | undefined };
+type IterationHead = { sha: string; ref: string | undefined };
 
 type IterationHeadGuardOutcome =
   | { kind: "unchanged" }

@@ -35,10 +35,23 @@ function cleanupArchiveBranchProbeResponse(args: readonly string[], prNumber = 4
 function archivePublicationRunner(
   projectRoot: string,
   ghCalls: string[],
-  options: { pushFails?: boolean; prCreateFails?: boolean; openPrNumber?: number } = {},
+  options: {
+    pushFails?: boolean;
+    prCreateFails?: boolean;
+    openPrNumber?: number;
+    revListCommitCount?: number;
+  } = {},
 ): AsyncSubprocessRunner {
   return {
     runAsync: async (cmd, args, cwd) => {
+      if (
+        cmd === "git" &&
+        args[0] === "rev-list" &&
+        args[1] === "--count" &&
+        options.revListCommitCount !== undefined
+      ) {
+        return `${options.revListCommitCount}\n`;
+      }
       if (cmd === "git" && args[0] === "push") {
         if (options.pushFails) throw new AsyncSubprocessError("push failed", 1, "", "push failed", undefined);
         return "";
@@ -607,6 +620,39 @@ describe("cleanup apply-end archive publication", () => {
       projectRoot,
     );
     expect(tree).toContain(`v2/spec/completed/${specName}/index.md`);
+  });
+
+  test("push failure manual fallback uses session commit count when this run archived on the target branch", async () => {
+    const specName = "20261002T130002Z-session-commit-count";
+    const branch = "implement/session-commit-count";
+    inRepoSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath: projectRoot,
+          specPath: join(projectRoot, "v2", "spec", specName, "index.md"),
+          status: "completed",
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      archivePublicationRunner(projectRoot, [], { pushFails: true, revListCommitCount: 2 }),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    expect(code).toBe(1);
+    expect(stdout).toMatch(
+      /Archive branch for project: cleanup\/archive-\d{8}T\d{6}Z \(1 commit\(s\)\) at .* — push it and open one archive PR\./,
+    );
+    expect(stdout).not.toMatch(/\(2 commit\(s\)\)/);
   });
 
   test("push failure manual fallback uses rev-list for staged branch when session has commits elsewhere", async () => {

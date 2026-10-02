@@ -613,7 +613,6 @@ describe("write behavior", () => {
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
     if (promptId === "write.ready-repair") {
       expect(capturedPrompt).toContain("Failing step: bun run check");
-      expect(capturedPrompt).toContain("spec.md\nproof.txt");
     }
     if (promptId === "write.mutation-repair") {
       expect(capturedPrompt).toContain("importer discovery only when that union is empty");

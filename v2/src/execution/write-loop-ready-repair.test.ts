@@ -13,14 +13,12 @@ import {
   runLoop,
 } from "./write-loop.test-support.ts";
 
-const REVERT_SENTENCE = "Edits outside these paths are reverted and end the run.";
-
 function allowedPathLinesFromRepairPrompt(prompt: string): string[] {
   const heading = "## Allowed paths";
   const start = prompt.indexOf(heading);
   expect(start).toBeGreaterThanOrEqual(0);
   const afterHeading = prompt.slice(start + heading.length).trimStart();
-  const revertAt = afterHeading.indexOf(REVERT_SENTENCE);
+  const revertAt = afterHeading.indexOf("Edits outside these paths are reverted and end the run.");
   expect(revertAt).toBeGreaterThanOrEqual(0);
   const block = afterHeading.slice(0, revertAt).trim();
   expect(block.length).toBeGreaterThan(0);
@@ -41,11 +39,9 @@ async function captureReadyRepairPrompt(args: {
 }): Promise<{ repairPrompt: string; frozen: Set<string> }> {
   const { jarvisRoot, stateDbPath } = createJarvisHome();
   roots.push(join(jarvisRoot, ".."));
-  const { baseRef, worktreePath } = initRepairFenceWorktree(
-    jarvisRoot,
-    args.branchName,
-    args.touchUntouchedInIteration ? { touchUntouchedInIteration: true } : undefined,
-  );
+  const { baseRef, worktreePath } = initRepairFenceWorktree(jarvisRoot, args.branchName, {
+    touchUntouchedInIteration: args.touchUntouchedInIteration === true,
+  });
   const frozen = await deriveAllowedOrUndefined(
     { worktreePath, baseRef, specPath: "spec.md" },
     { gitUntracked: async () => "\0" },
@@ -83,7 +79,7 @@ async function captureReadyRepairPrompt(args: {
 
   const repairPrompt = prompts.find((prompt) => prompt.includes("## Allowed paths"));
   expect(repairPrompt).toBeDefined();
-  return { repairPrompt: repairPrompt as string, frozen: frozen as Set<string> };
+  return { repairPrompt: repairPrompt!, frozen: frozen! };
 }
 
 describe("write loop ready repair prompt", () => {

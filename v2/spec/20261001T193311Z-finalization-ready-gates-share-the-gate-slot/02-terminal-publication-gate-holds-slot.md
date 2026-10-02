@@ -16,7 +16,7 @@ The terminal-publication ready gate path runs the same full-suite ready command 
 ## Acceptance criteria
 
 - [x] `v2/src/execution/terminal-publication.test.ts` proves the terminal-publication ready gate acquires and releases the lease, including when the gate fails; fails against pre-fix code that spawns without a lease (reachable on main today).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -17,6 +17,22 @@ async function flushMicrotasks(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 }
 
+/** Fail fast when `promise` has not settled after a microtask flush, instead of hanging an unbounded await. */
+async function settledAfterFlush<T>(promise: Promise<T>): Promise<T> {
+  let settled = false;
+  promise.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  await flushMicrotasks();
+  if (!settled) throw new Error("promise did not settle after a microtask flush");
+  return promise;
+}
+
 describe("gate-invocation-lease", () => {
   test("acquireGateInvocationLease refuses when the cap is held", () => {
     const holder = acquireGateInvocationLease();
@@ -78,7 +94,7 @@ describe("gate-invocation-lease", () => {
       return lease;
     });
     abort.abort();
-    await expect(aborted).rejects.toThrow("gate invocation lease wait aborted");
+    await expect(settledAfterFlush(aborted)).rejects.toThrow("gate invocation lease wait aborted");
     holder?.release();
     await flushMicrotasks();
     expect(granted).toBe(true);
@@ -100,7 +116,7 @@ describe("gate-invocation-lease", () => {
       const aborted = awaitGateInvocationLease({ signal: abort.signal });
       await Promise.resolve();
       abort.abort();
-      await expect(aborted).rejects.toThrow("gate invocation lease wait aborted");
+      await expect(settledAfterFlush(aborted)).rejects.toThrow("gate invocation lease wait aborted");
 
       const notificationsBeforeRelease = releaseNotifications;
       holder?.release();

@@ -23,11 +23,12 @@ The diff-derived verifier runs candidates in distinct production files concurren
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts`: two candidates in files X and Y where X's killing test imports Y and Y's mutant hangs on import-use yield X's correct verdict (killed or survived per X's own mutant), not a cross-file contamination verdict; fails against current concurrent same-worktree scheduling.
+- [ ] `diff-derived-mutation-verifier.test.ts` regression (subspec names the `it`): two candidates in files X and Y; X's killing test imports Y; Y's mutant hangs on import-use; fixture pins X's expected verdict for X's mutant alone and asserts X's killing set does not surface `non_terminating_mutation_failed` from Y's hang; fails against current concurrent same-worktree scheduling.
 - [ ] `isolates a confirmation re-run from a concurrent scoped test run via the real subprocess semaphore` stays green (confirmation isolation unchanged).
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
+- `v2/docs/v1-behaviors.md`: reconcile the catalog entry that distinct production-file mutation candidates may overlap on one worktree with the new isolation rule.
 - `v2/docs/write-behavior.md` § Diff-derived mutation verification: state the cross-file mutant isolation rule (when concurrent candidates may share a worktree vs not).
 - `v2/docs/operator-runbook.md` § Mutation verification (Operational caveats): same isolation rule for operators inspecting concurrent `.jarvis-diff-derived-mutations/` sidecars.

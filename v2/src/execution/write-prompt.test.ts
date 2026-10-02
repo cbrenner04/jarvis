@@ -85,6 +85,24 @@ describe("write prompt", () => {
     expect(body.indexOf("Gate budget:")).toBeLessThan(body.indexOf("## Scope"));
   });
 
+  test("rendered implement prompt forbids git history mutation; ready-repair step rules unchanged", () => {
+    const rendered = renderStepPrompt("implement.prompt.body", {
+      SPEC_PATH: "spec/example/index.md",
+      SIBLINGS_BLOCK: "",
+      REPO_GUIDANCE: "Follow repo guidance.",
+      ACTIVE_SUBSPEC_PATH: "spec/example/00-sub.md",
+      ACTIVE_SUBSPEC_BODY: "Body.",
+      PATCH_RULES: loadPromptRegistry().getById("implement.rules").body.trim(),
+      TIMEOUT_CHECKPOINT_CONTEXT: "",
+      STEP_RULES: DEFAULT_WRITE_STEP_RULES,
+    });
+
+    expect(rendered).toContain(
+      "Do not mutate git history or branches: no `rebase`, `merge`, `reset`, `commit --amend`, `push`, or `checkout`/`switch` to another branch. Jarvis owns history and base integration.",
+    );
+    expect(DEFAULT_WRITE_STEP_RULES).not.toContain("Do not mutate git history");
+  });
+
   test("implement.prompt.body includes no-hard-wrap after global.terse", () => {
     const rendered = renderStepPrompt("implement.prompt.body", {
       SPEC_PATH: "spec/example/index.md",

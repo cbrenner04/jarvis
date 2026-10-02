@@ -478,7 +478,7 @@ Publication rows select one closed landing hook: `intent-stage`, `plan-tree`, or
 
 ## Pipeline terminal publication
 
-Lifecycle, settlement handoff, fan-out fail-closed behavior, and recovery reachability for terminal publication live in [`pipeline-execution.md`](./pipeline-execution.md). Below is the per-action executor contract at the workflow-runner boundary.
+Lifecycle, settlement handoff, fan-out per-lane terminal publication, and recovery reachability live in [`pipeline-execution.md`](./pipeline-execution.md). Below is the per-action executor contract at the workflow-runner boundary.
 
 `executeTerminalPublication` in `v2/src/execution/terminal-publication.ts` is the sole executor for a resolved `terminalAction` (`leave-draft`, `ready`, or `merge`). It consumes existing worktree and PR evidence (`worktreePath`, `branch`, `baseRef`, `prNumber`, `prUrl`) and does not re-run completion publish (push, draft create, or body refresh). `runPipeline` in `pipeline-execution.ts` invokes it after the stage walk when `terminalAction` is set.
 

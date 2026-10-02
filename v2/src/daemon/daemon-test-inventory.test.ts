@@ -232,6 +232,7 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "deferred settlement fails when a merge pipeline's completed entry run lacks publication PR evidence",
   "resume still refuses an interrupted pipeline carrying a redrivable deferred stage",
   "fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles",
+  "fan-out with terminalAction fails closed instead of reporting succeeded",
   // The two redrive predicates themselves are gone, so their unit describes go with them.
   "not a running row",
   "running with no deferred marker",

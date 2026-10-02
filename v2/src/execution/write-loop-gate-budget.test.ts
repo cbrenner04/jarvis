@@ -16,6 +16,7 @@ import type { ExternalWorktree, withExternalWorktree } from "./external-worktree
 import { createStubMarkdownlintRunner } from "./workflow-runner.test-support.ts";
 import {
   executeWriteLoop,
+  findGateBudgetRepromptFromLog,
   liveGateInvocationLeaseCount,
   MAX_AGENT_GATE_INVOCATIONS_PER_ITERATION,
 } from "./write-loop.ts";
@@ -318,4 +319,18 @@ describe.serial("per-iteration gate invocation budget", () => {
       sink.getEventsForRun(result.runId).filter((event) => event.kind === "gate_invocation_budget_refused"),
     ).toHaveLength(1);
   });
+});
+
+test("findGateBudgetRepromptFromLog returns the latest gate-budget refusal and ignores other events", () => {
+  const rec = (seq: number, event: Record<string, unknown>) => ({ runId: "r", seq, ts: "t", event }) as never;
+  expect(findGateBudgetRepromptFromLog(undefined)).toBeUndefined();
+  expect(
+    findGateBudgetRepromptFromLog([rec(1, { kind: "iteration_started", command: "bun run test:v2" })]),
+  ).toBeUndefined();
+  expect(
+    findGateBudgetRepromptFromLog([
+      rec(1, { kind: "gate_invocation_budget_refused", command: "bun run test:v2", admittedCount: 2 }),
+      rec(2, { kind: "iteration_started", command: "not-a-refusal" }),
+    ]),
+  ).toEqual({ refusedCommand: "bun run test:v2" });
 });

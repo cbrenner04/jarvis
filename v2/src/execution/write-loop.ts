@@ -590,7 +590,7 @@ export function findStagedMarkdownLintRepromptFromLog(
 }
 
 /** Last gate-budget reprompt context from a run's persisted log tail (resume after pause). */
-function findGateBudgetRepromptFromLog(
+export function findGateBudgetRepromptFromLog(
   logRecords: readonly PersistedRecord[] | undefined,
 ): WriteLoopInput["gateBudgetReprompt"] {
   if (logRecords === undefined) return undefined;

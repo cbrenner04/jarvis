@@ -1021,7 +1021,7 @@ Every cleanup ages eligible session logs under `~/.jarvis/sessions/`. This slice
 
 ### Agent order lives in the top-level `agents` array
 
-v2 reads the flat top-level **`agents`** array of bare names (`jarvis config set-agents`, `v2/src/cli.ts` → `loadMachineConfig`) and the role→model rungs in `config/machines/<profile>.json`. It never reads `modes.*.agentOrder` — those keys in an older `~/.jarvis/config.json` are frozen-v1 leftovers and are ignored. Observed 2026-07-14: codex was moved to the front of every `modes.*.agentOrder` and every subsequent run still invoked claude. There is no per-run `--agent` override; change the order or the machine profile instead.
+v2 reads the flat top-level **`agents`** array of bare names (`jarvis config set-agents`, `v2/src/cli.ts` → `loadMachineConfig`) and the role→model rungs in `config/machines/<profile>.json`. It never reads `modes.*.agentOrder` — those keys in an older `~/.jarvis/config.json` are frozen-v1 leftovers and are ignored. Observed 2026-07-14: codex was moved to the front of every `modes.*.agentOrder` and every subsequent run still invoked claude. There is no per-run `--agent` override; change the order or the machine profile instead. To vary order per target repo, set `projects.<key>.overrides.agents` (and `projects.<key>.overrides.idleOutputTimeoutMs` for slow silent toolchains) — admitted runs keep the order they were admitted with ([install-and-config.md § Per-project overrides](./install-and-config.md#per-project-overrides)).
 
 ## Concurrency
 

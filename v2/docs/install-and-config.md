@@ -163,6 +163,17 @@ Per-project implement defaults:
 | `projects.<key>.fixCommand` | non-empty string | `bun run fix` when absent | A blank or non-string value reads as absent, not an error |
 | `projects.<key>.readyCommand` | non-empty string | `bun run ready` when absent | A blank or non-string value reads as absent, not an error |
 
+### Per-project overrides
+
+`projects.<key>.overrides` shadows machine-wide keys for that project's runs only:
+
+| Key | Shadows | Validation |
+| --- | --- | --- |
+| `projects.<key>.overrides.agents` | Top-level `agents` (fallback order) | Same as `agents`: non-empty array of unique non-empty strings; each agent must be bound in the machine profile |
+| `projects.<key>.overrides.idleOutputTimeoutMs` | Top-level `idleOutputTimeoutMs` | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+
+The key set is closed: any other key, a non-object block, or a malformed value fails resolution with an error naming the full path (e.g. `projects.chess.overrides.agentz`). Resolution happens once per step at admission — `run workflow` CLI admission and daemon pipeline-stage dispatch, plus `jarvis pipeline start` pre-admission for `agents` — onto the step's `agents` and `idleOutputMs`, which the persisted workflow snapshot carries; resume and the daemon never re-read the block. Absent block = machine-wide behavior. `jarvis run start` (ad-hoc write) ignores overrides. `runTimeoutMs` keeps its older flat `projects.<key>.runTimeoutMs` form.
+
 `fixCommand` and `readyCommand` are resolved from each step's project at `run workflow` CLI admission and at daemon pipeline-stage dispatch (from the pipeline admission `configPath`) for every write, review, and review-debate step that can own ready-gate finalization. Present overrides are carried on the step through the daemon and are not re-read inside the daemon-hosted gate; absent overrides remain unstamped so downstream default resolution stays distinguishable from configured commands. The resolved `readyCommand` is what code-bearing stages' ready gate spawns in place of `bun run ready`, and it is what appears in `ReadyGateError.command`, gate-failure-classification output, and the ready-repair prompt's `GATE_COMMAND` placeholder. Markdown-only intent split (`intent.prompt.split`) and plan draft (`plan.prompt.draft`) publish validated Markdown without invoking the configured or default ready command; their remaining finalization tail still runs. When an admitted command is absent (spawn `ENOENT` or an anchored package-manager/shell failure line — see [v1-behaviors.md](v1-behaviors.md)), finalization settles non-resumable `ready_gate_command_missing` with no autofix or bounded repair — fix `readyCommand` (or add the default `ready` script) and re-dispatch; `jarvis run resume` cannot create the missing command. Terminal-publication settlement (the standalone gate outside a workflow step) does not consume either override.
 
 Each registered project may configure a source-owned pipeline for `jarvis pipeline start` only (`jarvis run workflow implement` ignores `projects.<key>.pipeline` entirely; absence admits legacy implement with no `pipelineDefinition` and refuses `jarvis pipeline start`):
@@ -208,13 +219,13 @@ Complete project example:
 
 ### Workflow invocation bounds
 
-`jarvis run start` and workflow write steps resolve three optional machine keys from `~/.jarvis/config.json` before dispatch. The same machine-wide `idleOutputTimeoutMs` also governs every workflow review-role invocation.
+`jarvis run start` and workflow write steps resolve three optional machine keys from `~/.jarvis/config.json` before dispatch. The same `idleOutputTimeoutMs` also governs every workflow review-role invocation; `projects.<key>.overrides.idleOutputTimeoutMs` replaces it for that project's workflow steps ([Per-project overrides](#per-project-overrides)).
 
 | Key | Role | Default | Validation |
 | --- | --- | --- | --- |
 | `iterationTimeoutMs` | Progress-extended wall segment per iteration | `600000` (10 min) | Positive number |
 | `iterationCeilingMs` | Hard ceiling on total iteration wall time | `1800000` (30 min) | Positive number; must be ≥ resolved `iterationTimeoutMs` |
-| `idleOutputTimeoutMs` | Idle-output watchdog budget for workflow write and review roles | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+| `idleOutputTimeoutMs` | Idle-output watchdog budget for workflow write and review roles | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs`; `projects.<key>.overrides.idleOutputTimeoutMs` overrides per project |
 | `runTimeoutMs` | Whole-run wall-clock backstop across all dispatches of one run | `21600000` (6 h) | Positive number; must be ≥ resolved `iterationCeilingMs`; `projects.<key>.runTimeoutMs` overrides per project |
 
 `runTimeoutMs` is resolved by the daemon at each dispatch (no bounce needed), not stamped on steps; an invalid value logs to `daemon.log` and falls back to the 6 h default. See [`daemon-host.md` § Whole-run timeout](./daemon-host.md#whole-run-timeout).

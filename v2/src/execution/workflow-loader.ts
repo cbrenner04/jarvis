@@ -4,7 +4,11 @@ import {
   type LoadError,
   resolveExecutableRole,
 } from "../config/agent-model-config.ts";
-import { loadMachineConfig, resolveMachineProfile } from "../config/machine-config-loader.ts";
+import {
+  loadMachineConfig,
+  readProjectConfigOverrides,
+  resolveMachineProfile,
+} from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import {
   type ReviewDebateWorkflowStep,
@@ -54,23 +58,31 @@ export function loadWorkflowSteps(
   steps: readonly WorkflowSourceStep[],
   deps: LoadWorkflowStepsDeps = {},
 ): LoadedWorkflowStep[] {
-  const agents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
-
+  const machineAgents = loadMachineConfig(deps.machineConfigPath) ?? DEFAULT_WRITE_AGENTS;
   const loadAgentModelConfig = deps.loadAgentModelConfig ?? loadMachineProfileModels;
-  const loadResult = loadAgentModelConfig(
-    deps.machineProfile ?? resolveMachineProfile(deps.machineConfigPath),
-    agents,
-    {
-      machinesDir: deps.machinesDir,
-    },
-  );
-  if (isLoadError(loadResult)) {
-    throw new Error(`Failed to load agent model config: ${loadResult.errors.join(", ")}`);
-  }
-  const agentModelConfig = loadResult;
+  let machineProfile: string | undefined;
+  const bindingsByOrder = new Map<string, { agents: readonly string[]; agentModelConfig: AgentModelConfig }>();
+  // Resolved once per step's project; the loaded step (persisted in the workflow snapshot) carries the result.
+  const bindingsFor = (projectName: string) => {
+    const agents = readProjectConfigOverrides(projectName, deps.machineConfigPath).agents ?? machineAgents;
+    const key = agents.join("\0");
+    const cached = bindingsByOrder.get(key);
+    if (cached !== undefined) return cached;
+    machineProfile ??= deps.machineProfile ?? resolveMachineProfile(deps.machineConfigPath);
+    const loadResult = loadAgentModelConfig(machineProfile, agents, { machinesDir: deps.machinesDir });
+    if (isLoadError(loadResult)) {
+      throw new Error(`Failed to load agent model config: ${loadResult.errors.join(", ")}`);
+    }
+    const bindings = { agents, agentModelConfig: loadResult };
+    bindingsByOrder.set(key, bindings);
+    return bindings;
+  };
 
   const invalidRoles: string[] = [];
   const resolvedSteps = steps.map((step) => {
+    const { agents, agentModelConfig } = bindingsFor(
+      step.behavior === "write" ? step.worktree.projectName : step.project,
+    );
     if (step.behavior === "write") {
       try {
         resolveExecutableRole(step.role);

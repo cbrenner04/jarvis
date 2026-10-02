@@ -3,7 +3,7 @@ import { isAbsolute, join, relative } from "node:path";
 import { formatConnectionError, formatLifecycleError, formatRpcError } from "../cli/ipc.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { isLoadError } from "../config/agent-model-config.ts";
-import type { readProjectConfigRecord } from "../config/machine-config-loader.ts";
+import { parseProjectConfigOverrides, type readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import {
@@ -170,7 +170,7 @@ function resolveAdmissionConfig(
   let agents: readonly string[] | undefined;
   try {
     projectRecord = deps.readProjectConfigRecord(projectKey, deps.configPath);
-    agents = deps.loadMachineConfig(deps.configPath);
+    agents = parseProjectConfigOverrides(projectKey, projectRecord).agents ?? deps.loadMachineConfig(deps.configPath);
   } catch (error) {
     return preAdmissionFailure("configuration-read-exception", formatLifecycleError(error));
   }

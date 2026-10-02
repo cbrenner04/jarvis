@@ -28,7 +28,6 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | [Target-repo documentation layout](./seeds/implement-respects-target-repo-doc-layout.md) | Intent; #3426 | Inject guidance; use the target's doc layout. |
 | [Sibling-repo prerequisite coverage](./seeds/intent-split-covers-sibling-repo-surfaces.md) | Intent; #3439 | Split-internal prerequisite coverage check. |
 | [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Re-scoped 2026-10-02 to cleanup pruning on plan-spec landing (consume-from-source plan rejected, #4448). |
-| [Per-project configuration seam](./seeds/per-project-config-overrides-seam.md) | Intent; #3026 / #3150 | Bounded agent-order and idle-timeout overrides resolved once at admission. |
 | [Review-feedback matches linked lanes](./seeds/review-feedback-matches-linked-implement-lanes.md) | Intent | `review-feedback --branch` refused a linked implement lane (PR on review row only); #4440 hand-fixed. |
 | [Review-feedback captures review bodies](./seeds/review-feedback-captures-review-bodies.md) | Intent | Review bodies dropped; `--address-review` on #4459 completed `no-work` in 9 s. |
 | [Review-feedback shrink uses lane spec](./seeds/review-feedback-shrink-uses-lane-spec.md) | Intent | Shrink gets the response sidecar as spec, inlines the repo, dies in ~10 s; 3/3 rounds 2026-10-02; fix stays unpushed. |
@@ -47,7 +46,7 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | --- | --- | --- |
 | [CLI retirement](./seeds/cli-retire-run-start-pause-and-config.md) | Unblocked: `run pause` retires (owner, 2026-10-02) | Original charter side item. |
 | [CLI-aligned TUI grammar](./seeds/tui-dock-command-grammar-mirrors-cli.md) | After CLI retirement | Prefer after input-feedback repair. |
-| [Confinement policy](./seeds/agent-confinement-is-per-vendor-and-unexpressed.md) | Per-project override seam | Single-operator legibility work. |
+| [Confinement policy](./seeds/agent-confinement-is-per-vendor-and-unexpressed.md) | Per-project override seam landed (`projects.<key>.overrides`) | Single-operator legibility work. |
 | [Fold shared runtime](./seeds/fold-shared-into-v2.md) | Low priority | After runtime reliability settles. |
 | [Retire v2 naming](./seeds/retire-v2-nomenclature.md) | After shared-runtime fold | Unrelated to the old charter. |
 | [Harness-owned agent tools](./seeds/harness-exposes-agent-toolset.md) | Explicit owner sign-off | Updated by owner #4419. Do not dispatch. |

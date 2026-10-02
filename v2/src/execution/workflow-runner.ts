@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -2427,12 +2427,34 @@ export async function shrinkPromptPlaceholders(
   };
 }
 
-function readSpecTree(worktreePath: string, specPath: string, labelRoot: string): string {
-  const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
-  const specRoot = dirname(resolvedSpecPath);
-  if (!existsSync(specRoot)) return "(missing spec tree)";
+/** Shrink's spec path names the repository root, not a spec tree; walking it would inline the whole repo. */
+export class ShrinkSpecTreeContractError extends Error {
+  constructor(specPath: string, reason: string) {
+    super(`shrink spec tree contract: ${specPath} ${reason}`);
+    this.name = "ShrinkSpecTreeContractError";
+  }
+}
 
-  const files = listMarkdownFilesRecursive(specRoot).sort();
+/**
+ * Spec files to inline: the spec's directory tree, or only the file when it sits at the repository root
+ * (walking the root would inline the whole repo). `null` when the spec tree is missing.
+ */
+function resolveShrinkSpecFiles(worktreePath: string, specPath: string): string[] | null {
+  const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+  const isDirectory = existsSync(resolvedSpecPath) && statSync(resolvedSpecPath).isDirectory();
+  const specRoot = isDirectory ? resolvedSpecPath : dirname(resolvedSpecPath);
+  if (resolve(specRoot) === resolve(worktreePath)) {
+    if (isDirectory)
+      throw new ShrinkSpecTreeContractError(specPath, "resolves to the repository root, not a spec tree");
+    return existsSync(resolvedSpecPath) ? [resolvedSpecPath] : [];
+  }
+  if (!existsSync(specRoot)) return null;
+  return listMarkdownFilesRecursive(specRoot).sort();
+}
+
+function readSpecTree(worktreePath: string, specPath: string, labelRoot: string): string {
+  const files = resolveShrinkSpecFiles(worktreePath, specPath);
+  if (files === null) return "(missing spec tree)";
   if (files.length === 0) return "(empty spec tree)";
 
   return files

@@ -123,8 +123,14 @@ describe("gate-invocation-lease", () => {
     expect(holder).toBeDefined();
     const clearTimeoutSpy = spyOn(globalThis, "clearTimeout");
     try {
-      const granted = awaitGateInvocationLease({ timeoutMs: 60_000 });
+      let grantedLease: Awaited<ReturnType<typeof awaitGateInvocationLease>> | undefined;
+      const granted = awaitGateInvocationLease({ timeoutMs: 60_000 }).then((lease) => {
+        grantedLease = lease;
+        return lease;
+      });
       holder?.release();
+      await flushMicrotasks();
+      expect(grantedLease).toBeDefined();
       const lease = await granted;
       expect(clearTimeoutSpy).toHaveBeenCalled();
       lease.release();

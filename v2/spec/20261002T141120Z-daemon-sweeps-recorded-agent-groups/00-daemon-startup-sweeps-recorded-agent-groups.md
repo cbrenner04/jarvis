@@ -12,10 +12,10 @@ Depends on implement iterations recording agent and snapshotted descendant pgids
 
 ## Task checklist
 
-- [ ] Read `sweepOrphanReadyGateGroups`, `listReadyGateSweepCandidates`, and `signalRecordedVerifierProcessGroups`; confirm dead-owner rows sweep every `store.verifierProcessGroups` id without a second path.
-- [ ] Add or extend `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` for the agent-only dead-owner scenario (SIGTERM then SIGKILL per pgid, per-id clear).
-- [ ] If the regression test fails, fix `v2/src/daemon/daemon.ts` (or store listing) so agent recordings are swept; keep a single sweep entrypoint.
-- [ ] Replace finalization-only orphan-reap / recorded-group wording in `v2/docs/operator-runbook.md` and `v2/docs/daemon-host.md`; align `sweepOrphanReadyGateGroups` and related listing/sweep comments with the operator contract.
+- [x] Read `sweepOrphanReadyGateGroups`, `listReadyGateSweepCandidates`, and `signalRecordedVerifierProcessGroups`; confirm dead-owner rows sweep every `store.verifierProcessGroups` id without a second path.
+- [x] Add or extend `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` for the agent-only dead-owner scenario (SIGTERM then SIGKILL per pgid, per-id clear).
+- [x] If the regression test fails, fix `v2/src/daemon/daemon.ts` (or store listing) so agent recordings are swept; keep a single sweep entrypoint.
+- [x] Replace finalization-only orphan-reap / recorded-group wording in `v2/docs/operator-runbook.md` and `v2/docs/daemon-host.md`; align `sweepOrphanReadyGateGroups` and related listing/sweep comments with the operator contract.
 
 ## Acceptance criteria
 

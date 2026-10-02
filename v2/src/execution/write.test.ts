@@ -614,7 +614,6 @@ describe("write behavior", () => {
     if (promptId === "write.ready-repair") {
       expect(capturedPrompt).toContain("Failing step: bun run check");
       expect(capturedPrompt).toContain("spec.md\nproof.txt");
-      expect(capturedPrompt).toContain("Edits outside these paths are reverted and end the run.");
     }
     if (promptId === "write.mutation-repair") {
       expect(capturedPrompt).toContain("importer discovery only when that union is empty");

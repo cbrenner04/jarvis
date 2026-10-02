@@ -14,12 +14,12 @@
 
 ## Task checklist
 
-- [ ] Extend `PrListRecord` / all-state `listMatchingPrs` json fields with `headRefOid`.
-- [ ] Pass post-push tip and optional `leaseFromSha` into `findOrCreatePr`; implement tri-state closed/merged lineage evaluation before returning lane outcomes on the no-open-match path.
-- [ ] Add discriminating lineage helper or git seam at the guard (in-lineage / foreign / inconclusive); do not use bare `isAncestor` false as foreign.
-- [ ] Extend `ghOpenEmptyThenAllHistory` (or adjacent helpers) so preservation and new cases can supply `headRefOid` and git seams for ancestry evaluation.
-- [ ] Add regression cases and adjust existing lane-history tests per acceptance criteria.
-- [ ] Update `v2/docs/write-behavior.md`, `v2/docs/workflow-runner.md`, and `v2/docs/v1-behaviors.md`.
+- [x] Extend `PrListRecord` / all-state `listMatchingPrs` json fields with `headRefOid`.
+- [x] Pass post-push tip and optional `leaseFromSha` into `findOrCreatePr`; implement tri-state closed/merged lineage evaluation before returning lane outcomes on the no-open-match path.
+- [x] Add discriminating lineage helper or git seam at the guard (in-lineage / foreign / inconclusive); do not use bare `isAncestor` false as foreign.
+- [x] Extend `ghOpenEmptyThenAllHistory` (or adjacent helpers) so preservation and new cases can supply `headRefOid` and git seams for ancestry evaluation.
+- [x] Add regression cases and adjust existing lane-history tests per acceptance criteria.
+- [x] Update `v2/docs/write-behavior.md`, `v2/docs/workflow-runner.md`, and `v2/docs/v1-behaviors.md`.
 
 ## Acceptance criteria
 

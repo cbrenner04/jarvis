@@ -2889,7 +2889,31 @@ index 1234567..abcdefg 100644
     expect(yMutatedDuringXScoped).toBe(false);
     releaseBlockedScopedTests?.();
     const concurrentResult = await concurrentVerification;
-    expect(concurrentResult.kind).toBe(xOnlyBaseline.kind);
+    const xFile = "src/x.ts";
+    const xVerifierSlice = (result: Awaited<ReturnType<typeof verifyDiffDerivedMutations>>) => {
+      if (result.kind === "pass") {
+        return {
+          kind: result.kind,
+          acceptedSites: result.acceptedSites.filter((site) => site.file === xFile),
+          skippedCandidates: result.skippedCandidates.filter((candidate) => candidate.file === xFile),
+        };
+      }
+      if (result.sourceSite.file !== xFile) {
+        return { kind: "pass" as const, acceptedSites: [], skippedCandidates: [] };
+      }
+      return {
+        kind: result.kind,
+        mutation: result.mutation,
+        sourceSite: result.sourceSite,
+        ...("killingTests" in result
+          ? {
+              killingTests: result.killingTests,
+              killingSetObservedResult: result.killingSetObservedResult,
+            }
+          : {}),
+      };
+    };
+    expect(xVerifierSlice(concurrentResult)).toEqual(xVerifierSlice(xOnlyBaseline));
     expect(concurrentResult.kind).not.toBe("non-terminating-mutation");
   });
 

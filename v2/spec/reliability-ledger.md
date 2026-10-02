@@ -1,6 +1,6 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 22 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 21 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
 ## Highest priority: active spec (1)
 
@@ -33,13 +33,12 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | [Review-feedback captures review bodies](./seeds/review-feedback-captures-review-bodies.md) | Intent | Review bodies dropped; `--address-review` on #4459 completed `no-work` in 9 s. |
 | [Harness-run integration measurements](./seeds/implement-can-run-integration-slice-tests.md) | Intent | Observable harness execution for measurement criteria. |
 
-## Operator features and ergonomics: seeds (3)
+## Operator features and ergonomics: seeds (2)
 
 | Item | Next action | Remaining scope |
 | --- | --- | --- |
 | [Cleanup opens the archive PR](./seeds/cleanup-opens-archive-pr.md) | Intent | Two unpushed `cleanup/archive-*` branches stranded 16 specs (hand-fixed #4420). |
 | [Serial chained fan-out](./seeds/pipeline-fan-out-lanes-serial-chained-bases.md) | Intent (per-lane settlement landed #4413 #4417) | Dependent-lane scheduling/base policy. Intent splits produced strict chains 3× this session (gate-slot folded by hand, #4387). |
-| [TUI input clearing and feedback](./seeds/tui-typed-run-steering-clears-command-input.md) | Intent | Clear successful run-steering input; expose start errors. |
 
 ## Parked design and cleanup: seeds (6)
 

@@ -2,33 +2,26 @@
 name: detached-pipeline-plan-stage-consumes-ready-intents
 ---
 
-# Plan-stage ready-intent consumption works when the intent PR is unmerged
+# Cleanup prunes a ready-intent once its plan spec is on the default branch
 
 ## Problem
 
-The documented contract says the plan stage consumes its chained ready-intent on plan-tree landing so the plan PR removes the queue file from `main`. But `consumePublicationInputs` only fires when the file is reachable both on `main` (`realpathSync` under the project root) and in the plan worktree — and in the documented inter-stage handoff (stage artifacts hand off content; merging the intent PR between stages is not required) it is reachable in *neither*: the intent PR hasn't merged, and the plan worktree branched from pre-merge `main`. Both skips are deliberate best-effort, so nothing surfaces; once the intent PR merges, the consumed ready-intents are orphaned on `main` until a byte-match cleanup sweep after the implement lane lands. Evidence: #3041 (chess pipeline `af881ac0`: PRs #8/#9/#10 landed with no queue deletions; two consumed ready-intents removed by hand). Not pipeline-flavor-specific — any pipeline whose intent PR is unmerged when plan branches has the hole.
+In a chained pipeline the intent PR adds `ready-intents/<slug>.md` and the plan PR never removes it: the plan branch is cut from the default branch pinned at admission, so the path is absent on its base and no landing can stage a deletion (squash merges also mean no later rebase carries one). After both PRs merge the ready-intent sits on `main` as a live-looking queue item until the spec archives and `provenIntentPrune` (`v2/src/commands/cleanup.ts`, slug lookup shipped #3657) byte-matches it against the archived `intent.md`. Until then it can be re-planned, and any `intent.md` drift strands it forever. Evidence: #3041 (chess `af881ac0`); 2026-10-02 pipeline `b94243a0` (#4438 added `ready-intents/hung-killing-test-counts-as-killed.md`; plan PR #4439 carried no deletion).
 
-**The cleanup backstop could not fire (2026-09-06; fixed by #3657).** The sentence above assumes a "byte-match cleanup sweep" eventually reaps these. It cannot: `provenIntentPrune` (`v2/src/commands/cleanup.ts:795`) looks for `ready-intents/${spec.name}.md`, and `spec.name` is the spec **directory** basename (`cleanup.ts:982` passes `child.name`), which is timestamped — `20260905T230452Z-skip-importer-discovery-for-covered-guards`. Ready-intents are slug-named (`skip-importer-discovery-for-covered-guards.md`), so the join never resolves and the prune is unreachable for any project with `plan.specTimestamp: true` — i.e. every one. Observed after this session's three pipeline lanes landed: all three ready-intents were byte-identical to their archived `intent.md` and survived two full `jarvis cleanup` passes; removed by hand. Fixing consumption at the plan stage is still the primary fix, but the prune's lookup key is independently wrong and should stop being cited as the safety net.
-
-Related: [[intent-resume-consumes-its-seed]] (#3410) is the resume-path instance of the same never-consumed class, and the 2026-09-05 review of #3483's foundation found external seeds/ready-intents recorded `sourceRoot: project.root` while living under `~/.jarvis/specs/`, silently skipping every consumption — three surfaces, one contract: **a consumed input is deleted by the landing that consumed it, or the run says why not.**
-
-## Status (2026-09-18)
-
-Still both-places-or-silent-skip for the in-repo git-chained case: `shared/publication-input-consumption.ts` swallows the `realpathSync` throw and records nothing, and `resolvePlanReadyIntentInput` lands against `project.root` while the plan stage read the intent from the prior worktree. The alternative mechanism (merge the intent PR at `approve-intent` and re-resolve the plan base) was retired 2026-09-18 as a contradicting seed; consume-from-actual-source is the chosen shape.
+**Rejected 2026-10-02:** consuming from the read source (`consumeFrom: "source"` on the intent worktree) only unlinks an uncommitted copy in the intent worktree; `main` is unchanged (pipeline `5da852a8`, plan PR #4448 closed).
 
 ## Decisions
 
-- Consumption resolves the ready-intent through the same source the plan stage actually read it from (stage artifact, external home, or `main`), not a hardcoded project-root path; rules out the both-places-or-silent-skip mechanic.
-- When consumption cannot fire, the run records a named, visible reason on the row; rules out best-effort skips invisible until an operator audits `main`.
-- A consumption test drives the consumer against the detached-handoff shape (intent PR unmerged, plan worktree branched pre-merge); rules out tests that assert the recorded field without driving the consumer (the #3483 lesson).
+- `jarvis cleanup` prunes `ready-intents/<slug>.md` as soon as the default branch holds an open (not yet archived) spec directory for that slug whose `intent.md` is byte-identical, in the same archive branch/PR it already publishes; rules out waiting for archive.
+- No byte match → no prune (unchanged safety); dry-run lists the prune as today.
+- Fix `v2/docs/first-workflow-walkthrough.md`'s claim that the plan PR removes the queue file.
 
 ## Acceptance criteria
 
-- [ ] A test reproducing the detached handoff proves the plan landing deletes the consumed ready-intent from its actual source (or records a named skip reason); fails against the current silent no-op.
-- [x] External-home ready-intents consume through the same path, pinned by a test that drives the consumer. (Landed with the external chain, #3534: `locateExternalReadyIntentDownstreamInput`, `consumeFrom: "source"`.)
-- [x] A cleanup test proves `provenIntentPrune` resolves a timestamped spec directory to its slug-named ready-intent (or the prune is retired in favour of plan-stage consumption); fails against the current `${spec.name}.md` lookup, which never resolves. (Carved into spec `cleanup-prunes-consumed-ready-intent-by-slug`, 2026-09-09.)
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [ ] `cleanup.test.ts`: a ready-intent byte-identical to an open spec dir's `intent.md` on the default branch is pruned on apply and previewed on dry-run; fails against current code (archive-only prune).
+- [ ] Same file: a non-identical ready-intent is kept.
+- [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/first-workflow-walkthrough.md` — correct the consumption contract to match the mechanism.
+- `v2/docs/first-workflow-walkthrough.md`, `operator-runbook.md` § Cleanup (stranded archival prune timing).

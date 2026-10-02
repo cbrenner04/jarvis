@@ -25,7 +25,7 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | --- | --- | --- |
 | [Target-repo documentation layout](./seeds/implement-respects-target-repo-doc-layout.md) | Intent; #3426 | Inject guidance; use the target's doc layout. |
 | [Sibling-repo prerequisite coverage](./seeds/intent-split-covers-sibling-repo-surfaces.md) | Intent; #3439 | Split-internal prerequisite coverage check. |
-| [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Consume from the actual handoff source or record a reason. Today's closed intent PRs left seeds on main (hand-reaped #4406, #4424). |
+| [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Re-scoped 2026-10-02 to cleanup pruning on plan-spec landing (consume-from-source plan rejected, #4448). |
 | [Per-project configuration seam](./seeds/per-project-config-overrides-seam.md) | Intent; #3026 / #3150 | Bounded agent-order and idle-timeout overrides resolved once at admission. |
 | [Review-feedback matches linked lanes](./seeds/review-feedback-matches-linked-implement-lanes.md) | Intent | `review-feedback --branch` refused a linked implement lane (PR on review row only); #4440 hand-fixed. |
 | [Harness-run integration measurements](./seeds/implement-can-run-integration-slice-tests.md) | Intent | Observable harness execution for measurement criteria. |

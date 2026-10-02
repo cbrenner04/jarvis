@@ -595,12 +595,21 @@ export function findGateBudgetRepromptFromLog(
 ): WriteLoopInput["gateBudgetReprompt"] {
   if (logRecords === undefined) return undefined;
   let latest: GateInvocationBudgetRefusedEvent | undefined;
+  let consumerAttemptId: string | undefined;
+  let consumed = false;
   for (const record of logRecords) {
-    if (record.event.kind === "gate_invocation_budget_refused") {
-      latest = record.event;
+    const event = record.event;
+    if (event.kind === "gate_invocation_budget_refused") {
+      latest = event;
+      consumerAttemptId = undefined;
+      consumed = false;
+    } else if (latest !== undefined && event.kind === "iteration_started") {
+      consumerAttemptId = event.attemptId;
+    } else if (event.kind === "boundary_committed" && event.attemptId === consumerAttemptId) {
+      consumed = true;
     }
   }
-  return latest === undefined ? undefined : { refusedCommand: latest.command };
+  return latest === undefined || consumed ? undefined : { refusedCommand: latest.command };
 }
 
 type DraftContractRepromptState = {

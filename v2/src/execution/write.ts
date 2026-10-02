@@ -781,10 +781,14 @@ async function executeDefaultWrite(
   try {
     const survivingReprompt = args.survivingMutationReprompt;
     const gateBudgetReprompt = args.gateBudgetReprompt;
-    if (gateBudgetReprompt !== undefined) {
+    if (promptId === "implement.prompt.body" && gateBudgetReprompt !== undefined) {
       prompt = renderPromptForStep({
         stepPromptId: "write.gate-budget-reprompt",
-        placeholders: { REFUSED_COMMAND: gateBudgetReprompt.refusedCommand },
+        placeholders: {
+          SPEC_PATH: expectedArtifactPath,
+          STEP_RULES: args.stepRules,
+          REFUSED_COMMAND: gateBudgetReprompt.refusedCommand,
+        },
       });
     } else if (promptId === "implement.prompt.body" && survivingReprompt !== undefined) {
       prompt = renderPromptForStep({

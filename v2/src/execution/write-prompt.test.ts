@@ -194,8 +194,13 @@ describe("write prompt", () => {
   // Mutation checkpoint: sentinel body-line mutation on `write.gate-budget-reprompt` must turn this RED.
   test("write.gate-budget-reprompt names the refused command, budget cause, and file-scoped verification", () => {
     const rendered = renderStepPrompt("write.gate-budget-reprompt", {
+      SPEC_PATH: "spec/example/00-sub.md",
+      STEP_RULES: "Follow the implement contract.",
       REFUSED_COMMAND: "bun run test:v2",
     });
+
+    expect(rendered).toContain("Read the spec at spec/example/00-sub.md.");
+    expect(rendered).toContain("Follow the implement contract.");
 
     expect(rendered).toContain("two scoped gate runs (`bun run test:*`)");
     expect(rendered).toContain("bun run test:v2");

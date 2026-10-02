@@ -131,6 +131,7 @@ async function runGateBudgetLoop(args: {
   bindings: readonly InvocationBinding[];
   maxIterations?: number;
   logSink?: LogSink;
+  promptId?: string;
 }) {
   roots.push(join(args.jarvisRoot, ".."));
   const store = openStateStore(args.stateDbPath);
@@ -156,6 +157,7 @@ async function runGateBudgetLoop(args: {
       clock: () => new Date("2026-09-08T06:00:00.000Z"),
       ...(args.maxIterations !== undefined ? { maxIterations: args.maxIterations } : {}),
       ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+      ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     });
   } finally {
     store.close();
@@ -268,12 +270,15 @@ describe.serial("per-iteration gate invocation budget", () => {
       maxIterations: 2,
       logSink: sink,
       bindings: [binding],
+      promptId: "implement.prompt.body",
     });
 
     expect(result.kind).not.toBe("gate_invocation_refused");
     expect(invocations).toBe(2);
     expect(prompts[1]).toContain(GATE_COMMAND);
     expect(prompts[1]).toContain("bun test <file>");
+    expect(prompts[1]).toContain("Read the spec at");
+    expect(prompts[1]).toContain("Return progress.");
     expect(gitIn(worktreePath, ["show", "HEAD:budget-proof.txt"])).toContain("budget-work");
     expect(
       sink
@@ -333,4 +338,52 @@ test("findGateBudgetRepromptFromLog returns the latest gate-budget refusal and i
       rec(2, { kind: "iteration_started", command: "not-a-refusal" }),
     ]),
   ).toEqual({ refusedCommand: "bun run test:v2" });
+});
+
+test("findGateBudgetRepromptFromLog drops a refusal consumed by a later completed iteration", () => {
+  const rec = (seq: number, event: Record<string, unknown>) => ({ runId: "r", seq, ts: "t", event }) as never;
+  const refusal = {
+    kind: "gate_invocation_budget_refused",
+    attemptId: "a1",
+    command: "bun run test:v2",
+    admittedCount: 2,
+  };
+  const refusedBoundary = {
+    kind: "boundary_committed",
+    attemptId: "a1",
+    outcomeKind: "progress",
+    runStatus: "in-progress",
+  };
+  const consumerStart = { kind: "iteration_started", attemptId: "a2" };
+  const consumerBoundary = {
+    kind: "boundary_committed",
+    attemptId: "a2",
+    outcomeKind: "progress",
+    runStatus: "in-progress",
+  };
+  // The refused iteration's own boundary does not consume the reprompt.
+  expect(findGateBudgetRepromptFromLog([rec(1, refusal), rec(2, refusedBoundary)])).toEqual({
+    refusedCommand: "bun run test:v2",
+  });
+  // An iteration that started after the refusal but never committed (paused) still needs the reprompt.
+  expect(findGateBudgetRepromptFromLog([rec(1, refusal), rec(2, refusedBoundary), rec(3, consumerStart)])).toEqual({
+    refusedCommand: "bun run test:v2",
+  });
+  expect(
+    findGateBudgetRepromptFromLog([
+      rec(1, refusal),
+      rec(2, refusedBoundary),
+      rec(3, consumerStart),
+      rec(4, consumerBoundary),
+    ]),
+  ).toBeUndefined();
+  // A newer refusal after a consumed one is replayed.
+  expect(
+    findGateBudgetRepromptFromLog([
+      rec(1, refusal),
+      rec(2, consumerStart),
+      rec(3, consumerBoundary),
+      rec(4, { ...refusal, attemptId: "a3", command: "bun run test:shared" }),
+    ]),
+  ).toEqual({ refusedCommand: "bun run test:shared" });
 });

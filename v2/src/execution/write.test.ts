@@ -489,6 +489,52 @@ describe("write behavior", () => {
     expect(capturedPrompt.includes("v2/src/guard.ts:7")).toBe(expectReprompt);
   });
 
+  test("gate-budget reprompt carries the implement task (spec path, step rules) plus the budget notice", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    let capturedPrompt = "";
+    await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName: "budget-run", baseRef: "HEAD", jarvisRoot },
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: "v2/spec/demo/00-sub.md",
+      promptId: "implement.prompt.body",
+      gateBudgetReprompt: { refusedCommand: "bun run test:v2" },
+      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(capturedPrompt).toMatch(/^Read the spec at \S*v2\/spec\/demo\/00-sub\.md\./);
+    expect(capturedPrompt).toContain("cause `iteration_gate_budget`");
+    expect(capturedPrompt).toContain("bun run test:v2");
+    expect(capturedPrompt.trimEnd().endsWith("Return exactly one terminal token.")).toBe(true);
+  });
+
+  test("gate-budget reprompt does not hijack the shrink prompt", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    let capturedPrompt = "";
+    await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName: "budget-shrink", baseRef: "HEAD", jarvisRoot },
+      specPath: "spec.md",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+      expectedArtifactPath: "proof.txt",
+      promptId: "implement.prompt.shrink",
+      promptPlaceholders: {
+        SPEC_TREE: "# Spec\n",
+        ALLOWLIST: "- proof.txt",
+        BRANCH_DIFF: "(no changes)",
+        RUN_SCOPED_DIFF: "(no changes)",
+      },
+      gateBudgetReprompt: { refusedCommand: "bun run test:v2" },
+      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(capturedPrompt).toContain("- proof.txt");
+    expect(capturedPrompt).not.toContain("iteration_gate_budget");
+  });
+
   test("implement.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {
     const { jarvisRoot } = createJarvisHome();
     let capturedPrompt = "";

@@ -1,6 +1,6 @@
 import type { StateStore } from "./state-store.ts";
 
-export type InvocationEntryRunStore = Pick<StateStore, "loadRun" | "findRunsByInvocationId">;
+type InvocationEntryRunStore = Pick<StateStore, "loadRun" | "findRunsByInvocationId">;
 
 /**
  * The entry run of `runId`'s invocation — the row a stage links: the invocation's row whose `stepId`

@@ -1,6 +1,7 @@
 import { errorMessage } from "../../../shared/error-message.ts";
 import { branchExistsOnOriginAsync, getBaseBranch } from "../../../shared/git.ts";
 import {
+  AsyncSubprocessError,
   type AsyncSubprocessRunner,
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
@@ -238,8 +239,10 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       const prResult = await runPublicationWithRetry(
         "pr",
         () =>
-          findOrCreatePr(gh, input.worktreePath, effectiveBaseRef, input.branch, specPath, creationTitle, {
+          findOrCreatePr(gh, git, input.worktreePath, effectiveBaseRef, input.branch, specPath, creationTitle, {
             requestedBaseRef,
+            postPushTip: pushSha,
+            ...(input.leaseFromSha !== undefined ? { leaseFromSha: input.leaseFromSha } : {}),
             ...(input.findHarnessReadyFlipEvidenceInLineage !== undefined
               ? { findHarnessReadyFlipEvidenceInLineage: input.findHarnessReadyFlipEvidenceInLineage }
               : {}),
@@ -306,7 +309,15 @@ type PrEvidence = {
   url: string;
 };
 
-type PrListRecord = { number: number; baseRefName: string; isDraft?: boolean; state?: string };
+type PrListRecord = {
+  number: number;
+  baseRefName: string;
+  isDraft?: boolean;
+  state?: string;
+  headRefOid?: string;
+};
+
+type LaneHistoryHeadLineage = "in-lineage" | "foreign" | "inconclusive";
 
 /** Raised when a branch carries more than one open PR matching the same base; no safe default to pick. */
 export class AmbiguousOpenPrError extends Error {
@@ -360,7 +371,7 @@ async function listMatchingPrs(
   baseRef: string,
   state: "open" | "all",
 ): Promise<PrListRecord[]> {
-  const jsonFields = state === "open" ? "number,baseRefName,isDraft" : "number,baseRefName,state";
+  const jsonFields = state === "open" ? "number,baseRefName,isDraft" : "number,baseRefName,state,headRefOid";
   const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", state, "--json", jsonFields]);
   const prs = JSON.parse(prListJson) as PrListRecord[];
   return prs.filter((pr) => pr.baseRefName === baseRef);
@@ -375,7 +386,44 @@ type ResolveOpenDraftPrOptions = {
   requestedBaseRef: string;
   findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
   allowLanePrRepublish?: boolean;
+  postPushTip?: string;
+  leaseFromSha?: string;
 };
+
+async function classifyLaneHistoryHeadLineage(
+  git: Git,
+  cwd: string,
+  headRefOid: string | undefined,
+  postPushTip: string | undefined,
+  leaseFromSha: string | undefined,
+): Promise<LaneHistoryHeadLineage> {
+  const head = headRefOid?.trim();
+  if (!head || !postPushTip) return "inconclusive";
+  try {
+    await git(cwd, ["rev-parse", "--verify", `${head}^{commit}`]);
+  } catch {
+    return "inconclusive";
+  }
+
+  const againstAnchor = async (anchor: string): Promise<LaneHistoryHeadLineage> => {
+    if (head === anchor) return "in-lineage";
+    try {
+      await git(cwd, ["merge-base", "--is-ancestor", head, anchor]);
+      return "in-lineage";
+    } catch (error) {
+      if (error instanceof AsyncSubprocessError && error.status === 1) return "foreign";
+      return "inconclusive";
+    }
+  };
+
+  const onTip = await againstAnchor(postPushTip);
+  if (onTip !== "foreign") return onTip;
+  if (leaseFromSha) {
+    const onLease = await againstAnchor(leaseFromSha);
+    if (onLease !== "foreign") return onLease;
+  }
+  return "foreign";
+}
 
 type FindOrCreatePrResult = { kind: "evidence"; evidence: PrEvidence } | { kind: "lane"; outcome: LanePrOutcome };
 
@@ -461,6 +509,7 @@ async function createDraftPr(
 
 async function findOrCreatePr(
   gh: GhCommand,
+  git: Git,
   cwd: string,
   baseRef: string,
   branch: string,
@@ -474,11 +523,18 @@ async function findOrCreatePr(
   if (draftPrOptions?.allowLanePrRepublish !== true) {
     try {
       const newest = (await listMatchingPrs(gh, cwd, branch, baseRef, "all"))[0];
-      if (newest?.state === "CLOSED") {
-        return { kind: "lane", outcome: { kind: "lane_pr_closed", prNumber: newest.number } };
-      }
-      if (newest?.state === "MERGED") {
-        return { kind: "lane", outcome: { kind: "lane_pr_merged", prNumber: newest.number } };
+      if (newest?.state === "CLOSED" || newest?.state === "MERGED") {
+        const lineage = await classifyLaneHistoryHeadLineage(
+          git,
+          cwd,
+          newest.headRefOid,
+          draftPrOptions?.postPushTip,
+          draftPrOptions?.leaseFromSha,
+        );
+        if (lineage !== "foreign") {
+          const kind = newest.state === "CLOSED" ? "lane_pr_closed" : "lane_pr_merged";
+          return { kind: "lane", outcome: { kind, prNumber: newest.number } };
+        }
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));

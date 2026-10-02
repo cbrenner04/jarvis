@@ -8,6 +8,11 @@ import {
   subscribeGateInvocationLeaseReleased,
 } from "./gate-invocation-lease.ts";
 
+/** Settle pending microtasks so a missed grant fails the assertion instead of hanging an unbounded await. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+}
+
 describe("gate-invocation-lease", () => {
   test("acquireGateInvocationLease refuses when the cap is held", () => {
     const holder = acquireGateInvocationLease();
@@ -47,11 +52,13 @@ describe("gate-invocation-lease", () => {
     await Promise.resolve();
     expect(order).toEqual([]);
     holder?.release();
-    const firstLease = await first;
+    await flushMicrotasks();
     expect(order).toEqual(["first"]);
+    const firstLease = await first;
     firstLease.release();
-    const secondLease = await second;
+    await flushMicrotasks();
     expect(order).toEqual(["first", "second"]);
+    const secondLease = await second;
     secondLease.release();
     expect(liveGateInvocationLeaseCount()).toBe(0);
   });
@@ -61,10 +68,16 @@ describe("gate-invocation-lease", () => {
     expect(holder).toBeDefined();
     const abort = new AbortController();
     const aborted = awaitGateInvocationLease({ signal: abort.signal });
-    const kept = awaitGateInvocationLease({});
+    let granted = false;
+    const kept = awaitGateInvocationLease({}).then((lease) => {
+      granted = true;
+      return lease;
+    });
     abort.abort();
     await expect(aborted).rejects.toThrow("gate invocation lease wait aborted");
     holder?.release();
+    await flushMicrotasks();
+    expect(granted).toBe(true);
     const lease = await kept;
     expect(lease).toBeDefined();
     lease.release();

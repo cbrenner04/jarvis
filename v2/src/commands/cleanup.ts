@@ -1721,15 +1721,6 @@ async function inspectQueueEntry(
       skips.skip(artifact.source, "unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
       return undefined;
     }
-    const consumerSpec: ArtifactSpec = { ...consumer, branch: "" };
-    const identity: ArtifactOwnerIdentity = { store, projectRoot };
-    if (
-      hasInRepoArtifactOwner(consumerSpec, projectRoot, "", allWorktrees) ||
-      hasBranchKeyedArtifactOwner(consumerSpec, artifact.project, "", registry, allWorktrees, jarvisRoot, identity)
-    ) {
-      skips.skip(artifact.source, "another materialized worktree owns the consuming open spec");
-      return undefined;
-    }
     return { ...artifact, branch: "", inRepoReadyIntentConsumer: consumer };
   }
   const consumer = consumedExternalReadyIntentPlan({ ...artifact, branch: "" });

@@ -663,7 +663,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       },
     );
     expect(stdout).not.toContain(worktreePath);
-    expect(stdout).toContain("No eligible worktrees");
+    expect(stdout).toContain(`prune: ready-intents/${specName}.md`);
+    expect(stdout).not.toContain("Retired:");
   });
 
   test("subsumed plan lane ineligible: commit outside spec scope", async () => {
@@ -2204,6 +2205,60 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(apply.code).toBe(0);
     expect(apply.stdout).not.toContain("Pruned consumed ready-intent:");
     expect(existsSync(slugReady)).toBe(true);
+  });
+
+  test("prunes in-repo ready-intent proven by open spec while implement worktree still materialized", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20261002T120003Z-open-spec-ready-owner";
+    const branch = "feat/open-spec-ready-owner";
+    const intent = "---\nname: open-spec-ready-owner\n---\n\n# Open spec with owner\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-ready-owner.md");
+    writeFileSync(slugReady, intent);
+    const worktreePath = await materializeWorktree(branch, "implement owns open spec");
+    const registry = { project: { root: projectRoot } };
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath,
+          specPath: join(home, specName, "index.md"),
+          status: "in-progress",
+        },
+      ],
+    } as unknown as StateStore;
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, ghRunnerForPr("MERGED"));
+    expect(discovered.some((worktree) => worktree.path === worktreePath)).toBe(true);
+
+    let dryStdout = "";
+    expect(
+      await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, ghRunnerForPr("MERGED"), async () => [], store, {
+        stdout: (s) => (dryStdout += s),
+        stderr: () => {},
+      }),
+    ).toBe(0);
+    expect(dryStdout).toContain(`prune: ready-intents/open-spec-ready-owner.md (consumed by open spec ${specName})`);
+    expect(dryStdout).not.toContain("another materialized worktree owns the consuming open spec");
+
+    let applyStdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(applyStdout).toContain("Pruned consumed ready-intent:");
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(slugReady)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("v2/spec/ready-intents/open-spec-ready-owner.md");
   });
 
   test("dry-run previews and apply prunes the slug-named consumed ready-intent", async () => {

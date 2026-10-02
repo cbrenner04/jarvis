@@ -8,6 +8,10 @@ import {
   subscribeGateInvocationLeaseReleased,
 } from "./gate-invocation-lease.ts";
 
+// Every test that awaits a grant after a release must first `await flushMicrotasks()` and assert the grant
+// landed: under the release-drain guard-flip mutant the grant never arrives, and an unbounded `await` hangs
+// until the 30 s per-test timeout, which mutation verification settles as `non_terminating_mutation_failed`.
+
 /** Settle pending microtasks so a missed grant fails the assertion instead of hanging an unbounded await. */
 async function flushMicrotasks(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
@@ -124,8 +128,14 @@ describe("gate-invocation-lease", () => {
     const abort = new AbortController();
     const removeListenerSpy = spyOn(abort.signal, "removeEventListener");
     try {
-      const granted = awaitGateInvocationLease({ signal: abort.signal });
+      let grantedLease: Awaited<ReturnType<typeof awaitGateInvocationLease>> | undefined;
+      const granted = awaitGateInvocationLease({ signal: abort.signal }).then((lease) => {
+        grantedLease = lease;
+        return lease;
+      });
       holder?.release();
+      await flushMicrotasks();
+      expect(grantedLease).toBeDefined();
       const lease = await granted;
       expect(removeListenerSpy.mock.calls.length).toBe(1);
       lease.release();

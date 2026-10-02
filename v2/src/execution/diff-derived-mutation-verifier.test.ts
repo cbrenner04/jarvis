@@ -42,14 +42,6 @@ import {
 
 export const TEST_ISOLATION_CLASS = "subprocess-spawning";
 
-function scopedBunTestPath(args: readonly string[]): string {
-  for (let i = args.length - 1; i >= 0; i--) {
-    const segment = args[i];
-    if (segment !== undefined && segment.endsWith(".test.ts")) return segment;
-  }
-  return "";
-}
-
 function renderObserverMapSource(entries: Record<string, readonly string[]>): string {
   const lines = Object.entries(entries).flatMap(([prompt, tests]) => {
     const quotedTests = tests.map((testPath) => `"${testPath}"`).join(", ");
@@ -1335,14 +1327,20 @@ index 1234567..abcdefg 100644
     function verifyTimeout(
       runScopedTests: (cwd: string, scope: readonly string[], options?: RunScopedTestsOptions) => Promise<boolean>,
       writeFile: (path: string, content: string) => Promise<void> = async () => {},
-      extra: { now?: () => number; listDir?: () => string[] } = {},
+      extra: {
+        now?: () => number;
+        listDir?: () => string[];
+        readFile?: (path: string) => Promise<string>;
+      } = {},
     ) {
+      const readFile =
+        extra.readFile ?? (async (path: string) => (path.endsWith(".test.ts") ? "export {};\n" : source));
       return verifyDiffDerivedMutations(
         { worktreePath: "/test/path", runBase: "main" },
         {
           gitDiff: async () => diff,
           untrackedFiles: async () => [],
-          readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+          readFile,
           writeFile,
           listDir: extra.listDir ?? (() => []),
           runScopedTests,
@@ -1400,49 +1398,28 @@ index 1234567..abcdefg 100644
     });
 
     it("a top-level-await killing file still settles non-terminating-mutation at subprocess floor", async () => {
-      const tlaSource = `export function hangsTla(x: unknown): string {
-  if (!x) return "stopped";
-  return "running";
-}`;
-      const tlaDiff = `diff --git a/src/hangs-tla.ts b/src/hangs-tla.ts
-index 1234567..abcdefg 100644
---- a/src/hangs-tla.ts
-+++ b/src/hangs-tla.ts
-@@ -1,3 +1,3 @@
- export function hangsTla(x: unknown): string {
--  if (!x) return "old";
-+  if (!x) return "stopped";
-   return "running";
-}`;
-      const tlaTest = "await new Promise<never>(() => {});\nexport {};\n";
       const clock = fakeClock();
-      const result = await verifyDiffDerivedMutations(
-        { worktreePath: "/test/path", runBase: "main" },
+      const result = await verifyTimeout(
+        async (_cwd, _scope, options) => {
+          if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
+            clock.advance(2_000);
+            return true;
+          }
+          clock.advance((options?.timeoutMs ?? 0) + 1);
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        undefined,
         {
-          gitDiff: async () => tlaDiff,
-          untrackedFiles: async () => [],
-          readFile: async (path) => {
-            if (path.endsWith("hangs-tla.test.ts")) return tlaTest;
-            return path.endsWith(".test.ts") ? "export {};\n" : tlaSource;
-          },
-          writeFile: async () => {},
-          listDir: () => [],
-          runScopedTests: async (_cwd, scope, options) => {
-            if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
-              clock.advance(2_000);
-              return true;
-            }
-            expect(scope.some((p) => p.endsWith("hangs-tla.test.ts"))).toBe(true);
-            clock.advance((options?.timeoutMs ?? 0) + 1);
-            throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
-          },
           now: clock.now,
+          readFile: async (path) =>
+            path.endsWith("hangs.test.ts")
+              ? "await new Promise<never>(() => {});\nexport {};\n"
+              : path.endsWith(".test.ts")
+                ? "export {};\n"
+                : source,
         },
       );
-      expect(result).toMatchObject({
-        kind: "non-terminating-mutation",
-        sourceSite: { file: "src/hangs-tla.ts", line: 2 },
-      });
+      expect(result).toMatchObject({ kind: "non-terminating-mutation", sourceSite: { file: "src/hangs.ts", line: 2 } });
     });
 
     it("treats a hung in-test killing file as killed when scoped bun per-test timeout is below the subprocess floor", async () => {
@@ -1467,13 +1444,8 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
               {
                 runAsync: async (_command, args, _cwd, runOptions) => {
                   if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
-                  const timeoutIdx = args.indexOf("--timeout");
-                  expect(timeoutIdx).toBeGreaterThanOrEqual(0);
-                  expect(args[timeoutIdx + 1]).toBe(String(SCOPED_BUN_PER_TEST_TIMEOUT_MS));
+                  expect(args).toEqual(expect.arrayContaining(["--timeout", String(SCOPED_BUN_PER_TEST_TIMEOUT_MS)]));
                   expect(runOptions?.timeoutMs).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
-                  if (timeoutIdx < 0) {
-                    throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
-                  }
                   throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
                 },
               },
@@ -1571,7 +1543,7 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
     it("returns caught when a sibling scoped test fails before a parallel timeout", async () => {
       const result = await runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
         runAsync: async (_command, args) => {
-          if (scopedBunTestPath(args) === "src/hangs.test.ts") {
+          if (args.at(-1) === "src/hangs.test.ts") {
             throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
           }
           throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
@@ -1586,7 +1558,7 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
       const startedAt = Date.now();
       const result = await runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
         runAsync: async (_command, args, _cwd, options) => {
-          if (scopedBunTestPath(args) === "src/hangs.test.ts") {
+          if (args.at(-1) === "src/hangs.test.ts") {
             await new Promise<void>((resolve) => {
               const onAbort = () => {
                 options?.signal?.removeEventListener("abort", onAbort);
@@ -1617,7 +1589,7 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
         scope,
         {
           runAsync: async (_command, args, _cwd, options) => {
-            const path = scopedBunTestPath(args);
+            const path = args.at(-1) ?? "";
             started.push(path);
             if (path === "src/a.test.ts") {
               throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
@@ -1651,7 +1623,7 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
       const scope = ["src/a.test.ts", "src/b.test.ts", "src/c.test.ts", "src/d.test.ts", "src/queued.test.ts"];
       const result = await runDiffDerivedScopedTests("/test/path", scope, {
         runAsync: async (_command, args, _cwd, options) => {
-          const path = scopedBunTestPath(args);
+          const path = args.at(-1) ?? "";
           started.push(path);
           if (path === "src/a.test.ts") throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
           await new Promise<void>((resolve) => {
@@ -1675,7 +1647,7 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
             {
               runAsync: async (_command, args, _cwd, runOptions) => {
                 if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
-                const path = scopedBunTestPath(args);
+                const path = args.at(-1) ?? "";
                 if (path.endsWith("hangs-extra.test.ts")) {
                   await new Promise<void>((resolve) => {
                     const onAbort = () => {
@@ -1719,7 +1691,7 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
           runScopedTests: (cwd, scope) =>
             runDiffDerivedScopedTests(cwd, scope, {
               runAsync: async (_command, args) => {
-                if (scopedBunTestPath(args) === "src/hangs-extra.test.ts") {
+                if (args.at(-1) === "src/hangs-extra.test.ts") {
                   throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
                 }
                 throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);

@@ -17,9 +17,9 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-feedback-write.test.ts` adds or extends a case that renders `buildReviewFeedbackWritePrompt` and asserts the prompt names review-body `reviewId` values in the response sidecar contract alongside thread `threadId` and top-level `commentId`; fails against current code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `shared/prompts/review-feedback-write.test.ts` adds or extends a case that renders `buildReviewFeedbackWritePrompt` and asserts the prompt names review-body `reviewId` values in the response sidecar contract alongside thread `threadId` and top-level `commentId`; fails against current code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

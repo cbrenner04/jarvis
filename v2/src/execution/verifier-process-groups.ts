@@ -4,11 +4,9 @@ import type { StateStore } from "../persistence/state-store.ts";
 export { isForeignProcessGroup, ownProcessGroupIds };
 
 /**
- * Durable binding for finalization verifier spawns: every detached `bun` tree the ready gate,
- * required-integration scope, diff-derived mutation verifier, runtime smoke probe, or base-ref
- * reproduction probe launches records its process group on the owning run row at spawn and
- * clears exactly that id when the spawn settles. Daemon-startup sweep and live kill signal the
- * recorded ids, so an unrecorded spawn is an orphan-in-waiting.
+ * Durable run-row binding for verifier spawns and bounded implement agent invocations. Agents also
+ * record foreign descendant groups captured on kill paths. Invocation settlement clears each id;
+ * daemon startup sweep and live run kill signal the same recorded ids.
  */
 export type VerifierProcessGroupRecorder = {
   record: (pgid: number) => void;

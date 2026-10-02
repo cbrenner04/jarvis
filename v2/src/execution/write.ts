@@ -12,7 +12,11 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
-import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
+import type {
+  InvocationBinding,
+  InvocationTelemetryContext,
+  ProcessGroupRecorder,
+} from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import {
   normalizePlanDraftSpecDir,
@@ -375,6 +379,7 @@ export type WriteExecuteInput = {
   onAgentShellCommandComplete?: () => void | Promise<void>;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
+  processGroupRecorder?: ProcessGroupRecorder;
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   gateBudgetReprompt?: { refusedCommand: string };
@@ -430,6 +435,7 @@ function runWriteStep(
       : {}),
     ...(write.idleOutputMs !== undefined ? { idleOutputMs: write.idleOutputMs } : {}),
     ...(write.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(write.processGroupRecorder !== undefined ? { processGroupRecorder: write.processGroupRecorder } : {}),
     ...(additionalReadDirs !== undefined ? { additionalReadDirs } : {}),
   });
 }

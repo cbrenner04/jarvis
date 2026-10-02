@@ -57,6 +57,11 @@ export type InvocationError =
 
 export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall | InvocationError;
 
+export type ProcessGroupRecorder = {
+  record: (pgid: number) => void;
+  clear: (pgid: number) => void;
+};
+
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
   invoke: (args: {
@@ -65,6 +70,7 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
     signal?: AbortSignal;
     idleOutputMs?: number;
     joinProcessOnIdleStall?: boolean;
+    processGroupRecorder?: ProcessGroupRecorder;
     onOutputProgress?: () => void;
     onAgentShellCommand?: (command: string) => void | Promise<void>;
     onAgentShellCommandComplete?: () => void | Promise<void>;
@@ -295,6 +301,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   signal?: AbortSignal;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
+  processGroupRecorder?: ProcessGroupRecorder;
   onOutputProgress?: () => void;
   onAgentShellCommand?: (command: string) => void | Promise<void>;
   onAgentShellCommandComplete?: () => void | Promise<void>;
@@ -315,6 +322,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
       ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
       ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
       ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+      ...(args.processGroupRecorder !== undefined ? { processGroupRecorder: args.processGroupRecorder } : {}),
       ...pickShellCommandCallbacks(args),
       ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
     });

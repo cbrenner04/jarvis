@@ -10,7 +10,7 @@ Only verifier spawns record process groups on the run row (`recordVerifierProces
 - Shared `AgentRunOptions` accepts an optional `{ record, clear }` seam structurally matching v2 `VerifierProcessGroupRecorder`; v2 constructs `storeVerifierProcessGroupRecorder(store, runId)` on the bounded `awaitIteration` path and passes it through step/invoke threading — rules out importing v2 persistence types into `shared/` or constructing the recorder inside `buildWriteExecuteInput`.
 - After the detached agent child has a pid, `record` the agent process group when `isForeignProcessGroup` passes; when `killProcessGroup` takes a descendant snapshot (abort, idle stall with `joinProcessOnIdleStall`, iteration-timeout abort, or any path that already arms group kill), `record` each distinct foreign snapshotted pgid not yet recorded; on invocation `settle`, `clear` every pgid recorded for that invocation — rules out recording only at kill time (no mid-iteration visibility) or never clearing on normal completion.
 - Thread the recorder from bounded `awaitIteration` (`settlementPolicy === "bounded"`) through `executeWrite` / `runStep` / `sharedInvocationExtras` and `executeWithQuotaFallback` → binding `invoke` so production agent calls record — rules out wiring only inside `shared/invocation/agents.ts` without invoke forwarding or recording `finalization-repair` iterations (out of intent scope).
-- Deferred to first consumer: exact settle-time clear ordering when kill-path recording races normal child close — pin when the integration test observes concurrent record/clear.
+- Settlement clears every recorded id before resolving invocation; a snapshot resolving after settlement still signals groups but cannot add stale persisted ids. The focused production-path race test pins this ordering.
 
 ## Out of scope
 
@@ -28,9 +28,9 @@ Only verifier spawns record process groups on the run row (`recordVerifierProces
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop-agent-process-groups.test.ts`: a bounded implement iteration records the agent pgid on the run row (`store.verifierProcessGroups(runId)`) while the agent invocation is in flight and clears it after the iteration settles, via the production step → invoke path; fails against pre-fix (empty).
-- [ ] `v2/src/execution/write-loop-agent-process-groups.test.ts`: after a snapshotted descendant group exists on the abort/stall/timeout snapshot path, that foreign pgid is recorded on the run row and cleared on settle on the same production path; fails against pre-fix (agent pgid only or empty).
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/execution/write-loop-agent-process-groups.test.ts`: a bounded implement iteration records the agent pgid on the run row (`store.verifierProcessGroups(runId)`) while the agent invocation is in flight and clears it after the iteration settles, via the production step → invoke path; fails against pre-fix (empty).
+- [x] `v2/src/execution/write-loop-agent-process-groups.test.ts`: after a snapshotted descendant group exists on the abort/stall/timeout snapshot path, that foreign pgid is recorded on the run row and cleared on settle on the same production path; fails against pre-fix (agent pgid only or empty).
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test:shared` passes.
 - [ ] `bun run test:integration:shared` passes.
 - [ ] `bun run test:v2` passes.

@@ -5,6 +5,7 @@ import {
   type InvocationExecution,
   type InvocationResult,
   type InvocationTelemetryContext,
+  type ProcessGroupRecorder,
 } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
@@ -57,6 +58,7 @@ type StepRunInput = {
   onAgentShellCommandComplete?: () => void | Promise<void>;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
+  processGroupRecorder?: ProcessGroupRecorder;
   additionalReadDirs?: readonly string[];
 };
 
@@ -156,6 +158,7 @@ function sharedInvocationExtras(args: StepRunInput) {
       : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(args.processGroupRecorder !== undefined ? { processGroupRecorder: args.processGroupRecorder } : {}),
     ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
   };
 }

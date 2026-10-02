@@ -1559,6 +1559,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const settled = await awaitIteration(
         args,
+        store,
         runId,
         attemptId,
         sessionLog,
@@ -2711,6 +2712,7 @@ async function settleBoundedIteration(
  */
 async function awaitIteration(
   args: WriteLoopInput,
+  store: StateStore,
   runId: string,
   attemptId: string,
   sessionLog: SessionLog,
@@ -2783,6 +2785,9 @@ async function awaitIteration(
       survivingMutationReprompt,
       gateTracker,
     ),
+    ...(settlementPolicy === "bounded"
+      ? { processGroupRecorder: storeVerifierProcessGroupRecorder(store, runId) }
+      : {}),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
   }).then(
@@ -3635,7 +3640,7 @@ async function runReadyRepairIteration(
       GATE_OUTPUT: failedStep.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
     },
   };
-  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");
+  const settled = await awaitIteration(repairArgs, store, result.runId, attemptId, sessionLog, "finalization-repair");
   if (settled.kind !== "settled") {
     closeSessionLog(
       sessionLog,
@@ -3694,7 +3699,7 @@ export async function runMutationRepairIteration(
       MUTATION_COVERAGE_FIX_DETAIL: mutationCoverageFixDetail(mutationError.mutation, mutationError.sourceSiteFile),
     },
   };
-  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");
+  const settled = await awaitIteration(repairArgs, store, result.runId, attemptId, sessionLog, "finalization-repair");
   if (settled.kind !== "settled") {
     closeSessionLog(
       sessionLog,

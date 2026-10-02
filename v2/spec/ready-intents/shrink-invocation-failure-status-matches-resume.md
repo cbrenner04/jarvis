@@ -24,12 +24,12 @@ Post-commit `implement~shrink` `invocation_failure` with `failureKind: "error"` 
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner*.test.ts`: a post-commit shrink `invocation_failure` (`failureKind: "error"`) leaves `implement~shrink` `paused` with terminal `loop_finished` `resumable: true` and `resolveRunResumeAdmission` admitted for that row (re-enter `implement~shrink`); never `paused` with admission refused; fails against current code (`settlePostCommitShrinkForResume` omits the corrective append for `invocation_failure`).
+- [ ] `workflow-runner.test.ts` `post-commit shrink invocation_failure error is resumable` (mirror `post-commit shrink contract_miss is resumable`) drives implement→commit→shrink `invocation_failure` (`failureKind: "error"`) and asserts `implement~shrink` `paused`, terminal `loop_finished` `resumable: true`, and `resolveRunResumeAdmission` admitted (re-enter `implement~shrink`); never `paused` with admission refused; fails against current code (`settlePostCommitShrinkForResume` omits the corrective append for `invocation_failure`).
 - [ ] `workflow-runner-core.test.ts` `resumes a shrink invocation error without re-invoking implement and publishes after shrink completes` stays green after the fix.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` § Clearing a stale non-active run: drop the shrink-specific force-kill workaround once resume admits post-commit shrink `invocation_failure` (`failureKind: "error"`).
-- `v2/docs/workflow-runner.md`: state that post-commit shrink `invocation_failure` (`failureKind: "error"`) receives the same corrective `loop_finished` append as `contract_miss` / `blocked` when the write loop emitted a non-resumable terminal record.
+- `v2/docs/operator-runbook.md` § Publication / completion failures: extend the post-commit shrink `contract_miss` resume bullet with the same `jarvis run resume` on `implement~shrink` for `invocation_failure` (`failureKind: "error"`); omit if plan confirms no runbook edit is needed (§ Clearing a stale non-active run has no shrink-specific force-kill workaround on main).
+- `v2/docs/workflow-runner.md`: extend the corrective `loop_finished` sentence to include post-commit shrink `invocation_failure` (`failureKind: "error"`) alongside `contract_miss` and text-less `blocked`; do not restate resumability (already claimed there).
 - `v2/docs/v1-behaviors.md`: record that shrink `invocation_error` after a committed implement write matches list/wait/resume admission (no stranded `paused` + refused resume).

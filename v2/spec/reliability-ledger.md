@@ -1,12 +1,11 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **10 active spec plans, 3 ready-intents, 17 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **9 active spec plans, 3 ready-intents, 17 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
-## Highest priority: active specs (4)
+## Highest priority: active specs (3)
 
 | Item | Next action | Remaining work and evidence |
 | --- | --- | --- |
-| [Linked resume executes its admitted row](./20261002T061748Z-linked-resume-admitted-row/index.md) | Hand implementation; highest priority | Resuming a linked implement row currently re-enters the snapshot’s base step and strands the admitted ~link-N row. |
 | [Workflow terminal evidence waits for every row](./20261002T061748Z-workflow-terminal-waits-for-all-rows/index.md) | Hand implementation; highest priority | The invocation finally path writes a settled marker even while a linked row remains non-terminal, producing a false finished incident. |
 | [Startup recovery settles published linked lanes](./20261002T061748Z-linked-recovery-skips-published-lanes/index.md) | Hand implementation; highest priority | Startup reconciliation resumes stranded linked rows even after their lane has published or merged. |
 | [Force kill clears a retiring owner’s stranded row](./20261002T061748Z-force-kill-retiring-owner-row/index.md) | Hand implementation; highest priority | A live retiring daemon identity blocks force-killing a non-terminal row even when that daemon has no active execution for it. |

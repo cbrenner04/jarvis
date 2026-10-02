@@ -734,6 +734,7 @@ type CapturedLinkedResume = {
   admitRun?: () => Promise<{ kind: "error"; code: string; message: string } | undefined>;
   rollbackRunAdmission?: () => void;
   settleStagesAfterResume?: (runId: string) => void;
+  resumedRunId?: string;
 };
 
 function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps): {
@@ -753,13 +754,22 @@ function capturingLinkedWorkflowHandlers(writeLoopBindingSourceDeps: WriteLoopBi
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
-    resumeLinkedWorkflowStart: (steps, workflowSnapshot, admitRun, rollbackRunAdmission, settleStagesAfterResume) => {
+    resumeLinkedWorkflowStart: (
+      steps,
+      workflowSnapshot,
+      admitRun,
+      rollbackRunAdmission,
+      settleStagesAfterResume,
+      _options,
+      resumedRunId,
+    ) => {
       captured.push({
         steps,
         workflowSnapshot,
         ...(admitRun !== undefined ? { admitRun } : {}),
         ...(rollbackRunAdmission !== undefined ? { rollbackRunAdmission } : {}),
         ...(settleStagesAfterResume !== undefined ? { settleStagesAfterResume } : {}),
+        ...(resumedRunId !== undefined ? { resumedRunId } : {}),
       });
       return { kind: "response", result: { runId: "fake-entry-run" } };
     },
@@ -800,6 +810,7 @@ test("resume routes a failed gate_invocation_refused implement~link-N row to res
     expect(captured).toHaveLength(1);
     expect(captured[0]?.workflowSnapshot.invocationId).toBe("linked-route-failed");
     expect(captured[0]?.settleStagesAfterResume).toBeDefined();
+    expect(captured[0]?.resumedRunId).toBe(runId);
     expect(captured[0]?.steps).toHaveLength(2);
     expect(captured[0]?.steps[0]).toMatchObject({
       behavior: "write",
@@ -853,6 +864,7 @@ test("slot re-drive routes a slot-refused implement~link-N row through resumeLin
 
     expect(captured).toHaveLength(1);
     expect(captured[0]?.steps[0]).toMatchObject({ stepId: "implement", linkedIndexRouting: true });
+    expect(captured[0]?.resumedRunId).toBe(runId);
     expect(stateStore.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 1 });
     ctx.slotRedrive.stop();
   } finally {
@@ -886,6 +898,7 @@ test("resume routes a paused implement~link-N row to resumeLinkedWorkflowStart t
     expect(response).toEqual({ kind: "response", result: { runId: "fake-entry-run" } });
     expect(captured).toHaveLength(1);
     expect(captured[0]?.steps[0]).toMatchObject({ stepId: "implement", linkedIndexRouting: true });
+    expect(captured[0]?.resumedRunId).toBe(runId);
     expect(fakeExecutor.pendingCount()).toBe(0);
     // The linked route hands the workflow start a resume admission for this row, applied before any spawn.
     expect(stateStore.loadRun(runId)?.status).toBe("paused");

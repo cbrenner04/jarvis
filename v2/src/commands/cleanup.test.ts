@@ -18,11 +18,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
@@ -30,6 +26,7 @@ import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc
 import type { IpcFrame } from "../ipc/types.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
 import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
+import { ghRefusingRealRunner as realAsyncSubprocessRunner } from "../testing/gh-refusing-runner.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   classifyNeverLandedLane,
@@ -161,6 +158,14 @@ function mergeArchivePublicationRunner(base: AsyncSubprocessRunner, projectRoot:
       if (cmd === "git" && args[0] === "push") return "";
       if (cmd === "git" && args[0] === "ls-remote") return "";
       if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
+      if (
+        cmd === "gh" &&
+        args[0] === "pr" &&
+        args[1] === "list" &&
+        args[args.indexOf("--head") + 1]?.startsWith("cleanup/archive-")
+      ) {
+        return "[]";
+      }
       if (cmd === "gh" && args[0] === "pr" && args[1] === "create") {
         return "https://github.com/example/test/pull/42";
       }

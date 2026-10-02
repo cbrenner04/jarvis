@@ -40,8 +40,6 @@ type PrReviewInputReviewBody = {
   state: string;
 };
 
-const QUALIFYING_REVIEW_BODY_STATES = new Set(["COMMENTED", "CHANGES_REQUESTED", "APPROVED"]);
-
 export type PrReviewInputCaptureArtifact = {
   captureVersion: 1;
   prNumber: number;
@@ -70,11 +68,11 @@ export async function refreshPrReviewInputCapture(args: {
     prNumber: args.prNumber,
     runner: args.runner ?? realAsyncSubprocessRunner,
   };
-  const prViewCapture = await fetchPrViewCapture(capture);
+  const [prViewCapture, threads] = await Promise.all([fetchPrViewCapture(capture), fetchReviewThreads(capture)]);
   const artifact: PrReviewInputCaptureArtifact = {
     captureVersion: 1,
     prNumber: args.prNumber,
-    threads: await fetchReviewThreads(capture),
+    threads,
     topLevelComments: prViewCapture.topLevelComments,
     reviewBodies: prViewCapture.reviewBodies,
   };
@@ -212,16 +210,14 @@ async function fetchReviewThreads(args: CaptureArgs): Promise<PrReviewInputCaptu
   return out;
 }
 
-type GhPrViewReview = {
-  id?: string | number | null;
-  author?: { login?: string | null } | null;
-  body?: string | null;
-  submittedAt?: string | null;
-  state?: string | null;
-};
-
 type GhPrViewPayload = {
-  reviews?: GhPrViewReview[];
+  reviews?: Array<{
+    id?: string | number | null;
+    author?: { login?: string | null } | null;
+    body?: string | null;
+    submittedAt?: string | null;
+    state?: string | null;
+  }>;
   comments?: Array<{
     id?: string | null;
     author?: { login?: string | null } | null;
@@ -257,10 +253,13 @@ async function fetchPrViewCapture(args: CaptureArgs): Promise<{
     }))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const reviewBodies = (parsed.reviews ?? [])
-    .filter((review) => review.submittedAt != null)
-    .filter((review) => !isBotLogin(review.author?.login))
-    .filter((review) => QUALIFYING_REVIEW_BODY_STATES.has(review.state ?? ""))
-    .filter((review) => (review.body ?? "").trim() !== "")
+    .filter(
+      (review) =>
+        review.submittedAt != null &&
+        !isBotLogin(review.author?.login) &&
+        (review.state === "COMMENTED" || review.state === "CHANGES_REQUESTED" || review.state === "APPROVED") &&
+        (review.body ?? "").trim() !== "",
+    )
     .map((review) => ({
       reviewId: String(review.id ?? ""),
       author: review.author?.login ?? "unknown",

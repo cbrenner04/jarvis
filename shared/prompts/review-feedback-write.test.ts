@@ -36,9 +36,7 @@ describe("buildReviewFeedbackWritePrompt", () => {
     expect(prompt).toContain("## Response sidecar");
     expect(prompt).toContain("including `no-work`");
     expect(prompt).toContain("`- <id>: addressed` or `- <id>: declined: <reason>`");
-    expect(prompt).toContain("thread `threadId`");
-    expect(prompt).toContain("top-level `commentId`");
-    expect(prompt).toContain("review-body `reviewId`");
+    expect(prompt).toContain("thread `threadId`, top-level `commentId`, or review-body `reviewId`");
     expect(prompt).toContain("a missing file fails the step");
   });
 

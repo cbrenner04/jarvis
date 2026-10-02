@@ -37,7 +37,7 @@ Successful cleanup apply commits in-repo archives locally then prints manual pus
 - [x] The same file: PR open/create failure after a successful push leaves local commits and the remote branch, prints the failing step plus the same manual fallback line shape as above, and exits non-zero; fails against current code as above.
 - [x] `cleanup.test.ts`: `--dry-run` prints `push: <branch>` and `open PR: Archive completed specs for <project>` and performs no `git push` or `gh` invocation; fails against current dry-run output that omits archive publication preview.
 - [x] `cleanup.test.ts`: successful in-repo archive apply stdout names the archive PR URL and does not match the `reportArchiveSessions` manual line (`Archive branch for … — push it and open one archive PR.`); fails against current code at ~1546–1548.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

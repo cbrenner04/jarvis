@@ -209,7 +209,6 @@ async function pushBranch(git: Git, cwd: string, branch: string, leaseFromSha: s
   }
 }
 
-/** Push archive branch (no lease) and open or reuse a ready PR for the caller title/body. */
 export async function publishArchiveReady(
   input: ArchiveReadyPublicationInput,
   seams?: Partial<Pick<PublisherSeams, "git" | "gh">>,
@@ -547,21 +546,6 @@ async function createDraftPr(
   }
 }
 
-async function createReadyPr(
-  gh: GhCommand,
-  cwd: string,
-  baseRef: string,
-  branch: string,
-  title: string,
-  body: string,
-): Promise<void> {
-  try {
-    await gh(cwd, ["pr", "create", "--base", baseRef, "--title", title, "--body", body]);
-  } catch (error) {
-    mapNoPublishableCommits(error, branch, baseRef);
-  }
-}
-
 async function findOrOpenReuseArchivePr(
   gh: GhCommand,
   cwd: string,
@@ -580,14 +564,17 @@ async function findOrOpenReuseArchivePr(
   }
   const sole = matches[0];
   if (sole !== undefined) {
-    if (sole.isDraft === false) {
-      return confirmPr(gh, cwd, branch, baseRef, sole.number);
+    if (sole.isDraft) {
+      await gh(cwd, ["pr", "ready", String(sole.number)]);
     }
-    await gh(cwd, ["pr", "ready", String(sole.number)]);
     return confirmPr(gh, cwd, branch, baseRef, sole.number);
   }
 
-  await createReadyPr(gh, cwd, baseRef, branch, title, body);
+  try {
+    await gh(cwd, ["pr", "create", "--base", baseRef, "--title", title, "--body", body]);
+  } catch (error) {
+    mapNoPublishableCommits(error, branch, baseRef);
+  }
   return confirmPr(gh, cwd, branch, baseRef);
 }
 

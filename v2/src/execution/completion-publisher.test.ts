@@ -2222,14 +2222,13 @@ describe("publishArchiveReady", () => {
     body: "Moves completed spec dirs into completed/.",
   };
   const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
+  const archivePushGit = async (_cwd: string, args: readonly string[]) =>
+    args[0] === "rev-parse" && args[1] === "HEAD" ? "archive-push-sha" : "";
 
   it("creates a ready PR with caller title and body when no open PR exists", async () => {
     const ghCalls: string[] = [];
     const result = await publishArchiveReady(archiveInput, {
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
-        return "";
-      },
+      git: archivePushGit,
       gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
@@ -2256,10 +2255,7 @@ describe("publishArchiveReady", () => {
   it("reuses a sole open ready PR without create", async () => {
     const ghCalls: string[] = [];
     const result = await publishArchiveReady(archiveInput, {
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
-        return "";
-      },
+      git: archivePushGit,
       gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
@@ -2281,10 +2277,7 @@ describe("publishArchiveReady", () => {
   it("promotes a sole open draft with gh pr ready and reuses without create", async () => {
     const ghCalls: string[] = [];
     const result = await publishArchiveReady(archiveInput, {
-      git: async (_cwd, args) => {
-        if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
-        return "";
-      },
+      git: archivePushGit,
       gh: async (_cwd, args) => {
         ghCalls.push(args.join(" "));
         if (args[0] === "pr" && args[1] === "list") {
@@ -2308,10 +2301,7 @@ describe("publishArchiveReady", () => {
     let createCount = 0;
     await expect(
       publishArchiveReady(archiveInput, {
-        git: async (_cwd, args) => {
-          if (args[0] === "rev-parse" && args[1] === "HEAD") return "archive-push-sha";
-          return "";
-        },
+        git: archivePushGit,
         gh: async (_cwd, args) => {
           if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
           if (args[0] === "pr" && args[1] === "create") {

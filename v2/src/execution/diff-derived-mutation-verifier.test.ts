@@ -1398,41 +1398,21 @@ index 1234567..abcdefg 100644
     });
 
     it("a top-level-await killing file still settles non-terminating-mutation at subprocess floor", async () => {
-      const clock = fakeClock();
-      const result = await verifyTimeout(
-        async (_cwd, _scope, options) => {
-          if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
-            clock.advance(2_000);
-            return true;
-          }
-          clock.advance((options?.timeoutMs ?? 0) + 1);
-          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
-        },
-        undefined,
-        {
-          now: clock.now,
-          readFile: async (path) =>
-            path.endsWith("hangs.test.ts")
-              ? "await new Promise<never>(() => {});\nexport {};\n"
-              : path.endsWith(".test.ts")
-                ? "export {};\n"
-                : source,
-        },
-      );
-      expect(result).toMatchObject({ kind: "non-terminating-mutation", sourceSite: { file: "src/hangs.ts", line: 2 } });
-    });
-
-    it("treats a hung in-test killing file as killed when scoped bun per-test timeout is below the subprocess floor", async () => {
-      const hungTest = `import { hangs } from "./hangs";
-it("detects mutant hang", async () => { await new Promise(() => {}); });
-`;
+      const tlaKillingTest = "await new Promise<never>(() => {});\nexport {};\n";
+      const simulateScopedBunOutcome = (testSource: string, args: string[]): never => {
+        const hasBunPerTestTimeout = args.includes("--timeout");
+        if (/\bit\s*\(/.test(testSource) && hasBunPerTestTimeout) {
+          throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+        }
+        throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+      };
       const result = await verifyDiffDerivedMutations(
         { worktreePath: "/test/path", runBase: "main" },
         {
           gitDiff: async () => diff,
           untrackedFiles: async () => [],
           readFile: async (path) => {
-            if (path.endsWith("hangs.test.ts")) return hungTest;
+            if (path.endsWith("hangs.test.ts")) return tlaKillingTest;
             return path.endsWith(".test.ts") ? "export {};\n" : source;
           },
           writeFile: async () => {},
@@ -1446,7 +1426,54 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
                   if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
                   expect(args).toEqual(expect.arrayContaining(["--timeout", String(SCOPED_BUN_PER_TEST_TIMEOUT_MS)]));
                   expect(runOptions?.timeoutMs).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
-                  throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+                  return simulateScopedBunOutcome(tlaKillingTest, args);
+                },
+              },
+              options,
+            ),
+        },
+      );
+      expect(result).toMatchObject({ kind: "non-terminating-mutation", sourceSite: { file: "src/hangs.ts", line: 2 } });
+      expect(() =>
+        simulateScopedBunOutcome(tlaKillingTest, ["test", "--timeout", "25000", "src/hangs.test.ts"]),
+      ).toThrow(expect.objectContaining({ code: "ETIMEDOUT" }));
+    });
+
+    it("treats a hung in-test killing file as killed when scoped bun per-test timeout is below the subprocess floor", async () => {
+      const hungTest = `import { hangs } from "./hangs";
+it("detects mutant hang", async () => { await new Promise(() => {}); });
+`;
+      const simulateScopedBunOutcome = (testSource: string, args: string[]): never => {
+        const hasBunPerTestTimeout = args.includes("--timeout");
+        if (/\bit\s*\(/.test(testSource) && hasBunPerTestTimeout) {
+          throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+        }
+        throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+      };
+      const sharedDeps = {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path: string) => {
+          if (path.endsWith("hangs.test.ts")) return hungTest;
+          return path.endsWith(".test.ts") ? "export {};\n" : source;
+        },
+        writeFile: async () => {},
+        listDir: () => [],
+      };
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          ...sharedDeps,
+          runScopedTests: (cwd, scope, options) =>
+            runDiffDerivedScopedTests(
+              cwd,
+              scope,
+              {
+                runAsync: async (_command, args, _cwd, runOptions) => {
+                  if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
+                  expect(args).toEqual(expect.arrayContaining(["--timeout", String(SCOPED_BUN_PER_TEST_TIMEOUT_MS)]));
+                  expect(runOptions?.timeoutMs).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
+                  return simulateScopedBunOutcome(hungTest, args);
                 },
               },
               options,
@@ -1454,6 +1481,32 @@ it("detects mutant hang", async () => { await new Promise(() => {}); });
         },
       );
       expect(result.kind).toBe("pass");
+
+      const preFixRace = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          ...sharedDeps,
+          runScopedTests: async (cwd, scope, options) => {
+            if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return true;
+            const testPath = scope[0];
+            if (testPath === undefined) return true;
+            const argv = ["test", testPath];
+            try {
+              expect(argv).toEqual(["test", "src/hangs.test.ts"]);
+              expect(options?.timeoutMs).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
+              simulateScopedBunOutcome(hungTest, argv);
+              return true;
+            } catch (error) {
+              if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") throw error;
+              return false;
+            }
+          },
+        },
+      );
+      expect(preFixRace).toMatchObject({
+        kind: "non-terminating-mutation",
+        sourceSite: { file: "src/hangs.ts", line: 2 },
+      });
     });
 
     it("the per-candidate bound scales with the whole resolved killing set and is clamped", async () => {

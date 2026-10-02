@@ -23,7 +23,6 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 
 | Item | Next action / dependency | Remaining scope |
 | --- | --- | --- |
-| [Sibling-repo prerequisite coverage](./seeds/intent-split-covers-sibling-repo-surfaces.md) | Intent; #3439 | Split-internal prerequisite coverage check. |
 | [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Re-scoped 2026-10-02 to cleanup pruning on plan-spec landing (consume-from-source plan rejected, #4448). |
 | [Review-feedback matches linked lanes](./seeds/review-feedback-matches-linked-implement-lanes.md) | Intent | `review-feedback --branch` refused a linked implement lane (PR on review row only); #4440 hand-fixed. |
 | [Review-feedback captures review bodies](./seeds/review-feedback-captures-review-bodies.md) | Intent | Review bodies dropped; `--address-review` on #4459 completed `no-work` in 9 s. |

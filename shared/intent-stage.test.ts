@@ -69,7 +69,7 @@ describe("intent stage contract", () => {
     const path = writeIntent(
       dir,
       "one-thing",
-      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n- other thing\n",
+      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n- other thing (already true: shipped)\n",
     );
     const result = validateIntentFilenames(listIntentStageMarkdownFiles(dir));
     expect(result).toEqual({ ok: true, intents: [{ slug: "one-thing", path }] });
@@ -194,13 +194,53 @@ describe("intent stage contract", () => {
     }
   });
 
+  function writeSplit(dir: string, intents: Record<string, string>): { slug: string; path: string }[] {
+    return Object.entries(intents).map(([slug, prerequisites]) => ({
+      slug,
+      path: writeIntent(dir, slug, `---\nname: ${slug}\n---\n\n# ${slug}\n\n## Prerequisites\n\n${prerequisites}`),
+    }));
+  }
+
+  test("rejects a split whose prerequisite no sibling intent delivers", () => {
+    // #3439 shape: client-surface intents all name a service surface the split never emits.
+    const dir = stage();
+    const intents = writeSplit(dir, {
+      "client-skip-action": "- service stores a completion record per skip\n",
+      "client-history-view": "- service stores a completion record per skip\n",
+    });
+    const result = validateIntentStageContent(intents);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toStartWith("intent: client-skip-action.md prerequisite");
+      expect(result.error).toContain("is delivered by no other intent in this split");
+    }
+  });
+
+  test("rejects a prerequisite citing an unknown or self deliverer", () => {
+    const dir = stage();
+    const unknown = writeSplit(dir, { "client-view": "- service route exists (delivered by: service-route)\n" });
+    expect(validateIntentStageContent(unknown).ok).toBe(false);
+    const self = writeSplit(stage(), { "client-view": "- client view exists (delivered by: client-view)\n" });
+    expect(validateIntentStageContent(self).ok).toBe(false);
+  });
+
+  test("accepts prerequisites delivered by a sibling intent or declared already true", () => {
+    const dir = stage();
+    const intents = writeSplit(dir, {
+      "service-record": "",
+      "client-view":
+        "- service stores a completion record (delivered by: service-record)\n- auth exists (already true: shipped)\n",
+    });
+    expect(validateIntentStageContent(intents)).toEqual({ ok: true, intents });
+  });
+
   test("accepts prerequisites bullet wrapped across two lines", () => {
-    expectValidPrerequisitesIntent("- prerequisite wraps across\n  two physical lines\n");
+    expectValidPrerequisitesIntent("- prerequisite wraps across\n  two physical lines (already true: shipped)\n");
   });
 
   test("accepts prerequisites bullet wrapped across three or more lines", () => {
     expectValidPrerequisitesIntent(
-      "- prerequisite uses `shared/spec-\nparser.ts` helper\n  and a third continuation line\n",
+      "- prerequisite uses `shared/spec-\nparser.ts` helper\n  and a third continuation line (already true: shipped)\n",
     );
   });
 });

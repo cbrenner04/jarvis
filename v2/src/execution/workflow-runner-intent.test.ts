@@ -532,7 +532,10 @@ describe("executeWorkflow review dispatch", () => {
           const file = join(cwd, stagingOne);
           writeFileSync(
             file,
-            readFileSync(file, "utf8").replace("## Prerequisites\n", "## Prerequisites\n\n- reviewed edit\n"),
+            readFileSync(file, "utf8").replace(
+              "## Prerequisites\n",
+              "## Prerequisites\n\n- reviewed edit (already true: shipped)\n",
+            ),
             "utf8",
           );
         },

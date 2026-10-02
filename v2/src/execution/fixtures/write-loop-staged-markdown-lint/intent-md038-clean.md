@@ -6,4 +6,4 @@ name: lint-clean
 
 ## Prerequisites
 
-- prior behavior exists
+- prior behavior exists (already true: shipped)

@@ -156,7 +156,7 @@ function writeMultiSurfaceStage(stage: string, revised: boolean, seedContent: st
       "Reload Admitted Runs",
       [expectedSurfaces[1] ?? ""],
       "Reload stored run admission while handling daemon requests after restart.",
-      "- Durable run admission exists.",
+      "- Durable run admission exists. (delivered by: persist-run-admission)",
     ),
     "utf8",
   );
@@ -167,7 +167,7 @@ function writeMultiSurfaceStage(stage: string, revised: boolean, seedContent: st
       "List Persisted Run Admission",
       [expectedSurfaces[2] ?? ""],
       "Display persisted admission state in the run-list command.",
-      "- Durable run admission exists.\n- Daemon requests reload admitted runs after restart.",
+      "- Durable run admission exists. (delivered by: persist-run-admission)\n- Daemon requests reload admitted runs after restart. (delivered by: reload-admitted-runs)",
     ),
     "utf8",
   );
@@ -311,7 +311,7 @@ function prerequisites(content: string): string[] {
     .trim()
     .split("\n")
     .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2));
+    .map((line) => line.slice(2).replace(/ \(delivered by: [a-z0-9-]+\)$/, ""));
 }
 
 function assertMultiSurfaceStage(stage: string, seedContent: string): void {

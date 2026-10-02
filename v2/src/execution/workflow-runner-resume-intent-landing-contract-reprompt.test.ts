@@ -36,7 +36,7 @@ const FIXED_PREREQUISITES_INTENT = [
   "",
   "## Prerequisites",
   "",
-  "- prior behavior exists",
+  "- prior behavior exists (already true: shipped)",
   "",
 ].join("\n");
 

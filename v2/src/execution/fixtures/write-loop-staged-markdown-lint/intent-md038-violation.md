@@ -8,4 +8,4 @@ name: lint-violation
 
 ## Prerequisites
 
-- prior behavior exists
+- prior behavior exists (already true: shipped)

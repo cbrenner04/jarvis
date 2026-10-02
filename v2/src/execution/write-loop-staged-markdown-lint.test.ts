@@ -449,7 +449,7 @@ describe("intent write step staged Markdown lint", () => {
             repromptPrompt = prompt;
             writeFileSync(
               join(stage, "bad-intent.md"),
-              "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\n- prior behavior exists\n",
+              "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\n- prior behavior exists (already true: shipped)\n",
               "utf8",
             );
             return { kind: "ok", stdout: "done", stderr: "" };

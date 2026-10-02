@@ -52,6 +52,14 @@ describe("buildIntentSplitPrompt", () => {
     expect(INTENT_SPLIT_PROMPT_ID).toBe("intent.prompt.split");
   });
 
+  test("intent split prompt requires prerequisite provenance markers the landing gate checks", () => {
+    const prompt = buildIntentSplitPrompt(BASE_OPTS);
+
+    expect(prompt).toContain("End each prerequisite bullet with `(delivered by: <name>)`");
+    expect(prompt).toContain("or `(already true: <reason>)`");
+    expect(prompt).toContain("a prerequisite no intent here delivers needs its own intent, whichever repository");
+  });
+
   test("omits step completion section when stepRules is absent", () => {
     const prompt = buildIntentSplitPrompt(BASE_OPTS);
 

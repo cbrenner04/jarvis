@@ -1396,5 +1396,6 @@ test("pipeline_list single-lane snapshot matches main byte fixture", async () =>
   );
   if (!entry) throw new Error("expected single-lane list entry");
   const fixturePath = join(import.meta.dir, "fixtures/pipeline-list-single-lane-snapshot.json");
-  expect(JSON.stringify(entry)).toBe(readFileSync(fixturePath, "utf8"));
+  // Fixture is formatter-owned (2-space JSON); compare the same serialization so key order and every field stay pinned.
+  expect(`${JSON.stringify(entry, null, 2)}\n`).toBe(readFileSync(fixturePath, "utf8"));
 });

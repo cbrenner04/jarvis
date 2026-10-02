@@ -707,7 +707,7 @@ test("a false settled marker does not emit run-ad-hoc-terminal while a paused si
   const reviewRunId = seedInvocationRow("review", "completed");
   store.setRunStatus(reviewRunId, "paused");
   store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", Date.now());
-  expect(deriveOperatorIncidents(store)).toEqual([]);
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "run-paused", runId: reviewRunId })]);
   store.setRunStatus(reviewRunId, "completed");
   expect(deriveOperatorIncidents(store)).toEqual([
     expect.objectContaining({ runId: entryRunId, cause: "completed", kind: "run-ad-hoc-terminal" }),

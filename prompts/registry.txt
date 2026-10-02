@@ -13,6 +13,7 @@ plan/review-actuator.md
 implement/shrink.md
 implement/instructions.md
 implement/rules.md
+implement/harness-test-slice.md
 implement/review-falsifiability.md
 implement/review-adversary.md
 implement/review-advocate.md
@@ -26,6 +27,8 @@ write/draft-contract-reprompt.md
 write/landing-contract-reprompt.md
 write/staged-markdown-lint-reprompt.md
 write/gate-budget-reprompt.md
+write/harness-test-slice-result.md
+write/measurement-criteria-reprompt.md
 write/ready-repair.md
 write/mutation-repair.md
 write/surviving-mutation-reprompt.md

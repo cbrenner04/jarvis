@@ -1,16 +1,14 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 11 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 10 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
 ## Immediate reliability: seeds (0)
 
 None — all immediate workstreams merged.
 
-## Follow-on workflow quality: seed (1)
+## Follow-on workflow quality: seeds (0)
 
-| Item | Next action / dependency | Remaining scope |
-| --- | --- | --- |
-| [Harness-run integration measurements](./seeds/implement-can-run-integration-slice-tests.md) | Intent | Observable harness execution for measurement criteria. |
+None queued.
 
 ## Operator features and ergonomics: seed (1)
 

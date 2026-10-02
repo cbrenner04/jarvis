@@ -49,6 +49,7 @@ import {
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
+import { type HarnessTestSliceResult, referencesSandboxUnrunnableTest } from "./harness-test-slice.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
@@ -113,10 +114,54 @@ function resolveWriteStepPlaceholder(name: string, ctx: WriteStepPlaceholderCont
     case "ACTIVE_SUBSPEC_BODY":
       return readActiveSubspecBody(ctx.expectedArtifactPath);
     case "PATCH_RULES":
-      return loadPromptRegistry().getById("implement.rules").body.trim();
+      return buildImplementPatchRules(readActiveSubspecBody(ctx.expectedArtifactPath));
     default:
       return undefined;
   }
+}
+
+/** Implement rules, plus the integration-slice test command when the active subspec names a `*.sandbox-unrunnable.test.ts` file. */
+function buildImplementPatchRules(activeSubspecBody: string): string {
+  const registry = loadPromptRegistry();
+  const rules = registry.getById("implement.rules").body.trim();
+  if (!referencesSandboxUnrunnableTest(activeSubspecBody)) return rules;
+  return `${rules}\n\n${registry.getById("implement.harness-test-slice").body.trim()}`;
+}
+
+function renderHarnessTestSliceResult(result: HarnessTestSliceResult): string {
+  return renderPromptForStep({
+    stepPromptId: "write.harness-test-slice-result",
+    placeholders: {
+      FILES: result.files.join(" "),
+      REJECTED: result.rejected.length > 0 ? result.rejected.join(", ") : "none",
+      EXIT_CODE: result.exitCode === null ? "none (did not exit)" : String(result.exitCode),
+      DURATION_MS: String(result.durationMs),
+      OUTPUT: neutralizeDataDelimiters(result.output),
+    },
+  });
+}
+
+/** Implement: append the previous iteration's harness slice result and any measurement-criteria reprompt. */
+function withHarnessTestSliceSections(
+  prompt: string,
+  promptId: string,
+  args: Pick<WriteExecuteInput, "harnessTestSliceResult" | "measurementCriteriaReprompt">,
+): string {
+  if (promptId !== "implement.prompt.body") return prompt;
+  const sections = [prompt];
+  if (args.harnessTestSliceResult !== undefined)
+    sections.push(renderHarnessTestSliceResult(args.harnessTestSliceResult));
+  if (args.measurementCriteriaReprompt !== undefined) {
+    sections.push(
+      renderPromptForStep({
+        stepPromptId: "write.measurement-criteria-reprompt",
+        placeholders: {
+          CRITERIA: neutralizeDataDelimiters(args.measurementCriteriaReprompt.map((text) => `- ${text}`).join("\n")),
+        },
+      }),
+    );
+  }
+  return sections.join("\n\n");
 }
 
 function assembleWriteStepPlaceholders(
@@ -383,6 +428,10 @@ export type WriteExecuteInput = {
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   gateBudgetReprompt?: { refusedCommand: string };
+  /** Implement: the harness run of the agent's integration-slice request from the previous iteration. */
+  harnessTestSliceResult?: HarnessTestSliceResult;
+  /** Implement: ticked measurement criteria the completion boundary found without a recorded harness run. */
+  measurementCriteriaReprompt?: readonly string[];
   draftContractReprompt?: DraftContractRepromptContext;
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
   /** Admitted external plan implement: grant adapter read access to `specReadRoot` only. */
@@ -819,6 +868,7 @@ async function executeDefaultWrite(
         args.promptPlaceholders,
       );
       prompt = renderPromptForStep({ stepPromptId: promptId, placeholders });
+      prompt = withHarnessTestSliceSections(prompt, promptId, args);
     }
   } catch (err) {
     if (err instanceof PromptRenderingError) {

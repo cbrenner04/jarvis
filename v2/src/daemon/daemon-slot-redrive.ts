@@ -3,7 +3,7 @@ import {
   liveGateInvocationLeaseCount,
   MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
   subscribeGateInvocationLeaseReleased,
-} from "../execution/write-loop.ts";
+} from "../execution/gate-invocation-lease.ts";
 import { type LogEvent, type LogSink, openLogSink } from "../persistence/log-stream.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
 

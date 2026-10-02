@@ -39,6 +39,12 @@ type ReadyGateTimeoutEvent = {
   gateExitCode: number | undefined;
 };
 
+type ReadyGateSlotWaitEvent = {
+  kind: "ready_gate_slot_wait";
+  gate: string;
+  waitedMs: number;
+};
+
 type ReadyGateAutofixDiscardedEvent = {
   kind: "ready_gate_autofix_discarded";
   typecheckExitCode: number;
@@ -358,6 +364,7 @@ type LogEventWithoutLoopFinished =
   | ReadyGateRepairEvent
   | ReadyGateBaseRefProbeEvent
   | ReadyGateTimeoutEvent
+  | ReadyGateSlotWaitEvent
   | ReadyGateAutofixDiscardedEvent
   | ReadyGateFenceDerivationFailedEvent
   | RuntimeSmokeOutcomeEvent

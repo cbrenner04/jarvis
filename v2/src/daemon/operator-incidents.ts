@@ -11,7 +11,6 @@ import {
 } from "./pipeline-execution.ts";
 import { derivePipelineAwaitingGates } from "./pipeline-observation.ts";
 import { resolveRunLanePrOutcome, type TerminalLogRecord } from "./run-operator-error.ts";
-import { invocationDurableRowsAllTerminal } from "./stage-settlement-owner.ts";
 
 type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
@@ -464,7 +463,7 @@ function collectWorkflowInvocations(
     if (entryRun === undefined) continue;
     const marker = markersByInvocation.get(invocationId) ?? store.readWorkflowInvocationSettledMarker(entryRun.id);
     if (marker === null) continue;
-    if (!invocationDurableRowsAllTerminal(store, entryRun.id)) continue;
+    if (!rows.every((row) => isTerminalRunStatus(row.status))) continue;
     const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
     if (invocationOwedTransitionDelivered(entryRun, rows, marker, transitions, terminalLogRecordForRun)) continue;
     invocations.push({ invocationId, entryRun, rows, marker });

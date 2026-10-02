@@ -27,11 +27,7 @@ import { createRunControlHandlerContext } from "./daemon-run-control-context.ts"
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import type { RunTimeoutTimers } from "./run-time-budget.ts";
-import {
-  invocationDurableRowsAllTerminal,
-  resolveInvocationEntryRunId,
-  settleStagesForEntryRun,
-} from "./stage-settlement-owner.ts";
+import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type FakeTimer = { callback: () => void; ms: number; dueAt: number; interval: boolean; cleared: boolean };
 
@@ -939,54 +935,41 @@ for (const outcome of ["complete", "blocked", "throw", "kill"] as const) {
   });
 }
 
-function seedInvocationSiblingRows(
-  invocationId: string,
-  siblingStatus: "in-progress" | "paused" | "completed",
-): { entryRunId: string; siblingRunId: string } {
-  const snapshot: WorkflowSnapshot = {
-    invocationId,
-    steps: [
-      { stepId: "plan", role: "plan" },
-      { stepId: "review", role: "review" },
-    ],
-  };
-  const entryRunId = stateStore.createRun({
-    project: "demo",
-    specRef: "HEAD",
-    worktreePath: "/tmp/w",
-    branch: `marker-${invocationId}`,
-    specPath: "s.md",
-    stepId: "plan",
-    workflowSnapshot: snapshot,
-  });
-  stateStore.setRunStatus(entryRunId, "completed");
-  const siblingRunId = stateStore.createRun({
-    project: "demo",
-    specRef: "HEAD",
-    worktreePath: "/tmp/w",
-    branch: `marker-${invocationId}`,
-    specPath: "s.md",
-    stepId: "review",
-    workflowSnapshot: snapshot,
-  });
-  if (siblingStatus !== "in-progress") stateStore.setRunStatus(siblingRunId, siblingStatus);
-  return { entryRunId, siblingRunId };
-}
-
 test.each([
   "in-progress",
   "paused",
-] as const)("workflow invocation settled marker: suppressed while a %s sibling row remains", (siblingStatus) => {
-  const { entryRunId, siblingRunId } = seedInvocationSiblingRows(`inv-marker-${siblingStatus}`, siblingStatus);
-  const writeMarker = (cause: "completed" | "failed" | "killed") => {
-    if (!invocationDurableRowsAllTerminal(stateStore, entryRunId)) return;
-    stateStore.writeWorkflowInvocationSettledMarker(entryRunId, cause, Date.now());
-  };
-  writeMarker("completed");
-  expect(stateStore.readWorkflowInvocationSettledMarker(entryRunId)).toBeNull();
-  stateStore.setRunStatus(siblingRunId, "completed");
-  writeMarker("completed");
-  expect(stateStore.readWorkflowInvocationSettledMarker(entryRunId)).toMatchObject({ cause: "completed" });
+] as const)("workflow invocation settled marker: suppressed while a %s sibling row remains", async (siblingStatus) => {
+  const branch = `settled-marker-sibling-${siblingStatus}`;
+  const { createWriteStep } = writeStepFixtures();
+  const seedSiblingThenDone = createBindingFactory(async ({ cwd }) => {
+    const entryRun = stateStore.listRuns().find((run) => run.branch === branch);
+    if (entryRun?.workflowSnapshot == null) throw new Error("entry run snapshot missing");
+    const siblingRunId = stateStore.createRun({
+      project: entryRun.project,
+      specRef: entryRun.specRef,
+      worktreePath: entryRun.worktreePath,
+      branch,
+      specPath: entryRun.specPath,
+      stepId: "step-1~sibling",
+      workflowSnapshot: entryRun.workflowSnapshot,
+    });
+    if (siblingStatus === "paused") stateStore.setRunStatus(siblingRunId, "paused");
+    writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
+    return { kind: "ok", stdout: "done", stderr: "" };
+  });
+  const step = createWriteStep("step-1", branch, seedSiblingThenDone, { suppressShrink: true });
+  const { ctx, lifecycle } = workflowAdmission();
+
+  const response = await lifecycle.start(
+    requestFrame(`s-sibling-${siblingStatus}`, "start", { steps: [step] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+  await ctx.workflowPromisesByEntryRunId.get(runId);
+
+  expect(stateStore.loadRun(runId)?.status).toBe("completed");
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toBeNull();
 });
 
 test("workflow invocation settled marker: completed", async () => {
@@ -1006,7 +989,7 @@ test("workflow invocation settled marker: completed", async () => {
   expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "completed" });
 });
 
-test("workflow invocation settled marker: failed when the workflow resolves non-complete", async () => {
+test("workflow invocation settled marker: paused entry row writes no marker", async () => {
   const branch = "settled-marker-failed-result";
   const blockedBinding = createBindingFactory(
     async () => ({ kind: "ok", stdout: "## Blocker\n\nneeds a decision\n\nblocked", stderr: "" }) as const,

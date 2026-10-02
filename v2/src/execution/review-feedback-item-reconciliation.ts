@@ -22,6 +22,7 @@ function listCapturedReviewFeedbackItemIds(artifact: PrReviewInputCaptureArtifac
   return [
     ...artifact.threads.map((thread) => thread.threadId),
     ...artifact.topLevelComments.map((comment) => comment.commentId),
+    ...(artifact.reviewBodies ?? []).map((review) => review.reviewId),
   ];
 }
 
@@ -78,7 +79,12 @@ function isCaptureArtifactShape(value: unknown): value is PrReviewInputCaptureAr
     return false;
   }
   const record = value as Record<string, unknown>;
-  return Array.isArray(record.threads) && Array.isArray(record.topLevelComments);
+  const reviewBodies = record.reviewBodies;
+  return (
+    Array.isArray(record.threads) &&
+    Array.isArray(record.topLevelComments) &&
+    (reviewBodies === undefined || Array.isArray(reviewBodies))
+  );
 }
 
 function tryReadCaptureArtifact(laneWorktreePath: string): PrReviewInputCaptureArtifact | null {

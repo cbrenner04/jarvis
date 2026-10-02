@@ -973,6 +973,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               return;
             }
             runSteeringAction(method);
+            setState({
+              ...currentState,
+              commandBuffer: "",
+              commandCursor: 0,
+              lastCommandResult: null,
+              focus: "tree",
+            });
+            bumpCommandEditorGeneration();
             return;
           }
 
@@ -999,6 +1007,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               setState({
                 ...currentState,
                 lastCommandResult: formatAdmissionFailureFeedback(result),
+              });
+            } catch (error) {
+              if (!shouldApplyCommandSettlement(submissionEditorGeneration, commandEditorGeneration, monitorOpen)) {
+                return;
+              }
+              setState({
+                ...currentState,
+                lastCommandResult: refreshRpcFeedback(error),
               });
             } finally {
               admissionPending = false;

@@ -142,13 +142,22 @@ function prViewPayload(): string {
   });
 }
 
-function createFixtureRunner(laneWorktreePath: string): AsyncSubprocessRunner {
+type FixtureRunnerOverrides = {
+  graphqlPayload?: string;
+  prViewPayload?: string;
+};
+
+function createFixtureRunner(laneWorktreePath: string, overrides?: FixtureRunnerOverrides): AsyncSubprocessRunner {
   return {
     runAsync: async (cmd, args, cwd) => {
       if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
       if (args[0] === "repo" && args[1] === "view") return `${FIXTURE.owner}/${FIXTURE.repo}\n`;
-      if (args[0] === "api" && args[1] === "graphql") return reviewThreadsGraphqlPayload();
-      if (args[0] === "pr" && args[1] === "view" && args.includes("reviews,comments")) return prViewPayload();
+      if (args[0] === "api" && args[1] === "graphql") {
+        return overrides?.graphqlPayload ?? reviewThreadsGraphqlPayload();
+      }
+      if (args[0] === "pr" && args[1] === "view" && args.includes("reviews,comments")) {
+        return overrides?.prViewPayload ?? prViewPayload();
+      }
       throw new Error(`unexpected gh invocation: ${args.join(" ")} in ${cwd ?? laneWorktreePath}`);
     },
   };
@@ -156,13 +165,14 @@ function createFixtureRunner(laneWorktreePath: string): AsyncSubprocessRunner {
 
 async function withFixtureArtifact(
   run: (artifact: PrReviewInputCaptureArtifact) => void | Promise<void>,
+  overrides?: FixtureRunnerOverrides,
 ): Promise<void> {
   const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-");
   try {
     await refreshPrReviewInputCapture({
       laneWorktreePath,
       prNumber: FIXTURE.prNumber,
-      runner: createFixtureRunner(laneWorktreePath),
+      runner: createFixtureRunner(laneWorktreePath, overrides),
     });
     const path = resolvePrReviewInputArtifactPath(laneWorktreePath);
     expect(existsSync(path)).toBe(true);
@@ -213,6 +223,91 @@ describe("refreshPrReviewInputCapture", () => {
       expect(active?.outdated).toBe(false);
       expect(active?.comments.every((comment) => !comment.outdated)).toBe(true);
     });
+  });
+
+  test("captures a submitted review body when there are no threads or top-level comments", async () => {
+    const reviewId = "PRR_review_body_only";
+    await withFixtureArtifact(
+      (artifact) => {
+        expect(artifact.threads).toEqual([]);
+        expect(artifact.topLevelComments).toEqual([]);
+        expect(artifact.reviewBodies).toEqual([
+          {
+            reviewId,
+            author: "reviewer-body",
+            body: "findings in review body",
+            submittedAt: "2026-05-10T00:00:00Z",
+            state: "COMMENTED",
+          },
+        ]);
+      },
+      {
+        graphqlPayload: JSON.stringify({
+          data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
+        }),
+        prViewPayload: JSON.stringify({
+          reviews: [
+            {
+              id: reviewId,
+              author: { login: "reviewer-body" },
+              body: "findings in review body",
+              submittedAt: "2026-05-10T00:00:00Z",
+              state: "COMMENTED",
+            },
+          ],
+          comments: [],
+        }),
+      },
+    );
+  });
+
+  test("captures CHANGES_REQUESTED and APPROVED submitted review bodies", async () => {
+    const changesRequestedId = "PRR_changes_requested";
+    const approvedId = "PRR_approved";
+    await withFixtureArtifact(
+      (artifact) => {
+        expect(artifact.reviewBodies).toEqual([
+          {
+            reviewId: changesRequestedId,
+            author: "reviewer-cr",
+            body: "please fix",
+            submittedAt: "2026-05-10T00:00:00Z",
+            state: "CHANGES_REQUESTED",
+          },
+          {
+            reviewId: approvedId,
+            author: "reviewer-ap",
+            body: "looks good",
+            submittedAt: "2026-05-11T00:00:00Z",
+            state: "APPROVED",
+          },
+        ]);
+      },
+      {
+        graphqlPayload: JSON.stringify({
+          data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
+        }),
+        prViewPayload: JSON.stringify({
+          reviews: [
+            {
+              id: changesRequestedId,
+              author: { login: "reviewer-cr" },
+              body: "please fix",
+              submittedAt: "2026-05-10T00:00:00Z",
+              state: "CHANGES_REQUESTED",
+            },
+            {
+              id: approvedId,
+              author: { login: "reviewer-ap" },
+              body: "looks good",
+              submittedAt: "2026-05-11T00:00:00Z",
+              state: "APPROVED",
+            },
+          ],
+          comments: [],
+        }),
+      },
+    );
   });
 
   test("bot comments and pre-review top-level comments are dropped", async () => {
@@ -410,7 +505,13 @@ describe("refreshPrReviewInputCapture edge cases", () => {
 });
 
 describe("writePrReviewInputArtifactAtomically", () => {
-  const artifact: PrReviewInputCaptureArtifact = { captureVersion: 1, prNumber: 1, threads: [], topLevelComments: [] };
+  const artifact: PrReviewInputCaptureArtifact = {
+    captureVersion: 1,
+    prNumber: 1,
+    threads: [],
+    topLevelComments: [],
+    reviewBodies: [],
+  };
 
   test("writes a sibling temp file then renames it onto the target", () => {
     const dir = trackedMkdtempSync("pr-review-input-atomic-");

@@ -14,8 +14,8 @@ There are **5 active spec plans, 2 ready-intents, and 21 seeds** (2026-10-02: #4
 | --- | --- | --- | --- | --- |
 | Highest priority | 1 | 0 | 0 | Linked resume: terminal evidence (in flight) |
 | Immediate reliability | 4 | 1 | 3 | Bounded completion target below |
-| Follow-on workflow quality | 0 | 0 | 6 | Separate prioritization after the immediate queue |
-| Operator features and ergonomics | 0 | 0 | 3 | Useful additions, outside the completion target |
+| Follow-on workflow quality | 0 | 0 | 7 | Separate prioritization after the immediate queue |
+| Operator features and ergonomics | 0 | 0 | 2 | Useful additions, outside the completion target |
 | Parked design and cleanup | 0 | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
 | Parked owner seeds (outside target) | 0 | 0 | 3 | #4419 — not in the backlog |
 | Evidence-gated investigation | 0 | 1 | 0 | WAL failure capture required |

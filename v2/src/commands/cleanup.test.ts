@@ -155,6 +155,9 @@ function cleanupArchiveBranchProbeResponse(args: readonly string[]): string {
 function mergeArchivePublicationRunner(base: AsyncSubprocessRunner, projectRoot: string): AsyncSubprocessRunner {
   return {
     runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "repo") {
+        return "main";
+      }
       if (cmd === "git" && args[0] === "push") return "";
       if (cmd === "git" && args[0] === "ls-remote") return "";
       if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
@@ -162,11 +165,15 @@ function mergeArchivePublicationRunner(base: AsyncSubprocessRunner, projectRoot:
         return "https://github.com/example/test/pull/42";
       }
       if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
-        return JSON.stringify({
-          number: 42,
-          url: "https://github.com/example/test/pull/42",
-          baseRefName: "main",
-        });
+        const jsonFields = args[args.indexOf("--json") + 1];
+        const selector = args[2];
+        if (jsonFields === "number,url,baseRefName" && typeof selector === "string" && /^\d+$/.test(selector)) {
+          return JSON.stringify({
+            number: 42,
+            url: "https://github.com/example/test/pull/42",
+            baseRefName: "main",
+          });
+        }
       }
       return base.runAsync(cmd, args, cwd ?? projectRoot);
     },
@@ -245,7 +252,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
                 ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
                 : { state: "OPEN", mergedAt: null },
             );
-          if (cmd === "gh" && args[1] === "list") {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             if (state !== "MERGED" || (args.includes("--state") && args[args.indexOf("--state") + 1] === "open")) {
               return "[]";
             }
@@ -460,9 +467,9 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
       {
         runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[1] === "view")
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
             return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          if (cmd === "gh" && args[1] === "list") {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
               const headIndex = args.indexOf("--head");
               const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
@@ -1225,9 +1232,9 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
       {
         runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[1] === "view")
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
             return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          if (cmd === "gh" && args[1] === "list") {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
               const headIndex = args.indexOf("--head");
               const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
@@ -1292,31 +1299,37 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     } as unknown as StateStore;
     let failRemoval = true;
     let stdout = "";
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[1] === "view")
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        if (
-          cmd === "gh" &&
-          args[1] === "list" &&
-          args.includes("--state") &&
-          args[args.indexOf("--state") + 1] === "all"
-        ) {
-          const headIndex = args.indexOf("--head");
-          const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
-          if (branchName === branch) {
-            const oid = (
-              await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
-            ).trim();
-            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
+            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          if (
+            cmd === "gh" &&
+            args[0] === "pr" &&
+            args[1] === "list" &&
+            args.includes("--state") &&
+            args[args.indexOf("--state") + 1] === "all"
+          ) {
+            const headIndex = args.indexOf("--head");
+            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            if (branchName === branch) {
+              const oid = (
+                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+              ).trim();
+              return JSON.stringify([
+                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+              ]);
+            }
+            return "[]";
           }
-          return "[]";
-        }
-        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove" && failRemoval)
-          throw new Error("remove failed");
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove" && failRemoval)
+            throw new Error("remove failed");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
       },
-    };
+      projectRoot,
+    );
     const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
 
     expect(
@@ -1376,7 +1389,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     let stdout = "";
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) =>
-        cmd === "gh" && args[1] === "view"
+        cmd === "gh" && args[0] === "pr" && args[1] === "view"
           ? JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" })
           : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
     };
@@ -1429,8 +1442,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
       {
         runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[1] === "view") return JSON.stringify({ state: "CLOSED", mergedAt: null });
-          if (cmd === "gh" && args[1] === "list") return args[3] === open ? '[{"number":1}]' : "[]";
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
+            return JSON.stringify({ state: "CLOSED", mergedAt: null });
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            const headIndex = args.indexOf("--head");
+            const head = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            return head === open ? '[{"number":1}]' : "[]";
+          }
           return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
         },
       },
@@ -2879,7 +2897,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     }
     const runner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[1] === "view") {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify(
             args[2] === openBranch
               ? { state: "OPEN", mergedAt: null }

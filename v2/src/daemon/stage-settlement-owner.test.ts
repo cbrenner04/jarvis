@@ -491,4 +491,29 @@ describe("invocationDurableRowsAllTerminal", () => {
     expect(invocationDurableRowsAllTerminal(store, entryRunId)).toBe(false);
     expect(invocationDurableRowsAllTerminal(store, entryRunId)).not.toBe(wrongGuard);
   });
+
+  test("when invocation lookup returns no rows, a loaded terminal entry run counts as all-terminal", () => {
+    const snapshot = implementSnapshot("inv-empty-lookup");
+    const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
+    const storeWithEmptyInvocationLookup = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property === "findRunsByInvocationId") return () => [];
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(store.loadRun(entryRunId)).not.toBeNull();
+    expect(invocationDurableRowsAllTerminal(storeWithEmptyInvocationLookup, entryRunId)).toBe(true);
+  });
+
+  test("when invocation lookup returns no rows, a loaded non-terminal entry run is not all-terminal", () => {
+    const snapshot = implementSnapshot("inv-empty-lookup-live");
+    const entryRunId = seedRun(store, { status: "in-progress", stepId: "implement", workflowSnapshot: snapshot });
+    const storeWithEmptyInvocationLookup = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property === "findRunsByInvocationId") return () => [];
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(invocationDurableRowsAllTerminal(storeWithEmptyInvocationLookup, entryRunId)).toBe(false);
+  });
 });

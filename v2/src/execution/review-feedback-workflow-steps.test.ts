@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { buildReviewFeedbackWorkflowSteps } from "./review-feedback-workflow-steps.ts";
-import type { WriteWorkflowStep } from "./workflow-runner.ts";
+import { shrinkPromptPlaceholders, type WriteWorkflowStep } from "./workflow-runner.ts";
 
 const PROJECT = "demo";
 const BRANCH = "lane-branch";
@@ -51,7 +55,7 @@ describe("buildReviewFeedbackWorkflowSteps", () => {
       expect(step.promptId).toBe(REVIEW_FEEDBACK_WRITE_PROMPT_ID);
       expect(step.promptId).not.toBe("review-feedback.prompt.pending");
       expect(step.role).toBe(role);
-      expect(step.specPath).toBe(".jarvis-review-feedback-response.md");
+      expect(step.specPath).toBe(entrySpecPath);
       expect(step.expectedArtifactPath).toBe(".jarvis-review-feedback-response.md");
       expect(step.worktree.git).toBe(true);
       expect(step.worktree.baseRef).toBe(BASE_REF);
@@ -102,5 +106,28 @@ describe("buildReviewFeedbackWorkflowSteps", () => {
       LANE_KIND: "implement",
       ENTRY_SPEC_PATH: "v2/spec/lane/index.md",
     });
+  });
+
+  test("write and ~shrink steps carry the lane entry spec path, not the response sidecar", async () => {
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "rf-shrink-spec-"));
+    mkdirSync(join(worktreePath, "v2/spec/lane"), { recursive: true });
+    writeFileSync(join(worktreePath, "v2/spec/lane/index.md"), "# lane spec\n");
+    writeFileSync(join(worktreePath, ".jarvis-review-feedback-response.md"), "- t1: addressed\n");
+    writeFileSync(join(worktreePath, "README.md"), "REPO-CONTENT-MARKER\n");
+    const result = buildReviewFeedbackWorkflowSteps({
+      target: { ...laneTarget("implement", "v2/spec/lane/index.md"), worktreePath },
+      projectRoot: worktreePath,
+      configPath: writeHomeMachineConfig(),
+    });
+    if (!result.ok) throw new Error(result.error);
+    const step = result.steps[0];
+    if (step === undefined) throw new Error("expected write step");
+
+    expect(step.specPath).toBe("v2/spec/lane/index.md");
+    const shrink = await shrinkPromptPlaceholders(step);
+    expect(shrink.SPEC_PATH).toBe("v2/spec/lane/index.md");
+    expect(shrink.SPEC_TREE).toContain("# lane spec");
+    expect(shrink.SPEC_TREE).not.toContain("REPO-CONTENT-MARKER");
+    expect(shrink.SPEC_TREE).not.toContain("t1: addressed");
   });
 });

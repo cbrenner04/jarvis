@@ -41,7 +41,7 @@ export function buildReviewFeedbackWorkflowSteps(input: ReviewFeedbackWorkflowIn
       git: true,
       localPath: target.worktreePath,
     },
-    specPath: REVIEW_FEEDBACK_RESPONSE_SIDECAR,
+    specPath: target.entrySpecPath,
     expectedArtifactPath: REVIEW_FEEDBACK_RESPONSE_SIDECAR,
     promptPlaceholders: {
       LANE_KIND: target.laneKind,

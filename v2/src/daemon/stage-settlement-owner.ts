@@ -1,5 +1,5 @@
-import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { resolveInvocationEntryRunId } from "../persistence/invocation-entry-run.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
 import type { LinkedStageSettlement, LinkedStageTarget } from "../persistence/pipeline-stage-settlement.ts";
 import {
   isOwnerAlive,
@@ -9,6 +9,7 @@ import {
 } from "../persistence/state-store.ts";
 
 export { resolveInvocationEntryRunId };
+
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
 
 /**

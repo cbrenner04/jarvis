@@ -8,11 +8,11 @@ The August 29 charter's five retirements are complete. This is a separate, bound
 
 ## Current inventory
 
-There are **10 active spec plans, 3 ready-intents, and 17 seeds**. Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **9 active spec plans, 3 ready-intents, and 17 seeds**. Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
 
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |
-| Highest priority | 4 | 0 | 0 | Linked resume behaviors — do first |
+| Highest priority | 3 | 0 | 0 | Linked resume behaviors — do first |
 | Immediate reliability | 6 | 2 | 0 | Bounded completion target below |
 | Follow-on workflow quality | 0 | 0 | 5 | Separate prioritization after the immediate queue |
 | Operator features and ergonomics | 0 | 0 | 3 | Useful additions, outside the completion target |
@@ -26,7 +26,7 @@ Original workstreams 2 (mutation), 4 (lane-PR settlement), 5 (notification hando
 
 | Order | Workstream | Done when |
 | --- | --- | --- |
-| 0 | Linked resume settles its row (4 behavior specs) | Resuming a `~link-N` row never strands it; recovery never respawns implement on a landed lane; `kill --force` reaches retiring-owner rows; "finished" incident waits for all rows. |
+| 0 | Linked resume remaining behaviors (3 specs) | Resuming a `~link-N` row never strands it; recovery never respawns implement on a landed lane; `kill --force` reaches retiring-owner rows; "finished" incident waits for all rows. |
 | 1 | Write-loop test split (in flight) | Split preserves every test and meets per-file caps; removes the slow-killer `non_terminating_mutation_failed` class. |
 | 2 | Finalization gates share the gate slot (active spec, 00 partial) | Harness gates wait on the per-daemon slot; concurrent publication no longer false-reds. |
 | 3 | Ready-repair direction (2 active specs) | Repair prompt lists allowed paths; `ready_gate_repair` logs failing step + output tail. |
@@ -37,7 +37,7 @@ This target closes when these workstreams are implemented, reviewed, merged, and
 
 ## Execution order and boundaries
 
-- Do the linked-resume behaviors first: until it lands, never `run resume` an all-ticked `implement~link-N` row (publish by hand instead); resuming a row with unticked work is safe.
+- Do the remaining linked-resume behaviors first: terminal evidence, published-lane recovery and retiring-owner force kill. Admitted-row settlement is implemented.
 - Workstreams 1–4 all touch `write-loop.ts`/its tests: implement them serially in the order above, each against the preceding merge. Plans may fan out.
 - Expect agents to respect the 2-run gate budget (#4407) on new dispatches; lanes started earlier still loop.
 - Until workstream 2 lands, keep concurrent finalization gates to ~2 and resume failed gates one at a time.

@@ -58,6 +58,11 @@ describe("reconstructLinkedWorkflowResumeSteps", () => {
       expect(reconstructed.ok).toBe(true);
       if (!reconstructed.ok) return;
       expect(reconstructed.steps).toHaveLength(2);
+      // Completed pinned work must retain outer routing so the following link remains reachable.
+      writeFileSync(join(worktreePath, "one.md"), "## Acceptance criteria\n\n- [x] One\n", "utf8");
+      const advanced = reconstructLinkedWorkflowResumeSteps(run);
+      expect(advanced.ok).toBe(true);
+      if (advanced.ok) expect(advanced.steps[0]).toMatchObject({ stepId: "implement", linkedIndexRouting: true });
       const [writeStep, reviewStep] = reconstructed.steps;
       expect(writeStep).toMatchObject({
         behavior: "write",

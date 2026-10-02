@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as nodeChildProcess from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
@@ -27,7 +27,7 @@ import { createRunControlHandlerContext } from "./daemon-run-control-context.ts"
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import type { RunTimeoutTimers } from "./run-time-budget.ts";
-import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
+import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type FakeTimer = { callback: () => void; ms: number; dueAt: number; interval: boolean; cleared: boolean };
 
@@ -702,21 +702,40 @@ test("resumeLinkedWorkflowStart rolls back an applied resume admission when exec
       throw new Error("materialization boom");
     },
   });
-  const { workflowStart } = workflowAdmission();
+  const { ctx, workflowStart } = workflowAdmission();
   const snapshot: WorkflowSnapshot = { invocationId: "resumed-fail-invocation-id", steps: [] };
+  const admittedRunId = stateStore.createRun({
+    project: "demo",
+    branch,
+    specRef: "main",
+    worktreePath: getExternalWorktreePath(step.worktree),
+    specPath: "index.md",
+    stepId: "implement~link-0",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(admittedRunId, "paused");
   let rollbacks = 0;
 
   const response = await workflowStart.resumeLinkedWorkflowStart(
     [step],
     snapshot,
-    async () => undefined,
+    async () => {
+      await stateStore.admitRunForResume(admittedRunId);
+      return undefined;
+    },
     () => {
       rollbacks += 1;
+      stateStore.setRunStatus(admittedRunId, "paused");
     },
+    undefined,
+    undefined,
+    admittedRunId,
   );
 
   expect(response.kind).toBe("error");
   expect(rollbacks).toBe(1);
+  expect(stateStore.loadRun(admittedRunId)?.status).toBe("paused");
+  expect(ctx.activeRuns.has(admittedRunId)).toBe(false);
   expect(registry.get({ project: "demo", branch })).toBeUndefined();
 });
 
@@ -739,6 +758,182 @@ test("resumeLinkedWorkflowStart claims the resumed step's real external worktree
   const ownership = registry.get({ project: "demo", branch });
   expect(ownership?.worktreePath).toBe(getExternalWorktreePath(step.worktree));
 });
+
+for (const priorStatus of ["paused", "failed"] as const) {
+  test(`linked resume settles its admitted ${priorStatus} row after routing an already-complete index`, async () => {
+    const { createWriteStep } = writeStepFixtures();
+    const step = createWriteStep("implement", `resume-complete-${priorStatus}`, doneWithArtifactBindingFactory, {
+      linkedIndexRouting: true,
+      specPath: "index.md",
+      expectedArtifactPath: "index.md",
+      suppressShrink: true,
+    });
+    const worktreePath = getExternalWorktreePath(step.worktree);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "index.md"), "- [x] [One](./one.md)\n");
+    writeFileSync(join(worktreePath, "one.md"), "## Acceptance criteria\n\n- [x] Done\n");
+    const snapshot: WorkflowSnapshot = {
+      invocationId: `resume-complete-${priorStatus}`,
+      steps: [{ stepId: "implement", role: "implement", durable: true }],
+    };
+    const admittedRunId = stateStore.createRun({
+      project: "demo",
+      branch: step.worktree.branchName,
+      specRef: "main",
+      worktreePath,
+      specPath: "index.md",
+      stepId: "implement~link-0",
+      workflowSnapshot: snapshot,
+    });
+    stateStore.setRunStatus(admittedRunId, priorStatus);
+    const logsPath = join(worktreePath, "resume.jsonl");
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logsPath,
+      registry,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+    });
+    const workflowStart = createWorkflowStartAdmission(ctx);
+    const response = await workflowStart.resumeLinkedWorkflowStart(
+      [step],
+      snapshot,
+      async () => {
+        await stateStore.admitRunForResume(admittedRunId);
+        return undefined;
+      },
+      undefined,
+      undefined,
+      undefined,
+      admittedRunId,
+    );
+    expect(response.kind).toBe("response");
+    const replacementRunId = (response as { result: { runId: string } }).result.runId;
+    const canonicalEntryRunId = resolveInvocationEntryRunId(stateStore, admittedRunId);
+    const settled = ctx.workflowPromisesByEntryRunId.get(canonicalEntryRunId);
+    expect(settled).toBeDefined();
+    await settled;
+    expect(stateStore.loadRun(admittedRunId)?.status).toBe("completed");
+    expect(stateStore.findRunsByInvocationId(snapshot.invocationId).every((row) => row.status === "completed")).toBe(
+      true,
+    );
+    expect(
+      openLogReader(logsPath)
+        .tail(admittedRunId)
+        .map((record) => record.event),
+    ).toContainEqual({
+      kind: "run_resume_replaced",
+      replacementRunId,
+    });
+  });
+}
+
+for (const outcome of ["complete", "blocked", "throw", "kill"] as const) {
+  test(`linked resume tracks its admitted row through later-link ${outcome}`, async () => {
+    const { createWriteStep } = writeStepFixtures();
+    let release: (() => void) | undefined;
+    let invoked: (() => void) | undefined;
+    const invocationStarted = new Promise<void>((resolve) => {
+      invoked = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const binding = createBindingFactory(async ({ cwd, signal }) => {
+      invoked?.();
+      if (outcome === "kill") {
+        await Promise.race([
+          held,
+          new Promise<never>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          }),
+        ]);
+      }
+      if (outcome === "blocked") return { kind: "ok", stdout: "## Blocker\n\nneeds a decision\n\nblocked", stderr: "" };
+      writeFileSync(join(cwd, "two.md"), "## Acceptance criteria\n\n- [x] Done\n");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const step = createWriteStep("implement", `resume-later-${outcome}`, binding, {
+      linkedIndexRouting: true,
+      specPath: "index.md",
+      expectedArtifactPath: "index.md",
+      suppressShrink: true,
+    });
+    const worktreePath = getExternalWorktreePath(step.worktree);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "index.md"), "- [x] [One](./one.md)\n- [ ] [Two](./two.md)\n");
+    writeFileSync(join(worktreePath, "one.md"), "## Acceptance criteria\n\n- [x] Done\n");
+    writeFileSync(join(worktreePath, "two.md"), "## Acceptance criteria\n\n- [ ] Done\n");
+    const snapshot: WorkflowSnapshot = {
+      invocationId: `resume-later-${outcome}`,
+      steps: [{ stepId: "implement", role: "implement", durable: true }],
+    };
+    const admittedRunId = stateStore.createRun({
+      project: "demo",
+      branch: step.worktree.branchName,
+      specRef: "main",
+      worktreePath,
+      specPath: "index.md",
+      stepId: "implement~link-0",
+      workflowSnapshot: snapshot,
+    });
+    stateStore.setRunStatus(admittedRunId, "paused");
+    const store = outcome === "throw" ? throwOnNthRecordAttemptStart(stateStore, 1) : stateStore;
+    const ctx = createRunControlHandlerContext({
+      stateStore: store,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      registry,
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+    });
+    const workflowStart = createWorkflowStartAdmission(ctx);
+    const lifecycle = createRunLifecycleHandlers(ctx, { handleWorkflowStart: workflowStart.handleWorkflowStart });
+    const response = await workflowStart.resumeLinkedWorkflowStart(
+      [step],
+      snapshot,
+      async () => {
+        await stateStore.admitRunForResume(admittedRunId);
+        return undefined;
+      },
+      undefined,
+      undefined,
+      undefined,
+      admittedRunId,
+    );
+    expect(response.kind).toBe("response");
+    const settled = ctx.workflowPromisesByEntryRunId.get(admittedRunId);
+    expect(settled).toBeDefined();
+    if (outcome === "kill") {
+      await invocationStarted;
+      expect(ctx.activeRuns.has(admittedRunId)).toBe(true);
+      const kill = await lifecycle.kill(
+        requestFrame("kill-resumed", "kill", { runId: admittedRunId }),
+        new AbortController().signal,
+      );
+      expect(kill.kind).toBe("response");
+      release?.();
+    }
+    await settled;
+    expect(stateStore.loadRun(admittedRunId)?.status).toBe(
+      outcome === "complete"
+        ? "completed"
+        : outcome === "kill"
+          ? "killed"
+          : outcome === "blocked"
+            ? "paused"
+            : "failed",
+    );
+    expect(stateStore.findRunsByInvocationId(snapshot.invocationId).some((row) => row.status === "in-progress")).toBe(
+      false,
+    );
+    expect(
+      stateStore.findRunsByInvocationId(snapshot.invocationId).some((row) => row.stepId === "implement~link-1"),
+    ).toBe(true);
+    expect(ctx.activeRuns.has(admittedRunId)).toBe(false);
+  });
+}
 
 test("workflow invocation settled marker: completed", async () => {
   const branch = "settled-marker-completed";

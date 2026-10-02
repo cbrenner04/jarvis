@@ -692,7 +692,26 @@ test("a completed review row with a running publication row and no marker derive
   expect(deriveOperatorIncidents(store)).toEqual([]);
 
   store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", Date.now());
-  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ runId: entryRunId, cause: "completed" })]);
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("a false settled marker does not emit run-ad-hoc-terminal while an in-progress sibling row remains", () => {
+  const entryRunId = seedInvocationRow("plan", "completed");
+  seedInvocationRow("review", "in-progress");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", Date.now());
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});
+
+test("a false settled marker does not emit run-ad-hoc-terminal while a paused sibling row remains", () => {
+  const entryRunId = seedInvocationRow("plan", "completed");
+  const reviewRunId = seedInvocationRow("review", "completed");
+  store.setRunStatus(reviewRunId, "paused");
+  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", Date.now());
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+  store.setRunStatus(reviewRunId, "completed");
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ runId: entryRunId, cause: "completed", kind: "run-ad-hoc-terminal" }),
+  ]);
 });
 
 test("a second row settling after a sweep does not re-fire the delivered marker cause", () => {

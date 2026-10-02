@@ -27,7 +27,11 @@ import { createRunControlHandlerContext } from "./daemon-run-control-context.ts"
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import type { RunTimeoutTimers } from "./run-time-budget.ts";
-import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
+import {
+  invocationDurableRowsAllTerminal,
+  resolveInvocationEntryRunId,
+  settleStagesForEntryRun,
+} from "./stage-settlement-owner.ts";
 
 type FakeTimer = { callback: () => void; ms: number; dueAt: number; interval: boolean; cleared: boolean };
 
@@ -935,6 +939,61 @@ for (const outcome of ["complete", "blocked", "throw", "kill"] as const) {
   });
 }
 
+function seedInvocationSiblingRows(
+  invocationId: string,
+  entryStatus: "completed",
+  siblingStatus: "in-progress" | "paused" | "completed",
+): { entryRunId: string; siblingRunId: string } {
+  const snapshot: WorkflowSnapshot = {
+    invocationId,
+    steps: [
+      { stepId: "plan", role: "plan" },
+      { stepId: "review", role: "review" },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: `marker-${invocationId}`,
+    specPath: "s.md",
+    stepId: "plan",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(entryRunId, entryStatus);
+  const siblingRunId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/w",
+    branch: `marker-${invocationId}`,
+    specPath: "s.md",
+    stepId: "review",
+    workflowSnapshot: snapshot,
+  });
+  if (siblingStatus !== "in-progress") stateStore.setRunStatus(siblingRunId, siblingStatus);
+  return { entryRunId, siblingRunId };
+}
+
+test.each([
+  ["in-progress", "active"],
+  ["paused", "paused"],
+] as const)("workflow invocation settled marker: suppressed while a %s sibling row remains", (siblingStatus) => {
+  const { entryRunId, siblingRunId } = seedInvocationSiblingRows(
+    `inv-marker-${siblingStatus}`,
+    "completed",
+    siblingStatus,
+  );
+  const writeMarker = (cause: "completed" | "failed" | "killed") => {
+    if (!invocationDurableRowsAllTerminal(stateStore, entryRunId)) return;
+    stateStore.writeWorkflowInvocationSettledMarker(entryRunId, cause, Date.now());
+  };
+  writeMarker("completed");
+  expect(stateStore.readWorkflowInvocationSettledMarker(entryRunId)).toBeNull();
+  stateStore.setRunStatus(siblingRunId, "completed");
+  writeMarker("completed");
+  expect(stateStore.readWorkflowInvocationSettledMarker(entryRunId)).toMatchObject({ cause: "completed" });
+});
+
 test("workflow invocation settled marker: completed", async () => {
   const branch = "settled-marker-completed";
   const { createWriteStep } = writeStepFixtures();
@@ -969,7 +1028,7 @@ test("workflow invocation settled marker: failed when the workflow resolves non-
   const runId = (response as { result: { runId: string } }).result.runId;
   await ctx.workflowPromisesByEntryRunId.get(runId);
 
-  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toMatchObject({ cause: "failed" });
+  expect(stateStore.readWorkflowInvocationSettledMarker(runId)).toBeNull();
 });
 
 test("workflow invocation settled marker: failed when execute() throws after the entry run exists", async () => {

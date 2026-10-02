@@ -144,6 +144,7 @@ export const MAX_INSPECTED_MUTATIONS = 25;
 const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 export const MAX_VERIFICATION_MS = 5 * 60_000;
 export const MAX_KILLING_TEST_MS = 30_000;
+export const SCOPED_BUN_PER_TEST_TIMEOUT_MS = MAX_KILLING_TEST_MS - 5_000;
 /** Per-candidate bound = clamp(baseline × factor, floor, ceiling); the floor is the historical fixed budget. */
 const KILLING_TEST_BUDGET_FACTOR = 2;
 export const KILLING_TEST_BUDGET_FLOOR_MS = MAX_KILLING_TEST_MS;
@@ -590,7 +591,7 @@ export async function runDiffDerivedScopedTests(
     // One recorded group per spawn: concurrent siblings must not overwrite each other's ids.
     const tracked = trackProcessGroup(options?.processGroups);
     try {
-      await subprocess.runAsync("bun", ["test", testPath], cwd, {
+      await subprocess.runAsync("bun", ["test", "--timeout", String(SCOPED_BUN_PER_TEST_TIMEOUT_MS), testPath], cwd, {
         timeoutMs,
         processGroup: tracked.processGroup,
         signal: batchAbort.signal,

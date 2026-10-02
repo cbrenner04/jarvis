@@ -80,11 +80,11 @@ import {
   derivePipelineFailureDetail,
   derivePipelineState,
   fanOutPlanResultForBranch,
-  findFanOutSplit,
-  isPipelineSettlementPending,
   findFailedStageForReopen,
+  findFanOutSplit,
   hasPipelineTerminalPublicationFailure,
   isPipelineContinuable,
+  isPipelineSettlementPending,
   isReopenedFailedContinuation,
   type PipelineExecutionDeps,
   persistedContextLoadPermitsContinuation,
@@ -6323,6 +6323,62 @@ describe("pipeline terminal publication settlement", () => {
     expect(derivePipelineState(store.loadPipeline(PIPELINE_ID) ?? mid)).toBe("succeeded");
   });
 
+  test("fan-out incomplete persisted context stamps a failure on every owing lane so settlement stops pending", async () => {
+    // Walk the lanes without a terminal action, then make settlement owed under a malformed context.
+    const definition: PipelineDefinition = { ...FAN_OUT_LINEAR_DEFINITION };
+    const { store: inner, stages } = fakeStore(
+      definition,
+      {
+        "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+        "run-alpha-1-1": { specPath: "spec/alpha/plan.md" },
+        "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+        "run-alpha-2-3": { ...supersedeStageRun(1, "spec/alpha/implement.md"), worktreePath: "/alpha" },
+        "run-beta-2-4": { ...supersedeStageRun(2, "spec/beta/implement.md"), worktreePath: "/beta" },
+      },
+      { ownerIdentity: PRIOR_OWNER },
+    );
+    await runPipeline(PIPELINE_ID, { ...fanOutPipelineDeps(inner, []), context: baseContext });
+    definition.terminalAction = "ready";
+    const malformedContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
+    const store = {
+      ...inner,
+      loadPipeline: (id: string) => {
+        const loaded = inner.loadPipeline(id);
+        return loaded ? { ...loaded, context: malformedContext } : loaded;
+      },
+    } as StateStore;
+    const owed = store.loadPipeline(PIPELINE_ID);
+    if (!owed) throw new Error("expected pipeline");
+    expect(isPipelineSettlementPending(owed)).toBe(true);
+
+    let terminalPublicationCalls = 0;
+    const outcome = await continuePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => {
+        throw new Error("must not dispatch");
+      },
+      wait: async () => "completed",
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication: async () => {
+        terminalPublicationCalls += 1;
+        return TERMINAL_PR;
+      },
+    });
+
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(outcome).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
+    expect(terminalPublicationCalls).toBe(0);
+    expect(isPipelineSettlementPending(pipeline)).toBe(false);
+    expect(derivePipelineState(pipeline)).toBe("failed");
+    for (const branchKey of ["alpha", "beta"] as const) {
+      const artifact = stageRecord(stages(), "implement", branchKey)?.artifact as {
+        terminalPublication?: { failure?: { message?: string } };
+      } | null;
+      expect(artifact?.terminalPublication?.failure?.message).toMatch(/^pipeline-context-loader:/);
+    }
+  });
+
   test("settlement-pending pipeline with incomplete persisted context is not continuable and records terminal publication failure on continuation", async () => {
     const definition = terminalPipelineDefinition("ready");
     const malformedContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
@@ -6561,15 +6617,18 @@ describe("pipeline terminal publication settlement", () => {
       terminalRunDeps(leaveStore, async () => TERMINAL_PR, { supersedeGh: gh, dispatch: supersedeThreeStageDispatch }),
     );
     expect(calls).toEqual([]);
+  });
 
-    calls.length = 0;
+  test("fan-out supersede close closes each lane plan PR after that lane publishes and the intent PR after every lane", async () => {
+    const { gh, calls } = trackingSupersedeGh();
+    const events: string[] = [];
     const fanOutDefinition: PipelineDefinition = {
       ...FAN_OUT_LINEAR_DEFINITION,
       terminalAction: "ready",
       supersede: "close",
     };
-    const { store: fanOutStore, stages } = fakeStore(fanOutDefinition, {
-      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    const { store: fanOutStore } = fakeStore(fanOutDefinition, {
+      "run-intent": { ...supersedeStageRun(5, "ready-intents"), downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
       "run-alpha-1-1": supersedeStageRun(10, "spec/alpha/plan.md"),
       "run-beta-1-2": supersedeStageRun(20, "spec/beta/plan.md"),
       "run-alpha-2-3": {
@@ -6589,16 +6648,42 @@ describe("pipeline terminal publication settlement", () => {
         prUrl: "https://example/pr/2",
       },
     });
-    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    let intentClosedBeforeAllLanesSucceeded = false;
     await runPipeline(PIPELINE_ID, {
-      ...fanOutPipelineDeps(fanOutStore, dispatchLog),
+      ...fanOutPipelineDeps(fanOutStore, []),
       context: baseContext,
-      executeTerminalPublication: async () => TERMINAL_PR,
-      supersedeGh: gh,
+      executeTerminalPublication: async (input) => {
+        events.push(`publish:${input.branch}`);
+        return { prNumber: input.prNumber ?? 0, prUrl: input.prUrl ?? "" };
+      },
+      supersedeGh: {
+        ...gh,
+        close: async (cwd, prNumber) => {
+          events.push(`close:${prNumber}`);
+          if (prNumber === 5 && fanOutStore.loadPipeline(PIPELINE_ID)?.terminalPublicationSucceededAt === null) {
+            intentClosedBeforeAllLanesSucceeded = true;
+          }
+          await gh.close(cwd, prNumber);
+        },
+      },
     });
     expect(fanOutStore.loadPipeline(PIPELINE_ID)?.terminalPublicationSucceededAt).not.toBeNull();
-    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
-    expect(calls).toEqual([]);
+    expect(
+      calls
+        .filter((c) => c.op === "close")
+        .map((c) => c.prNumber)
+        .sort((a, b) => a - b),
+    ).toEqual([5, 10, 20]);
+    expect(calls.some((c) => c.op === "close" && (c.prNumber === 1 || c.prNumber === 2))).toBe(false);
+    expect(intentClosedBeforeAllLanesSucceeded).toBe(false);
+    expect(events.indexOf("close:10")).toBeGreaterThan(events.indexOf("publish:alpha-branch"));
+    expect(events.indexOf("close:20")).toBeGreaterThan(events.indexOf("publish:beta-branch"));
+    const intentClose = events.indexOf("close:5");
+    expect(intentClose).toBeGreaterThan(events.indexOf("publish:alpha-branch"));
+    expect(intentClose).toBeGreaterThan(events.indexOf("publish:beta-branch"));
+    expect(calls.find((c) => c.op === "comment" && c.prNumber === 10)?.body).toBe(
+      `Superseded by #1 (pipeline ${PIPELINE_ID}, stage plan)`,
+    );
   });
 
   test("records supersedeFailures and still succeeds when comment fails on one candidate", async () => {

@@ -32,13 +32,13 @@ Out of scope: fan-out supersede (`01-fan-out-terminal-supersede-close.md` — do
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts`: a two-lane fan-out whose implements both succeed runs terminal publication per lane, derives `succeeded` with `terminalPublicationSucceededAt` set, and does not commit `multi-branch terminal publication is not defined for fan-out pipelines`; fails against the current fan-out refusal.
-- [ ] Same surface with `terminalAction: "merge"`: mocked `executeTerminalPublication` runs once per settled lane against that lane's implement PR evidence, per-lane and pipeline durable rows record success, and derived state is `succeeded`; fails against the current fan-out refusal.
-- [ ] Same surface: one lane's publication failure is durable on that lane's row, the sibling lane still succeeds, and derived state is `failed` naming the failing lane; the regression must invoke the sibling lane's `executeTerminalPublication` only after the failing lane's pipeline-level `terminalPublicationFailure` is committed (mock or staged settlement), not by publishing both lanes in one pass before any failure exists; fails against pre-fix pipeline-only failure attribution and against today's ~1328/~1560 early-return path.
-- [ ] `pipeline-execution.test.ts`: two-lane fan-out with both implements succeeded and terminal publication not yet committed keeps `derivePipelineState` `running` until every lane's publication stamp settles; fails against reporting `succeeded` or lane-attributed `failed` while a sibling still owes publication; reachable on `isPipelineSettlementPending` in `deriveFanOutSuffixState` (~3644).
-- [ ] `pipeline-execution.test.ts` — `does not supersede when policy is keep, terminal action is leave-draft, or fan-out refuses terminal success` (keep and leave-draft portions only) stays green.
-- [ ] `bun run typecheck` exits zero.
-- [ ] `bun run test:v2` exits zero.
+- [x] `pipeline-execution.test.ts`: a two-lane fan-out whose implements both succeed runs terminal publication per lane, derives `succeeded` with `terminalPublicationSucceededAt` set, and does not commit `multi-branch terminal publication is not defined for fan-out pipelines`; fails against the current fan-out refusal.
+- [x] Same surface with `terminalAction: "merge"`: mocked `executeTerminalPublication` runs once per settled lane against that lane's implement PR evidence, per-lane and pipeline durable rows record success, and derived state is `succeeded`; fails against the current fan-out refusal.
+- [x] Same surface: one lane's publication failure is durable on that lane's row, the sibling lane still succeeds, and derived state is `failed` naming the failing lane; the regression must invoke the sibling lane's `executeTerminalPublication` only after the failing lane's pipeline-level `terminalPublicationFailure` is committed (mock or staged settlement), not by publishing both lanes in one pass before any failure exists; fails against pre-fix pipeline-only failure attribution and against today's ~1328/~1560 early-return path.
+- [x] `pipeline-execution.test.ts`: two-lane fan-out with both implements succeeded and terminal publication not yet committed keeps `derivePipelineState` `running` until every lane's publication stamp settles; fails against reporting `succeeded` or lane-attributed `failed` while a sibling still owes publication; reachable on `isPipelineSettlementPending` in `deriveFanOutSuffixState` (~3644).
+- [x] `pipeline-execution.test.ts` — `does not supersede when policy is keep, terminal action is leave-draft, or fan-out refuses terminal success` (keep and leave-draft portions only) stays green.
+- [x] `bun run typecheck` exits zero.
+- [x] `bun run test:v2` exits zero.
 
 ## Documentation updates
 

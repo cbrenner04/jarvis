@@ -26,10 +26,10 @@ Out of scope: supersede on `leave-draft` / `supersede: "keep"`, non-fan-out supe
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts`: new dedicated fan-out `supersede: close` test closes each lane's preceding plan PR after that lane's terminal publication and closes the shared intent PR only after every lane's publication succeeded; fails against today's fan-out supersede no-op (`findFanOutSplit` early return ~1509).
-- [ ] `pipeline-execution.test.ts` — trimmed `does not supersede when policy is keep, terminal action is leave-draft, or fan-out refuses terminal success` (keep and leave-draft only) stays green.
-- [ ] `bun run typecheck` exits zero.
-- [ ] `bun run test:v2` exits zero.
+- [x] `pipeline-execution.test.ts`: new dedicated fan-out `supersede: close` test closes each lane's preceding plan PR after that lane's terminal publication and closes the shared intent PR only after every lane's publication succeeded; fails against today's fan-out supersede no-op (`findFanOutSplit` early return ~1509).
+- [x] `pipeline-execution.test.ts` — trimmed `does not supersede when policy is keep, terminal action is leave-draft, or fan-out refuses terminal success` (keep and leave-draft only) stays green.
+- [x] `bun run typecheck` exits zero.
+- [x] `bun run test:v2` exits zero.
 
 ## Documentation updates
 

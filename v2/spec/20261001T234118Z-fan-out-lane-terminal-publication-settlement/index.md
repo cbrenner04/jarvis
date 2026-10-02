@@ -4,5 +4,5 @@ Fan-out pipelines today refuse terminal publication at `resolveTerminalPublicati
 
 ## Subspecs
 
-- [ ] [00 — Per-lane terminal publication settlement](./00-per-lane-terminal-publication-settlement.md)
-- [ ] [01 — Fan-out terminal supersede on close](./01-fan-out-terminal-supersede-close.md)
+- [x] [00 — Per-lane terminal publication settlement](./00-per-lane-terminal-publication-settlement.md)
+- [x] [01 — Fan-out terminal supersede on close](./01-fan-out-terminal-supersede-close.md)

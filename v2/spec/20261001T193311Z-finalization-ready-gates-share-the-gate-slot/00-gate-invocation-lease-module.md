@@ -12,15 +12,15 @@ Gate lease state, refuse-only acquire, and release subscriptions live in `write-
 
 ## Task checklist
 
-- [ ] New `gate-invocation-lease.ts` with moved lease set, subscribe/notify, refuse-only acquire, and `awaitGateInvocationLease`.
-- [ ] Rewire `write-loop.ts` and `daemon-slot-redrive.ts` imports; re-export from `write-loop.ts` only if existing importers would otherwise churn unnecessarily.
-- [ ] `gate-invocation-lease.test.ts` for FIFO wait, abort, timeout, and refuse-only acquire.
+- [x] New `gate-invocation-lease.ts` with moved lease set, subscribe/notify, refuse-only acquire, and `awaitGateInvocationLease`.
+- [x] Rewire `write-loop.ts` and `daemon-slot-redrive.ts` imports; re-export from `write-loop.ts` only if existing importers would otherwise churn unnecessarily.
+- [x] `gate-invocation-lease.test.ts` for FIFO wait, abort, timeout, and refuse-only acquire.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/gate-invocation-lease.test.ts` proves two concurrent `awaitGateInvocationLease` calls resolve in FIFO order and the second runs only after the first releases; an aborted waiter rejects and leaves the queue intact; a waiter exceeding `timeoutMs` rejects; the suite fails against a refuse-only lease without waiting acquire (reachable on main today).
-- [ ] `write-loop.test.ts` gate-invocation refusal and lease-cap tests stay green (agent refuse-on-contention unchanged by the extraction).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/gate-invocation-lease.test.ts` proves two concurrent `awaitGateInvocationLease` calls resolve in FIFO order and the second runs only after the first releases; an aborted waiter rejects and leaves the queue intact; a waiter exceeding `timeoutMs` rejects; the suite fails against a refuse-only lease without waiting acquire (reachable on main today).
+- [x] `write-loop.test.ts` gate-invocation refusal and lease-cap tests stay green (agent refuse-on-contention unchanged by the extraction).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

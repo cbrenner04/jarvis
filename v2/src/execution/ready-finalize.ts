@@ -28,6 +28,7 @@ import {
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
+import { runHarnessFullSuiteGateWithSlot } from "./gate-invocation-lease.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
@@ -51,6 +52,11 @@ export type ReadyFinalizeInput = {
   readyCommand?: string;
   /** Skip only the project ready gate; the remaining finalization checks still run. */
   skipReadyGate?: boolean;
+  /** Owning run row for slot-wait list surfacing and `ready_gate_slot_wait` logging. */
+  runId?: string;
+  onReadyGateSlotWait?: (fields: { gate: string; waitedMs: number }) => void;
+  /** Bounds slot wait; defaults to `readyGateSubprocessTimeoutMs()`. */
+  slotWaitTimeoutMs?: number;
   recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void;
 };
 
@@ -1451,6 +1457,31 @@ async function flipWithRetry(flip: () => Promise<void>, delay: Delay, retryNotic
   });
 }
 
+async function runLeasedHarnessFullSuiteGate(
+  gate: string,
+  input: Pick<ReadyFinalizeInput, "signal" | "runId" | "onReadyGateSlotWait" | "slotWaitTimeoutMs">,
+  run: () => Promise<void>,
+): Promise<void> {
+  try {
+    await runHarnessFullSuiteGateWithSlot(
+      {
+        gate,
+        ...(input.runId !== undefined ? { runId: input.runId } : {}),
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+        slotWaitTimeoutMs: input.slotWaitTimeoutMs ?? readyGateSubprocessTimeoutMs(),
+        ...(input.onReadyGateSlotWait !== undefined ? { onSlotWait: input.onReadyGateSlotWait } : {}),
+      },
+      run,
+    );
+  } catch (error) {
+    const detail = errorMessage(error);
+    if (detail.includes("gate invocation lease wait timed out")) {
+      throw new ReadyGateError(gate, undefined, detail, true);
+    }
+    throw error;
+  }
+}
+
 /** Runs admitted finalization checks, then flips the draft PR to ready on green. */
 export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalizer {
   const asyncSubprocessRunner = seams?.asyncSubprocessRunner ?? realAsyncSubprocessRunner;
@@ -1469,11 +1500,14 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
 
   return async (input) => {
     if (!input.skipReadyGate) {
-      await runReadyGate(input.worktreePath, input.baseRef, {
-        signal: input.signal,
-        processGroups: input.verifierProcessGroups,
-        readyCommand: input.readyCommand,
-      });
+      const gateCommand = resolveReadyGateCommand(input.readyCommand).display;
+      await runLeasedHarnessFullSuiteGate(gateCommand, input, () =>
+        runReadyGate(input.worktreePath, input.baseRef, {
+          signal: input.signal,
+          processGroups: input.verifierProcessGroups,
+          readyCommand: input.readyCommand,
+        }),
+      );
     }
     if (
       input.requiredIntegrationScope &&
@@ -1483,10 +1517,12 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
         hasPackageScript,
       ))
     ) {
-      await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, {
-        signal: input.signal,
-        processGroups: input.verifierProcessGroups,
-      });
+      await runLeasedHarnessFullSuiteGate(input.requiredIntegrationScope, input, () =>
+        runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope as string, {
+          signal: input.signal,
+          processGroups: input.verifierProcessGroups,
+        }),
+      );
     }
     if (runMutationVerification) {
       await runMutationVerification(input.worktreePath, input.baseRef, input.verifierProcessGroups);

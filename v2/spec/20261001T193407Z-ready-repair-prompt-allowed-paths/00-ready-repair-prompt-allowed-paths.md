@@ -19,18 +19,18 @@
 
 ## Tasks
 
-- [ ] Bump `prompts/write/ready-repair.md` (`ALLOWED_PATHS`, revision, placeholder list, prose).
-- [ ] Thread `frozenRepairAllowset` into `runReadyRepairIteration` and populate `ALLOWED_PATHS` before `awaitIteration` from `currentOutcome.error` each loop pass.
-- [ ] Add `v2/src/execution/write-loop-ready-repair.test.ts` with marker-attributed subset case, frozen-run-diff fallback case, and unpopulated-allowlist negative case.
-- [ ] Extend `write.test.ts` ready-repair placeholder fixture for `ALLOWED_PATHS`.
-- [ ] Update docs listed below.
+- [x] Bump `prompts/write/ready-repair.md` (`ALLOWED_PATHS`, revision, placeholder list, prose).
+- [x] Thread `frozenRepairAllowset` into `runReadyRepairIteration` and populate `ALLOWED_PATHS` before `awaitIteration` from `currentOutcome.error` each loop pass.
+- [x] Add `v2/src/execution/write-loop-ready-repair.test.ts` with marker-attributed subset case, frozen-run-diff fallback case, and unpopulated-allowlist negative case.
+- [x] Extend `write.test.ts` ready-repair placeholder fixture for `ALLOWED_PATHS`.
+- [x] Update docs listed below.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop-ready-repair.test.ts`: for a marker-attributed lint gate failure, the rendered `write.ready-repair` allowed-path block matches `resolveAttributableRepairAllowset(frozen, error)` and excludes at least one path in the frozen run-diff allowset but not in the attributable set; fails against the pre-fix prompt (no populated attributable allowlist). Reachable narrowing: `write-loop.test.ts` `repair refuses a staged path outside the attributable allowset`.
-- [ ] `v2/src/execution/write-loop-ready-repair.test.ts`: for a gate failure with no marker-attributed lint paths (frozen-run-diff fallback branch of `resolveAttributableRepairAllowset`, not the test-terminal branch), the allowed-path block matches that function’s output; fails against the pre-fix prompt.
-- [ ] `v2/src/execution/write-loop-ready-repair.test.ts`: on an active repair iteration, asserts the rendered prompt’s allowed-path block is non-empty and wired from `ALLOWED_PATHS` (test fails when the placeholder is missing or blank); fails against the pre-fix template/wiring.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/execution/write-loop-ready-repair.test.ts`: for a marker-attributed lint gate failure, the rendered `write.ready-repair` allowed-path block matches `resolveAttributableRepairAllowset(frozen, error)` and excludes at least one path in the frozen run-diff allowset but not in the attributable set; fails against the pre-fix prompt (no populated attributable allowlist). Reachable narrowing: `write-loop.test.ts` `repair refuses a staged path outside the attributable allowset`.
+- [x] `v2/src/execution/write-loop-ready-repair.test.ts`: for a gate failure with no marker-attributed lint paths (frozen-run-diff fallback branch of `resolveAttributableRepairAllowset`, not the test-terminal branch), the allowed-path block matches that function’s output; fails against the pre-fix prompt.
+- [x] `v2/src/execution/write-loop-ready-repair.test.ts`: on an active repair iteration, asserts the rendered prompt’s allowed-path block is non-empty and wired from `ALLOWED_PATHS` (test fails when the placeholder is missing or blank); fails against the pre-fix template/wiring.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

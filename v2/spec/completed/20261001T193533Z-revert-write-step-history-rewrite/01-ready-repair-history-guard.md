@@ -16,7 +16,7 @@ Ready-gate repair invokes `write.ready-repair` through the same `awaitIteration`
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop-ready-repair.test.ts`: with a prior lane publish in the fixture, a ready-repair agent stub that rebases onto a moved base would fail publication lease checks on pre-fix; after the guard, publish succeeds from the pre-iteration lineage (no `ForeignRemoteTipError`) and logs `agent_history_rewrite_reverted`; fails against the pre-fix code.
+- [x] `v2/src/execution/write-loop-ready-repair.test.ts`: with a prior lane publish in the fixture, a ready-repair agent stub that rebases onto a moved base would fail publication lease checks on pre-fix; after the guard, publish succeeds from the pre-iteration lineage (no `ForeignRemoteTipError`) and logs `agent_history_rewrite_reverted`; fails against the pre-fix code.
 
 ## Documentation updates
 

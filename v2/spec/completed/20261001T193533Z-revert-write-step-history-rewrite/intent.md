@@ -18,11 +18,11 @@ A write-step agent can rebase, reset, or amend the lane during an iteration. Rea
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/iteration-head-guard.test.ts` (new): pre-iteration `HEAD` not an ancestor of post-iteration `HEAD` (temp-repo rebase onto a moved base) restores the pre-iteration SHA and keeps a non-conflicting uncommitted edit; fails against a guard that only checks the working tree.
-- [ ] Same file: descendant `HEAD` (agent commit) and unchanged `HEAD` perform no reset and emit no rewrite event.
-- [ ] Same file: `reset --keep` conflict yields a failure result naming both SHAs with the branch ref unchanged by the guard.
-- [ ] `v2/src/execution/write-loop-ready-repair.test.ts` (new): a ready-repair agent stub that rebases onto a moved base publishes from the pre-iteration lineage (no `ForeignRemoteTipError`) and logs `agent_history_rewrite_reverted`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/iteration-head-guard.test.ts` (new): pre-iteration `HEAD` not an ancestor of post-iteration `HEAD` (temp-repo rebase onto a moved base) restores the pre-iteration SHA and keeps a non-conflicting uncommitted edit; fails against a guard that only checks the working tree.
+- [x] Same file: descendant `HEAD` (agent commit) and unchanged `HEAD` perform no reset and emit no rewrite event.
+- [x] Same file: `reset --keep` conflict yields a failure result naming both SHAs with the branch ref unchanged by the guard.
+- [x] `v2/src/execution/write-loop-ready-repair.test.ts` (new): a ready-repair agent stub that rebases onto a moved base publishes from the pre-iteration lineage (no `ForeignRemoteTipError`) and logs `agent_history_rewrite_reverted`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

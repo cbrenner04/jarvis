@@ -98,6 +98,7 @@ import {
 import { acquireGateInvocationLease, type GateInvocationLease } from "./gate-invocation-lease.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
+import { guardIterationHead, readIterationHead } from "./iteration-head-guard.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
@@ -1612,6 +1613,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         closeSessionLog(sessionLog, "error");
         return finishExecuteWriteThrow(args, store, runId, attemptId, iterationsConsumed + 1, settled.error);
       }
+      if (settled.kind === "head_revert_failed") {
+        closeSessionLog(sessionLog, "error");
+        return finishHeadRevertFailed(args, store, runId, attemptId, iterationsConsumed + 1, settled.error);
+      }
       closeSessionLog(sessionLog, "completed");
       const stepResult = settled.result;
       iterationsConsumed += 1;
@@ -2607,7 +2612,8 @@ type IterationSettlement =
       gateRefusalCause: GateInvocationRefusalCause;
       gateBudgetAdmittedCount?: number;
       quiesced: QuiescedExecutionOutcome;
-    };
+    }
+  | { kind: "head_revert_failed"; error: Error };
 
 type AbortWatchdogRole = "abort" | "watchdog";
 type IterationSettlementPolicy = "bounded" | "finalization-repair";
@@ -2662,13 +2668,56 @@ async function settleBoundedIteration(
   return { kind: raced.kind, quiesced, ...(activeGateAtTimeout !== undefined ? { activeGateAtTimeout } : {}) };
 }
 
+type IterationRepromptArgs = [
+  landingContractReprompt?: { violation: string; offendingFile: string },
+  stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
+  gateBudgetReprompt?: { refusedCommand: string },
+  draftContractReprompt?: DraftContractRepromptContext,
+  survivingMutationReprompt?: SurvivingMutationRepromptContext,
+];
+
+/**
+ * Records `HEAD` before the agent runs and, on a settled invocation, reverts agent history
+ * rewrites (`iteration-head-guard.ts`) before callers run autofix, fence, or commit.
+ * `write.mutation-repair` is not guarded.
+ */
+async function awaitIteration(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  sessionLog: SessionLog,
+  settlementPolicy: IterationSettlementPolicy = "bounded",
+  ...reprompts: IterationRepromptArgs
+): Promise<IterationSettlement> {
+  const worktreePath = getExternalWorktreePath(args.worktree);
+  const pre = args.promptId === "write.mutation-repair" ? undefined : readIterationHead(worktreePath);
+  const settlement = await raceIterationSettlement(
+    args,
+    store,
+    runId,
+    attemptId,
+    sessionLog,
+    settlementPolicy,
+    ...reprompts,
+  );
+  if (pre === undefined || settlement.kind !== "settled") return settlement;
+  const guard = await guardIterationHead({
+    cwd: worktreePath,
+    pre,
+    log: (event) => args.logSink?.append(runId, event),
+  });
+  if (guard.kind !== "guard_failed") return settlement;
+  return { kind: "head_revert_failed", error: new Error(guard.message) };
+}
+
 /**
  * Starts after `iteration_started`, so pre-spawn stalls are fenced too. On an abort/watchdog win,
  * this does not return until the raced-away `execution` promise itself quiesces (settles or
  * throws), so the caller always has the last-started invocation's actual outcome to checkpoint
  * before it declares the iteration lost.
  */
-async function awaitIteration(
+async function raceIterationSettlement(
   args: WriteLoopInput,
   store: StateStore,
   runId: string,
@@ -3038,6 +3087,29 @@ async function finishControlledLoss(
         worktreePath,
         activeGateAtTimeout,
       );
+}
+
+/** Agent rewrote lane history and `reset --keep` refused: settle resumable `completion_commit_failed`, push nothing. */
+function finishHeadRevertFailed(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  iterationsConsumed: number,
+  error: Error,
+): WriteLoopResult {
+  commitProgressBoundary(args, store, runId, attemptId);
+  return completionCommitFailed(args, store, { kind: "progress", runId, iterationsConsumed, resumable: true }, error);
+}
+
+function commitProgressBoundary(args: WriteLoopInput, store: StateStore, runId: string, attemptId: string): void {
+  store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "progress",
+    runStatus: "in-progress",
+  });
 }
 
 function finishExecuteWriteThrow(
@@ -3569,6 +3641,8 @@ type CompletionPublishOutcome = CompletionPublishFailure | (CompletionPublishSuc
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
 type RepairIterationOutcome = "unsettled" | "blocked" | "continue";
+/** Ready repair adds a refused history-rewrite revert, which consumed one iteration. */
+type ReadyRepairIterationOutcome = RepairIterationOutcome | { kind: "head_revert_failed"; error: Error };
 
 /** One repair iteration: reprompt the agent with the gate failure, then record its boundary. */
 async function runReadyRepairIteration(
@@ -3578,7 +3652,7 @@ async function runReadyRepairIteration(
   gateError: ReadyGateError,
   iterationNumber: number,
   frozenRepairAllowset: Set<string>,
-): Promise<RepairIterationOutcome> {
+): Promise<ReadyRepairIterationOutcome> {
   const attemptId = store.recordAttemptStart(result.runId);
   args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
   const clock = args.clock ?? (() => new Date());
@@ -3602,6 +3676,11 @@ async function runReadyRepairIteration(
     },
   };
   const settled = await awaitIteration(repairArgs, store, result.runId, attemptId, sessionLog, "finalization-repair");
+  if (settled.kind === "head_revert_failed") {
+    closeSessionLog(sessionLog, "error");
+    commitProgressBoundary(args, store, result.runId, attemptId);
+    return { kind: "head_revert_failed", error: settled.error };
+  }
   if (settled.kind !== "settled") {
     closeSessionLog(
       sessionLog,
@@ -4394,6 +4473,15 @@ async function runReadyGateRepairLoop(
       return { kind: "early", result: { failure: currentOutcome, iterationsConsumed: currentIterations } };
     }
     currentIterations += 1;
+    if (typeof repairOutcome === "object") {
+      return {
+        kind: "early",
+        result: {
+          failure: { kind: "completion_commit_failed", error: repairOutcome.error },
+          iterationsConsumed: currentIterations,
+        },
+      };
+    }
     if (repairOutcome === "blocked") {
       return { kind: "early", result: { failure: currentOutcome, iterationsConsumed: currentIterations } };
     }

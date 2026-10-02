@@ -24,10 +24,10 @@ After a write-step agent returns on the settled path, fence/autofix/commit run a
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/iteration-head-guard.test.ts`: pre-iteration `HEAD` not an ancestor of post-iteration `HEAD` (temp-repo rebase onto a moved base) restores the pre-iteration SHA and keeps a non-conflicting uncommitted edit; fails against the pre-fix code (guard absent).
-- [ ] Same file: descendant `HEAD` (agent commit) and unchanged `HEAD` perform no reset and emit no `agent_history_rewrite_reverted` event; fails against the pre-fix code.
-- [ ] Same file: `reset --keep` conflict yields a failure result naming both SHAs with the branch ref unchanged by the guard; fails against the pre-fix code.
-- [ ] `v2/src/execution/write-loop-iteration-head-guard.test.ts`: settled `awaitIteration` with a rebasing agent stub restores pre-iteration `HEAD` and logs `agent_history_rewrite_reverted`; fails against the pre-fix code if the guard is not wired through `awaitIteration`.
+- [x] `v2/src/execution/iteration-head-guard.test.ts`: pre-iteration `HEAD` not an ancestor of post-iteration `HEAD` (temp-repo rebase onto a moved base) restores the pre-iteration SHA and keeps a non-conflicting uncommitted edit; fails against the pre-fix code (guard absent).
+- [x] Same file: descendant `HEAD` (agent commit) and unchanged `HEAD` perform no reset and emit no `agent_history_rewrite_reverted` event; fails against the pre-fix code.
+- [x] Same file: `reset --keep` conflict yields a failure result naming both SHAs with the branch ref unchanged by the guard; fails against the pre-fix code.
+- [x] `v2/src/execution/write-loop-iteration-head-guard.test.ts`: settled `awaitIteration` with a rebasing agent stub restores pre-iteration `HEAD` and logs `agent_history_rewrite_reverted`; fails against the pre-fix code if the guard is not wired through `awaitIteration`.
 
 ## Documentation updates
 

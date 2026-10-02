@@ -166,6 +166,12 @@ type RunRecoveryEvent = {
   message?: string;
 };
 
+/** Linked resume continued on another row; retain its replacement identity. */
+type RunResumeReplacedEvent = {
+  kind: "run_resume_replaced";
+  replacementRunId: string;
+};
+
 /** A terminal settlement from a non-owner identity onto an already-terminal row was dropped. */
 type RunSettlementRejectedEvent = {
   kind: "run_settlement_rejected";
@@ -361,6 +367,7 @@ type LogEventWithoutLoopFinished =
   | RunReconciledEvent
   | RunTimeoutEvent
   | RunRecoveryEvent
+  | RunResumeReplacedEvent
   | RunSettlementRejectedEvent
   | InvalidTokenDetailEvent
   | TokenRepromptEvent

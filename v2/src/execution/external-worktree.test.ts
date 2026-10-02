@@ -839,3 +839,24 @@ describe("isNotGitRepositoryDiagnostic", () => {
     expect(isNotGitRepositoryDiagnostic("")).toBe(false);
   });
 });
+
+describe("withExternalWorktree fork ref", () => {
+  async function branchCreateArgs(forkRef: string | undefined): Promise<string[][]> {
+    const { repoRoot, jarvisRoot, runner } = setupMockRepo();
+    const calls: string[][] = [];
+    const recording: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (args[0] === "branch") calls.push(args);
+        return runner.runAsync(cmd, args, cwd, options);
+      },
+    };
+    const input = { ...makeInput(jarvisRoot, repoRoot), ...(forkRef !== undefined ? { forkRef } : {}) };
+    await withExternalWorktree(input, () => undefined, recording);
+    return calls;
+  }
+
+  test("a new branch forks from forkRef when set, else from baseRef", async () => {
+    expect(await branchCreateArgs("lane-a-implement")).toEqual([["branch", "write-run", "lane-a-implement"]]);
+    expect(await branchCreateArgs(undefined)).toEqual([["branch", "write-run", "HEAD"]]);
+  });
+});

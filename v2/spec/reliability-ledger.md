@@ -14,7 +14,7 @@ None queued.
 
 | Item | Next action | Remaining scope |
 | --- | --- | --- |
-| [Serial chained fan-out](./seeds/pipeline-fan-out-lanes-serial-chained-bases.md) | Intent (per-lane settlement landed #4413 #4417) | Dependent-lane scheduling/base policy. Intent splits produced strict chains 4× on 2026-10-02 (approved head lanes only, by hand). |
+| [Chained lane rebases after predecessor merge](./seeds/chained-lane-rebases-after-predecessor-merge.md) | Intent | Serial chained fan-out lanes landed; a dependent lane stays stacked on its predecessor's implement branch and conflicts after squash-merge. |
 
 ## Parked design and cleanup: seeds (6)
 

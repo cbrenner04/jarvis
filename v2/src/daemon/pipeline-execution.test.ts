@@ -5066,7 +5066,12 @@ describe("resumePipeline branch scope", () => {
       ],
     });
 
-    const outcome = await resumePipeline(PIPELINE_ID, { store, dispatch, wait: async () => "completed", resolveStage });
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait: async () => "completed",
+      resolveStage,
+    });
 
     expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
     expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: RESUME_BRANCH_RUNNING }]);
@@ -11097,5 +11102,208 @@ describe("buildPrefixStageArtifactsForResumeProbe", () => {
     expect([...buildPrefixStageArtifactsForResumeProbe(pipeline, 0, "main").keys()]).toEqual([]);
     expect([...buildPrefixStageArtifactsForResumeProbe(pipeline, 2, "main").keys()]).toEqual(["a:main", "b:main"]);
     expect([...buildPrefixStageArtifactsForResumeProbe(pipeline, -1, "main").keys()]).toEqual([]);
+  });
+});
+
+describe("fan-out serial chained lanes", () => {
+  type LaneDispatch = { stageId: string; branchKey: string; forkRef: string | undefined };
+
+  /** An intent worktree holding the split's ready-intents; `prerequisites`/`frontmatter` per lane. */
+  function intentWorktree(lanes: Record<string, { prerequisites?: string[]; frontmatter?: string }>): string {
+    const root = trackedMkdtempSync(join(tmpdir(), "pipeline-lane-chain-"));
+    mkdirSync(join(root, "ready-intents"), { recursive: true });
+    for (const lane of ["alpha", "beta"]) {
+      const { prerequisites = [], frontmatter = "" } = lanes[lane] ?? {};
+      const body = prerequisites.map((line) => `- ${line}`).join("\n");
+      writeFileSync(
+        join(root, "ready-intents", `${lane}.md`),
+        `---\nname: ${lane}\n${frontmatter}---\n\n# ${lane}\n\n## Prerequisites\n\n${body}\n\n## Decisions\n\n- x\n`,
+      );
+    }
+    return root;
+  }
+
+  const ALPHA_DELIVERS_BETA = { beta: { prerequisites: ["alpha's seam exists (delivered by: alpha)"] } };
+
+  /** Runs for a serial dispatch order: plan then implement per lane, counters in dispatch order. */
+  function serialLaneRuns(order: readonly string[], worktreePath: string): Record<string, Partial<Run>> {
+    const runs: Record<string, Partial<Run>> = {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM], worktreePath },
+    };
+    let counter = 0;
+    for (const lane of order) {
+      counter += 1;
+      runs[`run-${lane}-1-${counter}`] = { specPath: `spec/${lane}/plan.md`, branch: `plan/${lane}` };
+      counter += 1;
+      runs[`run-${lane}-2-${counter}`] = { specPath: `spec/${lane}/implement.md`, branch: `implement/${lane}` };
+    }
+    return runs;
+  }
+
+  function capturingLaneDeps(
+    store: StateStore,
+    options: Parameters<typeof fanOutPipelineDeps>[2] = {},
+  ): { deps: ReturnType<typeof fanOutPipelineDeps>; dispatched: LaneDispatch[] } {
+    const base = fanOutPipelineDeps(store, [], options);
+    const dispatched: LaneDispatch[] = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageIndex: number; branchKey?: string; worktree: { forkRef?: string } };
+      if (step.stageIndex > 0) {
+        dispatched.push({
+          stageId: step.stageIndex === 1 ? "plan" : "implement",
+          branchKey: step.branchKey ?? "default",
+          forkRef: step.worktree.forkRef,
+        });
+      }
+      return base.dispatch(steps);
+    };
+    // Production branch-scoped plan resolution binds one lane's input — never fan-out `{ results }`.
+    const resolveStage: typeof base.resolveStage = async (
+      definition,
+      stageIndex,
+      context,
+      stageArtifacts,
+      resolveDeps,
+    ) => {
+      const stage = definition.stages[stageIndex];
+      const branchKey = resolveDeps?.branchKey ?? "default";
+      if (stage?.kind === "workflow" && stage.workflow === "plan" && branchKey !== "default") {
+        return { ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey })] };
+      }
+      return base.resolveStage(definition, stageIndex, context, stageArtifacts, resolveDeps);
+    };
+    return { deps: { ...base, dispatch, resolveStage }, dispatched };
+  }
+
+  function persistedChain(stages: PipelineStageRecord[]): unknown {
+    return (stageRecord(stages, "intent")?.artifact as { laneChain?: unknown } | null)?.laneChain;
+  }
+
+  test("lanes with no sibling prerequisite run concurrently from the default base", async () => {
+    const worktree = intentWorktree({});
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM], worktreePath: worktree },
+    });
+    const { deps, dispatched } = capturingLaneDeps(withSyntheticPlanRunRecords(store));
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(persistedChain(stages())).toEqual({ dependent: [], independent: ["alpha", "beta"] });
+    expect(dispatched.slice(0, 2).map((entry) => `${entry.stageId}/${entry.branchKey}`)).toEqual([
+      "plan/alpha",
+      "plan/beta",
+    ]);
+    expect(dispatched.every((entry) => entry.forkRef === undefined)).toBe(true);
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a delivered-by prerequisite chains the consumer after its provider, forking from the provider's implement branch", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store);
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    // The provider stays dependent: it heads the chain and forks from the default base.
+    expect(persistedChain(stages())).toEqual({ dependent: ["alpha", "beta"], independent: [] });
+    expect(dispatched).toEqual([
+      { stageId: "plan", branchKey: "alpha", forkRef: undefined },
+      { stageId: "implement", branchKey: "alpha", forkRef: undefined },
+      { stageId: "plan", branchKey: "beta", forkRef: "implement/alpha" },
+      { stageId: "implement", branchKey: "beta", forkRef: "implement/alpha" },
+    ]);
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a predecessor lane failure settles every dependent lane row skipped naming the predecessor", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store, { failBranchIndex: 0, failAtStageIndex: 1 });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(dispatched.filter((entry) => entry.branchKey === "beta")).toEqual([]);
+    for (const stageId of ["plan", "implement"]) {
+      const row = stageRecord(stages(), stageId, "beta");
+      expect(row?.status).toBe("skipped");
+      expect(row?.skipProvenance).toBe("terminal");
+      expect((row?.failureDetail as { observation?: string } | null)?.observation).toContain(
+        'predecessor lane "alpha"',
+      );
+    }
+  });
+
+  test("a predecessor lane rejection settles every dependent lane row skipped naming the predecessor", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps } = capturingLaneDeps(store);
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    expect(stageRecord(stages(), "gate", "beta")?.status).toBe("awaiting");
+
+    expect(applyPipelineApprovalDecision(PIPELINE_ID, "gate", "rejected", deps, "alpha").kind).toBe("applied");
+
+    for (const stageId of ["gate", "plan", "implement"]) {
+      const row = stageRecord(stages(), stageId, "beta");
+      expect(row?.status).toBe("skipped");
+      expect((row?.failureDetail as { observation?: string } | null)?.observation).toContain(
+        'predecessor lane "alpha"',
+      );
+    }
+  });
+
+  test("explicit frontmatter overrides inference: a mixed split runs the independent lane first, then the dependent one from the default base", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      serialLaneRuns(["beta", "alpha"], intentWorktree({ alpha: { frontmatter: "independent: false\n" } })),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store);
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(persistedChain(stages())).toEqual({ dependent: ["alpha"], independent: ["beta"] });
+    expect(dispatched).toEqual([
+      { stageId: "plan", branchKey: "beta", forkRef: undefined },
+      { stageId: "implement", branchKey: "beta", forkRef: undefined },
+      { stageId: "plan", branchKey: "alpha", forkRef: undefined },
+      { stageId: "implement", branchKey: "alpha", forkRef: undefined },
+    ]);
+  });
+
+  test("a split admitted without a persisted chain keeps concurrent lanes on resume, with no severing", async () => {
+    const worktree = intentWorktree(ALPHA_DELIVERS_BETA);
+    const { store: rawStore, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM], worktreePath: worktree },
+    });
+    setupFanOutLinearPostIntent(rawStore);
+    rawStore.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: "alpha",
+      patch: { status: "failed", endedAt: 1 },
+    });
+    rawStore.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "alpha",
+      patch: { status: "skipped", skipProvenance: "provisional", endedAt: 1 },
+    });
+    const { deps, dispatched } = capturingLaneDeps(withSyntheticPlanRunRecords(rawStore));
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(persistedChain(stages())).toBeUndefined();
+    expect(dispatched.filter((entry) => entry.branchKey === "beta").map((entry) => entry.forkRef)).toEqual([
+      undefined,
+      undefined,
+    ]);
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "plan", "beta")?.failureDetail).toBeNull();
   });
 });

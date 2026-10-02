@@ -40,6 +40,7 @@ function archivePublicationRunner(
     prCreateFails?: boolean;
     openPrNumber?: number;
     revListCommitCount?: number;
+    foreignRemoteTip?: string;
   } = {},
 ): AsyncSubprocessRunner {
   return {
@@ -56,7 +57,9 @@ function archivePublicationRunner(
         if (options.pushFails) throw new AsyncSubprocessError("push failed", 1, "", "push failed", undefined);
         return "";
       }
-      if (cmd === "git" && args[0] === "ls-remote") return "";
+      if (cmd === "git" && args[0] === "ls-remote") {
+        return options.foreignRemoteTip === undefined ? "" : `${options.foreignRemoteTip}\t${args[2] ?? ""}\n`;
+      }
       if (cmd === "gh" && args[0] === "pr") ghCalls.push(args.join(" "));
       if (isCleanupArchiveBranchProbe(cmd, args)) {
         return cleanupArchiveBranchProbeResponse(args, options.openPrNumber ?? 42);
@@ -700,6 +703,41 @@ describe("cleanup apply-end archive publication", () => {
       new RegExp(
         `Archive branch for project: ${escapedBranch} \\(2 commit\\(s\\)\\) at ${worktreePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} — push it and open one archive PR\\.`,
       ),
+    );
+  });
+
+  test("stepless publication failure (foreign remote tip) reports push step", async () => {
+    const specName = "20261002T120005Z-foreign-tip";
+    const branch = "implement/foreign-tip";
+    inRepoSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath: projectRoot,
+          specPath: join(projectRoot, "v2", "spec", specName, "index.md"),
+          status: "completed",
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    let stderr = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      archivePublicationRunner(projectRoot, [], { foreignRemoteTip: "f".repeat(40) }),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("Archive publication failed at push:");
+    expect(stderr).not.toContain("failed at undefined");
+    expect(stdout).toMatch(
+      /Archive branch for project: cleanup\/archive-\d{8}T\d{6}Z \(1 commit\(s\)\) at .* — push it and open one archive PR\./,
     );
   });
 

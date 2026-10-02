@@ -31,6 +31,13 @@ type ReadyGateRepairEvent = {
   gateOutputTail: string;
 };
 
+/** An iteration's agent rewrote lane history; the guard reset `fromSha` (post-agent) back to `toSha` (pre-iteration). */
+export type AgentHistoryRewriteRevertedEvent = {
+  kind: "agent_history_rewrite_reverted";
+  fromSha: string;
+  toSha: string;
+};
+
 type ReadyGateBaseRefProbeEvent = {
   kind: "ready_gate_base_ref_probe";
   message: string;
@@ -364,6 +371,7 @@ type LogEventWithoutLoopFinished =
   | IterationStartedEvent
   | BoundaryCommittedEvent
   | ReadyGateRepairEvent
+  | AgentHistoryRewriteRevertedEvent
   | ReadyGateBaseRefProbeEvent
   | ReadyGateTimeoutEvent
   | ReadyGateSlotWaitEvent

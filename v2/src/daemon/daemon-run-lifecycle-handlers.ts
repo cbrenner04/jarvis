@@ -126,6 +126,7 @@ type RunLifecycleHandlerDeps = {
     rollbackRunAdmission?: () => void,
     settleStagesAfterResume?: (runId: string) => void,
     resumePublicationOptions?: ResumePublicationOptions,
+    resumedRunId?: string,
   ) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
@@ -1487,6 +1488,7 @@ export function createRunLifecycleHandlers(
       },
       settleStagesAfterWriteLoop,
       resumePublicationOptions,
+      run.id,
     );
   };
 

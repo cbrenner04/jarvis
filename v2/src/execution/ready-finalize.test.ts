@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, setSystemTime } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, setSystemTime, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,6 +20,7 @@ import {
   acquireGateInvocationLease,
   leasedHarnessFullSuiteGateSpawnCount,
   liveGateInvocationLeaseCount,
+  runHarnessFullSuiteGateWithSlot,
 } from "./gate-invocation-lease.ts";
 import {
   gateFailureOutput,
@@ -59,6 +60,24 @@ import {
 } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
+
+// Finalizer calls here await the shared gate slot: if the slot stops admitting a free acquire (or a release stops
+// freeing it), every finalizer await would hang to the slot-wait timeout. Assert the free slot admits and frees
+// first so such a lease-module regression fails each test fast instead of stalling the file.
+beforeEach(async () => {
+  expect(liveGateInvocationLeaseCount()).toBe(0);
+  const probe = acquireGateInvocationLease();
+  expect(probe).toBeDefined();
+  probe?.release();
+  expect(liveGateInvocationLeaseCount()).toBe(0);
+  let freeSlotGateRan = false;
+  void runHarnessFullSuiteGateWithSlot({ gate: "probe", slotWaitTimeoutMs: 1 }, async () => {
+    freeSlotGateRan = true;
+  }).catch(() => {});
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  expect(freeSlotGateRan).toBe(true);
+  expect(liveGateInvocationLeaseCount()).toBe(0);
+});
 
 /** Records spawn ids then `null` on settle, mirroring the retired single-callback sequence. */
 function pushRecorder(recorded: Array<number | null>): VerifierProcessGroupRecorder {
@@ -2582,12 +2601,42 @@ describe("terminal failed ready step selectors", () => {
 });
 
 describe("harness finalization gate slot", () => {
+  // Every await on a finalizer here is bounded by a microtask flush: a lease-module mutant that never grants
+  // the slot must fail the assertion, not hang until the per-test timeout (`non_terminating_mutation_failed`).
   const baseInput = {
     worktreePath: "/tmp/worktree",
     baseRef: "main",
     branch: "feature",
     prNumber: 1,
   };
+
+  async function flushMicrotasks(): Promise<void> {
+    for (let i = 0; i < 100; i += 1) await Promise.resolve();
+  }
+
+  /** Track settlement so a test can assert on it after a bounded flush instead of awaiting forever. */
+  function track(promise: Promise<unknown>): { settled: () => boolean; outcome: () => unknown } {
+    let settled = false;
+    let outcome: unknown;
+    promise.then(
+      (value) => {
+        settled = true;
+        outcome = value;
+      },
+      (error: unknown) => {
+        settled = true;
+        outcome = error;
+      },
+    );
+    return { settled: () => settled, outcome: () => outcome };
+  }
+
+  async function settledAfterFlush(promise: Promise<unknown>): Promise<unknown> {
+    const tracked = track(promise);
+    await flushMicrotasks();
+    if (!tracked.settled()) throw new Error("finalizer did not settle after a microtask flush");
+    return promise;
+  }
 
   afterEach(() => {
     expect(liveGateInvocationLeaseCount()).toBe(0);
@@ -2612,10 +2661,11 @@ describe("harness finalization gate slot", () => {
     };
     const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
     const pending = Promise.all([finalizer(baseInput), finalizer(baseInput)]);
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(maxInFlight).toBe(1);
     releaseHeld();
-    await pending;
+    await settledAfterFlush(pending);
+    expect(maxInFlight).toBe(1);
   });
 
   it("holds the slot lease through required integration", async () => {
@@ -2634,7 +2684,7 @@ describe("harness finalization gate slot", () => {
       hasPackageScript: () => true,
       resolveReadyTestScope: async () => ["test:v2"],
     });
-    await finalizer({ ...baseInput, requiredIntegrationScope: "test:integration:v2" });
+    await settledAfterFlush(finalizer({ ...baseInput, requiredIntegrationScope: "test:integration:v2" }));
     expect(leaseCountDuringIntegration).toBe(1);
   });
 
@@ -2650,10 +2700,10 @@ describe("harness finalization gate slot", () => {
     };
     const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
     const pending = finalizer(baseInput);
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(gateSpawned).toBe(false);
     agentLease?.release();
-    await pending;
+    await settledAfterFlush(pending);
     expect(gateSpawned).toBe(true);
   });
 
@@ -2675,13 +2725,14 @@ describe("harness finalization gate slot", () => {
         trackLeasedGateSession();
       },
     });
-    await finalizer({ ...baseInput, requiredIntegrationScope: "test:integration:v2" });
+    await settledAfterFlush(finalizer({ ...baseInput, requiredIntegrationScope: "test:integration:v2" }));
     expect(leasedGateSessions).toBe(2);
     expect(maxLeasedSpawns).toBe(1);
   });
 
   it("logs ready_gate_slot_wait after a non-immediate slot acquire", async () => {
     const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
     const slotWaits: Array<{ gate: string; waitedMs: number }> = [];
     const runner: AsyncSubprocessRunner = { runAsync: async () => "" };
     const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
@@ -2689,21 +2740,60 @@ describe("harness finalization gate slot", () => {
       ...baseInput,
       onReadyGateSlotWait: (fields) => slotWaits.push(fields),
     });
-    await Promise.resolve();
+    await flushMicrotasks();
     agentLease?.release();
-    await pending;
+    await settledAfterFlush(pending);
     expect(slotWaits).toEqual([expect.objectContaining({ gate: "bun run ready", waitedMs: expect.any(Number) })]);
+  });
+
+  it("aborts a queued slot wait through the finalizer's signal without spawning the gate", async () => {
+    const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
+    let gateSpawned = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        gateSpawned = true;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const abort = new AbortController();
+    const pending = finalizer({ ...baseInput, signal: abort.signal, slotWaitTimeoutMs: 60_000 });
+    const tracked = track(pending);
+    try {
+      await flushMicrotasks();
+      abort.abort();
+      // An unforwarded signal leaves the wait queued: assert after a flush rather than awaiting it.
+      await flushMicrotasks();
+      expect(tracked.settled()).toBe(true);
+      expect(tracked.outcome()).toBeInstanceOf(Error);
+      expect((tracked.outcome() as Error).message).toContain("gate invocation lease wait aborted");
+      expect(gateSpawned).toBe(false);
+    } finally {
+      agentLease?.release();
+      await flushMicrotasks();
+    }
   });
 
   it("maps slot-wait expiry to ReadyGateError with timedOut", async () => {
     const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
     const runner: AsyncSubprocessRunner = { runAsync: async () => "" };
     const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
-    const pending = finalizer({ ...baseInput, slotWaitTimeoutMs: 5 });
-    await expect(pending).rejects.toMatchObject({
-      timedOut: true,
-      output: expect.stringContaining("gate invocation lease wait timed out"),
-    });
-    agentLease?.release();
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    try {
+      const pending = finalizer({ ...baseInput, slotWaitTimeoutMs: 5 });
+      await flushMicrotasks();
+      // Assert the expiry timer is armed before awaiting: an unarmed wait never settles and would hang the test.
+      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 5)).toBe(true);
+      await expect(pending).rejects.toMatchObject({
+        timedOut: true,
+        output: expect.stringContaining("gate invocation lease wait timed out"),
+      });
+    } finally {
+      setTimeoutSpy.mockRestore();
+      agentLease?.release();
+      await flushMicrotasks();
+    }
   });
 });

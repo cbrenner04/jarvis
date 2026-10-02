@@ -135,15 +135,23 @@ describe("gate-invocation-lease", () => {
     const holder = acquireGateInvocationLease();
     expect(holder).toBeDefined();
     const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    let waiting: Promise<Awaited<ReturnType<typeof awaitGateInvocationLease>>> | undefined;
     try {
-      const waiting = awaitGateInvocationLease({ timeoutMs: 5 });
+      waiting = awaitGateInvocationLease({ timeoutMs: 5 });
       // Assert the timer is armed before awaiting: an unarmed wait never settles and would hang the test.
       expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
       await expect(waiting).rejects.toThrow("gate invocation lease wait timed out after 5ms");
     } finally {
       setTimeoutSpy.mockRestore();
+      // Release even when an assertion threw: a leaked holder (or a still-queued waiter later granted) keeps the
+      // slot held and hangs later tests' untimed waits.
+      waiting?.then(
+        (lease) => lease.release(),
+        () => {},
+      );
+      holder?.release();
+      await flushMicrotasks();
     }
-    holder?.release();
     expect(liveGateInvocationLeaseCount()).toBe(0);
   });
 
@@ -195,22 +203,26 @@ describe("gate-invocation-lease", () => {
   });
 
   test("runHarnessFullSuiteGateWithSlot runs immediately when the slot is free", async () => {
+    expect(liveGateInvocationLeaseCount()).toBe(0);
     let ran = false;
     const onSlotWaitCalls: Array<{ gate: string; waitedMs: number }> = [];
-    await runHarnessFullSuiteGateWithSlot(
-      {
-        gate: "ready",
-        slotWaitTimeoutMs: 5_000,
-        runId: "free-slot-run",
-        onSlotWait: (fields) => {
-          onSlotWaitCalls.push(fields);
+    // A free slot runs without queueing, so the gate settles within a microtask flush instead of awaiting a grant.
+    await settledAfterFlush(
+      runHarnessFullSuiteGateWithSlot(
+        {
+          gate: "ready",
+          slotWaitTimeoutMs: 5_000,
+          runId: "free-slot-run",
+          onSlotWait: (fields) => {
+            onSlotWaitCalls.push(fields);
+          },
         },
-      },
-      async () => {
-        ran = true;
-        expect(harnessGateSlotWaitListMessage("free-slot-run")).toBeUndefined();
-        expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(1);
-      },
+        async () => {
+          ran = true;
+          expect(harnessGateSlotWaitListMessage("free-slot-run")).toBeUndefined();
+          expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(1);
+        },
+      ),
     );
     expect(ran).toBe(true);
     expect(onSlotWaitCalls).toEqual([]);
@@ -249,6 +261,31 @@ describe("gate-invocation-lease", () => {
     expect(harnessGateSlotWaitListMessage("held-slot-run")).toBeUndefined();
     expect(liveGateInvocationLeaseCount()).toBe(0);
     expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
+  });
+
+  test("runHarnessFullSuiteGateWithSlot forwards its abort signal to the slot wait", async () => {
+    const holder = acquireGateInvocationLease();
+    expect(holder).toBeDefined();
+    const abort = new AbortController();
+    let ran = false;
+    const harnessGate = runHarnessFullSuiteGateWithSlot(
+      { gate: "ready", slotWaitTimeoutMs: 60_000, runId: "aborted-slot-run", signal: abort.signal },
+      async () => {
+        ran = true;
+      },
+    );
+    try {
+      await flushMicrotasks();
+      abort.abort();
+      await expect(settledAfterFlush(harnessGate)).rejects.toThrow("gate invocation lease wait aborted");
+      expect(ran).toBe(false);
+      expect(harnessGateSlotWaitListMessage("aborted-slot-run")).toBeUndefined();
+    } finally {
+      harnessGate.catch(() => {});
+      holder?.release();
+      await flushMicrotasks();
+    }
+    expect(liveGateInvocationLeaseCount()).toBe(0);
   });
 
   test("a release notifies subscribers once, asynchronously, after the lease is deleted", async () => {

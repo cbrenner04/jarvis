@@ -577,7 +577,13 @@ describe("write behavior", () => {
   test.each([
     [
       "write.ready-repair",
-      { GATE_COMMAND: "bun test", GATE_STEP: "bun run check", GATE_EXIT_CODE: "1", GATE_OUTPUT: "failure" },
+      {
+        GATE_COMMAND: "bun test",
+        GATE_STEP: "bun run check",
+        GATE_EXIT_CODE: "1",
+        GATE_OUTPUT: "failure",
+        ALLOWED_PATHS: "spec.md\nproof.txt",
+      },
       DEFAULT_WRITE_STEP_RULES,
     ],
     [
@@ -607,6 +613,8 @@ describe("write behavior", () => {
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
     if (promptId === "write.ready-repair") {
       expect(capturedPrompt).toContain("Failing step: bun run check");
+      expect(capturedPrompt).toContain("spec.md\nproof.txt");
+      expect(capturedPrompt).toContain("Edits outside these paths are reverted and end the run.");
     }
     if (promptId === "write.mutation-repair") {
       expect(capturedPrompt).toContain("importer discovery only when that union is empty");

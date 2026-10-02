@@ -47,7 +47,11 @@ import { daemonFailureDetail, type RunControlHandlerContext } from "./daemon-run
 import type { RunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { findTerminalLogRecord } from "./run-operator-error.ts";
 import { armRunTimeout, fireRunTimeout, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
-import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
+import {
+  invocationDurableRowsAllTerminal,
+  resolveInvocationEntryRunId,
+  settleStagesForEntryRun,
+} from "./stage-settlement-owner.ts";
 
 export type WorkflowStartResult =
   | { kind: "response"; result: unknown }
@@ -181,6 +185,7 @@ function writeWorkflowInvocationSettledMarkerBestEffort(
   cause: "completed" | "failed" | "killed",
 ): void {
   try {
+    if (!invocationDurableRowsAllTerminal(store, entryRunId)) return;
     store.writeWorkflowInvocationSettledMarker(entryRunId, cause, Date.now());
   } catch (markerError) {
     console.error(`Workflow invocation settled marker write for ${entryRunId} failed:`, markerError);

@@ -107,7 +107,11 @@ import {
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
 import { armRunTimeout, fireRunTimeout, runBudgetKey, runTimeoutExhaustedRefusal } from "./run-time-budget.ts";
-import { resolveInvocationEntryRunId, settleStagesForEntryRun } from "./stage-settlement-owner.ts";
+import {
+  invocationDurableRowsAllTerminal,
+  resolveInvocationEntryRunId,
+  settleStagesForEntryRun,
+} from "./stage-settlement-owner.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 
 type LifecycleStartResult =
@@ -248,10 +252,12 @@ function rewriteSettledMarkerAfterResume(store: StateStore, runId: string, tailF
   try {
     const invocationId = store.loadRun(runId)?.workflowSnapshot?.invocationId;
     if (invocationId === undefined) return;
+    const entryRunId = resolveInvocationEntryRunId(store, runId);
+    if (!invocationDurableRowsAllTerminal(store, entryRunId)) return;
     const rows = store.findRunsByInvocationId(invocationId);
-    if (rows.length === 0 || !rows.every((row) => isTerminalRunStatus(row.status))) return;
+    if (rows.length === 0) return;
     const cause = !tailFailed && rows.every((row) => row.status === "completed") ? "completed" : "failed";
-    store.writeWorkflowInvocationSettledMarker(resolveInvocationEntryRunId(store, runId), cause, Date.now());
+    store.writeWorkflowInvocationSettledMarker(entryRunId, cause, Date.now());
   } catch (markerError) {
     console.error(`Workflow invocation settled marker rewrite for ${runId} failed:`, markerError);
   }

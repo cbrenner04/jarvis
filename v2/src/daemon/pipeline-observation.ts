@@ -1,5 +1,11 @@
+import { isRecord } from "../../../shared/is-record.ts";
 import { FOLLOW_POLL_MS } from "../persistence/log-stream.ts";
-import type { Pipeline, PipelineStageRecord, StateStore } from "../persistence/state-store.ts";
+import {
+  DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+  type Pipeline,
+  type PipelineStageRecord,
+  type StateStore,
+} from "../persistence/state-store.ts";
 import {
   branchSuffixPredecessorsSatisfied,
   derivePipelineState,
@@ -224,7 +230,50 @@ function isStalePublicationFailedStageFailureDetail(failureDetail: unknown): boo
   return record.reason !== undefined && STALE_PUBLICATION_STAGE_FAILURE_REASONS.has(record.reason);
 }
 
-function projectObservedPipelineStage(stage: PipelineStageRecord): PipelineSnapshot["stages"][number] {
+function readStageTerminalPublicationStamp(artifact: unknown): unknown {
+  if (!isRecord(artifact)) return undefined;
+  return artifact.terminalPublication;
+}
+
+function isFanOutSuffixTerminalWorkflowStage(
+  stage: PipelineStageRecord,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): boolean {
+  if (stage.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY) return false;
+  if (stage.status !== "succeeded") return false;
+  const split = findFanOutSplit(pipeline);
+  if (split === null) return false;
+  const authored = pipeline.definition.stages[stage.position];
+  if (authored?.kind !== "workflow") return false;
+  for (let position = pipeline.definition.stages.length - 1; position > split.splitPosition; position -= 1) {
+    const def = pipeline.definition.stages[position];
+    if (def?.kind !== "workflow") continue;
+    return position === stage.position;
+  }
+  return false;
+}
+
+function projectObservedStageArtifact(
+  stage: PipelineStageRecord,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): unknown {
+  const raw = stage.artifact;
+  if (!isFanOutSuffixTerminalWorkflowStage(stage, pipeline)) {
+    return raw;
+  }
+  const stamp = readStageTerminalPublicationStamp(raw);
+  if (stamp === undefined) {
+    return raw;
+  }
+  const narrowed = narrowPipelineStageArtifact(raw);
+  const base = narrowed ?? (isRecord(raw) ? raw : {});
+  return { ...base, terminalPublication: stamp };
+}
+
+function projectObservedPipelineStage(
+  stage: PipelineStageRecord,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): PipelineSnapshot["stages"][number] {
   const artifact = narrowPipelineStageArtifact(stage.artifact);
   const laneOutcome = artifact?.lanePrOutcome;
   let status = stage.status;
@@ -247,7 +296,7 @@ function projectObservedPipelineStage(stage: PipelineStageRecord): PipelineSnaps
     startedAt: stage.startedAt,
     endedAt: stage.endedAt,
     decidedAt: stage.decidedAt,
-    artifact: stage.artifact,
+    artifact: projectObservedStageArtifact(stage, pipeline),
     failureDetail,
   };
 }
@@ -265,6 +314,6 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
     createdAt: pipeline.createdAt,
     finishedAtMs: derivePipelineFinishedAtMs(pipeline, state),
     dismissedAt: pipeline.dismissedAt,
-    stages: pipeline.stages.map(projectObservedPipelineStage),
+    stages: pipeline.stages.map((stage) => projectObservedPipelineStage(stage, pipeline)),
   };
 }

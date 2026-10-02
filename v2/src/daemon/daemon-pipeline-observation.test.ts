@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
@@ -173,11 +173,22 @@ function openApprovalGates(pipelineIds: readonly string[]): void {
   }
 }
 
+let dbPath: string;
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 
+const SINGLE_LANE_LIST_FIXTURE_PIPELINE_ID = "11111111-1111-4111-8111-111111111111";
+const SINGLE_LANE_LIST_FIXTURE_CREATED_AT = 1_700_000_000_000;
+const SINGLE_LANE_LIST_FIXTURE_PLAN_ENDED_AT = 1_700_000_001_000;
+const SINGLE_LANE_LIST_FIXTURE_STAGE_IDS = [
+  "22222222-2222-4222-8222-222222222222",
+  "33333333-3333-4333-8333-333333333333",
+  "44444444-4444-4444-8444-444444444444",
+] as const;
+
 beforeEach(() => {
-  stateStore = openStateStore(join(tmpdir(), `jarvis-pipeline-obs-${process.pid}-${Date.now()}-${Math.random()}.db`));
+  dbPath = join(tmpdir(), `jarvis-pipeline-obs-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  stateStore = openStateStore(dbPath);
   fakeExecutor = createFakeWriteLoopExecutor();
 });
 
@@ -1259,4 +1270,131 @@ test("pipeline_wait holds open for failed-plus-running fan-out rows then returns
 
   const boundary = await waitPromise;
   expect(boundary).toEqual({ kind: "terminal", state: "failed" });
+});
+
+const FAN_OUT_LANE_IMPLEMENT_ARTIFACT = {
+  entryRunId: "run-implement",
+  specPath: "spec/implement.md",
+  prNumber: 1,
+  prUrl: "https://example.com/pr/1",
+};
+
+function seedSettledFanOutLaneTerminalPublicationPipeline(): string {
+  const pipelineId = admitFanOutObservationPipeline();
+  for (const branchKey of ["alpha", "beta"] as const) {
+    stateStore.updateStage({ pipelineId, stageId: "gate", branchKey, patch: { status: "approved" } });
+    stateStore.updateStage({
+      pipelineId,
+      stageId: "plan",
+      branchKey,
+      patch: {
+        status: "succeeded",
+        artifact: { entryRunId: `run-plan-${branchKey}`, specPath: `spec/${branchKey}/plan.md` },
+      },
+    });
+    stateStore.updateStage({
+      pipelineId,
+      stageId: "implement",
+      branchKey,
+      patch: {
+        status: "succeeded",
+        artifact: { ...FAN_OUT_LANE_IMPLEMENT_ARTIFACT, entryRunId: `run-${branchKey}` },
+      },
+    });
+  }
+  stateStore.commitTerminalPublicationSuccess({ pipelineId, branchKey: "alpha" });
+  stateStore.commitTerminalPublicationFailure({
+    pipelineId,
+    branchKey: "beta",
+    terminalAction: "ready",
+    failure: { operation: "gh pr ready", message: "beta lane failed", exitCode: 1 },
+  });
+  return pipelineId;
+}
+
+function seedSingleLanePipelineListByteFixture(): void {
+  const pipelineId = stateStore.createPipeline({ definition: THREE_STAGE_DEFINITION });
+  const db = new Database(dbPath);
+  db.prepare("UPDATE pipelines SET id = ?, created_at = ? WHERE id = ?").run(
+    SINGLE_LANE_LIST_FIXTURE_PIPELINE_ID,
+    SINGLE_LANE_LIST_FIXTURE_CREATED_AT,
+    pipelineId,
+  );
+  db.prepare("UPDATE pipeline_stages SET pipeline_id = ? WHERE pipeline_id = ?").run(
+    SINGLE_LANE_LIST_FIXTURE_PIPELINE_ID,
+    pipelineId,
+  );
+  const rows = db
+    .prepare("SELECT id FROM pipeline_stages WHERE pipeline_id = ? ORDER BY position ASC")
+    .all(SINGLE_LANE_LIST_FIXTURE_PIPELINE_ID) as Array<{ id: string }>;
+  for (const [index, row] of rows.entries()) {
+    const stageId = SINGLE_LANE_LIST_FIXTURE_STAGE_IDS[index];
+    if (stageId === undefined) throw new Error("unexpected stage row count");
+    db.prepare("UPDATE pipeline_stages SET id = ? WHERE id = ?").run(stageId, row.id);
+  }
+  db.close();
+  stateStore.updateStage({
+    pipelineId: SINGLE_LANE_LIST_FIXTURE_PIPELINE_ID,
+    stageId: "plan",
+    patch: {
+      status: "succeeded",
+      workflowInvocationId: "inv-plan",
+      endedAt: SINGLE_LANE_LIST_FIXTURE_PLAN_ENDED_AT,
+    },
+  });
+  stateStore.updateStage({
+    pipelineId: SINGLE_LANE_LIST_FIXTURE_PIPELINE_ID,
+    stageId: "gate",
+    patch: { status: "awaiting" },
+  });
+}
+
+test("pipeline_list exposes per-lane artifact.terminalPublication on settled two-lane fan-out implement rows", async () => {
+  const pipelineId = seedSettledFanOutLaneTerminalPublicationPipeline();
+  const durable = stateStore.loadPipeline(pipelineId);
+  if (!durable) throw new Error("expected durable fan-out pipeline");
+  const alphaDurable = durable.stages.find((row) => row.stageId === "implement" && row.branchKey === "alpha");
+  const betaDurable = durable.stages.find((row) => row.stageId === "implement" && row.branchKey === "beta");
+  if (!alphaDurable || !betaDurable) throw new Error("expected implement rows");
+
+  const response = await handlers().pipeline_list(
+    requestFrame("l-fan-out-terminal", "pipeline_list"),
+    new AbortController().signal,
+  );
+  const snapshot = (response as { result: { pipelines: PipelineSnapshot[] } }).result.pipelines.find(
+    (pipeline) => pipeline.pipelineId === pipelineId,
+  );
+  if (!snapshot) throw new Error("expected list snapshot");
+  const alphaWire = snapshot.stages.find((row) => row.stageId === "implement" && row.branchKey === "alpha");
+  const betaWire = snapshot.stages.find((row) => row.stageId === "implement" && row.branchKey === "beta");
+  if (!alphaWire || !betaWire) throw new Error("expected implement wire rows");
+
+  // Mutation checkpoint: skipping fan-out suffix terminal workflow artifact projection must turn this test RED.
+  expect((alphaWire.artifact as { terminalPublication?: unknown }).terminalPublication).toEqual(
+    (alphaDurable.artifact as { terminalPublication?: unknown }).terminalPublication,
+  );
+  expect((betaWire.artifact as { terminalPublication?: unknown }).terminalPublication).toEqual(
+    (betaDurable.artifact as { terminalPublication?: unknown }).terminalPublication,
+  );
+  expect(
+    (alphaWire.artifact as { terminalPublication?: { succeededAt?: number } }).terminalPublication?.succeededAt,
+  ).toBeNumber();
+  expect(
+    (betaWire.artifact as { terminalPublication?: { failure?: { message?: string } } }).terminalPublication?.failure
+      ?.message,
+  ).toBe("beta lane failed");
+});
+
+test("pipeline_list single-lane snapshot matches main byte fixture", async () => {
+  seedSingleLanePipelineListByteFixture();
+  const response = await handlers().pipeline_list(
+    requestFrame("l-single-lane-fixture", "pipeline_list"),
+    new AbortController().signal,
+  );
+  const entry = (response as { result: { pipelines: unknown[] } }).result.pipelines.find(
+    (pipeline) => (pipeline as { pipelineId?: string }).pipelineId === SINGLE_LANE_LIST_FIXTURE_PIPELINE_ID,
+  );
+  if (!entry) throw new Error("expected single-lane list entry");
+  const fixturePath = join(import.meta.dir, "fixtures/pipeline-list-single-lane-snapshot.json");
+  expect(JSON.stringify(entry)).toBe(readFileSync(fixturePath, "utf8"));
 });

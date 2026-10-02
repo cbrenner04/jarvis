@@ -391,7 +391,7 @@ jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>
 jarvis pipeline wait <pipeline-id>
 ```
 
-Single-default-branch pipelines use `branchKey: "default"`.
+Single-default-branch pipelines use `branchKey: "default"`. When fan-out terminal settlement is configured, `pipeline list --json` exposes each lane's outcome on that lane's final workflow stage row as `artifact.terminalPublication` (success `succeededAt` or failure payload).
 
 **Failure resume:** after a failed workflow stage (for example `plan`), reopen without a new admission:
 

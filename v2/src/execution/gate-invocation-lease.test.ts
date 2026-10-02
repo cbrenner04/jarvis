@@ -84,6 +84,30 @@ describe("gate-invocation-lease", () => {
     expect(liveGateInvocationLeaseCount()).toBe(0);
   });
 
+  test("an aborted waiter is dequeued so cap release does not grant the settled waiter", async () => {
+    const holder = acquireGateInvocationLease();
+    expect(holder).toBeDefined();
+    let releaseNotifications = 0;
+    const unsubscribe = subscribeGateInvocationLeaseReleased(() => {
+      releaseNotifications += 1;
+    });
+    try {
+      const abort = new AbortController();
+      const aborted = awaitGateInvocationLease({ signal: abort.signal });
+      await Promise.resolve();
+      abort.abort();
+      await expect(aborted).rejects.toThrow("gate invocation lease wait aborted");
+
+      const notificationsBeforeRelease = releaseNotifications;
+      holder?.release();
+      await flushMicrotasks();
+      expect(releaseNotifications - notificationsBeforeRelease).toBe(1);
+      expect(liveGateInvocationLeaseCount()).toBe(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("awaitGateInvocationLease rejects when timeoutMs elapses", async () => {
     const holder = acquireGateInvocationLease();
     expect(holder).toBeDefined();

@@ -1,5 +1,6 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { renderPromptForStep } from "./assemble.ts";
 import { enforceDelimiterPolicy, PromptRenderingError } from "./render.ts";
 
@@ -24,8 +25,8 @@ export const INTENT_SPLIT_DECLARATION_PIN =
 /** Pre-change (revision 1) `intent.prompt.split` artifact body length, for the growth budget. */
 export const INTENT_SPLIT_BASELINE_BODY_LENGTH = 1359;
 
-/** Max characters the artifact body may grow beyond `INTENT_SPLIT_BASELINE_BODY_LENGTH`. */
-export const INTENT_SPLIT_MAX_BODY_GROWTH = 310;
+/** Max characters the artifact body may grow beyond `INTENT_SPLIT_BASELINE_BODY_LENGTH` (includes the `SPEC_GUIDANCE` block). */
+export const INTENT_SPLIT_MAX_BODY_GROWTH = 410;
 
 export function buildIntentSplitPrompt(opts: {
   workdir: string;
@@ -40,6 +41,13 @@ export function buildIntentSplitPrompt(opts: {
     end: "<<<SEED_END>>>",
     placeholderName: "SEED_CONTENT",
   });
+  const specGuidance = readSpecGuidance();
+  enforceDelimiterPolicy({
+    value: specGuidance,
+    begin: "<<<SPEC_GUIDANCE_BEGIN>>>",
+    end: "<<<SPEC_GUIDANCE_END>>>",
+    placeholderName: "SPEC_GUIDANCE",
+  });
 
   let template: string;
   try {
@@ -49,6 +57,7 @@ export function buildIntentSplitPrompt(opts: {
         WORKDIR: opts.workdir,
         SEED_LABEL: opts.seedLabel,
         SEED_CONTENT: opts.seedContent,
+        SPEC_GUIDANCE: specGuidance,
       },
     });
   } catch (err) {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import {
   createPromptRegistry,
@@ -274,5 +275,19 @@ describe("fragment policy metadata", () => {
     expect(registry.getById("write.execute").metadata.fragmentPolicy).toBe("global");
     expect(registry.getById("write.token-reprompt").metadata.fragmentPolicy).toBe("none");
     expect(registry.getById("global.terse").metadata.fragmentPolicy).toBeNull();
+  });
+});
+
+describe("target-repo path neutrality", () => {
+  const JARVIS_LAYOUT_PATH = /v[12]\/(docs|spec|src)\//;
+
+  test("no registered prompt artifact or injected spec guidance names a jarvis-layout path", () => {
+    const leaks = loadPromptRegistry()
+      .all()
+      .filter((artifact) => JARVIS_LAYOUT_PATH.test(artifact.body))
+      .map((artifact) => artifact.metadata.id);
+
+    expect(leaks).toEqual([]);
+    expect(readSpecGuidance()).not.toMatch(JARVIS_LAYOUT_PATH);
   });
 });

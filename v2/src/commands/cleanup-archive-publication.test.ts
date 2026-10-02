@@ -609,6 +609,54 @@ describe("cleanup apply-end archive publication", () => {
     expect(tree).toContain(`v2/spec/completed/${specName}/index.md`);
   });
 
+  test("push failure manual fallback uses rev-list for staged branch when session has commits elsewhere", async () => {
+    const freshSpecName = "20261002T130000Z-fresh-dual";
+    const stagedSpecName = "20261002T130001Z-staged-dual";
+    const stagedBranch = "cleanup/archive-20261002T130001Z";
+    const branch = "implement/dual-fail";
+    inRepoSpec(freshSpecName, "[x] Done");
+    inRepoSpec(stagedSpecName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const worktreePath = await stageSpecOnCleanupBranch(stagedBranch, stagedSpecName);
+    writeFileSync(join(worktreePath, "extra-archive.txt"), "x\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "extra-archive.txt"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["commit", "-q", "-m", "second staged archive commit"],
+      worktreePath,
+    );
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath: projectRoot,
+          specPath: join(projectRoot, "v2", "spec", freshSpecName, "index.md"),
+          status: "completed",
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    let stderr = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      archivePublicationRunner(projectRoot, [], { pushFails: true }),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("Archive publication failed at push:");
+    const escapedBranch = stagedBranch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    expect(stdout).toMatch(
+      new RegExp(
+        `Archive branch for project: ${escapedBranch} \\(2 commit\\(s\\)\\) at ${worktreePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} — push it and open one archive PR\\.`,
+      ),
+    );
+  });
+
   test("PR failure after push keeps commits and prints manual fallback", async () => {
     const specName = "20261002T120004Z-pr-fail";
     const branch = "implement/pr-fail";

@@ -4338,6 +4338,8 @@ type ReadyGateRepairLoopResult =
   | { kind: "done"; outcome: CompletionPublishOutcome; iterationsConsumed: number; repairBudgetExhausted: boolean }
   | { kind: "early"; result: ReadyRepairPublishResult };
 
+const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
+
 async function runReadyGateRepairLoop(
   args: WriteLoopInput,
   store: StateStore,
@@ -4360,10 +4362,17 @@ async function runReadyGateRepairLoop(
     }
     if (currentIterations >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
     appendReadyGateBaseRefProbeLog(args, result.runId, currentOutcome.error);
+    const failedStep = selectFailedReadyStepOutput(currentOutcome.error.command, currentOutcome.error.output);
+    const stepOutput = failedStep.output;
     args.logSink?.append(result.runId, {
       kind: "ready_gate_repair",
       attempt: repairAttempt,
       gateExitCode: currentOutcome.error.exitCode,
+      failingStep: failedStep.step,
+      gateOutputTail:
+        stepOutput.length <= AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX
+          ? stepOutput
+          : stepOutput.slice(-AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX),
     });
 
     const repairBaseline = await snapshotAutofixBaseline(input.worktreePath);
@@ -4453,8 +4462,6 @@ function buildReadyRepairPublishResult(
     ? { success: outcome, iterationsConsumed }
     : { failure: outcome, iterationsConsumed, ...(readyGateOrigin !== undefined ? { readyGateOrigin } : {}) };
 }
-
-const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
 
 type AutofixTypecheckResult = {
   exitCode: number;

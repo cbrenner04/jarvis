@@ -22,7 +22,25 @@ import {
   initOutsideDiffRepairWorktree,
   PLACEHOLDER_BASE_REF_PROBE_OBSERVATION,
 } from "./ready-finalize.test-support.ts";
-import { formatReadyGateOutOfScopeDetail, type ReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
+import {
+  formatReadyGateOutOfScopeDetail,
+  type ReadyFinalizer,
+  ReadyGateError,
+  selectFailedReadyStepOutput,
+} from "./ready-finalize.ts";
+
+function pinnedReadyGateRepairEvent(gateCommand: string, gateOutput: string, attempt: number, gateExitCode: number) {
+  const failedStep = selectFailedReadyStepOutput(gateCommand, gateOutput);
+  const stepOutput = failedStep.output;
+  const tailMax = 4096;
+  return {
+    kind: "ready_gate_repair" as const,
+    attempt,
+    gateExitCode,
+    failingStep: failedStep.step,
+    gateOutputTail: stepOutput.length <= tailMax ? stepOutput : stepOutput.slice(-tailMax),
+  };
+}
 import {
   deriveAllowedOrUndefined,
   loadRunOnce,
@@ -1265,7 +1283,7 @@ describe("write loop", () => {
           typecheckOutput,
         });
         expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
-          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+          pinnedReadyGateRepairEvent("bun run ready", "formatting required", 1, 1),
         ]);
       });
 
@@ -1383,7 +1401,7 @@ describe("write loop", () => {
         expect(inScope.kind).toBe("complete");
         expect(inScopeGateCalls).toBe(3);
         expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
-          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+          pinnedReadyGateRepairEvent("bun run ready", gateFailureOutput("proof.txt"), 1, 1),
         ]);
       });
 
@@ -1432,7 +1450,7 @@ describe("write loop", () => {
         expect(result.iterationsConsumed).toBe(2);
         const events = logSink.getEventsForRun(result.runId);
         expect(events.filter((event) => event.kind === "ready_gate_repair")).toEqual([
-          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+          pinnedReadyGateRepairEvent("bun run ready", gateFailureOutput("proof.txt"), 1, 1),
         ]);
         expect(events.at(-1)).toMatchObject({
           kind: "loop_finished",

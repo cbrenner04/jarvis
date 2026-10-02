@@ -25,8 +25,26 @@ import {
   ReadyFlipError,
   ReadyGateError,
   RuntimeSmokeFailedError,
+  selectFailedReadyStepOutput,
   SurvivingMutationError,
 } from "./ready-finalize.ts";
+
+const READY_GATE_REPAIR_OUTPUT_TAIL_MAX = 4096;
+
+function pinnedReadyGateRepairEvent(gateCommand: string, gateOutput: string, attempt: number, gateExitCode: number) {
+  const failedStep = selectFailedReadyStepOutput(gateCommand, gateOutput);
+  const stepOutput = failedStep.output;
+  return {
+    kind: "ready_gate_repair" as const,
+    attempt,
+    gateExitCode,
+    failingStep: failedStep.step,
+    gateOutputTail:
+      stepOutput.length <= READY_GATE_REPAIR_OUTPUT_TAIL_MAX
+        ? stepOutput
+        : stepOutput.slice(-READY_GATE_REPAIR_OUTPUT_TAIL_MAX),
+  };
+}
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import {
   createBindingFactory,
@@ -846,11 +864,9 @@ describe("executeWorkflow completion publication", () => {
       });
       expect(result.kind).toBe("complete");
       expect(gateCalls).toBe(3);
-      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
-        kind: "ready_gate_repair",
-        attempt: 1,
-        gateExitCode: 1,
-      });
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual(
+        pinnedReadyGateRepairEvent("bun run ready", "tests failed", 1, 1),
+      );
     });
   });
 
@@ -1045,7 +1061,7 @@ describe("executeWorkflow completion publication", () => {
       expect(inScope.kind).toBe("complete");
       expect(inScopeGateCalls).toBe(3);
       expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
-        { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+        pinnedReadyGateRepairEvent("bun run ready", gateFailureOutput("proof.txt"), 1, 1),
       ]);
     });
   });
@@ -1964,11 +1980,9 @@ describe("executeWorkflow completion publication", () => {
       expect(result.kind).toBe("complete");
       expect(observedFixCommand).toBe("npm run lint-fix");
       expect(gateCalls).toBe(3);
-      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
-        kind: "ready_gate_repair",
-        attempt: 1,
-        gateExitCode: 1,
-      });
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual(
+        pinnedReadyGateRepairEvent("bun run ready", "tests failed", 1, 1),
+      );
     });
   });
 

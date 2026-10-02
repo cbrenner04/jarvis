@@ -39,3 +39,50 @@ export async function reconcileOrphanedRuns(
   }
   return reconciledRunIds;
 }
+
+/** A published lane needs no fresh implement invocation after an orphaned link is reconciled. */
+export async function settlePublishedLinkedRecovery(
+  store: StateStore,
+  logSink: LogSink,
+  runId: string,
+): Promise<boolean> {
+  const run = store.loadRun(runId);
+  if (!run?.stepId || !/^[^~]+~link-\d+$/.test(run.stepId)) return false;
+  const invocationId = run.workflowSnapshot?.invocationId;
+  if (invocationId === undefined) return false;
+  const rows = store.listRuns();
+  const runIndex = rows.findIndex((row) => row.id === runId);
+  const publication = rows.find(
+    (candidate, candidateIndex) =>
+      candidate.project === run.project &&
+      candidate.branch === run.branch &&
+      candidate.status === "completed" &&
+      candidate.terminalCause === "complete" &&
+      typeof candidate.prNumber === "number" &&
+      (candidate.workflowSnapshot?.invocationId === invocationId ||
+        (candidate.workflowSnapshot !== undefined && candidateIndex < runIndex)),
+  );
+  if (!publication || typeof publication.prNumber !== "number") return false;
+  await store.admitRunForResume(runId);
+  const settlement = store.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: publication.prNumber,
+    ...(typeof publication.prUrl === "string" ? { prUrl: publication.prUrl } : {}),
+  });
+  if (settlement.kind === "rejected") {
+    logSink.append(runId, {
+      kind: "run_settlement_rejected",
+      attemptedStatus: settlement.attemptedStatus,
+      reportingIdentity: settlement.reportingIdentity,
+    });
+    return true;
+  }
+  logSink.append(runId, {
+    kind: "run_recovery",
+    outcome: "settled",
+    message: `Published lane already settled by run ${publication.id}; implement was not resumed`,
+  });
+  return true;
+}

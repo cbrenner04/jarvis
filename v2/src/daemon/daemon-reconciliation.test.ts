@@ -1087,3 +1087,118 @@ test("recoverReconciledRuns auto-resume re-resolves write bindings from the edit
     rmSync(profileHome, { recursive: true, force: true });
   }
 });
+
+function createLinkedRecoveryRun(store: StateStore): string {
+  return store.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/linked-recovery",
+    branch: "linked-recovery",
+    specPath: "spec/index.md",
+    stepId: "implement~link-0",
+    workflowSnapshot: {
+      invocationId: "linked-recovery-invocation",
+      steps: [{ stepId: "implement", role: "implement" }],
+    },
+  });
+}
+
+for (const source of ["same invocation", "later invocation"] as const) {
+  for (const prUrl of ["https://github.com/owner/repo/pull/42", undefined]) {
+    test(`restart recovery settles published linked row: ${source}, ${prUrl ? "open PR" : "merged outcome"}`, async () => {
+      const runId = createLinkedRecoveryRun(seedStore);
+      const publicationId = seedStore.createRun({
+        project: "project",
+        specRef: "main",
+        worktreePath: "/tmp/linked-recovery",
+        branch: "linked-recovery",
+        specPath: "spec/index.md",
+        stepId: "implement",
+        workflowSnapshot: {
+          invocationId: source === "same invocation" ? "linked-recovery-invocation" : "later-publication",
+          steps: [{ stepId: "implement", role: "implement" }],
+        },
+      });
+      seedStore.commitTerminalRunSettlement({
+        runId: publicationId,
+        status: "completed",
+        terminalCause: "complete",
+        prNumber: 42,
+        ...(prUrl !== undefined ? { prUrl } : {}),
+      });
+      const sweepStore = openSweepStore(async () => false);
+      try {
+        const sinkEvents: Array<{ runId: string; event: LogEvent }> = [];
+        const sink: LogSink = { append: (id, event) => sinkEvents.push({ runId: id, event }), close: () => undefined };
+        const reconciled = await reconcileOrphanedRuns(sweepStore, sink);
+        let resumes = 0;
+        const beforeCount = sweepStore.listRuns().length;
+        const recovery = await recoverReconciledRuns(reconciled, sweepStore, sink, async () => {
+          resumes += 1;
+          return { kind: "response", result: { ok: true } };
+        });
+        expect(recovery).toEqual({ resumed: 0 });
+        expect(resumes).toBe(0);
+        expect(sweepStore.listRuns()).toHaveLength(beforeCount);
+        expect(sweepStore.loadRun(runId)).toMatchObject({
+          status: "completed",
+          terminalCause: "complete",
+          prNumber: 42,
+        });
+        expect(sinkEvents).toContainEqual({
+          runId,
+          event: {
+            kind: "run_recovery",
+            outcome: "settled",
+            message: `Published lane already settled by run ${publicationId}; implement was not resumed`,
+          },
+        });
+      } finally {
+        sweepStore.close();
+      }
+    });
+  }
+}
+
+for (const mismatch of ["project", "branch", "unpublished", "older invocation", "not linked"]) {
+  test(`restart recovery resumes linked work without applicable publication: ${mismatch}`, async () => {
+    const runId = createLinkedRecoveryRun(seedStore);
+    const publicationId = seedStore.createRun({
+      project: mismatch === "project" ? "other" : "project",
+      specRef: "main",
+      worktreePath: "/tmp/linked-recovery",
+      branch: mismatch === "branch" ? "other" : "linked-recovery",
+      specPath: "spec/index.md",
+      workflowSnapshot: { invocationId: "different-invocation", steps: [{ stepId: "implement", role: "implement" }] },
+    });
+    seedStore.commitTerminalRunSettlement({
+      runId: publicationId,
+      status: "completed",
+      terminalCause: "complete",
+      ...(mismatch !== "unpublished" ? { prNumber: 42, prUrl: "https://github.com/owner/repo/pull/42" } : {}),
+    });
+    if (mismatch === "older invocation" || mismatch === "not linked") {
+      const db = new Database(dbPath);
+      try {
+        if (mismatch === "older invocation")
+          db.prepare("UPDATE runs SET created_at = created_at - 10000 WHERE id = ?").run(publicationId);
+        else db.prepare("UPDATE runs SET step_id = 'implement' WHERE id = ?").run(runId);
+      } finally {
+        db.close();
+      }
+    }
+    seedStore.setRunStatus(runId, "killed");
+    const resumes: string[] = [];
+    const result = await recoverReconciledRuns(
+      [runId],
+      seedStore,
+      { append: () => undefined, close: () => undefined },
+      async (frame) => {
+        resumes.push((frame.params as { runId: string }).runId);
+        return { kind: "response", result: { ok: true } };
+      },
+    );
+    expect(resumes).toEqual([runId]);
+    expect(result).toEqual({ resumed: 1 });
+  });
+}

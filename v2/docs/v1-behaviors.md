@@ -6,6 +6,8 @@ This document inventories user-observable v1 behavior and records each v2 parity
 
 ## Overview and scope
 
+- **[v2 behavior change] Published linked-lane recovery:** startup recovery settles reconciled `~link-N` rows using completed PR evidence from the same invocation or a later invocation on the same project and branch, without spawning implement. Unpublished lanes retain resume recovery. Sources: `v2/src/daemon/daemon-run-reconciliation.ts`, `v2/src/daemon/daemon.ts`
+
 - **[v2 behavior change] Retiring-owner force kill:** stable `run kill --force` consults discovered private daemon generations for inactive durable rows. The recorded live owner can settle its own stranded row; unrelated or unreachable live owners retain refusal, and active runs keep normal abort routing. Sources: `v2/src/daemon/daemon-stable-run-routing.ts`, `v2/src/daemon/daemon.ts`
 
 ### v2 workflow CLI names

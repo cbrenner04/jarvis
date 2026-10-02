@@ -56,6 +56,15 @@ function failureDetailForRun(
   return composeRunOperatorError(run, findTerminalLogRecord(logRecords), logRecords);
 }
 
+export function invocationDurableRowsAllTerminal(store: StateStore, entryRunId: string): boolean {
+  const entryRun = store.loadRun(entryRunId);
+  const invocationId = entryRun?.workflowSnapshot?.invocationId;
+  if (invocationId === undefined) return true;
+  const rows = store.findRunsByInvocationId(invocationId);
+  if (rows.length === 0) return entryRun !== null && isTerminalRunStatus(entryRun.status);
+  return rows.every((row) => isTerminalRunStatus(row.status));
+}
+
 /** Settle every `running` stage linked to `entryRunId` (or only `stageTargets`) from its durable rows. */
 export function settleStagesForEntryRun(
   deps: StageSettlementDeps,

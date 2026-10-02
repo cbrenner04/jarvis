@@ -463,6 +463,7 @@ function collectWorkflowInvocations(
     if (entryRun === undefined) continue;
     const marker = markersByInvocation.get(invocationId) ?? store.readWorkflowInvocationSettledMarker(entryRun.id);
     if (marker === null) continue;
+    if (!rows.every((row) => isTerminalRunStatus(row.status))) continue;
     const transitions = ledger.transitionsByIncident.get(runIncidentId(entryRun.id)) ?? [];
     if (invocationOwedTransitionDelivered(entryRun, rows, marker, transitions, terminalLogRecordForRun)) continue;
     invocations.push({ invocationId, entryRun, rows, marker });

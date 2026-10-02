@@ -54,6 +54,7 @@ import {
   type ArchivePublicationResult,
   type ArchivePublicationSession,
   cleanupBranchCarryingArchive,
+  committedBlobIdsAtRef,
   createArchivePublicationSession,
 } from "./cleanup-archive-publication.ts";
 import {
@@ -1481,8 +1482,20 @@ async function archiveRetiredArtifact(
   reportArchive(spec, await archiveArtifactSpec(spec, candidate.project, projectRoot, sessions), "artifact", io);
 }
 
-function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }): void {
+type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & {
+  project: string;
+  /** In-repo ready-intent queue entries only: the open spec proven (on the default branch) to consume it. */
+  inRepoReadyIntentConsumer?: Pick<ArtifactSpec, "home" | "source" | "name">;
+};
+type StrandedArtifact = DiscoveredStrandedArtifact & { branch: string };
+
+function previewArtifact(spec: StrandedArtifact | ArtifactSpec, io: { stdout: (s: string) => void }): void {
   if (spec.queue !== undefined) {
+    const inRepoConsumer = "project" in spec ? spec.inRepoReadyIntentConsumer : undefined;
+    if (inRepoConsumer !== undefined) {
+      io.stdout(`  prune: ready-intents/${basename(spec.source)} (consumed by open spec ${inRepoConsumer.name})\n`);
+      return;
+    }
     const consumer = consumedExternalReadyIntentPlan(spec);
     const consumedBy = consumer === undefined ? "" : ` (consumed by plans/completed/${basename(consumer.planDir)})`;
     io.stdout(`  prune: ${spec.queue === "seed" ? "seeds" : "ready-intents"}/${basename(spec.source)}${consumedBy}\n`);
@@ -1493,9 +1506,6 @@ function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }
     : `${spec.source} -> ${join(spec.home, "completed", basename(spec.source))}`;
   io.stdout(`  archive: ${target}${provenIntentPrune(spec) ? " (prune consumed ready-intent)" : ""}\n`);
 }
-
-type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
-type StrandedArtifact = DiscoveredStrandedArtifact & { branch: string };
 
 /** One-time stdout note when several registered projects collapse to the same `projectSafeId`. */
 function reportSafeIdCollision(
@@ -1604,6 +1614,78 @@ function discoverExternalQueueStrandedArtifacts(
   return artifacts;
 }
 
+/** Open spec directory names under `relHome` as committed on `ref` (trees only; not `completed/` or queues). */
+async function openInRepoSpecDirNamesOnRef(
+  projectRoot: string,
+  relHome: string,
+  ref: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string[]> {
+  let listing: string;
+  try {
+    listing = await runner.runAsync("git", ["ls-tree", "-z", `${ref}:${relHome}`], projectRoot);
+  } catch {
+    return [];
+  }
+  const names: string[] = [];
+  for (const entry of listing.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab < 0 || entry.slice(0, tab).split(" ")[1] !== "tree") continue;
+    const name = entry.slice(tab + 1);
+    if (QUEUE_DIR_NAMES.includes(name) || name === "completed" || name.startsWith(".")) continue;
+    if (isHarnessWorkflowStagingPath(name)) continue;
+    names.push(name);
+  }
+  return names;
+}
+
+/**
+ * In-repo ready-intents committed on each project's default branch, each paired with the open spec
+ * whose `intent.md` carries its bytes there. Constant git calls per project: one default-branch
+ * lookup, one home listing, one blob-id listing (byte equality is blob-id equality; no blob is read).
+ */
+async function discoverInRepoReadyIntentQueueArtifacts(
+  registry: Record<string, ProjectRegistryEntry>,
+  runner: AsyncSubprocessRunner,
+): Promise<DiscoveredStrandedArtifact[]> {
+  const artifacts: DiscoveredStrandedArtifact[] = [];
+  for (const [project, entry] of Object.entries(registry)) {
+    const home = join(entry.root, "v2", "spec");
+    const relHome = relative(entry.root, home);
+    const baseBranch = await getBaseBranch(entry.root, runner);
+    const openSpecs = await openInRepoSpecDirNamesOnRef(entry.root, relHome, baseBranch, runner);
+    const queueDir = join(home, "ready-intents");
+    const committed = await committedBlobIdsAtRef(runner, entry.root, entry.root, baseBranch, [
+      join(relHome, "ready-intents"),
+      ...openSpecs.map((name) => join(relHome, name, "intent.md")),
+    ]);
+    if (committed === undefined) continue;
+
+    const consumers = new Map<string, NonNullable<DiscoveredStrandedArtifact["inRepoReadyIntentConsumer"]>>();
+    for (const name of openSpecs) {
+      const source = join(home, name);
+      const readyIntent = resolveConsumedReadyIntent({ home, source, name, branch: "" }, committed.fs);
+      if (readyIntent !== undefined && !consumers.has(resolve(readyIntent))) {
+        consumers.set(resolve(readyIntent), { home, source, name });
+      }
+    }
+    for (const source of committed.paths) {
+      const name = basename(source);
+      if (dirname(source) !== resolve(queueDir) || name.startsWith(".") || !name.endsWith(".md")) continue;
+      const consumer = consumers.get(source);
+      artifacts.push({
+        home,
+        source,
+        name: name.slice(0, -3),
+        project,
+        queue: "ready-intent",
+        ...(consumer === undefined ? {} : { inRepoReadyIntentConsumer: consumer }),
+      });
+    }
+  }
+  return artifacts;
+}
+
 /** Queue entries are never spec trees: decide them here so no completeness or branch check runs. */
 function inspectQueueEntry(
   artifact: DiscoveredStrandedArtifact,
@@ -1612,6 +1694,13 @@ function inspectQueueEntry(
   if (artifact.queue === "seed") {
     skips.skip(artifact.source, "pending seed: consumed by intent admission, not cleanup");
     return undefined;
+  }
+  if (!QUEUE_DIR_NAMES.includes(basename(artifact.home))) {
+    if (artifact.inRepoReadyIntentConsumer === undefined) {
+      skips.skip(artifact.source, "unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
+      return undefined;
+    }
+    return { ...artifact, branch: "" };
   }
   const consumer = consumedExternalReadyIntentPlan({ ...artifact, branch: "" });
   if (consumer === undefined) {
@@ -1836,7 +1925,16 @@ export async function inspectStrandedArtifacts(
     if (inspected !== undefined) eligible.push(inspected);
   }
   if (sharedSkips === undefined) skips.flush();
-  return eligible;
+  return withoutPrunesOfArchivingSpecs(eligible);
+}
+
+/** A ready-intent whose consuming open spec archives this run is pruned by that archive; drop the separate prune. */
+function withoutPrunesOfArchivingSpecs(eligible: StrandedArtifact[]): StrandedArtifact[] {
+  const archiving = new Set(eligible.filter((a) => a.queue === undefined).map((a) => resolve(a.source)));
+  return eligible.filter((a) => {
+    const consumer = a.inRepoReadyIntentConsumer;
+    return consumer === undefined || !archiving.has(resolve(consumer.source));
+  });
 }
 
 function reportArchive(
@@ -2327,6 +2425,16 @@ async function retireStrandedArtifacts(
     const projectRoot = registry[spec.project]?.root;
     if (projectRoot === undefined) continue;
     if (spec.queue !== undefined) {
+      if (spec.inRepoReadyIntentConsumer !== undefined) {
+        const consumer: ArtifactSpec = { ...spec.inRepoReadyIntentConsumer, branch: "" };
+        reportArchive(
+          consumer,
+          await sessions.for(spec.project, projectRoot).publishConsumedReadyIntentOnly(consumer, spec.source),
+          "stranded artifact",
+          io,
+        );
+        continue;
+      }
       reportArchive(spec, pruneConsumedQueueEntry(spec), "stranded artifact", io);
       continue;
     }
@@ -2416,7 +2524,10 @@ async function gatherCleanupDiscoveryContext(
   );
   const worktreeRefSnapshots = await collectWorktreeRefSnapshots(candidates, registry, runner);
   const daemonUnreachableExit = daemonUnreachable.length > 0 ? 1 : 0;
-  const strandedArtifacts = discoverStrandedArtifacts(registry, io);
+  const strandedArtifacts = [
+    ...discoverStrandedArtifacts(registry, io),
+    ...(await discoverInRepoReadyIntentQueueArtifacts(registry, runner)),
+  ];
   const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
   const skipArchivalSources = skipSpecArchivalSourceKeys(candidates, registry, store);
   const stranded = (

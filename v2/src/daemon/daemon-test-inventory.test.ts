@@ -205,6 +205,8 @@ export function countParityPreservationViolation(
  * falls back to local handling instead of erroring` in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
+  // Renamed: a paused entry row leaves the invocation non-terminal, so no marker is written.
+  "workflow invocation settled marker: failed when the workflow resolves non-complete",
   // Renamed: a resume that re-settles an invocation now rewrites its settled marker.
   "a successful republication leaves the settled marker untouched",
   "a failed republication of a markerless invocation writes no marker",

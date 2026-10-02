@@ -1,27 +1,23 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **9 active spec plans, 3 ready-intents, 17 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 3 ready-intents, 17 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
-## Highest priority: active specs (3)
+## Highest priority: active spec (1)
 
 | Item | Next action | Remaining work and evidence |
 | --- | --- | --- |
-| [Workflow terminal evidence waits for every row](./20261002T061748Z-workflow-terminal-waits-for-all-rows/index.md) | Hand implementation; highest priority | The invocation finally path writes a settled marker even while a linked row remains non-terminal, producing a false finished incident. |
-| [Startup recovery settles published linked lanes](./20261002T061748Z-linked-recovery-skips-published-lanes/index.md) | Hand implementation; highest priority | Startup reconciliation resumes stranded linked rows even after their lane has published or merged. |
-| [Force kill clears a retiring owner’s stranded row](./20261002T061748Z-force-kill-retiring-owner-row/index.md) | Hand implementation; highest priority | A live retiring daemon identity blocks force-killing a non-terminal row even when that daemon has no active execution for it. |
+| [Workflow terminal evidence waits for every row](./20261002T061748Z-workflow-terminal-waits-for-all-rows/index.md) | Implement in flight (`0f5274bf`) | The invocation finally path writes a settled marker even while a linked row remains non-terminal, producing a false finished incident. Siblings merged #4429 #4430 #4432. |
 
-## Immediate reliability: active specs (6) and ready-intents (2)
+## Immediate reliability: active specs (4) and ready-intents (2)
 
 | Item | Next action / dependency | Remaining work and evidence |
 | --- | --- | --- |
-| [Write-loop test split](./20261001T232129Z-write-loop-test-split/index.md) | In flight (`88d9fb46`, 7/10) | Resume on `iteration_timeout` (has unticked work); publish by hand once fully ticked. Removes `non_terminating_mutation_failed` on write-loop mutants (3 occurrences 2026-10-01/02). |
-| [Finalization gates share the gate slot](./20261001T193311Z-finalization-ready-gates-share-the-gate-slot/index.md) | After split; re-dispatch continuation | 00 at 2/3 (run `19a75ec8`). Concurrent gates false-redded every lane under load; repair then edited unrelated files. |
+| [Finalization gates share the gate slot](./20261001T193311Z-finalization-ready-gates-share-the-gate-slot/index.md) | Implement in flight (`c6030e65`; lane hand-rebased past #4428) | 00 at 2/3. Concurrent gates false-redded every lane under load; repair then edited unrelated files. |
 | [Ready-repair prompt lists allowed paths](./20261001T193407Z-ready-repair-prompt-allowed-paths/index.md) | After gate-slot | Shares new `write-loop-ready-repair.test.ts` with event-context: serial. |
 | [`ready_gate_repair` logs gate context](./20261001T193416Z-ready-gate-repair-event-gate-context/index.md) | After allowed-paths | Failing step + 4 KiB tail on the event. |
 | [Revert write-step history rewrite](./20261001T193533Z-revert-write-step-history-rewrite/index.md) | After event-context | Repair agent rebased a lane onto `origin/main`; publisher then refused its own tip (2026-10-01). |
 | [Implement rules forbid history rewrite](./ready-intents/implement-rules-forbid-history-rewrite.md) | After revert lane | Prompt rule; one-line change plus render tests. |
-| [Record agent groups](./20261001T145916Z-implement-run-records-agent-process-groups/index.md) | Implement (plan merged #4364) | Tests go in new `write-loop-agent-process-groups.test.ts`. `shared/**` → give its gate the machine. |
-| [Sweep recorded agent groups](./ready-intents/daemon-sweeps-recorded-agent-groups.md) | After recording | Prove existing dead-owner sweep reaches groups recorded by a real invocation path. |
+| [Sweep recorded agent groups](./ready-intents/daemon-sweeps-recorded-agent-groups.md) | Plan in flight (`2f59beb3`); recording merged #4428 | Prove existing dead-owner sweep reaches groups recorded by a real invocation path. |
 
 ## Follow-on workflow quality: seeds (5)
 

@@ -76,6 +76,7 @@ export function buildIntentSplitPrompt(opts: {
 - Filename must be \`<name>.md\` only — no \`NN-\` ordering prefix — where \`name:\` is the frontmatter slug in that file.
 - Include a \`## Prerequisites\` section in every emitted intent.
 - If there are prerequisites, write one prerequisite behavior per physical line as \`- ...\`; do not use prose, numbered lists, nested bullets, or wrapped continuation lines.
+- End each prerequisite bullet with \`(delivered by: <name>)\` naming the intent in this split that delivers it, or \`(already true: <reason>)\`; a prerequisite no intent here delivers needs its own intent, whichever repository its surface lives in.
 - Leave the \`## Prerequisites\` body empty when there are no prerequisites.
 - Do not create subdirectories.
 - Do not edit any files outside \`${opts.stagingDir}\`.

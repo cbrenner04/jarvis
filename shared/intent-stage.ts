@@ -73,6 +73,45 @@ function validPrerequisites(text: string): boolean {
   );
 }
 
+function prerequisiteBullets(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const match = /^## Prerequisites\s*$/m.exec(normalized);
+  if (match === null) return [];
+  const after = normalized.slice(match.index + match[0].length);
+  const next = after.search(/^##\s/m);
+  const lines = (next === -1 ? after : after.slice(0, next)).split("\n");
+  return assembleBulletBlocks(lines, isPrerequisiteBulletStart)
+    .map((block) =>
+      block
+        .slice(2)
+        .replace(/\s*\n\s*/g, " ")
+        .trim(),
+    )
+    .filter((bullet) => !/^none\.?$/i.test(bullet));
+}
+
+/** Prerequisite provenance markers: `(delivered by: <sibling-intent-name>)` or `(already true: <reason>)`. */
+const DELIVERED_BY_RE = /\(delivered by: ([a-z0-9-]+)\)\s*$/;
+const ALREADY_TRUE_RE = /\(already true: \S[^)]*\)\s*$/;
+
+/**
+ * Split-internal prerequisite coverage: every prerequisite must name the sibling intent in this
+ * split that delivers it, or be declared already true. Catches a split that lists a surface as a
+ * prerequisite while emitting no intent for it (#3439).
+ */
+function uncoveredPrerequisite(intents: IntentStageFile[]): string | null {
+  const slugs = new Set(intents.map((intent) => intent.slug));
+  for (const { slug, path } of intents) {
+    for (const bullet of prerequisiteBullets(readFileSync(path, "utf8"))) {
+      if (ALREADY_TRUE_RE.test(bullet)) continue;
+      const deliverer = DELIVERED_BY_RE.exec(bullet)?.[1];
+      if (deliverer !== undefined && deliverer !== slug && slugs.has(deliverer)) continue;
+      return `intent: ${basename(path)} prerequisite "${bullet}" is delivered by no other intent in this split; emit an intent covering it and end the bullet with \`(delivered by: <name>)\`, or end it with \`(already true: <reason>)\``;
+    }
+  }
+  return null;
+}
+
 function normalizePrerequisitesSpacing(text: string): string {
   const lines = text.split("\n");
   const headingIndex = lines.findIndex((line) => line.trim() === "## Prerequisites");
@@ -281,6 +320,8 @@ export function validateIntentStageContent(intents: IntentStageFile[]): Result {
     if (!validPrerequisites(content))
       return { ok: false, error: `intent: ${basename(path)} must list prerequisites as one bullet per line` };
   }
+  const uncovered = uncoveredPrerequisite(intents);
+  if (uncovered !== null) return { ok: false, error: uncovered };
   return { ok: true, intents };
 }
 

@@ -141,7 +141,7 @@ describe("intent split landing-contract pre-completion gate", () => {
             repromptPrompt = prompt;
             writeFileSync(
               join(stage, "bad-intent.md"),
-              "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\n- prior behavior exists\n",
+              "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\n- prior behavior exists (already true: shipped)\n",
               "utf8",
             );
             return { kind: "ok", stdout: "done", stderr: "" };
@@ -215,6 +215,45 @@ Still prose after every attempt.
       message: expect.stringContaining("must list prerequisites as one bullet per line"),
     });
     // Mutation checkpoint: inverting the budget-exhaustion landing_failed branch to contract_miss or blocked must turn this test RED.
+  });
+
+  test("intent split naming a prerequisite no sibling intent delivers settles landing_failed, not complete", async () => {
+    // #3439: client-surface intents list an undelivered service surface as a prerequisite.
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const branchName = `intent-landing-uncovered-prereq-${Date.now()}`;
+    const clientIntent =
+      "---\nname: client-history\n---\n\n# Client History\n\n## Prerequisites\n\n- service stores a completion record per skip\n";
+
+    const result = await runIntentSplitLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      maxIterations: 2,
+      logSink: sink,
+      bindings: [
+        {
+          id: "split",
+          metadata: { agent: "test-agent", model: "test" },
+          invoke: async ({ cwd }) => {
+            const stage = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stage, { recursive: true });
+            writeFileSync(join(stage, "client-history.md"), clientIntent, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("landing_failed");
+    const runEvents = sink.getEventsForRun(result.runId);
+    expect(runEvents.find((event) => event.kind === "landing_contract_reprompt")).toMatchObject({
+      offendingFile: "client-history.md",
+    });
+    expect(runEvents.find((event) => event.kind === "loop_finished")).toMatchObject({
+      loopOutcomeKind: "landing_failed",
+      message: expect.stringContaining("is delivered by no other intent in this split"),
+    });
   });
 
   test("rogue path outside stage settles landing_failed without reprompt and names its cause", async () => {
@@ -332,7 +371,7 @@ name: good-intent
 
 ## Prerequisites
 
-- prior behavior exists
+- prior behavior exists (already true: shipped)
 `;
 
     const result = await runIntentSplitLoop({
@@ -354,7 +393,7 @@ name: good-intent
             } else {
               writeFileSync(
                 join(stage, "bad-intent.md"),
-                "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\n- prior behavior exists\n",
+                "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\n- prior behavior exists (already true: shipped)\n",
                 "utf8",
               );
             }
@@ -384,7 +423,7 @@ name: bad-intent
 
 ## Prerequisites
 
-- operator fixed this by hand
+- operator fixed this by hand (already true: shipped)
 `;
     let sawHandEdit = false;
     const store = openStateStore(stateDbPath);

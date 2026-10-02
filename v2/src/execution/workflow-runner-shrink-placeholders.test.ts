@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createStep } from "./workflow-runner.test-support.ts";
-import { shrinkPromptPlaceholders, type WriteWorkflowStep } from "./workflow-runner.ts";
+import { ShrinkSpecTreeContractError, shrinkPromptPlaceholders, type WriteWorkflowStep } from "./workflow-runner.ts";
 
 function initForkedLaneAtMergeBase(): { worktreePath: string } {
   const worktreePath = trackedMkdtempSync(join(tmpdir(), "shrink-merge-base-"));
@@ -88,5 +88,48 @@ describe("shrinkPromptPlaceholders", () => {
     const placeholders = await shrinkPromptPlaceholders(laneShrinkStep(worktreePath), runner);
 
     expect(placeholders.ALLOWLIST).toContain("w.txt");
+  });
+
+  test("a root-level spec file renders alone instead of walking the repository", async () => {
+    const { worktreePath } = initForkedLaneAtMergeBase();
+    writeFileSync(join(worktreePath, ".jarvis-review-feedback-response.md"), "- t1: addressed\n");
+    writeFileSync(join(worktreePath, "README.md"), "REPO-CONTENT-MARKER\n");
+    const step = laneShrinkStep(worktreePath);
+    step.specPath = ".jarvis-review-feedback-response.md";
+
+    const placeholders = await shrinkPromptPlaceholders(step);
+
+    expect(placeholders.SPEC_TREE).toBe("## .jarvis-review-feedback-response.md\n\n- t1: addressed\n");
+  });
+
+  test("a repository-root spec directory rejects with a named contract error", async () => {
+    const { worktreePath } = initForkedLaneAtMergeBase();
+    const step = laneShrinkStep(worktreePath);
+    step.specPath = ".";
+
+    await expect(shrinkPromptPlaceholders(step)).rejects.toBeInstanceOf(ShrinkSpecTreeContractError);
+  });
+
+  test("a missing root-level spec file renders an empty tree, not the repository", async () => {
+    const { worktreePath } = initForkedLaneAtMergeBase();
+    writeFileSync(join(worktreePath, "README.md"), "REPO-CONTENT-MARKER\n");
+    const step = laneShrinkStep(worktreePath);
+    step.specPath = "absent.md";
+
+    const placeholders = await shrinkPromptPlaceholders(step);
+
+    expect(placeholders.SPEC_TREE).toBe("(empty spec tree)");
+  });
+
+  test("a spec directory path renders only that tree", async () => {
+    const { worktreePath } = initForkedLaneAtMergeBase();
+    writeFileSync(join(worktreePath, "README.md"), "REPO-CONTENT-MARKER\n");
+    const step = laneShrinkStep(worktreePath);
+    step.specPath = "v2/spec/test";
+
+    const placeholders = await shrinkPromptPlaceholders(step);
+
+    expect(placeholders.SPEC_TREE).toContain("# spec");
+    expect(placeholders.SPEC_TREE).not.toContain("REPO-CONTENT-MARKER");
   });
 });

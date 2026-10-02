@@ -2,11 +2,9 @@
 
 Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 11 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
-## Immediate reliability: seed (1)
+## Immediate reliability: seeds (0)
 
-| Item | Next action | Remaining work and evidence |
-| --- | --- | --- |
-| [Review-feedback shrink uses lane spec](./seeds/review-feedback-shrink-uses-lane-spec.md) | Intent | Shrink gets the response sidecar as spec, inlines the repo, dies in ~10 s; 3/3 rounds 2026-10-02; fix stays unpushed. |
+None — all immediate workstreams merged.
 
 ## Follow-on workflow quality: seed (1)
 

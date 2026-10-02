@@ -7,6 +7,7 @@ import type { IpcClient } from "../ipc/client.ts";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, startDaemonRuntime } from "./daemon.ts";
 import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
@@ -152,3 +153,51 @@ for (const mode of [
     }
   });
 }
+
+test("force kill routes an active older-peer owner through the normal abort path", async () => {
+  const root = trackedMkdtempSync(join(tmpdir(), "jarvis-force-owner-active-"));
+  const path = join(root, "state.sqlite");
+  const ownerStore = openStateStore(path, { currentIdentity: "owner", isOwnerAlive: async () => true });
+  const ownerExecutor = createFakeWriteLoopExecutor();
+  const owner = createRunControlHandlers({
+    stateStore: ownerStore,
+    writeLoopExecutor: ownerExecutor.executor,
+    failureReporter: () => undefined,
+    hasMemoryHeadroom: () => true,
+  });
+  const successorStore = openStateStore(path, { currentIdentity: "successor", isOwnerAlive: async () => true });
+  const successor = createRunControlHandlers({
+    stateStore: successorStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => undefined,
+  });
+  try {
+    const runId = await startRunDirect(owner);
+    if (runId === undefined) throw new Error("run not started");
+    owner.setRetiring();
+    expect(owner.hasActiveRuns()).toBe(true);
+    const routed = createStableRunHandlers(
+      { wait: successor.wait, pause: successor.pause, kill: successor.kill },
+      {
+        discoverPeerSocketPaths: () => ["/fake/owner.sock"],
+        ownsRunLocally: () => false,
+        resolvePredecessorOwner: async () => false,
+        connectOwnerClient: async () => handlerClient(owner.kill),
+      },
+    );
+    const response = await routed.kill(
+      { kind: "request", id: "kill", method: "kill", params: { runId, force: true } },
+      new AbortController().signal,
+    );
+    expect(response).toMatchObject({ kind: "response", result: { outcome: "force-settled", status: "killed" } });
+    expect(ownerExecutor.isAbortSignalTriggered()).toBe(true);
+  } finally {
+    ownerExecutor.abortAll();
+    await flushBackgroundRuns();
+    owner.close();
+    successor.close();
+    ownerStore.close();
+    successorStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

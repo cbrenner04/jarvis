@@ -34,6 +34,7 @@ import {
   resolveImporterScanRoots,
   resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
+  SCOPED_BUN_PER_TEST_TIMEOUT_MS,
   sharedRunMustQueue,
   VerifierTestRunSemaphore,
   verifyDiffDerivedMutations,
@@ -1326,14 +1327,20 @@ index 1234567..abcdefg 100644
     function verifyTimeout(
       runScopedTests: (cwd: string, scope: readonly string[], options?: RunScopedTestsOptions) => Promise<boolean>,
       writeFile: (path: string, content: string) => Promise<void> = async () => {},
-      extra: { now?: () => number; listDir?: () => string[] } = {},
+      extra: {
+        now?: () => number;
+        listDir?: () => string[];
+        readFile?: (path: string) => Promise<string>;
+      } = {},
     ) {
+      const readFile =
+        extra.readFile ?? (async (path: string) => (path.endsWith(".test.ts") ? "export {};\n" : source));
       return verifyDiffDerivedMutations(
         { worktreePath: "/test/path", runBase: "main" },
         {
           gitDiff: async () => diff,
           untrackedFiles: async () => [],
-          readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+          readFile,
           writeFile,
           listDir: extra.listDir ?? (() => []),
           runScopedTests,
@@ -1388,6 +1395,118 @@ index 1234567..abcdefg 100644
         { now: clock.now },
       );
       expect(result).toMatchObject({ kind: "non-terminating-mutation", sourceSite: { file: "src/hangs.ts", line: 2 } });
+    });
+
+    it("a top-level-await killing file still settles non-terminating-mutation at subprocess floor", async () => {
+      const tlaKillingTest = "await new Promise<never>(() => {});\nexport {};\n";
+      const simulateScopedBunOutcome = (testSource: string, args: string[]): never => {
+        const hasBunPerTestTimeout = args.includes("--timeout");
+        if (/\bit\s*\(/.test(testSource) && hasBunPerTestTimeout) {
+          throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+        }
+        throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+      };
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => {
+            if (path.endsWith("hangs.test.ts")) return tlaKillingTest;
+            return path.endsWith(".test.ts") ? "export {};\n" : source;
+          },
+          writeFile: async () => {},
+          listDir: () => [],
+          runScopedTests: (cwd, scope, options) =>
+            runDiffDerivedScopedTests(
+              cwd,
+              scope,
+              {
+                runAsync: async (_command, args, _cwd, runOptions) => {
+                  if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
+                  expect(args).toEqual(expect.arrayContaining(["--timeout", String(SCOPED_BUN_PER_TEST_TIMEOUT_MS)]));
+                  expect(runOptions?.timeoutMs).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
+                  return simulateScopedBunOutcome(tlaKillingTest, args);
+                },
+              },
+              options,
+            ),
+        },
+      );
+      expect(result).toMatchObject({ kind: "non-terminating-mutation", sourceSite: { file: "src/hangs.ts", line: 2 } });
+      expect(() =>
+        simulateScopedBunOutcome(tlaKillingTest, ["test", "--timeout", "25000", "src/hangs.test.ts"]),
+      ).toThrow(expect.objectContaining({ code: "ETIMEDOUT" }));
+    });
+
+    it("treats a hung in-test killing file as killed when scoped bun per-test timeout is below the subprocess floor", async () => {
+      const hungTest = `import { hangs } from "./hangs";
+it("detects mutant hang", async () => { await new Promise(() => {}); });
+`;
+      const simulateScopedBunOutcome = (testSource: string, args: string[]): never => {
+        const hasBunPerTestTimeout = args.includes("--timeout");
+        if (/\bit\s*\(/.test(testSource) && hasBunPerTestTimeout) {
+          throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+        }
+        throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+      };
+      const sharedDeps = {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path: string) => {
+          if (path.endsWith("hangs.test.ts")) return hungTest;
+          return path.endsWith(".test.ts") ? "export {};\n" : source;
+        },
+        writeFile: async () => {},
+        listDir: () => [],
+      };
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          ...sharedDeps,
+          runScopedTests: (cwd, scope, options) =>
+            runDiffDerivedScopedTests(
+              cwd,
+              scope,
+              {
+                runAsync: async (_command, args, _cwd, runOptions) => {
+                  if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
+                  expect(args).toEqual(expect.arrayContaining(["--timeout", String(SCOPED_BUN_PER_TEST_TIMEOUT_MS)]));
+                  expect(runOptions?.timeoutMs).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
+                  return simulateScopedBunOutcome(hungTest, args);
+                },
+              },
+              options,
+            ),
+        },
+      );
+      expect(result.kind).toBe("pass");
+
+      const preFixRace = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          ...sharedDeps,
+          runScopedTests: async (_cwd, scope, options) => {
+            if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return true;
+            const testPath = scope[0];
+            if (testPath === undefined) return true;
+            const argv = ["test", testPath];
+            try {
+              expect(argv).toEqual(["test", "src/hangs.test.ts"]);
+              expect(options?.timeoutMs).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
+              simulateScopedBunOutcome(hungTest, argv);
+              return true;
+            } catch (error) {
+              if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") throw error;
+              return false;
+            }
+          },
+        },
+      );
+      expect(preFixRace).toMatchObject({
+        kind: "non-terminating-mutation",
+        sourceSite: { file: "src/hangs.ts", line: 2 },
+      });
     });
 
     it("the per-candidate bound scales with the whole resolved killing set and is clamped", async () => {
@@ -1477,7 +1596,7 @@ index 1234567..abcdefg 100644
     it("returns caught when a sibling scoped test fails before a parallel timeout", async () => {
       const result = await runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
         runAsync: async (_command, args) => {
-          if (args[1] === "src/hangs.test.ts") {
+          if (args.at(-1) === "src/hangs.test.ts") {
             throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
           }
           throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
@@ -1492,7 +1611,7 @@ index 1234567..abcdefg 100644
       const startedAt = Date.now();
       const result = await runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
         runAsync: async (_command, args, _cwd, options) => {
-          if (args[1] === "src/hangs.test.ts") {
+          if (args.at(-1) === "src/hangs.test.ts") {
             await new Promise<void>((resolve) => {
               const onAbort = () => {
                 options?.signal?.removeEventListener("abort", onAbort);
@@ -1523,11 +1642,12 @@ index 1234567..abcdefg 100644
         scope,
         {
           runAsync: async (_command, args, _cwd, options) => {
-            started.push(args[1] ?? "");
-            if (args[1] === "src/a.test.ts") {
+            const path = args.at(-1) ?? "";
+            started.push(path);
+            if (path === "src/a.test.ts") {
               throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
             }
-            if (args[1] === "src/b.test.ts") {
+            if (path === "src/b.test.ts") {
               await new Promise<void>((resolve) => {
                 const onAbort = () => {
                   options?.signal?.removeEventListener("abort", onAbort);
@@ -1556,8 +1676,9 @@ index 1234567..abcdefg 100644
       const scope = ["src/a.test.ts", "src/b.test.ts", "src/c.test.ts", "src/d.test.ts", "src/queued.test.ts"];
       const result = await runDiffDerivedScopedTests("/test/path", scope, {
         runAsync: async (_command, args, _cwd, options) => {
-          started.push(args[1] ?? "");
-          if (args[1] === "src/a.test.ts") throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+          const path = args.at(-1) ?? "";
+          started.push(path);
+          if (path === "src/a.test.ts") throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
           await new Promise<void>((resolve) => {
             if (options?.signal?.aborted) resolve();
             else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
@@ -1579,7 +1700,7 @@ index 1234567..abcdefg 100644
             {
               runAsync: async (_command, args, _cwd, runOptions) => {
                 if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return "";
-                const path = args[1] ?? "";
+                const path = args.at(-1) ?? "";
                 if (path.endsWith("hangs-extra.test.ts")) {
                   await new Promise<void>((resolve) => {
                     const onAbort = () => {
@@ -1623,7 +1744,7 @@ index 1234567..abcdefg 100644
           runScopedTests: (cwd, scope) =>
             runDiffDerivedScopedTests(cwd, scope, {
               runAsync: async (_command, args) => {
-                if (args[1] === "src/hangs-extra.test.ts") {
+                if (args.at(-1) === "src/hangs-extra.test.ts") {
                   throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
                 }
                 throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);

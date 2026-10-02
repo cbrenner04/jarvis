@@ -19,9 +19,11 @@ const ADDRESSED_LINE = /^- (.+): addressed\s*$/;
 const DECLINED_LINE = /^- (.+): declined:/;
 
 function listCapturedReviewFeedbackItemIds(artifact: PrReviewInputCaptureArtifact): string[] {
+  const reviewBodies = artifact.reviewBodies ?? [];
   return [
     ...artifact.threads.map((thread) => thread.threadId),
     ...artifact.topLevelComments.map((comment) => comment.commentId),
+    ...reviewBodies.map((review) => review.reviewId),
   ];
 }
 
@@ -78,7 +80,11 @@ function isCaptureArtifactShape(value: unknown): value is PrReviewInputCaptureAr
     return false;
   }
   const record = value as Record<string, unknown>;
-  return Array.isArray(record.threads) && Array.isArray(record.topLevelComments);
+  if (!Array.isArray(record.threads) || !Array.isArray(record.topLevelComments)) {
+    return false;
+  }
+  const reviewBodies = record.reviewBodies;
+  return reviewBodies === undefined || Array.isArray(reviewBodies);
 }
 
 function tryReadCaptureArtifact(laneWorktreePath: string): PrReviewInputCaptureArtifact | null {

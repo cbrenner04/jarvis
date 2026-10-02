@@ -215,6 +215,56 @@ describe("refreshPrReviewInputCapture", () => {
     });
   });
 
+  test("captures a submitted review body when there are no threads or top-level comments", async () => {
+    const reviewId = "PRR_review_body_only";
+    const laneWorktreePath = trackedMkdtempSync("pr-review-input-capture-review-body-only-");
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
+        if (args[0] === "repo" && args[1] === "view") return `${FIXTURE.owner}/${FIXTURE.repo}\n`;
+        if (args[0] === "api" && args[1] === "graphql") {
+          return JSON.stringify({
+            data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
+          });
+        }
+        if (args[0] === "pr" && args[1] === "view" && args.includes("reviews,comments")) {
+          return JSON.stringify({
+            reviews: [
+              {
+                id: reviewId,
+                author: { login: "reviewer-body" },
+                body: "findings in review body",
+                submittedAt: "2026-05-10T00:00:00Z",
+                state: "COMMENTED",
+              },
+            ],
+            comments: [],
+          });
+        }
+        throw new Error(`unexpected gh invocation: ${args.join(" ")}`);
+      },
+    };
+    try {
+      await refreshPrReviewInputCapture({ laneWorktreePath, prNumber: FIXTURE.prNumber, runner });
+      const artifact = JSON.parse(
+        readFileSync(resolvePrReviewInputArtifactPath(laneWorktreePath), "utf8"),
+      ) as PrReviewInputCaptureArtifact;
+      expect(artifact.threads).toEqual([]);
+      expect(artifact.topLevelComments).toEqual([]);
+      expect(artifact.reviewBodies).toEqual([
+        {
+          reviewId,
+          author: "reviewer-body",
+          body: "findings in review body",
+          submittedAt: "2026-05-10T00:00:00Z",
+          state: "COMMENTED",
+        },
+      ]);
+    } finally {
+      rmSync(laneWorktreePath, { recursive: true, force: true });
+    }
+  });
+
   test("bot comments and pre-review top-level comments are dropped", async () => {
     await withFixtureArtifact((artifact) => {
       const active = artifact.threads.find((thread) => thread.threadId === FIXTURE.threadActive);
@@ -410,7 +460,13 @@ describe("refreshPrReviewInputCapture edge cases", () => {
 });
 
 describe("writePrReviewInputArtifactAtomically", () => {
-  const artifact: PrReviewInputCaptureArtifact = { captureVersion: 1, prNumber: 1, threads: [], topLevelComments: [] };
+  const artifact: PrReviewInputCaptureArtifact = {
+    captureVersion: 1,
+    prNumber: 1,
+    threads: [],
+    topLevelComments: [],
+    reviewBodies: [],
+  };
 
   test("writes a sibling temp file then renames it onto the target", () => {
     const dir = trackedMkdtempSync("pr-review-input-atomic-");

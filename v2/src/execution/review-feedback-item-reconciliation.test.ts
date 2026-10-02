@@ -18,6 +18,7 @@ function sampleCapture(): PrReviewInputCaptureArtifact {
       { threadId: "thread-b", outdated: false, comments: [] },
     ],
     topLevelComments: [{ commentId: "comment-c", author: "bot", body: "n", createdAt: "2020-01-01T00:00:00Z" }],
+    reviewBodies: [],
   };
 }
 

@@ -14,8 +14,8 @@ Confirm (and extend tests if needed) that `signalRecordedVerifierProcessGroups` 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts`: a run row carrying a recorded agent group from a dead daemon is signalled at startup sweep; fails against pre-fix when agent groups are never recorded.
-- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts`: a run row carrying a recorded agent group from a dead daemon is signalled at startup sweep; fails against pre-fix when agent groups are never recorded.
+- [x] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

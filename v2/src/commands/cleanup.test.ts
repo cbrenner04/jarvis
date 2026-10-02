@@ -548,6 +548,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ),
     ).toBe(0);
     expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).toContain(`ready-intents/${specName}.md — consuming spec already staged on cleanup branch`);
+    expect(stdout).not.toContain("Pruned consumed ready-intent");
   });
 
   function ghRunnerForCleanupPrProbe(

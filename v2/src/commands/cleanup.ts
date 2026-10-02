@@ -1902,17 +1902,32 @@ async function discoverInRepoReadyIntentQueueArtifacts(
 }
 
 /** Queue entries are never spec trees: decide them here so no completeness or branch check runs. */
-function inspectQueueEntry(
+async function inspectQueueEntry(
   artifact: DiscoveredStrandedArtifact,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
   skips: ArtifactSkipLedger,
-): StrandedArtifact | undefined {
+  sessions?: ArchivePublicationSessions,
+): Promise<StrandedArtifact | undefined> {
   if (artifact.queue === "seed") {
     skips.skip(artifact.source, "pending seed: consumed by intent admission, not cleanup");
     return undefined;
   }
   if (!QUEUE_DIR_NAMES.includes(basename(artifact.home))) {
-    if (artifact.inRepoReadyIntentConsumer === undefined) {
+    const consumer = artifact.inRepoReadyIntentConsumer;
+    if (consumer === undefined) {
       skips.skip(artifact.source, "unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
+      return undefined;
+    }
+    // A consumer archive staged on an unmerged cleanup branch already pruned this entry there.
+    const relDest = relative(projectRoot, join(consumer.home, "completed", basename(consumer.source)));
+    const staged = await cleanupBranchCarryingArchive(runner, projectRoot, relDest);
+    if (staged !== undefined) {
+      sessions?.recordStagedArchiveBranch(artifact.project, staged, projectRoot);
+      skips.skip(
+        artifact.source,
+        `consuming spec already staged on cleanup branch ${staged}; push it and open the archive PR`,
+      );
       return undefined;
     }
     return { ...artifact, branch: "" };
@@ -2138,7 +2153,7 @@ export async function inspectStrandedArtifacts(
     if (projectRoot === undefined) continue;
     const inspected =
       artifact.queue !== undefined
-        ? inspectQueueEntry(artifact, skips)
+        ? await inspectQueueEntry(artifact, projectRoot, runner, skips, sessions)
         : await inspectSpecArtifact(
             artifact,
             projectRoot,

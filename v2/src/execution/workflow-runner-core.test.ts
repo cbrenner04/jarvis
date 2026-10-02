@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { resolveRunResumeAdmission } from "../daemon/daemon-run-resume-admission.ts";
+import { findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { landPublication } from "./publication-landing.ts";
@@ -1400,6 +1403,47 @@ describe("executeWorkflow", () => {
         failedContractId: "artifact.exists",
         responseText: `${shrinkStdout}\ndone`,
       });
+    });
+  });
+
+  test("post-commit shrink invocation_failure error is resumable", async () => {
+    const branchName = "post-commit-shrink-invocation-error-resumable";
+    const { step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) return { kind: "error", exitCode: 1, stderr: "shrink invocation error" };
+      writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun).not.toBeNull();
+      expect(shrinkRun?.status).toBe("paused");
+      const shrinkRunId = shrinkRun?.id;
+      expect(shrinkRunId).toBeDefined();
+      if (shrinkRunId === undefined) {
+        throw new Error("expected shrink run id");
+      }
+      const logRecords = logSink.tail(shrinkRunId);
+      const terminal = findTerminalLogRecord(logRecords);
+      expect(terminal?.event).toMatchObject({ loopOutcomeKind: "invocation_failure", resumable: true });
+      const loaded = store.loadRun(shrinkRunId);
+      expect(loaded).toBeDefined();
+      if (!loaded) {
+        throw new Error("expected shrink run");
+      }
+      const admission = resolveRunResumeAdmission(loaded, terminal, logRecords, {
+        store,
+        reconstructWriteResume: () => ({ ok: true, input: mockWriteLoopInput() }),
+      });
+      expect(admission).toEqual({ admitted: true });
     });
   });
 

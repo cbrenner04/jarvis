@@ -538,6 +538,13 @@ function composeRunOperatorErrorFromState(
   const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;
   if (run.terminalCause != null) {
     if (run.terminalCause === "invocation_failure") {
+      if (
+        run.terminalFailureDetail?.failureKind === "error" &&
+        loopFinishedEvent?.loopOutcomeKind === "invocation_failure" &&
+        loopFinishedEvent.resumable
+      ) {
+        return op("invocation_error", "resume", true);
+      }
       return mapInvocationFailureDetail(run.terminalFailureDetail, true);
     }
     if (loopFinishedEvent?.loopOutcomeKind === run.terminalCause) {

@@ -403,7 +403,7 @@ function settlePostCommitShrinkForResume(
   shrinkResult: WriteLoopResult,
 ): WriteLoopResult {
   store.setRunStatus(shrinkResult.runId, "paused");
-  if (shrinkResult.kind === "contract_miss" || shrinkResult.kind === "blocked") {
+  if (isPostCommitShrinkResumableOutcome(shrinkResult)) {
     logSink?.append(shrinkResult.runId, {
       kind: "loop_finished",
       loopOutcomeKind: shrinkResult.kind,

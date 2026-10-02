@@ -77,6 +77,14 @@ describe("write prompt", () => {
     expect(body).not.toMatch(/\bbun\b|test:integration/);
   });
 
+  test("implement.rules states the per-iteration gate budget up front", () => {
+    const body = loadPromptRegistry().getById("implement.rules").body;
+
+    expect(body).toContain("Gate budget: at most two scoped test-suite script invocations per iteration");
+    expect(body).toContain("While iterating, run single test files");
+    expect(body.indexOf("Gate budget:")).toBeLessThan(body.indexOf("## Scope"));
+  });
+
   test("implement.prompt.body includes no-hard-wrap after global.terse", () => {
     const rendered = renderStepPrompt("implement.prompt.body", {
       SPEC_PATH: "spec/example/index.md",

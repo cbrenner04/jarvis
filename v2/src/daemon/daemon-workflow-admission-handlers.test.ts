@@ -941,7 +941,6 @@ for (const outcome of ["complete", "blocked", "throw", "kill"] as const) {
 
 function seedInvocationSiblingRows(
   invocationId: string,
-  entryStatus: "completed",
   siblingStatus: "in-progress" | "paused" | "completed",
 ): { entryRunId: string; siblingRunId: string } {
   const snapshot: WorkflowSnapshot = {
@@ -960,7 +959,7 @@ function seedInvocationSiblingRows(
     stepId: "plan",
     workflowSnapshot: snapshot,
   });
-  stateStore.setRunStatus(entryRunId, entryStatus);
+  stateStore.setRunStatus(entryRunId, "completed");
   const siblingRunId = stateStore.createRun({
     project: "demo",
     specRef: "HEAD",
@@ -975,14 +974,10 @@ function seedInvocationSiblingRows(
 }
 
 test.each([
-  ["in-progress", "active"],
-  ["paused", "paused"],
+  "in-progress",
+  "paused",
 ] as const)("workflow invocation settled marker: suppressed while a %s sibling row remains", (siblingStatus) => {
-  const { entryRunId, siblingRunId } = seedInvocationSiblingRows(
-    `inv-marker-${siblingStatus}`,
-    "completed",
-    siblingStatus,
-  );
+  const { entryRunId, siblingRunId } = seedInvocationSiblingRows(`inv-marker-${siblingStatus}`, siblingStatus);
   const writeMarker = (cause: "completed" | "failed" | "killed") => {
     if (!invocationDurableRowsAllTerminal(stateStore, entryRunId)) return;
     stateStore.writeWorkflowInvocationSettledMarker(entryRunId, cause, Date.now());

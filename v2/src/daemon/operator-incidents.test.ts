@@ -695,23 +695,23 @@ test("a completed review row with a running publication row and no marker derive
   expect(deriveOperatorIncidents(store)).toEqual([]);
 });
 
-test("a false settled marker does not emit run-ad-hoc-terminal while an in-progress sibling row remains", () => {
+test.each([
+  "in-progress",
+  "paused",
+] as const)("a false settled marker does not emit run-ad-hoc-terminal while a %s sibling row remains", (siblingStatus) => {
   const entryRunId = seedInvocationRow("plan", "completed");
-  seedInvocationRow("review", "in-progress");
+  const reviewRunId = seedInvocationRow("review", siblingStatus === "paused" ? "completed" : "in-progress");
+  if (siblingStatus === "paused") store.setRunStatus(reviewRunId, "paused");
   store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", Date.now());
-  expect(deriveOperatorIncidents(store)).toEqual([]);
-});
-
-test("a false settled marker does not emit run-ad-hoc-terminal while a paused sibling row remains", () => {
-  const entryRunId = seedInvocationRow("plan", "completed");
-  const reviewRunId = seedInvocationRow("review", "completed");
-  store.setRunStatus(reviewRunId, "paused");
-  store.writeWorkflowInvocationSettledMarker(entryRunId, "completed", Date.now());
-  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "run-paused", runId: reviewRunId })]);
-  store.setRunStatus(reviewRunId, "completed");
-  expect(deriveOperatorIncidents(store)).toEqual([
-    expect.objectContaining({ runId: entryRunId, cause: "completed", kind: "run-ad-hoc-terminal" }),
-  ]);
+  const incidents = deriveOperatorIncidents(store);
+  expect(incidents.some((incident) => incident.kind === "run-ad-hoc-terminal")).toBe(false);
+  if (siblingStatus === "paused") {
+    expect(incidents).toEqual([expect.objectContaining({ kind: "run-paused", runId: reviewRunId })]);
+    store.setRunStatus(reviewRunId, "completed");
+    expect(deriveOperatorIncidents(store)).toEqual([
+      expect.objectContaining({ runId: entryRunId, cause: "completed", kind: "run-ad-hoc-terminal" }),
+    ]);
+  }
 });
 
 test("a second row settling after a sweep does not re-fire the delivered marker cause", () => {

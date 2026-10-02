@@ -67,7 +67,6 @@ export function resolveInvocationEntryRunId(store: StateStore, runId: string): s
   return (rows.find((row) => row.stepId === entryStepId) ?? rows[0])?.id ?? runId;
 }
 
-/** True when every durable row of `entryRunId`'s invocation has a terminal status. */
 export function invocationDurableRowsAllTerminal(store: StateStore, entryRunId: string): boolean {
   const entryRun = store.loadRun(entryRunId);
   const invocationId = entryRun?.workflowSnapshot?.invocationId;

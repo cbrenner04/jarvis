@@ -475,45 +475,29 @@ describe("invocationDurableRowsAllTerminal", () => {
     expect(invocationDurableRowsAllTerminal(store, entryRunId)).toBe(true);
   });
 
-  test("returns false while any invocation row stays non-terminal", () => {
-    const snapshot = implementSnapshot("inv-live-sibling");
+  test.each(["in-progress", "paused"] as const)("returns false while a sibling row is %s", (siblingStatus) => {
+    const snapshot = implementSnapshot(`inv-live-${siblingStatus}`);
     const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
-    seedRun(store, { status: "in-progress", stepId: "implement~shrink", workflowSnapshot: snapshot });
-    expect(invocationDurableRowsAllTerminal(store, entryRunId)).toBe(false);
-  });
-
-  test("invocationDurableRowsAllTerminal guard inversion", () => {
-    const snapshot = implementSnapshot("inv-guard-invert");
-    const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
-    seedRun(store, { status: "paused", stepId: "implement~shrink", workflowSnapshot: snapshot });
+    seedRun(store, { status: siblingStatus, stepId: "implement~shrink", workflowSnapshot: snapshot });
     const rows = store.findRunsByInvocationId(snapshot.invocationId);
-    const wrongGuard = rows.some((row) => isTerminalRunStatus(row.status));
+    const anyTerminalRow = rows.some((row) => isTerminalRunStatus(row.status));
     expect(invocationDurableRowsAllTerminal(store, entryRunId)).toBe(false);
-    expect(invocationDurableRowsAllTerminal(store, entryRunId)).not.toBe(wrongGuard);
+    if (siblingStatus === "paused")
+      expect(invocationDurableRowsAllTerminal(store, entryRunId)).not.toBe(anyTerminalRow);
   });
 
-  test("when invocation lookup returns no rows, a loaded terminal entry run counts as all-terminal", () => {
-    const snapshot = implementSnapshot("inv-empty-lookup");
-    const entryRunId = seedRun(store, { status: "completed", stepId: "implement", workflowSnapshot: snapshot });
-    const storeWithEmptyInvocationLookup = new Proxy(store, {
+  test.each([
+    ["completed", true],
+    ["in-progress", false],
+  ] as const)("empty invocation lookup falls back to entry row terminality", (status, expected) => {
+    const snapshot = implementSnapshot(`inv-empty-${status}`);
+    const entryRunId = seedRun(store, { status, stepId: "implement", workflowSnapshot: snapshot });
+    const emptyLookup = new Proxy(store, {
       get(target, property, receiver) {
         if (property === "findRunsByInvocationId") return () => [];
         return Reflect.get(target, property, receiver);
       },
     });
-    expect(store.loadRun(entryRunId)).not.toBeNull();
-    expect(invocationDurableRowsAllTerminal(storeWithEmptyInvocationLookup, entryRunId)).toBe(true);
-  });
-
-  test("when invocation lookup returns no rows, a loaded non-terminal entry run is not all-terminal", () => {
-    const snapshot = implementSnapshot("inv-empty-lookup-live");
-    const entryRunId = seedRun(store, { status: "in-progress", stepId: "implement", workflowSnapshot: snapshot });
-    const storeWithEmptyInvocationLookup = new Proxy(store, {
-      get(target, property, receiver) {
-        if (property === "findRunsByInvocationId") return () => [];
-        return Reflect.get(target, property, receiver);
-      },
-    });
-    expect(invocationDurableRowsAllTerminal(storeWithEmptyInvocationLookup, entryRunId)).toBe(false);
+    expect(invocationDurableRowsAllTerminal(emptyLookup, entryRunId)).toBe(expected);
   });
 });

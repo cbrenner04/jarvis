@@ -1,40 +1,24 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 22 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 12 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
-## Highest priority: active spec (1)
+## Immediate reliability: seed (1)
 
 | Item | Next action | Remaining work and evidence |
 | --- | --- | --- |
-| [Workflow terminal evidence waits for every row](./20261002T061748Z-workflow-terminal-waits-for-all-rows/index.md) | Implement in flight (`0f5274bf`) | The invocation finally path writes a settled marker even while a linked row remains non-terminal, producing a false finished incident. Siblings merged #4429 #4430 #4432. |
+| [Review-feedback shrink uses lane spec](./seeds/review-feedback-shrink-uses-lane-spec.md) | Intent | Shrink gets the response sidecar as spec, inlines the repo, dies in ~10 s; 3/3 rounds 2026-10-02; fix stays unpushed. |
 
-## Immediate reliability: active specs (4), ready-intent (1), seeds (3)
-
-| Item | Next action / dependency | Remaining work and evidence |
-| --- | --- | --- |
-| [Finalization gates share the gate slot](./20261001T193311Z-finalization-ready-gates-share-the-gate-slot/index.md) | Implement in flight (`c6030e65`; lane hand-rebased past #4428) | 00 at 2/3. Concurrent gates false-redded every lane under load; repair then edited unrelated files. |
-| [Ready-repair prompt lists allowed paths](./20261001T193407Z-ready-repair-prompt-allowed-paths/index.md) | After gate-slot | Shares new `write-loop-ready-repair.test.ts` with event-context: serial. |
-| [`ready_gate_repair` logs gate context](./20261001T193416Z-ready-gate-repair-event-gate-context/index.md) | After allowed-paths | Failing step + 4 KiB tail on the event. |
-| [Mutation candidates isolated across files](./seeds/mutation-candidates-isolated-across-files.md) | Intent | Concurrent cross-file mutants contaminate killing sets (false non-terminating on `ready-finalize.ts:1470`, 2026-10-02 gate-slot lane). |
-| [Shrink failure status matches resume](./seeds/shrink-invocation-failure-status-matches-resume.md) | Intent | Shrink `invocation_failure` settles `paused` but resume refuses → stuck row (run `3dd4be83`, 2026-10-02). |
-| [Hung killing test kills the mutant](./seeds/hung-killing-test-counts-as-killed.md) | Intent | Per-test timeout == kill floor (30 s), so a test hanging under a mutant strands `non_terminating_mutation_failed`; hand-fixed twice on the gate-slot lane 2026-10-02. |
-
-## Follow-on workflow quality: seeds (8)
+## Follow-on workflow quality: seed (1)
 
 | Item | Next action / dependency | Remaining scope |
 | --- | --- | --- |
-| [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Re-scoped 2026-10-02 to cleanup pruning on plan-spec landing (consume-from-source plan rejected, #4448). |
-| [Review-feedback matches linked lanes](./seeds/review-feedback-matches-linked-implement-lanes.md) | Intent | `review-feedback --branch` refused a linked implement lane (PR on review row only); #4440 hand-fixed. |
-| [Review-feedback captures review bodies](./seeds/review-feedback-captures-review-bodies.md) | Intent | Review bodies dropped; `--address-review` on #4459 completed `no-work` in 9 s. |
-| [Review-feedback shrink uses lane spec](./seeds/review-feedback-shrink-uses-lane-spec.md) | Intent | Shrink gets the response sidecar as spec, inlines the repo, dies in ~10 s; 3/3 rounds 2026-10-02; fix stays unpushed. |
 | [Harness-run integration measurements](./seeds/implement-can-run-integration-slice-tests.md) | Intent | Observable harness execution for measurement criteria. |
 
-## Operator features and ergonomics: seeds (2)
+## Operator features and ergonomics: seed (1)
 
 | Item | Next action | Remaining scope |
 | --- | --- | --- |
-| [Cleanup opens the archive PR](./seeds/cleanup-opens-archive-pr.md) | Intent | Two unpushed `cleanup/archive-*` branches stranded 16 specs (hand-fixed #4420). |
-| [Serial chained fan-out](./seeds/pipeline-fan-out-lanes-serial-chained-bases.md) | Intent (per-lane settlement landed #4413 #4417) | Dependent-lane scheduling/base policy. Intent splits produced strict chains 3× this session (gate-slot folded by hand, #4387). |
+| [Serial chained fan-out](./seeds/pipeline-fan-out-lanes-serial-chained-bases.md) | Intent (per-lane settlement landed #4413 #4417) | Dependent-lane scheduling/base policy. Intent splits produced strict chains 4× on 2026-10-02 (approved head lanes only, by hand). |
 
 ## Parked design and cleanup: seeds (6)
 
@@ -59,6 +43,11 @@ Added by the owner in #4419; not part of this reliability target. Do not dispatc
 
 ## Review caveats and follow-ups
 
+- Cleanup archive publication (#4469): the staged-branch adoption seam is unused in production, so a leftover staged branch plus new archives in one run opens two same-titled PRs; only the last staged branch per project publishes per run; a staged branch with no managed worktree fails push every run.
+- Cross-file mutant isolation (#4459): import reachability is static relative imports only (dynamic imports unseen).
+- Review-feedback (#4461 #4473): refuses a non-draft lane PR without harness flip evidence (`review_feedback_pr_not_draft`); pipeline terminal `ready` re-readies a PR the operator drafted for review-feedback.
+- Pipeline terminal publication cannot be re-run after a hand-merge (`pipeline resume` → `no_failed_stage`); the pipeline stays `failed` though its PR merged (01666fae, 133e8d8a).
+- Prerequisite provenance markers (#4480) check split self-consistency only; a false `(already true: …)` passes — the plan-draft prerequisite gate is the backstop.
 - Iteration-head guard (#4479) checks only settled iterations; timeout/abort/gate-budget-refused outcomes still checkpoint a rewritten lane.
 - Lineage guard (#4416) does not fetch `pull/<n>/head`; a foreign closed PR whose head is not in the local object store stays blocked (safe, narrower than intended). No test for non-1 `merge-base` exit.
 - Lane-PR settlement (#4375): closed-PR state is inferred from `prNumber` without `prUrl`; a closed lane still reaches terminal publication and fails "missing PR evidence" rather than "PR closed".

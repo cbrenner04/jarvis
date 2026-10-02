@@ -1,6 +1,6 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 12 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Companion to the [brief](./reliability-brief.md). Inventory: **0 open active spec plans, 1 ready-intent, 11 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
 ## Immediate reliability: seed (1)
 
@@ -14,11 +14,9 @@ Reviewed 2026-10-02 (evening) after the [2026-10-01/02 session](../../reports/20
 | --- | --- | --- |
 | [Harness-run integration measurements](./seeds/implement-can-run-integration-slice-tests.md) | Intent | Observable harness execution for measurement criteria. |
 
-## Operator features and ergonomics: seed (1)
+## Operator features and ergonomics: seeds (0)
 
-| Item | Next action | Remaining scope |
-| --- | --- | --- |
-| [Serial chained fan-out](./seeds/pipeline-fan-out-lanes-serial-chained-bases.md) | Intent (per-lane settlement landed #4413 #4417) | Dependent-lane scheduling/base policy. Intent splits produced strict chains 4× on 2026-10-02 (approved head lanes only, by hand). |
+None. Serial chained fan-out lanes landed by hand.
 
 ## Parked design and cleanup: seeds (6)
 

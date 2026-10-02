@@ -31,6 +31,8 @@ export type ExternalWorktreeInput = {
   projectName: string;
   branchName: string;
   baseRef: string;
+  /** Ref a new branch is created from when it differs from `baseRef` (chained fan-out lanes); `baseRef` stays the publication base. */
+  forkRef?: string;
   jarvisRoot?: string;
   git?: boolean;
   localPath?: string;
@@ -246,7 +248,9 @@ async function ensureExternalWorktree(
         signal,
       });
     } else {
-      await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot, { signal });
+      await runner.runAsync("git", ["branch", args.branchName, args.forkRef ?? args.baseRef], args.projectRoot, {
+        signal,
+      });
       throwIfAborted(signal);
       await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot, { signal });
     }

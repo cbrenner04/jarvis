@@ -45,6 +45,16 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import {
+  buildFanOutLaneChain,
+  type FanOutLaneChain,
+  type LaneChainGate,
+  type LaneProgress,
+  type LaneReadyIntentSource,
+  laneChainGate,
+  laneChainSuccessors,
+  readLaneReadyIntent,
+} from "./pipeline-lane-chain.ts";
+import {
   adoptAndSettlePipelineStage,
   adoptPipelineStageUnderAdmission,
   dispatchPipelineStage,
@@ -110,6 +120,8 @@ export type PipelineExecutionDeps = {
    */
   staleResetPreflight?: { cliDeps: CliDeps; io: Io; connectClient: () => Promise<IpcClient> };
   reopenedStageReset?: ReopenedStageReset;
+  /** Reads one fan-out downstream ready-intent for lane chaining (`independent:` frontmatter); defaults to the intent worktree, then its branch. */
+  readLaneReadyIntent?: (path: string, source: LaneReadyIntentSource) => Promise<string | undefined>;
   attemptFailedImplementPipelineResume?: (
     pipeline: Pipeline & { stages: PipelineStageRecord[] },
     pipelineId: string,
@@ -403,6 +415,7 @@ export async function continuePipeline(
       ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
       ...(reopenedStageReset !== undefined ? { reopenedStageReset } : {}),
       ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
+      ...(deps.readLaneReadyIntent !== undefined ? { readLaneReadyIntent: deps.readLaneReadyIntent } : {}),
     },
     effectiveContinuationBranchKey,
   );
@@ -1245,6 +1258,11 @@ export function applyPipelineApprovalDecision(
       console.error(`Pipeline ${pipelineId} continuation after approval failed:`, err);
     });
   }
+  if (outcome.kind === "applied" && decision === "rejected") {
+    void settleSeveredLanesFromPersistedContext(pipelineId, deps).catch((err: unknown) => {
+      console.error(`Pipeline ${pipelineId} chained-lane settlement after rejection failed:`, err);
+    });
+  }
   return outcome;
 }
 
@@ -2044,6 +2062,140 @@ export function fanOutBranchSuffixTerminallySettled(
   return false;
 }
 
+function fanOutLaneProgress(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  branchKey: string,
+): LaneProgress {
+  let complete = true;
+  let ended = false;
+  for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
+    if (!isAuthoredStageSatisfied(stage, record)) complete = false;
+    // A provisional skip awaits its failed predecessor's reopen; only a terminal skip ends the lane.
+    if (record.status === "failed" || record.status === "rejected") ended = true;
+    if (record.status === "skipped" && record.skipProvenance === "terminal") ended = true;
+  }
+  if (complete) return "complete";
+  return ended ? "dead" : "open";
+}
+
+function fanOutLaneGate(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  chain: FanOutLaneChain,
+  branchKey: string,
+): LaneChainGate {
+  return laneChainGate(chain, branchKey, (lane) => fanOutLaneProgress(pipeline, split, lane));
+}
+
+/** Branch of the predecessor lane's final succeeded workflow stage — the ref a chained lane forks from. */
+function fanOutLaneForkRef(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  predecessor: string,
+): string | undefined {
+  const record = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, predecessor);
+  const entryRunId = narrowPipelineStageArtifact(record?.artifact)?.entryRunId;
+  const branch = entryRunId === undefined ? undefined : store.loadRun(entryRunId)?.branch;
+  return branch === undefined || branch.length === 0 ? undefined : branch;
+}
+
+function withLaneForkRef(steps: AnyWorkflowStep[], forkRef: string | undefined): AnyWorkflowStep[] {
+  if (forkRef === undefined) return steps;
+  return steps.map((step) =>
+    step.behavior === "write" ? ({ ...step, worktree: { ...step.worktree, forkRef } } as AnyWorkflowStep) : step,
+  );
+}
+
+async function loadFanOutLaneChain(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  projectRoot: string,
+  read: PipelineExecutionDeps["readLaneReadyIntent"],
+): Promise<FanOutLaneChain> {
+  const splitRecord = pipeline.stages.find(
+    (record) => record.position === split.splitPosition && record.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+  );
+  const artifact = narrowPipelineStageArtifact(splitRecord?.artifact);
+  const inputs = artifact?.downstreamInputs ?? [];
+  const run = artifact === undefined ? null : store.loadRun(artifact.entryRunId);
+  const source: LaneReadyIntentSource = {
+    worktreePath: run?.worktreePath ?? "",
+    branch: run?.branch ?? "",
+    projectRoot,
+  };
+  const reader = read ?? ((path: string, from: LaneReadyIntentSource) => readLaneReadyIntent(path, from));
+  const contents = await Promise.all(inputs.map((path) => reader(path, source)));
+  return buildFanOutLaneChain(inputs.map(branchKeyFromDownstreamInput), contents);
+}
+
+type ChainedLaneAdmission = { kind: "stop" } | { kind: "dispatch"; forkRef?: string };
+
+/** Hold a lane until its chain predecessor completes, settle it `skipped` once severed, else fork from the predecessor branch. */
+function admitChainedLane(
+  store: StateStore,
+  pipelineId: string,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  chain: FanOutLaneChain,
+  branchKey: string,
+): ChainedLaneAdmission {
+  const gate = fanOutLaneGate(pipeline, split, chain, branchKey);
+  if (gate.kind === "held") return { kind: "stop" };
+  if (gate.kind === "severed") {
+    settleSeveredChainLanes(store, pipelineId, split, chain);
+    return { kind: "stop" };
+  }
+  const forkRef =
+    gate.predecessor === undefined ? undefined : fanOutLaneForkRef(store, pipeline, split, gate.predecessor);
+  return forkRef === undefined ? { kind: "dispatch" } : { kind: "dispatch", forkRef };
+}
+
+/** Terminally skip every open row of a dependent lane whose chain predecessor failed or was rejected. */
+function settleSeveredChainLanes(
+  store: StateStore,
+  pipelineId: string,
+  split: FanOutSplit,
+  chain: FanOutLaneChain,
+): void {
+  for (const lane of chain.dependent) {
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) return;
+    const gate = fanOutLaneGate(pipeline, split, chain, lane);
+    if (gate.kind !== "severed") continue;
+    const failureDetail = buildStageFailureRecord(
+      "chained predecessor lane completes",
+      `predecessor lane "${gate.predecessor}" failed or was rejected; lane "${lane}" chains off it`,
+      false,
+    );
+    for (const { record } of suffixStagesForBranch(pipeline, split.splitPosition, lane)) {
+      if (record.status !== "pending" && record.status !== "awaiting") continue;
+      store.updateStage({
+        pipelineId,
+        stageId: record.stageId,
+        branchKey: lane,
+        patch: { status: "skipped", skipProvenance: "terminal", endedAt: Date.now(), failureDetail },
+        requiredStatus: record.status,
+      });
+    }
+  }
+}
+
+async function settleSeveredLanesFromPersistedContext(
+  pipelineId: string,
+  deps: Omit<PipelineExecutionDeps, "context">,
+): Promise<void> {
+  const pipeline = deps.store.loadPipeline(pipelineId);
+  const split = pipeline ? findFanOutSplit(pipeline) : null;
+  if (!pipeline || split === null || pipeline.context === null) return;
+  const loaded = loadPipelineContext(pipeline.context);
+  if (!loaded.ok) return;
+  const chain = await loadFanOutLaneChain(deps.store, pipeline, split, loaded.context.cwd, deps.readLaneReadyIntent);
+  settleSeveredChainLanes(deps.store, pipelineId, split, chain);
+}
+
 type AdmitFanOutBranchesResult = { ok: true; branchKeys: string[] } | { ok: false; error: string };
 
 function admitFanOutBranches(
@@ -2379,6 +2531,9 @@ type AdvanceWorkflowStageArgs = {
   isEntryRunLive?: PipelineExecutionDeps["isEntryRunLive"];
   staleResetPreflight?: PipelineExecutionDeps["staleResetPreflight"];
   reopenedStageReset?: PipelineExecutionDeps["reopenedStageReset"];
+  readLaneReadyIntent?: PipelineExecutionDeps["readLaneReadyIntent"];
+  /** Fan-out lane chain for this pipeline invocation; absent before the split is admitted. */
+  laneChain?: FanOutLaneChain;
 };
 
 function reopenedStageResetFlags(
@@ -2879,6 +3034,11 @@ async function performFanOutStageResolution(
   }
 
   const pipeline = store.loadPipeline(pipelineId);
+  const admittedSplit = pipeline ? findFanOutSplit(pipeline) : null;
+  const laneChain =
+    pipeline && admittedSplit !== null
+      ? await loadFanOutLaneChain(store, pipeline, admittedSplit, args.context.cwd, args.readLaneReadyIntent)
+      : undefined;
   const currentBranchFailed = await advanceFanOutBranches(args, {
     branchKeys: admission.branchKeys,
     downstreamInputs,
@@ -2886,6 +3046,19 @@ async function performFanOutStageResolution(
     loadedStages: pipeline?.stages ?? [],
     splitPosition,
     results: resolution.results,
+    ...(pipeline && laneChain !== undefined && admittedSplit !== null
+      ? {
+          laneAdmission: (lane: string) =>
+            admitChainedLane(
+              store,
+              pipelineId,
+              store.loadPipeline(pipelineId) ?? pipeline,
+              admittedSplit,
+              laneChain,
+              lane,
+            ),
+        }
+      : {}),
   });
   return currentBranchFailed ? "stop" : "continue";
 }
@@ -2992,6 +3165,7 @@ async function advanceFanOutBranches(
     loadedStages: readonly PipelineStageRecord[];
     splitPosition: number;
     results: readonly FanOutPlanResultEntry[];
+    laneAdmission?: (branchKey: string) => ChainedLaneAdmission;
   },
 ): Promise<boolean> {
   const { stage, branchKey, store, pipelineId, index } = args;
@@ -3045,6 +3219,7 @@ async function advanceFanOutBranches(
           pipeline: opts.pipeline,
           splitPosition: opts.splitPosition,
           steps: branchResult.steps,
+          ...(opts.laneAdmission !== undefined ? { laneAdmission: opts.laneAdmission } : {}),
           ...(branchResult.runStaleResetPreflight !== undefined
             ? { runStaleResetPreflight: branchResult.runStaleResetPreflight }
             : {}),
@@ -3073,11 +3248,12 @@ async function runFanOutBranchAction(
     steps: AnyWorkflowStep[] | undefined;
     runStaleResetPreflight?: StaleResetPreflight;
     preflightCapture?: { message: string };
+    laneAdmission?: (branchKey: string) => ChainedLaneAdmission;
   },
 ): Promise<"acted" | "skip"> {
   const { pipelineId, stage, index, split, store, dispatch, wait, loadLogRecords, isEntryRunLive, dispatchClaims } =
     args;
-  const { targetBranchKey, targetRecord, pipeline, steps } = opts;
+  const { targetBranchKey, targetRecord, pipeline } = opts;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey: targetBranchKey };
   const stageRecords = store.loadPipeline(pipelineId)?.stages ?? [];
 
@@ -3108,7 +3284,10 @@ async function runFanOutBranchAction(
   ) {
     return "skip";
   }
-  if (steps === undefined) return "skip";
+  if (opts.steps === undefined) return "skip";
+  const chainAdmission = opts.laneAdmission?.(targetBranchKey) ?? { kind: "dispatch" };
+  if (chainAdmission.kind === "stop") return "skip";
+  const steps = withLaneForkRef(opts.steps, chainAdmission.forkRef);
   const preflightCapture = opts.preflightCapture ?? { message: "" };
   const blocker = planOperatorBlockerNeedsGitChecks(args, steps, targetBranchKey)
     ? await refuseReopenedPlanOperatorBlockerWithGit(args, steps, preflightCapture, targetBranchKey)
@@ -3317,6 +3496,20 @@ async function runFailedPlanAwareStaleResetPreflight(
  * call. A resolution failure or a dispatched stage settling non-`succeeded` writes `skipped`
  * to every later stage and stops the loop; no dispatch reaches them.
  */
+/**
+ * Chained fan-out lane admission for one branch workflow stage: hold until the chain predecessor
+ * completes, settle the lane `skipped` once it is severed, else fork from the predecessor branch.
+ */
+function admitChainedLaneStage(
+  args: AdvanceWorkflowStageArgs,
+  current: (Pipeline & { stages: PipelineStageRecord[] }) | null,
+): ChainedLaneAdmission {
+  const { split, branchKey, laneChain, store, pipelineId } = args;
+  if (split === null || laneChain === undefined || current === null) return { kind: "dispatch" };
+  if (branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY) return { kind: "dispatch" };
+  return admitChainedLane(store, pipelineId, current, split, laneChain, branchKey);
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear stage-advance orchestration; the intent-stage stale-reset preflight adds one guarded branch and extracting it would fragment the single dispatch flow
 async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<StageStepOutcome> {
   const {
@@ -3362,6 +3555,9 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     if (record?.status === "failed") return "stop";
     if (record?.status === "skipped") return "continue";
 
+    const chainAdmission = admitChainedLaneStage(args, current);
+    if (chainAdmission.kind === "stop") return "stop";
+
     const preflightCapture = { message: "" };
     const resetFlags = reopenedStageResetFlags(args);
     const staleResetForResolve =
@@ -3401,7 +3597,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       return advanceFanOutStageResolution(args, resolution, stageRecords);
     }
 
-    const resolvedSteps = singleStageResolutionSteps(resolution);
+    const resolvedSteps = withLaneForkRef(singleStageResolutionSteps(resolution), chainAdmission.forkRef);
     const blocker = planOperatorBlockerNeedsGitChecks(args, resolvedSteps, branchKey)
       ? await refuseReopenedPlanOperatorBlockerWithGit(args, resolvedSteps, preflightCapture, branchKey)
       : refuseReopenedPlanOperatorBlockerLocal(args, resolvedSteps, preflightCapture, branchKey);
@@ -3540,8 +3736,7 @@ async function runConcurrently<T>(tasks: ReadonlyArray<() => Promise<T>>): Promi
   return settled.map((entry) => (entry as PromiseFulfilledResult<T>).value);
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential authored-stage loop; the intent-stage stale-reset preflight adds one guarded branch and extracting it would fragment the loop body
-async function runAuthoredStages(args: {
+type RunAuthoredStagesArgs = {
   pipelineId: string;
   deps: PipelineExecutionDeps;
   split: FanOutSplit | null;
@@ -3550,8 +3745,32 @@ async function runAuthoredStages(args: {
   toIndex: number;
   dispatchClaims: PipelineDispatchClaims;
   sharedStageArtifacts?: Map<string, PipelineStageArtifact>;
-}): Promise<void> {
-  const { pipelineId, deps, split, branchKey, fromIndex, toIndex, dispatchClaims, sharedStageArtifacts } = args;
+  laneChain?: FanOutLaneChain;
+};
+
+/** Walk one stage range, then — for a fan-out lane — release the chained lanes its settlement unblocks. */
+async function runAuthoredStages(args: RunAuthoredStagesArgs): Promise<void> {
+  await walkAuthoredStages(args);
+  await releaseChainedSuccessorLanes(args);
+}
+
+/** A lane that just settled severs dead-predecessor successors and walks each successor it opened. */
+async function releaseChainedSuccessorLanes(args: RunAuthoredStagesArgs): Promise<void> {
+  const { pipelineId, deps, split, branchKey, laneChain } = args;
+  if (split === null || laneChain === undefined || branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY) return;
+  settleSeveredChainLanes(deps.store, pipelineId, split, laneChain);
+  for (const successor of laneChainSuccessors(laneChain, branchKey)) {
+    const pipeline = deps.store.loadPipeline(pipelineId);
+    if (!pipeline || fanOutLaneGate(pipeline, split, laneChain, successor).kind !== "open") continue;
+    if (fanOutLaneProgress(pipeline, split, successor) !== "open") continue;
+    await runAuthoredStages({ ...args, branchKey: successor });
+  }
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential authored-stage loop; the intent-stage stale-reset preflight adds one guarded branch and extracting it would fragment the loop body
+async function walkAuthoredStages(args: RunAuthoredStagesArgs): Promise<void> {
+  const { pipelineId, deps, split, branchKey, fromIndex, toIndex, dispatchClaims, sharedStageArtifacts, laneChain } =
+    args;
   const { store, dispatch, wait, context } = deps;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
   const peerClaimTimeoutMs = deps.peerClaimTimeoutMs ?? DEFAULT_PEER_CLAIM_TIMEOUT_MS;
@@ -3597,6 +3816,8 @@ async function runAuthoredStages(args: {
             ...(deps.isEntryRunLive !== undefined ? { isEntryRunLive: deps.isEntryRunLive } : {}),
             ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
             ...(deps.reopenedStageReset !== undefined ? { reopenedStageReset: deps.reopenedStageReset } : {}),
+            ...(deps.readLaneReadyIntent !== undefined ? { readLaneReadyIntent: deps.readLaneReadyIntent } : {}),
+            ...(laneChain !== undefined ? { laneChain } : {}),
           });
     if (outcome === "stop") return;
     pipeline.stages = store.loadPipeline(pipelineId)?.stages ?? pipeline.stages;
@@ -3656,9 +3877,18 @@ export async function runPipeline(
         sharedStageArtifacts: stageArtifacts,
       });
     }
-    const activeSplit = findFanOutSplit(store.loadPipeline(pipelineId) ?? pipeline) ?? initialSplit;
+    const activePipeline = store.loadPipeline(pipelineId) ?? pipeline;
+    const activeSplit = findFanOutSplit(activePipeline) ?? initialSplit;
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;
+      const laneChain = await loadFanOutLaneChain(
+        store,
+        activePipeline,
+        activeSplit,
+        loadedContext.context.cwd,
+        deps.readLaneReadyIntent,
+      );
+      settleSeveredChainLanes(store, pipelineId, activeSplit, laneChain);
       const suffixBranchKeys = continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys;
       const suffixDispatchTasks = suffixBranchKeys.map(
         (branchKey) => () =>
@@ -3670,6 +3900,7 @@ export async function runPipeline(
             fromIndex: activeSplit.splitPosition + 1,
             toIndex: lastIndex,
             dispatchClaims,
+            laneChain,
           }),
       );
       await runConcurrently(suffixDispatchTasks);

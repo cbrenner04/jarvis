@@ -3832,7 +3832,7 @@ describe("resumePipeline", () => {
 
       const outcome = await resumePipeline(
         PIPELINE_ID,
-        { store, dispatch, wait, resolveStage },
+        { store, dispatch, wait, resolveStage, readLaneReadyIntent: allLanesIndependent },
         branchKey === undefined ? {} : { branchKey },
       );
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
@@ -5066,7 +5066,13 @@ describe("resumePipeline branch scope", () => {
       ],
     });
 
-    const outcome = await resumePipeline(PIPELINE_ID, { store, dispatch, wait: async () => "completed", resolveStage });
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait: async () => "completed",
+      resolveStage,
+      readLaneReadyIntent: allLanesIndependent,
+    });
 
     expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
     expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: RESUME_BRANCH_RUNNING }]);
@@ -5588,7 +5594,7 @@ describe("resumePipeline branch scope", () => {
 
     const outcome = await resumePipeline(
       PIPELINE_ID,
-      { store, dispatch, wait, resolveStage },
+      { store, dispatch, wait, resolveStage, readLaneReadyIntent: allLanesIndependent },
       { branchKey: APPROVED_PENDING_BRANCH },
     );
 
@@ -6892,6 +6898,8 @@ function fanOutPipelineDeps(
     failBranchIndex?: number;
     failAtStageIndex?: number;
     wait?: PipelineWorkflowWait;
+    /** Lanes whose ready-intent declares `independent: true`; every lane unless set. */
+    independentLanes?: readonly string[];
   } = {},
 ) {
   const instrumentedStore = instrumentDispatchLog(store, dispatchLog);
@@ -6928,6 +6936,22 @@ function fanOutPipelineDeps(
       ...(options.failBranchIndex !== undefined ? { failBranchIndex: options.failBranchIndex } : {}),
       ...(options.failAtStageIndex !== undefined ? { failAtStageIndex: options.failAtStageIndex } : {}),
     }),
+    readLaneReadyIntent: laneReadyIntentReader(options.independentLanes ?? FAN_OUT_BRANCH_KEYS),
+  };
+}
+
+/** Every lane's ready-intent declares `independent: true` — the concurrent fan-out these fixtures pin. */
+async function allLanesIndependent(): Promise<string> {
+  return "---\nindependent: true\n---\n";
+}
+
+/** Ready-intent reader stub: listed lanes declare `independent: true`, the rest carry plain frontmatter. */
+function laneReadyIntentReader(independentLanes: readonly string[]) {
+  return async (path: string): Promise<string | undefined> => {
+    const lane = branchKeyFromDownstreamInput(path);
+    return independentLanes.includes(lane)
+      ? `---\nname: ${lane}\nindependent: true\n---\n`
+      : `---\nname: ${lane}\n---\n`;
   };
 }
 
@@ -7257,6 +7281,7 @@ describe("pipeline branch fan-out execution", () => {
       dispatch,
       wait: async () => "completed" as const,
       resolveStage,
+      readLaneReadyIntent: allLanesIndependent,
     };
 
     await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
@@ -7838,6 +7863,7 @@ describe("pipeline branch fan-out execution", () => {
       dispatch: relinkDispatch,
       wait: settlingWait(store, async () => "completed" as const),
       resolveStage: relinkResolveStage(),
+      readLaneReadyIntent: allLanesIndependent,
     };
 
     await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
@@ -8127,6 +8153,7 @@ describe("pipeline branch fan-out execution", () => {
       wait: async () => "completed" as const,
       resolveStage: fanOutResolveStageStub(),
       context: baseContext,
+      readLaneReadyIntent: allLanesIndependent,
     };
 
     await runPipeline(PIPELINE_ID, deps);
@@ -9187,6 +9214,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
           wait: async () => "completed",
           resolveStage: resolveStageWithFixedPlanSteps,
           staleResetPreflight: staleResetBundle(rpc),
+          readLaneReadyIntent: allLanesIndependent,
         },
         { branchKey: "alpha" },
       );
@@ -11097,5 +11125,149 @@ describe("buildPrefixStageArtifactsForResumeProbe", () => {
     expect([...buildPrefixStageArtifactsForResumeProbe(pipeline, 0, "main").keys()]).toEqual([]);
     expect([...buildPrefixStageArtifactsForResumeProbe(pipeline, 2, "main").keys()]).toEqual(["a:main", "b:main"]);
     expect([...buildPrefixStageArtifactsForResumeProbe(pipeline, -1, "main").keys()]).toEqual([]);
+  });
+});
+
+describe("fan-out serial chained lanes", () => {
+  type LaneDispatch = { stageId: string; branchKey: string; forkRef: string | undefined };
+
+  /** Runs for a serial dispatch order: plan then implement per lane, counters in dispatch order. */
+  function serialLaneRuns(order: readonly string[]): Record<string, Partial<Run>> {
+    const runs: Record<string, Partial<Run>> = {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    };
+    let counter = 0;
+    for (const lane of order) {
+      counter += 1;
+      runs[`run-${lane}-1-${counter}`] = { specPath: `spec/${lane}/plan.md`, branch: `plan/${lane}` };
+      counter += 1;
+      runs[`run-${lane}-2-${counter}`] = { specPath: `spec/${lane}/implement.md`, branch: `implement/${lane}` };
+    }
+    return runs;
+  }
+
+  function capturingLaneDeps(
+    store: StateStore,
+    options: Parameters<typeof fanOutPipelineDeps>[2],
+  ): { deps: ReturnType<typeof fanOutPipelineDeps>; dispatched: LaneDispatch[] } {
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const base = fanOutPipelineDeps(store, dispatchLog, options);
+    const dispatched: LaneDispatch[] = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageIndex: number; branchKey?: string; worktree: { forkRef?: string } };
+      if (step.stageIndex > 0) {
+        dispatched.push({
+          stageId: step.stageIndex === 1 ? "plan" : "implement",
+          branchKey: step.branchKey ?? "default",
+          forkRef: step.worktree.forkRef,
+        });
+      }
+      return base.dispatch(steps);
+    };
+    // Production branch-scoped plan resolution binds one lane's input — never fan-out `{ results }`.
+    const resolveStage: typeof base.resolveStage = async (
+      definition,
+      stageIndex,
+      context,
+      stageArtifacts,
+      resolveDeps,
+    ) => {
+      const stage = definition.stages[stageIndex];
+      const branchKey = resolveDeps?.branchKey ?? "default";
+      if (stage?.kind === "workflow" && stage.workflow === "plan" && branchKey !== "default") {
+        return { ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey })] };
+      }
+      return base.resolveStage(definition, stageIndex, context, stageArtifacts, resolveDeps);
+    };
+    return { deps: { ...base, dispatch, resolveStage }, dispatched };
+  }
+
+  test("a dependent lane dispatches plan only after its predecessor's implement succeeds, forking from that branch", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, serialLaneRuns(["alpha", "beta"]));
+    const { deps, dispatched } = capturingLaneDeps(store, { independentLanes: [] });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(dispatched).toEqual([
+      { stageId: "plan", branchKey: "alpha", forkRef: undefined },
+      { stageId: "implement", branchKey: "alpha", forkRef: undefined },
+      { stageId: "plan", branchKey: "beta", forkRef: "implement/alpha" },
+      { stageId: "implement", branchKey: "beta", forkRef: "implement/alpha" },
+    ]);
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a predecessor lane failure settles every dependent lane row skipped naming the predecessor", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, serialLaneRuns(["alpha", "beta"]));
+    const { deps, dispatched } = capturingLaneDeps(store, {
+      independentLanes: [],
+      failBranchIndex: 0,
+      failAtStageIndex: 1,
+    });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(dispatched.filter((entry) => entry.branchKey === "beta")).toEqual([]);
+    for (const stageId of ["plan", "implement"]) {
+      const row = stageRecord(stages(), stageId, "beta");
+      expect(row?.status).toBe("skipped");
+      expect(row?.skipProvenance).toBe("terminal");
+      expect((row?.failureDetail as { observation?: string } | null)?.observation).toContain(
+        'predecessor lane "alpha"',
+      );
+    }
+  });
+
+  test("a predecessor lane rejection settles every dependent lane row skipped naming the predecessor", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, serialLaneRuns(["alpha", "beta"]));
+    const { deps } = capturingLaneDeps(store, { independentLanes: [] });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    expect(stageRecord(stages(), "gate", "beta")?.status).toBe("awaiting");
+
+    expect(applyPipelineApprovalDecision(PIPELINE_ID, "gate", "rejected", deps, "alpha").kind).toBe("applied");
+    await flushBackgroundRuns();
+
+    for (const stageId of ["gate", "plan", "implement"]) {
+      const row = stageRecord(stages(), stageId, "beta");
+      expect(row?.status).toBe("skipped");
+      expect((row?.failureDetail as { observation?: string } | null)?.observation).toContain(
+        'predecessor lane "alpha"',
+      );
+    }
+  });
+
+  test("independent lanes dispatch concurrently from the default base", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const { deps, dispatched } = capturingLaneDeps(withSyntheticPlanRunRecords(store), {
+      independentLanes: ["alpha", "beta"],
+    });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(dispatched.slice(0, 2).map((entry) => `${entry.stageId}/${entry.branchKey}`)).toEqual([
+      "plan/alpha",
+      "plan/beta",
+    ]);
+    expect(dispatched.every((entry) => entry.forkRef === undefined)).toBe(true);
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a mixed split runs independent lanes first, then the dependent lane from the default base", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, serialLaneRuns(["beta", "alpha"]));
+    const { deps, dispatched } = capturingLaneDeps(store, { independentLanes: ["beta"] });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(dispatched).toEqual([
+      { stageId: "plan", branchKey: "beta", forkRef: undefined },
+      { stageId: "implement", branchKey: "beta", forkRef: undefined },
+      { stageId: "plan", branchKey: "alpha", forkRef: undefined },
+      { stageId: "implement", branchKey: "alpha", forkRef: undefined },
+    ]);
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
   });
 });

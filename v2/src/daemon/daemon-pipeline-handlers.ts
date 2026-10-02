@@ -118,6 +118,7 @@ type PipelineHandlerDeps = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => WorkflowStartResult;
   reviewFeedbackLaunch?: Partial<PipelineStageReviewFeedbackLaunchHandlerDeps>;
   resolveStage?: typeof resolveStageWorkflowSteps;
+  readLaneReadyIntent?: PipelineExecutionDeps["readLaneReadyIntent"];
   recoveryAttempt?: PipelineStageRecoveryAttempt;
   recoveryLogSinkFactory?: (storagePath: string) => LogSink;
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
@@ -172,6 +173,7 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       dispatch: pipelineDispatch,
       wait: pipelineWait,
       resolveStage,
+      ...(deps.readLaneReadyIntent !== undefined ? { readLaneReadyIntent: deps.readLaneReadyIntent } : {}),
       ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
       isEntryRunLive: (entryRunId: string) => ctx.workflowPromisesByEntryRunId.has(entryRunId),
       ...(deps.executeTerminalPublication !== undefined

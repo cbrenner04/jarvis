@@ -8,13 +8,13 @@ The August 29 charter's five retirements are complete. This is a separate, bound
 
 ## Current inventory
 
-There are **0 open active spec plans, 1 ready-intent, and 12 seeds**. Nine merged spec dirs and seven consumed ready-intents still sit in `v2/spec/` until the next `jarvis cleanup` archives and prunes them (#4469 now publishes that archive PR itself). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **0 open active spec plans, 1 ready-intent, and 11 seeds**. Nine merged spec dirs and seven consumed ready-intents still sit in `v2/spec/` until the next `jarvis cleanup` archives and prunes them (#4469 now publishes that archive PR itself). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
 
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |
 | Immediate reliability | 0 | 0 | 1 | Bounded completion target below |
 | Follow-on workflow quality | 0 | 0 | 1 | Separate prioritization after the immediate queue |
-| Operator features and ergonomics | 0 | 0 | 1 | Useful additions, outside the completion target |
+| Operator features and ergonomics | 0 | 0 | 0 | Useful additions, outside the completion target |
 | Parked design and cleanup | 0 | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
 | Parked owner seeds (outside target) | 0 | 0 | 3 | #4419 — not in the backlog |
 | Evidence-gated investigation | 0 | 1 | 0 | WAL failure capture required |

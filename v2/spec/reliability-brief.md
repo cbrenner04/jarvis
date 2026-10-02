@@ -1,50 +1,50 @@
 # Harness reliability brief
 
-Reviewed 2026-10-01 against `main` at `31b71a376`, after the session closeout. Scope: active `v2/spec/` files, excluding `completed/`; current source and merged history checked for the immediate queue. [Ledger](./reliability-ledger.md) owns the item inventory, dependencies, and review caveats. Historical evidence stays in git and `reports/`.
+Reviewed 2026-10-02 against `main` after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Scope: active `v2/spec/` files, excluding `completed/`. [Ledger](./reliability-ledger.md) owns the item inventory, dependencies, and review caveats. Historical evidence stays in git and `reports/`.
 
 ## Structural recovery is closed
 
-The August 29 charter retired duplicated dispatch, copied pipeline settlement, non-atomic terminal writes, oversized runner/daemon modules, and weak dead-export/test-seam enforcement. Those five retirements are complete. This is a new, bounded reliability backlog; later defects and feature requests do not reopen that charter. CLI retirement is an unfinished original side item, parked pending the `run pause` decision.
-
-The latest session also landed commit run-scope protection (#4350), the TUI supervisor (#4349), failed-settlement usage recovery (#4323), publication-time mutation repair (#4330), attributable repair scope (#4328), superseded-branch cleanup (#4329), and operator-merged terminal publication (#4322). Their prior active plans are gone. Lane-PR history, agent descendant reaping, plan-shape diagnostics, and the shared inventory locator landed foundations; their remaining consumers are tracked below.
+The August 29 charter's five retirements are complete. This is a separate, bounded reliability backlog; later defects and feature requests do not reopen that charter. CLI retirement is an unfinished original side item, parked pending the `run pause` decision.
 
 ## Current inventory
 
-There are **0 active spec plans, 12 ready-intents, and 17 seeds**. Of the ready-intents, six have their prerequisites available for planning, five wait on other queued work, and one requires failure evidence. Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **6 active spec plans, 3 ready-intents, and 18 seeds**. Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
 
-| Queue | Ready-intents | Seeds | Treatment |
-| --- | --- | --- | --- |
-| Immediate reliability | 10 | 4 | Bounded completion target below |
-| Follow-on workflow quality | 0 | 5 | Separate prioritization after the immediate queue |
-| Operator features and ergonomics | 1 | 2 | Useful additions, outside the reliability completion target |
-| Parked design and cleanup | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
-| Evidence-gated investigation | 1 | 0 | WAL failure capture required |
+| Queue | Active specs | Ready-intents | Seeds | Treatment |
+| --- | --- | --- | --- | --- |
+| Highest priority | 0 | 0 | 1 | Linked resume — do first |
+| Immediate reliability | 6 | 2 | 0 | Bounded completion target below |
+| Follow-on workflow quality | 0 | 0 | 5 | Separate prioritization after the immediate queue |
+| Operator features and ergonomics | 0 | 0 | 3 | Useful additions, outside the completion target |
+| Parked design and cleanup | 0 | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
+| Parked owner seeds (outside target) | 0 | 0 | 3 | #4419 — not in the backlog |
+| Evidence-gated investigation | 0 | 1 | 0 | WAL failure capture required |
 
 ## Immediate reliability target
 
+Original workstreams 2 (mutation), 4 (lane-PR settlement), 5 (notification handoff), 6 (plan-shape recovery), and 7 (fan-out terminal settlement) are **done** (2026-10-01/02). What remains:
+
 | Order | Workstream | Done when |
 | --- | --- | --- |
-| 1 | Test inventory binding and write-loop test split | The inventory reads the real declaration; the split preserves every test and meets its file-size criteria, with timing measured separately by the operator. |
-| 2 | Mutation verification and resume | A failing killing file cancels remaining candidate work; resume verifies current HEAD before deciding whether or what to repair. |
-| 3 | Agent process ownership | Implement runs record agent/descendant groups, and the existing dead-owner sweep is proven to reach them. |
-| 4 | Lane-PR settlement | Closed/merged history produces the intended durable run/stage outcome, consistent list/wait/notification evidence, and an explicit resume opt-in for intentional republication. |
-| 5 | Notification handoff | A waiting notification client reconnects with its cursor after daemon replacement, within a bounded retry policy. |
-| 6 | Plan-shape recovery | Repairable shape failures get one useful reprompt; missing-directory failures do not; operator docs match. |
-| 7 | Fan-out terminal settlement | Each lane settles publication independently; successful lanes no longer produce the blanket fan-out failure; per-lane merge and failure evidence are covered. |
+| 0 | Linked resume settles its row (seed) | Resuming a `~link-N` row never strands it; recovery never respawns implement on a landed lane; `kill --force` reaches retiring-owner rows; "finished" incident waits for all rows. |
+| 1 | Write-loop test split (in flight) | Split preserves every test and meets per-file caps; removes the slow-killer `non_terminating_mutation_failed` class. |
+| 2 | Finalization gates share the gate slot (active spec, 00 partial) | Harness gates wait on the per-daemon slot; concurrent publication no longer false-reds. |
+| 3 | Ready-repair direction (2 active specs) | Repair prompt lists allowed paths; `ready_gate_repair` logs failing step + output tail. |
+| 4 | Agent history-rewrite guard (active spec + ready-intent) | Iterations revert agent rebases/resets; implement rules forbid history mutation. |
+| 5 | Agent process ownership (active spec + ready-intent) | Implement runs record agent/descendant groups; dead-owner sweep reaches them. |
 
-This target closes when these seven workstreams are implemented, reviewed, merged, and their consumed queue files removed, or explicitly retired with evidence. Follow-on features, parked decisions, and an uncaptured WAL flake do not extend the target. New discoveries enter the ledger for separate prioritization rather than silently expanding it.
+This target closes when these workstreams are implemented, reviewed, merged, and their queue files removed, or explicitly retired with evidence.
 
 ## Execution order and boundaries
 
-- Fix the resume inventory consumer before copying its pattern into the write-loop split; use the landed shared locator contract. Finish the split before planning more edits to its test file. This is recommended sequencing, not an existing ready-intent prerequisite.
-- Plan and implement same-file work serially against the preceding merge. Mutation, lane settlement, process recording, and plan reprompt work all touch the write-loop area; do not dispatch the six available ready-intents as one parallel batch.
-- Within each chain, finish the head before its consumers. Fold documentation tails into the same reviewed plan when practical; do not dispatch a docs-only dependent ahead of its behavior.
-- The lane-PR publication guard already exists; implement settlement and projections, not another history lookup. Abort already reaps descendant groups; add recording and verify the existing sweep, not another kill mechanism.
-- Correct stale premises at plan time: the current shape guard excludes the whole shape family; the inventory regex already accepts `_`; fan-out acceptance criteria need explicit merge coverage. Details are in the ledger.
+- Do the linked-resume seed first: until it lands, never `run resume` an all-ticked `implement~link-N` row (publish by hand instead); resuming a row with unticked work is safe.
+- Workstreams 1–4 all touch `write-loop.ts`/its tests: implement them serially in the order above, each against the preceding merge. Plans may fan out.
+- Expect agents to respect the 2-run gate budget (#4407) on new dispatches; lanes started earlier still loop.
+- Until workstream 2 lands, keep concurrent finalization gates to ~2 and resume failed gates one at a time.
 - WAL work requires a real captured rejection. Harness-owned agent tools require explicit owner sign-off. Decide whether `run pause` survives before planning CLI retirement or dock grammar.
 
 ## Maintenance
 
-Keep one ledger row per active seed or ready-intent; replace consumed rows with their active plan when one lands. Remove completed rows after verifying implementation on `main`; record session history in `reports/`, not a growing landed/reaped appendix. Recount the queue after each closeout. Older unseeded observations require fresh evidence before becoming work.
+Keep one ledger row per active spec, seed, or ready-intent; replace consumed rows with their active plan when one lands. Remove completed rows after verifying implementation on `main`; record session history in `reports/`. Recount the queue after each closeout.
 
-Use [operator practices](../docs/operator-practices.md) for worktrees, review, merging, and session discipline; the [runbook](../docs/operator-runbook.md) owns recovery and gate procedures. This brief does not duplicate those policies.
+Use [operator practices](../docs/operator-practices.md) for worktrees, review, merging, and session discipline; the [runbook](../docs/operator-runbook.md) owns recovery and gate procedures.

@@ -104,3 +104,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260921T170500Z-operator,14,12,2,254700,254700,92600000,156.11,156.11,21225,13.01
 20260930T110000Z-operator-structural-recovery,32,32,0,,1155200,535600000,$236.93,$236.93,,$7.40
 20261001T133500Z-operator-structural-recovery,14,14,0,,864600,252100000,$115.29,$115.29,,$8.24
+20261002T055400Z-operator-reliability-backlog,18,17,1,,922800,504000000,$171.83,$171.83,54282,$10.11

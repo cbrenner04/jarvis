@@ -304,6 +304,36 @@ describe("cleanup archive publication session", () => {
     ]);
   });
 
+  test("adopted session skips worktree add when the staged worktree already exists", async () => {
+    const stagedSpecName = "20261002T150000Z-staged-adopt-materialized";
+    const freshSpecName = "20261002T150001Z-fresh-adopt-materialized";
+    const stagedBranch = "cleanup/archive-20261002T150000Z";
+    inRepoSpec(stagedSpecName, "[x] Done");
+    const { spec: freshSpec } = inRepoSpec(freshSpecName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const worktreePath = await stageSpecOnCleanupBranch(stagedBranch, stagedSpecName);
+    const worktreeAdds: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add") {
+          worktreeAdds.push(args.join(" "));
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    const session = createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      adoptedBranch: stagedBranch,
+      adoptedWorktreePath: worktreePath,
+    });
+    expect(await session.publish(freshSpec)).toMatchObject({ status: "archived", branch: stagedBranch });
+    expect(worktreeAdds).toHaveLength(0);
+    expect(session.commits()).toBe(1);
+  });
+
   test("publicationTargetSession adopts staged branch without minting a new archive branch", async () => {
     const specName = "20261002T100002Z-staged-adopt";
     const stagedBranch = "cleanup/archive-20261002T100002Z";

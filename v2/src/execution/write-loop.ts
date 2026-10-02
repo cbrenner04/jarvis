@@ -95,7 +95,18 @@ import {
   isMaterializedNodeModulesPath,
   MATERIALIZED_NODE_MODULES_PATH,
 } from "./external-worktree.ts";
-import { acquireGateInvocationLease, type GateInvocationLease } from "./gate-invocation-lease.ts";
+import {
+  acquireGateInvocationLease,
+  type GateInvocationLease,
+  runHarnessFullSuiteGateWithSlot,
+} from "./gate-invocation-lease.ts";
+import {
+  createDefaultHarnessTestSliceRunner,
+  type HarnessTestSliceResult,
+  type HarnessTestSliceRunner,
+  takeHarnessTestSliceRequest,
+  truncateTestSliceOutput,
+} from "./harness-test-slice.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { guardIterationHead, readIterationHead } from "./iteration-head-guard.ts";
@@ -497,6 +508,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   runAutofixTypecheck?: (opts: { cwd: string; timeoutMs: number }) => Promise<AutofixTypecheckResult>;
   /** Test seam for ready-gate scope classification and base-ref reproduction. */
   readyGateScopeSeams?: ReadyGateScopeSeams;
+  /** Test seam overriding the outside-sandbox `bun test` spawn for an implement agent's integration-slice request. */
+  runHarnessTestSlice?: HarnessTestSliceRunner;
   /** Test seam: injected markdownlint runner for the intent-split landing autofix and the intent-split/plan-draft staged-Markdown lint gate; production default is the real spawn. */
   stagedMarkdownLintRunner?: AsyncSubprocessRunner;
 };
@@ -568,6 +581,16 @@ function shrinkOptionalPassRevertsOnMutationFailure(
   if (!isShrinkWriteLoop(args) || preShrinkHead === undefined) return false;
   if (verificationKind === "non-terminating-mutation") return true;
   return iterationsConsumed >= maxIterations;
+}
+
+/** Test files a run's harness integration-slice runs actually executed (an exit code was recorded). */
+export function findHarnessTestSliceRunFilesFromLog(logRecords: readonly PersistedRecord[] | undefined): string[] {
+  const files: string[] = [];
+  for (const record of logRecords ?? []) {
+    const event = record.event;
+    if (event.kind === "harness_test_slice_run" && event.exitCode !== null) files.push(...event.files);
+  }
+  return files;
 }
 
 /** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
@@ -771,6 +794,60 @@ function createIterationActiveGateTracker(options: {
       activeGate = undefined;
     },
   };
+}
+
+/**
+ * Runs an implement agent's `.jarvis-test-slice-request` outside its sandbox, holding the shared
+ * harness gate slot; the result is logged (the recorded run measurement ticks need) and reprompted.
+ */
+async function runRequestedHarnessTestSlice(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  worktreePath: string,
+): Promise<HarnessTestSliceResult | undefined> {
+  const request = takeHarnessTestSliceRequest(worktreePath);
+  if (request === undefined) return undefined;
+  const runner = args.runHarnessTestSlice ?? createDefaultHarnessTestSliceRunner();
+  let outcome: { exitCode: number | null; output: string } = {
+    exitCode: null,
+    output: "No runnable *.sandbox-unrunnable.test.ts path was requested.",
+  };
+  let durationMs = 0;
+  if (request.files.length > 0) {
+    try {
+      await runHarnessFullSuiteGateWithSlot(
+        {
+          gate: `bun test ${request.files.join(" ")}`,
+          runId,
+          ...(args.signal !== undefined ? { signal: args.signal } : {}),
+          slotWaitTimeoutMs: TEST_STEP_BUDGET_MS,
+        },
+        async () => {
+          const startedAtMs = Date.now();
+          outcome = await runner({
+            worktreePath,
+            files: request.files,
+            ...(args.signal !== undefined ? { signal: args.signal } : {}),
+            processGroups: storeVerifierProcessGroupRecorder(store, runId),
+            timeoutMs: TEST_STEP_BUDGET_MS,
+          });
+          durationMs = Date.now() - startedAtMs;
+        },
+      );
+    } catch (error) {
+      outcome = { exitCode: null, output: errorMessage(error) };
+    }
+  }
+  const result: HarnessTestSliceResult = {
+    ...request,
+    exitCode: outcome.exitCode,
+    durationMs,
+    output: truncateTestSliceOutput(outcome.output),
+  };
+  args.logSink?.append(runId, { kind: "harness_test_slice_run", attemptId, ...result });
+  return result;
 }
 
 /** Run coverage advisory re-prompt when uncovered sites exist. Returns the invocation result or null if no advisory. */
@@ -1487,6 +1564,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let pendingGateBudgetReprompt =
       args.gateBudgetReprompt ?? findGateBudgetRepromptFromLog(priorLogRecordsFromSink(args.logSink, prepared.runId));
     let pendingSurvivingMutationReprompt = args.survivingMutationReprompt;
+    let pendingHarnessTestSliceResult: HarnessTestSliceResult | undefined;
+    const harnessTestSliceRunFiles = findHarnessTestSliceRunFilesFromLog(priorLogRecords);
     const durableDraftReprompt = findDraftContractRepromptStateFromLog(
       priorLogRecordsFromSink(args.logSink, prepared.runId),
     );
@@ -1517,7 +1596,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
 
       const settled = await awaitIteration(
-        args,
+        args.promptId === "implement.prompt.body"
+          ? {
+              ...args,
+              harnessTestSliceRunFiles: [...harnessTestSliceRunFiles],
+              ...(pendingHarnessTestSliceResult !== undefined
+                ? { harnessTestSliceResult: pendingHarnessTestSliceResult }
+                : {}),
+            }
+          : args,
         store,
         runId,
         attemptId,
@@ -1622,6 +1709,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       iterationsConsumed += 1;
       if (isDraftContractRepair) pendingDraftContractReprompt = undefined;
       if (pendingGateBudgetReprompt !== undefined) pendingGateBudgetReprompt = undefined;
+      pendingHarnessTestSliceResult = undefined;
 
       const { result } = stepResult;
 
@@ -1718,6 +1806,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           outcomeKind: "progress",
           runStatus: "in-progress",
         });
+
+        if (args.promptId === "implement.prompt.body") {
+          const sliceResult = await runRequestedHarnessTestSlice(args, store, runId, attemptId, worktreePath);
+          pendingHarnessTestSliceResult = sliceResult;
+          if (sliceResult !== undefined && sliceResult.exitCode !== null)
+            harnessTestSliceRunFiles.push(...sliceResult.files);
+        }
 
         if (args.signal?.aborted) {
           return finishLoop(args, runId, "progress", iterationsConsumed, true);
@@ -3313,6 +3408,8 @@ function buildWriteExecuteInput(
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(gateBudgetReprompt !== undefined ? { gateBudgetReprompt } : {}),
+    ...(args.harnessTestSliceResult !== undefined ? { harnessTestSliceResult: args.harnessTestSliceResult } : {}),
+    ...(args.harnessTestSliceRunFiles !== undefined ? { harnessTestSliceRunFiles: args.harnessTestSliceRunFiles } : {}),
     ...(draftContractReprompt !== undefined ? { draftContractReprompt } : {}),
     ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
@@ -5409,7 +5506,7 @@ function resolveContractMissBlockerPath(
   args: Pick<WriteLoopInput, "expectedArtifactPath" | "specPath" | "promptId" | "externalPlanSpec">,
   failedContractId: string,
 ): string {
-  if (failedContractId === "spec.criteria-ticked") {
+  if (failedContractId === "spec.criteria-ticked" || failedContractId === "spec.measurement-criteria-harness-run") {
     return args.externalPlanSpec === true && isAbsolute(args.expectedArtifactPath)
       ? args.expectedArtifactPath
       : resolveSpecPath(worktreePath, args.expectedArtifactPath);

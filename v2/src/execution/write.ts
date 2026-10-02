@@ -49,6 +49,11 @@ import {
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
+import {
+  type HarnessTestSliceResult,
+  referencesSandboxUnrunnableTest,
+  unverifiedMeasurementCriteria,
+} from "./harness-test-slice.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
@@ -113,10 +118,64 @@ function resolveWriteStepPlaceholder(name: string, ctx: WriteStepPlaceholderCont
     case "ACTIVE_SUBSPEC_BODY":
       return readActiveSubspecBody(ctx.expectedArtifactPath);
     case "PATCH_RULES":
-      return loadPromptRegistry().getById("implement.rules").body.trim();
+      return buildImplementPatchRules(readActiveSubspecBody(ctx.expectedArtifactPath));
     default:
       return undefined;
   }
+}
+
+/** Implement rules, plus the integration-slice test command when the active subspec names a `*.sandbox-unrunnable.test.ts` file. */
+function buildImplementPatchRules(activeSubspecBody: string): string {
+  const registry = loadPromptRegistry();
+  const rules = registry.getById("implement.rules").body.trim();
+  if (!referencesSandboxUnrunnableTest(activeSubspecBody)) return rules;
+  return `${rules}\n\n${registry.getById("implement.harness-test-slice").body.trim()}`;
+}
+
+function renderHarnessTestSliceResult(result: HarnessTestSliceResult): string {
+  return renderPromptForStep({
+    stepPromptId: "write.harness-test-slice-result",
+    placeholders: {
+      FILES: result.files.join(" "),
+      REJECTED: result.rejected.length > 0 ? result.rejected.join(", ") : "none",
+      EXIT_CODE: result.exitCode === null ? "none (did not exit)" : String(result.exitCode),
+      DURATION_MS: String(result.durationMs),
+      OUTPUT: neutralizeDataDelimiters(result.output),
+    },
+  });
+}
+
+/** Completion boundary: a ticked measurement criterion on a sandbox-unrunnable file needs a recorded harness run of it. */
+function measurementCriteriaHarnessRunContracts(
+  promptId: string,
+  subspecPath: string,
+  args: Pick<WriteExecuteInput, "externalSpecReadOnly" | "harnessTestSliceRunFiles">,
+): StepContract[] {
+  if (promptId !== "implement.prompt.body" || subspecPath.length === 0 || args.externalSpecReadOnly === true) return [];
+  const runFiles = args.harnessTestSliceRunFiles ?? [];
+  return [
+    {
+      id: "spec.measurement-criteria-harness-run",
+      check: () => {
+        const unverified = unverifiedMeasurementCriteria(readActiveSubspecBody(subspecPath), runFiles);
+        if (unverified.length === 0) return true;
+        const lines = unverified.map((text) => `- ${text}`).join("\n");
+        return {
+          ok: false,
+          reason: `Unverified measurement criteria (no recorded Jarvis run of the named *.sandbox-unrunnable.test.ts file):\n${lines}`,
+        };
+      },
+    },
+  ];
+}
+
+function withHarnessTestSliceResult(
+  prompt: string,
+  promptId: string,
+  result: HarnessTestSliceResult | undefined,
+): string {
+  if (promptId !== "implement.prompt.body" || result === undefined) return prompt;
+  return `${prompt}\n\n${renderHarnessTestSliceResult(result)}`;
 }
 
 function assembleWriteStepPlaceholders(
@@ -383,6 +442,10 @@ export type WriteExecuteInput = {
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   gateBudgetReprompt?: { refusedCommand: string };
+  /** Implement: the harness run of the agent's integration-slice request from the previous iteration. */
+  harnessTestSliceResult?: HarnessTestSliceResult;
+  /** Implement: test files this run's harness integration-slice runs covered; gates measurement ticks. */
+  harnessTestSliceRunFiles?: readonly string[];
   draftContractReprompt?: DraftContractRepromptContext;
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
   /** Admitted external plan implement: grant adapter read access to `specReadRoot` only. */
@@ -819,6 +882,7 @@ async function executeDefaultWrite(
         args.promptPlaceholders,
       );
       prompt = renderPromptForStep({ stepPromptId: promptId, placeholders });
+      prompt = withHarnessTestSliceResult(prompt, promptId, args.harnessTestSliceResult);
     }
   } catch (err) {
     if (err instanceof PromptRenderingError) {
@@ -854,6 +918,8 @@ async function executeDefaultWrite(
       });
     }
   }
+
+  contracts.push(...measurementCriteriaHarnessRunContracts(promptId, expectedArtifactPath, args));
 
   // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)
   // and implement path (implement.prompt.body on expectedArtifactPath, the active subspec).

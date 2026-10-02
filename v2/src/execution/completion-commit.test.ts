@@ -492,6 +492,7 @@ describe("createCompletionCommitter", () => {
       ":(exclude,glob)**/verdict-*.md",
       ":(exclude).jarvis-pr-review-input.jso[n]",
       ":(exclude).jarvis-review-feedback-response.m[d]",
+      ":(exclude).jarvis-test-slice-reques[t]",
     ]);
   });
 

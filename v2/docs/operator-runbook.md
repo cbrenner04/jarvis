@@ -1059,6 +1059,7 @@ If a lane (plan / implement / review) needs hand-intervention **twice in a row o
 
 - Sandbox may block `127.0.0.1` — daemon/socket probes can false-negative; see [`operator-practices.md` § Sandbox blindness](./operator-practices.md#sandbox-blindness-and-false-negatives).
 - **`gh pr list` false-negative blocks destructive cleanup and stale reset.** Sandboxed callers can fail the open-PR probe even when a PR exists; [`--abandon`](#wedged-workspace-from-a-failed-run) and incomplete re-run stale reset refuse pre-mutation rather than treating probe failure as "no PR". Re-run the command outside the agent sandbox — see [`--abandon` PR-ownership gates](#wedged-workspace-from-a-failed-run) and [Incomplete re-run preflight gates § Pre-mutation refusal](#incomplete-re-run-preflight-gates).
+- **Integration-slice measurements run through the harness.** An implement agent whose subspec names a `*.sandbox-unrunnable.test.ts` file requests it via `.jarvis-test-slice-request`; Jarvis runs it outside the sandbox between iterations and returns the result. A measurement tick (timing, count) with no recorded `harness_test_slice_run` blocks as `spec.measurement-criteria-harness-run`; see [`write-behavior.md` § Integration-slice test command](./write-behavior.md#integration-slice-test-command).
 - **Do not** start a second `jarvis daemon` to "fix" a stuck run.
 
 ## Known gotchas

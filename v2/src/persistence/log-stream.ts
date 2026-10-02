@@ -250,6 +250,17 @@ export type GateInvocationBudgetRefusedEvent = {
   admittedCount: number;
 };
 
+/** Harness-run `*.sandbox-unrunnable.test.ts` files an implement agent requested; the recorded run measurement criteria need. */
+type HarnessTestSliceRunEvent = {
+  kind: "harness_test_slice_run";
+  attemptId: string;
+  files: string[];
+  rejected: string[];
+  exitCode: number | null;
+  durationMs: number;
+  output: string;
+};
+
 /** Implement-verified HEAD when a shrink write loop starts; resume uses this for optional-pass revert. */
 type PreShrinkHeadEvent = {
   kind: "pre_shrink_head";
@@ -393,6 +404,7 @@ type LogEventWithoutLoopFinished =
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
   | GateInvocationBudgetRefusedEvent
+  | HarnessTestSliceRunEvent
   | PreShrinkHeadEvent
   | SurvivingMutationRepromptEvent
   | MutationVerificationInconclusiveEvent

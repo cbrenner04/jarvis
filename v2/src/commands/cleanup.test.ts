@@ -176,6 +176,23 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   let projectRoot: string;
   let jarvisRoot: string;
 
+  async function cleanupStdout(
+    options: { dryRun?: boolean; promptConfirm?: () => Promise<boolean> } = {},
+  ): Promise<{ code: number; stdout: string }> {
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      options,
+      registry,
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    return { code, stdout };
+  }
+
   function createSpec(name: string, criterion: string, intent?: string): { source: string; readyIntent?: string } {
     const source = join(projectRoot, "v2", "spec", name);
     mkdirSync(source, { recursive: true });
@@ -2152,42 +2169,17 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     rmSync(join(home, "ready-intents", `${specName}.md`));
     const slugReady = join(home, "ready-intents", "open-spec-ready-prune.md");
     writeFileSync(slugReady, intent);
-    const registry = { project: { root: projectRoot } };
     await commitFixtures(projectRoot);
 
-    let dryStdout = "";
-    await runCleanupCommand(
-      { dryRun: true },
-      registry,
-      jarvisRoot,
-      ghRunnerForPr("MERGED"),
-      async () => [],
-      {
-        listRuns: () => [],
-      } as unknown as StateStore,
-      {
-        stdout: (s) => (dryStdout += s),
-        stderr: () => {},
-      },
-    );
-    expect(dryStdout).toContain(`prune: ready-intents/open-spec-ready-prune.md (consumed by open spec ${specName})`);
-    expect(dryStdout).not.toContain(`archive: ${join(home, specName)}`);
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).toContain(`prune: ready-intents/open-spec-ready-prune.md (consumed by open spec ${specName})`);
+    expect(dry.stdout).not.toContain(`archive: ${join(home, specName)}`);
     expect(existsSync(join(home, specName))).toBe(true);
     expect(existsSync(slugReady)).toBe(true);
 
-    let applyStdout = "";
-    expect(
-      await runCleanupCommand(
-        { promptConfirm: async () => true },
-        registry,
-        jarvisRoot,
-        ghRunnerForPr("MERGED"),
-        async () => [],
-        { listRuns: () => [] } as unknown as StateStore,
-        { stdout: (s) => (applyStdout += s), stderr: () => {} },
-      ),
-    ).toBe(0);
-    expect(applyStdout).toContain("Pruned consumed ready-intent:");
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).toContain("Pruned consumed ready-intent:");
     expect(existsSync(join(home, specName))).toBe(true);
     expect(existsSync(join(home, "completed", specName))).toBe(false);
     expect(existsSync(slugReady)).toBe(true);
@@ -2202,40 +2194,15 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     rmSync(join(home, "ready-intents", `${specName}.md`));
     const slugReady = join(home, "ready-intents", "open-spec-ready-mismatch.md");
     writeFileSync(slugReady, `${intent}\nqueue drift\n`);
-    const registry = { project: { root: projectRoot } };
     await commitFixtures(projectRoot);
 
-    let dryStdout = "";
-    await runCleanupCommand(
-      { dryRun: true },
-      registry,
-      jarvisRoot,
-      ghRunnerForPr("MERGED"),
-      async () => [],
-      {
-        listRuns: () => [],
-      } as unknown as StateStore,
-      {
-        stdout: (s) => (dryStdout += s),
-        stderr: () => {},
-      },
-    );
-    expect(dryStdout).not.toContain("prune: ready-intents/open-spec-ready-mismatch.md");
-    expect(dryStdout).toContain("unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).not.toContain("prune: ready-intents/open-spec-ready-mismatch.md");
+    expect(dry.stdout).toContain("unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
 
-    let applyStdout = "";
-    expect(
-      await runCleanupCommand(
-        { promptConfirm: async () => true },
-        registry,
-        jarvisRoot,
-        ghRunnerForPr("MERGED"),
-        async () => [],
-        { listRuns: () => [] } as unknown as StateStore,
-        { stdout: (s) => (applyStdout += s), stderr: () => {} },
-      ),
-    ).toBe(0);
-    expect(applyStdout).not.toContain("Pruned consumed ready-intent:");
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).not.toContain("Pruned consumed ready-intent:");
     expect(existsSync(slugReady)).toBe(true);
   });
 

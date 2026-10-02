@@ -2,4 +2,4 @@
 
 Chained intent→plan leaves `ready-intents/<slug>.md` on the default branch beside an open timestamped spec tree; cleanup today prunes that queue file only when archiving the completed spec.
 
-- [ ] [00 - Open-spec in-repo ready-intent prune](./00-open-spec-in-repo-ready-intent-prune.md)
+- [x] [00 - Open-spec in-repo ready-intent prune](./00-open-spec-in-repo-ready-intent-prune.md)

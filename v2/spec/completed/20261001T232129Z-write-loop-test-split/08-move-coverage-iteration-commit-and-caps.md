@@ -29,13 +29,17 @@ Primary: `v2/src/execution/write-loop-coverage-and-iteration-commit.test.ts` (ne
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts`, `write-loop-coverage-and-iteration-commit.test.ts`, and the other split siblings stay green (behavior unchanged by the move).
-- [ ] `write-loop-test-inventory.test.ts` passes, including the at-most-120 leaf-test guard for each owned destination.
-- [ ] `describe("coverage advisory on implement write completion")` and `describe("per-iteration git commit on progress")` run only from `write-loop-coverage-and-iteration-commit.test.ts`.
-- [ ] `write-loop.test.ts` holds at most 120 leaf tests and contains no describe groups named in the intent decision list except the core `write loop` smoke cases.
-- [ ] `bun run typecheck`, `bun run check`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] Each owned `write-loop*.test.ts` split destination from this spec runs under 60 s alone on an idle machine. (Manual)
+- [x] `write-loop.test.ts`, `write-loop-coverage-and-iteration-commit.test.ts`, and the other split siblings stay green (behavior unchanged by the move).
+- [x] `write-loop-test-inventory.test.ts` passes, including the at-most-120 leaf-test guard for each owned destination.
+- [x] `describe("coverage advisory on implement write completion")` and `describe("per-iteration git commit on progress")` run only from `write-loop-coverage-and-iteration-commit.test.ts`.
+- [x] `write-loop.test.ts` holds at most 120 leaf tests and contains no describe groups named in the intent decision list except the core `write loop` smoke cases.
+- [x] `bun run typecheck`, `bun run check`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Each owned `write-loop*.test.ts` split destination from this spec runs under 60 s alone on an idle machine. (Manual)
 
 ## Documentation updates
 
 - `v2/docs/v1-behaviors.md` — record `write-loop.test.ts` leaving `LOAD_SENSITIVE_FILES` once split siblings meet idle serial headroom (observable harness execution-policy change).
+
+## Verification
+
+2026-10-02: all 315 merge-base leaf cases preserved across 13 owned destinations (maximum 62/file); standalone serial runs 0.25–32.69 s/file. Full `bun run test`, unscoped typecheck, check, and markdown lint passed. Shared ready-finalize fixtures were extracted to prevent fixture imports from executing another 104-test suite.

@@ -55,19 +55,36 @@ export function readRunTimeoutMs(projectKey?: string, configPath: string = MACHI
   return value;
 }
 
-/** Resolves idle-output watchdog budget for write-path ordering (v1-aligned default). */
-function readIdleOutputTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
-  return readConfiguredIdleOutputTimeoutMs(configPath) ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
-/** Reads an explicitly configured idle-output watchdog budget without applying a default. */
-export function readConfiguredIdleOutputTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number | undefined {
+/** Explicit idle budget plus the config path it came from: the project override, else the machine key. */
+function readIdleOutputTimeoutSetting(
+  configPath: string,
+  projectKey: string | undefined,
+): { value: number | undefined; field: string } {
+  const override =
+    projectKey === undefined ? undefined : readProjectConfigOverrides(projectKey, configPath).idleOutputTimeoutMs;
+  if (override !== undefined) {
+    return { value: override, field: `projects.${projectKey}.overrides.idleOutputTimeoutMs` };
+  }
   const value = readMachineConfigDocument(configPath)?.idleOutputTimeoutMs;
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+  if (value !== undefined && !isNonNegativeInteger(value)) {
     throw new Error("Machine config 'idleOutputTimeoutMs' must be a non-negative integer");
   }
-  return value;
+  return { value, field: "idleOutputTimeoutMs" };
+}
+
+/**
+ * Reads an explicitly configured idle-output watchdog budget without applying a default:
+ * `projects.<projectKey>.overrides.idleOutputTimeoutMs` when set, else top-level `idleOutputTimeoutMs`.
+ */
+export function readConfiguredIdleOutputTimeoutMs(
+  configPath: string = MACHINE_CONFIG_PATH,
+  projectKey?: string,
+): number | undefined {
+  return readIdleOutputTimeoutSetting(configPath, projectKey).value;
 }
 
 /** Resolves the machine-wide wall clock bounding each review/review-debate role invocation. */
@@ -93,14 +110,21 @@ export function readCodexSandboxMode(configPath: string = MACHINE_CONFIG_PATH): 
   return isCodexSandboxMode(value) ? value : DEFAULT_CODEX_SANDBOX_MODE;
 }
 
-/** Reads write-path iteration bounds and rejects inverted idle/wall/ceiling ordering. */
-export function resolveWritePathIterationBounds(configPath: string = MACHINE_CONFIG_PATH): WritePathIterationBounds {
+/**
+ * Reads write-path iteration bounds (idle budget honoring the project override when `projectKey` is given)
+ * and rejects inverted idle/wall/ceiling ordering.
+ */
+export function resolveWritePathIterationBounds(
+  configPath: string = MACHINE_CONFIG_PATH,
+  projectKey?: string,
+): WritePathIterationBounds {
   const iterationTimeoutMs = readIterationTimeoutMs(configPath);
   const iterationCeilingMs = readIterationCeilingMs(configPath);
-  const idleOutputTimeoutMs = readIdleOutputTimeoutMs(configPath);
+  const idleSetting = readIdleOutputTimeoutSetting(configPath, projectKey);
+  const idleOutputTimeoutMs = idleSetting.value ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
   if (idleOutputTimeoutMs > 0 && idleOutputTimeoutMs > iterationTimeoutMs) {
     throw new Error(
-      `Machine config 'idleOutputTimeoutMs' (${idleOutputTimeoutMs}) must not exceed 'iterationTimeoutMs' (${iterationTimeoutMs})`,
+      `Machine config '${idleSetting.field}' (${idleOutputTimeoutMs}) must not exceed 'iterationTimeoutMs' (${iterationTimeoutMs})`,
     );
   }
   if (iterationTimeoutMs > iterationCeilingMs) {
@@ -193,26 +217,26 @@ export function readMachineConfigDocument(
   return parsed;
 }
 
-export function validateMachineConfigAgents(agents: unknown): string[] {
+export function validateMachineConfigAgents(agents: unknown, field = "agents"): string[] {
   if (!Array.isArray(agents)) {
-    throw new Error(`Machine config 'agents' must be an array, got ${typeof agents}`);
+    throw new Error(`Machine config '${field}' must be an array, got ${typeof agents}`);
   }
 
   if (agents.length === 0) {
-    throw new Error("Machine config 'agents' array must not be empty");
+    throw new Error(`Machine config '${field}' array must not be empty`);
   }
 
   const seenAgents = new Set<string>();
   for (let i = 0; i < agents.length; i++) {
     const agent = agents[i];
     if (typeof agent !== "string") {
-      throw new Error(`Machine config 'agents' entry at index ${i} must be a string, got ${typeof agent}`);
+      throw new Error(`Machine config '${field}' entry at index ${i} must be a string, got ${typeof agent}`);
     }
     if (agent === "") {
-      throw new Error(`Machine config 'agents' entry at index ${i} must not be an empty string`);
+      throw new Error(`Machine config '${field}' entry at index ${i} must not be an empty string`);
     }
     if (seenAgents.has(agent)) {
-      throw new Error(`Machine config 'agents' contains duplicate entry: "${agent}"`);
+      throw new Error(`Machine config '${field}' contains duplicate entry: "${agent}"`);
     }
     seenAgents.add(agent);
   }
@@ -244,6 +268,49 @@ export function readProjectConfigRecord(
   if (!isRecord(projects)) return undefined;
   const project = projects[projectKey];
   return isRecord(project) ? project : undefined;
+}
+
+/** Per-project values shadowing their machine-wide keys for that project's runs. */
+type ProjectConfigOverrides = { agents?: string[]; idleOutputTimeoutMs?: number };
+
+const PROJECT_OVERRIDE_KEYS: readonly string[] = ["agents", "idleOutputTimeoutMs"];
+
+/**
+ * Validates `projects.<projectKey>.overrides`. The key set is closed: an unknown key throws naming its
+ * full config path, so a typo never silently falls back to the machine value.
+ */
+export function parseProjectConfigOverrides(
+  projectKey: string,
+  project: Record<string, unknown> | undefined,
+): ProjectConfigOverrides {
+  const block = project?.overrides;
+  if (block === undefined) return {};
+  const path = `projects.${projectKey}.overrides`;
+  if (!isRecord(block)) throw new Error(`Machine config '${path}' must be an object`);
+  for (const key of Object.keys(block)) {
+    if (!PROJECT_OVERRIDE_KEYS.includes(key)) {
+      throw new Error(
+        `Machine config '${path}.${key}' is not a supported override (allowed: ${PROJECT_OVERRIDE_KEYS.join(", ")})`,
+      );
+    }
+  }
+  const overrides: ProjectConfigOverrides = {};
+  if (block.agents !== undefined) overrides.agents = validateMachineConfigAgents(block.agents, `${path}.agents`);
+  if (block.idleOutputTimeoutMs !== undefined) {
+    if (!isNonNegativeInteger(block.idleOutputTimeoutMs)) {
+      throw new Error(`Machine config '${path}.idleOutputTimeoutMs' must be a non-negative integer`);
+    }
+    overrides.idleOutputTimeoutMs = block.idleOutputTimeoutMs;
+  }
+  return overrides;
+}
+
+/** Reads and validates a registered project's override block; `{}` when the project or block is absent. */
+export function readProjectConfigOverrides(
+  projectKey: string,
+  configPath: string = MACHINE_CONFIG_PATH,
+): ProjectConfigOverrides {
+  return parseProjectConfigOverrides(projectKey, readProjectConfigRecord(projectKey, configPath));
 }
 
 /** Reads a registered project's `fixCommand` when set to a non-empty string. */

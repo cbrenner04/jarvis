@@ -1506,6 +1506,32 @@ describe("pipeline stage dispatch step-config stamping", () => {
     });
   });
 
+  test("dispatches implement stage steps with the project's agents and idleOutputTimeoutMs overrides", async () => {
+    const dispatched = await runImplementStageDispatch(
+      {
+        agents: ["claude", "codex"],
+        idleOutputTimeoutMs: 30_000,
+        projects: {
+          demo: {
+            implement: { reviewBehavior: "light", reviewPasses: 1 },
+            overrides: { agents: ["cursor", "claude"], idleOutputTimeoutMs: 450_000 },
+          },
+        },
+      },
+      "light",
+      "00000000-0000-4000-8000-000000000206",
+    );
+    const write = dispatched.find(
+      (step): step is WriteWorkflowStep => step.behavior === "write" && step.role === "implement",
+    );
+    expect(write).toMatchObject({ agents: ["cursor", "claude"], idleOutputMs: 450_000 });
+    const review = dispatched.find((step) => step.behavior === "review");
+    expect(review).toMatchObject({
+      agents: { critic: ["cursor", "claude"], actuator: ["cursor", "claude"] },
+      idleOutputMs: 450_000,
+    });
+  });
+
   test("dispatches review steps with configured role and idle-output timeouts", async () => {
     const timeoutOverrides = {
       reviewRoleTimeoutMs: 900_000,

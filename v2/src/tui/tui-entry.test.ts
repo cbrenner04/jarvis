@@ -25,6 +25,7 @@ import {
   shouldApplyCommandSettlement,
 } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
+import { createMonitorDisplay, MonitorDock } from "./tui-ink-monitor.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import {
   buildTreeRunRow,
@@ -1116,6 +1117,24 @@ function wrapFailingSecondPipelineList(deps: RunTuiEntryDeps): void {
   };
 }
 
+/** Painted dock rows (status, input, continuation, hints) walked from the ink tree's dock region. */
+function renderedDockRows(state: TuiMonitorState | undefined): string[] {
+  if (state === undefined) throw new Error("expected monitor state");
+  const Text = (props: { children?: string }): ReactElement => createElement("dock-text", null, props.children);
+  const findDock = (node: unknown): ReactElement | undefined => {
+    if (Array.isArray(node)) return node.map(findDock).find((found) => found !== undefined);
+    if (typeof node !== "object" || node === null || !("props" in node)) return undefined;
+    const element = node as ReactElement<{ children?: unknown }>;
+    return element.type === MonitorDock ? element : findDock(element.props.children);
+  };
+  const dock = findDock(createMonitorDisplay(state, Text, undefined, WORKFLOW_FILTER_NOW_MS));
+  if (dock === undefined) throw new Error("expected dock region");
+  const rows = (dock as ReactElement<{ children?: unknown }>).props.children;
+  return (Array.isArray(rows) ? rows : [rows]).map((row) =>
+    String((row as ReactElement<{ children?: unknown }>).props.children ?? ""),
+  );
+}
+
 function dockCommandFailureAsserter(
   view: ReturnType<typeof createViewHost>,
   verb: string,
@@ -1801,6 +1820,41 @@ describe("runTuiEntry", () => {
     });
     refusalView.quit();
     expect(await refusalPending).toBe(0);
+  });
+
+  test("typed start whose admission throws reports feedback and keeps the painted command input", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+      {
+        viewHost: view.host,
+        admitDetachedPipelineStart: async () => {
+          throw new RpcConnectionError("socket closed");
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("start demo --seed-text retry");
+      const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(buffer);
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: buffer,
+        lastCommandResult: "daemon_error: socket closed",
+      });
+      const [status, input] = renderedDockRows(view.monitorStates.at(-1));
+      expect(status).toContain("result: daemon_error: socket closed");
+      expect(input).toContain("retry");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
   });
 
   test("dispatches explicit expand and collapse without admission", async () => {
@@ -4316,6 +4370,74 @@ describe("runTuiEntry", () => {
       await flush();
       expect(clientOptions.methods).toContain("resume:run-matched");
       expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed kill and resume-run clear the painted command input and restore tree focus after dispatch", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      for (const [verb, rpc] of [
+        ["kill", "kill:run-matched"],
+        ["resume-run", "resume:run-matched"],
+      ] as const) {
+        view.focusCommand();
+        view.insertCommandText(verb);
+        expect(renderedDockRows(view.monitorStates.at(-1))[1]).toContain(verb);
+        view.submitCommand(verb);
+        await flush();
+        expect(clientOptions.methods).toContain(rpc);
+        expect(view.monitorStates.at(-1)).toMatchObject({ focus: "tree", commandBuffer: "", commandCursor: 0 });
+        expect(renderedDockRows(view.monitorStates.at(-1))[1]).not.toContain(verb);
+      }
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed kill failing its selection guard keeps the painted command input and reports the code", async () => {
+    const terminalMatchedRun: DaemonListRunRow = {
+      ...PIPELINE_RUN_MATCHED,
+      status: "completed",
+      isLive: false,
+      finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    };
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [terminalMatchedRun] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      steeringFailureAsserter(view, clientOptions, "kill", "kill:", true)("not_live_run");
+      const [status, input] = renderedDockRows(view.monitorStates.at(-1));
+      expect(status).toContain("result: not_live_run");
+      expect(input).toContain("kill");
     } finally {
       view.quit();
     }

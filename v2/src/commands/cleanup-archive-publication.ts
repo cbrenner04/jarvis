@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { getBaseBranch } from "../../../shared/git.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { managedWorktreePath } from "../paths.ts";
-import { type ArtifactSpec, resolveConsumedReadyIntent } from "./cleanup-artifacts.ts";
+import { type ArtifactFs, type ArtifactSpec, resolveConsumedReadyIntent } from "./cleanup-artifacts.ts";
 
 type ArchivePublicationStep = "worktree add" | "git mv" | "ready-intent prune" | "commit";
 
@@ -20,8 +20,12 @@ export type ArchivePublicationSession = {
   commits(): number;
   /** Stage one in-repo archive move as a commit on the isolated cleanup branch. */
   publish(spec: ArtifactSpec): Promise<ArchivePublicationResult>;
-  /** Stage only a consumed ready-intent prune when the spec tree is already on the default branch. */
-  publishConsumedReadyIntentOnly(spec: ArtifactSpec): Promise<ArchivePublicationResult>;
+  /**
+   * Stage only a consumed ready-intent prune when the spec tree is already on the default branch.
+   * Consumption is re-proven on the archive branch's tree, never the operator checkout; with
+   * `expectedReadyIntent`, the re-proven path must equal it.
+   */
+  publishConsumedReadyIntentOnly(spec: ArtifactSpec, expectedReadyIntent?: string): Promise<ArchivePublicationResult>;
 };
 
 export type ArchivePublicationTarget = {
@@ -64,6 +68,55 @@ function repoRelative(projectRoot: string, path: string): string | undefined {
   const rel = relative(projectRoot, path).replace(/\\/g, "/");
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return undefined;
   return rel;
+}
+
+/** A committed blob-id snapshot: `fs` reads return blob ids, so byte equality is id equality. */
+type CommittedBlobIds = { fs: ArtifactFs; paths: string[] };
+
+/**
+ * Blob ids of `relPaths` (directories recurse) as committed on `ref`, from one `git ls-tree`. Paths
+ * are keyed absolute under `projectRoot`. Identical bytes have identical blob ids, so the returned
+ * read-only `fs` answers `resolveConsumedReadyIntent` without reading any blob. Undefined when `ref`
+ * is unreadable.
+ */
+export async function committedBlobIdsAtRef(
+  runner: AsyncSubprocessRunner,
+  cwd: string,
+  projectRoot: string,
+  ref: string,
+  relPaths: readonly string[],
+): Promise<CommittedBlobIds | undefined> {
+  let listing: string;
+  try {
+    listing = await runner.runAsync("git", ["ls-tree", "-r", "-z", ref, "--", ...relPaths], cwd);
+  } catch {
+    return undefined;
+  }
+  const ids = new Map<string, Buffer>();
+  for (const entry of listing.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab < 0) continue;
+    const [, type, oid] = entry.slice(0, tab).split(" ");
+    if (type !== "blob" || oid === undefined) continue;
+    ids.set(resolve(projectRoot, entry.slice(tab + 1)), Buffer.from(oid));
+  }
+  const readOnly = (): never => {
+    throw new Error("a committed blob-id snapshot is read-only");
+  };
+  return {
+    paths: [...ids.keys()],
+    fs: {
+      exists: (path) => ids.has(resolve(path)),
+      read: (path) => {
+        const id = ids.get(resolve(path));
+        if (id === undefined) throw new Error(`not committed on ${ref}: ${path}`);
+        return id;
+      },
+      mkdir: readOnly,
+      rename: readOnly,
+      unlink: readOnly,
+    },
+  };
 }
 
 /** Cleanup archive branches whose tree already carries `relDest`: the move is staged, awaiting its PR. */
@@ -215,15 +268,39 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
       commits += 1;
       return { status: "archived", destination, intentPruned: relReadyIntent !== undefined, branch, worktreePath };
     },
-    async publishConsumedReadyIntentOnly(spec) {
+    async publishConsumedReadyIntentOnly(spec, expectedReadyIntent) {
+      const relSource = repoRelative(deps.projectRoot, spec.source);
+      const relHome = repoRelative(deps.projectRoot, spec.home);
+      if (relSource === undefined || relHome === undefined) {
+        return { status: "skipped", reason: "ready-intent path lies outside the project checkout" };
+      }
+      const probe = [`${relSource}/intent.md`, `${relHome}/ready-intents`];
+      const committed = materialized
+        ? await committedBlobIdsAtRef(deps.runner, worktreePath, deps.projectRoot, "HEAD", probe)
+        : await committedBlobIdsAtRef(
+            deps.runner,
+            deps.projectRoot,
+            deps.projectRoot,
+            await resolveArchiveBaseRef(),
+            probe,
+          );
+      if (committed === undefined) {
+        return { status: "skipped", reason: "failed to inspect ready-intent: archive base tree unreadable" };
+      }
       let readyIntent: string | undefined;
       try {
-        readyIntent = resolveConsumedReadyIntent(spec);
+        readyIntent = resolveConsumedReadyIntent(spec, committed.fs);
       } catch (error) {
         return { status: "skipped", reason: `failed to inspect ready-intent: ${errorMessage(error)}` };
       }
       if (readyIntent === undefined) {
         return { status: "skipped", reason: "no consumed ready-intent to prune" };
+      }
+      if (expectedReadyIntent !== undefined && resolve(readyIntent) !== resolve(expectedReadyIntent)) {
+        return {
+          status: "skipped",
+          reason: `re-proven ready-intent ${readyIntent} is not the proven ${expectedReadyIntent}`,
+        };
       }
       const relReadyIntent = repoRelative(deps.projectRoot, readyIntent);
       if (relReadyIntent === undefined) {

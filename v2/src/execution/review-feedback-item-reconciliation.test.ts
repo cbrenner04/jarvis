@@ -18,6 +18,7 @@ function sampleCapture(): PrReviewInputCaptureArtifact {
       { threadId: "thread-b", outdated: false, comments: [] },
     ],
     topLevelComments: [{ commentId: "comment-c", author: "bot", body: "n", createdAt: "2020-01-01T00:00:00Z" }],
+    reviewBodies: [],
   };
 }
 
@@ -56,12 +57,14 @@ describe("review-feedback item reconciliation", () => {
     expect(result.reviewFeedbackAddressedItemIds).not.toContain("thread-a");
   });
 
-  test("reconcileReviewFeedbackItemsAtLaneWorktree returns empty buckets when capture JSON lacks thread arrays", () => {
+  test.each([
+    "{}",
+    `${JSON.stringify({ threads: [], topLevelComments: [], reviewBodies: "not-an-array" })}\n`,
+  ])("reconcileReviewFeedbackItemsAtLaneWorktree returns empty buckets for invalid capture JSON", (captureJson) => {
     const laneWorktreePath = trackedMkdtempSync(join(tmpdir(), "review-feedback-reconcile-invalid-shape-"));
     try {
-      writeFileSync(resolvePrReviewInputArtifactPath(laneWorktreePath), "{}\n", "utf8");
-      const result = reconcileReviewFeedbackItemsAtLaneWorktree(laneWorktreePath);
-      expect(result).toEqual({
+      writeFileSync(resolvePrReviewInputArtifactPath(laneWorktreePath), captureJson, "utf8");
+      expect(reconcileReviewFeedbackItemsAtLaneWorktree(laneWorktreePath)).toEqual({
         reviewFeedbackAddressedItemIds: [],
         reviewFeedbackDeclinedItemIds: [],
         reviewFeedbackUnaddressedItemIds: [],

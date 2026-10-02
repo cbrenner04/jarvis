@@ -143,7 +143,8 @@ type VerifierSeams = {
 export const MAX_INSPECTED_MUTATIONS = 25;
 const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 export const MAX_VERIFICATION_MS = 5 * 60_000;
-export const MAX_KILLING_TEST_MS = 30_000;
+/** Must exceed the repo `bunfig.toml` `[test] timeout` (30 s), which overrides CLI `--timeout` in Bun 1.3. */
+export const MAX_KILLING_TEST_MS = 35_000;
 export const SCOPED_BUN_PER_TEST_TIMEOUT_MS = MAX_KILLING_TEST_MS - 5_000;
 /** Per-candidate bound = clamp(baseline × factor, floor, ceiling); the floor is the historical fixed budget. */
 const KILLING_TEST_BUDGET_FACTOR = 2;
@@ -715,6 +716,137 @@ async function testDirectlyImportsProductionModule(
     }
   }
   return false;
+}
+
+/** Every module resolved from the transitive import closure of `startPath`. */
+async function importClosureFromFile(
+  worktreePath: string,
+  startPath: string,
+  readFile: ReadFile,
+): Promise<ReadonlySet<string>> {
+  const reachable = new Set<string>();
+  const pending = [startPath];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (!file || visited.has(file)) continue;
+    visited.add(file);
+    let source: string;
+    try {
+      source = await readFile(`${worktreePath}/${file}`);
+    } catch {
+      continue;
+    }
+    for (const modulePath of importedModulePaths(source)) {
+      for (const importedFile of resolveImportedModule(worktreePath, file, modulePath)) {
+        if (importedFile.length === 0) continue;
+        reachable.add(importedFile);
+        if (!visited.has(importedFile)) pending.push(importedFile);
+      }
+    }
+  }
+  return reachable;
+}
+
+type ImportClosureLookup = (worktreePath: string, testPath: string, readFile: ReadFile) => Promise<ReadonlySet<string>>;
+
+async function killingSetReaches(
+  worktreePath: string,
+  killingTestPaths: readonly string[],
+  targetProductionPath: string,
+  readFile: ReadFile,
+  closureOf: ImportClosureLookup,
+): Promise<boolean> {
+  for (const testPath of killingTestPaths) {
+    if ((await closureOf(worktreePath, testPath, readFile)).has(targetProductionPath)) return true;
+  }
+  return false;
+}
+
+export async function killingSetImportsProductionFile(
+  worktreePath: string,
+  killingTestPaths: readonly string[],
+  targetProductionPath: string,
+  readFile: ReadFile,
+): Promise<boolean> {
+  return killingSetReaches(worktreePath, killingTestPaths, targetProductionPath, readFile, importClosureFromFile);
+}
+
+/** Serializes mutants whose killing sets import each other's production file; exported for direct race tests. */
+export function createCrossFileMutantGate() {
+  const inFlight = new Map<string, readonly string[]>();
+  let registerLock: Promise<void> = Promise.resolve();
+  const releaseWaiters: Array<() => void> = [];
+  // Bumped on every release: a scan that awaited across a release rescans instead of waiting for a wake already sent.
+  let releaseEpoch = 0;
+  const closureMemo = new Map<string, Promise<ReadonlySet<string>>>();
+  const memoizedClosure: ImportClosureLookup = (worktreePath, testPath, readFile) => {
+    const key = `${worktreePath}\0${testPath}`;
+    let closure = closureMemo.get(key);
+    if (closure === undefined) {
+      closure = importClosureFromFile(worktreePath, testPath, readFile);
+      closureMemo.set(key, closure);
+    }
+    return closure;
+  };
+
+  async function acquireAdmission(
+    candidateFile: string,
+    killingTests: readonly string[],
+    worktreePath: string,
+    readFile: ReadFile,
+  ): Promise<void> {
+    while (true) {
+      const previous = registerLock;
+      let releaseRegister!: () => void;
+      registerLock = new Promise<void>((resolve) => {
+        releaseRegister = resolve;
+      });
+      await previous;
+      const scanEpoch = releaseEpoch;
+      try {
+        let conflict = false;
+        for (const [inFlightFile, inFlightKillingTests] of inFlight) {
+          if (
+            (await killingSetReaches(worktreePath, killingTests, inFlightFile, readFile, memoizedClosure)) ||
+            (await killingSetReaches(worktreePath, inFlightKillingTests, candidateFile, readFile, memoizedClosure))
+          ) {
+            conflict = true;
+            break;
+          }
+        }
+        if (!conflict) {
+          inFlight.set(candidateFile, killingTests);
+          return;
+        }
+      } finally {
+        releaseRegister();
+      }
+      if (releaseEpoch !== scanEpoch) continue;
+      await new Promise<void>((resolve) => {
+        releaseWaiters.push(resolve);
+      });
+    }
+  }
+
+  return {
+    async runWithAdmission<T>(
+      candidateFile: string,
+      killingTests: readonly string[],
+      worktreePath: string,
+      readFile: ReadFile,
+      run: () => Promise<T>,
+    ): Promise<T> {
+      await acquireAdmission(candidateFile, killingTests, worktreePath, readFile);
+      try {
+        return await run();
+      } finally {
+        inFlight.delete(candidateFile);
+        releaseEpoch += 1;
+        for (const wake of releaseWaiters.splice(0)) wake();
+      }
+    },
+  };
 }
 
 type KillingTestResolution = {
@@ -1939,6 +2071,7 @@ async function verifyCandidates(
   const skippedCandidates: SkippedCandidate[] = [];
   const fileCache = new Map<string, string>();
   const fileChains = new Map<string, Promise<void>>();
+  const crossFileMutantGate = createCrossFileMutantGate();
   const baselineFor = createBaselineMeasurer(input, runScopedTests, now, deadline);
 
   async function getFileContent(file: string): Promise<string | null> {
@@ -1999,17 +2132,24 @@ async function verifyCandidates(
           if (mutationFailure === null) mutationFailure = missingKillingTest(candidate);
           return;
         }
-        const result = await testCandidate(
-          candidate,
-          content,
-          input,
-          writeFile,
-          runScopedTests,
+        const result = await crossFileMutantGate.runWithAdmission(
+          candidate.file,
           resolution.killingTests,
-          mutationRecordStore,
-          baselineFor,
-          now,
-          deadline,
+          input.worktreePath,
+          readFile,
+          () =>
+            testCandidate(
+              candidate,
+              content,
+              input,
+              writeFile,
+              runScopedTests,
+              resolution.killingTests,
+              mutationRecordStore,
+              baselineFor,
+              now,
+              deadline,
+            ),
         );
         if (result !== null) {
           if ("kind" in result) {

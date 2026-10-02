@@ -97,3 +97,46 @@ describe("stampWorkflowStepsWithMachineConfig gate commands", () => {
     expect(stamped[1]).not.toHaveProperty("iterationCeilingMs");
   });
 });
+
+describe("stampWorkflowStepsWithMachineConfig per-project idleOutputTimeoutMs override", () => {
+  test("stamps the project override on that project's steps and the machine value on other projects", () => {
+    const configPath = writeMachineConfig({
+      idleOutputTimeoutMs: 30_000,
+      projects: { demo: { overrides: { idleOutputTimeoutMs: 300_000 } }, other: {} },
+    });
+    const otherWrite = createMinimalDispatchWriteStep({
+      worktree: { projectRoot: "/other", projectName: "other", branchName: "stub", baseRef: "main" },
+    });
+    const stamped = stampWorkflowStepsWithMachineConfig(
+      [createMinimalDispatchWriteStep(), reviewStep(), reviewDebateStep(), otherWrite],
+      configPath,
+    );
+    expect(stamped[0]).toMatchObject({ behavior: "write", idleOutputMs: 300_000 });
+    expect(stamped[1]).toMatchObject({ behavior: "review", idleOutputMs: 300_000 });
+    expect(stamped[2]).toMatchObject({ behavior: "review-debate", idleOutputMs: 300_000 });
+    expect(stamped[3]).toMatchObject({ behavior: "write", idleOutputMs: 30_000 });
+  });
+
+  test("a project override of 0 disables the write-step idle watchdog", () => {
+    const configPath = writeMachineConfig({ projects: { demo: { overrides: { idleOutputTimeoutMs: 0 } } } });
+    const [write] = stampWorkflowStepsWithMachineConfig([createMinimalDispatchWriteStep()], configPath);
+    expect(write).not.toHaveProperty("idleOutputMs");
+  });
+
+  test("an override above iterationTimeoutMs fails naming the override path", () => {
+    const configPath = writeMachineConfig({
+      iterationTimeoutMs: 100_000,
+      projects: { demo: { overrides: { idleOutputTimeoutMs: 200_000 } } },
+    });
+    expect(() => stampWorkflowStepsWithMachineConfig([createMinimalDispatchWriteStep()], configPath)).toThrow(
+      "'projects.demo.overrides.idleOutputTimeoutMs' (200000) must not exceed 'iterationTimeoutMs' (100000)",
+    );
+  });
+
+  test("an unknown override key fails naming projects.<key>.overrides.<field>", () => {
+    const configPath = writeMachineConfig({ projects: { demo: { overrides: { idleTimeoutMs: 300_000 } } } });
+    expect(() => stampWorkflowStepsWithMachineConfig([createMinimalDispatchWriteStep()], configPath)).toThrow(
+      "'projects.demo.overrides.idleTimeoutMs' is not a supported override",
+    );
+  });
+});

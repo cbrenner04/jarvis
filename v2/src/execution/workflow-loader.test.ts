@@ -112,6 +112,55 @@ describe("loadWorkflowSteps", () => {
     expect(steps[0]?.agentModelConfig).toEqual(VALID_AGENT_MODEL_CONFIG);
   });
 
+  test("a project agents override shadows the machine list for that project's steps only", () => {
+    const machineConfigPath = writeJson("config.json", {
+      agents: ["claude"],
+      projects: { proj: { overrides: { agents: ["codex", "claude"] } }, other: {} },
+    });
+    const machineProfile = writeValidProfile();
+    const loadedOrders: string[][] = [];
+    const steps = loadWorkflowSteps(
+      [
+        sourceStep(),
+        reviewSourceStep(),
+        sourceStep({
+          stepId: "step-other",
+          worktree: { projectRoot: "/tmp/other", projectName: "other", branchName: "b", baseRef: "main" },
+        }),
+      ],
+      {
+        machineConfigPath,
+        machineProfile,
+        loadAgentModelConfig: (_profile, agents) => {
+          loadedOrders.push([...agents]);
+          return Object.fromEntries(agents.map((agent) => [agent, FULL_ROLES]));
+        },
+      },
+    );
+    expect(steps[0]?.agents).toEqual(["codex", "claude"]);
+    expect(steps[0]?.agentModelConfig).toEqual({ codex: FULL_ROLES, claude: FULL_ROLES });
+    expect(steps[1]?.agents).toEqual({ critic: ["codex", "claude"], actuator: ["codex", "claude"] });
+    expect(steps[2]?.agents).toEqual(["claude"]);
+    expect(loadedOrders).toEqual([["codex", "claude"], ["claude"]]);
+  });
+
+  test("an unknown project override key fails naming projects.<key>.overrides.<field>", () => {
+    const machineConfigPath = writeJson("config.json", {
+      agents: ["claude"],
+      projects: { proj: { overrides: { agentOrder: ["codex"] } } },
+    });
+    expect(() =>
+      loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile: writeValidProfile(), machinesDir }),
+    ).toThrow("'projects.proj.overrides.agentOrder' is not a supported override");
+  });
+
+  test("an invalid project agents override fails naming its path", () => {
+    const machineConfigPath = writeJson("config.json", { projects: { proj: { overrides: { agents: [] } } } });
+    expect(() =>
+      loadWorkflowSteps([sourceStep()], { machineConfigPath, machineProfile: writeValidProfile(), machinesDir }),
+    ).toThrow("Machine config 'projects.proj.overrides.agents' array must not be empty");
+  });
+
   test("falls back to DEFAULT_WRITE_AGENTS when machine config has no agents key", () => {
     const machineConfigPath = writeJson("config.json", {});
     const machineProfile = writeValidProfile();

@@ -145,7 +145,10 @@ type ImplementRecoveryRequest = {
   };
 };
 
-function resolveImplementMutationRepair(deps: CliDeps): ImplementRecoveryRequest["mutationRepair"] | undefined {
+function resolveImplementMutationRepair(
+  deps: CliDeps,
+  project: string,
+): ImplementRecoveryRequest["mutationRepair"] | undefined {
   try {
     const [step] = loadWorkflowSteps(
       [
@@ -155,7 +158,7 @@ function resolveImplementMutationRepair(deps: CliDeps): ImplementRecoveryRequest
           role: "implement",
           promptId: "implement.prompt.body",
           stepRules: IMPLEMENT_WRITE_STEP_RULES,
-          worktree: { projectRoot: "", projectName: "", branchName: "", baseRef: "" },
+          worktree: { projectRoot: "", projectName: project, branchName: "", baseRef: "" },
           specPath: "",
           expectedArtifactPath: "",
         },
@@ -163,7 +166,7 @@ function resolveImplementMutationRepair(deps: CliDeps): ImplementRecoveryRequest
       { machineConfigPath: deps.machineConfigPath },
     );
     if (step === undefined || step.behavior !== "write") return undefined;
-    const bounds = resolveWritePathIterationBounds(deps.machineConfigPath);
+    const bounds = resolveWritePathIterationBounds(deps.machineConfigPath, project);
     return {
       agents: step.agents,
       agentModelConfig: step.agentModelConfig,
@@ -192,7 +195,7 @@ function resolveImplementRecoveryRequest(
   if (completion !== "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria") {
     return undefined;
   }
-  const mutationRepair = resolveImplementMutationRepair(deps);
+  const mutationRepair = resolveImplementMutationRepair(deps, identity.project);
   return {
     project: identity.project,
     branch: parsed.branchName ?? basename(dirname(identity.absoluteSpecPath)),

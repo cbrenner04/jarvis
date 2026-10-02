@@ -4,18 +4,18 @@ Reviewed 2026-10-02 against `main` after the [2026-10-01/02 session](../../repor
 
 ## Structural recovery is closed
 
-The August 29 charter's five retirements are complete. This is a separate, bounded reliability backlog; later defects and feature requests do not reopen that charter. CLI retirement is an unfinished original side item, parked pending the `run pause` decision.
+The August 29 charter's five retirements are complete. This is a separate, bounded reliability backlog; later defects and feature requests do not reopen that charter. CLI retirement is an unfinished original side item, parked (the `run pause` decision is made: retire).
 
 ## Current inventory
 
-There are **5 active spec plans, 2 ready-intents, and 20 seeds** (2026-10-02: #4428–#4432, #4436 merged). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **5 active spec plans, 2 ready-intents, and 22 seeds** (2026-10-02: #4428–#4432, #4436 merged). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
 
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |
 | Highest priority | 1 | 0 | 0 | Linked resume: terminal evidence (in flight) |
-| Immediate reliability | 4 | 1 | 2 | Bounded completion target below |
-| Follow-on workflow quality | 0 | 0 | 6 | Separate prioritization after the immediate queue |
-| Operator features and ergonomics | 0 | 0 | 3 | Useful additions, outside the completion target |
+| Immediate reliability | 4 | 1 | 3 | Bounded completion target below |
+| Follow-on workflow quality | 0 | 0 | 8 | Separate prioritization after the immediate queue |
+| Operator features and ergonomics | 0 | 0 | 2 | Useful additions, outside the completion target |
 | Parked design and cleanup | 0 | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
 | Parked owner seeds (outside target) | 0 | 0 | 3 | #4419 — not in the backlog |
 | Evidence-gated investigation | 0 | 1 | 0 | WAL failure capture required |
@@ -40,7 +40,7 @@ This target closes when these workstreams are implemented, reviewed, merged, and
 - Workstreams 1–3 all touch `write-loop.ts`/its tests: implement them serially in the order above, each against the preceding merge. Plans may fan out.
 - Expect agents to respect the 2-run gate budget (#4407) on new dispatches; lanes started earlier still loop.
 - Until workstream 1 lands, keep concurrent finalization gates to ~2 and resume failed gates one at a time.
-- WAL work requires a real captured rejection. Harness-owned agent tools require explicit owner sign-off. Decide whether `run pause` survives before planning CLI retirement or dock grammar.
+- WAL work requires a real captured rejection. Harness-owned agent tools require explicit owner sign-off. `run pause` retires (owner decision 2026-10-02); CLI retirement and dock grammar are unblocked but remain parked.
 
 ## Maintenance
 

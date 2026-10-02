@@ -11,8 +11,6 @@ export function stampWorkflowStepsWithMachineConfig(
   steps: readonly AnyWorkflowStep[],
   machineConfigPath: string,
 ): AnyWorkflowStep[] {
-  const bounds = resolveWritePathIterationBounds(machineConfigPath);
-  const configuredIdleOutputMs = readConfiguredIdleOutputTimeoutMs(machineConfigPath);
   const reviewRoleTimeoutMs = readReviewRoleTimeoutMs(machineConfigPath);
   return steps.map((step) => {
     const projectName = step.behavior === "write" ? step.worktree.projectName : step.project;
@@ -23,8 +21,9 @@ export function stampWorkflowStepsWithMachineConfig(
       ...(readyCommand !== undefined ? { readyCommand } : {}),
     };
     if (step.behavior === "write") {
-      return { ...step, ...bounds, ...gateCommands };
+      return { ...step, ...resolveWritePathIterationBounds(machineConfigPath, projectName), ...gateCommands };
     }
+    const configuredIdleOutputMs = readConfiguredIdleOutputTimeoutMs(machineConfigPath, projectName);
     return {
       ...step,
       roleTimeoutMs: reviewRoleTimeoutMs,

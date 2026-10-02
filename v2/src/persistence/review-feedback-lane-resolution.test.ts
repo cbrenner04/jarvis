@@ -71,6 +71,55 @@ function memoryStore(args: {
   };
 }
 
+function linkedImplementInvocationRuns(args: {
+  invocationId: string;
+  link0Id: string;
+  specPath: string;
+  prNumber: number;
+  prUrl: string;
+  createdAtBase?: number;
+}): Run[] {
+  const createdAtBase = args.createdAtBase ?? 10;
+  const snapshot = workflowSnapshot(
+    args.invocationId,
+    {
+      stepId: "implement",
+      role: "implement",
+      promptId: "implement.prompt.body",
+    },
+    [{ stepId: "implement-review", role: "review", promptId: "implement.review" }],
+  );
+  return [
+    baseRun({
+      id: args.link0Id,
+      createdAt: createdAtBase,
+      stepId: "implement~link-0",
+      specPath: args.specPath,
+      prNumber: null,
+      prUrl: null,
+      workflowSnapshot: snapshot,
+    }),
+    baseRun({
+      id: `${args.link0Id}-link-1`,
+      createdAt: createdAtBase + 1,
+      stepId: "implement~link-1",
+      specPath: args.specPath,
+      prNumber: null,
+      prUrl: null,
+      workflowSnapshot: snapshot,
+    }),
+    baseRun({
+      id: `${args.link0Id}-review`,
+      createdAt: createdAtBase + 2,
+      stepId: "implement-review",
+      specPath: args.specPath,
+      prNumber: args.prNumber,
+      prUrl: args.prUrl,
+      workflowSnapshot: snapshot,
+    }),
+  ];
+}
+
 function pipelineFixture(args: {
   pipelineId: string;
   stageId: string;
@@ -289,6 +338,89 @@ describe("resolveReviewFeedbackLane bare", () => {
     expect(result.target.laneKind).toBe("implement");
     expect(result.target.entryRunId).toBe("implement-entry");
     expect(result.target.entrySpecPath).toBe("v2/spec/lane/index.md");
+  });
+
+  test("resolves a completed linked implement lane when PR evidence is on a sibling row", () => {
+    const specPath = "v2/spec/linked/index.md";
+    const runs = linkedImplementInvocationRuns({
+      invocationId: "inv-linked-bare",
+      link0Id: "implement~link-0",
+      specPath,
+      prNumber: 77,
+      prUrl: "https://example.test/pull/77",
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs }), {
+      mode: "bare",
+      project: PROJECT,
+      branch: BRANCH,
+    });
+    expect(result).toEqual({
+      ok: true,
+      target: {
+        laneKind: "implement",
+        project: PROJECT,
+        branch: BRANCH,
+        worktreePath: WORKTREE,
+        prNumber: 77,
+        prUrl: "https://example.test/pull/77",
+        entryRunId: "implement~link-0",
+        entrySpecPath: specPath,
+        baseRef: "main",
+        provenance: { kind: "bare" },
+      },
+    });
+  });
+
+  test("refuses ambiguous bare branch when two completed linked implement invocations qualify", () => {
+    const first = linkedImplementInvocationRuns({
+      invocationId: "inv-linked-a",
+      link0Id: "linked-a-link-0",
+      specPath: "v2/spec/a/index.md",
+      prNumber: 81,
+      prUrl: "https://example.test/pull/81",
+      createdAtBase: 1,
+    });
+    const second = linkedImplementInvocationRuns({
+      invocationId: "inv-linked-b",
+      link0Id: "linked-b-link-0",
+      specPath: "v2/spec/b/index.md",
+      prNumber: 82,
+      prUrl: "https://example.test/pull/82",
+      createdAtBase: 20,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [...first, ...second] }), {
+      mode: "bare",
+      project: PROJECT,
+      branch: BRANCH,
+    });
+    expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_ambiguous" });
+  });
+
+  test("refuses ambiguous bare branch when plain implement and linked implement both qualify", () => {
+    const plainImplement = baseRun({
+      id: "plain-implement-entry",
+      createdAt: 1,
+      stepId: "implement-step",
+      workflowSnapshot: workflowSnapshot("inv-plain-implement", {
+        stepId: "implement-step",
+        role: "implement",
+        promptId: "implement.prompt.body",
+      }),
+    });
+    const linked = linkedImplementInvocationRuns({
+      invocationId: "inv-linked-mixed",
+      link0Id: "mixed-link-0",
+      specPath: "v2/spec/linked-mixed/index.md",
+      prNumber: 90,
+      prUrl: "https://example.test/pull/90",
+      createdAtBase: 20,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [plainImplement, ...linked] }), {
+      mode: "bare",
+      project: PROJECT,
+      branch: BRANCH,
+    });
+    expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_ambiguous" });
   });
 
   test("refuses completed lane without publication evidence", () => {
@@ -579,6 +711,72 @@ describe("resolveReviewFeedbackLane pipeline", () => {
       },
     );
     expect(fanOutOmitted).toMatchObject({ ok: false, code: "review_feedback_lane_unmatched" });
+  });
+
+  test("resolves pipeline stage when workflowInvocationId is linked implement~link-0", () => {
+    const specPath = "v2/spec/pipeline-linked/index.md";
+    const runs = linkedImplementInvocationRuns({
+      invocationId: "inv-pipeline-linked",
+      link0Id: "pipeline-link-0",
+      specPath,
+      prNumber: 88,
+      prUrl: "https://example.test/pull/88",
+    });
+    const entryRun = runs[0] as Run;
+    const pipeline = pipelineFixture({
+      pipelineId: "pipe-linked",
+      stageId: "implement-stage",
+      workflow: "implement",
+      entryRun,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs, pipelines: [pipeline] }), {
+      mode: "pipeline",
+      project: PROJECT,
+      branch: BRANCH,
+      pipelineId: "pipe-linked",
+      stageId: "implement-stage",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected success");
+    expect(result.target).toMatchObject({
+      laneKind: "implement",
+      prNumber: 88,
+      prUrl: "https://example.test/pull/88",
+      entryRunId: "pipeline-link-0",
+      entrySpecPath: specPath,
+    });
+  });
+
+  test("resolves pipeline stage when workflowInvocationId is implement-review sibling", () => {
+    const specPath = "v2/spec/pipeline-review-row/index.md";
+    const runs = linkedImplementInvocationRuns({
+      invocationId: "inv-pipeline-review-row",
+      link0Id: "review-row-link-0",
+      specPath,
+      prNumber: 89,
+      prUrl: "https://example.test/pull/89",
+    });
+    const reviewRun = runs[2] as Run;
+    const pipeline = pipelineFixture({
+      pipelineId: "pipe-review-row",
+      stageId: "implement-stage",
+      workflow: "implement",
+      entryRun: reviewRun,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs, pipelines: [pipeline] }), {
+      mode: "pipeline_stage",
+      pipelineId: "pipe-review-row",
+      stageId: "implement-stage",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected success");
+    expect(result.target).toMatchObject({
+      laneKind: "implement",
+      prNumber: 89,
+      prUrl: "https://example.test/pull/89",
+      entryRunId: "review-row-link-0",
+      entrySpecPath: specPath,
+    });
   });
 
   test("refuses pipeline stage whose workflow is not intent, plan, or implement", () => {

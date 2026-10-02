@@ -3,7 +3,9 @@ import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
-import { formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { acquireGateInvocationLease, HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE } from "../execution/gate-invocation-lease.ts";
+import { createReadyFinalizer, formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
@@ -215,6 +217,19 @@ test("post-commit shrink contract_miss composes to resume", () => {
       loopFinished("contract_miss", { resumable: true }),
     ),
   ).toEqual(err("contract_miss", "resume", true));
+});
+
+test("post-commit shrink invocation_failure error composes to resume", () => {
+  expect(
+    composeRunOperatorError(
+      {
+        ...runWith("paused", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]),
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: { failureKind: "error", bindingAttempts: [] },
+      },
+      loopFinished("invocation_failure", { resumable: true }),
+    ),
+  ).toEqual(err("invocation_error", "resume", true));
 });
 
 test("composeRunOperatorError projects iteration_timeout inventoryError", () => {
@@ -1055,6 +1070,39 @@ test("composeRunOperatorError omits killing-set fields for mutation_repair_exhau
 test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {
   expect(composeRunOperatorError(runWith("in-progress"))).toBeUndefined();
   expect(composeRunOperatorError(runWith("completed"), loopFinished("complete"))).toBeUndefined();
+});
+
+test("composeRunOperatorError surfaces harness gate slot wait for in-progress runs with an id", async () => {
+  const runId = "operator-error-slot-wait";
+  const agentLease = acquireGateInvocationLease();
+  let releaseGate!: () => void;
+  const gateHeld = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  const runner: AsyncSubprocessRunner = {
+    runAsync: async () => {
+      await gateHeld;
+      return "";
+    },
+  };
+  const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+  const pending = finalizer({
+    worktreePath: "/tmp/worktree",
+    baseRef: "main",
+    branch: "feature",
+    prNumber: 1,
+    runId,
+  });
+  await Promise.resolve();
+  expect(composeRunOperatorError({ id: runId, status: "in-progress" })).toEqual({
+    reason: "harness_failure",
+    retryable: false,
+    nextAction: "stop",
+    message: HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE,
+  });
+  releaseGate();
+  agentLease?.release();
+  await pending;
 });
 
 test("findTerminalLogRecord selects chronologically last terminal event", () => {

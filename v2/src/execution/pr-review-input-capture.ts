@@ -32,11 +32,20 @@ type PrReviewInputTopLevelComment = {
   createdAt: string;
 };
 
+type PrReviewInputReviewBody = {
+  reviewId: string;
+  author: string;
+  body: string;
+  submittedAt: string;
+  state: string;
+};
+
 export type PrReviewInputCaptureArtifact = {
   captureVersion: 1;
   prNumber: number;
   threads: PrReviewInputCaptureThread[];
   topLevelComments: PrReviewInputTopLevelComment[];
+  reviewBodies: PrReviewInputReviewBody[];
 };
 
 type CaptureArgs = {
@@ -59,11 +68,13 @@ export async function refreshPrReviewInputCapture(args: {
     prNumber: args.prNumber,
     runner: args.runner ?? realAsyncSubprocessRunner,
   };
+  const [prViewCapture, threads] = await Promise.all([fetchPrViewCapture(capture), fetchReviewThreads(capture)]);
   const artifact: PrReviewInputCaptureArtifact = {
     captureVersion: 1,
     prNumber: args.prNumber,
-    threads: await fetchReviewThreads(capture),
-    topLevelComments: await fetchTopLevelComments(capture),
+    threads,
+    topLevelComments: prViewCapture.topLevelComments,
+    reviewBodies: prViewCapture.reviewBodies,
   };
   writePrReviewInputArtifactAtomically(resolvePrReviewInputArtifactPath(args.laneWorktreePath), artifact);
   return artifact;
@@ -199,7 +210,26 @@ async function fetchReviewThreads(args: CaptureArgs): Promise<PrReviewInputCaptu
   return out;
 }
 
-async function fetchTopLevelComments(args: CaptureArgs): Promise<PrReviewInputTopLevelComment[]> {
+type GhPrViewPayload = {
+  reviews?: Array<{
+    id?: string | number | null;
+    author?: { login?: string | null } | null;
+    body?: string | null;
+    submittedAt?: string | null;
+    state?: string | null;
+  }>;
+  comments?: Array<{
+    id?: string | null;
+    author?: { login?: string | null } | null;
+    body?: string | null;
+    createdAt?: string | null;
+  }>;
+};
+
+async function fetchPrViewCapture(args: CaptureArgs): Promise<{
+  topLevelComments: PrReviewInputTopLevelComment[];
+  reviewBodies: PrReviewInputReviewBody[];
+}> {
   const stdout = await runGh(args.runner, args.laneWorktreePath, [
     "pr",
     "view",
@@ -207,17 +237,9 @@ async function fetchTopLevelComments(args: CaptureArgs): Promise<PrReviewInputTo
     "--json",
     "reviews,comments",
   ]);
-  const parsed = JSON.parse(stdout) as {
-    reviews?: Array<{ submittedAt?: string | null }>;
-    comments?: Array<{
-      id?: string | null;
-      author?: { login?: string | null } | null;
-      body?: string | null;
-      createdAt?: string | null;
-    }>;
-  };
+  const parsed = JSON.parse(stdout) as GhPrViewPayload;
   const latestSubmittedReview = latestSubmittedAt(parsed.reviews ?? []);
-  return (parsed.comments ?? [])
+  const topLevelComments = (parsed.comments ?? [])
     .filter((comment) => !isBotLogin(comment.author?.login))
     .filter((comment) => {
       if (latestSubmittedReview === null) return true;
@@ -230,6 +252,23 @@ async function fetchTopLevelComments(args: CaptureArgs): Promise<PrReviewInputTo
       createdAt: comment.createdAt ?? "",
     }))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const reviewBodies = (parsed.reviews ?? [])
+    .filter(
+      (review) =>
+        review.submittedAt != null &&
+        !isBotLogin(review.author?.login) &&
+        (review.state === "COMMENTED" || review.state === "CHANGES_REQUESTED" || review.state === "APPROVED") &&
+        (review.body ?? "").trim() !== "",
+    )
+    .map((review) => ({
+      reviewId: String(review.id ?? ""),
+      author: review.author?.login ?? "unknown",
+      body: review.body ?? "",
+      submittedAt: review.submittedAt ?? "",
+      state: review.state ?? "",
+    }))
+    .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+  return { topLevelComments, reviewBodies };
 }
 
 function isBotLogin(login: string | null | undefined): boolean {

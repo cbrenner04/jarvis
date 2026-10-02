@@ -5,6 +5,7 @@ import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-suppor
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { bindHarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
+import { leasedHarnessFullSuiteGateSpawnCount, liveGateInvocationLeaseCount } from "./gate-invocation-lease.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
 import {
@@ -710,6 +711,39 @@ describe("executeTerminalPublication harness ready-flip evidence", () => {
     });
 
     expect(flipCalls).toHaveLength(0);
+  });
+});
+
+describe("terminal publication gate slot", () => {
+  afterEach(() => {
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+    expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
+  });
+
+  it("acquires and releases the slot lease around the ready gate", async () => {
+    let leaseDuringGate = -1;
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {
+        leaseDuringGate = liveGateInvocationLeaseCount();
+      },
+      gh: ghResolvesOpenDraft(42, baseInput.prUrl),
+      ghReadyFlip: async () => {},
+    });
+
+    await execute({ ...baseInput, terminalAction: "ready" });
+    expect(leaseDuringGate).toBe(1);
+  });
+
+  it("releases the slot lease when the ready gate fails", async () => {
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {
+        expect(liveGateInvocationLeaseCount()).toBe(1);
+        throw new ReadyGateError("bun run ready", 1, "failed");
+      },
+    });
+
+    await expect(execute({ ...baseInput, terminalAction: "ready" })).rejects.toBeInstanceOf(TerminalPublicationError);
+    expect(liveGateInvocationLeaseCount()).toBe(0);
   });
 });
 

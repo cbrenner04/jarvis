@@ -95,6 +95,7 @@ import {
   isMaterializedNodeModulesPath,
   MATERIALIZED_NODE_MODULES_PATH,
 } from "./external-worktree.ts";
+import { acquireGateInvocationLease, type GateInvocationLease } from "./gate-invocation-lease.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
@@ -715,60 +716,17 @@ export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 /** Bound on ordinary iteration quiescence; finalization repairs always join without a bound. */
 const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
+export {
+  acquireGateInvocationLease,
+  gateInvocationAdmits,
+  liveGateInvocationLeaseCount,
+  MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
+  subscribeGateInvocationLeaseReleased,
+} from "./gate-invocation-lease.ts";
+
 type IterationActiveGate = { command: string; startedAtMs: number; lease: GateInvocationLease };
 
-export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
-
 export const MAX_AGENT_GATE_INVOCATIONS_PER_ITERATION = 2;
-
-/** An owned hold on the machine-wide gate-invocation budget; only its holder can release it. */
-type GateInvocationLease = { release: () => void };
-
-const liveGateInvocationLeases = new Set<GateInvocationLease>();
-const gateInvocationLeaseReleaseListeners = new Set<() => void>();
-
-/** Subscribe to lease releases; listeners run in a microtask after the lease is deleted, and a throwing listener does not affect others. Returns an unsubscribe. */
-export function subscribeGateInvocationLeaseReleased(listener: () => void): () => void {
-  gateInvocationLeaseReleaseListeners.add(listener);
-  return () => {
-    gateInvocationLeaseReleaseListeners.delete(listener);
-  };
-}
-
-function notifyGateInvocationLeaseReleased(): void {
-  const listeners = [...gateInvocationLeaseReleaseListeners];
-  queueMicrotask(() => {
-    for (const listener of listeners) {
-      try {
-        listener();
-      } catch {
-        // A faulty listener must not starve the others.
-      }
-    }
-  });
-}
-
-/** Pure admission: one more full-suite gate invocation fits while the live count is below the limit. */
-export function gateInvocationAdmits(heldCount: number, limit: number): boolean {
-  return heldCount < limit;
-}
-
-/** Acquire an owned lease, or `undefined` when `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` leases are live. Release is idempotent and removes only this lease. */
-export function acquireGateInvocationLease(): GateInvocationLease | undefined {
-  if (!gateInvocationAdmits(liveGateInvocationLeases.size, MAX_CONCURRENT_AGENT_GATE_INVOCATIONS)) return undefined;
-  const lease: GateInvocationLease = {
-    release: () => {
-      if (!liveGateInvocationLeases.delete(lease)) return;
-      notifyGateInvocationLeaseReleased();
-    },
-  };
-  liveGateInvocationLeases.add(lease);
-  return lease;
-}
-
-export function liveGateInvocationLeaseCount(): number {
-  return liveGateInvocationLeases.size;
-}
 
 function createIterationActiveGateTracker(options: {
   clock: () => number;
@@ -3496,6 +3454,7 @@ type CompletionPublicationSeams = Pick<
   | "readyCommand"
   | "promptId"
   | "landing"
+  | "logSink"
 >;
 
 type CompletionPublishFailure = {
@@ -3618,6 +3577,7 @@ async function runReadyRepairIteration(
   result: WriteLoopResult,
   gateError: ReadyGateError,
   iterationNumber: number,
+  frozenRepairAllowset: Set<string>,
 ): Promise<RepairIterationOutcome> {
   const attemptId = store.recordAttemptStart(result.runId);
   args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
@@ -3638,6 +3598,7 @@ async function runReadyRepairIteration(
       GATE_STEP: failedStep.step,
       GATE_EXIT_CODE: String(gateError.exitCode ?? "unknown"),
       GATE_OUTPUT: failedStep.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
+      ALLOWED_PATHS: [...resolveAttributableRepairAllowset(frozenRepairAllowset, gateError)].sort().join("\n"),
     },
   };
   const settled = await awaitIteration(repairArgs, store, result.runId, attemptId, sessionLog, "finalization-repair");
@@ -4377,6 +4338,20 @@ type ReadyGateRepairLoopResult =
   | { kind: "done"; outcome: CompletionPublishOutcome; iterationsConsumed: number; repairBudgetExhausted: boolean }
   | { kind: "early"; result: ReadyRepairPublishResult };
 
+const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
+
+function boundedAutofixOutputTail(output: string): string {
+  return output.length <= AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX ? output : output.slice(-AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX);
+}
+
+export function readyGateRepairLogFields(
+  gateCommand: string,
+  gateOutput: string,
+): { failingStep: string; gateOutputTail: string } {
+  const failedStep = selectFailedReadyStepOutput(gateCommand, gateOutput);
+  return { failingStep: failedStep.step, gateOutputTail: boundedAutofixOutputTail(failedStep.output) };
+}
+
 async function runReadyGateRepairLoop(
   args: WriteLoopInput,
   store: StateStore,
@@ -4403,6 +4378,7 @@ async function runReadyGateRepairLoop(
       kind: "ready_gate_repair",
       attempt: repairAttempt,
       gateExitCode: currentOutcome.error.exitCode,
+      ...readyGateRepairLogFields(currentOutcome.error.command, currentOutcome.error.output),
     });
 
     const repairBaseline = await snapshotAutofixBaseline(input.worktreePath);
@@ -4412,6 +4388,7 @@ async function runReadyGateRepairLoop(
       result,
       currentOutcome.error,
       currentIterations + 1,
+      frozenRepairAllowset,
     );
     if (repairOutcome === "unsettled") {
       return { kind: "early", result: { failure: currentOutcome, iterationsConsumed: currentIterations } };
@@ -4491,8 +4468,6 @@ function buildReadyRepairPublishResult(
     ? { success: outcome, iterationsConsumed }
     : { failure: outcome, iterationsConsumed, ...(readyGateOrigin !== undefined ? { readyGateOrigin } : {}) };
 }
-
-const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
 
 type AutofixTypecheckResult = {
   exitCode: number;
@@ -4817,10 +4792,7 @@ async function publishWithReadyGateRepair(
     args.logSink?.append(result.runId, {
       kind: "ready_gate_autofix_discarded",
       typecheckExitCode: typecheckResult.exitCode,
-      typecheckOutput:
-        typecheckResult.output.length <= AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX
-          ? typecheckResult.output
-          : typecheckResult.output.slice(-AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX),
+      typecheckOutput: boundedAutofixOutputTail(typecheckResult.output),
     });
     const loopResult = await runReadyGateRepairLoop(
       args,
@@ -4936,6 +4908,7 @@ async function runReadyFinalizer(
   },
   verifierProcessGroups?: VerifierProcessGroupRecorder,
   recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void,
+  publicationOwner?: { runId: string; store: StateStore },
 ): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
@@ -4984,6 +4957,13 @@ async function runReadyFinalizer(
     ...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {}),
     skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined,
     ...(recordHarnessReadyFlipEvidence !== undefined ? { recordHarnessReadyFlipEvidence } : {}),
+    ...(publicationOwner !== undefined
+      ? {
+          runId: publicationOwner.runId,
+          onReadyGateSlotWait: (fields: { gate: string; waitedMs: number }) =>
+            seams.logSink?.append(publicationOwner.runId, { kind: "ready_gate_slot_wait", ...fields }),
+        }
+      : {}),
   };
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }
@@ -5117,6 +5097,7 @@ export async function publishCompletionArtifacts(
         },
         verifierProcessGroups,
         recordHarnessReadyFlipEvidence,
+        publicationOwner,
       );
     }
   } catch (finalizeError) {

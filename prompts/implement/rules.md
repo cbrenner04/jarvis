@@ -2,7 +2,7 @@
 id: implement.rules
 behavior: implement-rules
 kind: fragment
-revision: 15
+revision: 16
 ---
 # Implement
 
@@ -25,6 +25,7 @@ Gate budget: at most two scoped test-suite script invocations per iteration; a t
 - Inside the active subspec, tick `- [ ]` acceptance-criteria items as you actually satisfy them. Do not tick speculatively. Do not tick anything else. Tick every confirmed-satisfied criterion as a mandatory final step; if criteria are already `- [ ]` on entry but their work is already complete, re-verify and then tick—never report "already done" and stop without ticking.
 - Do not edit `index.md`. Jarvis flips the index checkbox itself when all acceptance criteria are checked.
 - Do not run `git commit` or otherwise create commits. Jarvis owns staging and committing.
+- Do not mutate git history or branches: no `rebase`, `merge`, `reset`, `commit --amend`, `push`, or `checkout`/`switch` to another branch. Jarvis owns history and base integration.
 - Jarvis re-invokes for the next iteration; iterate the same subspec until all its acceptance criteria are checked.
 - Use commands from target repo `AGENTS.md`; no equivalents.
 - Acceptance criteria flagged human-only (`(Manual)`, "visual inspection only", "no automated guard") are operator-verified: implement them, run the automated gate, leave them unchecked, and do not attempt in-sandbox visual verification (no dev-server port bind). Do not append a `## Blocker` for human-only criteria.

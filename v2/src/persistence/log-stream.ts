@@ -27,6 +27,8 @@ type ReadyGateRepairEvent = {
   kind: "ready_gate_repair";
   attempt: number;
   gateExitCode: number | undefined;
+  failingStep: string;
+  gateOutputTail: string;
 };
 
 type ReadyGateBaseRefProbeEvent = {
@@ -37,6 +39,12 @@ type ReadyGateBaseRefProbeEvent = {
 type ReadyGateTimeoutEvent = {
   kind: "ready_gate_timeout";
   gateExitCode: number | undefined;
+};
+
+type ReadyGateSlotWaitEvent = {
+  kind: "ready_gate_slot_wait";
+  gate: string;
+  waitedMs: number;
 };
 
 type ReadyGateAutofixDiscardedEvent = {
@@ -358,6 +366,7 @@ type LogEventWithoutLoopFinished =
   | ReadyGateRepairEvent
   | ReadyGateBaseRefProbeEvent
   | ReadyGateTimeoutEvent
+  | ReadyGateSlotWaitEvent
   | ReadyGateAutofixDiscardedEvent
   | ReadyGateFenceDerivationFailedEvent
   | RuntimeSmokeOutcomeEvent

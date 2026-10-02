@@ -7,8 +7,10 @@ import {
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
   readCodexSandboxMode,
+  readConfiguredIdleOutputTimeoutMs,
   readMachineConfigDocument,
   readNotificationSinkCommand,
+  readProjectConfigOverrides,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
   readProjectReadyCommand,
@@ -420,6 +422,52 @@ describe("readProjectReadyCommand", () => {
   test("returns undefined when the project or readyCommand is absent", () => {
     expect(readProjectReadyCommand("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } }))).toBeUndefined();
     expect(readProjectReadyCommand("missing", writeConfig({ projects: {} }))).toBeUndefined();
+  });
+});
+
+describe("project config overrides", () => {
+  test("no override block leaves machine-wide agents and idle budget unchanged", () => {
+    const configPath = writeConfig({
+      agents: ["claude", "codex"],
+      idleOutputTimeoutMs: 30_000,
+      projects: { demo: { root: "/tmp/repo" } },
+    });
+    expect(readProjectConfigOverrides("demo", configPath)).toEqual({});
+    expect(loadMachineConfig(configPath)).toEqual(["claude", "codex"]);
+    expect(readConfiguredIdleOutputTimeoutMs(configPath, "demo")).toBe(30_000);
+    expect(resolveWritePathIterationBounds(configPath, "demo").idleOutputMs).toBe(30_000);
+  });
+
+  test("an override shadows the machine value for its project only", () => {
+    const configPath = writeConfig({
+      agents: ["claude", "codex"],
+      idleOutputTimeoutMs: 30_000,
+      projects: { demo: { overrides: { agents: ["cursor"], idleOutputTimeoutMs: 120_000 } }, other: {} },
+    });
+    expect(readProjectConfigOverrides("demo", configPath).agents).toEqual(["cursor"]);
+    expect(readProjectConfigOverrides("other", configPath)).toEqual({});
+    expect(resolveWritePathIterationBounds(configPath, "demo").idleOutputMs).toBe(120_000);
+    expect(resolveWritePathIterationBounds(configPath, "other").idleOutputMs).toBe(30_000);
+  });
+
+  test("rejects a non-object block, unknown keys, and malformed values naming the config path", () => {
+    expect(() => readProjectConfigOverrides("demo", writeConfig({ projects: { demo: { overrides: [] } } }))).toThrow(
+      "Machine config 'projects.demo.overrides' must be an object",
+    );
+    expect(() =>
+      readProjectConfigOverrides("demo", writeConfig({ projects: { demo: { overrides: { runTimeoutMs: 1 } } } })),
+    ).toThrow(
+      "'projects.demo.overrides.runTimeoutMs' is not a supported override (allowed: agents, idleOutputTimeoutMs)",
+    );
+    expect(() =>
+      readProjectConfigOverrides(
+        "demo",
+        writeConfig({ projects: { demo: { overrides: { idleOutputTimeoutMs: -1 } } } }),
+      ),
+    ).toThrow("Machine config 'projects.demo.overrides.idleOutputTimeoutMs' must be a non-negative integer");
+    expect(() =>
+      readProjectConfigOverrides("demo", writeConfig({ projects: { demo: { overrides: { agents: ["a", "a"] } } } })),
+    ).toThrow(`Machine config 'projects.demo.overrides.agents' contains duplicate entry: "a"`);
   });
 });
 

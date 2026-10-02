@@ -226,6 +226,26 @@ describe("pipeline start admission", () => {
     expectNoDaemonContact(harness);
   });
 
+  test("validates the project's agents override as its admission agent order", async () => {
+    const pipeline = { name: "fast", terminalAction: "leave-draft" };
+    const loaded: (readonly string[])[] = [];
+    const harness = makeHarness({
+      readProjectConfigRecord: () => ({ pipeline, overrides: { agents: ["codex"] } }),
+      loadAgentModelConfig: (agents) => {
+        loaded.push(agents);
+        return AGENT_MODEL_CONFIG;
+      },
+    });
+    await admitPipelineStart({ projectKey: "demo", seedText: "text" }, harness.deps);
+    expect(loaded).toEqual([["codex"]]);
+
+    const bad = makeHarness({ readProjectConfigRecord: () => ({ pipeline, overrides: { agentz: ["codex"] } }) });
+    const result = await admitPipelineStart({ projectKey: "demo", seedText: "text" }, bad.deps);
+    expect(result).toMatchObject({ kind: "pre-admission-failure", failure: "configuration-read-exception" });
+    expect(JSON.stringify(result)).toContain("projects.demo.overrides.agentz");
+    expectNoDaemonContact(bad);
+  });
+
   test("rejects invalid machine-model configuration before daemon contact", async () => {
     const harness = makeHarness({
       loadAgentModelConfig: () => ({ errors: ["agent claude: invalid critic", "agent claude: invalid actuator"] }),

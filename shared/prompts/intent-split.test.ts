@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
+import { readSpecGuidance } from "../spec-guidance-path.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_BASELINE_BODY_LENGTH,
@@ -108,9 +109,13 @@ describe("buildIntentSplitPrompt", () => {
     expect(Number(artifact.metadata.revision)).toBeGreaterThan(1);
   });
 
-  test("intent split prompt pins agent-core sizing guidance pointer", () => {
-    expect(artifact.body).toContain("v2/docs/spec-guidance-agent-core.md");
-    expect(normalize(artifact.body)).toContain("sizing and reviewability rule");
-    expect(artifact.body).not.toContain("Read `v1/docs/spec-guidance.md`");
+  test("intent split prompt injects spec guidance instead of naming a harness-repo path", () => {
+    const prompt = buildIntentSplitPrompt({ ...BASE_OPTS, workdir: "/nonexistent/target-repo" });
+    const guidance = prompt.split("<<<SPEC_GUIDANCE_BEGIN>>>\n")[1]?.split("\n<<<SPEC_GUIDANCE_END>>>")[0];
+
+    expect(guidance).toBe(readSpecGuidance());
+    expect(normalize(artifact.body)).toContain("Follow the spec guidance's sizing and reviewability rule");
+    expect(artifact.body).not.toContain("spec-guidance-agent-core.md");
+    expect(artifact.body).not.toMatch(/v[12]\/(docs|spec|src)\//);
   });
 });

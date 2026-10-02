@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+import { errorMessage } from "../../../shared/error-message.ts";
 import {
   getBaseBranch,
   getCurrentBranchAsync,
@@ -20,7 +21,6 @@ import {
   isGitRepoAsync,
   originTrackingRefResolvesAsync,
 } from "../../../shared/git.ts";
-import { errorMessage } from "../../../shared/error-message.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
@@ -41,12 +41,12 @@ import {
   readRetentionSessions,
 } from "../config/machine-config-loader.ts";
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
+import { publishArchiveReady } from "../execution/completion-publisher.ts";
 import { isMaterializedNodeModulesPath, isNotGitRepositoryDiagnostic } from "../execution/external-worktree.ts";
 import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
 } from "../execution/implement-workflow-steps.ts";
-import { publishArchiveReady } from "../execution/completion-publisher.ts";
 import { parseTerminalSupersedeSettlementSuccessorPrNumber } from "../execution/terminal-supersede-settlement.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";

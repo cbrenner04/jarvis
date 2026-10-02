@@ -6,10 +6,10 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import type { StateStore } from "../persistence/state-store.ts";
+import { createArchivePublicationSessions, inspectStrandedArtifacts, runCleanupCommand } from "./cleanup.ts";
 import { createArchivePublicationSession } from "./cleanup-archive-publication.ts";
 import type { ArtifactSpec } from "./cleanup-artifacts.ts";
-import { createArchivePublicationSessions, inspectStrandedArtifacts, runCleanupCommand } from "./cleanup.ts";
-import type { StateStore } from "../persistence/state-store.ts";
 
 function isCleanupArchiveBranchProbe(cmd: string, args: readonly string[]): boolean {
   if (cmd !== "gh" || args[0] !== "pr" || args[1] !== "view") return false;

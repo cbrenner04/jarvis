@@ -6,6 +6,8 @@ This document inventories user-observable v1 behavior and records each v2 parity
 
 ## Overview and scope
 
+- **[v2 behavior change] Published linked-lane recovery:** startup recovery settles reconciled `~link-N` rows using completed PR evidence from the same invocation or a later invocation on the same project and branch, without spawning implement. Unpublished lanes retain resume recovery. Sources: `v2/src/daemon/daemon-run-reconciliation.ts`, `v2/src/daemon/daemon.ts`
+
 ### v2 workflow CLI names
 
 The primary workflow commands are `intent`, `plan`, and `implement`. All accept `--review-passes <n>` and `--review-behavior debate|light`. For `intent`, omitted `--review-passes` defaults to one light pass; `--review-passes 0` opts out (v2 consolidation — prior bare `intent` was split-only). For `plan`, omitted `--review-passes` defaults to one debate pass; `--review-passes 0` opts out (v2 consolidation — prior bare `plan` was draft-only). For `implement`, omitted `--review-passes` defaults to one debate pass; `--review-passes 0` opts out. Legacy `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **rejected at CLI admission**: they exit `1` with the workflow usage before daemon contact, and emit no deprecation hint. The internal preset builders of those names remain, but they are no longer reachable CLI workflow names. Invalid values fail with usage before daemon contact.

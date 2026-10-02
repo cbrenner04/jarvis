@@ -72,7 +72,7 @@ import {
   type RunControlHandlerContextDeps,
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers, createStableAdmissionHandlers } from "./daemon-run-lifecycle-handlers.ts";
-import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
+import { reconcileOrphanedRuns, settlePublishedLinkedRecovery } from "./daemon-run-reconciliation.ts";
 import {
   createStablePipelineDecisionHandlers,
   createStablePipelineListHandler,
@@ -1393,6 +1393,7 @@ export async function recoverReconciledRuns(
 ): Promise<{ resumed: number }> {
   let resumed = 0;
   for (const runId of runIds) {
+    if (await settlePublishedLinkedRecovery(stateStore, logSink, runId)) continue;
     const response = await resume(
       { kind: "request", id: `restart-recovery-${runId}`, method: "resume", params: { runId } },
       new AbortController().signal,

@@ -162,7 +162,7 @@ type RunTimeoutEvent = {
 
 type RunRecoveryEvent = {
   kind: "run_recovery";
-  outcome: "resumed" | "failed";
+  outcome: "resumed" | "failed" | "settled";
   message?: string;
 };
 

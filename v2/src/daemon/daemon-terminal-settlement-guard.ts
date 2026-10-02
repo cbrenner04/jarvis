@@ -41,6 +41,11 @@ const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
   { file: "daemon.ts", functionName: "promoteQueuedRunImpl", writer: "commitTerminalRunSettlement" },
   { file: "daemon.ts", functionName: "recoverReconciledRuns", writer: "commitTerminalRunSettlement" },
   {
+    file: "daemon-run-reconciliation.ts",
+    functionName: "settlePublishedLinkedRecovery",
+    writer: "commitTerminalRunSettlement",
+  },
+  {
     file: "daemon-workflow-admission-handlers.ts",
     functionName: "createWorkflowStartAdmission",
     writer: "commitTerminalRunSettlement",

@@ -12,6 +12,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
+  createCrossFileMutantGate,
   type DiffDerivedMutationVerifierInput,
   exclusiveHoldOverlappedConcurrentRun,
   exclusiveRunMustQueue,
@@ -2645,6 +2646,95 @@ describe("killingSetImportsProductionFile", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("createCrossFileMutantGate", () => {
+  const worktreePath = "/wt";
+  const sources: Record<string, string> = {
+    "src/a.ts": "export const a = 1;\n",
+    "src/a.test.ts": 'import { a } from "./a";\n',
+    "src/b.ts": "export const b = 1;\n",
+    "src/b.test.ts": 'import { a } from "./a";\nimport { b } from "./b";\n',
+    "src/d.ts": "export const d = 1;\n",
+    "src/d.test.ts": 'import { d } from "./d";\n',
+  };
+  const flushMicrotasks = async () => {
+    for (let i = 0; i < 200; i += 1) await Promise.resolve();
+  };
+
+  it("admits a conflicting candidate whose scan read settles after the in-flight candidate released", async () => {
+    const gate = createCrossFileMutantGate();
+    let releaseBRead!: () => void;
+    const bReadGate = new Promise<void>((resolve) => {
+      releaseBRead = resolve;
+    });
+    let bReadRequested = false;
+    const readFile = async (path: string) => {
+      const rel = path.slice(`${worktreePath}/`.length);
+      if (rel === "src/b.test.ts") {
+        bReadRequested = true;
+        await bReadGate;
+      }
+      const content = sources[rel];
+      if (content === undefined) throw new Error(`missing ${rel}`);
+      return content;
+    };
+    let finishA!: () => void;
+    const aRunning = new Promise<void>((resolve) => {
+      finishA = resolve;
+    });
+    let aStarted = false;
+    const a = gate.runWithAdmission("src/a.ts", ["src/a.test.ts"], worktreePath, readFile, async () => {
+      aStarted = true;
+      await aRunning;
+      return "a";
+    });
+    await flushMicrotasks();
+    expect(aStarted).toBe(true);
+
+    let bSettled = false;
+    const b = gate
+      .runWithAdmission("src/b.ts", ["src/b.test.ts"], worktreePath, readFile, async () => "b")
+      .then((value) => {
+        bSettled = true;
+        return value;
+      });
+    await flushMicrotasks();
+    expect(bReadRequested).toBe(true);
+
+    finishA();
+    expect(await a).toBe("a");
+    releaseBRead();
+    await flushMicrotasks();
+    expect(bSettled).toBe(true);
+    expect(await b).toBe("b");
+  });
+
+  it("reads each killing test's import closure once across admission attempts", async () => {
+    const gate = createCrossFileMutantGate();
+    const reads = new Map<string, number>();
+    const readFile = async (path: string) => {
+      const rel = path.slice(`${worktreePath}/`.length);
+      reads.set(rel, (reads.get(rel) ?? 0) + 1);
+      const content = sources[rel];
+      if (content === undefined) throw new Error(`missing ${rel}`);
+      return content;
+    };
+    let finishA!: () => void;
+    const aRunning = new Promise<void>((resolve) => {
+      finishA = resolve;
+    });
+    const a = gate.runWithAdmission("src/a.ts", ["src/a.test.ts"], worktreePath, readFile, () => aRunning);
+    await flushMicrotasks();
+    const b = gate.runWithAdmission("src/b.ts", ["src/b.test.ts"], worktreePath, readFile, async () => undefined);
+    await flushMicrotasks();
+    // An unrelated release wakes b while a is still in flight, forcing a second conflict scan.
+    await gate.runWithAdmission("src/d.ts", ["src/d.test.ts"], worktreePath, readFile, async () => undefined);
+    await flushMicrotasks();
+    finishA();
+    await Promise.all([a, b]);
+    expect(reads.get("src/b.test.ts")).toBe(1);
   });
 });
 

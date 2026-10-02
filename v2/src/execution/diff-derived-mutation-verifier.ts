@@ -717,12 +717,13 @@ async function testDirectlyImportsProductionModule(
   return false;
 }
 
-async function importClosureFromFileReachesProduction(
+/** Every module resolved from the transitive import closure of `startPath`. */
+async function importClosureFromFile(
   worktreePath: string,
   startPath: string,
-  targetProductionPath: string,
   readFile: ReadFile,
-): Promise<boolean> {
+): Promise<ReadonlySet<string>> {
+  const reachable = new Set<string>();
   const pending = [startPath];
   const visited = new Set<string>();
   while (pending.length > 0) {
@@ -738,10 +739,25 @@ async function importClosureFromFileReachesProduction(
     for (const modulePath of importedModulePaths(source)) {
       for (const importedFile of resolveImportedModule(worktreePath, file, modulePath)) {
         if (importedFile.length === 0) continue;
-        if (importedFile === targetProductionPath) return true;
+        reachable.add(importedFile);
         if (!visited.has(importedFile)) pending.push(importedFile);
       }
     }
+  }
+  return reachable;
+}
+
+type ImportClosureLookup = (worktreePath: string, testPath: string, readFile: ReadFile) => Promise<ReadonlySet<string>>;
+
+async function killingSetReaches(
+  worktreePath: string,
+  killingTestPaths: readonly string[],
+  targetProductionPath: string,
+  readFile: ReadFile,
+  closureOf: ImportClosureLookup,
+): Promise<boolean> {
+  for (const testPath of killingTestPaths) {
+    if ((await closureOf(worktreePath, testPath, readFile)).has(targetProductionPath)) return true;
   }
   return false;
 }
@@ -752,18 +768,26 @@ export async function killingSetImportsProductionFile(
   targetProductionPath: string,
   readFile: ReadFile,
 ): Promise<boolean> {
-  for (const testPath of killingTestPaths) {
-    if (await importClosureFromFileReachesProduction(worktreePath, testPath, targetProductionPath, readFile)) {
-      return true;
-    }
-  }
-  return false;
+  return killingSetReaches(worktreePath, killingTestPaths, targetProductionPath, readFile, importClosureFromFile);
 }
 
-function createCrossFileMutantGate() {
+/** Serializes mutants whose killing sets import each other's production file; exported for direct race tests. */
+export function createCrossFileMutantGate() {
   const inFlight = new Map<string, readonly string[]>();
   let registerLock: Promise<void> = Promise.resolve();
   const releaseWaiters: Array<() => void> = [];
+  // Bumped on every release: a scan that awaited across a release rescans instead of waiting for a wake already sent.
+  let releaseEpoch = 0;
+  const closureMemo = new Map<string, Promise<ReadonlySet<string>>>();
+  const memoizedClosure: ImportClosureLookup = (worktreePath, testPath, readFile) => {
+    const key = `${worktreePath}\0${testPath}`;
+    let closure = closureMemo.get(key);
+    if (closure === undefined) {
+      closure = importClosureFromFile(worktreePath, testPath, readFile);
+      closureMemo.set(key, closure);
+    }
+    return closure;
+  };
 
   async function acquireAdmission(
     candidateFile: string,
@@ -778,12 +802,13 @@ function createCrossFileMutantGate() {
         releaseRegister = resolve;
       });
       await previous;
+      const scanEpoch = releaseEpoch;
       try {
         let conflict = false;
         for (const [inFlightFile, inFlightKillingTests] of inFlight) {
           if (
-            (await killingSetImportsProductionFile(worktreePath, killingTests, inFlightFile, readFile)) ||
-            (await killingSetImportsProductionFile(worktreePath, inFlightKillingTests, candidateFile, readFile))
+            (await killingSetReaches(worktreePath, killingTests, inFlightFile, readFile, memoizedClosure)) ||
+            (await killingSetReaches(worktreePath, inFlightKillingTests, candidateFile, readFile, memoizedClosure))
           ) {
             conflict = true;
             break;
@@ -796,6 +821,7 @@ function createCrossFileMutantGate() {
       } finally {
         releaseRegister();
       }
+      if (releaseEpoch !== scanEpoch) continue;
       await new Promise<void>((resolve) => {
         releaseWaiters.push(resolve);
       });
@@ -815,6 +841,7 @@ function createCrossFileMutantGate() {
         return await run();
       } finally {
         inFlight.delete(candidateFile);
+        releaseEpoch += 1;
         for (const wake of releaseWaiters.splice(0)) wake();
       }
     },

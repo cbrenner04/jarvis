@@ -396,6 +396,33 @@ describe("resolveReviewFeedbackLane bare", () => {
     expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_ambiguous" });
   });
 
+  test("refuses ambiguous bare branch when plain implement and linked implement both qualify", () => {
+    const plainImplement = baseRun({
+      id: "plain-implement-entry",
+      createdAt: 1,
+      stepId: "implement-step",
+      workflowSnapshot: workflowSnapshot("inv-plain-implement", {
+        stepId: "implement-step",
+        role: "implement",
+        promptId: "implement.prompt.body",
+      }),
+    });
+    const linked = linkedImplementInvocationRuns({
+      invocationId: "inv-linked-mixed",
+      link0Id: "mixed-link-0",
+      specPath: "v2/spec/linked-mixed/index.md",
+      prNumber: 90,
+      prUrl: "https://example.test/pull/90",
+      createdAtBase: 20,
+    });
+    const result = resolveReviewFeedbackLane(memoryStore({ runs: [plainImplement, ...linked] }), {
+      mode: "bare",
+      project: PROJECT,
+      branch: BRANCH,
+    });
+    expect(result).toMatchObject({ ok: false, code: "review_feedback_lane_ambiguous" });
+  });
+
   test("refuses completed lane without publication evidence", () => {
     const run = baseRun({
       id: "intent-no-pr",

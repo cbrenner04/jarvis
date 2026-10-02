@@ -781,7 +781,8 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   admission is in flight; a second Enter while pending neither reparses nor
   re-admits. An admitted settlement reports the pipeline id, clears the buffer and
   cursor, and restores tree focus; parse errors, pre-admission failures, and daemon
-  refusals retain command focus, buffer, and cursor and report their named code.
+  refusals retain command focus, buffer, and cursor and report their named code;
+  a thrown admission (transport error) reports `code: message` and retains them too.
   Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
   `v2/src/daemon/pipeline-start-admission.ts`
 - [v2 additive] TUI dock log follow: submitted `log` (no arguments) tears down the
@@ -797,7 +798,8 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   selection-shape refusal reports `no_selection`, `unattributed`, or
   `stale_non_expandable` on `lastCommandResult`. `kill` and `pause` additionally
   require a live steerable run; ineligible selections report `not_live_run` with no
-  RPC. `resume-run` shares keybind resume eligibility (no kill-hint pre-gate). RPC
+  RPC. `resume-run` shares keybind resume eligibility (no kill-hint pre-gate). A
+  dispatched RPC clears the buffer and cursor and restores tree focus. RPC
   outcomes and daemon refusals report on `steeringFeedback`, not `lastCommandResult`.
   The `unattributed` code keeps its name and meaning across this and every other
   dock command below: a selected top-level ad-hoc row. Its detection source moved

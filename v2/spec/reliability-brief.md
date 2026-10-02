@@ -1,6 +1,6 @@
 # Harness reliability brief
 
-Reviewed 2026-10-02 (evening) against `main` after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Scope: active `v2/spec/` files, excluding `completed/`. [Ledger](./reliability-ledger.md) owns the item inventory, dependencies, and review caveats. Historical evidence stays in git and `reports/`.
+Reviewed 2026-10-02 (close) against `main` after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md) and the 2026-10-02 day session. Scope: active `v2/spec/` files, excluding `completed/`. [Ledger](./reliability-ledger.md) owns the item inventory, dependencies, and review caveats. Historical evidence stays in git and `reports/`.
 
 ## Structural recovery is closed
 
@@ -8,7 +8,7 @@ The August 29 charter's five retirements are complete. This is a separate, bound
 
 ## Current inventory
 
-There are **0 open active spec plans, 1 ready-intent, and 10 seeds**. Nine merged spec dirs and seven consumed ready-intents still sit in `v2/spec/` until the next `jarvis cleanup` archives and prunes them (#4469 now publishes that archive PR itself). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **0 open active spec plans, 1 ready-intent, and 10 seeds**. Merged specs are archived (#4486 #4487, published by cleanup itself via #4469). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
 
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |
@@ -23,7 +23,7 @@ There are **0 open active spec plans, 1 ready-intent, and 10 seeds**. Nine merge
 
 **Done 2026-10-01/02:** linked resume (#4429 #4430 #4432 #4440), write-loop test split (#4431), finalization gates share the gate slot (#4435), ready-repair direction (#4460 #4467), agent history-rewrite guard (#4478 #4479), agent process ownership (#4428 #4436), mutation verification (#4441 #4456 #4459), shrink failure resumable (#4465), plus original workstreams 2, 4, 5, 6 and 7.
 
-**Closed:** All immediate workstreams merged (above + review-feedback shrink uses the lane spec, this PR).
+**Closed:** All immediate workstreams merged (above + review-feedback shrink uses the lane spec, #4482; hand-implemented follow-ons #4474–#4476, #4480, #4483, #4484).
 
 ## Execution order and boundaries
 

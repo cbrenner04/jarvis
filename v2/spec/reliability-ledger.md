@@ -1,6 +1,6 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 18 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 19 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
 ## Highest priority: active spec (1)
 
@@ -19,7 +19,7 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | [Implement rules forbid history rewrite](./ready-intents/implement-rules-forbid-history-rewrite.md) | After revert lane | Prompt rule; one-line change plus render tests. |
 | [Hung killing test kills the mutant](./seeds/hung-killing-test-counts-as-killed.md) | Intent | Per-test timeout == kill floor (30 s), so a test hanging under a mutant strands `non_terminating_mutation_failed`; hand-fixed twice on the gate-slot lane 2026-10-02. |
 
-## Follow-on workflow quality: seeds (5)
+## Follow-on workflow quality: seeds (6)
 
 | Item | Next action / dependency | Remaining scope |
 | --- | --- | --- |
@@ -27,6 +27,7 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | [Sibling-repo prerequisite coverage](./seeds/intent-split-covers-sibling-repo-surfaces.md) | Intent; #3439 | Split-internal prerequisite coverage check. |
 | [Detached ready-intent consumption](./seeds/detached-pipeline-plan-stage-consumes-ready-intents.md) | Intent; #3041 | Consume from the actual handoff source or record a reason. Today's closed intent PRs left seeds on main (hand-reaped #4406, #4424). |
 | [Per-project configuration seam](./seeds/per-project-config-overrides-seam.md) | Intent; #3026 / #3150 | Bounded agent-order and idle-timeout overrides resolved once at admission. |
+| [Review-feedback matches linked lanes](./seeds/review-feedback-matches-linked-implement-lanes.md) | Intent | `review-feedback --branch` refused a linked implement lane (PR on review row only); #4440 hand-fixed. |
 | [Harness-run integration measurements](./seeds/implement-can-run-integration-slice-tests.md) | Intent | Observable harness execution for measurement criteria. |
 
 ## Operator features and ergonomics: seeds (3)

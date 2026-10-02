@@ -718,8 +718,6 @@ const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
 export {
   acquireGateInvocationLease,
-  awaitGateInvocationLease,
-  type GateInvocationLease,
   gateInvocationAdmits,
   liveGateInvocationLeaseCount,
   MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,

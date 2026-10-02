@@ -123,8 +123,8 @@ export const LOAD_SENSITIVE_FILES: readonly string[] = [
   // workflow-runner-*.test.ts files (durable #2181 fix); each is well under the per-file budget, so
   // they run pooled. Isolate a specific split file here (with dated loaded-red/idle-green evidence) if
   // one proves load-sensitive.
-  // ~145s idle-green but exceeded the 180s per-file spawn budget under agent-pool load (2026-10-01 ready 3.1/3.2).
-  "v2/src/execution/write-loop.test.ts",
+  // The ~145s write-loop monolith split on 2026-10-02; serial file measurements are
+  // 0.3–33s with shared test fixtures extracted, below the ~60s headroom target. Runs pooled.
   // `mock.module("./write.ts")` cases must not overlap the healthy-path test; under agent-pool load the
   // first test hit the 30s bunfig timeout while later tests still passed (2026-09-30 ready gate 3.2).
   "v2/src/execution/write-loop-idle-watchdog.test.ts",

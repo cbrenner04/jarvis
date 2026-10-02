@@ -26,11 +26,11 @@ name: write-loop-test-split
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test-support.ts` exports the shared helpers and `write loop` hook setup; no test file under `v2/src/execution/` duplicates them.
-- [ ] `v2/src/execution/write-loop-test-inventory.test.ts` passes on the split tree and fails when any merge-base `write-loop.test.ts` leaf title is absent from the owned destinations.
-- [ ] Every describe group named in Decisions runs from a `write-loop-<area>.test.ts` sibling, not `write-loop.test.ts`.
-- [ ] `write-loop.test.ts` and each split sibling hold at most 120 tests.
-- [ ] `bun run typecheck`, `bun run check`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/write-loop.test-support.ts` exports the shared helpers and `write loop` hook setup; no test file under `v2/src/execution/` duplicates them.
+- [x] `v2/src/execution/write-loop-test-inventory.test.ts` passes on the split tree and fails when any merge-base `write-loop.test.ts` leaf title is absent from the owned destinations.
+- [x] Every describe group named in Decisions runs from a `write-loop-<area>.test.ts` sibling, not `write-loop.test.ts`.
+- [x] `write-loop.test.ts` and each split sibling hold at most 120 tests.
+- [x] `bun run typecheck`, `bun run check`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

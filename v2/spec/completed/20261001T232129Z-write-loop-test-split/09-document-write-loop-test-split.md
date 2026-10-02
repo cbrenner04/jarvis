@@ -25,8 +25,8 @@ Primary: `v2/docs/test-writing.md`.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` documents the ~60 s headroom target (aligned with workflow-runner-resume language), support module + inventory guard + describe-area sibling pattern, and cites the workflow-runner-resume and write-loop splits.
-- [ ] `bun run typecheck` and `bun run check` pass.
+- [x] `v2/docs/test-writing.md` documents the ~60 s headroom target (aligned with workflow-runner-resume language), support module + inventory guard + describe-area sibling pattern, and cites the workflow-runner-resume and write-loop splits.
+- [x] `bun run typecheck` and `bun run check` pass.
 
 ## Documentation updates
 

@@ -77,6 +77,14 @@ describe("write prompt", () => {
     expect(body).not.toMatch(/\bbun\b|test:integration/);
   });
 
+  test("implement.rules states the per-iteration gate budget up front", () => {
+    const body = loadPromptRegistry().getById("implement.rules").body;
+
+    expect(body).toContain("Gate budget: at most two scoped test-suite script invocations per iteration");
+    expect(body).toContain("While iterating, run single test files");
+    expect(body.indexOf("Gate budget:")).toBeLessThan(body.indexOf("## Scope"));
+  });
+
   test("implement.prompt.body includes no-hard-wrap after global.terse", () => {
     const rendered = renderStepPrompt("implement.prompt.body", {
       SPEC_PATH: "spec/example/index.md",
@@ -176,6 +184,29 @@ describe("write prompt", () => {
     expect(() => registry.getById("write.guard-checkpoint-reprompt")).toThrow(/unknown prompt id/);
     expect(() => registry.getById("write.mutation-directive-reprompt")).toThrow(/unknown prompt id/);
     expect(() => registry.getById("write.keystone-directive-reprompt")).toThrow(/unknown prompt id/);
+  });
+
+  test("registers stable id write.gate-budget-reprompt", () => {
+    const registry = loadPromptRegistry();
+    expect(registry.getById("write.gate-budget-reprompt").metadata.id).toBe("write.gate-budget-reprompt");
+  });
+
+  // Mutation checkpoint: sentinel body-line mutation on `write.gate-budget-reprompt` must turn this RED.
+  test("write.gate-budget-reprompt names the refused command, budget cause, and file-scoped verification", () => {
+    const rendered = renderStepPrompt("write.gate-budget-reprompt", {
+      SPEC_PATH: "spec/example/00-sub.md",
+      STEP_RULES: "Follow the implement contract.",
+      REFUSED_COMMAND: "bun run test:v2",
+    });
+
+    expect(rendered).toContain("Read the spec at spec/example/00-sub.md.");
+    expect(rendered).toContain("Follow the implement contract.");
+
+    expect(rendered).toContain("two scoped gate runs (`bun run test:*`)");
+    expect(rendered).toContain("bun run test:v2");
+    expect(rendered).toContain("cause `iteration_gate_budget`");
+    expect(rendered).toContain("file-scoped `bun test <file>`");
+    expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
   });
 
   test("registers stable id write.surviving-mutation-reprompt", () => {

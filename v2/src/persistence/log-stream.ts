@@ -221,6 +221,14 @@ export type StagedMarkdownLintRepromptEvent = {
   offendingFile: string;
 };
 
+/** Emitted when a write iteration refuses another classified gate start after the per-iteration budget. */
+export type GateInvocationBudgetRefusedEvent = {
+  kind: "gate_invocation_budget_refused";
+  attemptId: string;
+  command: string;
+  admittedCount: number;
+};
+
 /** Implement-verified HEAD when a shrink write loop starts; resume uses this for optional-pass revert. */
 type PreShrinkHeadEvent = {
   kind: "pre_shrink_head";
@@ -360,6 +368,7 @@ type LogEventWithoutLoopFinished =
   | DraftContractRepromptEvent
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
+  | GateInvocationBudgetRefusedEvent
   | PreShrinkHeadEvent
   | SurvivingMutationRepromptEvent
   | MutationVerificationInconclusiveEvent

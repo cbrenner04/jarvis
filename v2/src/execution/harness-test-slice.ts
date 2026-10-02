@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { SANDBOX_SUFFIX } from "../../../scripts/test-slice.ts";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
@@ -13,8 +13,9 @@ import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier
 /** Worktree-root sidecar an implement agent writes to ask Jarvis to run integration-slice test files outside its sandbox. */
 export const HARNESS_TEST_SLICE_REQUEST_FILE = ".jarvis-test-slice-request";
 const OUTPUT_MAX_CHARS = 16 * 1024;
-const MEASUREMENT_TERMS =
-  /\b(faster|slower|speed|timing|timed|duration|seconds?|ms|wall|measured?|measurement|count)\b/i;
+/** Harness slice runs admitted per write loop (one active subspec). */
+export const MAX_HARNESS_TEST_SLICE_RUNS = 3;
+const MEASUREMENT_TERMS = /\b(faster|slower|speed(?:-?up)?|timing|duration|measured|measurement|measure)\b/i;
 const SANDBOX_FILE_PATTERN = new RegExp(`[\\w./-]*${SANDBOX_SUFFIX.replace(/\./g, "\\.")}`, "g");
 
 type HarnessTestSliceRequest = { files: string[]; rejected: string[] };
@@ -35,16 +36,34 @@ export function referencesSandboxUnrunnableTest(text: string): boolean {
   return text.includes(SANDBOX_SUFFIX);
 }
 
-function isRunnableRequestPath(worktreePath: string, path: string): boolean {
-  if (isAbsolute(path) || !path.endsWith(SANDBOX_SUFFIX)) return false;
-  const normalized = normalize(path);
-  if (normalized.startsWith("..")) return false;
-  const full = join(worktreePath, normalized);
-  return existsSync(full) && statSync(full).isFile();
+/** Concrete `*.sandbox-unrunnable.test.ts` names in text; a bare glob (`*.sandbox-unrunnable.test.ts`) names no file. */
+function namedSandboxTestFiles(text: string): string[] {
+  return (text.match(SANDBOX_FILE_PATTERN) ?? []).filter((name) => basename(name) !== SANDBOX_SUFFIX);
 }
 
-/** Reads and deletes the request sidecar; only existing in-worktree `*.sandbox-unrunnable.test.ts` paths are admitted. */
-export function takeHarnessTestSliceRequest(worktreePath: string): HarnessTestSliceRequest | undefined {
+/** Why a requested path is refused, or undefined when it resolves to a named in-worktree sandbox-unrunnable test file. */
+function requestPathRejection(worktreePath: string, path: string, subspecNames: readonly string[]): string | undefined {
+  if (isAbsolute(path)) return "absolute path";
+  if (!subspecNames.some((named) => namesSameTestFile(named, path))) return "not named by the active subspec";
+  const full = join(worktreePath, path);
+  if (!existsSync(full)) return "missing";
+  const resolved = realpathSync(full);
+  const fromRoot = relative(realpathSync(worktreePath), resolved);
+  if (fromRoot.startsWith("..") || isAbsolute(fromRoot)) return "outside the worktree";
+  if (!resolved.endsWith(SANDBOX_SUFFIX) || !statSync(resolved).isFile())
+    return "not a *.sandbox-unrunnable.test.ts file";
+  return undefined;
+}
+
+/**
+ * Reads and deletes the request sidecar. Admits only existing files inside the worktree (after symlink
+ * resolution) that the active subspec names; `priorRuns` at the cap rejects every path.
+ */
+export function takeHarnessTestSliceRequest(
+  worktreePath: string,
+  subspecText: string,
+  priorRuns: number,
+): HarnessTestSliceRequest | undefined {
   const path = join(worktreePath, HARNESS_TEST_SLICE_REQUEST_FILE);
   if (!existsSync(path)) return undefined;
   const lines = readFileSync(path, "utf8")
@@ -54,8 +73,14 @@ export function takeHarnessTestSliceRequest(worktreePath: string): HarnessTestSl
   rmSync(path, { force: true });
   const files: string[] = [];
   const rejected: string[] = [];
+  const subspecNames = namedSandboxTestFiles(subspecText);
   for (const line of new Set(lines)) {
-    (isRunnableRequestPath(worktreePath, line) ? files : rejected).push(line);
+    const reason =
+      priorRuns >= MAX_HARNESS_TEST_SLICE_RUNS
+        ? `run cap of ${MAX_HARNESS_TEST_SLICE_RUNS} reached`
+        : requestPathRejection(worktreePath, line, subspecNames);
+    if (reason === undefined) files.push(line);
+    else rejected.push(`${line} (${reason})`);
   }
   return { files, rejected };
 }
@@ -69,7 +94,7 @@ export function unverifiedMeasurementCriteria(subspecText: string, harnessRunFil
   return parseSpec(subspecText)
     .acceptanceCriteria.filter((criterion) => criterion.checked && MEASUREMENT_TERMS.test(criterion.text))
     .filter((criterion) =>
-      (criterion.text.match(SANDBOX_FILE_PATTERN) ?? []).some(
+      namedSandboxTestFiles(criterion.text).some(
         (named) => !harnessRunFiles.some((run) => namesSameTestFile(named, run)),
       ),
     )
@@ -87,11 +112,16 @@ export function createDefaultHarnessTestSliceRunner(
   return async ({ worktreePath, files, signal, processGroups, timeoutMs }) => {
     const tracked = trackProcessGroup(processGroups);
     try {
-      const output = await runner.runAsync("sh", ["-c", 'exec bun test "$@" 2>&1', "sh", ...files], worktreePath, {
-        timeoutMs,
-        signal,
-        processGroup: tracked.processGroup,
-      });
+      const output = await runner.runAsync(
+        "sh",
+        ["-c", 'exec bun test "$@" 2>&1', "sh", "--", ...files.map((file) => `./${file}`)],
+        worktreePath,
+        {
+          timeoutMs,
+          signal,
+          processGroup: tracked.processGroup,
+        },
+      );
       return { exitCode: 0, output };
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {

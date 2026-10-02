@@ -28,6 +28,7 @@ write/landing-contract-reprompt.md
 write/staged-markdown-lint-reprompt.md
 write/gate-budget-reprompt.md
 write/harness-test-slice-result.md
+write/measurement-criteria-reprompt.md
 write/ready-repair.md
 write/mutation-repair.md
 write/surviving-mutation-reprompt.md

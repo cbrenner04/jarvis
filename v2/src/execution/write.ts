@@ -49,11 +49,7 @@ import {
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
-import {
-  type HarnessTestSliceResult,
-  referencesSandboxUnrunnableTest,
-  unverifiedMeasurementCriteria,
-} from "./harness-test-slice.ts";
+import { type HarnessTestSliceResult, referencesSandboxUnrunnableTest } from "./harness-test-slice.ts";
 import { resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
@@ -145,37 +141,27 @@ function renderHarnessTestSliceResult(result: HarnessTestSliceResult): string {
   });
 }
 
-/** Completion boundary: a ticked measurement criterion on a sandbox-unrunnable file needs a recorded harness run of it. */
-function measurementCriteriaHarnessRunContracts(
-  promptId: string,
-  subspecPath: string,
-  args: Pick<WriteExecuteInput, "externalSpecReadOnly" | "harnessTestSliceRunFiles">,
-): StepContract[] {
-  if (promptId !== "implement.prompt.body" || subspecPath.length === 0 || args.externalSpecReadOnly === true) return [];
-  const runFiles = args.harnessTestSliceRunFiles ?? [];
-  return [
-    {
-      id: "spec.measurement-criteria-harness-run",
-      check: () => {
-        const unverified = unverifiedMeasurementCriteria(readActiveSubspecBody(subspecPath), runFiles);
-        if (unverified.length === 0) return true;
-        const lines = unverified.map((text) => `- ${text}`).join("\n");
-        return {
-          ok: false,
-          reason: `Unverified measurement criteria (no recorded Jarvis run of the named *.sandbox-unrunnable.test.ts file):\n${lines}`,
-        };
-      },
-    },
-  ];
-}
-
-function withHarnessTestSliceResult(
+/** Implement: append the previous iteration's harness slice result and any measurement-criteria reprompt. */
+function withHarnessTestSliceSections(
   prompt: string,
   promptId: string,
-  result: HarnessTestSliceResult | undefined,
+  args: Pick<WriteExecuteInput, "harnessTestSliceResult" | "measurementCriteriaReprompt">,
 ): string {
-  if (promptId !== "implement.prompt.body" || result === undefined) return prompt;
-  return `${prompt}\n\n${renderHarnessTestSliceResult(result)}`;
+  if (promptId !== "implement.prompt.body") return prompt;
+  const sections = [prompt];
+  if (args.harnessTestSliceResult !== undefined)
+    sections.push(renderHarnessTestSliceResult(args.harnessTestSliceResult));
+  if (args.measurementCriteriaReprompt !== undefined) {
+    sections.push(
+      renderPromptForStep({
+        stepPromptId: "write.measurement-criteria-reprompt",
+        placeholders: {
+          CRITERIA: neutralizeDataDelimiters(args.measurementCriteriaReprompt.map((text) => `- ${text}`).join("\n")),
+        },
+      }),
+    );
+  }
+  return sections.join("\n\n");
 }
 
 function assembleWriteStepPlaceholders(
@@ -444,8 +430,8 @@ export type WriteExecuteInput = {
   gateBudgetReprompt?: { refusedCommand: string };
   /** Implement: the harness run of the agent's integration-slice request from the previous iteration. */
   harnessTestSliceResult?: HarnessTestSliceResult;
-  /** Implement: test files this run's harness integration-slice runs covered; gates measurement ticks. */
-  harnessTestSliceRunFiles?: readonly string[];
+  /** Implement: ticked measurement criteria the completion boundary found without a recorded harness run. */
+  measurementCriteriaReprompt?: readonly string[];
   draftContractReprompt?: DraftContractRepromptContext;
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
   /** Admitted external plan implement: grant adapter read access to `specReadRoot` only. */
@@ -882,7 +868,7 @@ async function executeDefaultWrite(
         args.promptPlaceholders,
       );
       prompt = renderPromptForStep({ stepPromptId: promptId, placeholders });
-      prompt = withHarnessTestSliceResult(prompt, promptId, args.harnessTestSliceResult);
+      prompt = withHarnessTestSliceSections(prompt, promptId, args);
     }
   } catch (err) {
     if (err instanceof PromptRenderingError) {
@@ -918,8 +904,6 @@ async function executeDefaultWrite(
       });
     }
   }
-
-  contracts.push(...measurementCriteriaHarnessRunContracts(promptId, expectedArtifactPath, args));
 
   // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)
   // and implement path (implement.prompt.body on expectedArtifactPath, the active subspec).

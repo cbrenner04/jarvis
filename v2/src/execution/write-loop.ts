@@ -106,6 +106,7 @@ import {
   type HarnessTestSliceRunner,
   takeHarnessTestSliceRequest,
   truncateTestSliceOutput,
+  unverifiedMeasurementCriteria,
 } from "./harness-test-slice.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
@@ -583,14 +584,38 @@ function shrinkOptionalPassRevertsOnMutationFailure(
   return iterationsConsumed >= maxIterations;
 }
 
-/** Test files a run's harness integration-slice runs actually executed (an exit code was recorded). */
-export function findHarnessTestSliceRunFilesFromLog(logRecords: readonly PersistedRecord[] | undefined): string[] {
-  const files: string[] = [];
+/**
+ * Harness integration-slice state from a run's log: files a run actually executed (exit code recorded),
+ * admitted run count (cap), and the last result when no later iteration has committed since (resume).
+ */
+export function findHarnessTestSliceStateFromLog(logRecords: readonly PersistedRecord[] | undefined): {
+  runFiles: string[];
+  runCount: number;
+  pendingResult?: HarnessTestSliceResult;
+} {
+  const runFiles: string[] = [];
+  let runCount = 0;
+  let pending: { attemptId: string; result: HarnessTestSliceResult } | undefined;
   for (const record of logRecords ?? []) {
     const event = record.event;
-    if (event.kind === "harness_test_slice_run" && event.exitCode !== null) files.push(...event.files);
+    if (event.kind === "harness_test_slice_run") {
+      const { kind: _kind, attemptId, ...result } = event;
+      if (event.exitCode !== null) runFiles.push(...event.files);
+      if (event.files.length > 0) runCount += 1;
+      pending = { attemptId, result };
+    } else if (event.kind === "boundary_committed" && pending !== undefined && event.attemptId !== pending.attemptId) {
+      pending = undefined;
+    }
   }
-  return files;
+  return { runFiles, runCount, ...(pending !== undefined ? { pendingResult: pending.result } : {}) };
+}
+
+function readSubspecText(worktreePath: string, expectedArtifactPath: string): string {
+  try {
+    return readFileSync(resolveSpecPath(worktreePath, expectedArtifactPath), "utf8");
+  } catch {
+    return "";
+  }
 }
 
 /** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
@@ -806,8 +831,13 @@ async function runRequestedHarnessTestSlice(
   runId: string,
   attemptId: string,
   worktreePath: string,
+  priorRuns: number,
 ): Promise<HarnessTestSliceResult | undefined> {
-  const request = takeHarnessTestSliceRequest(worktreePath);
+  const request = takeHarnessTestSliceRequest(
+    worktreePath,
+    readSubspecText(worktreePath, args.expectedArtifactPath),
+    priorRuns,
+  );
   if (request === undefined) return undefined;
   const runner = args.runHarnessTestSlice ?? createDefaultHarnessTestSliceRunner();
   let outcome: { exitCode: number | null; output: string } = {
@@ -1564,8 +1594,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let pendingGateBudgetReprompt =
       args.gateBudgetReprompt ?? findGateBudgetRepromptFromLog(priorLogRecordsFromSink(args.logSink, prepared.runId));
     let pendingSurvivingMutationReprompt = args.survivingMutationReprompt;
-    let pendingHarnessTestSliceResult: HarnessTestSliceResult | undefined;
-    const harnessTestSliceRunFiles = findHarnessTestSliceRunFilesFromLog(priorLogRecords);
+    const harnessTestSliceState = findHarnessTestSliceStateFromLog(priorLogRecords);
+    let pendingHarnessTestSliceResult = harnessTestSliceState.pendingResult;
+    const harnessTestSliceRunFiles = harnessTestSliceState.runFiles;
+    let harnessTestSliceRuns = harnessTestSliceState.runCount;
+    let pendingMeasurementCriteriaReprompt: string[] | undefined;
     const durableDraftReprompt = findDraftContractRepromptStateFromLog(
       priorLogRecordsFromSink(args.logSink, prepared.runId),
     );
@@ -1599,9 +1632,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         args.promptId === "implement.prompt.body"
           ? {
               ...args,
-              harnessTestSliceRunFiles: [...harnessTestSliceRunFiles],
               ...(pendingHarnessTestSliceResult !== undefined
                 ? { harnessTestSliceResult: pendingHarnessTestSliceResult }
+                : {}),
+              ...(pendingMeasurementCriteriaReprompt !== undefined
+                ? { measurementCriteriaReprompt: pendingMeasurementCriteriaReprompt }
                 : {}),
             }
           : args,
@@ -1710,6 +1745,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       if (isDraftContractRepair) pendingDraftContractReprompt = undefined;
       if (pendingGateBudgetReprompt !== undefined) pendingGateBudgetReprompt = undefined;
       pendingHarnessTestSliceResult = undefined;
+      pendingMeasurementCriteriaReprompt = undefined;
 
       const { result } = stepResult;
 
@@ -1808,8 +1844,16 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
 
         if (args.promptId === "implement.prompt.body") {
-          const sliceResult = await runRequestedHarnessTestSlice(args, store, runId, attemptId, worktreePath);
+          const sliceResult = await runRequestedHarnessTestSlice(
+            args,
+            store,
+            runId,
+            attemptId,
+            worktreePath,
+            harnessTestSliceRuns,
+          );
           pendingHarnessTestSliceResult = sliceResult;
+          if (sliceResult !== undefined && sliceResult.files.length > 0) harnessTestSliceRuns += 1;
           if (sliceResult !== undefined && sliceResult.exitCode !== null)
             harnessTestSliceRunFiles.push(...sliceResult.files);
         }
@@ -2179,6 +2223,49 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         if (isEligibleBlockerAppendTarget(blockerPath)) {
           appendBlockerToSpec(blockerPath, reason);
         }
+      }
+
+      const unverifiedMeasurements =
+        result.kind === "complete" && args.promptId === "implement.prompt.body" && args.externalSpecReadOnly !== true
+          ? unverifiedMeasurementCriteria(
+              readSubspecText(worktreePath, args.expectedArtifactPath),
+              harnessTestSliceRunFiles,
+            )
+          : [];
+      if (unverifiedMeasurements.length > 0) {
+        // Mutation checkpoint: dropping this reprompt lets an unobserved measurement tick complete and must
+        // turn "reprompts a ticked measurement criterion with no recorded harness run" RED.
+        try {
+          await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+        } catch (error) {
+          return iterationCommitFailed(
+            args,
+            store,
+            runId,
+            attemptId,
+            iterationsConsumed,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+        store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+        args.logSink?.append(runId, {
+          kind: "boundary_committed",
+          attemptId,
+          outcomeKind: "progress",
+          runStatus: "in-progress",
+        });
+        args.logSink?.append(runId, {
+          kind: "measurement_criteria_reprompt",
+          attemptId,
+          criteria: unverifiedMeasurements,
+        });
+        pendingMeasurementCriteriaReprompt = unverifiedMeasurements;
+        if (args.signal?.aborted) return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        if (args.pauseSignal?.aborted) {
+          store.setRunStatus(runId, "paused");
+          return finishLoop(args, runId, "paused", iterationsConsumed, true);
+        }
+        continue;
       }
 
       let inLoopVerifierProcessGroups: ReturnType<typeof storeVerifierProcessGroupRecorder> | undefined;
@@ -3409,7 +3496,9 @@ function buildWriteExecuteInput(
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(gateBudgetReprompt !== undefined ? { gateBudgetReprompt } : {}),
     ...(args.harnessTestSliceResult !== undefined ? { harnessTestSliceResult: args.harnessTestSliceResult } : {}),
-    ...(args.harnessTestSliceRunFiles !== undefined ? { harnessTestSliceRunFiles: args.harnessTestSliceRunFiles } : {}),
+    ...(args.measurementCriteriaReprompt !== undefined
+      ? { measurementCriteriaReprompt: args.measurementCriteriaReprompt }
+      : {}),
     ...(draftContractReprompt !== undefined ? { draftContractReprompt } : {}),
     ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
@@ -5506,7 +5595,7 @@ function resolveContractMissBlockerPath(
   args: Pick<WriteLoopInput, "expectedArtifactPath" | "specPath" | "promptId" | "externalPlanSpec">,
   failedContractId: string,
 ): string {
-  if (failedContractId === "spec.criteria-ticked" || failedContractId === "spec.measurement-criteria-harness-run") {
+  if (failedContractId === "spec.criteria-ticked") {
     return args.externalPlanSpec === true && isAbsolute(args.expectedArtifactPath)
       ? args.expectedArtifactPath
       : resolveSpecPath(worktreePath, args.expectedArtifactPath);

@@ -261,6 +261,13 @@ type HarnessTestSliceRunEvent = {
   output: string;
 };
 
+/** An implement completion reprompted: ticked measurement criteria lack a recorded harness integration-slice run. */
+type MeasurementCriteriaRepromptEvent = {
+  kind: "measurement_criteria_reprompt";
+  attemptId: string;
+  criteria: string[];
+};
+
 /** Implement-verified HEAD when a shrink write loop starts; resume uses this for optional-pass revert. */
 type PreShrinkHeadEvent = {
   kind: "pre_shrink_head";
@@ -405,6 +412,7 @@ type LogEventWithoutLoopFinished =
   | StagedMarkdownLintRepromptEvent
   | GateInvocationBudgetRefusedEvent
   | HarnessTestSliceRunEvent
+  | MeasurementCriteriaRepromptEvent
   | PreShrinkHeadEvent
   | SurvivingMutationRepromptEvent
   | MutationVerificationInconclusiveEvent

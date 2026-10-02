@@ -176,6 +176,23 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   let projectRoot: string;
   let jarvisRoot: string;
 
+  async function cleanupStdout(
+    options: { dryRun?: boolean; promptConfirm?: () => Promise<boolean> } = {},
+  ): Promise<{ code: number; stdout: string }> {
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      options,
+      registry,
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    return { code, stdout };
+  }
+
   function createSpec(name: string, criterion: string, intent?: string): { source: string; readyIntent?: string } {
     const source = join(projectRoot, "v2", "spec", name);
     mkdirSync(source, { recursive: true });
@@ -646,7 +663,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       },
     );
     expect(stdout).not.toContain(worktreePath);
-    expect(stdout).toContain("No eligible worktrees");
+    expect(stdout).toContain(`prune: ready-intents/${specName}.md`);
+    expect(stdout).not.toContain("Retired:");
   });
 
   test("subsumed plan lane ineligible: commit outside spec scope", async () => {
@@ -2143,6 +2161,188 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(stdout).toContain("foo/bar");
       expect(stdout).toContain("foo-bar");
     }));
+
+  test("dry-run previews and apply prunes in-repo ready-intent proven by open spec on default branch", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20261002T120001Z-open-spec-ready-prune";
+    const intent = "---\nname: open-spec-ready-prune\n---\n\n# Open spec prune\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-ready-prune.md");
+    writeFileSync(slugReady, intent);
+    await commitFixtures(projectRoot);
+
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).toContain(`prune: ready-intents/open-spec-ready-prune.md (consumed by open spec ${specName})`);
+    expect(dry.stdout).not.toContain(`archive: ${join(home, specName)}`);
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(slugReady)).toBe(true);
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).toContain("Pruned consumed ready-intent:");
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(join(home, "completed", specName))).toBe(false);
+    expect(existsSync(slugReady)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("v2/spec/ready-intents/open-spec-ready-prune.md");
+  });
+
+  test("leaves in-repo ready-intent when bytes differ from open spec intent.md", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20261002T120002Z-open-spec-ready-mismatch";
+    const intent = "---\nname: open-spec-ready-mismatch\n---\n\n# Spec intent\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-ready-mismatch.md");
+    writeFileSync(slugReady, `${intent}\nqueue drift\n`);
+    await commitFixtures(projectRoot);
+
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).not.toContain("prune: ready-intents/open-spec-ready-mismatch.md");
+    expect(dry.stdout).toContain("unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).not.toContain("Pruned consumed ready-intent:");
+    expect(existsSync(slugReady)).toBe(true);
+  });
+
+  test("prunes in-repo ready-intent proven by open spec while implement worktree still materialized", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20261002T120003Z-open-spec-ready-owner";
+    const branch = "feat/open-spec-ready-owner";
+    const intent = "---\nname: open-spec-ready-owner\n---\n\n# Open spec with owner\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-ready-owner.md");
+    writeFileSync(slugReady, intent);
+    const worktreePath = await materializeWorktree(branch, "implement owns open spec");
+    const registry = { project: { root: projectRoot } };
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath,
+          specPath: join(home, specName, "index.md"),
+          status: "in-progress",
+        },
+      ],
+    } as unknown as StateStore;
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, ghRunnerForPr("MERGED"));
+    expect(discovered.some((worktree) => worktree.path === worktreePath)).toBe(true);
+
+    let dryStdout = "";
+    expect(
+      await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, ghRunnerForPr("MERGED"), async () => [], store, {
+        stdout: (s) => (dryStdout += s),
+        stderr: () => {},
+      }),
+    ).toBe(0);
+    expect(dryStdout).toContain(`prune: ready-intents/open-spec-ready-owner.md (consumed by open spec ${specName})`);
+    expect(dryStdout).not.toContain("another materialized worktree owns the consuming open spec");
+
+    let applyStdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(applyStdout).toContain("Pruned consumed ready-intent:");
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(slugReady)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("v2/spec/ready-intents/open-spec-ready-owner.md");
+  });
+
+  test("in-repo ready-intent proof costs constant git calls per project, never a per-blob show", async () => {
+    async function dryRunGitCalls(count: number, offset: number): Promise<string[][]> {
+      for (let i = 0; i < count; i++) {
+        const specName = `20261002T13${String(offset + i).padStart(4, "0")}Z-git-bound-${offset + i}`;
+        createSpec(specName, "[ ] Still open", `---\nname: git-bound-${offset + i}\n---\n`);
+      }
+      await commitFixtures(projectRoot);
+      const calls: string[][] = [];
+      const inner = ghRunnerForPr("MERGED");
+      const runner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd, options) => {
+          if (cmd === "git") calls.push(args);
+          return inner.runAsync(cmd, args, cwd, options);
+        },
+      };
+      let stdout = "";
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        runner,
+        async () => [],
+        { listRuns: () => [] } as unknown as StateStore,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      );
+      expect(stdout.match(/prune: ready-intents\//g)?.length).toBe(offset + count);
+      return calls;
+    }
+    const readyIntentProbes = (calls: string[][]) =>
+      calls.filter((args) => args.some((arg) => arg.includes("ready-intents")) || args.includes("main:v2/spec"));
+
+    const one = await dryRunGitCalls(1, 0);
+    const nine = await dryRunGitCalls(8, 1);
+    expect(readyIntentProbes(nine).length).toBe(readyIntentProbes(one).length);
+    expect(nine.filter((args) => args[0] === "show" && args.some((arg) => arg.includes("ready-intents/")))).toEqual([]);
+  });
+
+  test("open spec archived in the same run prunes its ready-intent once, with no separate prune", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20261002T120004Z-open-spec-archives-same-run";
+    const intent = "---\nname: open-spec-archives-same-run\n---\n\n# Archives same run\n";
+    // Complete on the default branch but not yet under completed/: both the archive and the queue prune see it.
+    createSpec(specName, "[x] Done", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-archives-same-run.md");
+    writeFileSync(slugReady, intent);
+    await commitFixtures(projectRoot);
+
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).toContain(`archive: ${join(home, specName)}`);
+    expect(dry.stdout).not.toContain("prune: ready-intents/open-spec-archives-same-run.md");
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).toContain("(pruned consumed ready-intent)");
+    expect(apply.stdout).not.toContain("archive publication failed");
+    const tree = await cleanupArchiveTree(projectRoot);
+    expect(tree).toContain(`v2/spec/completed/${specName}/index.md`);
+    expect(tree).not.toContain("v2/spec/ready-intents/open-spec-archives-same-run.md");
+  });
+
+  test("apply re-proves the prune on the default branch, not a divergent operator checkout", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20261002T120005Z-open-spec-divergent";
+    const intent = "---\nname: open-spec-divergent\n---\n\n# Divergent checkout\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-divergent.md");
+    writeFileSync(slugReady, intent);
+    await commitFixtures(projectRoot);
+    // Uncommitted drift: the slug copy no longer matches, a raw-name copy does.
+    writeFileSync(slugReady, `${intent}\nlocal drift\n`);
+    const rawReady = join(home, "ready-intents", `${specName}.md`);
+    writeFileSync(rawReady, intent);
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).toContain("Pruned consumed ready-intent:");
+    expect(apply.stdout).not.toContain("archive publication failed");
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("v2/spec/ready-intents/open-spec-divergent.md");
+    expect(existsSync(rawReady)).toBe(true);
+  });
 
   test("dry-run previews and apply prunes the slug-named consumed ready-intent", async () => {
     const home = join(projectRoot, "v2", "spec");

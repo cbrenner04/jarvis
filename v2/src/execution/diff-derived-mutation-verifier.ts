@@ -143,7 +143,8 @@ type VerifierSeams = {
 export const MAX_INSPECTED_MUTATIONS = 25;
 const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 export const MAX_VERIFICATION_MS = 5 * 60_000;
-export const MAX_KILLING_TEST_MS = 30_000;
+/** Must exceed the repo `bunfig.toml` `[test] timeout` (30 s), which overrides CLI `--timeout` in Bun 1.3. */
+export const MAX_KILLING_TEST_MS = 35_000;
 export const SCOPED_BUN_PER_TEST_TIMEOUT_MS = MAX_KILLING_TEST_MS - 5_000;
 /** Per-candidate bound = clamp(baseline × factor, floor, ceiling); the floor is the historical fixed budget. */
 const KILLING_TEST_BUDGET_FACTOR = 2;

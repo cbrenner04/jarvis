@@ -237,11 +237,6 @@ function setupFanOutResumePipeline(store: StateStore): { pipelineId: string; bef
   return { pipelineId, before };
 }
 
-/** Every lane's ready-intent declares `independent: true`: the concurrent fan-out these fixtures pin. */
-async function allLanesIndependent(): Promise<string> {
-  return "---\nindependent: true\n---\n";
-}
-
 const APPROVED_PENDING_BRANCH = "approved-pending-target";
 const APPROVED_PENDING_SIBLING = "approved-pending-sibling";
 
@@ -547,7 +542,6 @@ test("pipeline_resume branchKey replays only the named branch while sibling gate
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     resolveStage,
-    readLaneReadyIntent: allLanesIndependent,
   });
 
   // Keystone checkpoint: dropping the forwarded branch scope derives unscoped admission on the
@@ -663,7 +657,6 @@ test("pipeline_resume continues an approved-gate pending strand on the named bra
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     resolveStage,
-    readLaneReadyIntent: allLanesIndependent,
   });
 
   const response = await resumeHandlers.pipeline_resume(

@@ -21,7 +21,6 @@ import type { NotificationWaitRegistry } from "./daemon-notification-wait.ts";
 import { createSlotRedriveCoordinator, type SlotRedriveCoordinator } from "./daemon-slot-redrive.ts";
 import type { DaemonListRunRow } from "./daemon-wire.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
-import type { PipelineExecutionDeps } from "./pipeline-execution.ts";
 import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import type { PipelineStageRecoveryAttempt } from "./pipeline-stage-recovery.ts";
@@ -41,7 +40,6 @@ export type RunControlHandlerContextDeps = {
   registry?: WorktreeOwnershipRegistry;
   intentFinalizationResumeDeps?: Omit<IntentFinalizationResumeDeps, "logSink">;
   resolveStage?: typeof resolveStageWorkflowSteps;
-  readLaneReadyIntent?: PipelineExecutionDeps["readLaneReadyIntent"];
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;
   recoveryAttempt?: PipelineStageRecoveryAttempt;

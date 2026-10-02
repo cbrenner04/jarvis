@@ -1,18 +1,20 @@
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 /**
- * Fan-out lane ordering. Lanes run serially by default in `downstreamInputs` order, each chained
- * off its predecessor's final workflow branch; a ready-intent declaring `independent: true` opts its
- * lane out (bases off the default branch, dispatches concurrently). Dependent lanes start after every
- * independent lane settles.
+ * Fan-out lane ordering, computed once at split admission and persisted on the split stage
+ * artifact (`laneChain`). Dependent lanes run serially, each chained off its predecessor's final
+ * workflow branch; independent lanes base off the default branch and dispatch concurrently.
+ * Dependent lanes start after every independent lane settles.
  */
 export type FanOutLaneChain = {
-  /** Dependent lane branch keys in authored order. */
+  /** Dependent lane branch keys in dispatch order. */
   dependent: readonly string[];
   independent: ReadonlySet<string>;
 };
+
+/** Durable `laneChain` field on the split stage artifact. */
+type PersistedLaneChain = { dependent: string[]; independent: string[] };
 
 /** Lane suffix progress: every stage satisfied, ended without completing, or still open. */
 export type LaneProgress = "complete" | "dead" | "open";
@@ -22,31 +24,97 @@ export type LaneChainGate =
   | { kind: "held" }
   | { kind: "severed"; predecessor: string };
 
-/** True when ready-intent frontmatter carries `independent: true`. */
-export function readyIntentDeclaresIndependent(content: string): boolean {
-  const lines = content.split("\n");
-  if (lines[0]?.trim() !== "---") return false;
+type LaneDeclaration = { independent?: boolean; deliveredBy: string[] };
+
+/** Same marker the intent split landing requires (`shared/intent-stage.ts`). */
+const DELIVERED_BY_RE = /\(delivered by: ([a-z0-9-]+)\)\s*$/;
+
+function frontmatterIndependent(lines: readonly string[]): boolean | undefined {
+  if (lines[0]?.trim() !== "---") return undefined;
   for (const line of lines.slice(1)) {
-    if (line.trim() === "---") return false;
+    if (line.trim() === "---") return undefined;
     const match = /^independent:\s*(\S+)\s*$/.exec(line);
     if (match !== null) return match[1] === "true";
   }
-  return false;
+  return undefined;
 }
 
-/** An unreadable ready-intent counts as dependent: serial is the default. */
+function prerequisiteProviders(lines: readonly string[]): string[] {
+  const start = lines.findIndex((line) => /^## Prerequisites\s*$/.test(line));
+  if (start < 0) return [];
+  const providers: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^##\s/.test(line)) break;
+    const provider = DELIVERED_BY_RE.exec(line)?.[1];
+    if (provider !== undefined) providers.push(provider);
+  }
+  return providers;
+}
+
+/** Explicit `independent:` frontmatter plus `(delivered by: <sibling>)` prerequisite providers. */
+export function parseLaneDeclaration(content: string): LaneDeclaration {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const independent = frontmatterIndependent(lines);
+  return { ...(independent !== undefined ? { independent } : {}), deliveredBy: prerequisiteProviders(lines) };
+}
+
+/**
+ * A lane is independent when no sibling delivers one of its prerequisites and it delivers none of a
+ * sibling's; explicit `independent: true|false` frontmatter overrides. Dependent lanes are ordered
+ * providers-first (stable in authored order). An unreadable ready-intent declares nothing.
+ */
 export function buildFanOutLaneChain(
   branchKeys: readonly string[],
   contents: ReadonlyArray<string | undefined>,
 ): FanOutLaneChain {
-  const dependent: string[] = [];
-  const independent = new Set<string>();
-  branchKeys.forEach((branchKey, index) => {
+  const siblings = new Set(branchKeys);
+  const providersOf = new Map<string, string[]>();
+  const declarations = branchKeys.map((branchKey, index) => {
     const content = contents[index];
-    if (content !== undefined && readyIntentDeclaresIndependent(content)) independent.add(branchKey);
-    else dependent.push(branchKey);
+    const declaration: LaneDeclaration = content === undefined ? { deliveredBy: [] } : parseLaneDeclaration(content);
+    const providers = declaration.deliveredBy.filter((name) => name !== branchKey && siblings.has(name));
+    providersOf.set(branchKey, providers);
+    return { branchKey, declaration, providers };
   });
-  return { dependent, independent };
+  const isProvider = new Set(declarations.flatMap((entry) => entry.providers));
+  const independent = new Set<string>();
+  const dependentLanes: string[] = [];
+  for (const { branchKey, declaration, providers } of declarations) {
+    const inferred = providers.length === 0 && !isProvider.has(branchKey);
+    if (declaration.independent ?? inferred) independent.add(branchKey);
+    else dependentLanes.push(branchKey);
+  }
+  return { dependent: orderProvidersFirst(dependentLanes, providersOf), independent };
+}
+
+function orderProvidersFirst(lanes: readonly string[], providersOf: ReadonlyMap<string, string[]>): string[] {
+  const pending = [...lanes];
+  const ordered: string[] = [];
+  while (pending.length > 0) {
+    const ready = pending.findIndex((lane) =>
+      (providersOf.get(lane) ?? []).every((provider) => !pending.includes(provider) || provider === lane),
+    );
+    // A provider cycle falls back to authored order.
+    const [next] = pending.splice(ready < 0 ? 0 : ready, 1);
+    if (next !== undefined) ordered.push(next);
+  }
+  return ordered;
+}
+
+export function persistLaneChain(chain: FanOutLaneChain): PersistedLaneChain {
+  return { dependent: [...chain.dependent], independent: [...chain.independent] };
+}
+
+/** The persisted chain, or `undefined` for a split admitted without one (concurrent lanes). */
+export function laneChainFromArtifact(artifact: unknown): FanOutLaneChain | undefined {
+  if (artifact === null || typeof artifact !== "object") return undefined;
+  const raw = (artifact as { laneChain?: unknown }).laneChain;
+  if (raw === null || typeof raw !== "object") return undefined;
+  const { dependent, independent } = raw as { dependent?: unknown; independent?: unknown };
+  const strings = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  if (!strings(dependent) || !strings(independent)) return undefined;
+  return { dependent, independent: new Set(independent) };
 }
 
 /**
@@ -86,24 +154,11 @@ export function laneChainSuccessors(chain: FanOutLaneChain, branchKey: string): 
   return next === undefined ? [] : [next];
 }
 
-export type LaneReadyIntentSource = { worktreePath: string; branch: string; projectRoot: string };
-
-/** Read one downstream ready-intent from the intent worktree, else from the intent branch. */
-export async function readLaneReadyIntent(
-  path: string,
-  source: LaneReadyIntentSource,
-  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
-): Promise<string | undefined> {
-  if (source.worktreePath.length > 0) {
-    try {
-      return await readFile(join(source.worktreePath, path), "utf8");
-    } catch {
-      // Fall through to the branch.
-    }
-  }
-  if (source.branch.length === 0) return undefined;
+/** Read one downstream ready-intent from the intent entry run's worktree; unreadable is `undefined`. */
+export function readLaneReadyIntent(worktreePath: string, path: string): string | undefined {
+  if (worktreePath.length === 0) return undefined;
   try {
-    return await runner.runAsync("git", ["show", `${source.branch}:${path}`], source.projectRoot);
+    return readFileSync(join(worktreePath, path), "utf8");
   } catch {
     return undefined;
   }

@@ -28,7 +28,6 @@ import {
   SurvivingMutationError,
 } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
-import { readyGateRepairLogFields } from "./write-loop.ts";
 import {
   createBindingFactory,
   createDebateStep,
@@ -49,6 +48,7 @@ import {
   writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type ReviewWorkflowStep, type WriteWorkflowStep } from "./workflow-runner.ts";
+import { readyGateRepairLogFields } from "./write-loop.ts";
 
 describe("executeWorkflow fresh dispatch", () => {
   test("creates a new run row for a completed step when freshDispatch is set", async () => {

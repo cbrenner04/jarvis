@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { readyStepCompletionRecord, readyStepStartRecord } from "../../../scripts/ready.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
-import { readyGateRepairLogFields } from "./write-loop.ts";
 import { runLoop, TestLogSink } from "./write-loop.test-support.ts";
+import { readyGateRepairLogFields } from "./write-loop.ts";
 
 const GATE_COMMAND = "bun run ready";
 const OUTPUT_TAIL_MAX = 4096;

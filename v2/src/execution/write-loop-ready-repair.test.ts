@@ -8,13 +8,6 @@ import { runLoop, TestLogSink } from "./write-loop.test-support.ts";
 import { readyGateRepairLogFields } from "./write-loop.ts";
 
 const GATE_COMMAND = "bun run ready";
-const OUTPUT_TAIL_MAX = 4096;
-
-function lastLine(text: string): string {
-  const lines = text.trimEnd().split("\n");
-  return lines.at(-1) ?? "";
-}
-
 function readyGateRepairPin(gateOutput: string, attempt: number, gateExitCode: number) {
   return {
     kind: "ready_gate_repair" as const,
@@ -65,14 +58,13 @@ describe("ready_gate_repair log event context", () => {
     const stdout = `${start("1", "1.1", "bun install")}${start("2", "2.1", "bun run check")}warning: unrelated\n${start("3", "3.1", "bun run typecheck")}error TS1: boom\nterminal step last line\n`;
     const stderr = `${start("1", "1.1", "bun install")}${done("1", "1.1", "bun install", 0)}${start("2", "2.1", "bun run check")}${done("2", "2.1", "bun run check", 0)}${start("3", "3.1", "bun run typecheck")}${done("3", "3.1", "bun run typecheck", 2)}`;
     const gateOutput = `${stdout}${stderr}`;
-    const expected = readyGateRepairLogFields(GATE_COMMAND, gateOutput);
 
     const { result, first, repairCount } = await firstReadyGateRepairEvent(gateOutput);
     expect(result.kind).toBe("complete");
     expect(repairCount).toBe(1);
     expect(first).toEqual(readyGateRepairPin(gateOutput, 1, 1));
-    expect(expected.failingStep).toBe("bun run typecheck");
-    expect(lastLine(first?.gateOutputTail ?? "")).toBe(lastLine(expected.gateOutputTail));
+    expect(first?.gateOutputTail).toContain("error TS1: boom\nterminal step last line\n");
+    expect(first?.gateOutputTail).not.toContain("warning: unrelated");
   });
 
   test("gateOutputTail is capped at 4096 bytes when step output exceeds the cap", async () => {
@@ -85,12 +77,12 @@ describe("ready_gate_repair log event context", () => {
     });
     const padding = "p".repeat(5000);
     const gateOutput = `${start}${padding}\ncap tail last line\n${start}${done}`;
-    const expected = readyGateRepairLogFields(GATE_COMMAND, gateOutput);
 
     const { result, first } = await firstReadyGateRepairEvent(gateOutput);
     expect(result.kind).toBe("complete");
     expect(first).toEqual(readyGateRepairPin(gateOutput, 1, 1));
-    expect(first?.gateOutputTail.length).toBeLessThanOrEqual(OUTPUT_TAIL_MAX);
-    expect(lastLine(first?.gateOutputTail ?? "")).toBe(lastLine(expected.gateOutputTail));
+    expect(first?.failingStep).toBe("bun run test:v2");
+    expect(first?.gateOutputTail.length).toBe(4096);
+    expect(first?.gateOutputTail).toContain("cap tail last line");
   });
 });

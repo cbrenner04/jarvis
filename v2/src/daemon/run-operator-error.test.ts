@@ -219,6 +219,19 @@ test("post-commit shrink contract_miss composes to resume", () => {
   ).toEqual(err("contract_miss", "resume", true));
 });
 
+test("post-commit shrink invocation_failure error composes to resume", () => {
+  expect(
+    composeRunOperatorError(
+      {
+        ...runWith("paused", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]),
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: { failureKind: "error", bindingAttempts: [] },
+      },
+      loopFinished("invocation_failure", { resumable: true }),
+    ),
+  ).toEqual(err("invocation_error", "resume", true));
+});
+
 test("composeRunOperatorError projects iteration_timeout inventoryError", () => {
   const inventoryError = "cannot relativize subspec path: /tmp/outside.md";
   expect(

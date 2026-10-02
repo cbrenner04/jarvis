@@ -1,5 +1,6 @@
 import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import type { WorkflowPipelineStage } from "../execution/pipeline-definition.ts";
+import { resolveInvocationEntryRunId } from "./invocation-entry-run.ts";
 import { resolvePrEvidenceAcrossInvocation } from "./pipeline-stage-settlement.ts";
 import {
   isTerminalRunStatus,
@@ -76,12 +77,6 @@ function refuse(code: ReviewFeedbackLaneRefusalCode, message: string): ReviewFee
   return { ok: false, code, message };
 }
 
-function isEntryRunRow(run: Run): boolean {
-  const snapshot = run.workflowSnapshot;
-  if (snapshot == null || run.stepId == null) return false;
-  return run.stepId === snapshot.steps[0]?.stepId;
-}
-
 function bareLaneKindFromFirstStep(step: WorkflowSnapshotStep | undefined): ReviewFeedbackLaneKind | null {
   if (step == null) return null;
   if (step.promptId === REVIEW_FEEDBACK_WRITE_PROMPT_ID) return null;
@@ -115,6 +110,32 @@ function pipelineLaneKindFromWorkflow(workflow: string): ReviewFeedbackLaneKind 
 
 function runsOnProjectBranch(runs: readonly Run[], project: string, branch: string): Run[] {
   return runs.filter((run) => run.project === project && run.branch === branch);
+}
+
+function distinctInvocationEntryRunsOnBranch(
+  store: ReviewFeedbackLaneResolutionStore,
+  project: string,
+  branch: string,
+): Run[] {
+  const runsOnBranch = runsOnProjectBranch(store.listRuns(), project, branch);
+  const seenInvocations = new Set<string>();
+  const entryRuns: Run[] = [];
+  const seenEntryRunIds = new Set<string>();
+
+  for (const run of runsOnBranch) {
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (invocationId !== undefined) {
+      if (seenInvocations.has(invocationId)) continue;
+      seenInvocations.add(invocationId);
+    }
+    const entryRunId = resolveInvocationEntryRunId(store, run.id);
+    if (seenEntryRunIds.has(entryRunId)) continue;
+    const entryRun = store.loadRun(entryRunId);
+    if (entryRun === null) continue;
+    seenEntryRunIds.add(entryRunId);
+    entryRuns.push(entryRun);
+  }
+  return entryRuns;
 }
 
 function hasInFlightRunOnBranch(store: ReviewFeedbackLaneResolutionStore, project: string, branch: string): boolean {
@@ -175,7 +196,7 @@ function resolveBareReviewFeedbackLane(
     return refuse("review_feedback_lane_in_flight", `lane on branch ${branch} is still in flight`);
   }
 
-  const entryRuns = runsOnProjectBranch(store.listRuns(), project, branch).filter(isEntryRunRow);
+  const entryRuns = distinctInvocationEntryRunsOnBranch(store, project, branch);
   const matches: CompletedLaneMatch[] = [];
   let sawIneligibleEntry = false;
 
@@ -286,12 +307,13 @@ function resolvePipelineStageIdentifiedReviewFeedbackLane(
     return refuse("review_feedback_lane_unmatched", `stage ${stageId} is not succeeded`);
   }
 
-  const entryRunId = stageRow.workflowInvocationId;
-  if (entryRunId === null) {
+  const stageLinkedRunId = stageRow.workflowInvocationId;
+  if (stageLinkedRunId === null) {
     return refuse("review_feedback_lane_unmatched", `stage ${stageId} has no linked workflow invocation`);
   }
 
-  const entryRun = store.loadRun(entryRunId);
+  const canonicalEntryRunId = resolveInvocationEntryRunId(store, stageLinkedRunId);
+  const entryRun = store.loadRun(canonicalEntryRunId);
   if (entryRun === null) {
     return refuse("review_feedback_lane_unmatched", `stage ${stageId} has no linked workflow entry run`);
   }
@@ -312,10 +334,6 @@ function resolvePipelineStageIdentifiedReviewFeedbackLane(
       `stage ${stageId} entry run does not match branch ${branchBinding.branch}`,
     );
   }
-  if (!isEntryRunRow(entryRun)) {
-    return refuse("review_feedback_lane_unmatched", `stage ${stageId} is not linked to a workflow entry run`);
-  }
-
   const match = completedLaneMatch(store, entryRun, laneKind);
   if (match === null) {
     return refuse("review_feedback_lane_unmatched", `stage ${stageId} lane is not completed with publication evidence`);

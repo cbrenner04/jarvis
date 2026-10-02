@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { runHarnessFullSuiteGateWithSlot } from "../execution/gate-invocation-lease.ts";
 import { acquireGateInvocationLease, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type LogEvent, openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type Run, type StateStore } from "../persistence/state-store.ts";
@@ -240,6 +241,34 @@ function daemonHarness(
     );
   return { ctx, handlers, runs, start };
 }
+
+test("a slot-refused lane waiting on a harness finalization gate release re-drives through resume once that gate finishes", async () => {
+  let finishHarnessGate: (() => void) | undefined;
+  const harnessGateBody = new Promise<void>((resolve) => {
+    finishHarnessGate = resolve;
+  });
+  const harnessGate = runHarnessFullSuiteGateWithSlot({ gate: GATE_COMMAND, slotWaitTimeoutMs: 60_000 }, async () => {
+    await harnessGateBody;
+  });
+  await tick();
+
+  const runId = seedRefusedRun("harness-finalization-held");
+  const { coordinator, calls } = recordingCoordinator();
+  coordinator.enqueue(runId);
+  await tick();
+  expect(calls).toHaveLength(0);
+
+  finishHarnessGate?.();
+  await harnessGate;
+  await tick();
+
+  expect(calls).toEqual([{ runId }]);
+  expect(store.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 1 });
+  expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive")).toEqual([
+    { kind: "slot_redrive", slotRedriveCount: 1, bound: MAX_SLOT_REDRIVES },
+  ]);
+  coordinator.stop();
+});
 
 test("a slot-refused lane settled while the gate is held is re-driven through resume once the holder releases", async () => {
   const holder = holdGate();

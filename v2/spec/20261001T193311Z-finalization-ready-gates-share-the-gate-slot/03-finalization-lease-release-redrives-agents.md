@@ -15,8 +15,8 @@ Slot-refused agent gates re-drive when an agent-held lease releases (`daemon-slo
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-slot-redrive.test.ts` proves a finalization-lease release triggers the `slot_contention` automatic re-drive path; fails against pre-fix code where finalization spawns without a lease (reachable on main today).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-slot-redrive.test.ts` proves a finalization-lease release triggers the `slot_contention` automatic re-drive path; fails against pre-fix code where finalization spawns without a lease (reachable on main today).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

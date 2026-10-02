@@ -24,9 +24,9 @@ Primary: `v2/src/execution/write-loop.test-support.ts` (new), `v2/src/execution/
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `bun run typecheck` passes.
-- [ ] No `v2/src/execution/` test file duplicates the shared helper or hook bodies now centralized in `write-loop.test-support.ts`.
+- [x] `write-loop.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `bun run typecheck` passes.
+- [x] No `v2/src/execution/` test file duplicates the shared helper or hook bodies now centralized in `write-loop.test-support.ts`.
 
 ## Documentation updates
 

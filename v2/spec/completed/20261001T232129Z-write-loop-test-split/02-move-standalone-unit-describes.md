@@ -26,10 +26,10 @@ Primary: `v2/src/execution/write-loop-standalone-units.test.ts` (new), `v2/src/e
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` and `write-loop-standalone-units.test.ts` stay green (behavior unchanged by the move).
-- [ ] `write-loop-test-inventory.test.ts` passes.
-- [ ] `bun run typecheck` and `bun run check` pass.
-- [ ] None of `describe("buildSubspecCompletionInventory")`, `describe("persistRetainedFinalizationCheckpoint")`, or `describe("applyOperatorSessionId")` remain in `write-loop.test.ts`.
+- [x] `write-loop.test.ts` and `write-loop-standalone-units.test.ts` stay green (behavior unchanged by the move).
+- [x] `write-loop-test-inventory.test.ts` passes.
+- [x] `bun run typecheck` and `bun run check` pass.
+- [x] None of `describe("buildSubspecCompletionInventory")`, `describe("persistRetainedFinalizationCheckpoint")`, or `describe("applyOperatorSessionId")` remain in `write-loop.test.ts`.
 
 ## Documentation updates
 

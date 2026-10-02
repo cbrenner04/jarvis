@@ -263,6 +263,30 @@ describe("gate-invocation-lease", () => {
     expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
   });
 
+  test("runHarnessFullSuiteGateWithSlot releases the lease when the slot-wait observer throws", async () => {
+    const holder = acquireGateInvocationLease();
+    expect(holder).toBeDefined();
+    let ran = false;
+    const harnessGate = runHarnessFullSuiteGateWithSlot(
+      {
+        gate: "ready",
+        slotWaitTimeoutMs: 5_000,
+        onSlotWait: () => {
+          throw new Error("log sink failed");
+        },
+      },
+      async () => {
+        ran = true;
+      },
+    );
+    await flushMicrotasks();
+    holder?.release();
+    await expect(settledAfterFlush(harnessGate)).rejects.toThrow("log sink failed");
+    expect(ran).toBe(false);
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+    expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
+  });
+
   test("runHarnessFullSuiteGateWithSlot forwards its abort signal to the slot wait", async () => {
     const holder = acquireGateInvocationLease();
     expect(holder).toBeDefined();

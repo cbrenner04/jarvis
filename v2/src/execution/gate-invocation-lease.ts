@@ -179,7 +179,9 @@ export async function runHarnessFullSuiteGateWithSlot(
 ): Promise<void> {
   const waitStartedAtMs = Date.now();
   let lease = acquireGateInvocationLease();
+  let waitedForSlot = false;
   if (lease === undefined) {
+    waitedForSlot = true;
     if (options.runId !== undefined) {
       markHarnessGateSlotWait(options.runId, options.gate);
     }
@@ -193,10 +195,11 @@ export async function runHarnessFullSuiteGateWithSlot(
         clearHarnessGateSlotWait(options.runId);
       }
     }
-    options.onSlotWait?.({ gate: options.gate, waitedMs: Date.now() - waitStartedAtMs });
   }
   leasedHarnessFullSuiteGateSpawns += 1;
   try {
+    // Inside the try: a throwing wait observer must still release the lease.
+    if (waitedForSlot) options.onSlotWait?.({ gate: options.gate, waitedMs: Date.now() - waitStartedAtMs });
     await run();
   } finally {
     leasedHarnessFullSuiteGateSpawns -= 1;

@@ -10,8 +10,8 @@ The terminal-publication ready gate path runs the same full-suite ready command 
 
 ## Task checklist
 
-- [ ] Lease wait/release around terminal-publication `runReadyGate` spawn only.
-- [ ] Regression test in `terminal-publication.test.ts`.
+- [x] Lease wait/release around terminal-publication `runReadyGate` spawn only.
+- [x] Regression test in `terminal-publication.test.ts`.
 
 ## Acceptance criteria
 

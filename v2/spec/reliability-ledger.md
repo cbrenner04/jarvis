@@ -1,6 +1,6 @@
 # Harness reliability ledger
 
-Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 3 ready-intents, 17 seeds**; `completed/` excluded. Every queue artifact appears once below.
+Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055400Z-operator-reliability-backlog.md). Companion to the [brief](./reliability-brief.md). Inventory: **5 active spec plans, 2 ready-intents, 18 seeds**; `completed/` excluded. Every queue artifact appears once below.
 
 ## Highest priority: active spec (1)
 
@@ -8,7 +8,7 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | --- | --- | --- |
 | [Workflow terminal evidence waits for every row](./20261002T061748Z-workflow-terminal-waits-for-all-rows/index.md) | Implement in flight (`0f5274bf`) | The invocation finally path writes a settled marker even while a linked row remains non-terminal, producing a false finished incident. Siblings merged #4429 #4430 #4432. |
 
-## Immediate reliability: active specs (4) and ready-intents (2)
+## Immediate reliability: active specs (4), ready-intent (1), seed (1)
 
 | Item | Next action / dependency | Remaining work and evidence |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 | [`ready_gate_repair` logs gate context](./20261001T193416Z-ready-gate-repair-event-gate-context/index.md) | After allowed-paths | Failing step + 4 KiB tail on the event. |
 | [Revert write-step history rewrite](./20261001T193533Z-revert-write-step-history-rewrite/index.md) | After event-context | Repair agent rebased a lane onto `origin/main`; publisher then refused its own tip (2026-10-01). |
 | [Implement rules forbid history rewrite](./ready-intents/implement-rules-forbid-history-rewrite.md) | After revert lane | Prompt rule; one-line change plus render tests. |
-| [Sweep recorded agent groups](./ready-intents/daemon-sweeps-recorded-agent-groups.md) | Plan in flight (`2f59beb3`); recording merged #4428 | Prove existing dead-owner sweep reaches groups recorded by a real invocation path. |
+| [Hung killing test kills the mutant](./seeds/hung-killing-test-counts-as-killed.md) | Intent | Per-test timeout == kill floor (30 s), so a test hanging under a mutant strands `non_terminating_mutation_failed`; hand-fixed twice on the gate-slot lane 2026-10-02. |
 
 ## Follow-on workflow quality: seeds (5)
 

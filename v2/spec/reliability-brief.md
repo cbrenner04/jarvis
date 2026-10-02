@@ -8,12 +8,12 @@ The August 29 charter's five retirements are complete. This is a separate, bound
 
 ## Current inventory
 
-There are **5 active spec plans, 3 ready-intents, and 17 seeds** (2026-10-02 afternoon: #4428–#4432 merged). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
+There are **5 active spec plans, 2 ready-intents, and 18 seeds** (2026-10-02: #4428–#4432, #4436 merged). Seeds still require intent/plan review; a priority here does not make a seed an executable spec.
 
 | Queue | Active specs | Ready-intents | Seeds | Treatment |
 | --- | --- | --- | --- | --- |
 | Highest priority | 1 | 0 | 0 | Linked resume: terminal evidence (in flight) |
-| Immediate reliability | 4 | 2 | 0 | Bounded completion target below |
+| Immediate reliability | 4 | 1 | 1 | Bounded completion target below |
 | Follow-on workflow quality | 0 | 0 | 5 | Separate prioritization after the immediate queue |
 | Operator features and ergonomics | 0 | 0 | 3 | Useful additions, outside the completion target |
 | Parked design and cleanup | 0 | 0 | 6 | Preserve decisions and dependencies; no automatic dispatch |
@@ -22,7 +22,7 @@ There are **5 active spec plans, 3 ready-intents, and 17 seeds** (2026-10-02 aft
 
 ## Immediate reliability target
 
-Write-loop test split (#4431) and original workstreams 2 (mutation), 4 (lane-PR settlement), 5 (notification handoff), 6 (plan-shape recovery), and 7 (fan-out terminal settlement) are **done** (2026-10-01/02). What remains:
+Write-loop test split (#4431), agent process ownership (#4428, #4436), and original workstreams 2 (mutation), 4 (lane-PR settlement), 5 (notification handoff), 6 (plan-shape recovery), and 7 (fan-out terminal settlement) are **done** (2026-10-01/02). What remains:
 
 | Order | Workstream | Done when |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ Write-loop test split (#4431) and original workstreams 2 (mutation), 4 (lane-PR 
 | 1 | Finalization gates share the gate slot (in flight) | Harness gates wait on the per-daemon slot; concurrent publication no longer false-reds. |
 | 2 | Ready-repair direction (2 active specs) | Repair prompt lists allowed paths; `ready_gate_repair` logs failing step + output tail. |
 | 3 | Agent history-rewrite guard (active spec + ready-intent) | Iterations revert agent rebases/resets; implement rules forbid history mutation. |
-| 4 | Agent process ownership (ready-intent, plan in flight) | Dead-owner sweep reaches groups recorded by implement runs (recording merged #4428). |
+| 4 | Hung killing test kills the mutant (seed) | A test hanging under a mutant counts as killed; no `non_terminating_mutation_failed` strand. |
 
 This target closes when these workstreams are implemented, reviewed, merged, and their queue files removed, or explicitly retired with evidence.
 

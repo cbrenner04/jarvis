@@ -80,6 +80,8 @@ import {
   derivePipelineFailureDetail,
   derivePipelineState,
   fanOutPlanResultForBranch,
+  findFanOutSplit,
+  isPipelineSettlementPending,
   findFailedStageForReopen,
   hasPipelineTerminalPublicationFailure,
   isPipelineContinuable,
@@ -190,6 +192,88 @@ function noopStaleResetPreflightBundle(): NonNullable<PipelineExecutionDeps["sta
     io: { stdout: () => {}, stderr: () => {} },
     connectClient: async () => ({ close: () => {} }) as IpcClient,
   };
+}
+
+function finalFakeSucceededWorkflowStageRecord(
+  stages: PipelineStageRecord[],
+  definition: PipelineDefinition,
+  splitPosition: number,
+  branchKey: string,
+): PipelineStageRecord | undefined {
+  for (let position = definition.stages.length - 1; position > splitPosition; position -= 1) {
+    const stage = definition.stages[position];
+    if (stage?.kind !== "workflow") continue;
+    const record = stages.find(
+      (row) => row.position === position && row.stageId === stage.stageId && row.branchKey === branchKey,
+    );
+    if (record?.status === "succeeded") return record;
+  }
+  return undefined;
+}
+
+function fakeLaneTerminalPublicationFromArtifact(
+  artifact: unknown,
+): { succeededAt: number } | { failure: unknown } | null {
+  if (artifact === null || typeof artifact !== "object") return null;
+  const stamp = (artifact as Record<string, unknown>).terminalPublication;
+  if (stamp === null || typeof stamp !== "object") return null;
+  const typed = stamp as Record<string, unknown>;
+  if (typeof typed.succeededAt === "number") return { succeededAt: typed.succeededAt };
+  if (typed.failure !== undefined) return { failure: typed.failure };
+  return null;
+}
+
+function reconcileFakeFanOutTerminalPublication(
+  stages: PipelineStageRecord[],
+  definition: PipelineDefinition,
+  split: { splitPosition: number; branchKeys: string[] },
+  readFailure: () => Pipeline["terminalPublicationFailure"],
+  readSucceededAt: () => Pipeline["terminalPublicationSucceededAt"],
+  writeFailure: (failure: Pipeline["terminalPublicationFailure"]) => void,
+  writeSucceededAt: (at: number) => void,
+  triggeringFailure?: {
+    terminalAction: PipelineTerminalAction;
+    failure: { operation: string; message: string };
+    prNumber?: number;
+    prUrl?: string;
+    branchKey?: string;
+  },
+): void {
+  if (readFailure() !== null || readSucceededAt() !== null) return;
+  const lanePublications = split.branchKeys.map((branchKey) => {
+    const stage = finalFakeSucceededWorkflowStageRecord(stages, definition, split.splitPosition, branchKey);
+    return {
+      branchKey,
+      publication: stage === undefined ? null : fakeLaneTerminalPublicationFromArtifact(stage.artifact),
+    };
+  });
+  const failedLanes = lanePublications.filter(
+    (lane): lane is { branchKey: string; publication: { failure: unknown } } =>
+      lane.publication !== null && "failure" in lane.publication,
+  );
+  const failedKeys = new Set(failedLanes.map((lane) => lane.branchKey));
+  if (triggeringFailure?.branchKey !== undefined) failedKeys.add(triggeringFailure.branchKey);
+  if (failedKeys.size > 0) {
+    const branchKeys = [...failedKeys].sort();
+    const [onlyKey] = branchKeys;
+    const laneField = branchKeys.length === 1 && onlyKey !== undefined ? { branchKey: onlyKey } : { branchKeys };
+    const failure = triggeringFailure?.failure ?? failedLanes[0]?.publication.failure;
+    if (failure === undefined || typeof failure !== "object" || failure === null) return;
+    writeFailure({
+      terminalAction: triggeringFailure?.terminalAction ?? definition.terminalAction ?? "ready",
+      failure: failure as { operation: string; message: string },
+      ...laneField,
+      ...(triggeringFailure?.prNumber !== undefined ? { prNumber: triggeringFailure.prNumber } : {}),
+      ...(triggeringFailure?.prUrl !== undefined ? { prUrl: triggeringFailure.prUrl } : {}),
+    });
+    return;
+  }
+  const succeededLanes = lanePublications.filter(
+    (lane): lane is { branchKey: string; publication: { succeededAt: number } } =>
+      lane.publication !== null && "succeededAt" in lane.publication,
+  );
+  if (succeededLanes.length !== split.branchKeys.length) return;
+  writeSucceededAt(Math.max(...succeededLanes.map((lane) => lane.publication.succeededAt)));
 }
 
 function fakeStore(
@@ -475,14 +559,38 @@ function fakeStore(
       failure: { operation: string; message: string };
       prNumber?: number;
       prUrl?: string;
+      branchKey?: string;
     }) => {
-      if (
-        args.pipelineId !== PIPELINE_ID ||
-        terminalPublicationFailure !== null ||
-        terminalPublicationSucceededAt !== null
-      ) {
+      if (args.pipelineId !== PIPELINE_ID || terminalPublicationSucceededAt !== null) return;
+      const loaded = store.loadPipeline(PIPELINE_ID);
+      if (!loaded) return;
+      const split = findFanOutSplit(loaded);
+      const branchKey = args.branchKey;
+      if (split !== null && branchKey !== undefined && branchKey !== "default") {
+        const stage = finalFakeSucceededWorkflowStageRecord(stages, definition, split.splitPosition, branchKey);
+        if (stage !== undefined && stage.artifact !== null && typeof stage.artifact === "object") {
+          stage.artifact = {
+            ...(stage.artifact as Record<string, unknown>),
+            terminalPublication: { failure: args.failure },
+          };
+        }
+        reconcileFakeFanOutTerminalPublication(
+          stages,
+          definition,
+          split,
+          () => terminalPublicationFailure,
+          () => terminalPublicationSucceededAt,
+          (failure) => {
+            terminalPublicationFailure = failure;
+          },
+          (succeededAt) => {
+            terminalPublicationSucceededAt = succeededAt;
+          },
+          args,
+        );
         return;
       }
+      if (terminalPublicationFailure !== null) return;
       terminalPublicationFailure = {
         terminalAction: args.terminalAction,
         failure: args.failure,
@@ -490,14 +598,34 @@ function fakeStore(
         ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
       };
     },
-    commitTerminalPublicationSuccess: (args: { pipelineId: string }) => {
-      if (
-        args.pipelineId !== PIPELINE_ID ||
-        terminalPublicationFailure !== null ||
-        terminalPublicationSucceededAt !== null
-      ) {
+    commitTerminalPublicationSuccess: (args: { pipelineId: string; branchKey?: string }) => {
+      if (args.pipelineId !== PIPELINE_ID || terminalPublicationSucceededAt !== null) return;
+      const loaded = store.loadPipeline(PIPELINE_ID);
+      if (!loaded) return;
+      const split = findFanOutSplit(loaded);
+      const branchKey = args.branchKey;
+      if (split !== null && branchKey !== undefined && branchKey !== "default") {
+        const stage = finalFakeSucceededWorkflowStageRecord(stages, definition, split.splitPosition, branchKey);
+        const succeededAt = Date.now();
+        if (stage !== undefined && stage.artifact !== null && typeof stage.artifact === "object") {
+          stage.artifact = { ...(stage.artifact as Record<string, unknown>), terminalPublication: { succeededAt } };
+        }
+        reconcileFakeFanOutTerminalPublication(
+          stages,
+          definition,
+          split,
+          () => terminalPublicationFailure,
+          () => terminalPublicationSucceededAt,
+          (failure) => {
+            terminalPublicationFailure = failure;
+          },
+          (at) => {
+            terminalPublicationSucceededAt = at;
+          },
+        );
         return;
       }
+      if (terminalPublicationFailure !== null) return;
       terminalPublicationSucceededAt = Date.now();
     },
     appendSupersedeFailures: (args: {
@@ -5950,6 +6078,251 @@ describe("pipeline terminal publication settlement", () => {
     expect(stages().find((s) => s.stageId === "implement")?.status).toBe("succeeded");
   });
 
+  test("fan-out two-lane ready runs terminal publication per lane with aggregate success", async () => {
+    const definition: PipelineDefinition = {
+      name: "fan-out-linear",
+      terminalAction: "ready",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const downstream = ["ready-intents/alpha.md", "ready-intents/beta.md"] as const;
+    const { store, stages } = fakeStore(definition, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...downstream] },
+      "run-alpha-1-1": { specPath: "spec/alpha/plan.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-alpha-2-3": {
+        specRef: "main",
+        worktreePath: "/alpha",
+        branch: "alpha-branch",
+        specPath: "spec/alpha/implement.md",
+        prNumber: 1,
+        prUrl: "https://example/pr/1",
+      },
+      "run-beta-2-4": {
+        specRef: "main",
+        worktreePath: "/beta",
+        branch: "beta-branch",
+        specPath: "spec/beta/implement.md",
+        prNumber: 2,
+        prUrl: "https://example/pr/2",
+      },
+    });
+    const captured: TerminalPublicationInput[] = [];
+    await runPipeline(PIPELINE_ID, {
+      ...fanOutPipelineDeps(store, []),
+      context: baseContext,
+      executeTerminalPublication: async (input) => {
+        captured.push(input);
+        return { prNumber: input.prNumber ?? 0, prUrl: input.prUrl ?? "" };
+      },
+    });
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(captured).toHaveLength(2);
+    expect(pipeline.terminalPublicationFailure).toBeNull();
+    expect(pipeline.terminalPublicationSucceededAt).not.toBeNull();
+    expect(derivePipelineState(pipeline)).toBe("succeeded");
+    expect(pipeline.terminalPublicationFailure?.failure.message ?? "").not.toContain(
+      "multi-branch terminal publication",
+    );
+    for (const branchKey of ["alpha", "beta"] as const) {
+      expect(stageRecord(stages(), "implement", branchKey)?.artifact).toMatchObject({
+        terminalPublication: { succeededAt: expect.any(Number) },
+      });
+    }
+  });
+
+  test("fan-out two-lane merge runs terminal publication once per lane against that lane implement PR evidence", async () => {
+    const definition: PipelineDefinition = {
+      name: "fan-out-linear",
+      terminalAction: "merge",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const downstream = ["ready-intents/alpha.md", "ready-intents/beta.md"] as const;
+    const { store, stages } = fakeStore(definition, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...downstream] },
+      "run-alpha-1-1": { specPath: "spec/alpha/plan.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-alpha-2-3": {
+        specRef: "main",
+        worktreePath: "/alpha",
+        branch: "alpha-branch",
+        specPath: "spec/alpha/implement.md",
+        prNumber: 1,
+        prUrl: "https://example/pr/alpha",
+      },
+      "run-beta-2-4": {
+        specRef: "main",
+        worktreePath: "/beta",
+        branch: "beta-branch",
+        specPath: "spec/beta/implement.md",
+        prNumber: 2,
+        prUrl: "https://example/pr/beta",
+      },
+    });
+    const captured: TerminalPublicationInput[] = [];
+    await runPipeline(PIPELINE_ID, {
+      ...fanOutPipelineDeps(store, []),
+      context: baseContext,
+      executeTerminalPublication: async (input) => {
+        captured.push(input);
+        return { prNumber: input.prNumber ?? 0, prUrl: input.prUrl ?? "" };
+      },
+    });
+    expect(captured).toHaveLength(2);
+    expect(captured).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          terminalAction: "merge",
+          worktreePath: "/alpha",
+          branch: "alpha-branch",
+          prNumber: 1,
+          prUrl: "https://example/pr/alpha",
+        }),
+        expect.objectContaining({
+          terminalAction: "merge",
+          worktreePath: "/beta",
+          branch: "beta-branch",
+          prNumber: 2,
+          prUrl: "https://example/pr/beta",
+        }),
+      ]),
+    );
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(pipeline.terminalPublicationSucceededAt).not.toBeNull();
+    expect(derivePipelineState(pipeline)).toBe("succeeded");
+    for (const branchKey of ["alpha", "beta"] as const) {
+      expect(stageRecord(stages(), "implement", branchKey)?.artifact).toMatchObject({
+        terminalPublication: { succeededAt: expect.any(Number) },
+      });
+    }
+  });
+
+  test("fan-out lane publication failure is durable on that lane while the sibling publishes after pipeline failure commits", async () => {
+    const definition: PipelineDefinition = {
+      name: "fan-out-linear",
+      terminalAction: "ready",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const downstream = ["ready-intents/alpha.md", "ready-intents/beta.md"] as const;
+    const { store, stages } = fakeStore(definition, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...downstream] },
+      "run-alpha-1-1": { specPath: "spec/alpha/plan.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-alpha-2-3": {
+        specRef: "main",
+        worktreePath: "/alpha",
+        branch: "alpha-branch",
+        specPath: "spec/alpha/implement.md",
+        prNumber: 1,
+        prUrl: "https://example/pr/1",
+      },
+      "run-beta-2-4": {
+        specRef: "main",
+        worktreePath: "/beta",
+        branch: "beta-branch",
+        specPath: "spec/beta/implement.md",
+        prNumber: 2,
+        prUrl: "https://example/pr/2",
+      },
+    });
+    const betaCalls: TerminalPublicationInput[] = [];
+    await runPipeline(PIPELINE_ID, {
+      ...fanOutPipelineDeps(store, []),
+      context: baseContext,
+      executeTerminalPublication: async (input) => {
+        if (input.branch === "alpha-branch") {
+          throw new TerminalPublicationError("ready", { operation: "ready", message: "alpha lane failed" }, 1);
+        }
+        const pipeline = store.loadPipeline(PIPELINE_ID);
+        if (pipeline?.terminalPublicationFailure === null) {
+          throw new Error("sibling lane must not publish before pipeline terminalPublicationFailure commits");
+        }
+        betaCalls.push(input);
+        return { prNumber: 2, prUrl: "https://example/pr/2" };
+      },
+    });
+    expect(betaCalls).toHaveLength(1);
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(pipeline.terminalPublicationFailure?.branchKey).toBe("alpha");
+    expect(derivePipelineState(pipeline)).toBe("failed");
+    expect(stageRecord(stages(), "implement", "alpha")?.artifact).toMatchObject({
+      terminalPublication: { failure: { message: "alpha lane failed" } },
+    });
+    expect(stageRecord(stages(), "implement", "beta")?.artifact).toMatchObject({
+      terminalPublication: { succeededAt: expect.any(Number) },
+    });
+  });
+
+  test("fan-out keeps derived state running until every lane terminal publication stamp settles", async () => {
+    const definition: PipelineDefinition = {
+      name: "fan-out-linear",
+      terminalAction: "ready",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const downstream = ["ready-intents/alpha.md", "ready-intents/beta.md"] as const;
+    const { store, stages } = fakeStore(definition, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...downstream] },
+      "run-alpha-1-1": { specPath: "spec/alpha/plan.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-alpha-2-3": {
+        specRef: "main",
+        worktreePath: "/alpha",
+        branch: "alpha-branch",
+        specPath: "spec/alpha/implement.md",
+        prNumber: 1,
+        prUrl: "https://example/pr/1",
+      },
+      "run-beta-2-4": {
+        specRef: "main",
+        worktreePath: "/beta",
+        branch: "beta-branch",
+        specPath: "spec/beta/implement.md",
+        prNumber: 2,
+        prUrl: "https://example/pr/2",
+      },
+    });
+    const settlement = deferred<void>();
+    const runPromise = runPipeline(PIPELINE_ID, {
+      ...fanOutPipelineDeps(store, []),
+      context: baseContext,
+      executeTerminalPublication: async (input) => {
+        await settlement.promise;
+        return { prNumber: input.prNumber ?? 0, prUrl: input.prUrl ?? "" };
+      },
+    });
+    await spinUntilMicrotask(
+      () =>
+        stageRecord(stages(), "implement", "alpha")?.status === "succeeded" &&
+        stageRecord(stages(), "implement", "beta")?.status === "succeeded",
+      "both implement stages succeeded",
+    );
+    const mid = store.loadPipeline(PIPELINE_ID);
+    if (!mid) throw new Error("expected pipeline");
+    expect(isPipelineSettlementPending(mid)).toBe(true);
+    expect(derivePipelineState(mid)).toBe("running");
+    settlement.resolve();
+    await runPromise;
+    expect(derivePipelineState(store.loadPipeline(PIPELINE_ID) ?? mid)).toBe("succeeded");
+  });
+
   test("settlement-pending pipeline with incomplete persisted context is not continuable and records terminal publication failure on continuation", async () => {
     const definition = terminalPipelineDefinition("ready");
     const malformedContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
@@ -6223,7 +6596,7 @@ describe("pipeline terminal publication settlement", () => {
       executeTerminalPublication: async () => TERMINAL_PR,
       supersedeGh: gh,
     });
-    expect(fanOutStore.loadPipeline(PIPELINE_ID)?.terminalPublicationSucceededAt).toBeNull();
+    expect(fanOutStore.loadPipeline(PIPELINE_ID)?.terminalPublicationSucceededAt).not.toBeNull();
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
     expect(calls).toEqual([]);
   });
@@ -7428,7 +7801,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
   });
 
-  test("fan-out with terminalAction fails closed instead of reporting succeeded", async () => {
+  test("fan-out with terminalAction runs terminal publication per lane", async () => {
     const definition: PipelineDefinition = { ...FAN_OUT_LINEAR_DEFINITION, terminalAction: "ready" };
     const { store, stages } = fakeStore(definition, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
@@ -7451,24 +7824,29 @@ describe("pipeline branch fan-out execution", () => {
         prUrl: "https://example/pr/2",
       },
     });
-    const executeTerminalPublication = async () => {
-      throw new Error("terminal publication should not run for fan-out");
-    };
+    const captured: TerminalPublicationInput[] = [];
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
-    const deps = {
+    await runPipeline(PIPELINE_ID, {
       ...fanOutPipelineDeps(store, dispatchLog),
-      executeTerminalPublication,
-    };
-
-    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+      context: baseContext,
+      executeTerminalPublication: async (input) => {
+        captured.push(input);
+        return { prNumber: input.prNumber ?? 0, prUrl: input.prUrl ?? "" };
+      },
+    });
 
     const pipeline = store.loadPipeline(PIPELINE_ID);
     if (!pipeline) throw new Error("expected pipeline");
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
-    expect(derivePipelineState(pipeline)).toBe("failed");
-    expect(pipeline.terminalPublicationFailure?.failure.message).toContain("multi-branch terminal publication");
-    expect(pipeline.terminalPublicationSucceededAt).toBeNull();
+    expect(captured.map((input) => input.branch).sort()).toEqual(["alpha-branch", "beta-branch"]);
+    expect(pipeline.terminalPublicationFailure).toBeNull();
+    expect(pipeline.terminalPublicationSucceededAt).not.toBeNull();
+    expect(derivePipelineState(pipeline)).toBe("succeeded");
+    for (const branchKey of ["alpha", "beta"] as const) {
+      const artifact = stageRecord(stages(), "implement", branchKey)?.artifact as Record<string, unknown> | null;
+      expect(artifact?.terminalPublication).toEqual({ succeededAt: expect.any(Number) });
+    }
   });
 
   test("linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive", async () => {

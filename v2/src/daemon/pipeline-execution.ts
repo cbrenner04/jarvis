@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { isRecord } from "../../../shared/is-record.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -1335,12 +1336,72 @@ function areAuthoredStagesSatisfiedForSettlement(
   return true;
 }
 
+type StageTerminalPublication = { succeededAt: number } | { failure: PublicationFailure };
+
+function stageTerminalPublicationFromArtifact(artifact: unknown): StageTerminalPublication | null {
+  if (!isRecord(artifact)) return null;
+  const stamp = artifact.terminalPublication;
+  if (!isRecord(stamp)) return null;
+  if (typeof stamp.succeededAt === "number") return { succeededAt: stamp.succeededAt };
+  if (
+    isRecord(stamp.failure) &&
+    typeof stamp.failure.operation === "string" &&
+    typeof stamp.failure.message === "string"
+  ) {
+    return { failure: stamp.failure as PublicationFailure };
+  }
+  return null;
+}
+
+function finalSucceededWorkflowStageForBranch(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  splitPosition: number,
+  branchKey: string,
+): PipelineStageRecord | undefined {
+  for (let position = pipeline.definition.stages.length - 1; position > splitPosition; position -= 1) {
+    const stage = pipeline.definition.stages[position];
+    if (stage?.kind !== "workflow") continue;
+    const record = pipeline.stages.find(
+      (row) => row.position === position && row.stageId === stage.stageId && row.branchKey === branchKey,
+    );
+    if (record?.status === "succeeded") return record;
+  }
+  return undefined;
+}
+
+function isFanOutLaneSuffixSatisfiedForPublication(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  branchKey: string,
+): boolean {
+  for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
+    if (!isAuthoredStageSatisfied(stage, record)) return false;
+  }
+  return true;
+}
+
+function fanOutLaneOwesTerminalPublication(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  branchKey: string,
+): boolean {
+  if (!isFanOutLaneSuffixSatisfiedForPublication(pipeline, split, branchKey)) return false;
+  const stage = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, branchKey);
+  if (stage === undefined) return false;
+  return stageTerminalPublicationFromArtifact(stage.artifact) === null;
+}
+
 /** True when every authored stage is satisfied but terminal publication has not succeeded. */
 export function isPipelineSettlementPending(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
   if (pipeline.definition.terminalAction === undefined) return false;
   if (pipeline.terminalPublicationSucceededAt !== null) return false;
+  const split = findFanOutSplit(pipeline);
+  if (split !== null) {
+    if (!areAuthoredStagesSatisfiedForSettlement(pipeline, split)) return false;
+    return split.branchKeys.some((branchKey) => fanOutLaneOwesTerminalPublication(pipeline, split, branchKey));
+  }
   if (pipeline.terminalPublicationFailure !== null) return false;
-  return areAuthoredStagesSatisfiedForSettlement(pipeline, findFanOutSplit(pipeline));
+  return areAuthoredStagesSatisfiedForSettlement(pipeline, null);
 }
 
 type ResolvedTerminalPublicationInput =
@@ -1350,26 +1411,48 @@ type ResolvedTerminalPublicationInput =
 function resolveTerminalPublicationInput(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   store: StateStore,
+  branchKey?: string,
 ): ResolvedTerminalPublicationInput {
   const terminalAction = pipeline.definition.terminalAction;
   if (terminalAction === undefined) {
     return { ok: false, failure: { operation: "terminal-publication", message: "pipeline has no terminal action" } };
   }
 
-  if (findFanOutSplit(pipeline) !== null) {
-    return {
-      ok: false,
-      failure: {
-        operation: terminalAction,
-        message: "multi-branch terminal publication is not defined for fan-out pipelines",
-      },
-    };
-  }
-
+  const split = findFanOutSplit(pipeline);
   let lastStage: { stage: Extract<PipelineStage, { kind: "workflow" }>; record: PipelineStageRecord } | undefined;
-  for (const entry of authoredStagesInPositionOrder(pipeline)) {
-    if (entry.stage.kind === "workflow" && entry.record.status === "succeeded") {
-      lastStage = { stage: entry.stage, record: entry.record };
+  if (split !== null) {
+    if (branchKey === undefined) {
+      return {
+        ok: false,
+        failure: { operation: terminalAction, message: "fan-out terminal publication requires branchKey" },
+      };
+    }
+    const record = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, branchKey);
+    if (record === undefined) {
+      return {
+        ok: false,
+        failure: {
+          operation: terminalAction,
+          message: `no succeeded workflow stage artifact available for branch "${branchKey}"`,
+        },
+      };
+    }
+    const stage = pipeline.definition.stages[record.position];
+    if (stage?.kind !== "workflow") {
+      return {
+        ok: false,
+        failure: {
+          operation: terminalAction,
+          message: `stage at position ${record.position} is not a workflow stage`,
+        },
+      };
+    }
+    lastStage = { stage, record };
+  } else {
+    for (const entry of authoredStagesInPositionOrder(pipeline)) {
+      if (entry.stage.kind === "workflow" && entry.record.status === "succeeded") {
+        lastStage = { stage: entry.stage, record: entry.record };
+      }
     }
   }
   if (lastStage === undefined) {
@@ -1461,15 +1544,17 @@ function commitTerminalPublicationSuccessSafely(
   store: StateStore,
   pipelineId: string,
   terminalAction: PipelineTerminalAction,
+  branchKey?: string,
 ): boolean {
   try {
-    store.commitTerminalPublicationSuccess({ pipelineId });
+    store.commitTerminalPublicationSuccess(branchKey !== undefined ? { pipelineId, branchKey } : { pipelineId });
     return true;
   } catch (error) {
     commitTerminalPublicationFailureSafely(store, {
       pipelineId,
       terminalAction,
       failure: normalizePublicationFailure(terminalAction, error),
+      ...(branchKey !== undefined ? { branchKey } : {}),
     });
     return false;
   }
@@ -1564,36 +1649,15 @@ async function settleSupersededPrecedingStagePrs(
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal-publication settlement fans over terminalAction, PR evidence, and retarget cases
-async function settlePipelineTerminalPublication(
+async function settleOneLaneTerminalPublication(
   pipelineId: string,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  terminalAction: PipelineTerminalAction,
+  branchKey: string | undefined,
   deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication" | "supersedeGh">,
 ): Promise<void> {
   const { store } = deps;
-  const pipeline = store.loadPipeline(pipelineId);
-  if (!pipeline || !isPipelineSettlementPending(pipeline)) return;
-
-  const terminalAction = pipeline.definition.terminalAction;
-  if (!terminalAction) return;
-
-  if (!persistedContextLoadPermitsContinuation(pipeline.context)) {
-    const loadedContext = loadPipelineContext(pipeline.context);
-    const message =
-      pipeline.context === null
-        ? "missing pipeline admission context"
-        : `pipeline-context-loader: ${loadedContext.ok ? "invalid pipeline admission context" : loadedContext.error.errors.join("; ")}`;
-    commitTerminalPublicationFailureSafely(store, {
-      pipelineId,
-      terminalAction,
-      failure: {
-        operation: terminalAction,
-        message,
-      },
-    });
-    return;
-  }
-
-  const resolved = resolveTerminalPublicationInput(pipeline, store);
+  const resolved = resolveTerminalPublicationInput(pipeline, store, branchKey);
   if (!resolved.ok) {
     commitTerminalPublicationFailureSafely(store, {
       pipelineId,
@@ -1601,6 +1665,7 @@ async function settlePipelineTerminalPublication(
       failure: resolved.failure,
       ...(resolved.prNumber !== undefined ? { prNumber: resolved.prNumber } : {}),
       ...(resolved.prUrl !== undefined ? { prUrl: resolved.prUrl } : {}),
+      ...(branchKey !== undefined ? { branchKey } : {}),
     });
     return;
   }
@@ -1608,8 +1673,8 @@ async function settlePipelineTerminalPublication(
   const execute = deps.executeTerminalPublication ?? executeTerminalPublication;
   try {
     const publicationResult = await execute(resolved.input);
-    const committed = commitTerminalPublicationSuccessSafely(store, pipelineId, terminalAction);
-    if (committed) {
+    const committed = commitTerminalPublicationSuccessSafely(store, pipelineId, terminalAction, branchKey);
+    if (committed && branchKey === undefined) {
       const terminalPrNumber = publicationResult.prNumber ?? resolved.input.prNumber;
       if (terminalPrNumber !== undefined) {
         await settleSupersededPrecedingStagePrs(
@@ -1632,6 +1697,7 @@ async function settlePipelineTerminalPublication(
         failure: error.failure,
         ...(error.prNumber !== undefined ? { prNumber: error.prNumber } : {}),
         ...(error.prUrl !== undefined ? { prUrl: error.prUrl } : {}),
+        ...(branchKey !== undefined ? { branchKey } : {}),
       });
       return;
     }
@@ -1641,8 +1707,77 @@ async function settlePipelineTerminalPublication(
       failure: normalizePublicationFailure(terminalAction, error),
       ...(resolved.input.prNumber !== undefined ? { prNumber: resolved.input.prNumber } : {}),
       ...(resolved.input.prUrl !== undefined ? { prUrl: resolved.input.prUrl } : {}),
+      ...(branchKey !== undefined ? { branchKey } : {}),
     });
   }
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal-publication settlement fans over terminalAction, PR evidence, and retarget cases
+async function settlePipelineTerminalPublication(
+  pipelineId: string,
+  deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication" | "supersedeGh">,
+  scopeBranchKey?: string,
+): Promise<void> {
+  const { store } = deps;
+  const pipeline = store.loadPipeline(pipelineId);
+  if (!pipeline) return;
+
+  const terminalAction = pipeline.definition.terminalAction;
+  if (!terminalAction) return;
+
+  const split = findFanOutSplit(pipeline);
+  if (split !== null && scopeBranchKey !== undefined) {
+    if (!fanOutLaneOwesTerminalPublication(pipeline, split, scopeBranchKey)) return;
+    if (!persistedContextLoadPermitsContinuation(pipeline.context)) {
+      const loadedContext = loadPipelineContext(pipeline.context);
+      const message =
+        pipeline.context === null
+          ? "missing pipeline admission context"
+          : `pipeline-context-loader: ${loadedContext.ok ? "invalid pipeline admission context" : loadedContext.error.errors.join("; ")}`;
+      commitTerminalPublicationFailureSafely(store, {
+        pipelineId,
+        terminalAction,
+        failure: { operation: terminalAction, message },
+        branchKey: scopeBranchKey,
+      });
+      return;
+    }
+    await settleOneLaneTerminalPublication(pipelineId, pipeline, terminalAction, scopeBranchKey, deps);
+    return;
+  }
+
+  if (!isPipelineSettlementPending(pipeline)) return;
+
+  if (!persistedContextLoadPermitsContinuation(pipeline.context)) {
+    const loadedContext = loadPipelineContext(pipeline.context);
+    const message =
+      pipeline.context === null
+        ? "missing pipeline admission context"
+        : `pipeline-context-loader: ${loadedContext.ok ? "invalid pipeline admission context" : loadedContext.error.errors.join("; ")}`;
+    commitTerminalPublicationFailureSafely(store, {
+      pipelineId,
+      terminalAction,
+      failure: {
+        operation: terminalAction,
+        message,
+      },
+    });
+    return;
+  }
+
+  if (split !== null) {
+    const branchKeys =
+      scopeBranchKey !== undefined ? [scopeBranchKey] : [...split.branchKeys].sort((a, b) => a.localeCompare(b));
+    for (const branchKey of branchKeys) {
+      const fresh = store.loadPipeline(pipelineId);
+      if (!fresh || !isPipelineSettlementPending(fresh)) return;
+      if (!fanOutLaneOwesTerminalPublication(fresh, split, branchKey)) continue;
+      await settleOneLaneTerminalPublication(pipelineId, fresh, terminalAction, branchKey, deps);
+    }
+    return;
+  }
+
+  await settleOneLaneTerminalPublication(pipelineId, pipeline, terminalAction, undefined, deps);
 }
 
 /**
@@ -3404,6 +3539,10 @@ async function runAuthoredStages(args: {
           });
     if (outcome === "stop") return;
     pipeline.stages = store.loadPipeline(pipelineId)?.stages ?? pipeline.stages;
+  }
+
+  if (split !== null && branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {
+    await settlePipelineTerminalPublication(pipelineId, deps, branchKey);
   }
 }
 

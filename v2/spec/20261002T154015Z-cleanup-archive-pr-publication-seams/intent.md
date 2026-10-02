@@ -20,9 +20,9 @@ name: cleanup-archive-pr-publication-seams
 
 ## Acceptance criteria
 
-- [ ] `completion-publisher.test.ts`: the archive-oriented push plus open-or-reuse PR path creates a ready PR once against the default base, reuses an existing open PR without a second create, and returns the PR URL; fails against current code (helpers private and lane path draft-only).
-- [ ] `completion-publisher.test.ts` `createCompletionPublisher` tests stay green (behavior unchanged by the extraction).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `completion-publisher.test.ts`: the archive-oriented push plus open-or-reuse PR path creates a ready PR once against the default base, reuses an existing open PR without a second create, and returns the PR URL; fails against current code (helpers private and lane path draft-only).
+- [x] `completion-publisher.test.ts` `createCompletionPublisher` tests stay green (behavior unchanged by the extraction).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

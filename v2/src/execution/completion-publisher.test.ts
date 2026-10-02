@@ -2274,6 +2274,28 @@ describe("publishArchiveReady", () => {
     expect(ghCalls.filter((c) => c.startsWith("pr view"))).toHaveLength(1);
   });
 
+  it("promotes a sole open PR when isDraft is omitted from the list probe", async () => {
+    const ghCalls: string[] = [];
+    const result = await publishArchiveReady(archiveInput, {
+      git: archivePushGit,
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 79, baseRefName: archiveInput.baseRef }]);
+        }
+        if (args[0] === "pr" && args[1] === "ready" && args[2] !== "--undo") return "";
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(79, "https://github.com/user/repo/pull/79");
+        }
+        return "";
+      },
+    });
+
+    expect(result.prNumber).toBe(79);
+    expect(ghCalls.filter((c) => c === "pr ready 79")).toHaveLength(1);
+    expect(ghCalls.some((c) => c.startsWith("pr create"))).toBe(false);
+  });
+
   it("promotes a sole open draft with gh pr ready and reuses without create", async () => {
     const ghCalls: string[] = [];
     const result = await publishArchiveReady(archiveInput, {

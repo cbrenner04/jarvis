@@ -564,7 +564,7 @@ async function findOrOpenReuseArchivePr(
   }
   const sole = matches[0];
   if (sole !== undefined) {
-    if (sole.isDraft) {
+    if (sole.isDraft !== false) {
       await gh(cwd, ["pr", "ready", String(sole.number)]);
     }
     return confirmPr(gh, cwd, branch, baseRef, sole.number);

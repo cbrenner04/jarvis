@@ -294,6 +294,24 @@ async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFix
   const other = await makeProject("other");
   const runner: AsyncSubprocessRunner = {
     runAsync: async (cmd, args, cwd, options) => {
+      if (cmd === "gh" && args[0] === "repo") {
+        return "main";
+      }
+      if (cmd === "git" && args[0] === "push") return "";
+      if (cmd === "git" && args[0] === "ls-remote") return "";
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/example/test/pull/42";
+      }
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
+        const jsonFields = args[args.indexOf("--json") + 1];
+        if (jsonFields === "number,url,baseRefName") {
+          return JSON.stringify({
+            number: 42,
+            url: "https://github.com/example/test/pull/42",
+            baseRefName: "main",
+          });
+        }
+      }
       calls.push({ cmd, args: [...args], cwd });
       if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
         return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
@@ -711,6 +729,24 @@ describe("cleanup command through main", () => {
   function mergedPrRunner(projectRoot: string): AsyncSubprocessRunner {
     return {
       runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "repo") {
+          return "main";
+        }
+        if (cmd === "git" && args[0] === "push") return "";
+        if (cmd === "git" && args[0] === "ls-remote") return "";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "create") {
+          return "https://github.com/example/test/pull/42";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
+          const jsonFields = args[args.indexOf("--json") + 1];
+          if (jsonFields === "number,url,baseRefName") {
+            return JSON.stringify({
+              number: 42,
+              url: "https://github.com/example/test/pull/42",
+              baseRefName: "main",
+            });
+          }
+        }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         }

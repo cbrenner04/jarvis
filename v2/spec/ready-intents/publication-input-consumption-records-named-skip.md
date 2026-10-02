@@ -10,7 +10,8 @@ name: publication-input-consumption-records-named-skip
 
 ## Decisions
 
-- Each skipped input path yields one stable, machine-named reason (not free-form prose); rules out silent `continue` in `publication-input-consumption.ts` without surfacing outcome.
+- Each skipped input path yields one `snake_case` reason id from a fixed catalog colocated with `consumePublicationInputs` (structure is the contract; plan maps one id per skip branch); rules out silent `continue` in `publication-input-consumption.ts` without surfacing outcome.
+- Skips persist on the completing run row as `{ path, reason }[]` (plan names the run-row field); rules out workflow-only or terminal-summary-only recording.
 - Successful landing with partial skips still records skips on the completing run row; rules out failing publication solely because a stale optional input could not be deleted.
 - Resume replays the same consumption set from persisted `landingInputs`; skip recording uses the same path on first pass and resume.
 
@@ -22,7 +23,7 @@ name: publication-input-consumption-records-named-skip
 
 ## Acceptance criteria
 
-- [ ] A test drives `landPublication` or `landReviewedPublicationOutput` with `landing.inputs` where consumption cannot complete (reachable on main: missing target, path outside `sourceRoot`, or worktree mode without a matching worktree copy) and asserts the run row or terminal workflow record carries a named skip reason per path; fails against the current silent no-op.
+- [ ] A test drives `landPublication` or `landReviewedPublicationOutput` with `landing.inputs` where consumption cannot complete (reachable on main: missing target, path outside `sourceRoot`, or worktree mode without a matching worktree copy) and asserts the completing run row carries a catalog `reason` per skipped path in its persisted skip list; fails against the current silent no-op.
 - [ ] `shared/publication-input-consumption.test.ts` stays green for successful delete paths.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

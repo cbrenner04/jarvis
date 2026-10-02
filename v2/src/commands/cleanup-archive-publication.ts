@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { getBaseBranch } from "../../../shared/git.ts";
@@ -24,6 +24,11 @@ export type ArchivePublicationSession = {
   publishConsumedReadyIntentOnly(spec: ArtifactSpec): Promise<ArchivePublicationResult>;
 };
 
+export type ArchivePublicationTarget = {
+  branch: string;
+  worktreePath: string;
+};
+
 type ArchivePublicationDeps = {
   runner: AsyncSubprocessRunner;
   projectRoot: string;
@@ -31,6 +36,10 @@ type ArchivePublicationDeps = {
   project: string;
   /** Branch stamp; defaults to a UTC compact timestamp. */
   stamp?: string;
+  /** Reuse an existing staged cleanup archive branch instead of minting a new stamp. */
+  adoptedBranch?: string;
+  adoptedWorktreePath?: string;
+  onStagedArchiveBranch?: (branch: string) => void;
 };
 
 const CLEANUP_ARCHIVE_BRANCH_PREFIX = "cleanup/archive-";
@@ -95,9 +104,9 @@ export async function cleanupBranchCarryingArchive(
  * are removed, so the only traces of a failure are the named step in the skip line.
  */
 export function createArchivePublicationSession(deps: ArchivePublicationDeps): ArchivePublicationSession {
-  const branch = `${CLEANUP_ARCHIVE_BRANCH_PREFIX}${deps.stamp ?? utcStamp()}`;
-  const worktreePath = managedWorktreePath(deps.jarvisRoot, deps.project, branch);
-  let materialized = false;
+  const branch = deps.adoptedBranch ?? `${CLEANUP_ARCHIVE_BRANCH_PREFIX}${deps.stamp ?? utcStamp()}`;
+  const worktreePath = deps.adoptedWorktreePath ?? managedWorktreePath(deps.jarvisRoot, deps.project, branch);
+  let materialized = deps.adoptedBranch !== undefined && existsSync(worktreePath);
   let commits = 0;
 
   const git = (args: string[], cwd: string) => deps.runner.runAsync("git", args, cwd);
@@ -168,6 +177,7 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
       }
       const staged = await cleanupBranchCarryingArchive(deps.runner, deps.projectRoot, relDest);
       if (staged !== undefined) {
+        deps.onStagedArchiveBranch?.(staged);
         return {
           status: "skipped",
           reason: `already staged on cleanup branch ${staged}; push it and open the archive PR`,

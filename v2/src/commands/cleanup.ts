@@ -53,6 +53,7 @@ import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/s
 import {
   type ArchivePublicationResult,
   type ArchivePublicationSession,
+  type ArchivePublicationTarget,
   cleanupBranchCarryingArchive,
   createArchivePublicationSession,
 } from "./cleanup-archive-publication.ts";
@@ -1360,11 +1361,23 @@ export function createArtifactSkipLedger(io: { stdout: (s: string) => void }): A
   };
 }
 
+export type ArchivePublicationTargetEntry = ArchivePublicationTarget & {
+  project: string;
+  projectRoot: string;
+};
+
 /** One cleanup archive branch per project per invocation; in-repo archives commit there, never on the operator checkout. */
 export type ArchivePublicationSessions = {
   for(project: string, projectRoot: string): ArchivePublicationSession;
   all(): ReadonlyArray<[string, ArchivePublicationSession]>;
+  recordStagedArchiveBranch(project: string, branch: string, projectRoot: string): void;
+  publicationTargets(): ReadonlyArray<ArchivePublicationTargetEntry>;
+  publicationTargetSession(project: string, projectRoot: string): ArchivePublicationSession | undefined;
 };
+
+function stagedArchiveWorktreePath(jarvisRoot: string, project: string, branch: string): string {
+  return managedWorktreePath(jarvisRoot, project, branch);
+}
 
 export function createArchivePublicationSessions(
   runner: AsyncSubprocessRunner,
@@ -1372,22 +1385,83 @@ export function createArchivePublicationSessions(
   stamp?: string,
 ): ArchivePublicationSessions {
   const sessions = new Map<string, ArchivePublicationSession>();
+  const projectRoots = new Map<string, string>();
+  const stagedBranches = new Map<string, { branch: string; projectRoot: string }>();
+
+  const recordStagedArchiveBranch = (project: string, branch: string, projectRoot: string): void => {
+    stagedBranches.set(project, { branch, projectRoot });
+  };
+
+  const publicationTargets = (): ArchivePublicationTargetEntry[] => {
+    const targets = new Map<string, ArchivePublicationTargetEntry>();
+    for (const [project, session] of sessions) {
+      const projectRoot = projectRoots.get(project);
+      if (projectRoot === undefined || session.commits() === 0) continue;
+      const key = `${project}\0${session.branch}`;
+      targets.set(key, {
+        project,
+        projectRoot,
+        branch: session.branch,
+        worktreePath: session.worktreePath,
+      });
+    }
+    for (const [project, staged] of stagedBranches) {
+      const key = `${project}\0${staged.branch}`;
+      if (targets.has(key)) continue;
+      targets.set(key, {
+        project,
+        projectRoot: staged.projectRoot,
+        branch: staged.branch,
+        worktreePath: stagedArchiveWorktreePath(jarvisRoot, project, staged.branch),
+      });
+    }
+    return [...targets.values()];
+  };
+
+  const createSession = (
+    project: string,
+    projectRoot: string,
+    adopted?: { branch: string; worktreePath: string },
+  ): ArchivePublicationSession =>
+    createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project,
+      ...(stamp !== undefined ? { stamp } : {}),
+      ...(adopted !== undefined ? { adoptedBranch: adopted.branch, adoptedWorktreePath: adopted.worktreePath } : {}),
+      onStagedArchiveBranch: (branch) => recordStagedArchiveBranch(project, branch, projectRoot),
+    });
+
   return {
     for: (project, projectRoot) => {
+      projectRoots.set(project, projectRoot);
       let session = sessions.get(project);
       if (session === undefined) {
-        session = createArchivePublicationSession({
-          runner,
-          projectRoot,
-          jarvisRoot,
-          project,
-          ...(stamp !== undefined ? { stamp } : {}),
-        });
+        session = createSession(project, projectRoot);
         sessions.set(project, session);
       }
       return session;
     },
     all: () => [...sessions.entries()],
+    recordStagedArchiveBranch,
+    publicationTargets,
+    publicationTargetSession: (project, projectRoot) => {
+      projectRoots.set(project, projectRoot);
+      const targets = publicationTargets().filter((target) => target.project === project);
+      if (targets.length === 0) return undefined;
+      const existing = sessions.get(project);
+      if (existing !== undefined && existing.commits() > 0) return existing;
+      const staged = stagedBranches.get(project);
+      if (staged === undefined) return existing;
+      const adopted = {
+        branch: staged.branch,
+        worktreePath: stagedArchiveWorktreePath(jarvisRoot, project, staged.branch),
+      };
+      const session = createSession(project, projectRoot, adopted);
+      sessions.set(project, session);
+      return session;
+    },
   };
 }
 
@@ -1775,6 +1849,7 @@ async function inspectSpecArtifact(
   store: StateStore,
   runner: AsyncSubprocessRunner,
   skips: ArtifactSkipLedger,
+  sessions?: ArchivePublicationSessions,
 ): Promise<StrandedArtifact | undefined> {
   const run = recordedStrandedRun(artifact, projectRoot, store, registry);
   let handLanded = false;
@@ -1794,6 +1869,7 @@ async function inspectSpecArtifact(
     const relDest = relative(projectRoot, join(artifact.home, "completed", basename(artifact.source)));
     const staged = await cleanupBranchCarryingArchive(runner, projectRoot, relDest);
     if (staged !== undefined) {
+      sessions?.recordStagedArchiveBranch(artifact.project, staged, projectRoot);
       skips.skip(artifact.source, `already staged on cleanup branch ${staged}; push it and open the archive PR`);
       return undefined;
     }
@@ -1822,6 +1898,7 @@ export async function inspectStrandedArtifacts(
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void },
   sharedSkips?: ArtifactSkipLedger,
+  sessions?: ArchivePublicationSessions,
 ): Promise<StrandedArtifact[]> {
   const skips = sharedSkips ?? createArtifactSkipLedger(io);
   const eligible: StrandedArtifact[] = [];
@@ -1832,7 +1909,17 @@ export async function inspectStrandedArtifacts(
     const inspected =
       artifact.queue !== undefined
         ? inspectQueueEntry(artifact, skips)
-        : await inspectSpecArtifact(artifact, projectRoot, registry, allWorktrees, jarvisRoot, store, runner, skips);
+        : await inspectSpecArtifact(
+            artifact,
+            projectRoot,
+            registry,
+            allWorktrees,
+            jarvisRoot,
+            store,
+            runner,
+            skips,
+            sessions,
+          );
     if (inspected !== undefined) eligible.push(inspected);
   }
   if (sharedSkips === undefined) skips.flush();
@@ -2596,6 +2683,7 @@ async function executeConfirmedCleanup(
       runner,
       io,
       ctx.skips,
+      sessions,
     )
   ).filter((spec) => !skipArchivalSources.has(canonicalArtifactPath(spec.source)));
   await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, store, io, ctx.skips, sessions);

@@ -15,6 +15,7 @@ import {
   survivingMutationLogFields,
 } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import { harnessGateSlotWaitListMessage } from "../execution/gate-invocation-lease.ts";
 import {
   type ContractMissDetailEvent,
   type LoopFinishedEvent,
@@ -105,6 +106,7 @@ export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | R
 type GateRefusalEvidence = { cause: GateRefusalRecoveryCause; slotRedriveCount?: number } | null;
 
 type RunWithAttempts = {
+  id?: string;
   status: RunStatus;
   gateRefusalRecoveryState?: GateRefusalEvidence;
   attempts?: Attempt[];
@@ -525,7 +527,13 @@ function composeRunOperatorErrorFromState(
     isStalePublicationCause(run.status, rawTerminalRecord.event.loopOutcomeKind)
       ? undefined
       : rawTerminalRecord;
-  if (run.status === "in-progress") return undefined;
+  if (run.status === "in-progress") {
+    const slotWaitMessage = run.id === undefined ? undefined : harnessGateSlotWaitListMessage(run.id);
+    if (slotWaitMessage !== undefined) {
+      return { reason: "harness_failure", retryable: false, nextAction: "stop", message: slotWaitMessage };
+    }
+    return undefined;
+  }
   const lastAttempt = lastCommittedAttempt(run.attempts ?? []);
   const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;
   if (run.terminalCause != null) {

@@ -3454,6 +3454,7 @@ type CompletionPublicationSeams = Pick<
   | "readyCommand"
   | "promptId"
   | "landing"
+  | "logSink"
 >;
 
 type CompletionPublishFailure = {
@@ -4894,6 +4895,7 @@ async function runReadyFinalizer(
   },
   verifierProcessGroups?: VerifierProcessGroupRecorder,
   recordHarnessReadyFlipEvidence?: (args: { prNumber: number; branch: string; baseRef: string }) => void,
+  publicationOwner?: { runId: string; store: StateStore },
 ): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
@@ -4942,6 +4944,13 @@ async function runReadyFinalizer(
     ...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {}),
     skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined,
     ...(recordHarnessReadyFlipEvidence !== undefined ? { recordHarnessReadyFlipEvidence } : {}),
+    ...(publicationOwner !== undefined
+      ? {
+          runId: publicationOwner.runId,
+          onReadyGateSlotWait: (fields: { gate: string; waitedMs: number }) =>
+            seams.logSink?.append(publicationOwner.runId, { kind: "ready_gate_slot_wait", ...fields }),
+        }
+      : {}),
   };
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }
@@ -5075,6 +5084,7 @@ export async function publishCompletionArtifacts(
         },
         verifierProcessGroups,
         recordHarnessReadyFlipEvidence,
+        publicationOwner,
       );
     }
   } catch (finalizeError) {

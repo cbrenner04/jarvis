@@ -15,6 +15,10 @@ import {
   writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
+import { acquireGateInvocationLease } from "../execution/gate-invocation-lease.ts";
+import { createReadyFinalizer } from "../execution/ready-finalize.ts";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { formatSlotRedriveCell } from "./run.ts";
 
 let fx: CliRepoFixture;
@@ -1358,6 +1362,47 @@ describe("run control", () => {
     expect(row()[5]).toBe("ready_gate_command_missing");
     expect(row()[7]).toBe(nextAction);
     expect(row()[16]).toBe(JSON.stringify(message));
+  });
+
+  test("run list renders waiting for gate slot while finalization is queued on the slot", async () => {
+    const runId = "finalization-slot-wait";
+    const agentLease = acquireGateInvocationLease();
+    let releaseGate!: () => void;
+    const gateHeld = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        await gateHeld;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = finalizer({
+      worktreePath: "/tmp/worktree",
+      baseRef: "main",
+      branch: "feature",
+      prNumber: 1,
+      runId,
+    });
+    await Bun.sleep(5);
+    const error = composeRunOperatorError({ id: runId, status: "in-progress" });
+    expect(error?.message).toBe("waiting for gate slot");
+    const { code, row } = await runSoloList([
+      {
+        runId,
+        project: "demo",
+        branch: "main",
+        status: "in-progress",
+        isLive: true,
+        error,
+      },
+    ]);
+    expect(code).toBe(0);
+    expect(row()[16]).toBe(JSON.stringify("waiting for gate slot"));
+    releaseGate();
+    agentLease?.release();
+    await pending;
   });
 
   test("run list renders gate-refusal cause and slot retry cells after message, before the dismissal marker", async () => {

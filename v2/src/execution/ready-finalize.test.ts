@@ -11,6 +11,11 @@ import {
 } from "../../../scripts/ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "../../../scripts/run-v2-tests.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  acquireGateInvocationLease,
+  leasedHarnessFullSuiteGateSpawnCount,
+  liveGateInvocationLeaseCount,
+} from "./gate-invocation-lease.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -2573,5 +2578,125 @@ describe("terminal failed ready step selectors", () => {
     expect(selectTerminalFailedReadyTestStep(log)).toBeUndefined();
     const testLast = `${log}${readyStepCompletionRecord({ stepId: "4", attemptId: "4.1", command: "bun run test:v2", status: 1 })}`;
     expect(selectTerminalFailedReadyTestStep(testLast)?.stepId).toBe("4");
+  });
+});
+
+describe("harness finalization gate slot", () => {
+  const baseInput = {
+    worktreePath: "/tmp/worktree",
+    baseRef: "main",
+    branch: "feature",
+    prNumber: 1,
+  };
+
+  afterEach(() => {
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+    expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
+  });
+
+  it("serializes concurrent default finalizer gate spawns", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Bun.sleep(20);
+        inFlight -= 1;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    await Promise.all([finalizer(baseInput), finalizer(baseInput)]);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it("holds the slot lease through required integration", async () => {
+    let leaseCountDuringIntegration = -1;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (_cmd, args) => {
+        if (args[0] === "run" && args[1] === "test:integration:v2") {
+          leaseCountDuringIntegration = liveGateInvocationLeaseCount();
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: runner,
+      ghReadyFlip: async () => {},
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => ["test:v2"],
+    });
+    await finalizer({ ...baseInput, requiredIntegrationScope: "test:integration:v2" });
+    expect(leaseCountDuringIntegration).toBe(1);
+  });
+
+  it("waits for a held agent lease before spawning the ready gate", async () => {
+    const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
+    let gateSpawned = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        gateSpawned = true;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = finalizer(baseInput);
+    await Promise.resolve();
+    expect(gateSpawned).toBe(false);
+    agentLease?.release();
+    await pending;
+    expect(gateSpawned).toBe(true);
+  });
+
+  it("re-acquires the slot for each harness gate spawn in one finalizer call", async () => {
+    let leasedGateSessions = 0;
+    let maxLeasedSpawns = 0;
+    const trackLeasedGateSession = () => {
+      leasedGateSessions += 1;
+      maxLeasedSpawns = Math.max(maxLeasedSpawns, leasedHarnessFullSuiteGateSpawnCount());
+    };
+    const finalizer = createReadyFinalizer({
+      ghReadyFlip: async () => {},
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => ["test:v2"],
+      runReadyGate: async () => {
+        trackLeasedGateSession();
+      },
+      runRequiredIntegration: async () => {
+        trackLeasedGateSession();
+      },
+    });
+    await finalizer({ ...baseInput, requiredIntegrationScope: "test:integration:v2" });
+    expect(leasedGateSessions).toBe(2);
+    expect(maxLeasedSpawns).toBe(1);
+  });
+
+  it("logs ready_gate_slot_wait after a non-immediate slot acquire", async () => {
+    const agentLease = acquireGateInvocationLease();
+    const slotWaits: Array<{ gate: string; waitedMs: number }> = [];
+    const runner: AsyncSubprocessRunner = { runAsync: async () => "" };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = finalizer({
+      ...baseInput,
+      onReadyGateSlotWait: (fields) => slotWaits.push(fields),
+    });
+    await Bun.sleep(5);
+    agentLease?.release();
+    await pending;
+    expect(slotWaits).toEqual([expect.objectContaining({ gate: "bun run ready", waitedMs: expect.any(Number) })]);
+  });
+
+  it("maps slot-wait expiry to ReadyGateError with timedOut", async () => {
+    const agentLease = acquireGateInvocationLease();
+    const runner: AsyncSubprocessRunner = { runAsync: async () => "" };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = finalizer({ ...baseInput, slotWaitTimeoutMs: 5 });
+    await expect(pending).rejects.toMatchObject({
+      timedOut: true,
+      output: expect.stringContaining("gate invocation lease wait timed out"),
+    });
+    agentLease?.release();
   });
 });

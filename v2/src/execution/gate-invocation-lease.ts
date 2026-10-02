@@ -79,6 +79,29 @@ export function liveGateInvocationLeaseCount(): number {
   return liveGateInvocationLeases.size;
 }
 
+export const HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE = "waiting for gate slot";
+
+const harnessGateSlotWaitByRunId = new Map<string, string>();
+let leasedHarnessFullSuiteGateSpawns = 0;
+
+/** While a harness finalization gate is queued on the slot, `jarvis run list` surfaces this message. */
+export function harnessGateSlotWaitListMessage(runId: string): string | undefined {
+  return harnessGateSlotWaitByRunId.has(runId) ? HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE : undefined;
+}
+
+/** In-flight harness full-suite gate spawns holding the slot lease (ready gate and required integration). */
+export function leasedHarnessFullSuiteGateSpawnCount(): number {
+  return leasedHarnessFullSuiteGateSpawns;
+}
+
+function markHarnessGateSlotWait(runId: string, gate: string): void {
+  harnessGateSlotWaitByRunId.set(runId, gate);
+}
+
+function clearHarnessGateSlotWait(runId: string): void {
+  harnessGateSlotWaitByRunId.delete(runId);
+}
+
 /** Wait in FIFO order for an owned lease when the cap is held; refuses never queue here. */
 export function awaitGateInvocationLease(options: {
   signal?: AbortSignal;
@@ -139,4 +162,44 @@ export function awaitGateInvocationLease(options: {
 
     leaseWaitQueue.push(waiter);
   });
+}
+
+export type HarnessFullSuiteGateSlotOptions = {
+  gate: string;
+  runId?: string;
+  signal?: AbortSignal;
+  slotWaitTimeoutMs: number;
+  onSlotWait?: (fields: { gate: string; waitedMs: number }) => void;
+};
+
+/** Acquire the shared gate slot (waiting in FIFO order when held), run one full-suite gate spawn, then release. */
+export async function runHarnessFullSuiteGateWithSlot(
+  options: HarnessFullSuiteGateSlotOptions,
+  run: () => Promise<void>,
+): Promise<void> {
+  const waitStartedAtMs = Date.now();
+  let lease = acquireGateInvocationLease();
+  if (lease === undefined) {
+    if (options.runId !== undefined) {
+      markHarnessGateSlotWait(options.runId, options.gate);
+    }
+    try {
+      lease = await awaitGateInvocationLease({
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+        timeoutMs: options.slotWaitTimeoutMs,
+      });
+    } finally {
+      if (options.runId !== undefined) {
+        clearHarnessGateSlotWait(options.runId);
+      }
+    }
+    options.onSlotWait?.({ gate: options.gate, waitedMs: Date.now() - waitStartedAtMs });
+  }
+  leasedHarnessFullSuiteGateSpawns += 1;
+  try {
+    await run();
+  } finally {
+    leasedHarnessFullSuiteGateSpawns -= 1;
+    lease.release();
+  }
 }

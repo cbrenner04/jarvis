@@ -45,8 +45,8 @@ Reviewed 2026-10-02 after the [2026-10-01/02 session](../../reports/20261002T055
 
 | Item | Hold / dependency | Disposition |
 | --- | --- | --- |
-| [CLI retirement](./seeds/cli-retire-run-start-pause-and-config.md) | Decide whether `run pause` stays | Original charter side item. |
-| [CLI-aligned TUI grammar](./seeds/tui-dock-command-grammar-mirrors-cli.md) | Pause decision | Prefer after input-feedback repair. |
+| [CLI retirement](./seeds/cli-retire-run-start-pause-and-config.md) | Unblocked: `run pause` retires (owner, 2026-10-02) | Original charter side item. |
+| [CLI-aligned TUI grammar](./seeds/tui-dock-command-grammar-mirrors-cli.md) | After CLI retirement | Prefer after input-feedback repair. |
 | [Confinement policy](./seeds/agent-confinement-is-per-vendor-and-unexpressed.md) | Per-project override seam | Single-operator legibility work. |
 | [Fold shared runtime](./seeds/fold-shared-into-v2.md) | Low priority | After runtime reliability settles. |
 | [Retire v2 naming](./seeds/retire-v2-nomenclature.md) | After shared-runtime fold | Unrelated to the old charter. |

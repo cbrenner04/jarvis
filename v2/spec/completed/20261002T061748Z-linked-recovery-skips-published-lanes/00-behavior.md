@@ -10,12 +10,12 @@ Startup reconciliation resumes stranded linked rows even after their lane has pu
 
 ## Tasks
 
-- [ ] Implement the behavior and focused regression coverage.
+- [x] Implement the behavior and focused regression coverage.
 
 ## Acceptance criteria
 
-- [ ] daemon-reconciliation.test.ts covers open and merged publication evidence, later same-branch evidence, project/branch isolation, and unpublished linked recovery; tests fail against unconditional pre-fix resume.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md` and `bun run test:v2` pass; integration coverage runs in CI.
+- [x] daemon-reconciliation.test.ts covers open and merged publication evidence, later same-branch evidence, project/branch isolation, and unpublished linked recovery; tests fail against unconditional pre-fix resume.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md` and `bun run test:v2` pass; integration coverage runs in CI.
 
 ## Documentation updates
 

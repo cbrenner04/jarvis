@@ -29,7 +29,7 @@ Priority is P3: single-operator repo, agents run against the operator's own work
 - Confinement is expressed once as a harness-level intent (a small named policy, not vendor flags), and each adapter translates it into its vendor's mechanism; rules out per-adapter hardcoded flag sets as the only expression of policy.
 - An adapter that cannot honor the requested policy refuses the binding rather than silently running under a weaker one; rules out quota fallback quietly changing confinement mid-spec.
 - The resolved policy and the vendor mechanism it translated to are recorded per invocation in telemetry alongside `agent`/`model`; rules out confinement being unobservable after the fact.
-- Policy resolves per project with a machine-level default (same cascade shape as [[per-project-config-overrides-seam]]); rules out a machine-wide-only knob repeating the `agentOrder` mistake.
+- Policy resolves per project with a machine-level default (same cascade shape as the landed `projects.<key>.overrides` block); rules out a machine-wide-only knob repeating the `agentOrder` mistake.
 - Defaults preserve today's behavior exactly for every adapter; rules out a policy layer that changes what runs today as a side effect of becoming expressible.
 
 ## Acceptance criteria

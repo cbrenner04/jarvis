@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
@@ -55,9 +55,12 @@ function rebaseOntoMovedBase(cwd: string): void {
   git(cwd, ["rebase", "main"]);
 }
 
+const LANE_REF = "refs/heads/lane";
+
 async function guard(cwd: string, preSha: string) {
   const events: AgentHistoryRewriteRevertedEvent[] = [];
-  const outcome = await guardIterationHead({ cwd, preSha, log: (event) => events.push(event) });
+  const pre = { sha: preSha, ref: LANE_REF };
+  const outcome = await guardIterationHead({ cwd, pre, log: (event) => events.push(event) });
   return { outcome, events };
 }
 
@@ -76,7 +79,7 @@ describe("isHistoryRewrite", () => {
 describe("readIterationHead", () => {
   test("reads a loose branch ref and skips a non-git directory", () => {
     const { cwd, preSha } = laneRepo();
-    expect(readIterationHead(cwd)).toBe(preSha);
+    expect(readIterationHead(cwd)).toEqual({ sha: preSha, ref: LANE_REF });
     const plain = trackedMkdtempSync(join(tmpdir(), "iteration-head-plain-"));
     roots.push(plain);
     expect(readIterationHead(plain)).toBeUndefined();
@@ -85,15 +88,29 @@ describe("readIterationHead", () => {
   test("reads packed refs, detached HEAD, and a linked worktree's HEAD", () => {
     const { cwd, preSha } = laneRepo();
     git(cwd, ["pack-refs", "--all"]);
-    expect(readIterationHead(cwd)).toBe(preSha);
+    expect(readIterationHead(cwd)).toEqual({ sha: preSha, ref: LANE_REF });
     const linked = join(cwd, "..", `${basename(cwd)}-linked`);
     roots.push(linked);
     git(cwd, ["worktree", "add", "-b", "linked", linked, "main"]);
-    expect(readIterationHead(linked)).toBe(git(cwd, ["rev-parse", "main"]));
+    const mainSha = git(cwd, ["rev-parse", "main"]);
+    expect(readIterationHead(linked)).toEqual({ sha: mainSha, ref: "refs/heads/linked" });
     const linkedSha = commit(linked, "linked.txt");
-    expect(readIterationHead(linked)).toBe(linkedSha);
+    expect(readIterationHead(linked)).toEqual({ sha: linkedSha, ref: "refs/heads/linked" });
     git(cwd, ["checkout", "--detach", "main"]);
-    expect(readIterationHead(cwd)).toBe(git(cwd, ["rev-parse", "main"]));
+    expect(readIterationHead(cwd)).toEqual({ sha: mainSha, ref: undefined });
+  });
+
+  test("an unreadable HEAD (read error) skips the guard instead of throwing", () => {
+    const { cwd } = laneRepo();
+    rmSync(join(cwd, ".git", "HEAD"));
+    mkdirSync(join(cwd, ".git", "HEAD"));
+    expect(readIterationHead(cwd)).toBeUndefined();
+  });
+
+  test("an orphan branch with no commit is unresolvable", () => {
+    const { cwd } = laneRepo();
+    git(cwd, ["checkout", "--orphan", "orphan"]);
+    expect(readIterationHead(cwd)).toBeUndefined();
   });
 });
 
@@ -145,14 +162,78 @@ describe("guardIterationHead", () => {
 
     const { outcome, events } = await guard(cwd, preSha);
 
-    expect(outcome.kind).toBe("revert_failed");
-    if (outcome.kind !== "revert_failed") throw new Error("expected revert_failed");
-    expect(outcome.fromSha).toBe(rewritten);
-    expect(outcome.toSha).toBe(preSha);
+    expect(outcome.kind).toBe("guard_failed");
+    if (outcome.kind !== "guard_failed") throw new Error("expected guard_failed");
     expect(outcome.message).toContain(rewritten);
     expect(outcome.message).toContain(preSha);
+    expect(outcome.message).toContain("reset --keep");
     expect(events).toEqual([]);
     expect(git(cwd, ["rev-parse", "refs/heads/lane"])).toBe(rewritten);
     expect(readFileSync(join(cwd, "main-2.txt"), "utf8")).toBe("conflicting local edit\n");
+  });
+
+  test("HEAD moved to another branch fails naming both refs and SHAs without resetting either branch", async () => {
+    const { cwd, preSha } = laneRepo();
+    git(cwd, ["checkout", "main"]);
+    const mainSha = git(cwd, ["rev-parse", "HEAD"]);
+
+    const { outcome, events } = await guard(cwd, preSha);
+
+    expect(outcome.kind).toBe("guard_failed");
+    if (outcome.kind !== "guard_failed") throw new Error("expected guard_failed");
+    for (const part of [LANE_REF, "refs/heads/main", preSha, mainSha]) expect(outcome.message).toContain(part);
+    expect(events).toEqual([]);
+    expect(git(cwd, ["rev-parse", "refs/heads/main"])).toBe(mainSha);
+    expect(git(cwd, ["rev-parse", LANE_REF])).toBe(preSha);
+  });
+
+  test("detached HEAD after a branch pre-read fails as a ref change", async () => {
+    const { cwd, preSha } = laneRepo();
+    git(cwd, ["checkout", "--detach", "main"]);
+
+    const { outcome } = await guard(cwd, preSha);
+
+    expect(outcome.kind).toBe("guard_failed");
+    if (outcome.kind !== "guard_failed") throw new Error("expected guard_failed");
+    expect(outcome.message).toContain("detached HEAD");
+  });
+
+  test("unresolvable post-iteration HEAD (orphan checkout) fails instead of throwing", async () => {
+    const { cwd, preSha } = laneRepo();
+    git(cwd, ["checkout", "--orphan", "orphan"]);
+
+    const { outcome, events } = await guard(cwd, preSha);
+
+    expect(outcome).toEqual({ kind: "guard_failed", message: expect.stringContaining("unreadable") });
+    expect(events).toEqual([]);
+  });
+
+  test("a read error on the post-iteration HEAD fails instead of throwing", async () => {
+    const { cwd, preSha } = laneRepo();
+    rmSync(join(cwd, ".git", "HEAD"));
+    mkdirSync(join(cwd, ".git", "HEAD"));
+
+    const { outcome, events } = await guard(cwd, preSha);
+
+    expect(outcome).toEqual({ kind: "guard_failed", message: expect.stringContaining(preSha) });
+    expect(outcome.kind === "guard_failed" && outcome.message).toContain("Iteration head guard failed");
+    expect(events).toEqual([]);
+  });
+
+  test("a throwing git runner fails instead of throwing", async () => {
+    const { cwd, preSha } = laneRepo();
+    rebaseOntoMovedBase(cwd);
+    const rewritten = git(cwd, ["rev-parse", "HEAD"]);
+    const runner = {
+      runAsync: () => {
+        throw new Error("spawn EACCES");
+      },
+    };
+
+    const outcome = await guardIterationHead({ cwd, pre: { sha: preSha, ref: LANE_REF }, log: () => {}, runner });
+
+    expect(outcome.kind).toBe("guard_failed");
+    expect(outcome.kind === "guard_failed" && outcome.message).toContain("spawn EACCES");
+    expect(git(cwd, ["rev-parse", LANE_REF])).toBe(rewritten);
   });
 });

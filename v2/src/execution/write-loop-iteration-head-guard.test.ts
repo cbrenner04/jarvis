@@ -166,4 +166,61 @@ describe("awaitIteration history-rewrite guard", () => {
     expect(kinds).not.toContain("agent_history_rewrite_reverted");
     expect(git(worktreePath, ["rev-list", "HEAD"]).split("\n")).toContain(rewrittenSha);
   });
+
+  async function runFailingGuardLoop(branchName: string, agentAction: (cwd: string) => void) {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const { worktreePath, preSha } = initLaneWorktree(jarvisRoot, branchName);
+    let publishCalls = 0;
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      baseRef: "main",
+      completionCommitter: createCompletionCommitter(),
+      completionPublisher: async () => {
+        publishCalls += 1;
+        return {};
+      },
+      bindings: [
+        {
+          id: "sim.1",
+          metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+          invoke: async ({ cwd }) => {
+            agentAction(cwd);
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+    return { result, publishCalls, worktreePath, preSha };
+  }
+
+  test("agent switching branches settles resumable completion_commit_failed naming both refs without resetting", async () => {
+    const branchName = "head-guard-switch";
+    const run = await runFailingGuardLoop(branchName, (cwd) => {
+      git(cwd, ["checkout", "main"]);
+      writeFileSync(join(cwd, "proof.txt"), "ok\n");
+    });
+    const mainSha = git(run.worktreePath, ["rev-parse", "main"]);
+
+    expect(run.result.kind).toBe("completion_commit_failed");
+    expect(run.result.resumable).toBe(true);
+    for (const part of [`refs/heads/${branchName}`, "refs/heads/main", run.preSha, mainSha]) {
+      expect(run.result.completionCommitError).toContain(part);
+    }
+    expect(run.publishCalls).toBe(0);
+    expect(git(run.worktreePath, ["rev-parse", `refs/heads/${branchName}`])).toBe(run.preSha);
+  });
+
+  test("unresolvable post-iteration HEAD settles resumable completion_commit_failed instead of throwing", async () => {
+    const run = await runFailingGuardLoop("head-guard-orphan", (cwd) => {
+      git(cwd, ["checkout", "--orphan", "orphan"]);
+    });
+
+    expect(run.result.kind).toBe("completion_commit_failed");
+    expect(run.result.resumable).toBe(true);
+    expect(run.result.completionCommitError).toContain("unreadable");
+    expect(run.result.completionCommitError).toContain(run.preSha);
+    expect(run.publishCalls).toBe(0);
+  });
 });

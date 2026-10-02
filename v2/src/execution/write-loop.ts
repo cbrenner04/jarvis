@@ -2613,7 +2613,7 @@ type IterationSettlement =
       gateBudgetAdmittedCount?: number;
       quiesced: QuiescedExecutionOutcome;
     }
-  | { kind: "head_revert_failed"; fromSha: string; toSha: string; error: Error };
+  | { kind: "head_revert_failed"; error: Error };
 
 type AbortWatchdogRole = "abort" | "watchdog";
 type IterationSettlementPolicy = "bounded" | "finalization-repair";
@@ -2691,7 +2691,7 @@ async function awaitIteration(
   ...reprompts: IterationRepromptArgs
 ): Promise<IterationSettlement> {
   const worktreePath = getExternalWorktreePath(args.worktree);
-  const preSha = args.promptId === "write.mutation-repair" ? undefined : readIterationHead(worktreePath);
+  const pre = args.promptId === "write.mutation-repair" ? undefined : readIterationHead(worktreePath);
   const settlement = await raceIterationSettlement(
     args,
     store,
@@ -2701,14 +2701,14 @@ async function awaitIteration(
     settlementPolicy,
     ...reprompts,
   );
-  if (preSha === undefined || settlement.kind !== "settled") return settlement;
+  if (pre === undefined || settlement.kind !== "settled") return settlement;
   const guard = await guardIterationHead({
     cwd: worktreePath,
-    preSha,
+    pre,
     log: (event) => args.logSink?.append(runId, event),
   });
-  if (guard.kind !== "revert_failed") return settlement;
-  return { kind: "head_revert_failed", fromSha: guard.fromSha, toSha: guard.toSha, error: new Error(guard.message) };
+  if (guard.kind !== "guard_failed") return settlement;
+  return { kind: "head_revert_failed", error: new Error(guard.message) };
 }
 
 /**

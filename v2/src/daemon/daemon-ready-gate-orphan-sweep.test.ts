@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { storeVerifierProcessGroupRecorder } from "../execution/verifier-process-groups.ts";
 import type { IpcServer } from "../ipc/server.ts";
 import type { LogReader, LogSink } from "../persistence/log-stream.ts";
 import {
@@ -79,6 +80,41 @@ test("sweeps a ready-gate pgid when the owning run owner is dead", async () => {
     { pid: -pgid, signal: "SIGKILL" },
   ]);
   expect(sweepStore.loadRun(runId)?.readyGatePgid ?? null).toBeNull();
+  sweepStore.close();
+});
+
+test("sweeps implement-iteration agent recordings on a dead-owner run with no ready-gate slot", async () => {
+  const runId = createRun(seedStore, "in-progress");
+  const agentPgid = 410_001;
+  const descendantPgid = 410_002;
+  const recorder = storeVerifierProcessGroupRecorder(seedStore, runId);
+  recorder.record(agentPgid);
+  recorder.record(descendantPgid);
+  expect(seedStore.loadRun(runId)?.readyGatePgid ?? null).toBeNull();
+
+  const kills: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+  process.kill = ((pid, signal) => {
+    kills.push({ pid: pid as number, signal: signal as NodeJS.Signals });
+    return true;
+  }) as typeof process.kill;
+
+  const sweepStore = openSweepStore(async (identity) => identity !== PRIOR_IDENTITY);
+  await sweepOrphanReadyGateGroups(sweepStore);
+
+  const terminated = kills.filter((entry) => entry.signal === "SIGTERM").map((entry) => -entry.pid);
+  expect(terminated.sort((a, b) => a - b)).toEqual([agentPgid, descendantPgid]);
+  expect(await sweepStore.listReadyGateSweepCandidates()).toEqual([]);
+  expect(sweepStore.verifierProcessGroups(runId)).toEqual([]);
+  const deadline = Date.now() + 5_000;
+  while (kills.filter((entry) => entry.signal === "SIGKILL").length < 2 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  expect(
+    kills
+      .filter((entry) => entry.signal === "SIGKILL")
+      .map((entry) => -entry.pid)
+      .sort((a, b) => a - b),
+  ).toEqual([agentPgid, descendantPgid]);
   sweepStore.close();
 });
 

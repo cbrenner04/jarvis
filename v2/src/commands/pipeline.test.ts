@@ -458,6 +458,39 @@ describe("pipeline start", () => {
     expect(bothCap.read().stderr).toBe(PIPELINE_START_USAGE);
   });
 
+  test("forwards --risk from argv into rating admission", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = pipelineMachineConfig(
+      "demo",
+      { terminalAction: "leave-draft", minimumRisk: "medium" },
+      fx.repoRoot,
+    );
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-risk-flag", "pipe-risk-w"], () =>
+      main(["pipeline", "start", "demo", "--risk", "high", "--seed-text=---\neffort: low\n---\nBody"], cap.io, {
+        ...pipelineDeps(configPath),
+        connectIpcClient: pipelineStartClients(
+          pipelineFrames("pipe-risk-flag", ["pipe-risk-w"], "pipe-risk-1", [{ kind: "terminal", state: "succeeded" }]),
+          sent,
+        ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, "pipeline_start")[0]).toMatchObject({
+      params: {
+        definition: { name: "full-review" },
+        admittedSelection: {
+          effective: { risk: "high", effort: "low" },
+          sources: { risk: "flag", effort: "seed" },
+          registryName: "full-review",
+        },
+      },
+    });
+    // Mutation checkpoint: inverting `typeof values.risk === "string"` in parsePipelineStartArgs turns this test RED.
+  });
+
   test("--detach exits 0 after admission without pipeline_wait", async () => {
     // Inversion target: runPipelineStartCommand detach branch in pipeline.ts — blocking on pipeline_wait when detach is true turns this test RED.
     const cap = captureIo();

@@ -26,6 +26,8 @@ function okBinding(stdout: string): InvocationBinding {
   return {
     id: "agent",
     metadata: { agent: "claude", model: "m1" },
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async () => ({ kind: "ok", stdout, stderr: "" }),
   };
 }
@@ -76,6 +78,8 @@ function createImplementBindings(
       agent: binding.agentId,
       model: binding.adapterModel,
     },
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: invoke(binding),
   }));
 }
@@ -401,6 +405,8 @@ describe("step runner token re-prompt", () => {
     return {
       id: "agent",
       metadata: { agent: "claude", model: "m1" },
+      confinementPolicy: "unrestricted",
+      confinementMechanism: "none",
       invoke: async () => {
         const reply = replies[call] ?? replies[replies.length - 1] ?? "";
         call += 1;
@@ -722,6 +728,8 @@ describe("step runner token re-prompt", () => {
     return {
       id: "agent",
       metadata: { agent: "claude", model: "opus" },
+      confinementPolicy: "unrestricted",
+      confinementMechanism: "none",
       invoke: async ({ idleOutputMs }) => {
         call += 1;
         if (call === 1) return { kind: "ok", stdout: "no token here", stderr: "" };

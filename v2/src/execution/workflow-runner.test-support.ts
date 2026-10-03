@@ -122,6 +122,8 @@ export function createBindingFactory(
       id: `${agentId}/${adapterModel}`,
       invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
       metadata: { agent: agentId, model: adapterModel },
+      confinementPolicy: "unrestricted",
+      confinementMechanism: "none",
     } satisfies InvocationBinding;
   };
 }
@@ -399,6 +401,8 @@ export function createDebateBindingFactory(
       id: `${agentId}/${adapterModel}`,
       invoke: () => invoke({ agentId, adapterModel }),
       metadata: { agent: agentId, model: adapterModel },
+      confinementPolicy: "unrestricted",
+      confinementMechanism: "none",
     } satisfies InvocationBinding;
   };
 }
@@ -409,6 +413,8 @@ export function createReviewDebateActuatorFailureBindingFactory(
   return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
     id: `${agentId}/${adapterModel}`,
     metadata: { agent: agentId, model: adapterModel },
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: ({ signal }) => {
       if (adapterModel !== "ACT") {
         return Promise.resolve(

@@ -889,6 +889,8 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
       }),
     });
 
@@ -1054,6 +1056,8 @@ describe("executeWorkflow", () => {
           return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" } as const);
         },
         metadata: { agent: agentId, model: adapterModel },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
       }),
     });
     step.worktree = {
@@ -1153,6 +1157,8 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
       }),
     };
     const steps = resolveWorkflowPreset("implement", [
@@ -1238,6 +1244,8 @@ describe("executeWorkflow", () => {
             return { kind: "ok", stdout: "done", stderr: "" } as const;
           },
           metadata: { agent: agentId, model: adapterModel },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
         };
       },
     });
@@ -1272,6 +1280,8 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
       }),
     });
 
@@ -1330,6 +1340,8 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "apply verdict", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
       }),
     };
 
@@ -1632,6 +1644,8 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
       }),
     });
     const step2 = createStep({ stepId: "later", role: "implement", branchName: "shrink-stops-workflow" });

@@ -45,6 +45,8 @@ function stubInvocationRow(ts: string): InvocationCompletedRecord {
     role: "implement",
     agent: "claude",
     model: "m",
+    confinement_policy: "unrestricted",
+    confinement_mechanism: "none",
     binding_id: "binding",
     binding_index: 0,
     duration_ms: 1,

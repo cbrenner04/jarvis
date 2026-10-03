@@ -2046,6 +2046,8 @@ describe("write behavior", () => {
         {
           id: "agent",
           metadata: { agent: "claude", model: "m1" },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async ({ cwd }) => {
             writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
             return { kind: "ok", stdout: "done", stderr: "" };

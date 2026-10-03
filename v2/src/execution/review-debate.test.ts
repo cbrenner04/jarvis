@@ -11,6 +11,8 @@ function okBinding(id: string, stdout: string, calls: string[]): InvocationBindi
   return {
     id,
     metadata: { agent: `agent-${id}`, model: `model-${id}` },
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async () => {
       calls.push(id);
       return { kind: "ok", stdout, stderr: "" };
@@ -22,6 +24,8 @@ function quotaBinding(id: string, calls: string[]): InvocationBinding {
   return {
     id,
     metadata: { agent: `agent-${id}`, model: `model-${id}` },
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async () => {
       calls.push(id);
       return { kind: "quota", stderr: "quota" };

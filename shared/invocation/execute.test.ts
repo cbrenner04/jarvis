@@ -45,6 +45,8 @@ function binding(id: string, result: InvocationResult): InvocationBinding {
       agent: `${id}-agent`,
       model: `${id}-model`,
     },
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async () => result,
   };
 }
@@ -232,6 +234,47 @@ describe("shared invocation fallback", () => {
     ]);
   });
 
+  test("invocation_completed rows carry confinement_policy and confinement_mechanism from each binding", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "codex",
+          metadata: { agent: "codex", model: "gpt" },
+          confinementPolicy: "sandbox",
+          confinementMechanism: "codex-workspace-write",
+          invoke: async () => ({ kind: "quota", stderr: "quota" }),
+        },
+        {
+          id: "claude",
+          metadata: { agent: "claude", model: "sonnet" },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
+          invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }),
+        },
+      ] as InvocationBinding[],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      binding_id: "codex",
+      confinement_policy: "sandbox",
+      confinement_mechanism: "codex-workspace-write",
+    });
+    expect(rows[1]).toMatchObject({
+      binding_id: "claude",
+      confinement_policy: "unrestricted",
+      confinement_mechanism: "none",
+    });
+  });
+
   test("quota exhaustion still appends one row per attempted binding", async () => {
     const rows: InvocationCompletedRecord[] = [];
     const result = await executeWithQuotaFallback({
@@ -399,6 +442,8 @@ describe("shared invocation fallback", () => {
         {
           id: "codex-binding",
           metadata: { agent: "codex", model: "gpt-5" },
+          confinementPolicy: "sandbox",
+          confinementMechanism: "codex-workspace-write",
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",
@@ -605,6 +650,8 @@ describe("shared invocation fallback", () => {
         {
           id: "claude-binding",
           metadata: { agent: "claude", model: "sonnet" },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",
@@ -650,6 +697,8 @@ describe("shared invocation fallback", () => {
         {
           id: "spawner",
           metadata: { agent: "claude", model: "sonnet" },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async () => {
             throw new Error("spawn ENOENT");
           },
@@ -780,6 +829,8 @@ describe("shared invocation fallback", () => {
         {
           id: "normalized",
           metadata: { agent: "claude", model: "sonnet" },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           shouldAdvance: (r) => r.kind === "error",
           invoke: async () => {
             throw new Error("spawn failed");
@@ -809,6 +860,8 @@ describe("shared invocation fallback", () => {
         {
           id: "spawner",
           metadata: { agent: "claude", model: "sonnet" },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async () => {
             throw new Error("spawn ENOENT: no such file or directory");
           },
@@ -913,6 +966,8 @@ describe("telemetry text field cap", () => {
         {
           id: "codex-binding",
           metadata: { agent: "codex", model: "gpt-5" },
+          confinementPolicy: "sandbox",
+          confinementMechanism: "codex-workspace-write",
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",

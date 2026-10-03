@@ -390,6 +390,8 @@ describe("write loop", () => {
         {
           id: "claude-with-cost",
           metadata: { agent: "claude", model: "sonnet" },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async ({ cwd }) => {
             writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
             return {

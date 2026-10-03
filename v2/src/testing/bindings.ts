@@ -45,6 +45,8 @@ export function simulatedBindings(
       agent: `sim-agent-${index + 1}`,
       model: `sim-model-${index + 1}`,
     },
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async ({ cwd }): Promise<InvocationResult> => {
       const terminal = TERMINAL_OUTCOMES[outcome];
       if (terminal) return terminal;

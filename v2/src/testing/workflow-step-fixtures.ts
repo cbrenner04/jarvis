@@ -57,6 +57,8 @@ export function createBindingFactory(
       invoke: ({ cwd, signal }: Parameters<InvocationBinding["invoke"]>[0]) =>
         invoke({ agentId, adapterModel, cwd, signal }),
       metadata: { agent: agentId, model: adapterModel },
+      confinementPolicy: "unrestricted",
+      confinementMechanism: "none",
     } satisfies InvocationBinding;
   };
 }

@@ -34,6 +34,8 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId, adapterModel }) => ({
         id: `${agentId}/${adapterModel}`,
         metadata: { agent: agentId, model: adapterModel },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
         invoke: async ({ prompt }) => {
           calls.push(`${agentId}:${prompt}`);
           return { kind: "ok" as const, stdout: agentId === "claude" ? "fix" : "done", stderr: "" };
@@ -96,6 +98,8 @@ describe("executeWorkflow review dispatch", () => {
         createBinding: ({ agentId, adapterModel }) => ({
           id: `${agentId}/${adapterModel}`,
           metadata: { agent: agentId, model: adapterModel },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
             expect(observedIdleOutputMs).toBe(idleOutputMs);
             roles.push(adapterModel);
@@ -131,6 +135,8 @@ describe("executeWorkflow review dispatch", () => {
         createBinding: ({ agentId, adapterModel }) => ({
           id: `${agentId}/${adapterModel}`,
           metadata: { agent: agentId, model: adapterModel },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
             expect(observedIdleOutputMs).toBe(idleOutputMs);
             roles.push(adapterModel);
@@ -172,6 +178,8 @@ describe("executeWorkflow review dispatch", () => {
         createBinding: ({ agentId, adapterModel }) => ({
           id: `${agentId}/${adapterModel}`,
           metadata: { agent: agentId, model: adapterModel },
+          confinementPolicy: "unrestricted",
+          confinementMechanism: "none",
           invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
             observed.push(observedIdleOutputMs ?? -1);
             return { kind: "ok", stdout: "", stderr: "" } as const;
@@ -234,6 +242,8 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
         invoke: async ({ cwd, prompt }) => {
           observedCwds.push(cwd);
           observedPrompts.push(prompt);
@@ -426,6 +436,8 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
         invoke: async () => {
           calls.push(agentId);
           return { kind: "ok" as const, stdout: "", stderr: "" };
@@ -464,6 +476,8 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
         invoke: async ({ cwd }) => {
           if (agentId === "codex") {
             const stage = join(cwd, ".jarvis-intent-stage");
@@ -522,6 +536,8 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
         invoke: async ({ cwd }) => {
           if (agentId === "claude") writeFileSync(join(cwd, "rogue.txt"), "no\n", "utf8");
           return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };
@@ -568,6 +584,8 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },
+        confinementPolicy: "unrestricted",
+        confinementMechanism: "none",
         invoke: async ({ cwd }) => {
           if (agentId === "claude") writeFileSync(join(cwd, "rogue.txt"), "no\n", "utf8");
           return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };

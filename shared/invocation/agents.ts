@@ -196,7 +196,13 @@ function bindConfined(
   invokeWith: (confinementArgv: readonly string[]) => InvocationBinding["invoke"],
 ): InvocationBinding {
   if (translation.kind === "refused") return createRefusingBinding(id, metadata, policy);
-  return { id, metadata, confinementMechanism: translation.mechanism, invoke: invokeWith(translation.argv) };
+  return {
+    id,
+    metadata,
+    confinementPolicy: policy,
+    confinementMechanism: translation.mechanism,
+    invoke: invokeWith(translation.argv),
+  };
 }
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {

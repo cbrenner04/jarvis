@@ -67,7 +67,7 @@ One JSON object per JSONL line. Top-level envelope on every record:
 
 ### `invocation_completed`
 
-Emitted after each agent subprocess settles (shared invocation seam). Live runtime coverage today is **write-step invocations only**; other shared invocation callers stay no-op until they pass both write-step context and a telemetry sink. Required context: `operator_session_id`, `run_id`, `attempt_id`, `invocation_id`, `project`, `workflow`, `step_id`, `role`, `agent`, `model`, `binding_index`, `duration_ms`, `worktree_path`, `branch`, `spec_ref`.
+Emitted after each agent subprocess settles (shared invocation seam). Live runtime coverage today is **write-step invocations only**; other shared invocation callers stay no-op until they pass both write-step context and a telemetry sink. Required context: `operator_session_id`, `run_id`, `attempt_id`, `invocation_id`, `project`, `workflow`, `step_id`, `role`, `agent`, `model`, `confinement_policy`, `confinement_mechanism`, `binding_index`, `duration_ms`, `worktree_path`, `branch`, `spec_ref`. `confinement_policy` and `confinement_mechanism` copy the resolved binding at invocation time (`sandbox` | `unrestricted` and `codex-workspace-write` | `codex-read-only` | `none` respectively; refused bindings emit no row).
 
 Quota fallback grain is pinned: emit **one row per binding subprocess in attempt order**, not one aggregate row for the logical invocation. `run_id`, `attempt_id`, `workflow`, `step_id`, `role`, `worktree_path`, `branch`, and `spec_ref` stay shared across the fallback chain; `invocation_id` is distinct per subprocess row and is passed in by the write-step caller.
 

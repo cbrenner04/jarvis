@@ -709,7 +709,7 @@ zcat "$HOME/.jarvis/telemetry/2026-05.jsonl.gz" | head
 
 ```text
 run_id  branch  project  step_id  attempt_id  invocation_id  workflow  spec_ref  worktree_path
-role  agent  model  binding_id  binding_index  duration_ms  exit_kind  exit_reason
+role  agent  model  confinement_policy  confinement_mechanism  binding_id  binding_index  duration_ms  exit_kind  exit_reason
 cost_usd  cost_source  usage  usage_source  ts  operator_session_id  record_kind  schema_version
 ```
 
@@ -723,6 +723,19 @@ for l in open('$HOME/.jarvis/telemetry.jsonl'):
     d=json.loads(l)
     if d.get('run_id')==rid:
         print(d['role'], d['agent'], d['model'], d['duration_ms'], d['exit_kind'], d.get('cost_usd'))
+"
+```
+
+To see whether a run's invocations were sandboxed, filter by `run_id` and read `confinement_policy` / `confinement_mechanism` on each `invocation_completed` row (`sandbox` + `codex-workspace-write` vs `unrestricted` + `none`):
+
+```sh
+python3 -c "
+import json
+rid='<run-id>'
+for l in open('$HOME/.jarvis/telemetry.jsonl'):
+    d=json.loads(l)
+    if d.get('run_id')==rid and d.get('record_kind')=='invocation_completed':
+        print(d['binding_id'], d['confinement_policy'], d['confinement_mechanism'])
 "
 ```
 

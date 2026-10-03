@@ -92,6 +92,37 @@ export function readReviewRoleTimeoutMs(configPath: string = MACHINE_CONFIG_PATH
   return readPositiveNumberField(configPath, "reviewRoleTimeoutMs", DEFAULT_REVIEW_ROLE_TIMEOUT_MS);
 }
 
+/** Vendor-agnostic confinement an invocation runs under; adapters translate it to their own flags. */
+type ConfinementPolicy = "sandbox" | "unrestricted";
+
+const CONFINEMENT_POLICIES: readonly ConfinementPolicy[] = ["sandbox", "unrestricted"];
+export const DEFAULT_CONFINEMENT_POLICY: ConfinementPolicy = "unrestricted";
+
+function parseConfinementPolicy(value: unknown, field: string): ConfinementPolicy {
+  if (typeof value === "string" && (CONFINEMENT_POLICIES as readonly string[]).includes(value)) {
+    return value as ConfinementPolicy;
+  }
+  throw new Error(
+    `Machine config '${field}' must be one of ${CONFINEMENT_POLICIES.map((policy) => `"${policy}"`).join(", ")}`,
+  );
+}
+
+/**
+ * Resolves the confinement policy for a project's invocations: `projects.<projectKey>.overrides.confinementPolicy`
+ * when set, else top-level `confinementPolicy`, else `unrestricted`. Unknown values throw naming the config path.
+ */
+export function readConfinementPolicy(
+  configPath: string = MACHINE_CONFIG_PATH,
+  projectKey?: string,
+): ConfinementPolicy {
+  const override =
+    projectKey === undefined ? undefined : readProjectConfigOverrides(projectKey, configPath).confinementPolicy;
+  if (override !== undefined) return override;
+  const value = readMachineConfigDocument(configPath)?.confinementPolicy;
+  if (value === undefined) return DEFAULT_CONFINEMENT_POLICY;
+  return parseConfinementPolicy(value, "confinementPolicy");
+}
+
 const DEFAULT_CODEX_SANDBOX_MODE: CodexSandboxMode = "workspace-write";
 
 const CODEX_SANDBOX_MODES: readonly CodexSandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
@@ -271,9 +302,13 @@ export function readProjectConfigRecord(
 }
 
 /** Per-project values shadowing their machine-wide keys for that project's runs. */
-type ProjectConfigOverrides = { agents?: string[]; idleOutputTimeoutMs?: number };
+type ProjectConfigOverrides = {
+  agents?: string[];
+  idleOutputTimeoutMs?: number;
+  confinementPolicy?: ConfinementPolicy;
+};
 
-const PROJECT_OVERRIDE_KEYS: readonly string[] = ["agents", "idleOutputTimeoutMs"];
+const PROJECT_OVERRIDE_KEYS: readonly string[] = ["agents", "idleOutputTimeoutMs", "confinementPolicy"];
 
 /**
  * Validates `projects.<projectKey>.overrides`. The key set is closed: an unknown key throws naming its
@@ -301,6 +336,9 @@ export function parseProjectConfigOverrides(
       throw new Error(`Machine config '${path}.idleOutputTimeoutMs' must be a non-negative integer`);
     }
     overrides.idleOutputTimeoutMs = block.idleOutputTimeoutMs;
+  }
+  if (block.confinementPolicy !== undefined) {
+    overrides.confinementPolicy = parseConfinementPolicy(block.confinementPolicy, `${path}.confinementPolicy`);
   }
   return overrides;
 }

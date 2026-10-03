@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import type { RpcHandler } from "../ipc/server.ts";
-import { createHeldWorkflowBindings, workflowWriteStep, withWorkflowStepSeam } from "./run-control.ts";
+import { createHeldWorkflowBindings, withWorkflowStepSeam, workflowWriteStep } from "./run-control.ts";
 
 function freshCwd(): string {
   return trackedMkdtempSync(join(tmpdir(), `held-bindings-${process.pid}-`));

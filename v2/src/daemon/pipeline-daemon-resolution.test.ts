@@ -175,7 +175,7 @@ test("pipeline list distinguishes null from non-numeric nullable timestamps", as
   expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true, absentSocketPaths: [] });
 });
 
-test("pipeline list rejects explicit null admittedSelection and accepts a valid admission object", async () => {
+test("pipeline list accepts null (name-selected) and valid admittedSelection, rejecting a malformed object", async () => {
   const base = pipelineSnapshot(PIPELINE_ID);
   const admittedSelection = {
     effective: { risk: "high" as const, effort: "low" as const },
@@ -192,8 +192,20 @@ test("pipeline list rejects explicit null admittedSelection and accepts a valid 
   expect(valid.hasMalformedResponse).toBeFalse();
   expect(valid.snapshotsBySocketPath[INVOKING_SOCKET]?.[0]?.admittedSelection).toEqual(admittedSelection);
 
-  const invalid = await queryPipelineListsFromSocketPaths(
+  const nameSelected = await queryPipelineListsFromSocketPaths(
     async () => replyingClient({ result: { pipelines: [{ ...base, admittedSelection: null }] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(nameSelected.hasMalformedResponse).toBeFalse();
+  expect(nameSelected.snapshotsBySocketPath[INVOKING_SOCKET]?.[0]?.admittedSelection).toBeNull();
+
+  const invalid = await queryPipelineListsFromSocketPaths(
+    async () =>
+      replyingClient({
+        result: { pipelines: [{ ...base, admittedSelection: { ...admittedSelection, registryName: "" } }] },
+      }),
     [INVOKING_SOCKET],
     undefined,
     20,

@@ -119,6 +119,41 @@ test("pipeline_start refuses malformed admittedSelection without creating pipeli
   expect(stateStore.listPipelines()).toEqual([]);
 });
 
+test("pipeline_start refuses an admittedSelection whose registryName differs from definition.name", async () => {
+  const handlers = pipelineHandlers();
+  const selection = {
+    effective: { risk: "low", effort: "low" },
+    sources: { risk: "seed", effort: "seed" },
+    registryName: "fast",
+  };
+
+  const mismatched = await handlers.pipeline_start(
+    requestFrame("mismatched-selection", "pipeline_start", {
+      definition: SINGLE_STAGE_DEFINITION,
+      context: ADMISSION_CONTEXT,
+      admittedSelection: selection,
+    }),
+    new AbortController().signal,
+  );
+  expect(mismatched).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: 'admittedSelection.registryName "fast" must equal definition.name "list-projection"',
+  });
+  expect(stateStore.listPipelines()).toEqual([]);
+
+  const matched = await handlers.pipeline_start(
+    requestFrame("matched-selection", "pipeline_start", {
+      definition: SINGLE_STAGE_DEFINITION,
+      context: ADMISSION_CONTEXT,
+      admittedSelection: { ...selection, registryName: SINGLE_STAGE_DEFINITION.name },
+    }),
+    new AbortController().signal,
+  );
+  expect(matched.kind).toBe("response");
+  expect(stateStore.listPipelines()).toHaveLength(1);
+});
+
 test("pipeline_start refuses context missing configPath without creating pipeline rows", async () => {
   const handlers = pipelineHandlers();
 

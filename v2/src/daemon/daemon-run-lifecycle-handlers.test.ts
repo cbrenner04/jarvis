@@ -10,7 +10,13 @@ import type { IntentFinalizationResumeDeps } from "../execution/workflow-runner-
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput, workflowSnapshot } from "../testing/run-control.ts";
+import {
+  flushBackgroundRuns,
+  loadRunOrThrow,
+  mockWriteLoopInput,
+  workflowSnapshot,
+  workflowWriteStep,
+} from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import type { WriteLoopBindingSourceDeps } from "./daemon.ts";
@@ -141,6 +147,19 @@ test("start rejects direct write input without workflow steps", async () => {
     code: "invalid_params",
     message: "Direct write start via input is not supported; provide workflow steps",
   });
+});
+
+test("start requires workflow steps and delegates when they are present", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  const missing = await handlers.start({ kind: "request", id: "s2", method: "start", params: {} }, signal);
+  expect(missing).toEqual({ kind: "error", code: "invalid_params", message: "steps required" });
+  // Mutation checkpoint: flipping the steps guard would route a stepped request into "steps required".
+  const delegated = await handlers.start(
+    { kind: "request", id: "s3", method: "start", params: { steps: [workflowWriteStep()] } },
+    signal,
+  );
+  expect(delegated).toEqual({ kind: "error", code: "invalid_params", message: "steps unsupported in test" });
 });
 
 test("resume admits a second project while another run is active", async () => {

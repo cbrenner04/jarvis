@@ -349,9 +349,12 @@ A **run** is a workflow instance carrying:
 - **Status** — the closed `RunStatus` union in
   [`state-store.md`](state-store.md) (`in-progress`, `completed`, `blocked`,
   `budget-soft-stopped`, `paused`, `failed`, `killed`, `queued`).
-  The write loop uses `paused` to record a graceful pause (last attempt committed at
-  boundary); `killed` records an immediate abort by the daemon (last attempt may be
-  uncommitted; prior iteration commits on the branch remain).
+  `paused` is harness-set only (see [Steering semantics](#steering-semantics)):
+  the write loop parks a row on an invalid terminal token or missing blocker,
+  the workflow runner on a review-stage shrink or a parked write step, always
+  with the last attempt committed at its boundary. `killed` records an
+  immediate abort by the daemon (last attempt may be uncommitted; prior
+  iteration commits on the branch remain).
 - **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
 - **History linkage** — execution history is not embedded on `runs`; it is stored
@@ -433,8 +436,9 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
 ### Steering semantics
 
 - **Pause is harness-set, never operator-signaled** — a row becomes `paused`
-  only when the harness parks it at a committed boundary (review-stage shrink,
-  parked workflow write step); `jarvis run resume` continues it. There is no
+  only when the harness parks it at a committed boundary: an ad-hoc write loop
+  on an invalid terminal token or missing blocker, a workflow on a review-stage
+  shrink or a parked write step. `jarvis run resume` continues it. There is no
   write-loop pause input.
 - **Kill is immediate** — aborts the run's AbortSignal immediately, causing
   signal-honoring bindings to tear down their agent processes (SIGTERM→SIGKILL).

@@ -111,8 +111,9 @@ Workflow-step authoring that wraps this write-loop input shape lives in [`workfl
 Pause, kill, and crash-recovery branch on how the loop stopped: the loop never resumes mid-step. Resume branches from durable state at the last committed boundary:
 
 - Run `status = "paused"`: the harness parked the row after committing the last
-  attempt's boundary (a review-stage shrink or a parked workflow write step), so
-  the loop starts a fresh attempt and continues. There is no operator pause
+  attempt's boundary (an invalid terminal token or missing blocker on an ad-hoc
+  loop; a review-stage shrink or a parked write step on a workflow), so the loop
+  starts a fresh attempt and continues. There is no operator pause
   input; kill-abort (`signal`) is the only live interrupt.
 - Last attempt still `in-progress`: the prior invocation died mid-step (kill/crash),
   so the loop re-runs that same iteration over the existing dirty worktree.

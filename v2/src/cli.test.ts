@@ -175,6 +175,15 @@ describe("v2 cli dispatch", () => {
     expect(output).toContain("review-feedback\tAddress PR review feedback on a completed lane.");
   });
 
+  test("help run wait prints ancestor usage (no own usage line)", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "run", "wait"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(RUN_USAGE);
+  });
+
   test("help run start prints RUN_START_USAGE", async () => {
     const cap = captureIo();
 

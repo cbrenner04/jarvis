@@ -162,7 +162,7 @@ Example completion:
 {"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":3,"resumable":false}
 ```
 
-**Ad-hoc resume limit:** there is no operator pause verb; `jarvis run resume <run-id>` on a harness-paused ad-hoc run currently returns `not_implemented: Paused run resume is not yet implemented`. Workflow-started paused write steps resume through the daemon — see [`daemon-host.md`](./daemon-host.md).
+**Pause and resume:** there is no operator pause verb; a row is `paused` only when the harness parks it at a committed boundary: an ad-hoc write loop on an invalid terminal token or missing blocker, a workflow on a review-stage shrink or a parked write step. `jarvis run resume <run-id>` resumes a paused ad-hoc row from its durable start input (`queuedInput`) and a paused workflow write step through the daemon's workflow resume — see [`daemon-host.md`](./daemon-host.md).
 
 ## Draft PR output
 

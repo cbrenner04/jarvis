@@ -411,7 +411,7 @@ A workflow-entry run's step rows each carry their own `dismissedAt` — dismissi
 
 ### Ad-hoc write loop (live kill)
 
-`jarvis run start` with explicit worktree fields — supports `kill` on the active run and `resume` on a parked row. There is no operator pause verb: `paused` rows are harness-set (a review-stage shrink, or a workflow write step parked for resume) and continue via `jarvis run resume`. See [first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement) and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
+`jarvis run start` with explicit worktree fields — supports `kill` on the active run and `resume` on a parked row. There is no operator pause verb: `paused` rows are harness-set (an invalid terminal token or missing blocker on an ad-hoc loop; a review-stage shrink or a parked write step on a workflow) and continue via `jarvis run resume`. See [first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement) and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
 
 ### Observe
 

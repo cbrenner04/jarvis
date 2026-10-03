@@ -168,6 +168,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "gate_invocation_refused",
   "idle_output_timeout",
   "budget-exhausted",
+  // No producer since the operator pause verb was retired; kept so historical `loop_finished` events still parse.
   "paused",
   "completion_commit_failed",
   "iteration_commit_failed",

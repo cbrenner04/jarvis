@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createCompletionPublisher } from "../execution/completion-publisher.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
 import { createReadyFinalizer } from "../execution/ready-finalize.ts";
@@ -61,16 +61,21 @@ function createWorktreeWithGit(jarvisRoot: string) {
     });
 }
 
-/** Answers the fresh-worktree creation sequence of withExternalWorktree. */
+/**
+ * Answers the fresh-worktree creation sequence of withExternalWorktree. The branch probe is
+ * git's silent exit 1 (the boundary's `resolveRef` reads only that as absent; any other
+ * failure is inconclusive and fails materialization before `worktree add`).
+ */
 function fakeGitRunner(): AsyncSubprocessRunner {
   return {
     async runAsync(_cmd, args) {
       const key = args.join(" ");
-      if (key.startsWith("rev-parse --verify")) throw new Error("not a valid ref");
+      if (key.startsWith("rev-parse --verify"))
+        throw new AsyncSubprocessError("Command failed: git", 1, "", "", undefined);
       if (key === "worktree prune") return "";
       if (args[0] === "branch") return "";
       if (args[0] === "worktree" && args[1] === "add") {
-        const path = args[2] === "--checkout" ? args[3] : args[2];
+        const path = args[2];
         if (path) mkdirSync(path, { recursive: true });
         return "";
       }

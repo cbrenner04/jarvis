@@ -19,6 +19,7 @@ import {
   getCurrentBranchAsync,
   getGitStatusInventory,
   isGitRepoAsync,
+  isNotGitRepositoryDiagnostic,
   originTrackingRefResolvesAsync,
 } from "../../../shared/git.ts";
 import { isRecord } from "../../../shared/is-record.ts";
@@ -42,7 +43,7 @@ import {
 } from "../config/machine-config-loader.ts";
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
 import { publishArchiveReady } from "../execution/completion-publisher.ts";
-import { isMaterializedNodeModulesPath, isNotGitRepositoryDiagnostic } from "../execution/external-worktree.ts";
+import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
 import { GitHubOperationError } from "../execution/github-operations.ts";
 import {
   planSourcePublishesExternally,

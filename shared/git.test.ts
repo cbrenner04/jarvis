@@ -11,6 +11,7 @@ import {
   branchDiff,
   branchExistsLocal,
   branchExistsOnOrigin,
+  branchExistsOnOriginAsync,
   createBranch,
   DIFF_MAX_BUFFER,
   type DiffRange,
@@ -23,9 +24,12 @@ import {
   type GitOperation,
   GitOperationError,
   getCurrentBranch,
+  getCurrentBranchAsync,
   getGitStatusInventory,
   gitCommonDir,
   gitDir,
+  isInsideWorkTree,
+  isNotGitRepositoryDiagnostic,
   isRetryableGitError,
   isWorktreeDirty,
   listWorktrees,
@@ -891,5 +895,77 @@ describe("gitDir and gitCommonDir", () => {
       "git rev-parse --path-format=absolute --git-common-dir": gitFailure("fatal: not a git repository\n"),
     });
     expectFailure(await rejection(gitCommonDir("/nowhere", failed)), "git-dir", "failed", false);
+  });
+});
+
+describe("isInsideWorkTree", () => {
+  test("true inside a tree, false on git's answer or its not-a-repository diagnostics, else inconclusive", async () => {
+    const controller = new AbortController();
+    const inside = fakeAsync({ "git rev-parse --is-inside-work-tree": "true\n" });
+    expect(await isInsideWorkTree("/wt", inside, { signal: controller.signal })).toBe(true);
+    expect(inside.calls).toEqual([
+      { args: ["git", "rev-parse", "--is-inside-work-tree"], cwd: "/wt", options: { signal: controller.signal } },
+    ]);
+    expect(await isInsideWorkTree("/repo/.git", fakeAsync({ "git rev-parse --is-inside-work-tree": "false\n" }))).toBe(
+      false,
+    );
+    for (const stderr of [
+      "fatal: not a git repository (or any of the parent directories): .git\n",
+      "fatal: gitfile does not point to a valid repository: /x/.git\n",
+    ]) {
+      const outside = fakeAsync({ "git rev-parse --is-inside-work-tree": gitFailure(stderr) });
+      expect(await isInsideWorkTree("/plain", outside)).toBe(false);
+    }
+    const broken = fakeAsync({ "git rev-parse --is-inside-work-tree": gitFailure("fatal: ambiguous argument\n") });
+    expectFailure(await rejection(isInsideWorkTree("/x", broken)), "work-tree-query", "failed", false);
+    const slow = fakeAsync({ "git rev-parse --is-inside-work-tree": timeoutFailure() });
+    expectFailure(await rejection(isInsideWorkTree("/x", slow)), "work-tree-query", "timeout", true);
+  });
+
+  test("a failure after the caller aborted is aborted, never a plain directory", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    for (const stderr of ["", "fatal: not a git repository (or any of the parent directories): .git\n"]) {
+      const runner = fakeAsync({
+        "git rev-parse --is-inside-work-tree": new AsyncSubprocessError(
+          "Command failed",
+          undefined,
+          "",
+          stderr,
+          "SIGTERM",
+        ),
+      });
+      expectFailure(
+        await rejection(isInsideWorkTree("/wt", runner, { signal: controller.signal })),
+        "work-tree-query",
+        "aborted",
+        false,
+      );
+    }
+  });
+
+  test("isNotGitRepositoryDiagnostic recognizes pre-2.56 and 2.56+ diagnostics only", () => {
+    expect(isNotGitRepositoryDiagnostic("fatal: not a git repository: /nonexistent")).toBe(true);
+    expect(isNotGitRepositoryDiagnostic("fatal: gitfile does not point to a valid repository: /x/.git")).toBe(true);
+    expect(isNotGitRepositoryDiagnostic("fatal: ambiguous argument 'HEAD'")).toBe(false);
+    expect(isNotGitRepositoryDiagnostic("")).toBe(false);
+  });
+});
+
+describe("signal forwarding on the older async probes", () => {
+  test("getCurrentBranchAsync and branchExistsOnOriginAsync pass the caller's signal to the runner", async () => {
+    const controller = new AbortController();
+    const branch = fakeAsync({ "git rev-parse --abbrev-ref HEAD": "feature\n" });
+    expect(await getCurrentBranchAsync("/wt", branch, { signal: controller.signal })).toBe("feature");
+    expect(branch.calls[0]?.options).toEqual({ signal: controller.signal });
+    const origin = fakeAsync({ "git ls-remote --heads origin feature": "def456\trefs/heads/feature\n" });
+    expect(await branchExistsOnOriginAsync("/repo", "feature", origin, { signal: controller.signal })).toBe(true);
+    expect(origin.calls[0]?.options).toMatchObject({
+      signal: controller.signal,
+      timeoutMs: NETWORK_SUBPROCESS_TIMEOUT_MS,
+    });
+    const plain = fakeAsync({ "git rev-parse --abbrev-ref HEAD": "main\n" });
+    await getCurrentBranchAsync("/wt", plain);
+    expect(plain.calls[0]?.options).toEqual({});
   });
 });

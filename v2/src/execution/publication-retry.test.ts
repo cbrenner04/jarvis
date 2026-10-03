@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
+import { GitHubOperationError } from "./github-operations.ts";
 import {
   completionCommitFailureResumable,
   formatPublicationFailure,
@@ -65,6 +66,44 @@ test("retries only positively identified transport failures and rethrows the ori
     exitCode: 1,
     stderrTail: "socket closed",
   });
+});
+
+test("a boundary-classified GitHubOperationError decides transience by its own retryable flag", async () => {
+  const options = { delay: async () => undefined, retryNotice: () => undefined };
+  const retryable = new GitHubOperationError("pr-view", "rate-limited", "some gh failure", "", "", 1);
+  expect(isTransientPublicationFailure(normalizePublicationFailure("pr", retryable), retryable)).toBe(true);
+  let attempts = 0;
+  await expect(
+    runPublicationWithRetry(
+      "pr",
+      async () => {
+        attempts += 1;
+        throw retryable;
+      },
+      options,
+    ),
+  ).rejects.toBe(retryable);
+  expect(attempts).toBe(3);
+
+  const permanent = new GitHubOperationError("pr-view", "auth", "connection reset", "", "", 1);
+  expect(isTransientPublicationFailure(normalizePublicationFailure("pr", permanent), permanent)).toBe(false);
+  attempts = 0;
+  await expect(
+    runPublicationWithRetry(
+      "pr",
+      async () => {
+        attempts += 1;
+        throw permanent;
+      },
+      options,
+    ),
+  ).rejects.toBe(permanent);
+  expect(attempts).toBe(1);
+
+  const unclassified = new GitHubOperationError("pr-view", "failed", "connection reset", "", "", 1);
+  expect(isTransientPublicationFailure(normalizePublicationFailure("pr", unclassified), unclassified)).toBe(true);
+  stampPublicationFailure(permanent, "pr", permanent);
+  expect(completionCommitFailureResumable(permanent)).toBe(false);
 });
 
 test("permanent publication errors make one attempt", async () => {

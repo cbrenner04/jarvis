@@ -116,9 +116,10 @@ describe("listPrs", () => {
     const error = await rejection(listPrs(scalar, "/repo", { branch: "feat", state: "open" }));
     expect(error.message).toContain("non-array");
     const nonJson = fakeGh({ [LIST_OPEN]: "<html>" });
-    expect((await rejection(listPrs(nonJson, "/repo", { branch: "feat", state: "open" }))).message).toContain(
-      "non-JSON",
-    );
+    const malformed = await rejection(listPrs(nonJson, "/repo", { branch: "feat", state: "open" }));
+    expect(malformed.message).toContain("non-JSON");
+    expect(malformed.status).toBeUndefined();
+    expect(malformed.stdout).toBe("<html>");
   });
 });
 
@@ -180,6 +181,7 @@ describe("createPr", () => {
     const runner = fakeGh({ "gh pr create --draft --base main --title T --body B": "https://x/pull/7\n" });
     expect(await createPr(runner, "/repo", { base: "main", title: "T", body: "B", draft: true })).toEqual({
       url: "https://x/pull/7",
+      number: 7,
     });
   });
 
@@ -187,6 +189,7 @@ describe("createPr", () => {
     const runner = fakeGh({ "gh pr create --base main --title T --body B": "#7" });
     expect(await createPr(runner, "/repo", { base: "main", title: "T", body: "B", draft: false })).toEqual({
       url: undefined,
+      number: undefined,
     });
     expect(runner.calls[0]?.args).not.toContain("--draft");
   });
@@ -278,6 +281,8 @@ describe("error classification", () => {
   const cases: Array<[string, GitHubFailureReason, boolean]> = [
     ["HTTP 401: Bad credentials", "auth", false],
     ["HTTP 403: Resource not accessible by integration", "auth", false],
+    ["HTTP 403: API rate limit exceeded for user ID 1 (forbidden)", "rate-limited", true],
+    ["HTTP 429: You have exceeded a secondary rate limit", "rate-limited", true],
     ["HTTP 404: Not Found (https://api.github.com/repos/x)", "not-found", false],
     ['no pull requests found for branch "feat"', "not-found", false],
     ["GraphQL: Could not resolve to a PullRequest with the number of 1.", "not-found", false],
@@ -286,6 +291,7 @@ describe("error classification", () => {
     ["dial tcp: lookup api.github.com: no such host", "network", true],
     ["error connecting to api.github.com", "network", true],
     ["some other gh failure", "failed", false],
+    ["spec file not found in worktree", "failed", false],
   ];
   for (const [stderr, reason, retryable] of cases) {
     test(`"${stderr}" is ${reason}`, async () => {
@@ -329,13 +335,22 @@ describe("error classification", () => {
 });
 
 describe("ghCommandRunner", () => {
-  test("routes boundary calls through a raw (cwd, args) seam", async () => {
-    const seen: Array<{ cwd: string; args: readonly string[] }> = [];
-    const runner = ghCommandRunner(async (cwd, args) => {
-      seen.push({ cwd, args });
+  test("routes boundary calls through a raw seam and hands it the bounded run options", async () => {
+    const seen: Array<{ cwd: string; args: readonly string[]; options: AsyncSubprocessOptions }> = [];
+    const runner = ghCommandRunner(async (cwd, args, options) => {
+      seen.push({ cwd, args, options });
       return JSON.stringify({ state: "OPEN", mergedAt: null });
     });
-    expect(await viewPrState(runner, "/wt", 3)).toEqual({ state: "OPEN", merged: false, mergedAt: null });
-    expect(seen).toEqual([{ cwd: "/wt", args: ["pr", "view", "3", "--json", "state,mergedAt"] }]);
+    const controller = new AbortController();
+    expect(await viewPrState(runner, "/wt", 3, { signal: controller.signal })).toEqual({
+      state: "OPEN",
+      merged: false,
+      mergedAt: null,
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ cwd: "/wt", args: ["pr", "view", "3", "--json", "state,mergedAt"] });
+    expect(seen[0]?.options.timeoutMs).toBe(NETWORK_SUBPROCESS_TIMEOUT_MS);
+    expect(seen[0]?.options.signal).toBe(controller.signal);
+    expect(seen[0]?.options.env?.GIT_TERMINAL_PROMPT).toBe("0");
   });
 });

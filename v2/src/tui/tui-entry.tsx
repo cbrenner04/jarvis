@@ -177,9 +177,9 @@ export function commandSubmissionBlockedByPendingAdmission(admissionPending: boo
   return admissionPending;
 }
 
-function isRunSteeringCommandBuffer(commandBuffer: string): boolean {
-  const parts = commandBuffer.trim().split(/\s+/);
-  return parts[0] === "run" && (parts[1] === "kill" || parts[1] === "resume");
+/** `run kill` / `run resume` bypass the pending-admission block: the one grammar decides, not a second tokenizer. */
+function isRunSteeringCommand(parsed: TuiCommandParseResult): boolean {
+  return parsed.kind === "kill" || parsed.kind === "resume-run";
 }
 
 export function shouldApplyCommandSettlement(
@@ -410,7 +410,6 @@ function isLiveRunSteerable(state: TuiMonitorState, runId: string): boolean {
 }
 
 function formatCommandParseFeedback(error: TuiCommandError): string {
-  if (error.code === "recognized_unavailable") return `${error.code} · ${error.command}`;
   return error.code;
 }
 
@@ -422,9 +421,13 @@ function formatAdmissionFailureFeedback(
 }
 
 function startAdmissionInput(command: Extract<TuiCommandParseResult, { kind: "start" }>): PipelineStartAdmissionInput {
-  return command.seed.mode === "path"
-    ? { projectKey: command.project, seedPath: command.seed.value }
-    : { projectKey: command.project, seedText: command.seed.value };
+  const input: PipelineStartAdmissionInput =
+    command.seed.mode === "path"
+      ? { projectKey: command.project, seedPath: command.seed.value }
+      : { projectKey: command.project, seedText: command.seed.value };
+  if (command.risk !== undefined) input.risk = command.risk;
+  if (command.effort !== undefined) input.effort = command.effort;
+  return input;
 }
 
 function entryErrorFeedback(error: unknown): TuiViewState {
@@ -809,15 +812,11 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           deleteCommandGrapheme(0);
         },
         submitCommand(commandBuffer) {
+          const parsed = parseTuiCommand(commandBuffer);
           // Mutation checkpoint: negating commandSubmissionBlockedByPendingAdmission must turn single in-flight admission RED.
-          if (
-            commandSubmissionBlockedByPendingAdmission(admissionPending) &&
-            !isRunSteeringCommandBuffer(commandBuffer)
-          ) {
+          if (commandSubmissionBlockedByPendingAdmission(admissionPending) && !isRunSteeringCommand(parsed)) {
             return;
           }
-
-          const parsed = parseTuiCommand(commandBuffer);
           if (parsed.kind === "error") {
             setState({
               ...currentState,

@@ -7,7 +7,7 @@ import {
   resolveOpenDraftPr,
 } from "./completion-publisher.ts";
 import { runHarnessFullSuiteGateWithSlot } from "./gate-invocation-lease.ts";
-import { closePr, commentPr, markPrReady, mergePr, viewPrState } from "./github-operations.ts";
+import { closePr, commentPr, type GhCommandSeam, markPrReady, mergePr, viewPrState } from "./github-operations.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
 import {
@@ -22,7 +22,7 @@ import {
 import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
 /** Raw `gh` seam for fixtures; production routes through the `github-operations` boundary on the real runner. */
-type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+type GhCommand = GhCommandSeam;
 
 export type TerminalPublicationInput = {
   terminalAction: PipelineTerminalAction;

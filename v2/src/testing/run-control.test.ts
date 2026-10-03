@@ -3,7 +3,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
-import { createHeldWorkflowBindings } from "./run-control.ts";
+import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import type { RpcHandler } from "../ipc/server.ts";
+import { createHeldWorkflowBindings, workflowWriteStep, withWorkflowStepSeam } from "./run-control.ts";
 
 function freshCwd(): string {
   return trackedMkdtempSync(join(tmpdir(), `held-bindings-${process.pid}-`));
@@ -51,6 +53,30 @@ test("createHeldWorkflowBindings settleAll settles every pending invocation", as
     { kind: "ok", stdout: "done", stderr: "" },
     { kind: "ok", stdout: "done", stderr: "" },
   ]);
+});
+
+test("withWorkflowStepSeam returns handlers unchanged when start is missing", () => {
+  const handlers: Record<string, RpcHandler> = {
+    list: async () => ({ kind: "response", result: {} }),
+  };
+  const seam = (step: WriteWorkflowStep) => step;
+  expect(withWorkflowStepSeam(handlers, seam)).toBe(handlers);
+});
+
+test("withWorkflowStepSeam applies seam to write steps before start", async () => {
+  let admittedStepId: string | undefined;
+  const start: RpcHandler = async (frame) => {
+    const steps = (frame.params as { steps?: WriteWorkflowStep[] }).steps;
+    admittedStepId = steps?.[0]?.stepId;
+    return { kind: "response", result: {} };
+  };
+  const wrapped = withWorkflowStepSeam({ start }, (step) => ({ ...step, stepId: "seamed" }));
+  expect(wrapped.start).not.toBe(start);
+  await wrapped.start!(
+    { kind: "request", id: "s1", method: "start", params: { steps: [workflowWriteStep()] } },
+    new AbortController().signal,
+  );
+  expect(admittedStepId).toBe("seamed");
 });
 
 test("createHeldWorkflowBindings abort signal settles as error", async () => {

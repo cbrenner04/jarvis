@@ -2224,8 +2224,12 @@ function mapPipelineRow(row: PipelineRow): Pipeline {
   } = row;
   let admittedSelection: AdmittedPipelineSelection | null = null;
   if (admittedSelectionJson !== null) {
+    // Like `context`, a corrupt column surfaces as a thrown error rather than a silent null.
     const parsed = loadAdmittedPipelineSelection(JSON.parse(admittedSelectionJson));
-    admittedSelection = parsed.ok ? parsed.selection : null;
+    if (!parsed.ok) {
+      throw new Error(`pipeline ${pipeline.id} admitted_selection is corrupt: ${parsed.error.errors.join("; ")}`);
+    }
+    admittedSelection = parsed.selection;
   }
   return {
     ...pipeline,

@@ -1106,15 +1106,15 @@ describe("pipeline list", () => {
     expect(code).toBe(0);
     expect(cap.read().stdout).toBe(
       [
-        "00000000\tzero-age\trunning\tzero.md\t0s\t✓only",
+        "00000000\tzero-age\trunning\tzero.md\t0s\t✓only\t-",
         "cccccccc\tglyph-check\tawaiting-approval\t-\t3s\t" +
-          "!st-interrupted ✗st-rejected ✗st-failed ●st-running ?st-awaiting ·st-pending –st-skipped ✓st-approved ✓st-succeeded ●fan×3",
-        "11111111\tsec-age\tsucceeded\t-\t7s\t✓only",
-        "22222222\ttie-a\tsucceeded\ta.md\t5m\t✓only",
-        "33333333\ttie-b\tsucceeded\tb.md\t5m\t✓only",
-        "44444444\tmin-age\tfailed\tmin.md\t42m\t✗only",
-        "55555555\thour-age\tinterrupted\t-\t5h\t!only",
-        "66666666\tday-age\trejected\tday.md\t3d\t✗only",
+          "!st-interrupted ✗st-rejected ✗st-failed ●st-running ?st-awaiting ·st-pending –st-skipped ✓st-approved ✓st-succeeded ●fan×3\t-",
+        "11111111\tsec-age\tsucceeded\t-\t7s\t✓only\t-",
+        "22222222\ttie-a\tsucceeded\ta.md\t5m\t✓only\t-",
+        "33333333\ttie-b\tsucceeded\tb.md\t5m\t✓only\t-",
+        "44444444\tmin-age\tfailed\tmin.md\t42m\t✗only\t-",
+        "55555555\thour-age\tinterrupted\t-\t5h\t!only\t-",
+        "66666666\tday-age\trejected\tday.md\t3d\t✗only\t-",
         "",
       ].join("\n"),
     );
@@ -1508,8 +1508,8 @@ describe("pipeline list", () => {
     expect(code).toBe(0);
     expect(cap.read().stdout).toBe(
       [
-        "dddddddd\tdismissed-one\tsucceeded\t-\t50s\t✓only\tdismissed",
-        "eeeeeeee\tlive-one\trunning\t-\t3m\t●only\t-",
+        "dddddddd\tdismissed-one\tsucceeded\t-\t50s\t✓only\t-\tdismissed",
+        "eeeeeeee\tlive-one\trunning\t-\t3m\t●only\t-\t-",
         "",
       ].join("\n"),
     );
@@ -1547,8 +1547,48 @@ describe("pipeline list", () => {
     const lines = cap.read().stdout.trim().split("\n");
     expect(lines).toHaveLength(2);
     for (const line of lines) {
-      expect(line.split("\t")).toHaveLength(6);
+      expect(line.split("\t")).toHaveLength(7);
     }
+  });
+
+  test("list --all keeps the selection column fixed so the dismissal marker never shifts", async () => {
+    const NOW_MS = 1_700_000_400_000;
+    const cap = captureIo();
+    const rated = {
+      pipelineId: "rrrrrrrr-rated",
+      name: "full-review",
+      state: "running",
+      createdAt: NOW_MS - 200_000,
+      dismissedAt: null,
+      admittedSelection: RATING_ADMITTED_SELECTION,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "running" }],
+    };
+    const byName = {
+      pipelineId: "nnnnnnnn-named",
+      name: "fast",
+      state: "succeeded",
+      createdAt: NOW_MS - 50_000,
+      dismissedAt: NOW_MS - 10_000,
+      admittedSelection: null,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-all-fixed"], () =>
+      main(["pipeline", "list", "--all"], cap.io, {
+        ...pipelineDeps(undefined),
+        now: () => NOW_MS,
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-all-fixed", [rated, byName])]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(
+      [
+        "nnnnnnnn\tfast\tsucceeded\t-\t50s\t✓only\t-\tdismissed",
+        `rrrrrrrr\tfull-review\trunning\t-\t3m\t●only\t${formatAdmittedPipelineSelectionSummary(RATING_ADMITTED_SELECTION)}\t-`,
+        "",
+      ].join("\n"),
+    );
   });
 
   test("list --json --all preserves dismissed fields in the merged snapshot", async () => {
@@ -1624,7 +1664,7 @@ describe("pipeline list", () => {
     );
 
     expect(code).toBe(0);
-    expect(cap.read().stdout).toBe("p1\tp1\trunning\t-\t30m\t\tdismissed\n");
+    expect(cap.read().stdout).toBe("p1\tp1\trunning\t-\t30m\t\t-\tdismissed\n");
   });
 
   test("list --json --all --since keeps the json+filter refusal", async () => {

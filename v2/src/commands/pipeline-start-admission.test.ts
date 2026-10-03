@@ -9,7 +9,6 @@ import { RATING_PAIR_PIPELINES, resolveProjectPipeline } from "../execution/proj
 import { RpcError } from "../ipc/rpc-errors.ts";
 import {
   admitPipelineStart,
-  mergePipelineStartSuppliedRatings,
   type PipelineStartAdmissionDeps,
   type PipelineStartAdmissionInput,
 } from "./pipeline-start-admission.ts";
@@ -250,13 +249,21 @@ describe("pipeline start admission", () => {
     });
     expectNoDaemonContact(malformed);
 
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (presence[dimension]) {" -> "if (!presence[dimension]) {"
-    expect(
-      mergePipelineStartSuppliedRatings({ risk: "low", effort: "low", name: null }, { risk: "high" }, { risk: true }),
-    ).toEqual({ risk: "high", effort: "low" });
+    // Non-string flag values from an untyped caller refuse as a typed failure instead of throwing.
+    const nonString = makeHarness({ readProjectConfigRecord: ratedProject });
+    const nonStringResult = await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody", effort: 42 as unknown as string },
+      nonString.deps,
+    );
+    expect(nonStringResult).toMatchObject({
+      kind: "pre-admission-failure",
+      failure: "invalid-project-pipeline",
+      detail: "invalid-rating: effort rating must be one of low, medium, high; got 42",
+    });
+    expectNoDaemonContact(nonString);
   });
 
-  test("ignores rating flags when pipeline.name is configured", async () => {
+  test("validates rating flags but selects by name when pipeline.name is configured", async () => {
     const resolutions: ReturnType<typeof resolveProjectPipeline>[] = [];
     const harness = makeHarness({
       resolveProjectPipeline: (...args) => {
@@ -266,13 +273,25 @@ describe("pipeline start admission", () => {
       },
     });
     const result = await admitPipelineStart(
-      { projectKey: "demo", seedText: "Body", risk: "extreme", effort: "extreme" },
+      { projectKey: "demo", seedText: "Body", risk: "high", effort: "high" },
       harness.deps,
     );
     expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
+    expect(harness.requests[0]?.params).toMatchObject({ definition: { name: "fast" } });
     expect(resolutions[0]?.ok).toBe(true);
     expect(resolutions[0]).not.toHaveProperty("admissionRatings");
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (!explicitName) {" -> "if (explicitName) {"
+
+    const malformed = makeHarness();
+    const malformedResult = await admitPipelineStart(
+      { projectKey: "demo", seedText: "Body", risk: "extreme", effort: "high" },
+      malformed.deps,
+    );
+    expect(malformedResult).toMatchObject({
+      kind: "pre-admission-failure",
+      failure: "invalid-project-pipeline",
+      detail: 'invalid-rating: risk rating must be one of low, medium, high; got "extreme"',
+    });
+    expectNoDaemonContact(malformed);
   });
 
   test("maps distinct rating pairs to admit or refuse per RATING_PAIR_PIPELINES", async () => {

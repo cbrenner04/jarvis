@@ -3620,7 +3620,8 @@ describe("confinement policy translation", () => {
       { agentId: "mystery", adapterModel: "m", priceKey: "m" },
       { confinementPolicy: "sandbox" },
     );
-    expect(binding.confinementMechanism).toBeUndefined();
+    expect(binding.confinementMechanism).toBe("none");
+    expect(binding.confinementPolicy).toBe("unrestricted");
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
     expect(result.kind).toBe("error");
     expect(result.stderr).toContain("is not wired yet");
@@ -3659,5 +3660,16 @@ describe("confinement policy translation", () => {
     expect(result.attempts[0]?.result.stderr).toContain("confinement refusal: agent 'claude'");
     expect(result.attempts[0]?.result.stderr).toContain("confinementPolicy 'sandbox'");
     expect(result.final?.binding.id).toBe("next");
+  });
+});
+
+describe("confinement fields on non-spawning bindings", () => {
+  test("an unwired agent binding and a routing binding both carry confinement fields for telemetry", () => {
+    const unwired = createResolvedAgentBinding({ agentId: "claud", adapterModel: "m", priceKey: "m" });
+    expect(unwired.confinementPolicy).toBe("unrestricted");
+    expect(unwired.confinementMechanism).toBe("none");
+    const routing = createRoutingAgentBinding({ agentId: "claude", adapterModel: "m", priceKey: "m" });
+    expect(routing.confinementPolicy).toBe("unrestricted");
+    expect(routing.confinementMechanism).toBe("none");
   });
 });

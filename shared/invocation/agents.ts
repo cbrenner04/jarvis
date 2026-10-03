@@ -207,8 +207,11 @@ function bindConfined(
 }
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
+  // Never spawns, but its exit-127 result still reaches the telemetry row, which requires both fields.
   return {
     id,
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async () => ({
       kind: "error",
       exitCode: 127,
@@ -504,6 +507,9 @@ export function createRoutingAgentBinding(
   return {
     id: `${agentId}/${adapterModel}/${priceKey}`,
     metadata: { agent: agentId, model: adapterModel },
+    // Tool-free, not filesystem-confined: the telemetry row records the honest mechanism.
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async ({ prompt, cwd, signal, processGroupRecorder }) => {
       const controller = new AbortController();
       const forwardAbort = () => controller.abort(signal?.reason ?? "aborted");

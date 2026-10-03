@@ -1,7 +1,9 @@
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { gitDir } from "../shared/git.ts";
+import { realSubprocessRunner, type SubprocessRunner } from "../shared/subprocess.ts";
 import type { ScopedTests } from "./ci-test-scope.ts";
 import { READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
 
@@ -203,30 +205,28 @@ export function computeInstallDigest(repoRoot: string): string | undefined {
 }
 
 /**
- * Resolve the git dir for `repoRoot`. In a worktree `.git` is a *file* pointing
- * at `…/.git/worktrees/<name>`, so we ask git for the real per-worktree dir
- * instead of assuming `<repoRoot>/.git` is a directory. Falls back to the
- * literal `.git` path for non-git checkouts (e.g. test temp dirs).
+ * Per-worktree git dir for `repoRoot` via the shared boundary (`.git` is a *file* in a worktree, so
+ * `<repoRoot>/.git` is not assumed to be a directory). The boundary throws outside a repository;
+ * this call site keeps the `<repoRoot>/.git` fallback for non-git checkouts (e.g. test temp dirs).
  */
-function gitDir(repoRoot: string): string {
+export function resolveGitDir(repoRoot: string, runner: SubprocessRunner = realSubprocessRunner): string {
   try {
-    return execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    return gitDir(repoRoot, runner);
   } catch {
     return join(repoRoot, ".git");
   }
 }
 
-function installDigestPath(repoRoot: string): string {
-  return join(gitDir(repoRoot), INSTALL_DIGEST_FILENAME);
+function installDigestPath(repoRoot: string, runner: SubprocessRunner): string {
+  return join(resolveGitDir(repoRoot, runner), INSTALL_DIGEST_FILENAME);
 }
 
 /** Last recorded successful install digest for this checkout, if any. */
-export function readRecordedInstallDigest(repoRoot: string): string | undefined {
-  const digestPath = installDigestPath(repoRoot);
+export function readRecordedInstallDigest(
+  repoRoot: string,
+  runner: SubprocessRunner = realSubprocessRunner,
+): string | undefined {
+  const digestPath = installDigestPath(repoRoot, runner);
   if (!existsSync(digestPath)) {
     return undefined;
   }
@@ -236,21 +236,25 @@ export function readRecordedInstallDigest(repoRoot: string): string | undefined 
 }
 
 /** Persist the digest after a successful `bun install --frozen-lockfile`. */
-export function writeRecordedInstallDigest(repoRoot: string, digest: string): void {
-  const digestPath = installDigestPath(repoRoot);
+export function writeRecordedInstallDigest(
+  repoRoot: string,
+  digest: string,
+  runner: SubprocessRunner = realSubprocessRunner,
+): void {
+  const digestPath = installDigestPath(repoRoot, runner);
   mkdirSync(dirname(digestPath), { recursive: true });
   writeFileSync(digestPath, `${digest}\n`, "utf8");
 }
 
 /** Whether the `full` tier should run install before the remaining steps. */
-export function shouldRunInstall(repoRoot: string): boolean {
+export function shouldRunInstall(repoRoot: string, runner: SubprocessRunner = realSubprocessRunner): boolean {
   const nodeModulesDir = join(repoRoot, "node_modules");
   if (!existsSync(nodeModulesDir)) {
     return true;
   }
 
   const currentDigest = computeInstallDigest(repoRoot);
-  const recordedDigest = readRecordedInstallDigest(repoRoot);
+  const recordedDigest = readRecordedInstallDigest(repoRoot, runner);
   if (currentDigest === undefined || recordedDigest === undefined) {
     return true;
   }

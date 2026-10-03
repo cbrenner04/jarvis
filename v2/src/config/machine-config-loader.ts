@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
 import type { CodexSandboxMode } from "../../../shared/invocation/agents.ts";
+import {
+  CONFINEMENT_POLICIES,
+  type ConfinementPolicy,
+  DEFAULT_CONFINEMENT_POLICY,
+} from "../../../shared/invocation/confinement-policy.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
@@ -91,12 +96,6 @@ export function readConfiguredIdleOutputTimeoutMs(
 export function readReviewRoleTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
   return readPositiveNumberField(configPath, "reviewRoleTimeoutMs", DEFAULT_REVIEW_ROLE_TIMEOUT_MS);
 }
-
-/** Vendor-agnostic confinement an invocation runs under; adapters translate it to their own flags. */
-type ConfinementPolicy = "sandbox" | "unrestricted";
-
-const CONFINEMENT_POLICIES: readonly ConfinementPolicy[] = ["sandbox", "unrestricted"];
-export const DEFAULT_CONFINEMENT_POLICY: ConfinementPolicy = "unrestricted";
 
 function parseConfinementPolicy(value: unknown, field: string): ConfinementPolicy {
   if (typeof value === "string" && (CONFINEMENT_POLICIES as readonly string[]).includes(value)) {

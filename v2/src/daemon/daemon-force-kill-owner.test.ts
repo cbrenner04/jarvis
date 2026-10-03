@@ -121,7 +121,7 @@ for (const mode of [
         handler = stableKill;
       } else {
         const routed = createStableRunHandlers(
-          { wait: successor.wait, pause: successor.pause, kill: successor.kill },
+          { wait: successor.wait, kill: successor.kill },
           {
             ...(mode === "direct predecessor" ? { predecessorSocketPath: "/fake/owner.sock" } : {}),
             discoverPeerSocketPaths: () => ["/fake/owner.sock"],
@@ -177,7 +177,7 @@ test("force kill routes an active older-peer owner through the normal abort path
     owner.setRetiring();
     expect(owner.hasActiveRuns()).toBe(true);
     const routed = createStableRunHandlers(
-      { wait: successor.wait, pause: successor.pause, kill: successor.kill },
+      { wait: successor.wait, kill: successor.kill },
       {
         discoverPeerSocketPaths: () => ["/fake/owner.sock"],
         ownsRunLocally: () => false,

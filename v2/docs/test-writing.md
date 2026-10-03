@@ -226,7 +226,7 @@ When an exported production seam can be exercised with injected fakes, call that
 
 **Anti-pattern:** reimplementing run-control handler orchestration in test-local stubs when `createRunControlHandlers` already owns it. IPC assertions may pass against the fake handlers while production semantics drift unchecked.
 
-**Expected pattern (integration / full handler set):** call `createRunControlHandlers` with injected fakes, invoke returned handlers in-process (wire keys: `start`, `list`, `pause`, …). Assert live runs via `handlers.context.activeRuns` — not a parallel context:
+**Expected pattern (integration / full handler set):** call `createRunControlHandlers` with injected fakes, invoke returned handlers in-process (wire keys: `start`, `list`, `kill`, …). Assert live runs via `handlers.context.activeRuns` — not a parallel context:
 
 ```typescript
 const handlers = createRunControlHandlers({ stateStore, writeLoopExecutor: fakeExecutor.executor, failureReporter: () => {} });

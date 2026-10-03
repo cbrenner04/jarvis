@@ -211,17 +211,17 @@ test("binds direct-owner routing only on the stable endpoint so private calls ca
     },
   });
 
-  const privatePause = boundHandlers.get("/fake/private.sock")?.pause;
-  const publicPause = boundHandlers.get("/fake/public.sock")?.pause;
-  expect(privatePause).toBeDefined();
-  expect(publicPause).toBeDefined();
-  expect(privatePause).not.toBe(publicPause);
+  const privateKill = boundHandlers.get("/fake/private.sock")?.kill;
+  const publicKill = boundHandlers.get("/fake/public.sock")?.kill;
+  expect(privateKill).toBeDefined();
+  expect(publicKill).toBeDefined();
+  expect(privateKill).not.toBe(publicKill);
 
-  const request = { kind: "request", id: "pause", method: "pause", params: { runId: "run-1" } } as const;
+  const request = { kind: "request", id: "kill", method: "kill", params: { runId: "run-1" } } as const;
 
   // The private endpoint runs the local handler directly and never resolves ownership at all: an
   // unknown run yields the local `unknown_run` error rather than an attempted forward.
-  expect(await privatePause?.(request, new AbortController().signal)).toEqual({
+  expect(await privateKill?.(request, new AbortController().signal)).toEqual({
     kind: "error",
     code: "unknown_run",
     message: "Run run-1 not found",
@@ -232,7 +232,7 @@ test("binds direct-owner routing only on the stable endpoint so private calls ca
   // forwards, proving the private endpoint above skipped routing rather than merely finding no
   // owner. This fails if the private endpoint ever gets the routing handlers instead of the local
   // ones.
-  await expect(publicPause?.(request, new AbortController().signal)).rejects.toThrow("no real owner in this test");
+  await expect(publicKill?.(request, new AbortController().signal)).rejects.toThrow("no real owner in this test");
   expect(ownerConnectAttempts).toEqual(["/fake/predecessor.sock"]);
 
   await runtime.close();

@@ -80,9 +80,6 @@ function healthyTuiDaemonClient(): TuiDaemonClient {
     async wait() {
       throw new Error("unexpected wait");
     },
-    async pause() {
-      return { ok: true };
-    },
     async resume() {
       return { ok: true };
     },

@@ -8,7 +8,6 @@ export type TuiCommand =
   | { kind: "reject" }
   | { kind: "resume" }
   | { kind: "kill" }
-  | { kind: "pause" }
   | { kind: "resume-run" }
   | { kind: "log" };
 
@@ -36,17 +35,7 @@ export type TuiCommandParseResult = TuiCommand | TuiCommandError;
 
 export type TuiTokenizeResult = { kind: "tokens"; tokens: string[] } | { kind: "error"; code: "unterminated_quote" };
 
-const ZERO_ARG_VERBS = new Set([
-  "expand",
-  "collapse",
-  "approve",
-  "reject",
-  "resume",
-  "kill",
-  "pause",
-  "resume-run",
-  "log",
-]);
+const ZERO_ARG_VERBS = new Set(["expand", "collapse", "approve", "reject", "resume", "kill", "resume-run", "log"]);
 
 export function tokenizeTuiCommand(input: string): TuiTokenizeResult {
   const tokens: string[] = [];
@@ -144,6 +133,6 @@ export function parseTuiCommand(input: string): TuiCommandParseResult {
   if (!ZERO_ARG_VERBS.has(verb)) return error("unknown_verb");
   if (tokens.length > 1) return error("unexpected_arguments");
   return {
-    kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" | "kill" | "pause" | "resume-run" | "log",
+    kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" | "kill" | "resume-run" | "log",
   };
 }

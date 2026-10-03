@@ -683,7 +683,7 @@ function attentionSelectionEntryDeps(view: ReturnType<typeof createViewHost>) {
         listResponses: [{ runs }],
         pipelineListResponses: [{ pipelines }],
         waitImpl: async () => ({ runStatus: "completed" }),
-        pauseError: new RpcError("run_not_active", "not active"),
+        killError: new RpcError("run_not_active", "not active"),
       },
       {
         viewHost: view.host,
@@ -1008,9 +1008,6 @@ function createViewHost() {
     selectPreviousRun() {
       controls?.selectPreviousRun();
     },
-    pauseSelected() {
-      controls?.pauseSelected();
-    },
     resumeSelected() {
       controls?.resumeSelected();
     },
@@ -1251,10 +1248,8 @@ type FakeClientOptions = {
   pipelineListRequests?: Array<{ includeDismissed: boolean }>;
   pipelineListError?: Error;
   waitImpl?: (runId: string) => Promise<WaitRunCompletionResult>;
-  pauseError?: Error;
   resumeError?: Error;
   killError?: Error;
-  pauseImpl?: (runId: string) => Promise<{ ok: true }>;
   resumeImpl?: (runId: string) => Promise<{ ok: true }>;
   killImpl?: (runId: string) => Promise<{ ok: true }>;
   pipelineApproveImpl?: (params: PipelineStageMutationParams) => Promise<PipelineApprovalDecisionOutcome>;
@@ -1271,7 +1266,7 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
   let pipelineListIndex = 0;
 
   const steer =
-    (method: "pause" | "kill") =>
+    (method: "kill") =>
     async (runId: string): Promise<{ ok: true }> => {
       methods.push(`${method}:${runId}`);
       const errorKey = `${method}Error` as const;
@@ -1344,7 +1339,6 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       pipelineListIndex = nextIndex;
       return response ?? { pipelines: [] };
     },
-    pause: steer("pause"),
     resume,
     kill: steer("kill"),
     pipelineApprove: stageMutationRpc(
@@ -3096,7 +3090,7 @@ describe("runTuiEntry", () => {
 
     view.selectNode("run-attention-failed");
     await flush();
-    view.pauseSelected();
+    view.killSelected();
     await flush();
     const beforeState = view.monitorStates.at(-1);
     if (beforeState === undefined) throw new Error("expected a painted monitor state");
@@ -3275,7 +3269,7 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
-  test("kill and pause controls no-op when a pipeline or stage row is selected", async () => {
+  test("kill control no-ops when a pipeline or stage row is selected", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = pipelineTreeEntryDeps(view, {
       terminalSize: () => ({ columns: 245, rows: 72 }),
@@ -3286,22 +3280,17 @@ describe("runTuiEntry", () => {
     await flush();
     view.selectNode("pipe-alpha");
     await flush();
-    view.pauseSelected();
-    await flush();
     view.killSelected();
     await flush();
     await view.toggleExpansion();
     view.selectNode(PIPELINE_STAGE_ALPHA);
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
-    view.pauseSelected();
-    await flush();
     view.killSelected();
     await flush();
     view.quit();
     await pending;
 
-    expect(clientOptions.methods?.some((method) => method.startsWith("pause:"))).toBe(false);
     expect(clientOptions.methods?.some((method) => method.startsWith("kill:"))).toBe(false);
   });
 
@@ -3566,9 +3555,6 @@ describe("runTuiEntry", () => {
       async pipelineList(_params: { includeDismissed: boolean }) {
         return { pipelines: [] };
       },
-      async pause() {
-        return { ok: true };
-      },
       async resume() {
         return { ok: true };
       },
@@ -3621,7 +3607,7 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
-  test("steering sends pause, resume, and kill for the selected run and keeps the monitor open", async () => {
+  test("steering sends resume and kill for the selected run and keeps the monitor open", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(
       {
@@ -3637,8 +3623,6 @@ describe("runTuiEntry", () => {
     await flush();
     view.selectNode("run-gamma");
     await flush();
-    view.pauseSelected();
-    await flush();
     view.resumeSelected();
     await flush();
     view.killSelected();
@@ -3648,20 +3632,19 @@ describe("runTuiEntry", () => {
 
     expect(code).toBe(0);
     const methods = clientOptions.methods ?? [];
-    expect(methods).toContain("pause:run-gamma");
     expect(methods).toContain("resume:run-gamma");
     expect(methods).toContain("kill:run-gamma");
   });
 
   test("steering RPC errors render inline and keep the monitor open", async () => {
     const cases = [
-      { action: "pauseSelected" as const, error: new RpcError("run_not_active", "not active") },
+      { action: "killSelected" as const, error: new RpcError("run_not_active", "not active") },
       { action: "resumeSelected" as const, error: new RpcError("terminal_run", "terminal") },
     ];
 
     for (const { action, error } of cases) {
       const view = createViewHost();
-      const errorKey = action === "pauseSelected" ? "pauseError" : "resumeError";
+      const errorKey = action === "killSelected" ? "killError" : "resumeError";
       const { deps } = entryDeps(
         {
           listResponses: [{ runs: [RUN_ALPHA] }],
@@ -3748,7 +3731,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    view.pauseSelected();
+    view.killSelected();
     await flush();
 
     expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list"]);
@@ -3764,7 +3747,7 @@ describe("runTuiEntry", () => {
       {
         listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
         waitImpl: async () => ({ runStatus: "completed" }),
-        pauseError: new RpcError("run_not_active", "not active"),
+        resumeError: new RpcError("run_not_active", "not active"),
         killError: new RpcError("unknown_run", "missing"),
       },
       { viewHost: view.host },
@@ -3773,7 +3756,7 @@ describe("runTuiEntry", () => {
     const _pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    view.pauseSelected();
+    view.resumeSelected();
     await flush();
     expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("run_not_active: not active");
 
@@ -3786,31 +3769,9 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)?.steeringFeedback).toBeNull();
   });
 
-  test("successful pause issues no wait RPC", async () => {
-    const view = createViewHost();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_ALPHA] }],
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.pauseSelected();
-    await flush();
-
-    expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
-    expect(clientOptions.methods).toContain("pause:run-alpha");
-    view.quit();
-    await pending;
-  });
-
   test("steering on terminal or non-live rows passes through to daemon without client pre-gate", async () => {
     const cases = [
-      { row: RUN_BETA, action: "pauseSelected" as const, errorKey: "pauseError" as const },
+      { row: RUN_BETA, action: "resumeSelected" as const, errorKey: "resumeError" as const },
       { row: RUN_GAMMA, action: "killSelected" as const, errorKey: "killError" as const },
     ];
 
@@ -3835,7 +3796,7 @@ describe("runTuiEntry", () => {
       view[action]();
       await flush();
 
-      const rpcMethod = action === "pauseSelected" ? "pause" : "kill";
+      const rpcMethod = action === "resumeSelected" ? "resume" : "kill";
       expect(clientOptions.methods).toContain(`${rpcMethod}:${row.runId}`);
       expect(view.monitorStates.at(-1)?.steeringFeedback).toBe(`${error.code}: ${error.message}`);
 
@@ -4311,7 +4272,7 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
-  test("typed kill pause and resume-run steer the selected live run", async () => {
+  test("typed kill and resume-run steer the selected live run", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(
       {
@@ -4329,7 +4290,7 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
       await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
-      for (const verb of ["pause", "kill", "resume-run"] as const) {
+      for (const verb of ["kill", "resume-run"] as const) {
         view.focusCommand();
         while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
           view.deleteCommandBackward();
@@ -4338,7 +4299,6 @@ describe("runTuiEntry", () => {
         view.submitCommand(verb);
         await flush();
       }
-      expect(countRpcMethod(clientOptions.methods, "pause:", true)).toBe(1);
       expect(countRpcMethod(clientOptions.methods, "kill:", true)).toBe(1);
       expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(1);
     } finally {
@@ -4484,7 +4444,6 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
       const expectKillFailure = steeringFailureAsserter(view, clientOptions, "kill", "kill:", true);
-      const expectPauseFailure = steeringFailureAsserter(view, clientOptions, "pause", "pause:", true);
 
       view.selectNode("pipe-alpha");
       expectKillFailure("stale_non_expandable");
@@ -4498,13 +4457,10 @@ describe("runTuiEntry", () => {
       await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
       expectKillFailure("not_live_run");
 
-      expectPauseFailure("not_live_run");
-
       const runIdSpy = spyOn(tuiEntry, "selectedRunIdFromState").mockReturnValue(null);
       try {
         const expectResumeRunFailure = steeringFailureAsserter(view, clientOptions, "resume-run", "resume:", true);
         expectKillFailure("stale_non_expandable");
-        expectPauseFailure("stale_non_expandable");
         expectResumeRunFailure("stale_non_expandable");
       } finally {
         runIdSpy.mockRestore();
@@ -4561,10 +4517,10 @@ describe("runTuiEntry", () => {
       while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
         view.deleteCommandBackward();
       }
-      view.insertCommandText("pause");
-      view.submitCommand("pause");
+      view.insertCommandText("resume-run");
+      view.submitCommand("resume-run");
       await flush();
-      expect(countRpcMethod(clientOptions.methods, "pause:", true)).toBe(1);
+      expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(1);
 
       const expectKillFailure = steeringFailureAsserter(view, clientOptions, "kill", "kill:", true);
       view.selectNode("pipe-alpha");

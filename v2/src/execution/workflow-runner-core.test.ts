@@ -207,14 +207,12 @@ describe("intent publication input consumption", () => {
 describe("resolveWorkflowPreset step shape", () => {
   test("builds a workflow step and preserves loop-control fields", () => {
     const signal = new AbortController().signal;
-    const pauseSignal = new AbortController().signal;
 
     const step = createStepInput({
       stepId: "step-1",
       role: "implement",
       maxIterations: 3,
       signal,
-      pauseSignal,
     });
 
     if (step.behavior !== "write") throw new Error("Expected a write step");
@@ -223,7 +221,6 @@ describe("resolveWorkflowPreset step shape", () => {
     expect(step.role).toBe("implement");
     expect(step.maxIterations).toBe(3);
     expect(step.signal).toBe(signal);
-    expect(step.pauseSignal).toBe(pauseSignal);
   });
 });
 
@@ -1188,22 +1185,18 @@ describe("executeWorkflow", () => {
   test("does not run shrink after non-complete implement outcomes", async () => {
     const cases = [
       { branchName: "shrink-skip-budget", binding: okTokenBindingFactory("progress"), maxIterations: 1 },
-      { branchName: "shrink-skip-paused", binding: okTokenBindingFactory("progress"), pause: true },
       { branchName: "shrink-skip-blocked", binding: okTokenBindingFactory("blocked") },
       { branchName: "shrink-skip-contract", binding: okTokenBindingFactory("done") },
       { branchName: "shrink-skip-failure", binding: errorBindingFactory },
     ];
 
     for (const testCase of cases) {
-      const pauseController = new AbortController();
-      if (testCase.pause) pauseController.abort();
       const step = createStep({
         stepId: "implement",
         role: "implement",
         branchName: testCase.branchName,
         createBinding: testCase.binding,
         ...(testCase.maxIterations !== undefined ? { maxIterations: testCase.maxIterations } : {}),
-        ...(testCase.pause ? { pauseSignal: pauseController.signal } : {}),
       });
 
       await withStateStore(async (store) => {

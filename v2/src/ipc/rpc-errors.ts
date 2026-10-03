@@ -10,7 +10,7 @@ export class RpcConnectionError extends Error {
   }
 }
 
-/** Correlated daemon `error` frame on any RPC (`health`, `status`, `list`, `start`, `pause`, `resume`, `kill`, `wait`, …). */
+/** Correlated daemon `error` frame on any RPC (`health`, `status`, `list`, `start`, `resume`, `kill`, `wait`, …). */
 export class RpcError extends Error {
   /** Daemon error code from the correlated `error` frame. */
   readonly code: string;

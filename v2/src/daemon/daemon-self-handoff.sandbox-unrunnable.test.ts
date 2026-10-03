@@ -169,8 +169,8 @@ async function startIncumbent(
     // Settling the fake executor drives the same terminal-settlement call the real write loop
     // makes on success, so a test can observe a run reach "completed" through actual execution
     // rather than asserting a status it wrote itself.
-    writeLoopExecutor: async (input, signal, pauseSignal) => {
-      await fakeExecutor.executor(input, signal, pauseSignal);
+    writeLoopExecutor: async (input, signal) => {
+      await fakeExecutor.executor(input, signal);
       const run = store.findRunByProjectBranch({
         project: input.worktree.projectName,
         branch: input.worktree.branchName,

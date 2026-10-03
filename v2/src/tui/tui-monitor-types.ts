@@ -85,8 +85,6 @@ export type TuiMonitorControls = {
   toggleSelectedWorkflowExpansion(): void;
   /** Show or hide dismissed pipelines for this session and refresh immediately. */
   toggleShowDismissed(): void;
-  /** Signals pause via daemon `pause`. */
-  pauseSelected(): void;
   /** Resumes via daemon `resume`. */
   resumeSelected(): void;
   /** Signals kill via daemon `kill`. */

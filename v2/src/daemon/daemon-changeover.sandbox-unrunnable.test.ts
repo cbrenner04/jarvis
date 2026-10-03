@@ -150,8 +150,8 @@ async function startIncumbent(
       throw new Error(`unexpected process exit ${code}`);
     },
     hasMemoryHeadroom: () => true,
-    writeLoopExecutor: async (input, signal, pauseSignal) => {
-      await fakeExecutor.executor(input, signal, pauseSignal);
+    writeLoopExecutor: async (input, signal) => {
+      await fakeExecutor.executor(input, signal);
       const run = store.findRunByProjectBranch({
         project: input.worktree.projectName,
         branch: input.worktree.branchName,

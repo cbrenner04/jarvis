@@ -118,7 +118,6 @@ export type ActiveRun =
       runId: string;
       key: OwnershipKey;
       abortController: AbortController;
-      pauseController: AbortController;
     }
   | {
       kind: "workflow";
@@ -609,7 +608,7 @@ export function runListTerminalFinishAtMs(
  * Injectable dependencies for {@link createRunControlHandlers}.
  *
  * - `stateStore`: durable run rows — `createRun` on start, `listRuns`/`loadRun` on
- *   list/pause/resume/kill, `setRunStatus` on kill and spawn-boundary failure capture.
+ *   list/resume/kill, `setRunStatus` on kill and spawn-boundary failure capture.
  * - `writeLoopExecutor`: write-loop body only; factory owns claim/release and
  *   fire-and-forget spawn. Log-sink open/close stays in {@link startDaemon}'s
  *   production wrapper. Executor rejections do not propagate to RPC callers.
@@ -776,7 +775,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  * Run-control handler factory: lifecycle, workflow admission, pipeline RPCs, and control seams.
  *
  * @param deps - {@link RunControlHandlerDeps}
- * @returns Handler map — lifecycle (`start`, `list`, `list_owned`, `pause`, `resume`, `kill`, `wait`, `dismiss`,
+ * @returns Handler map — lifecycle (`start`, `list`, `list_owned`, `resume`, `kill`, `wait`, `dismiss`,
  *   `undismiss`), workflow admission (`check_workflow_start_claim`, `implement.recover`),
  *   pipeline (`pipeline_start`, `pipeline_approve`, `pipeline_reject`, `pipeline_resume`,
  *   `pipeline_recover`, `pipeline_dismiss`, `pipeline_undismiss`, `pipeline_list`,
@@ -819,7 +818,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     list: listHandler,
     listOwned: listOwnedHandler,
     liveRunIds: liveRunIdsHandler,
-    pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
@@ -876,7 +874,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     list: listHandler,
     list_owned: listOwnedHandler,
     live_run_ids: liveRunIdsHandler,
-    pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
@@ -1529,7 +1526,7 @@ export async function startDaemonRuntime(
 
   await sweepOrphanReadyGateGroups(store);
 
-  const executeProductionWriteLoop = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
+  const executeProductionWriteLoop = async (input: WriteLoopInput, signal: AbortSignal) => {
     const logSink = openLogSink(logsPath);
     try {
       await executeWriteLoop({
@@ -1537,7 +1534,6 @@ export async function startDaemonRuntime(
         stateStore: store,
         logSink,
         signal,
-        pauseSignal,
       });
     } finally {
       logSink.close();
@@ -1636,7 +1632,7 @@ export async function startDaemonRuntime(
     [...runControlContext.activeRuns.values()].some((activeRun) => activeRun.runId === runId);
   const stableRunHandlers = {
     ...createStableRunHandlers(
-      { wait: runControlHandlers.wait, pause: runControlHandlers.pause, kill: runControlHandlers.kill },
+      { wait: runControlHandlers.wait, kill: runControlHandlers.kill },
       {
         ...(startupDeps.predecessorSocketPath === undefined
           ? {}
@@ -1754,7 +1750,6 @@ export async function startDaemonRuntime(
   const privateHandlers = {
     ...handlers,
     wait: runControlHandlers.wait,
-    pause: runControlHandlers.pause,
     kill: runControlHandlers.kill,
     pipeline_list: runControlHandlers.pipeline_list,
     resume: gatePrivateAdmission(() => publicBound, runControlHandlers.resume),

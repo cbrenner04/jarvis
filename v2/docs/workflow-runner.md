@@ -118,7 +118,7 @@ A workflow step is authored as a plain object literal `satisfies WorkflowStepInp
 
 - `behavior: "write"` — `{ stepId, role, ... }`, the full
   [`write-behavior.md`](write-behavior.md) loop shape plus per-step loop
-  controls (`maxIterations`, `signal`, `pauseSignal`), keyed by a single
+  controls (`maxIterations`, `signal`), keyed by a single
   `role`/`agents` order. Workflow infrastructure such as `stateStore` and
   `logSink` is not part of the public step contract; the runner normalizes
   those once at workflow scope.
@@ -429,7 +429,7 @@ Cycle semantics are defined in [`write-behavior.md`](./write-behavior.md#review-
 
 ## Budget and abort
 
-No new workflow-level budget, pause, or abort concept — each step inherits its own `maxIterations`, `signal` (abort), and `pauseSignal` (pause). Values are per-step-configurable; there is no single shared workflow-level cap.
+No new workflow-level budget or abort concept — each step inherits its own `maxIterations` and `signal` (abort). Values are per-step-configurable; there is no single shared workflow-level cap.
 
 ## Implement PR body template
 

@@ -91,8 +91,8 @@ function formatListFailureSection(run: DaemonListRunRow): string {
   return `${lines.join("\n")}\n`;
 }
 
-function isRunAction(subcommand: string | undefined): subcommand is "pause" | "resume" | "kill" {
-  return subcommand === "pause" || subcommand === "resume" || subcommand === "kill";
+function isRunAction(subcommand: string | undefined): subcommand is "resume" | "kill" {
+  return subcommand === "resume" || subcommand === "kill";
 }
 
 const SINCE_UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 } as const;
@@ -347,17 +347,17 @@ async function runLogSubcommand(runId: string, follow: boolean, io: Io, deps: Cl
 }
 
 async function runActionCommand(
-  subcommand: "pause" | "resume" | "kill",
+  subcommand: "resume" | "kill",
   argv: readonly string[],
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  const usage = subcommand === "kill" ? RUN_KILL_USAGE : subcommand === "resume" ? RUN_RESUME_USAGE : RUN_USAGE;
+  const usage = subcommand === "kill" ? RUN_KILL_USAGE : RUN_RESUME_USAGE;
   let values: { force?: boolean; "allow-lane-pr-republish"?: boolean };
   let positionals: string[];
   try {
-    const options =
-      subcommand === "kill" ? RUN_KILL_PARSE_ARG_OPTIONS : subcommand === "resume" ? RUN_RESUME_PARSE_ARG_OPTIONS : {};
+    const options: Record<string, { type: "boolean" }> =
+      subcommand === "kill" ? RUN_KILL_PARSE_ARG_OPTIONS : RUN_RESUME_PARSE_ARG_OPTIONS;
     const parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options });
     values = parsed.values;
     positionals = parsed.positionals;
@@ -382,7 +382,7 @@ async function runActionCommand(
     let result: unknown;
     try {
       const params = values.force === true ? { runId, force: true } : { runId };
-      result = await request(client, subcommand, params);
+      result = await request(client, "kill", params);
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));
@@ -390,9 +390,7 @@ async function runActionCommand(
       }
       throw error;
     }
-    if (subcommand === "kill") return renderRunKillOutcome(runId, result, io);
-    io.stdout(`${subcommand}d ${runId}\n`);
-    return 0;
+    return renderRunKillOutcome(runId, result, io);
   });
 }
 

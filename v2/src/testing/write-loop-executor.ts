@@ -2,14 +2,13 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 
 type PendingExecutorRun = {
   signal: AbortSignal;
-  pauseSignal: AbortSignal;
   release: (mode: "settle" | "abort") => void;
 };
 
 export function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) => void) {
   const pending: PendingExecutorRun[] = [];
 
-  const executor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal): Promise<void> => {
+  const executor = async (input: WriteLoopInput, signal: AbortSignal): Promise<void> => {
     onStart?.(input);
     await new Promise<void>((resolve) => {
       let released = false;
@@ -21,7 +20,7 @@ export function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) =>
         released = true;
         resolve();
       };
-      pending.push({ signal, pauseSignal, release });
+      pending.push({ signal, release });
       signal.addEventListener("abort", () => release("abort"), { once: true });
     });
   };
@@ -38,7 +37,6 @@ export function createFakeWriteLoopExecutor(onStart?: (input: WriteLoopInput) =>
     abortAll: (): void => drainPending("abort"),
     settleFirst: (): void => pending.shift()?.release("settle"),
     pendingCount: (): number => pending.length,
-    isPauseSignalTriggered: (): boolean => pending.some((run) => run.pauseSignal.aborted),
     isAbortSignalTriggered: (): boolean => pending.some((run) => run.signal.aborted),
   };
 }

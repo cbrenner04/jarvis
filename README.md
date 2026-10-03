@@ -2,7 +2,7 @@
 
 Jarvis is a TypeScript/Bun harness for running coding-agent CLIs (`claude`, `codex`, `cursor`, `opencode`) against Markdown specs. It does not implement an agent itself: it prepares the repo, invokes one configured CLI at a time, classifies the outcome deterministically, and handles the git/GitHub bookkeeping around each successful step.
 
-One engine ships: **`jarvis`** — daemon-backed, with durable runs in SQLite, workflow presets, configured pipelines, a live TUI, and pause/kill steering. The retired first engine is frozen under `v1/` for reference only (see [v1/README.md](v1/README.md)).
+One engine ships: **`jarvis`** — daemon-backed, with durable runs in SQLite, workflow presets, configured pipelines, a live TUI, and kill/resume steering. The retired first engine is frozen under `v1/` for reference only (see [v1/README.md](v1/README.md)).
 
 ## Installation
 
@@ -55,7 +55,7 @@ jarvis run start --project-root <repo> --project <label> --branch <branch> \
 jarvis tui
 ```
 
-`run start` prints a run ID. Observe with `jarvis tui`, `jarvis run list`, `jarvis run log <id>`, or `jarvis daemon log --follow`; steer with `jarvis run pause|kill|wait <id>`. For detached work, configure `notificationSinkCommand` in `~/.jarvis/config.json` so the daemon pushes pipeline gates and terminal boundaries instead of polling `run list` — see [v2/docs/operator-runbook.md](v2/docs/operator-runbook.md#operator-notifications). On completion the run commits, pushes, and opens a draft PR with a `Jarvis-Agent:` attribution footer. Full happy path: [v2/docs/first-workflow-walkthrough.md](v2/docs/first-workflow-walkthrough.md).
+`run start` prints a run ID. Observe with `jarvis tui`, `jarvis run list`, `jarvis run log <id>`, or `jarvis daemon log --follow`; steer with `jarvis run kill|resume|wait <id>`. For detached work, configure `notificationSinkCommand` in `~/.jarvis/config.json` so the daemon pushes pipeline gates and terminal boundaries instead of polling `run list` — see [v2/docs/operator-runbook.md](v2/docs/operator-runbook.md#operator-notifications). On completion the run commits, pushes, and opens a draft PR with a `Jarvis-Agent:` attribution footer. Full happy path: [v2/docs/first-workflow-walkthrough.md](v2/docs/first-workflow-walkthrough.md).
 
 Workflow presets:
 
@@ -76,7 +76,7 @@ jarvis run start ...        Daemon-backed write loop; prints run ID.
 jarvis run list             One row per run: id, project, branch, status,
                             liveness, error, worktree.
 jarvis run log <run-id>     Stream persisted structured records as JSON lines.
-jarvis run pause|resume|kill|wait <run-id>
+jarvis run resume|kill|wait <run-id>
 jarvis run workflow intent|plan|implement ...
 jarvis tui [log <run-id>]   Live ink monitor / per-run log follow.
 jarvis cleanup [<project>] [--dry-run] [--yes|-y] [--abandon <name> [--discard-unlanded]]

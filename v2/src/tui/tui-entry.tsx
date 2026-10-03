@@ -179,7 +179,7 @@ export function commandSubmissionBlockedByPendingAdmission(admissionPending: boo
 
 function isRunSteeringCommandBuffer(commandBuffer: string): boolean {
   const parts = commandBuffer.trim().split(/\s+/);
-  return (parts[0] === "run" && parts[1] === "kill") || (parts[0] === "run" && parts[1] === "resume");
+  return parts[0] === "run" && (parts[1] === "kill" || parts[1] === "resume");
 }
 
 export function shouldApplyCommandSettlement(

@@ -88,8 +88,6 @@ function error(code: PlainTuiCommandErrorCode): TuiCommandError {
 }
 
 function parsePipelineStartBody(tokens: readonly string[]): TuiCommandParseResult {
-  if (tokens.length < 1) return error("missing_project");
-
   const pathSeeds: string[] = [];
   const textSeeds: string[] = [];
   for (let index = 1; index < tokens.length; index += 1) {
@@ -141,19 +139,10 @@ function parsePipelineCommand(tokens: readonly string[]): TuiCommandParseResult 
 function parseRunCommand(tokens: readonly string[]): TuiCommandParseResult {
   const sub = tokens[1];
   if (sub === undefined) return error("unknown_verb");
-  if (sub === "kill") {
-    if (tokens.length > 2) return error("unexpected_arguments");
-    return { kind: "kill" };
-  }
-  if (sub === "resume") {
-    if (tokens.length > 2) return error("unexpected_arguments");
-    return { kind: "resume-run" };
-  }
-  if (sub === "log") {
-    if (tokens.length > 2) return error("unexpected_arguments");
-    return { kind: "log" };
-  }
-  return error("unknown_verb");
+  const kind = sub === "kill" ? "kill" : sub === "resume" ? "resume-run" : sub === "log" ? "log" : undefined;
+  if (kind === undefined) return error("unknown_verb");
+  if (tokens.length > 2) return error("unexpected_arguments");
+  return { kind };
 }
 
 export function parseTuiCommand(input: string): TuiCommandParseResult {

@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - CLI-aligned dock grammar](./00-cli-aligned-dock-grammar.md)
+- [x] [00 - CLI-aligned dock grammar](./00-cli-aligned-dock-grammar.md)

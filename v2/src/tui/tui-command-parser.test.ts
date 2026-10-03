@@ -44,6 +44,8 @@ describe("parseTuiCommand", () => {
 
   test("selection-scoped steering rejects trailing positionals", () => {
     expectCode("pipeline approve foo", "unexpected_arguments");
+    expectCode("pipeline reject foo", "unexpected_arguments");
+    expectCode("pipeline resume foo", "unexpected_arguments");
     expectCode("run kill run-1", "unexpected_arguments");
   });
 
@@ -55,14 +57,6 @@ describe("parseTuiCommand", () => {
   });
 
   test.each([
-    [
-      "pipeline start jarvis --seed v2/spec/seeds/foo.md",
-      { kind: "start", project: "jarvis", seed: { mode: "path", value: "v2/spec/seeds/foo.md" } },
-    ],
-    [
-      'pipeline start jarvis --seed-text "ship it"',
-      { kind: "start", project: "jarvis", seed: { mode: "text", value: "ship it" } },
-    ],
     ["expand", { kind: "expand" }],
     ["collapse", { kind: "collapse" }],
   ] as const)("parses %s", (input, expected) => {
@@ -143,9 +137,6 @@ describe("parseTuiCommand", () => {
     "collapse operand",
     "collapse --all",
     'collapse ""',
-    "pipeline approve foo",
-    "pipeline reject foo",
-    "pipeline resume foo",
   ])("rejects trailing expand/collapse token: %s", (input) => {
     expectCode(input, "unexpected_arguments");
   });

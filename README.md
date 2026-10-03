@@ -37,7 +37,7 @@ The engine: a host-agnostic write loop, a long-running daemon, durable run state
 v2 splits configuration into two layers, still hand-editable as the underlying reference:
 
 - `~/.jarvis/config.json` (per machine): `agents` — the ordered agent
-  fallback chain, edited via `jarvis config set-agents` — plus a required
+  fallback chain, hand-edited (`jarvis init` seeds it) — plus a required
   `machineProfile` selector and an optional `projects` registry.
 - `config/machines/<profile>.json` (committed): the role→model store mapping
   each `(agent, role)` pair to an ordered list of model rungs. Profiles
@@ -72,7 +72,6 @@ jarvis init [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] 
                             Configure this machine and register the current
                             repository; reports readiness. `--check` is read-only.
 jarvis daemon start|stop|status|log [--follow]
-jarvis config show|path|set-agents <csv>
 jarvis run start ...        Daemon-backed write loop; prints run ID.
 jarvis run list             One row per run: id, project, branch, status,
                             liveness, error, worktree.

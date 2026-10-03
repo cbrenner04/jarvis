@@ -11,7 +11,7 @@ Canonical `v2/src/` domain map, import direction, and entrypoint policy — not 
 | Domain | Directory |
 | --- | --- |
 | CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage, free-text routing action catalog) |
-| Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `config`, `tui`, `cleanup`) |
+| Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `tui`, `cleanup`) |
 | Config loading | `v2/src/config/` (machine config/profile loaders, `agent-model-config`) |
 | Daemon host | `v2/src/daemon/` (daemon, tail-stream, peer-socket supersede, wire parsers, lifecycle, process log, memory watermark, run-operator-error, workflow rollup/snapshot) |
 | Execution library | `v2/src/execution/` (write loop, workflow runner/loader/presets, step builders, review cycles, publication, completion) |
@@ -157,7 +157,7 @@ Per-project config:
   the end of the agent fallback order, configured only on machines that have it.
   Lifecycle and reach are settled under [Concurrency & memory budget → Local model](#local-model):
   Ollama server resident, qwen on-demand, reached via opencode.
-- **Focused show/edit.** Shipped machine-agent CLI: `jarvis config show`, `jarvis config path`, `jarvis config set-agents <agent,agent,...>` on `~/.jarvis/config.json`. Per-project workflow drill-down deferred to [`agent-model-config.md`](agent-model-config.md).
+- **Hand-edited machine config.** The `agents` order is the hand-edited top-level array in `~/.jarvis/config.json` (`jarvis init` seeds it when absent); the `jarvis config` show/path/set-agents CLI is retired. Per-project workflow drill-down deferred to [`agent-model-config.md`](agent-model-config.md).
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow

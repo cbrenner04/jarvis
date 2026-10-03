@@ -89,7 +89,6 @@ Ten live verbs. Enter parses the buffer exactly once and switches on the result.
 | `reject` | `reject` (no arguments) | `pipeline_reject` for the selected awaiting stage or awaiting-gate attention row |
 | `resume` | `resume` (no arguments) | `pipeline_resume` for the selected non-terminal pipeline |
 | `kill` | `kill` (no arguments) | `kill` on the selected live attributed run leaf |
-| `pause` | `pause` (no arguments) | `pause` on the selected live attributed run leaf |
 | `resume-run` | `resume-run` (no arguments) | `resume` on the selected attributed run leaf |
 | `log` | `log` (no arguments) | In-process log follow for the selected run (`selectedRunIdFromState`); tears down the monitor and does not return |
 
@@ -97,7 +96,7 @@ Ten live verbs. Enter parses the buffer exactly once and switches on the result.
 
 **`approve` / `reject` / `resume` are detached pipeline steering.** Each issues one daemon RPC with no `pipeline_wait`. `approve` and `reject` require an **awaiting** stage selection, or a selected `awaiting-gate` attention row, and send `(pipelineId, stageId, branchKey)` from that row or from the attention row's own gate identity. `resume` requires a **non-terminal pipeline** selection (not a stage or run leaf). On `awaiting-approval` pipelines, `resume` is dock-eligible but only claims continuation — it does not approve the gate or dispatch later stages; use `approve` / `reject` on the awaiting stage, then `pipeline wait`. Track progress in the tree or with `jarvis pipeline list` / `jarvis pipeline wait`.
 
-**`kill` / `pause` / `resume-run` are detached run steering.** Each issues one daemon `kill`, `pause`, or `resume` RPC on the selected attributed run leaf through its owning daemon — same path as the `k` key and other keybind steering, with no `wait` RPC. `kill` and `pause` require a live steerable run (`isLive`, active status, and `actionableRunIds` when present). `resume-run` maps to daemon `resume` and shares keybind resume eligibility — no kill-hint pre-gate, so killed or paused retained rows remain eligible. A dispatched RPC clears the buffer and cursor and restores tree focus (dispatch, not settlement); pre-RPC selection failures retain command focus, buffer, and cursor and report on `lastCommandResult`; RPC outcomes and daemon refusals report on `steeringFeedback`. Typed steering (`pause`/`kill`/`resume`/`approve`/`reject`) refuses an ad-hoc row selection with the `unattributed` code and a branch node selection with `not_awaiting_stage` (approve/reject) or `not_pipeline` (resume) — first-class navigation and inspection for ad-hoc rows and branch nodes do not extend to steering them directly.
+**`kill` / `resume-run` are detached run steering.** Each issues one daemon `kill` or `resume` RPC on the selected attributed run leaf through its owning daemon — same path as the `k` key and other keybind steering, with no `wait` RPC. `kill` requires a live steerable run (`isLive`, active status, and `actionableRunIds` when present). `resume-run` maps to daemon `resume` and shares keybind resume eligibility — no kill-hint pre-gate, so killed or paused retained rows remain eligible. A dispatched RPC clears the buffer and cursor and restores tree focus (dispatch, not settlement); pre-RPC selection failures retain command focus, buffer, and cursor and report on `lastCommandResult`; RPC outcomes and daemon refusals report on `steeringFeedback`. Typed steering (`kill`/`resume`/`approve`/`reject`) refuses an ad-hoc row selection with the `unattributed` code and a branch node selection with `not_awaiting_stage` (approve/reject) or `not_pipeline` (resume) — first-class navigation and inspection for ad-hoc rows and branch nodes do not extend to steering them directly.
 
 **`log` opens in-process log follow.** Eligible `log` tears down the monitor and enters the same `runTuiLogFollow` path as `jarvis tui log <run-id>` (stable-socket tail, tail resume, operator quit exits `jarvis tui`). Requires a selected run row (`selectedRunIdFromState`); pipeline, stage, and stale or evicted run ids absent from `state.runs` are ineligible. Ineligible `log` reports on `lastCommandResult` and retains command focus, buffer, and cursor.
 
@@ -133,7 +132,7 @@ Ten live verbs. Enter parses the buffer exactly once and switches on the result.
 | `no_selection` | No selectable row is selected |
 | `unattributed` | The selected row is an unattributed run |
 | `stale_non_expandable` | The selected id is absent from the current tree or is a pipeline/stage row |
-| `not_live_run` | `kill` / `pause` require a live steerable attributed run leaf |
+| `not_live_run` | `kill` requires a live steerable attributed run leaf |
 
 **Log follow feedback codes** (nothing changes when one fires; reported on `lastCommandResult`):
 

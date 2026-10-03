@@ -5,7 +5,11 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -79,6 +83,7 @@ import {
   continuePipeline,
   derivePipelineFailureDetail,
   derivePipelineState,
+  fanOutLaneProgress,
   fanOutPlanResultForBranch,
   findFailedStageForReopen,
   findFanOutSplit,
@@ -11203,18 +11208,23 @@ describe("fan-out serial chained lanes", () => {
       serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
     );
     const { deps, dispatched } = capturingLaneDeps(store);
+    const { runner, calls } = recordingGitRunner();
 
-    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner });
 
     // The provider stays dependent: it heads the chain and forks from the default base.
     expect(persistedChain(stages())).toEqual({ dependent: ["alpha", "beta"], independent: [] });
     expect(dispatched).toEqual([
       { stageId: "plan", branchKey: "alpha", forkRef: undefined },
       { stageId: "implement", branchKey: "alpha", forkRef: undefined },
-      { stageId: "plan", branchKey: "beta", forkRef: "implement/alpha" },
-      { stageId: "implement", branchKey: "beta", forkRef: "implement/alpha" },
+      { stageId: "plan", branchKey: "beta", forkRef: TIP },
+      { stageId: "implement", branchKey: "beta", forkRef: TIP },
     ]);
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+    // The fork tip is pinned once as a SHA on the predecessor's stage artifact while its branch still exists,
+    // and every dependent dispatch forks from that SHA, never the mutable branch name.
+    expect(calls).toEqual([RESOLVE_TIP]);
+    expect((stageRecord(stages(), "implement", "alpha")?.artifact as { forkTipSha?: string }).forkTipSha).toBe(TIP);
   });
 
   test("a predecessor lane failure settles every dependent lane row skipped naming the predecessor", async () => {
@@ -11305,5 +11315,428 @@ describe("fan-out serial chained lanes", () => {
     ]);
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "plan", "beta")?.failureDetail).toBeNull();
+  });
+
+  type GitCall = { args: string[]; cwd: string };
+  const TIP = "alphatip";
+  const RESOLVE_TIP: GitCall = { args: ["rev-parse", "--verify", "implement/alpha^{commit}"], cwd: "/repo" };
+  const FETCH_BASE: GitCall = { args: ["fetch", "origin", "main"], cwd: "/repo" };
+  const STATUS = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+
+  /** Records every `git` argv; options fault one step by worktree so each refusal is pinned separately. */
+  function gitExit(message: string, status: number): AsyncSubprocessError {
+    return new AsyncSubprocessError(message, status, "", message, undefined);
+  }
+
+  function recordingGitRunner(
+    options: {
+      conflict?: boolean;
+      dirty?: string[];
+      diverged?: string[];
+      notStacked?: string[];
+      ancestryError?: string[];
+      remoteMissing?: string[];
+    } = {},
+  ): { runner: AsyncSubprocessRunner; calls: GitCall[] } {
+    const calls: GitCall[] = [];
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd) {
+        if (cmd !== "git") throw new Error(`unexpected ${cmd}`);
+        calls.push({ args: [...args], cwd });
+        if (args[0] === "status") return options.dirty?.includes(cwd) ? " M src/x.ts\0" : "";
+        if (args[0] === "rev-parse" && args[1] === "--verify") return `${TIP}\n`;
+        if (args[0] === "rev-parse" && args[1] === "FETCH_HEAD") {
+          return options.diverged?.includes(cwd) ? "remotetip\n" : "headtip\n";
+        }
+        if (args[0] === "rev-parse") return "headtip\n";
+        if (args[0] === "merge-base" && options.notStacked?.includes(cwd)) throw gitExit("", 1);
+        if (args[0] === "merge-base" && options.ancestryError?.includes(cwd)) {
+          throw gitExit(`fatal: Not a valid commit name ${TIP}`, 128);
+        }
+        if (args[0] === "fetch" && args[2] !== "main" && options.remoteMissing?.includes(cwd)) {
+          throw gitExit(`fatal: couldn't find remote ref ${args[2]}`, 128);
+        }
+        if (args[0] === "rebase" && args[1] === "--onto" && options.conflict) {
+          throw new Error("CONFLICT (content): Merge conflict in src/x.ts");
+        }
+        return "";
+      },
+    };
+    return { runner, calls };
+  }
+
+  const ANCESTRY = ["merge-base", "--is-ancestor", TIP, "HEAD"];
+
+  /** The per-branch sequence once the predecessor is known merged: ancestry, dirty check, remote/HEAD agreement, base fetch, rebase, lease push. */
+  function rebaseCalls(worktree: string, branch: string): GitCall[] {
+    return [
+      { args: ANCESTRY, cwd: worktree },
+      { args: STATUS, cwd: worktree },
+      { args: ["fetch", "origin", branch], cwd: worktree },
+      { args: ["rev-parse", "FETCH_HEAD"], cwd: worktree },
+      { args: ["rev-parse", "HEAD"], cwd: worktree },
+      FETCH_BASE,
+      { args: ["rebase", "--onto", "origin/main", TIP], cwd: worktree },
+      {
+        args: ["push", `--force-with-lease=refs/heads/${branch}:headtip`, "origin", `HEAD:refs/heads/${branch}`],
+        cwd: worktree,
+      },
+    ];
+  }
+
+  const ALPHA_PR = 41;
+
+  /** Serial alpha→beta runs with worktrees and PR evidence, so beta's branches can be rebased once alpha's PR merges. */
+  function stackedLaneRuns(worktreePath: string): Record<string, Partial<Run>> {
+    const runs = serialLaneRuns(["alpha", "beta"], worktreePath);
+    Object.assign(runs["run-alpha-2-2"] ?? {}, {
+      worktreePath: "/wt/alpha-implement",
+      specRef: "main",
+      prNumber: ALPHA_PR,
+      prUrl: `https://example/pr/${ALPHA_PR}`,
+    });
+    Object.assign(runs["run-beta-1-3"] ?? {}, { worktreePath: "/wt/beta-plan", specRef: "main", prNumber: 42 });
+    Object.assign(runs["run-beta-2-4"] ?? {}, {
+      worktreePath: "/wt/beta-implement",
+      specRef: "main",
+      prNumber: 43,
+      prUrl: "https://example/pr/43",
+    });
+    // A re-dispatched implement (after a refusal is resumed) lands on the next counter.
+    runs["run-beta-2-5"] = { ...runs["run-beta-2-4"] };
+    return runs;
+  }
+
+  /** `gh pr view` fake: alpha's PR reads MERGED once `mergedWhen()` holds; records the cwd each probe ran in. */
+  function alphaMergedGh(mergedWhen: () => boolean, options: { fail?: boolean } = {}) {
+    const probes: Array<{ prNumber: number; cwd: string }> = [];
+    const gh: SupersedeGh = {
+      prState: async (cwd, prNumber) => {
+        probes.push({ prNumber, cwd });
+        if (options.fail) throw new Error("gh: connect: network is unreachable");
+        return { state: prNumber === ALPHA_PR && mergedWhen() ? "MERGED" : "OPEN" };
+      },
+      comment: async () => {},
+      close: async () => {},
+    };
+    return { gh, probes };
+  }
+
+  function stackedLane() {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store);
+    // Alpha's PR merges between beta's plan success and beta's implement dispatch.
+    const { gh, probes } = alphaMergedGh(() =>
+      dispatched.some((entry) => entry.branchKey === "beta" && entry.stageId === "plan"),
+    );
+    return { store, stages, deps, dispatched, gh, probes };
+  }
+
+  function rebaseStamp(stages: PipelineStageRecord[], stageId: string): unknown {
+    return (stageRecord(stages, stageId, "beta")?.artifact as { rebasedAfterPredecessorMerge?: unknown } | null)
+      ?.rebasedAfterPredecessorMerge;
+  }
+
+  function failedBetaImplement(stages: PipelineStageRecord[]): { observation: string | undefined; detail: unknown } {
+    const row = stageRecord(stages, "implement", "beta");
+    expect(row?.status).toBe("failed");
+    return { observation: stageFailureObservation(row?.failureDetail), detail: row?.failureDetail };
+  }
+
+  test("a dependent lane whose predecessor squash-merged is rebased onto main before its next dispatch, which forks from the default base", async () => {
+    const { stages, deps, dispatched, gh, probes } = stackedLane();
+    const { runner, calls } = recordingGitRunner();
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(dispatched).toEqual([
+      { stageId: "plan", branchKey: "alpha", forkRef: undefined },
+      { stageId: "implement", branchKey: "alpha", forkRef: undefined },
+      { stageId: "plan", branchKey: "beta", forkRef: TIP },
+      { stageId: "implement", branchKey: "beta", forkRef: undefined },
+    ]);
+    // The tip is resolved only for the unmerged fork; the merged dispatch rebases the stacked plan branch and no pass-end sweep runs.
+    expect(calls).toEqual([RESOLVE_TIP, ...rebaseCalls("/wt/beta-plan", "plan/beta")]);
+    // One probe per dependent dispatch (plan: OPEN, implement: MERGED), never per pass.
+    expect(probes.length).toBe(2);
+    // The merge probe runs from the pipeline's project checkout, never a lane worktree.
+    expect(probes.every((probe) => probe.cwd === "/repo" && probe.prNumber === ALPHA_PR)).toBe(true);
+    expect(rebaseStamp(stages(), "plan")).toEqual({
+      predecessor: "alpha",
+      predecessorTip: TIP,
+      at: expect.any(Number),
+    });
+    expect(rebaseStamp(stages(), "implement")).toBeUndefined();
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a conflicting rebase aborts cleanly, fails only the admitted stage retryably naming the predecessor, and resumes once hand-rebased", async () => {
+    const { store, stages, deps, dispatched, gh } = stackedLane();
+    const { runner, calls } = recordingGitRunner({ conflict: true });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    const expected = rebaseCalls("/wt/beta-plan", "plan/beta").slice(0, 7);
+    expect(calls).toEqual([RESOLVE_TIP, ...expected, { args: ["rebase", "--abort"], cwd: "/wt/beta-plan" }]);
+    expect(dispatched.filter((entry) => entry.branchKey === "beta").map((entry) => entry.stageId)).toEqual(["plan"]);
+    const { observation, detail } = failedBetaImplement(stages());
+    expect(observation).toContain(`predecessor lane "alpha" merged (#${ALPHA_PR})`);
+    expect(observation).toContain('lane "beta" branch "plan/beta"');
+    expect(observation).toContain("conflicted and was aborted: CONFLICT (content): Merge conflict in src/x.ts");
+    expect(detail).toMatchObject({ retryable: true, code: "chained_lane_rebase_refused" });
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
+    expect(rebaseStamp(stages(), "plan")).toBeUndefined();
+
+    // The operator resolves the conflict by hand (the branch no longer stacks on the tip) and resumes the lane.
+    expect(store.reopenFailedPipeline({ pipelineId: PIPELINE_ID, branchKey: "beta" }).kind).toBe("applied");
+    const resumed = recordingGitRunner({ notStacked: ["/wt/beta-plan"] });
+    await runPipeline(PIPELINE_ID, {
+      ...deps,
+      context: baseContext,
+      subprocessRunner: resumed.runner,
+      supersedeGh: gh,
+    });
+
+    expect(resumed.calls).toEqual([{ args: ANCESTRY, cwd: "/wt/beta-plan" }]);
+    expect(dispatched.at(-1)).toEqual({ stageId: "implement", branchKey: "beta", forkRef: undefined });
+    expect(rebaseStamp(stages(), "plan")).toMatchObject({ predecessor: "alpha", predecessorTip: TIP });
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a rebase refusal leaves the lane open for its successors; any other failure ends it", async () => {
+    const { store, deps, dispatched, gh } = stackedLane();
+    await runPipeline(PIPELINE_ID, {
+      ...deps,
+      context: baseContext,
+      subprocessRunner: recordingGitRunner({ conflict: true }).runner,
+      supersedeGh: gh,
+    });
+    expect(dispatched.at(-1)?.stageId).toBe("plan");
+    const refused = store.loadPipeline(PIPELINE_ID);
+    if (!refused) throw new Error("expected pipeline");
+    const split = findFanOutSplit(refused);
+    if (split === null) throw new Error("expected split");
+    expect(fanOutLaneProgress(refused, split, "beta")).toBe("open");
+
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "beta",
+      patch: { failureDetail: { expectation: "x", observation: "y", retryable: true, referencedPaths: [] } },
+    });
+    const failed = store.loadPipeline(PIPELINE_ID);
+    if (!failed) throw new Error("expected pipeline");
+    expect(fanOutLaneProgress(failed, split, "beta")).toBe("dead");
+  });
+
+  test("a remote that diverged from the local lane branch refuses before the rebase rewrites anything", async () => {
+    const { stages, deps, gh } = stackedLane();
+    const { runner, calls } = recordingGitRunner({ diverged: ["/wt/beta-plan"] });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(calls).toEqual([RESOLVE_TIP, ...rebaseCalls("/wt/beta-plan", "plan/beta").slice(0, 5)]);
+    const { observation, detail } = failedBetaImplement(stages());
+    expect(observation).toContain("origin/plan/beta is at remotetip but local HEAD is at headtip");
+    expect(detail).toMatchObject({ retryable: true, code: "chained_lane_rebase_refused" });
+  });
+
+  test("a dirty lane worktree is its own refusal, distinct from a conflict, before any fetch or rewrite", async () => {
+    const { stages, deps, gh } = stackedLane();
+    const { runner, calls } = recordingGitRunner({ dirty: ["/wt/beta-plan"] });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(calls).toEqual([RESOLVE_TIP, ...rebaseCalls("/wt/beta-plan", "plan/beta").slice(0, 2)]);
+    const { observation } = failedBetaImplement(stages());
+    expect(observation).toContain(
+      'lane "beta" branch "plan/beta" (plan) in /wt/beta-plan: worktree is not clean (dirty paths: src/x.ts)',
+    );
+    expect(observation).not.toContain("conflict");
+  });
+
+  test("a failed merge probe refuses the dependent dispatch by name instead of forking from a possibly dead ref", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store);
+    const { gh } = alphaMergedGh(() => false, { fail: true });
+    const { runner, calls } = recordingGitRunner();
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(dispatched.filter((entry) => entry.branchKey === "beta")).toEqual([]);
+    // The predecessor tip is never resolved before the merge state is known.
+    expect(calls).toEqual([]);
+    const row = stageRecord(stages(), "plan", "beta");
+    expect(row?.status).toBe("failed");
+    expect(stageFailureObservation(row?.failureDetail)).toContain(
+      `predecessor lane "alpha" merge state unknown: gh pr view #${ALPHA_PR} in /repo failed: gh: connect`,
+    );
+    expect(row?.failureDetail).toMatchObject({ retryable: true, code: "chained_lane_rebase_refused" });
+  });
+
+  test("a predecessor merged during the dependent implement is rebased out of the publishing branch only, before the lane's terminal publication", async () => {
+    const definition: PipelineDefinition = { ...FAN_OUT_LINEAR_DEFINITION, terminalAction: "ready" };
+    const { store, stages } = fakeStore(definition, stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)));
+    const { deps, dispatched } = capturingLaneDeps(store);
+    const { runner, calls } = recordingGitRunner();
+    const { gh } = alphaMergedGh(() =>
+      dispatched.some((entry) => entry.branchKey === "beta" && entry.stageId === "implement"),
+    );
+    const published: Array<{ branch: string; rebasedCalls: number }> = [];
+
+    await runPipeline(PIPELINE_ID, {
+      ...deps,
+      context: baseContext,
+      subprocessRunner: runner,
+      supersedeGh: gh,
+      executeTerminalPublication: async (input) => {
+        published.push({ branch: input.branch, rebasedCalls: calls.filter((c) => c.args[0] === "rebase").length });
+        return { prNumber: input.prNumber ?? 0, prUrl: input.prUrl ?? "" };
+      },
+    });
+
+    expect(dispatched.map((entry) => entry.forkRef)).toEqual([undefined, undefined, TIP, TIP]);
+    // The plan branch (about to be superseded) is never touched; only the implement branch is rebased.
+    expect(calls).toEqual([RESOLVE_TIP, ...rebaseCalls("/wt/beta-implement", "implement/beta")]);
+    expect(published).toEqual([
+      { branch: "implement/alpha", rebasedCalls: 0 },
+      { branch: "implement/beta", rebasedCalls: 1 },
+    ]);
+    expect(rebaseStamp(stages(), "implement")).toMatchObject({ predecessor: "alpha", predecessorTip: TIP });
+    expect(rebaseStamp(stages(), "plan")).toBeUndefined();
+    const artifact = stageRecord(stages(), "implement", "beta")?.artifact as Record<string, unknown> | null;
+    expect(artifact?.terminalPublication).toEqual({ succeededAt: expect.any(Number) });
+  });
+
+  test("a ready lane whose predecessor merges after both lanes settled is rebased by the daemon-start sweep, once", async () => {
+    const definition: PipelineDefinition = { ...FAN_OUT_LINEAR_DEFINITION, terminalAction: "ready" };
+    const { store, stages } = fakeStore(definition, stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)));
+    const { deps } = capturingLaneDeps(store);
+    let merged = false;
+    const { gh, probes } = alphaMergedGh(() => merged);
+    const { runner, calls } = recordingGitRunner();
+    const execution = {
+      ...deps,
+      subprocessRunner: runner,
+      supersedeGh: gh,
+      executeTerminalPublication: async (input: TerminalPublicationInput) => ({
+        prNumber: input.prNumber ?? 0,
+        prUrl: input.prUrl ?? "",
+      }),
+    };
+
+    await runPipeline(PIPELINE_ID, { ...execution, context: baseContext });
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+    expect(calls).toEqual([RESOLVE_TIP]);
+    calls.length = 0;
+
+    // The operator merges alpha's PR later. A pipeline whose owner is still alive is left to that owner.
+    merged = true;
+    probes.length = 0;
+    await recoverContinuablePipelines(store, execution, async () => true);
+    expect(calls).toEqual([]);
+    expect(probes).toEqual([]);
+
+    // The next daemon start (prior owner gone) probes beta's own PR, then alpha's, and rebases the published branch.
+    await recoverContinuablePipelines(store, execution, async () => false);
+    expect(probes.map((probe) => probe.prNumber)).toEqual([43, ALPHA_PR]);
+    expect(calls).toEqual(rebaseCalls("/wt/beta-implement", "implement/beta"));
+    expect(rebaseStamp(stages(), "implement")).toMatchObject({ predecessor: "alpha", predecessorTip: TIP });
+
+    // Stamped: a later sweep neither probes gh nor touches git.
+    calls.length = 0;
+    probes.length = 0;
+    await recoverContinuablePipelines(store, execution, async () => false);
+    expect(calls).toEqual([]);
+    expect(probes).toEqual([]);
+  });
+
+  /** A settled `ready` fan-out whose alpha PR merged later, ready for the daemon-start sweep. */
+  async function settledReadyLanes(options: { betaPrState?: string; runner: AsyncSubprocessRunner }) {
+    const definition: PipelineDefinition = { ...FAN_OUT_LINEAR_DEFINITION, terminalAction: "ready" };
+    const { store, stages } = fakeStore(definition, stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)));
+    const { deps } = capturingLaneDeps(store);
+    let merged = false;
+    const probes: number[] = [];
+    const gh: SupersedeGh = {
+      prState: async (_cwd, prNumber) => {
+        probes.push(prNumber);
+        if (prNumber === 43) return { state: options.betaPrState ?? "OPEN" };
+        return { state: prNumber === ALPHA_PR && merged ? "MERGED" : "OPEN" };
+      },
+      comment: async () => {},
+      close: async () => {},
+    };
+    const execution = {
+      ...deps,
+      subprocessRunner: options.runner,
+      supersedeGh: gh,
+      executeTerminalPublication: async (input: TerminalPublicationInput) => ({
+        prNumber: input.prNumber ?? 0,
+        prUrl: input.prUrl ?? "",
+      }),
+    };
+    await runPipeline(PIPELINE_ID, { ...execution, context: baseContext });
+    merged = true;
+    probes.length = 0;
+    return { store, stages, execution, probes };
+  }
+
+  test("the sweep stamps and skips a dependent lane whose own PR already merged, never force-pushing it", async () => {
+    const { runner, calls } = recordingGitRunner();
+    const { store, stages, execution, probes } = await settledReadyLanes({ betaPrState: "MERGED", runner });
+    calls.length = 0;
+
+    await recoverContinuablePipelines(store, execution, async () => false);
+
+    expect(probes).toEqual([43]);
+    expect(calls).toEqual([]);
+    expect(rebaseStamp(stages(), "implement")).toMatchObject({
+      predecessor: "alpha",
+      predecessorTip: "lane-pr-settled",
+    });
+  });
+
+  test("the sweep stamps and skips a dependent branch whose remote is gone instead of retrying forever", async () => {
+    const { runner, calls } = recordingGitRunner({ remoteMissing: ["/wt/beta-implement"] });
+    const { store, stages, execution } = await settledReadyLanes({ runner });
+    calls.length = 0;
+
+    await recoverContinuablePipelines(store, execution, async () => false);
+
+    expect(calls).toEqual(rebaseCalls("/wt/beta-implement", "implement/beta").slice(0, 3));
+    expect(rebaseStamp(stages(), "implement")).toMatchObject({ predecessor: "alpha", predecessorTip: TIP });
+  });
+
+  test("an ancestry check that fails for any reason but exit 1 refuses by name instead of stamping", async () => {
+    const { stages, deps, gh } = stackedLane();
+    const { runner, calls } = recordingGitRunner({ ancestryError: ["/wt/beta-plan"] });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(calls).toEqual([RESOLVE_TIP, { args: ANCESTRY, cwd: "/wt/beta-plan" }]);
+    const { observation, detail } = failedBetaImplement(stages());
+    expect(observation).toContain(`git merge-base --is-ancestor ${TIP} HEAD failed: fatal: Not a valid commit name`);
+    expect(detail).toMatchObject({ retryable: true, code: "chained_lane_rebase_refused" });
+    expect(rebaseStamp(stages(), "plan")).toBeUndefined();
+  });
+
+  test("a lane branch with no remote refuses at dispatch as remote_missing, not as divergence", async () => {
+    const { stages, deps, gh } = stackedLane();
+    const { runner, calls } = recordingGitRunner({ remoteMissing: ["/wt/beta-plan"] });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(calls).toEqual([RESOLVE_TIP, ...rebaseCalls("/wt/beta-plan", "plan/beta").slice(0, 3)]);
+    const { observation } = failedBetaImplement(stages());
+    expect(observation).toContain("origin/plan/beta does not exist (never pushed, or deleted on merge)");
+    expect(observation).not.toContain("diverged");
+    expect(rebaseStamp(stages(), "plan")).toBeUndefined();
   });
 });

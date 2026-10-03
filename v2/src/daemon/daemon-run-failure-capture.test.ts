@@ -21,11 +21,7 @@ let executorBehavior: "reject" | "resolve";
 let handlers: Handlers;
 
 function createHandlers(): Handlers {
-  const writeLoopExecutor = async (
-    _input: WriteLoopInput,
-    _signal: AbortSignal,
-    _pauseSignal: AbortSignal,
-  ): Promise<void> => {
+  const writeLoopExecutor = async (_input: WriteLoopInput, _signal: AbortSignal): Promise<void> => {
     if (executorBehavior === "reject") {
       throw new Error("executor boom");
     }

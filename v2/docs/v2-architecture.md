@@ -255,7 +255,7 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a `blo
 - **Shipped TUI (`jarvis tui`).** Connects once to the stable socket, proves
   liveness via IPC `health` and IPC `status` (`{ state: "running" }`), then polls
   `list`/`pipeline_list` on that one connection into the monitor. Steering RPCs
-  (`pause` / `resume` / `kill`) route to that same client; a row absent from its
+  (`resume` / `kill`) route to that same client; a row absent from its
   current answer cannot be steered until reconnection. `jarvis run list` and
   `jarvis run log` also target the stable socket only, with no owner lookup;
   `jarvis run wait` targets the stable daemon, which routes direct-predecessor
@@ -306,8 +306,8 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a `blo
 
 Steering (the API surface the TUI drives):
 
-- **Scope is pause / resume / kill.** That's the steering vocabulary to build
-  now. Anything richer — edit a spec mid-run, inject a message, reorder steps —
+- **Scope is resume / kill.** That's the steering vocabulary to build
+  now (the operator `pause` verb was retired; `paused` is harness-set). Anything richer — edit a spec mid-run, inject a message, reorder steps —
   is guessing the future; defer until a real need shows up.
 
 Observability (log follow interface):
@@ -349,9 +349,12 @@ A **run** is a workflow instance carrying:
 - **Status** — the closed `RunStatus` union in
   [`state-store.md`](state-store.md) (`in-progress`, `completed`, `blocked`,
   `budget-soft-stopped`, `paused`, `failed`, `killed`, `queued`).
-  The write loop uses `paused` to record a graceful pause (last attempt committed at
-  boundary); `killed` records an immediate abort by the daemon (last attempt may be
-  uncommitted; prior iteration commits on the branch remain).
+  `paused` is harness-set only (see [Steering semantics](#steering-semantics)):
+  the write loop parks a row on an invalid terminal token or missing blocker,
+  the workflow runner on a review-stage shrink or a parked write step, always
+  with the last attempt committed at its boundary. `killed` records an
+  immediate abort by the daemon (last attempt may be uncommitted; prior
+  iteration commits on the branch remain).
 - **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
 - **History linkage** — execution history is not embedded on `runs`; it is stored
@@ -432,12 +435,11 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
 
 ### Steering semantics
 
-- **Pause is graceful** — takes effect at the next step/iteration boundary (TUI
-  shows "pausing…" until the current iteration finishes), so no work is lost.
-  In the write loop, pause is a separate `pauseSignal` (AbortSignal) input,
-  checked only at the iteration boundary after the step completes. If a step
-  completes despite pause being signaled, the boundary commit is skipped so the
-  loop doesn't race the daemon's status write.
+- **Pause is harness-set, never operator-signaled** — a row becomes `paused`
+  only when the harness parks it at a committed boundary: an ad-hoc write loop
+  on an invalid terminal token or missing blocker, a workflow on a review-stage
+  shrink or a parked write step. `jarvis run resume` continues it. There is no
+  write-loop pause input.
 - **Kill is immediate** — aborts the run's AbortSignal immediately, causing
   signal-honoring bindings to tear down their agent processes (SIGTERM→SIGKILL).
   **Kill may leave a dirty worktree** (in-flight step edits not yet committed);
@@ -483,9 +485,9 @@ The unit is the **run**: workflows are linear, so a run has at most one agent su
 - **`queued` is a run status.** Runs admitted beyond current headroom queue and
   the daemon admits them FIFO as memory frees.
 - **Admission-only, no preemption (v1).** The budget gates *new* admissions; it
-  never touches already-running runs. Graceful preemption (pause the
-  lowest-priority running run at its next boundary when memory goes critical,
-  reusing the pause machinery) is noted as a future option, not built now.
+  never touches already-running runs. Graceful preemption (parking the
+  lowest-priority running run at its next boundary when memory goes critical)
+  is noted as a future option, not built now.
 
 ### Local model
 
@@ -568,6 +570,19 @@ The boundary throws; it has no soft fallbacks. Callers that had one keep it at t
 
 Remaining inline Git argv sites (production code, as of this section): `shared/executable-tree.ts`, `v2/src/commands/cleanup.ts`, `v2/src/commands/cleanup-archive-publication.ts`, `v2/src/commands/init-readiness.ts`, `v2/src/commands/workflow.ts`, `v2/src/daemon/daemon-workflow-admission-handlers.ts`, `v2/src/daemon/pipeline-execution.ts`, `v2/src/daemon/pipeline-stage-resolve.ts`, `v2/src/execution/completion-commit.ts`, `v2/src/execution/completion-publisher.ts`, `v2/src/execution/diff-derived-mutation-verifier.ts`, `v2/src/execution/diff-scan.ts`, `v2/src/execution/external-worktree.ts`, `v2/src/execution/implement-workflow-steps.ts`, `v2/src/execution/intent-output.ts`, `v2/src/execution/iteration-head-guard.ts`, `v2/src/execution/main-sync-scope.ts`, `v2/src/execution/pr-attribution.ts`, `v2/src/execution/ready-finalize.ts`, `v2/src/execution/review-intent-enforcement.ts`, `v2/src/execution/spec-run-body-summary.ts`, `v2/src/execution/workflow-runner.ts`, `v2/src/execution/workflow-runner-debate-landing.ts`, `v2/src/execution/write-loop.ts`.
 
+### GitHub operation ownership
+
+`v2/src/execution/github-operations.ts` is the canonical owner of `gh` for Jarvis-owned code, the GitHub counterpart of `shared/git.ts`: command construction, JSON parsing, and error classification live there, and callers pass semantic arguments (branch, PR number, base, title) and get structured results. Every operation takes an injected `AsyncSubprocessRunner` plus `GitHubOperationOptions` (`signal`, optional `timeoutMs` over the network-bounded default), so callers test against a fake runner and never reach the ambient CLI; `ghCommandRunner` adapts the raw `(cwd, args) => stdout` seam the publication tests inject.
+
+Entry points, by family:
+
+- **PR queries (stateless).** `listPrs` (`{ branch, state: "open" | "all" }` → `PrListEntry[]`: number, url, baseRefName, isDraft, state, headRefOid), `viewPr` (by number or branch → `{ number, url, baseRefName }`; prefer a number, since gh's branch lookup honors no state filter), `viewPrState` (→ `{ state, merged, mergedAt }`; `merged` is true only for `MERGED`), `viewPrReviewActivity` (reviews + top-level comments). Session and repository: `repoIdentity` (`owner`/`name`), `graphql` (query via `-f`, typed variables via `-F`, parsed envelope), `checkAuthStatus`.
+- **PR mutations (stateful).** `createPr` (`draft: boolean`; returns the printed URL when gh prints one; not idempotent, resolve the existing PR with `listPrs` first; nothing to publish is reason `no-commits`), `markPrReady` and `undoPrReady` (idempotent: gh exits 0 when already in the target state), `closePr` (idempotent: `closed` / `already-closed`), `mergePr` (not idempotent; probe `viewPrState` first), `commentPr` (each call adds a comment).
+
+Failures are `GitHubOperationError` with `operation`, `reason`, `stdout`, `stderr`, `status`, `retryable`, and `cause`. Retryable (`isRetryableGitHubError`): `timeout`, `network` (DNS, connect, reset, TLS), `service` (5xx, "Something went wrong"). Fatal for the attempt: `aborted` (the caller's own cancellation), `auth` (401/403, "not logged in"; tested first since a 403 also names the resource), `not-found` (404, "no pull requests found", "Could not resolve to a"), `no-commits`, `failed` (any other non-zero exit, or malformed output: non-JSON, incomplete record, unknown PR state). Unlike `GitOperationError`, `message` is the underlying `gh` message verbatim: publication retry policy and operator-facing failure evidence already key off that text, and classification lives in the typed fields.
+
+Callers: `completion-publisher.ts` (draft/ready creation, open-draft resolution, harness ready-flip undo, confirmation by number), `terminal-publication.ts` (merged/closed probe, ready flip, merge, supersede state/comment/close), `pr-review-input-capture.ts` (repo identity, review-thread GraphQL, reviews/comments), `init-readiness.ts` (auth preflight). Remaining inline `gh` argv sites (production code, as of this section): `v2/src/commands/cleanup.ts` (migrates under `cleanup-delegates-to-git-boundary`), `v2/src/execution/pr-body-refresh.ts`, `v2/src/execution/ready-finalize.ts`, `v2/src/execution/review-feedback-admission-prelude.ts`, and the base-branch probe in `shared/git.ts`.
+
 ## Interface & IPC
 
 The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC transport. All daemon control is async/await; there is no CLI here (CLI/TUI surface is a sibling concern, wired via this interface).
@@ -576,7 +591,7 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
   (`health`, `status`, custom handlers) and multiplexed streams (log, workflow
   output). See [`daemon-host.md`](daemon-host.md) for frame shapes and semantics.
 - **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, and `getDaemonStatus` in `daemon/daemon-lifecycle.ts`. The detached child has bounded readiness, graceful shutdown, and double-start protection. The CLI and [`jarvis tui`](./write-behavior.md#tui-cli) resolve the stable public `~/.jarvis/daemon.sock` and public `~/.jarvis/daemon.pid` regardless of executable digest; `daemon start` also supplies the digest-keyed private successor endpoint described in [`daemon-host.md`](daemon-host.md#socket-path). The lifecycle library requires explicit paths.
-- **Stable live-run unary boundary:** `wait`, `pause`, and `kill` enter through the stable public daemon. It keeps current-generation and definitively unowned requests local and routes direct-predecessor ownership to that predecessor's private endpoint without exposing generation metadata or permitting forwarding chains. Ownership refresh, route-loss, and cancellation semantics live in [`daemon-host.md`](daemon-host.md#direct-owner-run-unary-routing).
+- **Stable live-run unary boundary:** `wait` and `kill` enter through the stable public daemon. It keeps current-generation and definitively unowned requests local and routes direct-predecessor ownership to that predecessor's private endpoint without exposing generation metadata or permitting forwarding chains. Ownership refresh, route-loss, and cancellation semantics live in [`daemon-host.md`](daemon-host.md#direct-owner-run-unary-routing).
 - **No dual-generation admission:** `resume` and `start`'s worktree-lease claim each refuse a reachable direct predecessor's still-owned run or `(project, branch)` key rather than claiming it locally; `kill`'s force-settlement fallback relies on `forceKillOwnerAdmits` — it checks the owner process named by the row's durable `owner_identity` and refuses if that owner is still alive, since route loss can now reach the fallback before routing confirms the run unowned — so the front door never drives one invocation from two generations. Unrelated `start`/`resume` work stays admissible while a predecessor drains. Details in [`daemon-host.md`](daemon-host.md#predecessor-owned-run-and-worktree-admission-conflicts).
 - **Recovery boundary after owner-route loss:** losing the ownership-directory route to a draining predecessor drops routed liveness and routes back to local handling, but never substitutes for dead-owner recovery — a route loss with the owner process still alive is not orphanhood, and only durable `owner_identity` plus real process liveness admits a row to reconciliation. Details in [`daemon-host.md`](daemon-host.md#owner-route-loss-and-dead-owner-recovery).
 - **In-memory worktree ownership:** Daemon holds a registry keyed by `{project,

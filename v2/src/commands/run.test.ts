@@ -780,18 +780,18 @@ describe("run control", () => {
     expect(cap.read().stderr).toContain("usage:");
   });
 
-  test("run pause reports daemon success", async () => {
+  test("run pause is an unknown subcommand", async () => {
     const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000005";
 
-    const code = await withFixedUuid(requestId, () =>
-      main(["run", "pause", "run-123"], cap.io, {
-        connectIpcClient: async () => makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }]),
-      }),
-    );
+    const code = await main(["run", "pause", "run-123"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("must not connect: retired verb");
+      },
+    });
 
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "paused run-123\n", stderr: "" });
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: RUN_USAGE });
+    expect(RUN_USAGE).not.toContain("pause");
   });
 
   test("run resume passes through terminal_run errors", async () => {
@@ -1031,11 +1031,9 @@ describe("run control", () => {
     });
   });
 
-  test("pause and resume reject --force as a usage error", async () => {
+  test("resume rejects --force as a usage error", async () => {
     for (const { argv, usage } of [
-      { argv: ["run", "pause", "--force", "run-123"], usage: RUN_USAGE },
       { argv: ["run", "resume", "--force", "run-123"], usage: RUN_RESUME_USAGE },
-      { argv: ["run", "pause", "--force"], usage: RUN_USAGE },
       { argv: ["run", "resume", "--force"], usage: RUN_RESUME_USAGE },
     ]) {
       const cap = captureIo();

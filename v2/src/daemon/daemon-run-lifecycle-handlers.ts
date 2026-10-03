@@ -142,7 +142,6 @@ export type RunLifecycleHandlers = {
   list: RpcHandler;
   listOwned: RpcHandler;
   liveRunIds: RpcHandler;
-  pause: RpcHandler;
   resume: RpcHandler;
   kill: RpcHandler;
   wait: RpcHandler;
@@ -761,8 +760,7 @@ export function createRunLifecycleHandlers(
   ): void => {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
-    const pauseController = new AbortController();
-    activeRuns.set(ks, { kind: "write-loop", runId, key, abortController, pauseController });
+    activeRuns.set(ks, { kind: "write-loop", runId, key, abortController });
 
     registry.claim(key, { runId, worktreePath });
     const runTimeout = armDispatchRunTimeout(
@@ -778,7 +776,7 @@ export function createRunLifecycleHandlers(
 
     (async () => {
       try {
-        await writeLoopExecutor(input, abortController.signal, pauseController.signal);
+        await writeLoopExecutor(input, abortController.signal);
       } catch (reason) {
         try {
           const run = store.loadRun(runId);
@@ -1195,28 +1193,6 @@ export function createRunLifecycleHandlers(
       return { kind: "error", code: "invalid_params", message: "runId required" };
     }
     return respondRunDismissal(store.undismissRun(runId));
-  };
-
-  const pauseHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string } | undefined;
-    if (!params?.runId) {
-      return { kind: "error", code: "invalid_params", message: "Missing runId" };
-    }
-
-    const runId = params.runId as string;
-    const run = store.loadRun(runId);
-    if (!run) {
-      return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
-    }
-
-    const ks = ownershipKeyString({ project: run.project, branch: run.branch });
-    const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
-    if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
-      activeRun.pauseController.abort();
-      return { kind: "response", result: { ok: true } };
-    }
-
-    return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
   const killHandler: RpcHandler = async (frame) => {
@@ -1775,7 +1751,6 @@ export function createRunLifecycleHandlers(
     list: listHandler,
     listOwned: listOwnedHandler,
     liveRunIds: liveRunIdsHandler,
-    pause: pauseHandler,
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
@@ -1818,7 +1793,7 @@ function startFrameOwnershipKey(frame: Parameters<RpcHandler>[0]): OwnershipKey 
  * conflict, refused before the local handler ever runs — never a local claim, and never
  * durable-row status alone, which can't see who else is driving the row. Private endpoints keep
  * the plain local handlers, never wrapped here — matching `createStableRunHandlers`'s stable-only
- * scope for `wait`/`pause`/`kill` (`daemon-stable-run-routing.ts`).
+ * scope for `wait`/`kill` (`daemon-stable-run-routing.ts`).
  */
 export function createStableAdmissionHandlers(
   localHandlers: Pick<RunLifecycleHandlers, "resume" | "start">,

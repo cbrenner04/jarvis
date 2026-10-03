@@ -21,9 +21,9 @@ Adapters hardcode vendor-specific confinement flags with no mechanism to check w
 
 ## Acceptance criteria
 
-- [ ] `agents.test.ts` (or a test file covering agent binding): a test proves each of the three adapters (claude, codex, cursor) generates byte-identical argv under the default policy as today's hardcoded invocation; it fails against any change in default policy translation.
-- [ ] Same file: a test proves an adapter refusing an unsupported policy throws a named error before invoking the subprocess; it fails against the current unconditional invoke.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:shared` pass.
+- [x] `agents.test.ts` (or a test file covering agent binding): a test proves each of the three adapters (claude, codex, cursor) generates byte-identical argv under the default policy as today's hardcoded invocation; it fails against any change in default policy translation.
+- [x] Same file: a test proves an adapter refusing an unsupported policy throws a named error before invoking the subprocess; it fails against the current unconditional invoke.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:shared` pass.
 
 ## Documentation updates
 

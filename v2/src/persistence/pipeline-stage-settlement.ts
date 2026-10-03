@@ -23,6 +23,10 @@ export type PipelineStageArtifact = {
   lanePrOutcome?: LanePrOutcome;
   requestedBase?: string;
   resolvedBase?: string;
+  /** Tip SHA of this (predecessor) stage's branch when a chained dependent lane first forked from it. */
+  forkTipSha?: string;
+  /** Set once this lane branch was rebased past its merged chain predecessor. */
+  rebasedAfterPredecessorMerge?: { predecessor: string; predecessorTip: string; at: number };
 };
 
 type PrEvidence = { prNumber: number; prUrl: string };

@@ -16,7 +16,6 @@ const HEALTH_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const STATUS_REQUEST_ID = "00000000-0000-4000-8000-000000000002";
 const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000004";
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000005";
-const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
 const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
 const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
 const PIPELINE_LIST_REQUEST_ID = "00000000-0000-4000-8000-00000000000b";
@@ -142,15 +141,15 @@ test("health then status reuse one connection without reconnecting", async () =>
   expect(connectCalls).toBe(1);
 });
 
-// Daemon error frames map uniformly to RpcError; health, pause, and resume are representative RPC shapes.
+// Daemon error frames map uniformly to RpcError; health, kill, and resume are representative RPC shapes.
 test("daemon error replies reject as RpcError with code and message", async () => {
-  await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, RESUME_REQUEST_ID], async () => {
+  await withFixedUuid([HEALTH_REQUEST_ID, KILL_REQUEST_ID, RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient([
           { kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" },
-          { kind: "error", id: PAUSE_REQUEST_ID, code: "unknown_run", message: "missing run" },
+          { kind: "error", id: KILL_REQUEST_ID, code: "unknown_run", message: "missing run" },
           { kind: "error", id: RESUME_REQUEST_ID, code: "run_in_progress", message: "busy" },
         ]),
     });
@@ -160,7 +159,7 @@ test("daemon error replies reject as RpcError with code and message", async () =
       code: "unhealthy",
       message: "daemon not ready",
     });
-    await expect(client.pause("run-404")).rejects.toMatchObject({ code: "unknown_run" });
+    await expect(client.kill("run-404")).rejects.toMatchObject({ code: "unknown_run" });
     await expect(client.resume("run-busy")).rejects.toMatchObject({ code: "run_in_progress" });
     client.close();
   });
@@ -332,7 +331,6 @@ test("rejects unreachable socket with RpcConnectionError and sends no RPCs", asy
 });
 
 test.each([
-  ["pause", PAUSE_REQUEST_ID] as const,
   ["resume", RESUME_REQUEST_ID] as const,
   ["kill", KILL_REQUEST_ID] as const,
 ])("%s sends one correlated IPC request and returns ok", async (method, requestId) => {
@@ -354,13 +352,13 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
   const sent: unknown[] = [];
   const deferred = makeIpcClient([], { deferred: true, sent });
 
-  await withFixedUuid([WAIT_REQUEST_ID, PAUSE_REQUEST_ID, KILL_REQUEST_ID], async () => {
+  await withFixedUuid([WAIT_REQUEST_ID, RESUME_REQUEST_ID, KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({ socketPath: "/tmp/test.sock", connectIpcClient: async () => deferred });
     const waitPromise = client.wait("run-123");
 
-    const pausePromise = client.pause("run-123");
-    deferred.push({ kind: "response", id: PAUSE_REQUEST_ID, result: { ok: true } });
-    await expect(pausePromise).resolves.toEqual({ ok: true });
+    const resumePromise = client.resume("run-123");
+    deferred.push({ kind: "response", id: RESUME_REQUEST_ID, result: { ok: true } });
+    await expect(resumePromise).resolves.toEqual({ ok: true });
 
     const killPromise = client.kill("run-123");
     deferred.push({ kind: "response", id: KILL_REQUEST_ID, result: { ok: true } });
@@ -377,7 +375,7 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
     await expect(waitPromise).resolves.toEqual({ runStatus: "completed" });
     expect(sent).toEqual([
       { kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "run-123" } },
-      { kind: "request", id: PAUSE_REQUEST_ID, method: "pause", params: { runId: "run-123" } },
+      { kind: "request", id: RESUME_REQUEST_ID, method: "resume", params: { runId: "run-123" } },
       { kind: "request", id: KILL_REQUEST_ID, method: "kill", params: { runId: "run-123" } },
     ]);
     client.close();
@@ -385,14 +383,14 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
 });
 
 test("malformed success payloads reject as RpcConnectionError", async () => {
-  await withFixedUuid([PAUSE_REQUEST_ID], async () => {
+  await withFixedUuid([KILL_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
-        makeGatedIpcClient([{ kind: "response", id: PAUSE_REQUEST_ID, result: { ok: false } }]),
+        makeGatedIpcClient([{ kind: "response", id: KILL_REQUEST_ID, result: { ok: false } }]),
     });
 
-    await expect(client.pause("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
+    await expect(client.kill("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
     client.close();
   });
 });

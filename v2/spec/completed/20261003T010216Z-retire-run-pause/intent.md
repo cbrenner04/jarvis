@@ -19,11 +19,11 @@ name: retire-run-pause
 
 ## Acceptance criteria
 
-- [ ] `run pause` subcommand is gone; the verb does not appear in `run --help` or `jarvis help run`.
-- [ ] TUI `pause` key binding is gone; a test verifying its absence passes (e.g., tui-command-parser.test.ts).
-- [ ] `pauseController` does not exist on `ActiveRun` (daemon.ts); search finds zero instances in daemon, write-loop, and lifecycle-handler files; `grep -rn pauseController v2/src/daemon v2/src/execution --include="*.ts"` returns empty.
-- [ ] Write-loop executor no longer accepts `pauseSignal` parameter; `write-loop.test-support.ts` and any test invoking the executor no longer pass a pause signal.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `run pause` subcommand is gone; the verb does not appear in `run --help` or `jarvis help run`.
+- [x] TUI `pause` key binding is gone; a test verifying its absence passes (e.g., tui-command-parser.test.ts).
+- [x] `pauseController` does not exist on `ActiveRun` (daemon.ts); search finds zero instances in daemon, write-loop, and lifecycle-handler files; `grep -rn pauseController v2/src/daemon v2/src/execution --include="*.ts"` returns empty.
+- [x] Write-loop executor no longer accepts `pauseSignal` parameter; `write-loop.test-support.ts` and any test invoking the executor no longer pass a pause signal.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

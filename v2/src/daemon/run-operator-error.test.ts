@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
+import { confinementRefusalMessage } from "../../../shared/invocation/confinement-policy.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireGateInvocationLease, HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE } from "../execution/gate-invocation-lease.ts";
 import { createReadyFinalizer, formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
@@ -1228,6 +1229,24 @@ test("composeRunOperatorError resumes a failed completion_commit_failed row whos
   const projected = composeRunOperatorError(run);
   expect(projected?.nextAction).toBe("resume");
   expect(projected?.retryable).toBe(true);
+});
+
+test("composeRunOperatorError projects a confinement refusal message from attempt-level model_config detail", () => {
+  const refusal = confinementRefusalMessage("claude", "sandbox");
+  const projected = composeRunOperatorError(
+    runWith("failed", [
+      attempt("invocation_failure", { failureKind: "model_config", message: refusal, bindingAttempts: [] }),
+    ]),
+  );
+  expect(projected).toEqual({ ...err("model_config", "fix_config"), message: refusal });
+  // Agent-reported model_config stderr stays unprojected on the attempt path.
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [
+        attempt("invocation_failure", { failureKind: "model_config", message: "unknown model", bindingAttempts: [] }),
+      ]),
+    ),
+  ).toEqual(err("model_config", "fix_config"));
 });
 
 test("composeRunOperatorError projects model_config message from durable terminalFailureDetail", () => {

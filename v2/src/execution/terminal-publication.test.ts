@@ -790,7 +790,7 @@ describe("createDefaultSupersedeGh", () => {
   it("prState returns gh state when state is a string", async () => {
     const supersede = createDefaultSupersedeGh({
       gh: async (_cwd, args) => {
-        expect(args).toEqual(["pr", "view", "7", "--json", "state"]);
+        expect(args).toEqual(["pr", "view", "7", "--json", "state,mergedAt"]);
         return JSON.stringify({ state: "OPEN" });
       },
     });

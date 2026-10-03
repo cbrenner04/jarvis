@@ -6,7 +6,7 @@ One happy path from prerequisites through a completed run and its draft PR. This
 
 Intent, plan, and implement reviews use the same light or debate cycle. A light review runs critic then actuator for a non-empty verdict; debate runs adversary, advocate, adjudicator, then actuator. The selected profile supplies prompts, verdict handling, boundaries, and the existing workflow-worktree cwd. Reviewed intent retains diagnostics and resumes landing without rerunning roles; plan keeps its in-tree verdict, while implement protects the completed spec tree.
 
-The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) so live `pause` and `resume` are exercised on the active run. Workflow-started implement supports live `kill` but not `pause`/`resume` — see [Workflow-started implement](#workflow-started-implement).
+The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) so live `kill` is exercised on the active run. Workflow-started implement supports live `kill` but not `resume` — see [Workflow-started implement](#workflow-started-implement).
 
 ## Prerequisites
 
@@ -52,7 +52,7 @@ Save that ID for observe and steer commands.
 
 ### Run states
 
-While a run is active you see `in-progress` with `live` liveness. Graceful `pause` moves it to `paused` (`not-live`). Terminals include `completed`, `failed`, `blocked`, and `killed`. Queued runs (memory watermark) show `queued` until promoted.
+While a run is active you see `in-progress` with `live` liveness. A harness-parked row shows `paused` (`not-live`). Terminals include `completed`, `failed`, `blocked`, and `killed`. Queued runs (memory watermark) show `queued` until promoted.
 
 ### `jarvis tui`
 
@@ -140,16 +140,6 @@ Columns: `runId`, `project`, `branch`, `status`, liveness, then optional `error.
 
 Steering commands target the run ID from `jarvis run start`. They work on ad-hoc (`run start`) runs while the loop is live.
 
-Pause at the next iteration boundary:
-
-```bash
-jarvis run pause 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
-```
-
-```
-paused 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
-```
-
 Abort immediately (durable `killed`, dirty worktree):
 
 ```bash
@@ -172,7 +162,7 @@ Example completion:
 {"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":3,"resumable":false}
 ```
 
-**Ad-hoc resume limit:** `jarvis run resume <run-id>` on a paused ad-hoc run currently returns `not_implemented: Paused run resume is not yet implemented`. Do not expect a pause→resume happy path here. Workflow-started paused write steps resume through the daemon — see [`daemon-host.md`](./daemon-host.md).
+**Pause and resume:** there is no operator pause verb; a row is `paused` only when the harness parks it at a committed boundary: an ad-hoc write loop on an invalid terminal token or missing blocker, a workflow on a review-stage shrink or a parked write step. `jarvis run resume <run-id>` resumes a paused ad-hoc row from its durable start input (`queuedInput`) and a paused workflow write step through the daemon's workflow resume — see [`daemon-host.md`](./daemon-host.md).
 
 ## Draft PR output
 
@@ -327,7 +317,7 @@ See [`workflow-runner.md`](./workflow-runner.md) for preset composition and [`wr
 
 ## Workflow-started implement
 
-The implement workflow preset launches a write loop against an `index.md` spec. Live `pause` and `resume` remain unsupported on workflow-started rows; live `kill` uses the same `jarvis run kill <run-id>` contract as ad-hoc runs (see [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)). Review runs by default (one debate pass); pass `--review-passes 0` to skip it. Like `jarvis run start`, this command automatically starts or reuses the stable daemon.
+The implement workflow preset launches a write loop against an `index.md` spec. Live `resume` remains unsupported on workflow-started rows; live `kill` uses the same `jarvis run kill <run-id>` contract as ad-hoc runs (see [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)). Review runs by default (one debate pass); pass `--review-passes 0` to skip it. Like `jarvis run start`, this command automatically starts or reuses the stable daemon.
 
 ```bash
 jarvis run workflow implement \
@@ -360,7 +350,7 @@ Observe the run with `jarvis tui` or `jarvis run log <run-id>`. Abort a live wor
 jarvis run kill <run-id>
 ```
 
-`pause` and `resume` are not supported on workflow-started implement rows.
+`resume` is not supported on workflow-started implement rows.
 
 See [`write-behavior.md`](./write-behavior.md#run-control-cli) for the full CLI contract and [`workflow-runner.md`](./workflow-runner.md) for workflow composition.
 

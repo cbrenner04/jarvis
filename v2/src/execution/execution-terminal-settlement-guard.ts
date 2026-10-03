@@ -146,9 +146,7 @@ const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] =
   { file: "workflow-runner.ts", functionName: "settlePostCommitShrinkForResume", status: "paused" },
   { file: "workflow-runner.ts", functionName: "executeWorkflow", status: "in-progress" },
   { file: "write-loop.ts", functionName: "executeWriteLoop", status: "in-progress", count: 3 },
-  { file: "write-loop.ts", functionName: "executeWriteLoop", status: "paused", count: 7 },
   { file: "write-loop.ts", functionName: "executeWriteLoop", status: "budget-soft-stopped" },
-  { file: "write-loop.ts", functionName: "_commitRepromptProgressBoundary", status: "paused" },
 ];
 
 function isProductionExecutionSource(name: string): boolean {

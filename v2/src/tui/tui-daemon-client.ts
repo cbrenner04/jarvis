@@ -35,8 +35,6 @@ export type TuiDaemonClient = {
   status(): Promise<TuiDaemonStatusResult>;
   list(params?: { includeDismissed: boolean }): Promise<DaemonListResult>;
   pipelineList(params: { includeDismissed: boolean }): Promise<PipelineListResult>;
-  /** Signal graceful pause for an active run at the next iteration boundary; rejects with `unknown_run`/`run_not_active`. */
-  pause(runId: string): Promise<TuiDaemonHealthResult>;
   /**
    * Resume a paused or killed run under daemon start guards; rejects with `unknown_run`,
    * `terminal_run`, `run_in_progress`, `worktree_claimed`, …
@@ -91,7 +89,7 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
 
   const transport = createRpcTransport(client);
 
-  const okRunRpc = async (method: "pause" | "resume" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
+  const okRunRpc = async (method: "resume" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
     parseOrThrow(
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,
@@ -119,7 +117,6 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
         "malformed RPC reply: invalid pipeline_list result",
       );
     },
-    pause: (runId) => okRunRpc("pause", runId),
     resume: (runId) => okRunRpc("resume", runId),
     kill: (runId) => okRunRpc("kill", runId),
     async pipelineApprove(params) {

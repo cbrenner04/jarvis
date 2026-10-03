@@ -1,3 +1,4 @@
+import { type ConfinementMechanism, ConfinementRefusalError } from "./confinement-policy.ts";
 import type { SessionLog } from "./session-log.ts";
 
 export type InvocationSettlement = {
@@ -78,6 +79,8 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   }) => Promise<T>;
   shouldAdvance?: (result: T | InvocationError) => boolean;
   metadata?: { agent: string; model: string };
+  /** Vendor mechanism the binding applies for its confinement policy (see `confinement-policy.ts`). */
+  confinementMechanism?: ConfinementMechanism;
 };
 
 export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
@@ -270,9 +273,11 @@ function pickShellCommandCallbacks(args: {
 /**
  * Awaits `binding.invoke`, normalizing a rejection into a `kind: "error"` result
  * (sentinel `exitCode: -1`, thrown diagnostic as `stderr`) so it flows through the
- * same attempt/telemetry/`shouldAdvance` path as a returned result. A rejection
- * that occurs while `signal` is already aborted is a caller-driven cancellation,
- * not a binding failure, and propagates unchanged.
+ * same attempt/telemetry/`shouldAdvance` path as a returned result. A
+ * `ConfinementRefusalError` is a configuration incompatibility raised before any
+ * spawn, so it settles as `model_config`. A rejection that occurs while `signal`
+ * is already aborted is a caller-driven cancellation, not a binding failure, and
+ * propagates unchanged.
  */
 async function invokeBinding<T extends InvocationResult>(
   binding: InvocationBinding<T>,
@@ -282,12 +287,29 @@ async function invokeBinding<T extends InvocationResult>(
     return await binding.invoke(invokeArgs);
   } catch (error) {
     if (invokeArgs.signal?.aborted === true) throw error;
+    if (error instanceof ConfinementRefusalError) return { kind: "model_config", stderr: error.message };
     return {
       kind: "error",
       exitCode: -1,
       stderr: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+type FallbackArgs = Omit<Parameters<typeof executeWithQuotaFallback>[0], "bindings" | "telemetry" | "sessionLog">;
+
+function fallbackInvokeArgs(args: FallbackArgs): Parameters<InvocationBinding["invoke"]>[0] {
+  return {
+    prompt: args.prompt,
+    cwd: args.cwd,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+    ...(args.processGroupRecorder !== undefined ? { processGroupRecorder: args.processGroupRecorder } : {}),
+    ...pickShellCommandCallbacks(args),
+    ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
+  };
 }
 
 /**
@@ -312,20 +334,20 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   const attempts: InvocationAttempt<T>[] = [];
   const telemetryFailures: InvocationTelemetryFailure[] = [];
 
+  const invokeArgs = fallbackInvokeArgs(args);
+
   for (const [bindingIndex, binding] of args.bindings.entries()) {
     const startedAt = Date.now();
+    if (binding.confinementMechanism === "refused") {
+      // Refused at construction: never spawns, so no prompt echo, inbound log, or telemetry row —
+      // one harness line explains the skipped rung, and the attempt still records the refusal.
+      const result = await invokeBinding(binding, invokeArgs);
+      appendSessionLog(args.sessionLog, "harness", `binding=${binding.id} ${result.stderr}`);
+      attempts.push({ binding, result });
+      continue;
+    }
     logBindingStart(args.sessionLog, binding, args.prompt);
-    const result = await invokeBinding(binding, {
-      prompt: args.prompt,
-      cwd: args.cwd,
-      ...(args.signal !== undefined ? { signal: args.signal } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-      ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
-      ...(args.processGroupRecorder !== undefined ? { processGroupRecorder: args.processGroupRecorder } : {}),
-      ...pickShellCommandCallbacks(args),
-      ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
-    });
+    const result = await invokeBinding(binding, invokeArgs);
     logBindingInbound(args.sessionLog, result);
     const invocationId = args.telemetry?.invocationIds[bindingIndex];
     const attempt = { binding, result, ...(invocationId !== undefined ? { invocationId } : {}) };

@@ -4,6 +4,7 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { getDaemonStatus } from "../daemon/daemon-lifecycle.ts";
+import { checkAuthStatus } from "../execution/github-operations.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 
 /** Fixed, single-line readiness report: identifiers, statuses, requiredness, and rendering. */
@@ -122,7 +123,7 @@ async function defaultCheckBunRuntime(): Promise<{ ok: boolean; detail?: string 
 
 async function defaultCheckGithubAuth(): Promise<{ ok: boolean; detail?: string }> {
   try {
-    await realAsyncSubprocessRunner.runAsync("gh", ["auth", "status"], process.cwd(), { timeoutMs: 5_000 });
+    await checkAuthStatus(realAsyncSubprocessRunner, process.cwd(), { timeoutMs: 5_000 });
     return { ok: true };
   } catch (error) {
     return { ok: false, detail: errorDetail(error) };

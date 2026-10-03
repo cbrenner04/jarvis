@@ -58,12 +58,6 @@ test("setRetiring makes resume reject with daemon_superseded", async () => {
   await flushBackgroundRuns();
 
   if (runId) {
-    const pauseResponse = await handlers.pause(
-      { kind: "request", id: "p1", method: "pause", params: { runId } },
-      new AbortController().signal,
-    );
-    expect(pauseResponse.kind).toBe("response");
-
     const resumeResponse = await resumeDirect(handlers, runId);
     expect(resumeResponse.kind).toBe("error");
     if (resumeResponse.kind === "error") {
@@ -146,10 +140,6 @@ test("resume does not create a claim when rejecting for retirement", async () =>
   expect(runId).toBeDefined();
 
   if (runId) {
-    await handlers.pause(
-      { kind: "request", id: "p1", method: "pause", params: { runId } },
-      new AbortController().signal,
-    );
     await flushBackgroundRuns();
 
     handlers.setRetiring();
@@ -160,7 +150,7 @@ test("resume does not create a claim when rejecting for retirement", async () =>
       expect(resumeResponse.code).toBe("daemon_superseded");
     }
 
-    // The paused run should still be managed by this daemon (not claimed by another)
+    // The run should still be managed by this daemon (not claimed by another)
     expect(handlers.hasActiveRuns()).toBe(true);
   }
 });
@@ -175,12 +165,6 @@ test("observation methods still work after supersede", async () => {
   expect(listResponse).toBeDefined();
   if (runId) {
     expect(listResponse?.some((row) => row.runId === runId)).toBe(true);
-
-    const pauseResponse = await handlers.pause(
-      { kind: "request", id: "p1", method: "pause", params: { runId } },
-      new AbortController().signal,
-    );
-    expect(pauseResponse.kind).toBe("response");
   }
 });
 

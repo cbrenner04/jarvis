@@ -1,12 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  networkSubprocessOptions,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { graphql, type PrReviewActivity, repoIdentity, viewPrReviewActivity } from "./github-operations.ts";
 
 type PrReviewInputCaptureComment = {
   commentId: string;
@@ -158,21 +154,13 @@ type GraphqlReviewThreadNode = {
 };
 
 async function fetchReviewThreads(args: CaptureArgs): Promise<PrReviewInputCaptureThread[]> {
-  const { owner, name } = await resolveRepoOwnerAndName(args.laneWorktreePath, args.runner);
-  const stdout = await runGh(args.runner, args.laneWorktreePath, [
-    "api",
-    "graphql",
-    "-f",
-    `query=${REVIEW_THREADS_QUERY}`,
-    "-F",
-    `owner=${owner}`,
-    "-F",
-    `name=${name}`,
-    "-F",
-    `prNumber=${String(args.prNumber)}`,
-  ]);
+  const { owner, name } = await repoIdentity(args.runner, args.laneWorktreePath);
+  const response = await graphql(args.runner, args.laneWorktreePath, {
+    query: REVIEW_THREADS_QUERY,
+    variables: { owner, name, prNumber: args.prNumber },
+  });
   const reviewThreads = (
-    JSON.parse(stdout) as {
+    response as {
       data?: {
         repository?: {
           pullRequest?: {
@@ -210,34 +198,11 @@ async function fetchReviewThreads(args: CaptureArgs): Promise<PrReviewInputCaptu
   return out;
 }
 
-type GhPrViewPayload = {
-  reviews?: Array<{
-    id?: string | number | null;
-    author?: { login?: string | null } | null;
-    body?: string | null;
-    submittedAt?: string | null;
-    state?: string | null;
-  }>;
-  comments?: Array<{
-    id?: string | null;
-    author?: { login?: string | null } | null;
-    body?: string | null;
-    createdAt?: string | null;
-  }>;
-};
-
 async function fetchPrViewCapture(args: CaptureArgs): Promise<{
   topLevelComments: PrReviewInputTopLevelComment[];
   reviewBodies: PrReviewInputReviewBody[];
 }> {
-  const stdout = await runGh(args.runner, args.laneWorktreePath, [
-    "pr",
-    "view",
-    String(args.prNumber),
-    "--json",
-    "reviews,comments",
-  ]);
-  const parsed = JSON.parse(stdout) as GhPrViewPayload;
+  const parsed: PrReviewActivity = await viewPrReviewActivity(args.runner, args.laneWorktreePath, args.prNumber);
   const latestSubmittedReview = latestSubmittedAt(parsed.reviews ?? []);
   const topLevelComments = (parsed.comments ?? [])
     .filter((comment) => !isBotLogin(comment.author?.login))
@@ -290,32 +255,4 @@ function latestSubmittedAt(reviews: Array<{ submittedAt?: string | null }>): str
     if (latest === null || submittedAt > latest) latest = submittedAt;
   }
   return latest;
-}
-
-async function resolveRepoOwnerAndName(
-  cwd: string,
-  runner: AsyncSubprocessRunner,
-): Promise<{ owner: string; name: string }> {
-  const value = (await runGh(runner, cwd, ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])).trim();
-  const slash = value.indexOf("/");
-  if (slash <= 0 || slash === value.length - 1) {
-    throw new Error(`invalid gh repo identity: ${JSON.stringify(value)}`);
-  }
-  return { owner: value.slice(0, slash), name: value.slice(slash + 1) };
-}
-
-async function runGh(runner: AsyncSubprocessRunner, cwd: string, args: string[]): Promise<string> {
-  try {
-    return await runner.runAsync("gh", args, cwd, networkSubprocessOptions());
-  } catch (error) {
-    throwGhError(`gh ${args.join(" ")} failed`, error);
-  }
-}
-
-function throwGhError(context: string, error: unknown): never {
-  if (error instanceof AsyncSubprocessError) {
-    const detail = error.stderr.trim() || error.stdout.trim() || error.message;
-    throw new Error(`${context}: ${detail}`);
-  }
-  throw error;
 }

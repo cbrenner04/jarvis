@@ -1,14 +1,13 @@
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
-  type AsyncSubprocessRunner,
-  networkSubprocessOptions,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import {
+  type GhSession,
+  ghSession,
   type HarnessReadyFlipEvidenceLookup,
   OpenPrNotDraftError,
   resolveOpenDraftPr,
 } from "./completion-publisher.ts";
 import { runHarnessFullSuiteGateWithSlot } from "./gate-invocation-lease.ts";
+import { closePr, commentPr, markPrReady, mergePr, viewPrState } from "./github-operations.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
 import {
@@ -22,7 +21,7 @@ import {
 } from "./ready-finalize.ts";
 import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
-/** Raw `gh` command runner used for pre-flip open-draft resolution (`gh pr list` / `gh pr view`). */
+/** Raw `gh` seam for fixtures; production routes through the `github-operations` boundary on the real runner. */
 type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 
 export type TerminalPublicationInput = {
@@ -73,7 +72,7 @@ type TerminalPublicationSeams = {
 
 type PublicationDeps = {
   runReadyGate: ReadyGate;
-  gh: GhCommand;
+  gh: GhSession;
   ghReadyFlip: GhReadyFlipByNumber;
   ghMerge: GhReadyFlip;
   ghClose: GhReadyFlip;
@@ -288,9 +287,7 @@ async function executeReadyOrMergePublication(
 
   let probedState: string | undefined;
   try {
-    const raw = await deps.gh(input.worktreePath, ["pr", "view", String(prNumber), "--json", "state,mergedAt"]);
-    const state = (JSON.parse(raw) as { state?: unknown }).state;
-    probedState = typeof state === "string" ? state : undefined;
+    probedState = (await viewPrState(deps.gh.runner, input.worktreePath, prNumber, deps.gh.options)).state;
   } catch {
     probedState = undefined;
   }
@@ -320,37 +317,6 @@ async function executeReadyOrMergePublication(
   return { prNumber, prUrl };
 }
 
-async function defaultGhPr(
-  subcommand: "ready" | "merge",
-  branch: string,
-  worktreePath: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  await realAsyncSubprocessRunner.runAsync(
-    "gh",
-    ["pr", subcommand, branch],
-    worktreePath,
-    networkSubprocessOptions({ signal }),
-  );
-}
-
-async function defaultGhReadyFlipByNumber(
-  prNumber: number | undefined,
-  worktreePath: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  await realAsyncSubprocessRunner.runAsync(
-    "gh",
-    ["pr", "ready", String(prNumber)],
-    worktreePath,
-    networkSubprocessOptions({ signal }),
-  );
-}
-
-async function defaultGhCommand(cwd: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
-  return (await realAsyncSubprocessRunner.runAsync("gh", [...args], cwd, networkSubprocessOptions({ signal }))).trim();
-}
-
 const noopGh: GhReadyFlip = async () => {};
 
 export function createExecuteTerminalPublication(seams?: TerminalPublicationSeams) {
@@ -358,10 +324,13 @@ export function createExecuteTerminalPublication(seams?: TerminalPublicationSeam
     seams?.runReadyGate ?? createDefaultRunReadyGate(seams?.asyncSubprocessRunner ?? realAsyncSubprocessRunner);
   const depsFor = (signal: AbortSignal | undefined): PublicationDeps => ({
     runReadyGate,
-    gh: seams?.gh ?? ((cwd, args) => defaultGhCommand(cwd, args, signal)),
+    gh: ghSession(seams?.gh, signal),
     ghReadyFlip:
-      seams?.ghReadyFlip ?? ((prNumber, worktreePath) => defaultGhReadyFlipByNumber(prNumber, worktreePath, signal)),
-    ghMerge: seams?.ghMerge ?? ((branch, worktreePath) => defaultGhPr("merge", branch, worktreePath, signal)),
+      seams?.ghReadyFlip ??
+      ((prNumber, worktreePath) => markPrReady(realAsyncSubprocessRunner, worktreePath, String(prNumber), { signal })),
+    ghMerge:
+      seams?.ghMerge ??
+      ((branch, worktreePath) => mergePr(realAsyncSubprocessRunner, worktreePath, branch, { signal })),
     ghClose: seams?.ghClose ?? noopGh,
     ghDelete: seams?.ghDelete ?? noopGh,
   });
@@ -391,21 +360,16 @@ export type SupersedeGh = {
 };
 
 export function createDefaultSupersedeGh(options?: { signal?: AbortSignal; gh?: GhCommand }): SupersedeGh {
-  const gh = options?.gh ?? ((cwd, args) => defaultGhCommand(cwd, args, options?.signal));
+  const gh = ghSession(options?.gh, options?.signal);
   return {
     async prState(cwd, prNumber) {
-      const raw = await gh(cwd, ["pr", "view", String(prNumber), "--json", "state"]);
-      const parsed = JSON.parse(raw) as { state?: unknown };
-      if (typeof parsed.state !== "string") {
-        throw new Error(`unexpected gh pr view state for #${prNumber}`);
-      }
-      return { state: parsed.state };
+      return { state: (await viewPrState(gh.runner, cwd, prNumber, gh.options)).state };
     },
     async comment(cwd, prNumber, body) {
-      await gh(cwd, ["pr", "comment", String(prNumber), "--body", body]);
+      await commentPr(gh.runner, cwd, prNumber, body, gh.options);
     },
     async close(cwd, prNumber) {
-      await gh(cwd, ["pr", "close", String(prNumber)]);
+      await closePr(gh.runner, cwd, prNumber, gh.options);
     },
   };
 }

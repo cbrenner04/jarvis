@@ -14,7 +14,7 @@ import {
 import { resolvePipelineIdArgument } from "./pipeline-id-resolution.ts";
 import { type PipelineSnapshot, resolvePipelineOwnership } from "./pipeline-observation.ts";
 
-const DIRECT_OWNER_RUN_METHODS = ["wait", "pause", "kill"] as const;
+const DIRECT_OWNER_RUN_METHODS = ["wait", "kill"] as const;
 
 type DirectOwnerRunMethod = (typeof DIRECT_OWNER_RUN_METHODS)[number];
 

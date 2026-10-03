@@ -33,7 +33,7 @@ export type RunControlHandlerContextDeps = {
   logReader?: LogReader;
   logsPath?: string;
   operatorSessionId?: string;
-  writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
+  writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
   hasMemoryHeadroom?: () => boolean;
   settleDelayMs?: number;

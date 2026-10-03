@@ -722,10 +722,16 @@ describe("write loop", () => {
     );
   });
 
-  test("a paused eligible miss keeps the repair pending and replays it on resume", async () => {
+  test("an interrupted eligible miss keeps the repair pending and replays it on resume", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
-    const pauseController = new AbortController();
+    // Abort once the reprompt is logged: the loop stops at the committed progress boundary.
+    const abortController = new AbortController();
+    const baseAppend = sink.append.bind(sink);
+    sink.append = (runId, event) => {
+      baseAppend(runId, event);
+      if (event.kind === "draft_contract_reprompt") abortController.abort();
+    };
     let calls = 0;
 
     const first = await runLoop({
@@ -736,7 +742,7 @@ describe("write loop", () => {
       specPath: PLAN_DRAFT_SPEC_PATH,
       promptId: "plan.prompt.draft",
       intentSeed: PLAN_DRAFT_INTENT_SEED,
-      pauseSignal: pauseController.signal,
+      signal: abortController.signal,
       logSink: sink,
       bindings: [
         {
@@ -744,14 +750,13 @@ describe("write loop", () => {
           invoke: async ({ cwd }) => {
             calls += 1;
             writeBrokenIndexPlanDraftStage(join(cwd, ".jarvis-plan-stage"));
-            pauseController.abort();
             return { kind: "ok", stdout: "done", stderr: "" };
           },
         },
       ],
     });
 
-    expect(first).toMatchObject({ kind: "paused", resumable: true, iterationsConsumed: 1 });
+    expect(first).toMatchObject({ kind: "progress", resumable: true, iterationsConsumed: 1 });
     expect(calls).toBe(1);
 
     let repairPrompt = "";
@@ -784,10 +789,10 @@ describe("write loop", () => {
     );
   });
 
-  test("a settled repair stays spent after a later pause/resume: the next miss settles immediately", async () => {
+  test("a settled repair stays spent after a later interrupt/resume: the next miss settles immediately", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
-    const pauseController = new AbortController();
+    const abortController = new AbortController();
     let calls = 0;
 
     const first = await runLoop({
@@ -798,7 +803,7 @@ describe("write loop", () => {
       specPath: PLAN_DRAFT_SPEC_PATH,
       promptId: "plan.prompt.draft",
       intentSeed: PLAN_DRAFT_INTENT_SEED,
-      pauseSignal: pauseController.signal,
+      signal: abortController.signal,
       maxIterations: 10,
       logSink: sink,
       bindings: [
@@ -812,14 +817,14 @@ describe("write loop", () => {
               return { kind: "ok", stdout: "done", stderr: "" };
             }
             writeLintCleanPlanDraftStage(stagePath);
-            pauseController.abort();
+            abortController.abort();
             return { kind: "ok", stdout: "progress", stderr: "" };
           },
         },
       ],
     });
 
-    expect(first).toMatchObject({ kind: "paused", resumable: true, iterationsConsumed: 2 });
+    expect(first).toMatchObject({ kind: "progress", resumable: true, iterationsConsumed: 2 });
     expect(calls).toBe(2);
     expect(sink.getEventsForRun(first.runId).filter((event) => event.kind === "draft_contract_reprompt")).toHaveLength(
       1,

@@ -179,7 +179,7 @@ export function commandSubmissionBlockedByPendingAdmission(admissionPending: boo
 
 function isRunSteeringCommandBuffer(commandBuffer: string): boolean {
   const verb = commandBuffer.trim().split(/\s+/)[0];
-  return verb === "kill" || verb === "pause" || verb === "resume-run";
+  return verb === "kill" || verb === "resume-run";
 }
 
 export function shouldApplyCommandSettlement(
@@ -578,8 +578,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     })();
   };
 
-  const runSteeringAction = (method: "pause" | "resume" | "kill"): void =>
-    runAction((runId, owner) => owner[method](runId));
+  const runSteeringAction = (method: "resume" | "kill"): void => runAction((runId, owner) => owner[method](runId));
 
   const ensureConnected = async (): Promise<unknown | undefined> => {
     if (client !== undefined) return undefined;
@@ -940,7 +939,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             return;
           }
 
-          if (parsed.kind === "kill" || parsed.kind === "pause" || parsed.kind === "resume-run") {
+          if (parsed.kind === "kill" || parsed.kind === "resume-run") {
             const method = parsed.kind === "resume-run" ? "resume" : parsed.kind;
             const selectionError = runSteeringCommandSelectionError(currentState, nowMsFn());
             if (selectionError !== null) {
@@ -1109,9 +1108,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             steeringFeedback: null,
           });
           void refreshRuns().catch(() => {});
-        },
-        pauseSelected() {
-          runSteeringAction("pause");
         },
         resumeSelected() {
           runSteeringAction("resume");

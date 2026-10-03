@@ -20,9 +20,9 @@ Every agent binding in `shared/invocation/agents.ts` launches a vendor CLI with 
 
 ## Acceptance criteria
 
-- [ ] `agent-model-config.test.ts`: `routing` resolves a binding from the machine profile like other roles; fails against current code (unknown role).
-- [ ] `agents.test.ts`: the routing invocation's argv for each vendor carries that vendor's tool-disabling form and no read-dir or workspace grants; an attempted tool call in the routing transcript is a named failure; fails against current code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
+- [x] `agent-model-config.test.ts`: `routing` resolves a binding from the machine profile like other roles; fails against current code (unknown role).
+- [x] `agents.test.ts`: the routing invocation's argv for each vendor carries that vendor's tool-disabling form and no read-dir or workspace grants; an attempted tool call in the routing transcript is a named failure; fails against current code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
 
 ## Documentation updates
 

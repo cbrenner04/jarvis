@@ -1011,6 +1011,7 @@ test("recoverReconciledRuns auto-resume re-resolves write bindings from the edit
     advocate: rung("advoc"),
     adjudicator: rung("adj"),
     actuator: rung("act"),
+    routing: rung("act"),
   });
   const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
   const writeProfile = (implementModels: string[]) => {

@@ -44,6 +44,7 @@ function queuePromotionProfileModels(codexImplement: string[]): AgentModelConfig
     advocate: rung("advoc"),
     adjudicator: rung("adj"),
     actuator: rung("act"),
+    routing: rung("act"),
   };
   return {
     codex: bundle,

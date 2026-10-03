@@ -76,6 +76,7 @@ export function workflowRunnerResumeProfileDeps(): WriteLoopBindingSourceDeps {
     advocate: rung("advoc", "advoc"),
     adjudicator: rung("adj", "adj"),
     actuator: rung("act", "act"),
+    routing: rung("act", "act"),
   };
   writeFileSync(join(machinesDir, `${profileName}.json`), JSON.stringify({ models: { claude: claudeRoles } }));
   writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile: profileName, agents: ["claude"] }));
@@ -384,6 +385,7 @@ export const DEBATE_AGENT_MODEL_CONFIG: AgentModelConfig = {
     advocate: { rungs: [{ adapterModel: "ADVOC", priceKey: "p-advoc" }] },
     adjudicator: { rungs: [{ adapterModel: "ADJ", priceKey: "p-adj" }] },
     actuator: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
+    routing: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
   },
 };
 

@@ -10,6 +10,7 @@ import { loadPrices } from "../prices/load.ts";
 import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import {
   createResolvedAgentBinding,
+  createRoutingAgentBinding,
   isIgnoredWorktreeActivityPath,
   parseShellToolFrameLine,
   signalProcessGroupOrLeader,
@@ -17,6 +18,7 @@ import {
 import { ConfinementRefusalError } from "./confinement-policy.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
+import { RoutingRefusalError, routingFailureOf } from "./routing.ts";
 
 type FakeOutcome =
   | { kind: "settle"; code: number; stdout?: string; stderr?: string }
@@ -3288,6 +3290,228 @@ describe("signalProcessGroupOrLeader", () => {
     const target = leader();
     signalProcessGroupOrLeader(LEADER_PID + 1, "SIGTERM", target, throwingKill);
     expect(target.signals).toEqual([]);
+  });
+});
+
+describe("createRoutingAgentBinding", () => {
+  const ROUTING_JSON = '{"action":"run.log","runId":"r1"}';
+  const CLAUDE_ROUTING = { agentId: "claude", adapterModel: "haiku", priceKey: "haiku" };
+  const CODEX_ROUTING = { agentId: "codex", adapterModel: "gpt-cheap", priceKey: "gpt-cheap" };
+
+  function claudeStream(frames: Record<string, unknown>[], result: string): string {
+    return [...frames, { type: "result", subtype: "success", is_error: false, result }]
+      .map((frame) => JSON.stringify(frame))
+      .join("\n");
+  }
+
+  function codexStream(items: Record<string, unknown>[]): string {
+    return [
+      ...items.map((item) => ({ type: "item.completed", item })),
+      { type: "turn.completed", usage: { input_tokens: 50, cached_input_tokens: 10, output_tokens: 5 } },
+    ]
+      .map((frame) => JSON.stringify(frame))
+      .join("\n");
+  }
+
+  function assistantToolUse(name: string) {
+    return { type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name, input: {} }] } };
+  }
+
+  test("claude argv disables every tool, settings MCP, and prompts; grants no read dir", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: claudeStream([], ROUTING_JSON) }]);
+    const result = await createRoutingAgentBinding(CLAUDE_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "route me",
+      cwd: "/repo",
+      additionalReadDirs: ["/elsewhere"],
+    });
+
+    const call = fake.calls[0];
+    expect(call?.binary).toBe("claude");
+    const argv = [...(call?.argv ?? [])];
+    expect(argv.slice(0, 4)).toEqual(["-p", "--tools", "", "--restricted"]);
+    expect(argv).toContain("--strict-mcp-config");
+    expect(argv.slice(argv.indexOf("--permission-prompts"), argv.indexOf("--permission-prompts") + 2)).toEqual([
+      "--permission-prompts",
+      "none",
+    ]);
+    expect(argv).toContain("haiku");
+    expect(argv).not.toContain("--add-dir");
+    expect(argv).not.toContain("--permission-mode");
+    expect(argv).not.toContain("/elsewhere");
+    expect(call?.opts.cwd).toBe("/repo");
+    expect(call?.child?.stdinChunks.join("")).toBe("route me");
+    expect(result).toMatchObject({ kind: "ok", stdout: ROUTING_JSON });
+    expect(routingFailureOf(result)).toBeNull();
+  });
+
+  test("codex argv runs read-only with escalation denied and no workspace grant", async () => {
+    const fake = fakeSpawn([
+      { kind: "settle", code: 0, stdout: codexStream([{ type: "agent_message", text: ROUTING_JSON }]) },
+    ]);
+    const result = await createRoutingAgentBinding(CODEX_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "route me",
+      cwd: "/repo",
+      additionalReadDirs: ["/elsewhere"],
+    });
+
+    const call = fake.calls[0];
+    expect(call?.binary).toBe("codex");
+    const argv = [...(call?.argv ?? [])];
+    expect(argv[0]).toBe("exec");
+    expect(argv.slice(argv.indexOf("--sandbox"), argv.indexOf("--sandbox") + 2)).toEqual(["--sandbox", "read-only"]);
+    expect(argv).toContain('approval_policy="never"');
+    expect(argv).toContain("--json");
+    expect(argv).not.toContain("--add-dir");
+    expect(argv).not.toContain("workspace-write");
+    expect(argv).not.toContain("danger-full-access");
+    expect(call?.child?.stdinChunks.join("")).toBe("route me");
+    expect(result).toMatchObject({
+      kind: "ok",
+      stdout: ROUTING_JSON,
+      usage: { input_tokens: 40, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: null },
+      usage_source: "agent",
+    });
+  });
+
+  test.each(["cursor", "opencode", "unknown"])("%s is refused by name before any spawn", (agentId) => {
+    const fake = fakeSpawn([]);
+    let thrown: unknown;
+    try {
+      createRoutingAgentBinding({ agentId, adapterModel: "m", priceKey: "p" }, { spawn: fake.spawn });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(RoutingRefusalError);
+    expect((thrown as RoutingRefusalError).agentId).toBe(agentId);
+    expect((thrown as Error).message).toContain(`agent '${agentId}' refuses the routing role`);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("a claude tool call in the transcript is a named failure", async () => {
+    const fake = fakeSpawn([
+      { kind: "settle", code: 0, stdout: claudeStream([assistantToolUse("Bash")], ROUTING_JSON) },
+    ]);
+    const result = await createRoutingAgentBinding(CLAUDE_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(routingFailureOf(result)).toBe("tool_call");
+    expect(result).toMatchObject({ kind: "error", exitCode: -1, stderr: expect.stringContaining("'Bash'") });
+  });
+
+  test("a codex tool item in the transcript is a named failure", async () => {
+    const fake = fakeSpawn([
+      {
+        kind: "settle",
+        code: 0,
+        stdout: codexStream([
+          { type: "command_execution", command: "cat spec.md" },
+          { type: "agent_message", text: ROUTING_JSON },
+        ]),
+      },
+    ]);
+    const result = await createRoutingAgentBinding(CODEX_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(routingFailureOf(result)).toBe("tool_call");
+    expect(result).toMatchObject({ stderr: expect.stringContaining("'command_execution'"), usage_source: "agent" });
+  });
+
+  test("a codex non-ok result keeps usage and cost from its event stream", async () => {
+    const stream = codexStream([{ type: "agent_message", text: "partial" }]);
+    const fake = fakeSpawn([{ kind: "settle", code: 2, stdout: stream, stderr: "boom\n" }]);
+    const result = await createRoutingAgentBinding(CODEX_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(result).toMatchObject({
+      kind: "error",
+      exitCode: 2,
+      usage: { input_tokens: 40, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: null },
+      usage_source: "agent",
+    });
+    expect(routingFailureOf(result)).toBeNull();
+  });
+
+  test("a codex turn.failed event is surfaced as the failure text", async () => {
+    const stdout = JSON.stringify({ type: "turn.failed", error: { message: "model overloaded" } });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout }]);
+    const result = await createRoutingAgentBinding(CODEX_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(result).toMatchObject({ kind: "error", stderr: "codex: model overloaded" });
+    expect(routingFailureOf(result)).toBeNull();
+  });
+
+  test("non-JSON output is a named failure, not a retry", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: claudeStream([], "Sure! Run `jarvis run log r1`.") }]);
+    const result = await createRoutingAgentBinding(CLAUDE_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(routingFailureOf(result)).toBe("malformed_output");
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  test("a transient-looking failure is not retried", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 1, stderr: "connection reset" }]);
+    const result = await createRoutingAgentBinding(CLAUDE_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(result).toMatchObject({ kind: "error", exitCode: 1 });
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  test("overrunning the routing clock aborts the child, names the timeout, and keeps partial output", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const timers: (() => void)[] = [];
+    const promise = createRoutingAgentBinding(CLAUDE_ROUTING, {
+      spawn: fake.spawn,
+      timeoutMs: 1234,
+      setTimeout: ((callback: () => void) => {
+        timers.push(callback);
+        return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+      clearTimeout: (() => {}) as typeof clearTimeout,
+    }).invoke({ prompt: "p", cwd: "/repo" });
+
+    fake.calls[0]?.child?.stdout.write('{"type":"system","subtype":"init"}\n');
+    timers[0]?.();
+    const result = await settlesWithin(promise);
+
+    expect(routingFailureOf(result)).toBe("timeout");
+    expect(result).toMatchObject({
+      kind: "error",
+      exitCode: -1,
+      stderr: "routing: no result within 1234ms",
+      diagnostics: '{"type":"system","subtype":"init"}\n',
+    });
+    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("a caller abort settles as an ordinary abort, not a routing failure", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const controller = new AbortController();
+    const promise = createRoutingAgentBinding(CLAUDE_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+      signal: controller.signal,
+    });
+
+    controller.abort("operator-kill");
+    const result = await settlesWithin(promise);
+
+    expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "aborted: operator-kill" });
+    expect(routingFailureOf(result)).toBeNull();
   });
 });
 

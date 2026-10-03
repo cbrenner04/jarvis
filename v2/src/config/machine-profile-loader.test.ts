@@ -20,6 +20,7 @@ const VALID_MODELS = {
     advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
     adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
     actuator: { rungs: [{ adapterModel: "m6", priceKey: "p6" }] },
+    routing: { rungs: [{ adapterModel: "m6", priceKey: "p6" }] },
   },
 };
 

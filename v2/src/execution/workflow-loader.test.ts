@@ -41,6 +41,7 @@ const FULL_ROLES = {
   advocate: RUNG,
   adjudicator: RUNG,
   actuator: RUNG,
+  routing: RUNG,
 };
 
 const VALID_AGENT_MODEL_CONFIG = {
@@ -270,6 +271,15 @@ describe("loadWorkflowSteps", () => {
       expect(message).toContain("step-1");
       expect(message).toContain("step-2");
     }
+  });
+
+  test("rejects a step naming role 'routing' by name", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+
+    expect(() =>
+      loadWorkflowSteps([sourceStep({ role: "routing" })], { machineConfigPath, machineProfile, machinesDir }),
+    ).toThrow(/non-executable role.*\(step-1, routing\)/);
   });
 
   test("rejects a step naming role 'operator'", () => {

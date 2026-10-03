@@ -10,7 +10,7 @@ Canonical `v2/src/` domain map, import direction, and entrypoint policy — not 
 
 | Domain | Directory |
 | --- | --- |
-| CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage) |
+| CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage, free-text routing action catalog) |
 | Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `config`, `tui`, `cleanup`) |
 | Config loading | `v2/src/config/` (machine config/profile loaders, `agent-model-config`) |
 | Daemon host | `v2/src/daemon/` (daemon, tail-stream, peer-socket supersede, wire parsers, lifecycle, process log, memory watermark, run-operator-error, workflow rollup/snapshot) |
@@ -572,6 +572,7 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
   git). The lock is held for the whole run lifetime; ownership ensures no two
   daemon runs touch the same worktree.
 - **Shared workflow-start admission:** after caller-specific preparation and recovery target validation, standalone workflow starts, daemon pipeline dispatch, and pipeline stage recovery enter `admitWorkflowStart`. That boundary reclaims stale workflow claims, applies queued/live ownership and memory checks, acquires registry and `activeRuns` ownership, and rolls those resources back if lifecycle-specific durable admission refuses or throws. Workflow execution and detached recovery retain distinct identities, durable admission, execution, and settlement; recovery remains `kind: "recovery"` until its continuation settles.
+- **Free-text routing is translation, validation, dispatch.** A natural-language request is translated by a model into a candidate action, validated against the closed catalog in `cli/free-text-routing-actions.ts`, then dispatched through the same canonical operation the explicit command uses. The catalog is the validation boundary: `validateRoutingRequest` is pure (no I/O) and returns a typed `RoutingAction` or a named `RoutingRejection` (`malformed-request`, `unknown-action`, `extra-field`, `missing-field`, `wrong-type`, `command-payload`) with no coercion or partial acceptance. Model output is untrusted input: it can only pick a whitelisted action and bare string arguments (no whitespace, shell metacharacters, leading dashes, or shebangs); project resolution, path existence, ID lookup, and admission preconditions stay deterministic in the dispatcher, never in the model.
 - **Client trusts daemon response shapes.** Client and daemon are the same
   build talking over a local Unix socket — no cross-version protocol skew is
   possible. `daemon/daemon-wire.ts` parsers are envelope-thin: they confirm the

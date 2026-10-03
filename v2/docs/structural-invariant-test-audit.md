@@ -90,7 +90,6 @@ v2/src/cli/stale-dispatch.test.ts out-of-scope no-structural-signal
 v2/src/commands/cleanup-artifacts.test.ts in-scope source-read
 v2/src/commands/cleanup-cli.test.ts out-of-scope no-structural-signal
 v2/src/commands/cleanup.test.ts in-scope source-read
-v2/src/commands/config.test.ts in-scope source-read
 v2/src/commands/daemon.test.ts out-of-scope no-structural-signal
 v2/src/commands/eligibility-gate.test.ts out-of-scope no-structural-signal
 v2/src/commands/init.test.ts in-scope source-read
@@ -358,7 +357,6 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | cli-cleanup-abandon | v2/src/commands/cleanup.test.ts | cleanup: runAbandonCommand > * | abandon retirement order, PR closure, and refusal paths | behavioral integration with git/gh subprocess fixtures | behavioral | n/a | | |
 | cli-cleanup-reset | v2/src/commands/cleanup.test.ts | resetStaleWorkspace / listDirtyWorktreePathsForStaleReset > * | stale workspace reset gates including harness sidecar, node_modules symlink, and landed-criteria refusal | behavioral integration and `@mutate`-coupled guard tests | behavioral | n/a | | |
 | cli-cleanup-merged-refs | v2/src/commands/cleanup.test.ts | cleanup: discover merged branch-ref candidates > guard inversion * | merged-branch ref admission and prune guards | behavioral guard-inversion integration tests | behavioral | n/a | | |
-| cli-config-command | v2/src/commands/config.test.ts | config command > * | set-agents persistence/validation and show/path subcommands | behavioral CLI tests with temp machine-config `readFileSync` | behavioral | n/a | | |
 | cli-init-bootstrap | v2/src/commands/init.test.ts | init machine bootstrap > * | machine profile bootstrap idempotency, refusal paths, and guard inversions | behavioral integration with temp config `readFileSync` | behavioral | n/a | | |
 | cli-init-profile-files | v2/src/commands/init.test.ts | init machine bootstrap > profile bindings govern bootstrap | committed machine profile filenames match `MACHINE_PROFILES_DIR` inventory | sorted `*.json` basenames from `machineProfileFilenames()` agree with dirent discovery; anti-vacuity pin vs pre-fix hand-maintained list | behavioral | n/a | | |
 | cli-init-project | v2/src/commands/init.test.ts | init project registration > * | additive project registration and unsafe identity refusal | behavioral integration with temp config `readFileSync` | behavioral | n/a | | |

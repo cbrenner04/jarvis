@@ -21,10 +21,10 @@ name: review-implement-uses-shared-diff
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-implement.ts` no longer constructs Git commands for diffs; `branchDiff` calls `shared/git.ts` diff operation.
-- [ ] `review-implement.test.ts`: branchDiff produces the same diff content (stat, changed paths, unified) as before; test injects mock runner to verify delegation.
-- [ ] Same file: branchDiff handles merge-base resolution failure gracefully, consistent with `shared/git.ts` operation semantics.
-- [ ] `bun run typecheck` and `bun run test:shared` pass.
+- [x] `shared/prompts/review-implement.ts` no longer constructs Git commands for diffs; `branchDiff` calls `shared/git.ts` diff operation.
+- [x] `review-implement.test.ts`: branchDiff produces the same diff content (stat, changed paths, unified) as before; test injects mock runner to verify delegation.
+- [x] Same file: branchDiff handles merge-base resolution failure gracefully, consistent with `shared/git.ts` operation semantics.
+- [x] `bun run typecheck` and `bun run test:shared` pass.
 
 ## Documentation updates
 

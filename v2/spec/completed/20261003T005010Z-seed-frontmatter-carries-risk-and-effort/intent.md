@@ -19,8 +19,8 @@ Seed frontmatter carries only `name`; nothing describes the consequences of gett
 
 ## Acceptance criteria
 
-- [ ] `seed-metadata.test.ts`: both ratings, one rating, none, and an unknown level each produce the expected typed result or named rejection; every file under `v2/spec/seeds/` still parses; fails against current code (no rating fields).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
+- [x] `seed-metadata.test.ts`: both ratings, one rating, none, and an unknown level each produce the expected typed result or named rejection; every file under `v2/spec/seeds/` still parses; fails against current code (no rating fields).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
 
 ## Documentation updates
 

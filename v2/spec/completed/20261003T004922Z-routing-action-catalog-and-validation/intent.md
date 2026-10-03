@@ -18,8 +18,8 @@ Free-text routing treats model output as untrusted input, and nothing in the har
 
 ## Acceptance criteria
 
-- [ ] `free-text-routing-actions.test.ts`: a request matching a catalog action and schema validates to a typed action; unknown action, extra field, missing required field, wrong type, and command-string payloads are each rejected with a named reason; fails against current code (no catalog).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `free-text-routing-actions.test.ts`: a request matching a catalog action and schema validates to a typed action; unknown action, extra field, missing required field, wrong type, and command-string payloads are each rejected with a named reason; fails against current code (no catalog).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

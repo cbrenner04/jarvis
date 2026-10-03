@@ -10,8 +10,8 @@ Canonical `v2/src/` domain map, import direction, and entrypoint policy — not 
 
 | Domain | Directory |
 | --- | --- |
-| CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage) |
-| Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `config`, `tui`, `cleanup`) |
+| CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage, free-text routing action catalog) |
+| Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `tui`, `cleanup`) |
 | Config loading | `v2/src/config/` (machine config/profile loaders, `agent-model-config`) |
 | Daemon host | `v2/src/daemon/` (daemon, tail-stream, peer-socket supersede, wire parsers, lifecycle, process log, memory watermark, run-operator-error, workflow rollup/snapshot) |
 | Execution library | `v2/src/execution/` (write loop, workflow runner/loader/presets, step builders, review cycles, publication, completion) |
@@ -157,7 +157,7 @@ Per-project config:
   the end of the agent fallback order, configured only on machines that have it.
   Lifecycle and reach are settled under [Concurrency & memory budget → Local model](#local-model):
   Ollama server resident, qwen on-demand, reached via opencode.
-- **Focused show/edit.** Shipped machine-agent CLI: `jarvis config show`, `jarvis config path`, `jarvis config set-agents <agent,agent,...>` on `~/.jarvis/config.json`. Per-project workflow drill-down deferred to [`agent-model-config.md`](agent-model-config.md).
+- **Hand-edited machine config.** The `agents` order is the hand-edited top-level array in `~/.jarvis/config.json` (`jarvis init` seeds it when absent); the `jarvis config` show/path/set-agents CLI is retired. Per-project workflow drill-down deferred to [`agent-model-config.md`](agent-model-config.md).
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow
@@ -555,6 +555,21 @@ Most of v1's git/GitHub machinery is sound and carries forward unchanged: harnes
   proves `health` resolves before that command is released, then releases Git and completes
   the run.
 
+### Git operation ownership
+
+`shared/git.ts` is the canonical owner of Git for Jarvis-owned code: command construction, output parsing, and error semantics live there, and callers pass semantic arguments (refs, paths, branch names) rather than argv. Every operation takes an injected runner (`AsyncSubprocessRunner`; `SubprocessRunner` only for the sync `gitDir` used by root scripts) and an optional `signal`, so callers test against a fake runner and never reach ambient Git. The rule is the target, not yet the state of the tree: new code uses the boundary from the start; the remaining inline callers listed below migrate under the centralize-deterministic-operations intents (`review-implement-uses-shared-diff`, `cleanup-delegates-to-git-boundary`, `external-worktree-delegates-to-shared`, `root-scripts-use-shared-git`, `github-operations-boundary`); a structural guard lands with `guard-prevents-git-spawning-bypass` once they do.
+
+Entry points, by family:
+
+- **Queries (stateless).** `mergeBase`, `diffStat` / `diffNameOnly` / `diffUnified` over a two-dot `DiffRange` (bounded by `DIFF_MAX_BUFFER`, 64 MiB; overflow is reason `too-large`), `branchDiff` (merge-base, then stat + sorted changed paths + unified patch in parallel: the review-context shape), `listWorktrees` (typed porcelain), `resolveRef` (unpeeled), `gitCommonDir`, `gitDir`, plus the older ref/branch/status probes (`branchExistsLocal*`, `branchExistsOnOrigin*`, `getCurrentBranch*`, `isWorktreeDirty*`, `isGitRepo*`, `getGitStatusInventory`).
+- **Mutations (stateful).** `addWorktree`, `removeWorktree`, `pruneWorktrees`, `createBranch`, `deleteBranch`, `updateRef`, `deleteRef`, `pushBranch`. Each returns a structured result naming what happened (`added` / `already-registered`, `removed` / `absent`, `created` / `exists`, `deleted` / `absent`, `pushed` / `already-absent`) so "already in the goal state" is a value, not an exception. Idempotent: `removeWorktree`, `pruneWorktrees`, `deleteBranch`, `deleteRef`, `pushBranch` with `delete`, and `addWorktree` for the exact (path, branch) pair already registered (paths compared through symlinks). Precondition-bearing: `removeWorktree` (clean, unlocked unless `force`, which passes `--force --force` so a lock is overridable), `deleteBranch` (merged unless `force`; checked out in a worktree is `branch-in-use` even under `force`), `updateRef` with `oldOid` (compare-and-swap), `pushBranch` (fast-forward; a rejection is never retried or forced).
+
+Failures are `GitOperationError` with `operation` (which command family), `reason`, `stderr`, `status`, and `retryable`. Retryable (`isRetryableGitError`): `timeout`, `network`, and `lock` (ref lock-file contention with another git process). Fatal for the attempt: `aborted` (the caller's own cancellation), `auth` (tested before `network`, since a GitHub 401/403 also says "unable to access"), `rejected`, `no-merge-base`, `path-exists`, `branch-in-use`, `precondition`, `too-large`, `failed`. A merge-base failure is reported as operation `merge-base`, distinct from a later `diff` failure. `resolveRef` returns `absent` only on git's silent exit 1; any other failure is inconclusive and throws, so a hung or broken query is never read as a missing ref. Sync and async runner errors are unwrapped alike (stderr, exit status). The tests pin parsing and error classification against canned stderr, not the invocation path.
+
+The boundary throws; it has no soft fallbacks. Callers that had one keep it at the call site when they migrate: `scripts/ready.ts` falls back to `<repo>/.git` when `gitDir` throws outside a repository (test temp dirs), and `review-implement.ts` (migrated) renders a `(failed to generate diff: …)` placeholder when `branchDiff` throws.
+
+Remaining inline Git argv sites (production code, as of this section): `shared/executable-tree.ts`, `v2/src/commands/cleanup.ts`, `v2/src/commands/cleanup-archive-publication.ts`, `v2/src/commands/init-readiness.ts`, `v2/src/commands/workflow.ts`, `v2/src/daemon/daemon-workflow-admission-handlers.ts`, `v2/src/daemon/pipeline-execution.ts`, `v2/src/daemon/pipeline-stage-resolve.ts`, `v2/src/execution/completion-commit.ts`, `v2/src/execution/completion-publisher.ts`, `v2/src/execution/diff-derived-mutation-verifier.ts`, `v2/src/execution/diff-scan.ts`, `v2/src/execution/external-worktree.ts`, `v2/src/execution/implement-workflow-steps.ts`, `v2/src/execution/intent-output.ts`, `v2/src/execution/iteration-head-guard.ts`, `v2/src/execution/main-sync-scope.ts`, `v2/src/execution/pr-attribution.ts`, `v2/src/execution/ready-finalize.ts`, `v2/src/execution/review-intent-enforcement.ts`, `v2/src/execution/spec-run-body-summary.ts`, `v2/src/execution/workflow-runner.ts`, `v2/src/execution/workflow-runner-debate-landing.ts`, `v2/src/execution/write-loop.ts`.
+
 ## Interface & IPC
 
 The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC transport. All daemon control is async/await; there is no CLI here (CLI/TUI surface is a sibling concern, wired via this interface).
@@ -574,6 +589,7 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
   git). The lock is held for the whole run lifetime; ownership ensures no two
   daemon runs touch the same worktree.
 - **Shared workflow-start admission:** after caller-specific preparation and recovery target validation, standalone workflow starts, daemon pipeline dispatch, and pipeline stage recovery enter `admitWorkflowStart`. That boundary reclaims stale workflow claims, applies queued/live ownership and memory checks, acquires registry and `activeRuns` ownership, and rolls those resources back if lifecycle-specific durable admission refuses or throws. Workflow execution and detached recovery retain distinct identities, durable admission, execution, and settlement; recovery remains `kind: "recovery"` until its continuation settles.
+- **Free-text routing is translation, validation, dispatch.** A natural-language request is translated by a model into a candidate action, validated against the closed catalog in `cli/free-text-routing-actions.ts`, then dispatched through the same canonical operation the explicit command uses. The catalog is the validation boundary: `validateRoutingRequest` is pure (no I/O) and returns a typed `RoutingAction` or a named `RoutingRejection` (`malformed-request`, `unknown-action`, `extra-field`, `missing-field`, `wrong-type`, `command-payload`) with no coercion or partial acceptance. Model output is untrusted input: it can only pick a whitelisted action and bare string arguments (no whitespace, shell metacharacters, leading dashes, or shebangs); project resolution, path existence, ID lookup, and admission preconditions stay deterministic in the dispatcher, never in the model.
 - **Client trusts daemon response shapes.** Client and daemon are the same
   build talking over a local Unix socket — no cross-version protocol skew is
   possible. `daemon/daemon-wire.ts` parsers are envelope-thin: they confirm the

@@ -8,6 +8,7 @@ const SYNC_GIT_HELPERS = [
   "getCurrentBranch",
   "isWorktreeDirty",
   "isGitRepo",
+  "gitDir",
 ] as const;
 const ALLOWLISTED_FILES = new Map([
   // The CLI-only synchronous runner lives here; daemon-reachable code uses AsyncSubprocessRunner.

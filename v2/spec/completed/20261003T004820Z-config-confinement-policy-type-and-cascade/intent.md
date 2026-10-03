@@ -22,9 +22,9 @@ A project has no way to request or declare a confinement policy. Without a polic
 
 ## Acceptance criteria
 
-- [ ] `machine-config-loader.test.ts`: a test proves project-level the policy override overrides machine default and that an unset project inherits machine default.
-- [ ] `machine-config-loader.test.ts`: a test proves unknown policy values are rejected with a validation error naming the full config path.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `machine-config-loader.test.ts`: a test proves project-level the policy override overrides machine default and that an unset project inherits machine default.
+- [x] `machine-config-loader.test.ts`: a test proves unknown policy values are rejected with a validation error naming the full config path.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

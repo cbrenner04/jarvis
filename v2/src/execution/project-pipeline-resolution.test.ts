@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { RATING_LEVELS } from "../../../shared/seed-metadata.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
@@ -12,7 +13,12 @@ import {
 import type { PipelineDefinition, PipelineSupersedePolicy, PipelineTerminalAction } from "./pipeline-definition.ts";
 import { validatePipelineDefinition } from "./pipeline-definition.ts";
 import { getPipelineDefinition } from "./pipeline-registry.ts";
-import { resolveProjectPipeline } from "./project-pipeline-resolution.ts";
+import {
+  formatProjectPipelineResolutionError,
+  RATING_PAIR_PIPELINES,
+  resolveProjectPipeline,
+  selectPipelineForRatings,
+} from "./project-pipeline-resolution.ts";
 
 const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
   claude: {
@@ -149,8 +155,28 @@ describe("resolveProjectPipeline", () => {
     ["null pipeline", null, "projects.demo.pipeline"],
     ["array pipeline", [], "projects.demo.pipeline"],
     ["string pipeline", "fast", "projects.demo.pipeline"],
-    ["missing name", {}, "projects.demo.pipeline.name"],
-    ["empty name", { terminalAction: "leave-draft" }, "projects.demo.pipeline.name"],
+    ["missing name and terminalAction", {}, "projects.demo.pipeline.terminalAction"],
+    ["empty name", { name: "", terminalAction: "leave-draft" }, "projects.demo.pipeline.name"],
+    [
+      "non-string minimumRisk",
+      { name: "fast", terminalAction: "leave-draft", minimumRisk: 2 },
+      "projects.demo.pipeline.minimumRisk",
+    ],
+    [
+      "empty minimumEffort",
+      { name: "fast", terminalAction: "leave-draft", minimumEffort: "" },
+      "projects.demo.pipeline.minimumEffort",
+    ],
+    [
+      "off-scale minimumRisk",
+      { name: "fast", terminalAction: "leave-draft", minimumRisk: "extreme" },
+      "projects.demo.pipeline.minimumRisk",
+    ],
+    [
+      "off-scale minimumEffort",
+      { name: "fast", terminalAction: "leave-draft", minimumEffort: "High" },
+      "projects.demo.pipeline.minimumEffort",
+    ],
     ["non-string name", { name: 1, terminalAction: "leave-draft" }, "projects.demo.pipeline.name"],
     ["missing terminalAction", { name: "fast" }, "projects.demo.pipeline.terminalAction"],
     ["empty terminalAction", { name: "fast", terminalAction: "" }, "projects.demo.pipeline.terminalAction"],
@@ -561,5 +587,147 @@ describe("resolveProjectPipeline", () => {
     expect(parseFailure.ok).toBe(false);
     expect(lookupFailure.ok).toBe(false);
     expect(targetFailure.ok).toBe(false);
+  });
+});
+
+describe("rating selection", () => {
+  const RATED = { terminalAction: DEFAULT_TERMINAL_ACTION };
+
+  function selectedName(pipeline: Record<string, unknown>, supplied?: Record<string, string>): string {
+    const result = resolveProjectPipeline(
+      config("demo", pipeline),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+      supplied,
+    );
+    if (!result.ok) throw new Error(`expected resolution, got ${JSON.stringify(result.error)}`);
+    return result.definition.name;
+  }
+
+  test("maps every (risk, effort) pair to exactly one registry definition", () => {
+    const names = new Set<string>();
+    for (const risk of RATING_LEVELS) {
+      for (const effort of RATING_LEVELS) {
+        const name = selectPipelineForRatings({ risk, effort });
+        expect(getPipelineDefinition(name).ok).toBe(true);
+        expect(RATING_PAIR_PIPELINES[risk][effort]).toBe(name);
+        expect(selectedName(RATED, { risk, effort })).toBe(name);
+        names.add(name);
+      }
+    }
+    expect(names).toEqual(new Set(["fast", "full-light-review", "full-review"]));
+    expect(selectPipelineForRatings({ risk: "high", effort: "low" })).toBe("full-review");
+    expect(selectPipelineForRatings({ risk: "low", effort: "high" })).toBe("full-light-review");
+    expect(selectPipelineForRatings({ risk: "low", effort: "low" })).toBe("fast");
+    expect(selectPipelineForRatings({ risk: "medium", effort: "medium" })).toBe("full-light-review");
+  });
+
+  test("floors each dimension independently: below the minimum rises to it, above keeps its value", () => {
+    const floors = { ...RATED, minimumRisk: "medium", minimumEffort: "medium" };
+    expect(selectedName(floors, { risk: "low", effort: "low" })).toBe("full-light-review");
+    expect(selectedName(floors, { risk: "high", effort: "low" })).toBe("full-review");
+    expect(selectedName({ ...RATED, minimumRisk: "high" }, { risk: "low", effort: "low" })).toBe("full-review");
+    expect(selectedName({ ...RATED, minimumEffort: "high" }, { risk: "low", effort: "low" })).toBe("full-light-review");
+    expect(selectedName({ ...RATED, minimumRisk: "low", minimumEffort: "low" }, { risk: "high", effort: "high" })).toBe(
+      "full-review",
+    );
+    expect(selectedName({ ...RATED, minimumRisk: "low", minimumEffort: "low" })).toBe("fast");
+  });
+
+  test("validates a supplied rating before the floor applies and names an unresolved dimension before lookup", () => {
+    let lookupCalls = 0;
+    const lookup = (name: string) => {
+      lookupCalls += 1;
+      return getPipelineDefinition(name);
+    };
+    const malformed = resolveProjectPipeline(
+      config("demo", { ...RATED, minimumRisk: "high", minimumEffort: "high" }),
+      lookup,
+      ALL_REVIEW_ROLES_CONFIG,
+      { risk: "extreme", effort: "low" },
+    );
+    expectFailure(malformed);
+    expect(malformed.error).toEqual({
+      code: "invalid-rating",
+      dimension: "risk",
+      value: "extreme",
+      message: 'risk rating must be one of low, medium, high; got "extreme"',
+    });
+
+    const unresolved = resolveProjectPipeline(
+      config("demo", { ...RATED, minimumRisk: "low" }),
+      lookup,
+      ALL_REVIEW_ROLES_CONFIG,
+      {
+        risk: "high",
+      },
+    );
+    expectFailure(unresolved);
+    expect(unresolved.error).toEqual({
+      code: "unresolved-rating",
+      dimension: "effort",
+      message: "effort rating is unresolved: none supplied and projects.demo.pipeline.minimumEffort is absent",
+    });
+    expect(formatProjectPipelineResolutionError(unresolved)).toBe(
+      "unresolved-rating: effort rating is unresolved: none supplied and projects.demo.pipeline.minimumEffort is absent",
+    );
+    expect(lookupCalls).toBe(0);
+  });
+
+  test("an explicit pipeline.name wins over ratings and minimums", () => {
+    expect(
+      selectedName(
+        { ...RATED, name: "fast", minimumRisk: "high", minimumEffort: "high" },
+        { risk: "high", effort: "high" },
+      ),
+    ).toBe("fast");
+    expect(selectedName({ ...RATED, name: "fast" })).toBe("fast");
+    const malformedMinimum = resolveProjectPipeline(
+      config("demo", { ...RATED, name: "fast", minimumRisk: "extreme" }),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    expectFailure(malformedMinimum);
+    expect(malformedMinimum.error).toEqual({
+      code: "invalid-project-pipeline-config",
+      key: "projects.demo.pipeline.minimumRisk",
+      message: 'projects.demo.pipeline.minimumRisk has unknown value "extreme"',
+    });
+  });
+
+  test("review overrides may strengthen but never weaken a rating-selected pipeline", () => {
+    const weakened = resolveProjectPipeline(
+      config("demo", { ...RATED, minimumRisk: "high", minimumEffort: "low", reviewOverrides: { plan: "light" } }),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    expectFailure(weakened);
+    expect(weakened.error).toEqual({
+      code: "invalid-project-pipeline-config",
+      key: "projects.demo.pipeline.reviewOverrides.plan",
+      message:
+        'projects.demo.pipeline.reviewOverrides.plan cannot weaken review "debate" to "light" below the rating-selected pipeline "full-review" (risk high, effort low)',
+    });
+
+    const strengthened = resolveProjectPipeline(
+      config("demo", { ...RATED, minimumRisk: "low", minimumEffort: "low", reviewOverrides: { implement: "debate" } }),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    expect(strengthened.ok).toBe(true);
+    if (!strengthened.ok) throw new Error("expected resolution");
+    expect(strengthened.definition.stages.at(-1)).toEqual({
+      stageId: "implement",
+      kind: "workflow",
+      workflow: "implement",
+      review: "debate",
+    });
+
+    const explicitName = resolveProjectPipeline(
+      config("demo", { ...RATED, name: "full-review", reviewOverrides: { plan: "light" } }),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    expect(explicitName.ok).toBe(true);
   });
 });

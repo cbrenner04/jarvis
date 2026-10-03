@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { GitOperationError } from "../../../shared/git.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -59,6 +60,15 @@ function registerRepo(state: FakeGitState, projectRoot: string): void {
     remoteBranches: new Set(),
     originTrackingRefs: new Set(),
   });
+}
+
+function gitFailure(stderr: string, status = 128): AsyncSubprocessError {
+  return new AsyncSubprocessError("Command failed: git", status, "", stderr, undefined);
+}
+
+/** Positions of the first git call matching each prefix; `-1` when absent. */
+function callIndex(calls: string[], prefix: string): number {
+  return calls.findIndex((c) => c.startsWith(prefix));
 }
 
 function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
@@ -113,6 +123,9 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
         const branchName = rest[0];
         const repo = state.repos.get(cwd);
         if (!repo || !branchName) throw new Error("branch failed");
+        if (repo.localBranches.has(branchName)) {
+          throw gitFailure(`fatal: a branch named '${branchName}' already exists\n`);
+        }
         repo.localBranches.add(branchName);
         return "";
       }
@@ -464,8 +477,130 @@ describe("external worktree helper", () => {
 
     await withExternalWorktree(makeInput(jarvisRoot2, repoRoot2), () => "ok", runner);
 
-    expect(calls.some((c) => c === "branch write-run origin/write-run")).toBe(true);
-    expect(calls.some((c) => c.startsWith("worktree add --checkout"))).toBe(true);
+    // Delegation order: origin probe, then `createBranch` from the origin head, then `addWorktree`.
+    const probe = callIndex(calls, "ls-remote --heads origin write-run");
+    const branch = callIndex(calls, "branch write-run origin/write-run");
+    const add = callIndex(calls, "worktree add ");
+    expect(probe).toBeGreaterThanOrEqual(0);
+    expect(branch).toBeGreaterThan(probe);
+    expect(add).toBeGreaterThan(branch);
+    expect(calls[add]).toBe(`worktree add ${getExternalWorktreePath(makeInput(jarvisRoot2, repoRoot2))} write-run`);
+    expect(calls.filter((c) => c.startsWith("branch "))).toHaveLength(1);
+  });
+
+  test("a branch that already exists locally is reused, not a failure", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-local-branch-"));
+    roots.push(root);
+    const repoRoot = join(root, "repo");
+    const jarvisRoot = join(root, "jarvis-home");
+    mkdirSync(repoRoot, { recursive: true });
+    const state = createFakeGitState();
+    registerRepo(state, repoRoot);
+    state.repos.get(repoRoot)?.localBranches.add("write-run");
+    const calls: string[] = [];
+    const inner = createWorktreeRunner(state);
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git") calls.push(args.join(" "));
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
+
+    // `createBranch` reports `exists` on git's "already exists" refusal; materialization proceeds to `addWorktree`.
+    expect(result.value).toBe("ok");
+    expect(result.worktree.reused).toBe(false);
+    expect(calls).toContain("branch write-run HEAD");
+    expect(callIndex(calls, "worktree add ")).toBeGreaterThan(callIndex(calls, "branch write-run HEAD"));
+  });
+
+  for (const [stderr, reason] of [
+    ["fatal: '/elsewhere' already exists\n", "path-exists"],
+    ["fatal: 'write-run' is already checked out at '/elsewhere'\n", "branch-in-use"],
+  ] as const) {
+    test(`a worktree add refusal (${reason}) surfaces the boundary's classification as the materialization cause`, async () => {
+      const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo();
+      let callbackRan = false;
+      const runner: AsyncSubprocessRunner = {
+        async runAsync(cmd, args, cwd, options) {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "add") throw gitFailure(stderr);
+          return innerRunner.runAsync(cmd, args, cwd, options);
+        },
+      };
+
+      const attempt = withExternalWorktree(
+        makeInput(jarvisRoot, repoRoot),
+        () => {
+          callbackRan = true;
+        },
+        runner,
+      );
+      await expect(attempt).rejects.toBeInstanceOf(WorktreeMaterializationError);
+      const error = (await attempt.catch((e: unknown) => e)) as WorktreeMaterializationError;
+      expect(error.cause).toBeInstanceOf(GitOperationError);
+      expect(error.cause).toMatchObject({ operation: "worktree-add", reason, retryable: false });
+      expect(error.message).toContain(`git worktree-add ${reason}:`);
+      expect(callbackRan).toBe(false);
+      expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
+    });
+  }
+
+  test("passes the caller's AbortSignal through to every git operation", async () => {
+    const { repoRoot, jarvisRoot, runner: inner } = setupMockRepo();
+    const controller = new AbortController();
+    const seen: Array<{ call: string; signal: AbortSignal | undefined }> = [];
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git") seen.push({ call: args.join(" "), signal: options?.signal });
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner, controller.signal);
+
+    const calls = seen.map((entry) => entry.call);
+    for (const prefix of [
+      "worktree prune",
+      "ls-remote --heads origin write-run",
+      "branch write-run HEAD",
+      "worktree add ",
+      "rev-parse --is-inside-work-tree",
+      "rev-parse --path-format=absolute --git-common-dir",
+      "rev-parse --abbrev-ref HEAD",
+    ]) {
+      expect(callIndex(calls, prefix)).toBeGreaterThanOrEqual(0);
+    }
+    expect(seen.every((entry) => entry.signal === controller.signal)).toBe(true);
+  });
+
+  test("an abort during worktree add is reported as the aborted git operation and releases the lock", async () => {
+    const { repoRoot, jarvisRoot, runner: inner } = setupMockRepo();
+    const controller = new AbortController();
+    let callbackRan = false;
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add") {
+          controller.abort();
+          throw new AsyncSubprocessError("Command failed: git worktree add", undefined, "", "", "SIGTERM");
+        }
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    const attempt = withExternalWorktree(
+      makeInput(jarvisRoot, repoRoot),
+      () => {
+        callbackRan = true;
+      },
+      runner,
+      controller.signal,
+    );
+    await expect(attempt).rejects.toBeInstanceOf(WorktreeMaterializationError);
+    const error = (await attempt.catch((e: unknown) => e)) as WorktreeMaterializationError;
+    expect(error.cause).toMatchObject({ operation: "worktree-add", reason: "aborted" });
+    expect(callbackRan).toBe(false);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
   });
 
   test("creates a fresh external worktree and releases lock on success", async () => {
@@ -841,12 +976,12 @@ describe("isNotGitRepositoryDiagnostic", () => {
 });
 
 describe("withExternalWorktree fork ref", () => {
-  async function branchCreateArgs(forkRef: string | undefined): Promise<string[][]> {
+  async function gitCalls(forkRef: string | undefined): Promise<string[]> {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
-    const calls: string[][] = [];
+    const calls: string[] = [];
     const recording: AsyncSubprocessRunner = {
       async runAsync(cmd, args, cwd, options) {
-        if (args[0] === "branch") calls.push(args);
+        if (cmd === "git") calls.push(args.join(" "));
         return runner.runAsync(cmd, args, cwd, options);
       },
     };
@@ -856,7 +991,17 @@ describe("withExternalWorktree fork ref", () => {
   }
 
   test("a new branch forks from forkRef when set, else from baseRef", async () => {
-    expect(await branchCreateArgs("lane-a-implement")).toEqual([["branch", "write-run", "lane-a-implement"]]);
-    expect(await branchCreateArgs(undefined)).toEqual([["branch", "write-run", "HEAD"]]);
+    expect((await gitCalls("lane-a-implement")).filter((c) => c.startsWith("branch "))).toEqual([
+      "branch write-run lane-a-implement",
+    ]);
+    expect((await gitCalls(undefined)).filter((c) => c.startsWith("branch "))).toEqual(["branch write-run HEAD"]);
+  });
+
+  test("the fork-ref branch is created before the worktree is added", async () => {
+    const calls = await gitCalls("lane-a-implement");
+    const branch = callIndex(calls, "branch write-run lane-a-implement");
+    const add = callIndex(calls, "worktree add ");
+    expect(branch).toBeGreaterThanOrEqual(0);
+    expect(add).toBeGreaterThan(branch);
   });
 });

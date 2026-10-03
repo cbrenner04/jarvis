@@ -21,12 +21,12 @@ name: external-worktree-delegates-to-shared
 
 ## Acceptance criteria
 
-- [ ] `external-worktree.ts` no longer calls `runner.runAsync("git", […])` directly; all Git operations call typed `shared/git.ts` exports.
-- [ ] `external-worktree.test.ts`: creating a worktree from an origin branch delegates to `createWorktree` with branch existence verification; test injects a mock to verify calls.
-- [ ] Same file: creating a worktree from a fork ref delegates to the branch creation operation first, then worktree creation.
-- [ ] Same file: a cancelled operation (AbortSignal) propagates the abort to the Git operation; test verifies signal is passed through.
-- [ ] `external-worktree.test.ts`: an operation failure (e.g., branch exists locally) is caught and interpreted using documented operation semantics.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `external-worktree.ts` no longer calls `runner.runAsync("git", […])` directly; all Git operations call typed `shared/git.ts` exports.
+- [x] `external-worktree.test.ts`: creating a worktree from an origin branch delegates to `createWorktree` with branch existence verification; test injects a mock to verify calls.
+- [x] Same file: creating a worktree from a fork ref delegates to the branch creation operation first, then worktree creation.
+- [x] Same file: a cancelled operation (AbortSignal) propagates the abort to the Git operation; test verifies signal is passed through.
+- [x] `external-worktree.test.ts`: an operation failure (e.g., branch exists locally) is caught and interpreted using documented operation semantics.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

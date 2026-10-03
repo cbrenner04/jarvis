@@ -227,13 +227,14 @@ export async function branchExistsOnOriginAsync(
   projectRoot: string,
   branchName: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
 ): Promise<boolean> {
   try {
     const output = await runner.runAsync(
       "git",
       ["ls-remote", "--heads", "origin", branchName],
       projectRoot,
-      networkSubprocessOptions(),
+      networkSubprocessOptions({ signal: options.signal }),
     );
     return originHeadListedInLsRemote(output, branchName);
   } catch (error) {
@@ -247,8 +248,9 @@ export async function branchExistsOnOriginAsync(
 export async function getCurrentBranchAsync(
   cwd: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
 ): Promise<string> {
-  return (await runner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd)).trim();
+  return (await runner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd, runOptions(options))).trim();
 }
 
 /** Async version: True when `git status --porcelain` at `cwd` reports any uncommitted changes. */
@@ -283,7 +285,7 @@ export async function getCurrentHeadAsync(
 // ---------------------------------------------------------------------------
 // Git operations boundary. Jarvis-owned code constructs no Git commands outside this
 // file: callers pass semantic arguments and get typed results or a `GitOperationError`.
-// Queries (merge-base, diff*, listWorktrees, resolveRef) are stateless; mutations
+// Queries (merge-base, diff*, listWorktrees, resolveRef, isInsideWorkTree) are stateless; mutations
 // (addWorktree, removeWorktree, pruneWorktrees, createBranch, deleteBranch, updateRef,
 // deleteRef, pushBranch) are stateful and document their idempotency below.
 // ---------------------------------------------------------------------------
@@ -300,7 +302,8 @@ export type GitOperation =
   | "ref-query"
   | "update-ref"
   | "push"
-  | "git-dir";
+  | "git-dir"
+  | "work-tree-query";
 
 /**
  * Why an operation failed. `timeout`, `network`, and `lock` (ref lock-file contention with
@@ -866,5 +869,31 @@ export async function gitCommonDir(
     return resolve(output.trim());
   } catch (error) {
     throw gitError("git-dir", error, [], options);
+  }
+}
+
+/** True when git's diagnostic says the path is not a usable repo; git >=2.56 reports broken gitfiles differently. */
+export function isNotGitRepositoryDiagnostic(text: string): boolean {
+  return text.includes("not a git repository") || text.includes("gitfile does not point to a valid repository");
+}
+
+/**
+ * `git rev-parse --is-inside-work-tree` at `cwd`: `true` inside a working tree, `false` when git
+ * reports no repository there (including a broken gitfile) or answers `false` (inside `.git`).
+ * Any other failure is inconclusive and rejects with operation `work-tree-query`, unlike the soft
+ * `isGitRepoAsync`, so callers never mistake a broken probe for a plain directory.
+ */
+export async function isInsideWorkTree(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<boolean> {
+  try {
+    const output = await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], cwd, runOptions(options));
+    return output.trim() === "true";
+  } catch (error) {
+    const failure = failureOf(error);
+    if (!failure.timeout && isNotGitRepositoryDiagnostic(`${failure.message}\n${failure.stderr}`)) return false;
+    throw gitError("work-tree-query", error, [], options);
   }
 }

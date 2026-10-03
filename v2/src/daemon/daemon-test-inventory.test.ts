@@ -309,6 +309,44 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   // Renamed: dispatch-time refusal wording now says returns dispatch_refused (same behavior).
   "pipeline intent-stage stale-reset refusal fails stage without dispatch",
   "pipeline implement-stage stale-reset refusal fails stage without dispatch",
+  // Direct-write `queuedInput` promotion paths retired with `run start` (retire-run-start subspec 02);
+  // `daemon-queue-promotion.test.ts` keeps closed-store no-op coverage only.
+  "promoteQueuedRunImpl promotes the oldest queued run before a younger one",
+  "promoteQueuedRunImpl leaves a queued run queued while memory stays below the watermark",
+  "promoteQueuedRunImpl skips a queued run whose key is claimed in favor of the next-oldest eligible run",
+  "promoteQueuedRunImpl resolves queued workflow bindings from the current machine profile",
+  "promoteQueuedRunImpl re-resolves bindings after a machine-profile rung edit",
+  "binding-resolution refusal settles queued run with model-config evidence",
+  "promoteQueuedRunImpl withholds promotion while the settle delay is active",
+  "promoting one queued run does not touch an already-running run when headroom later reports insufficient",
+  "a start that queues because memory is briefly tight is promoted immediately once memory has already recovered",
+  "a run reaching a paused status frees its key for promotion of an eligible queued run",
+  "list reports a promoted run as in-progress and live",
+  // Direct-write resume paths retired with `queuedInput` (retire-run-start subspec 02).
+  "paused direct implement resume ignores historical checkpoint reprompt log events",
+  "paused direct write resume strips stale checkpoint queuedInput without seeding iteration budget",
+  "a direct write resume replays an interrupted plan-draft repair from log",
+  // `startRunDirect` write-loop failure-capture cases retired with `run start`; workflow admission
+  // keeps overlapping coverage via `startWorkflowRun` in the same file.
+  "executor rejection exposes atomic durable cause and evidence before its log append",
+  "executor rejection appends exactly one run_execution_failed via failure reporter",
+  "spawn boundary forwards original rejection to failure reporter",
+  "terminal durable status is not overwritten on executor rejection",
+  // Direct-write admission / `queuedInput` resume retired with `run start` (retire-run-start).
+  "start admits a second project while another run is active",
+  "resume admits a paused direct write run with durable queuedInput",
+  "kill releases write-loop ownership",
+  // Direct `start` / write-loop queue and timeout paths retired with `run start`.
+  "start persists a queued run when memory headroom is unavailable",
+  "start resolves serialized workflow-step input from binding context",
+  "start rejects a second start for a (project, branch) with an existing queued run",
+  "direct timeout releases liveness and worktree ownership",
+  "start with steps is rejected worktree_claimed when a live bare run holds the (project, branch)",
+  "start with input is rejected worktree_claimed when a live workflow run holds the (project, branch)",
+  "second write-loop admission on a live handler resolves rungs from the edited machine profile",
+  "timer fire aborts a write-loop dispatch, settles killed/run_timeout resumable, and logs run_timeout",
+  "is live when a workflow row is active alongside a write-loop row",
+  "is not live when only a write-loop row is active",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

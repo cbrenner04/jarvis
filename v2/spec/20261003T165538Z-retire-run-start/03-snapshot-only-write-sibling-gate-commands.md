@@ -19,6 +19,8 @@
 - Trim `WriteSiblingCommandSource` if `queuedInput` was part of the exported shape.
 - Add or extend a regression in `workflow-runner-resume-review-dispatch.test.ts` that seeds review-row `queuedInput` fix/ready without snapshot commands and asserts `resolveWriteSiblingCommandSource` does not surface them (snapshot-only); fails on main while spreads remain.
 
+- Collateral from subspec 02 (in scope here): `v2/src/daemon/daemon-run-dismiss.test.ts` and `v2/src/daemon/daemon-run-failure-capture.test.ts` still admit runs through the removed direct-start input (`startRunDirect` / `mockWriteLoopInput`); port those tests to workflow-step admission using the fixture pattern subspec 00 established (or delete cases that only exercised direct-start), so the combined typecheck/`test:v2` criterion is tickable without further cross-subspec edits.
+
 ## Acceptance criteria
 
 - [x] `grep -n queuedInput v2/src/execution/workflow-runner-resume.ts` returns zero matches inside `resolveWriteSiblingCommandSource`; fails on main while ~475–496 still spread `queuedInput`.
@@ -29,9 +31,3 @@
 ## Documentation updates
 
 - None beyond subspec 04 catalog/runbook alignment.
-
-## Blocker
-
-`bun run typecheck` passes; `workflow-runner-resume-review-dispatch.test.ts` passes (50/50). `bun run test:v2` fails after serial retry (`JARVIS_TEST_CONCURRENCY=1`): `daemon-run-dismiss.test.ts` (2) and `daemon-run-failure-capture.test.ts` (9) call `startRunDirect`/`mockWriteLoopInput`, which `start` now rejects (`Direct write start via input is not supported; provide workflow steps` from subspec 02). Those files are out of scope for this subspec (`Modify only files named by spec`). Cannot tick the combined typecheck/`test:v2` criterion without cross-subspec test rewrites.
-
-blocked

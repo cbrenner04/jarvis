@@ -8,6 +8,17 @@ import {
 } from "../../../shared/subprocess.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
+import {
+  createPr,
+  GitHubOperationError,
+  type GitHubOperationOptions,
+  ghCommandRunner,
+  listPrs,
+  markPrReady,
+  type PrListEntry,
+  undoPrReady,
+  viewPr,
+} from "./github-operations.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import {
   defaultPublicationDelay,
@@ -80,7 +91,16 @@ type ArchiveReadyPublicationResult = {
 };
 
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+/** Raw `gh` seam kept for fixtures; production routes through the `github-operations` boundary on the real runner. */
 type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+/** Boundary runner plus per-call options (abort signal) for every PR operation in one publication. */
+export type GhSession = { runner: AsyncSubprocessRunner; options: GitHubOperationOptions };
+
+export function ghSession(gh: GhCommand | undefined, signal: AbortSignal | undefined): GhSession {
+  return gh !== undefined
+    ? { runner: ghCommandRunner(gh), options: {} }
+    : { runner: realAsyncSubprocessRunner, options: { signal } };
+}
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
@@ -214,7 +234,7 @@ export async function publishArchiveReady(
   seams?: Partial<Pick<PublisherSeams, "git" | "gh">>,
 ): Promise<ArchiveReadyPublicationResult> {
   const git: Git = seams?.git ?? ((cwd, args, env) => defaultCommand("git", cwd, args, env, input.signal));
-  const gh: GhCommand = seams?.gh ?? ((cwd, args, env) => defaultCommand("gh", cwd, args, env, input.signal));
+  const gh = ghSession(seams?.gh, input.signal);
 
   await pushBranch(git, input.worktreePath, input.branch, undefined);
   const pushSha = await git(input.worktreePath, ["rev-parse", "HEAD"]);
@@ -236,7 +256,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
   return async (input) => {
     const git: Git = seams?.git ?? ((cwd, args, env) => defaultCommand("git", cwd, args, env, input.signal));
-    const gh: GhCommand = seams?.gh ?? ((cwd, args, env) => defaultCommand("gh", cwd, args, env, input.signal));
+    const gh = ghSession(seams?.gh, input.signal);
     const specPath = formatPublicationSpecPathForPrBody(input.worktreePath, input.specPath);
     const subprocessRunner = seams?.subprocessRunner ?? realAsyncSubprocessRunner;
     const requestedBaseRef = input.baseRef;
@@ -344,14 +364,6 @@ type PrEvidence = {
   url: string;
 };
 
-type PrListRecord = {
-  number: number;
-  baseRefName: string;
-  isDraft?: boolean;
-  state?: string;
-  headRefOid?: string;
-};
-
 type LaneHistoryHeadLineage = "in-lineage" | "foreign" | "inconclusive";
 
 /** Raised when a branch carries more than one open PR matching the same base; no safe default to pick. */
@@ -400,15 +412,13 @@ class NoPublishableCommitsError extends Error {
 }
 
 async function listMatchingPrs(
-  gh: GhCommand,
+  gh: GhSession,
   cwd: string,
   branch: string,
   baseRef: string,
   state: "open" | "all",
-): Promise<PrListRecord[]> {
-  const jsonFields = state === "open" ? "number,baseRefName,isDraft" : "number,baseRefName,state,headRefOid";
-  const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", state, "--json", jsonFields]);
-  const prs = JSON.parse(prListJson) as PrListRecord[];
+): Promise<PrListEntry[]> {
+  const prs = await listPrs(gh.runner, cwd, { branch, state }, gh.options);
   return prs.filter((pr) => pr.baseRefName === baseRef);
 }
 
@@ -462,9 +472,9 @@ async function classifyLaneHistoryHeadLineage(
 
 type FindOrCreatePrResult = { kind: "evidence"; evidence: PrEvidence } | { kind: "lane"; outcome: LanePrOutcome };
 
-async function undoHarnessReadyFlip(gh: GhCommand, cwd: string, prNumber: number): Promise<void> {
+async function undoHarnessReadyFlip(gh: GhSession, cwd: string, prNumber: number): Promise<void> {
   try {
-    await gh(cwd, ["pr", "ready", "--undo", String(prNumber)]);
+    await undoPrReady(gh.runner, cwd, prNumber, gh.options);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     stampPublicationFailure(err, "gh pr ready --undo", error);
@@ -473,7 +483,7 @@ async function undoHarnessReadyFlip(gh: GhCommand, cwd: string, prNumber: number
 }
 
 export async function resolveOpenDraftPr(
-  gh: GhCommand,
+  gh: GhSession,
   cwd: string,
   branch: string,
   baseRef: string,
@@ -514,15 +524,14 @@ export async function resolveOpenDraftPr(
 }
 
 function mapNoPublishableCommits(error: unknown, branch: string, baseRef: string): never {
-  const message = errorMessage(error);
-  if (/no commits between/i.test(message)) {
+  if (error instanceof GitHubOperationError && error.reason === "no-commits") {
     throw new NoPublishableCommitsError(branch, baseRef);
   }
   throw error;
 }
 
 async function createDraftPr(
-  gh: GhCommand,
+  gh: GhSession,
   cwd: string,
   baseRef: string,
   branch: string,
@@ -530,24 +539,19 @@ async function createDraftPr(
   creationTitle: string,
 ): Promise<void> {
   try {
-    await gh(cwd, [
-      "pr",
-      "create",
-      "--draft",
-      "--base",
-      baseRef,
-      "--title",
-      creationTitle,
-      "--body",
-      `Spec: ${specPath}`,
-    ]);
+    await createPr(
+      gh.runner,
+      cwd,
+      { base: baseRef, title: creationTitle, body: `Spec: ${specPath}`, draft: true },
+      gh.options,
+    );
   } catch (error) {
     mapNoPublishableCommits(error, branch, baseRef);
   }
 }
 
 async function findOrOpenReuseArchivePr(
-  gh: GhCommand,
+  gh: GhSession,
   cwd: string,
   branch: string,
   baseRef: string,
@@ -565,13 +569,13 @@ async function findOrOpenReuseArchivePr(
   const sole = matches[0];
   if (sole !== undefined) {
     if (sole.isDraft !== false) {
-      await gh(cwd, ["pr", "ready", String(sole.number)]);
+      await markPrReady(gh.runner, cwd, sole.number, gh.options);
     }
     return confirmPr(gh, cwd, branch, baseRef, sole.number);
   }
 
   try {
-    await gh(cwd, ["pr", "create", "--base", baseRef, "--title", title, "--body", body]);
+    await createPr(gh.runner, cwd, { base: baseRef, title, body, draft: false }, gh.options);
   } catch (error) {
     mapNoPublishableCommits(error, branch, baseRef);
   }
@@ -579,7 +583,7 @@ async function findOrOpenReuseArchivePr(
 }
 
 async function findOrCreatePr(
-  gh: GhCommand,
+  gh: GhSession,
   git: Git,
   cwd: string,
   baseRef: string,
@@ -621,7 +625,7 @@ async function findOrCreatePr(
 }
 
 async function confirmPr(
-  gh: GhCommand,
+  gh: GhSession,
   cwd: string,
   branch: string,
   baseRef: string,
@@ -633,9 +637,8 @@ async function confirmPr(
   // open PR on another base, for instance. Comparing one lookup against a differently-scoped
   // lookup then fails on branches whose PR history is longer than one, which is every branch a
   // pipeline has been re-run on. Addressing the PR by number has no such disagreement to resolve.
-  const selector = expectedNumber === undefined ? branch : String(expectedNumber);
-  const prViewJson = await gh(cwd, ["pr", "view", selector, "--json", "number,url,baseRefName"]);
-  const pr = JSON.parse(prViewJson) as { number: number; url: string; baseRefName: string };
+  const selector = expectedNumber === undefined ? branch : expectedNumber;
+  const pr = await viewPr(gh.runner, cwd, selector, gh.options);
 
   if (pr.baseRefName !== baseRef) {
     throw new Error(`PR base ${pr.baseRefName} does not match requested base ${baseRef}`);

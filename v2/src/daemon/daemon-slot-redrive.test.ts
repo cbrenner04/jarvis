@@ -9,7 +9,7 @@ import { acquireGateInvocationLease, type WriteLoopInput } from "../execution/wr
 import { type LogEvent, openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type Run, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import type { WriteLoopBindingSourceDeps } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
@@ -33,6 +33,7 @@ let previousJarvisHome: string | undefined;
 let bindingDeps: WriteLoopBindingSourceDeps;
 let store: StateStore;
 const leases: Array<{ release: () => void }> = [];
+let stopActiveHarness: (() => void) | undefined;
 
 beforeEach(() => {
   dbPath = join(tmpdir(), `jarvis-slot-redrive-${process.pid}-${Date.now()}-${Math.random()}.db`);
@@ -71,6 +72,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  stopActiveHarness?.();
+  stopActiveHarness = undefined;
   for (const lease of leases.splice(0)) lease.release();
   await flushBackgroundRuns(2);
   try {
@@ -130,14 +133,6 @@ function snapshotFor(invocationId: string) {
         agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
       },
     ],
-  };
-}
-
-function bareInput(branch: string): WriteLoopInput {
-  return {
-    ...mockWriteLoopInput({ branchName: branch, projectName: "redrive" }),
-    stepId: "implement",
-    workflowSnapshot: snapshotFor(`inv-${branch}`),
   };
 }
 
@@ -223,7 +218,7 @@ function daemonHarness(
       const run = store.listRuns().find((candidate) => candidate.branch === input.worktree.branchName);
       if (run === undefined) throw new Error("executor ran without a run row");
       runs.push(run.id);
-      onRun(input, run.id, runs.length);
+      onRun(input, run.id, runs.filter((id) => id === run.id).length);
     },
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
@@ -231,15 +226,16 @@ function daemonHarness(
     writeLoopBindingSourceDeps: bindingDeps,
     ...(resolvePredecessorOwner !== undefined ? { resolvePredecessorOwner } : {}),
   });
-  const handlers = createRunLifecycleHandlers(ctx, {
+  createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
   });
-  const start = (branch: string) =>
-    handlers.start(
-      { kind: "request", id: `s-${branch}`, method: "start", params: { input: bareInput(branch) } },
-      new AbortController().signal,
-    );
-  return { ctx, handlers, runs, start };
+  stopActiveHarness = () => ctx.slotRedrive.stop();
+  const enqueueRefusedLane = (branch: string) => {
+    const runId = seedRefusedRun(branch);
+    ctx.slotRedrive.enqueue(runId);
+    return runId;
+  };
+  return { ctx, runs, enqueueRefusedLane };
 }
 
 test("a slot-refused lane waiting on a harness finalization gate release re-drives through resume once that gate finishes", async () => {
@@ -272,22 +268,19 @@ test("a slot-refused lane waiting on a harness finalization gate release re-driv
 
 test("a slot-refused lane settled while the gate is held is re-driven through resume once the holder releases", async () => {
   const holder = holdGate();
-  const { runs, start } = daemonHarness((_input, runId, call) => {
+  const { runs, enqueueRefusedLane } = daemonHarness((_input, runId, call) => {
     if (call === 1) refuseGate(runId);
   });
 
-  const started = await start("write-path");
-  expect(started.kind).toBe("response");
+  const runId = enqueueRefusedLane("write-path");
   await tick();
-  expect(runs).toHaveLength(1);
-  const runId = runs[0] as string;
+  expect(runs).toHaveLength(0);
   expect(store.loadRun(runId)).toMatchObject({ status: "failed", terminalCause: "gate_invocation_refused" });
 
   holder.release();
   await tick();
 
-  expect(runs).toEqual([runId, runId]);
-  expect(store.loadRun(runId)?.status).toBe("in-progress");
+  expect(runs).toEqual([runId]);
   expect(store.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 1 });
   expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive")).toEqual([
     { kind: "slot_redrive", slotRedriveCount: 1, bound: MAX_SLOT_REDRIVES },
@@ -296,37 +289,39 @@ test("a slot-refused lane settled while the gate is held is re-driven through re
 
 test("the daemon context wires the predecessor-owner probe into the coordinator, so a draining predecessor's lane is not re-driven", async () => {
   const holder = holdGate();
-  const { runs, start } = daemonHarness(
+  const { runs, enqueueRefusedLane } = daemonHarness(
     (_input, runId, call) => {
       if (call === 1) refuseGate(runId);
     },
     async () => true,
   );
 
-  await start("context-predecessor-owns");
+  const runId = enqueueRefusedLane("context-predecessor-owns");
   await tick();
-  const runId = runs[0] as string;
   holder.release();
   await tick();
 
-  expect(runs).toEqual([runId]);
+  expect(runs).toEqual([]);
   expect(store.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 0 });
   expect(eventKinds(runId)).toEqual(["slot_redrive_skipped_owner"]);
 });
 
 test("a lease released between the refusal settling and the enqueue still re-drives the lane", async () => {
   const holder = holdGate();
-  const { runs, start } = daemonHarness((_input, runId, call) => {
+  const { runs, enqueueRefusedLane } = daemonHarness((_input, runId, call) => {
     if (call !== 1) return;
     refuseGate(runId);
     holder.release();
   });
 
-  await start("release-before-enqueue");
+  const runId = enqueueRefusedLane("release-before-enqueue");
+  await tick();
+  holder.release();
+  await tick();
   await tick();
 
   expect(runs).toHaveLength(2);
-  expect(runs[1]).toBe(runs[0] as string);
+  expect(runs[1]).toBe(runId);
 });
 
 test("a freed slot taken by another lane before dispatch keeps the entry waiting with its count unchanged", async () => {
@@ -535,7 +530,7 @@ test("a ceiling_headroom refusal is never auto-re-driven and stays failed and re
 });
 
 test("exhausting the bound settles the lane failed with slot_redrive_exhausted and a slot_redrive event per attempt", async () => {
-  const { runs, start } = daemonHarness((_input, runId, call) => {
+  const { runs, enqueueRefusedLane } = daemonHarness((_input, runId, call) => {
     // A gate pass between attempts must not reset the durable count.
     if (call === 3)
       store.commitCompletionBoundary({
@@ -546,11 +541,10 @@ test("exhausting the bound settles the lane failed with slot_redrive_exhausted a
     refuseGate(runId);
   });
 
-  await start("exhaust");
-  await tick();
-  await tick();
+  const runId = enqueueRefusedLane("exhaust");
+  holdGate().release();
+  for (let i = 0; i < MAX_SLOT_REDRIVES + 4; i++) await tick();
 
-  const runId = runs[0] as string;
   expect(runs).toHaveLength(MAX_SLOT_REDRIVES + 1);
   expect(store.loadRun(runId)).toMatchObject({
     status: "failed",
@@ -784,7 +778,6 @@ test("after a restart a lane held by a reachable draining predecessor is neither
     gateRefusalRecoveryState: { slotRedriveCount: 0 },
   });
   expect(eventKinds(runId)).toEqual(["slot_redrive_skipped_owner"]);
-  ctx.slotRedrive.stop();
 });
 
 test("after a restart a persisted lane at the bound is not re-driven", async () => {

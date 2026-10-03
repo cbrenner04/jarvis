@@ -22,10 +22,10 @@ name: shared-git-operations-boundary
 
 ## Acceptance criteria
 
-- [ ] `git.test.ts`: typed diff operations (merge-base, stat, unified) exist with pinned parsing and a distinct merge-base-failure error; fails against current code (no such exports).
-- [ ] Same file: typed worktree lifecycle operations (add, remove, list, prune) return structured results with pinned idempotency semantics.
-- [ ] Same file: typed branch, ref, and push mutations distinguish absence from an inconclusive query and name retryable failures; plan must decide the export names.
-- [ ] `bun run typecheck` and `bun run test:shared` pass.
+- [x] `git.test.ts`: typed diff operations (merge-base, stat, unified) exist with pinned parsing and a distinct merge-base-failure error; fails against current code (no such exports).
+- [x] Same file: typed worktree lifecycle operations (add, remove, list, prune) return structured results with pinned idempotency semantics.
+- [x] Same file: typed branch, ref, and push mutations distinguish absence from an inconclusive query and name retryable failures; plan must decide the export names.
+- [x] `bun run typecheck` and `bun run test:shared` pass.
 
 ## Documentation updates
 

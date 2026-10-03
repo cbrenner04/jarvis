@@ -175,6 +175,32 @@ test("pipeline list distinguishes null from non-numeric nullable timestamps", as
   expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true, absentSocketPaths: [] });
 });
 
+test("pipeline list rejects explicit null admittedSelection and accepts a valid admission object", async () => {
+  const base = pipelineSnapshot(PIPELINE_ID);
+  const admittedSelection = {
+    effective: { risk: "high", effort: "low" },
+    sources: { risk: "flag", effort: "seed" },
+    registryName: "demo",
+  };
+
+  const valid = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [{ ...base, admittedSelection }] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(valid.hasMalformedResponse).toBeFalse();
+  expect(valid.snapshotsBySocketPath[INVOKING_SOCKET]?.[0]?.admittedSelection).toEqual(admittedSelection);
+
+  const invalid = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [{ ...base, admittedSelection: null }] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true, absentSocketPaths: [] });
+});
+
 test("pipeline list accepts a snapshot carrying an optional string field", async () => {
   const snapshot: PipelineSnapshot = {
     pipelineId: PIPELINE_ID,

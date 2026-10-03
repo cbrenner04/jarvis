@@ -1172,7 +1172,7 @@ function steeringFailureAsserter(
 }
 
 async function runAwaitingStageSteeringRefusalTest(
-  verb: "approve" | "reject",
+  verb: "pipeline approve" | "pipeline reject",
   implKey: "pipelineApproveImpl" | "pipelineRejectImpl",
 ): Promise<void> {
   const refusalDetail = "status_not_awaiting\n";
@@ -1568,7 +1568,7 @@ describe("runTuiEntry", () => {
       await flush();
       view.focusCommand();
 
-      view.insertCommandText("start demo --seed seeds/foo.md");
+      view.insertCommandText("pipeline start demo --seed seeds/foo.md");
       const pathSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(pathSeedBuffer);
       expect(parseSpy).toHaveBeenCalledTimes(1);
@@ -1595,7 +1595,7 @@ describe("runTuiEntry", () => {
       });
 
       view.focusCommand();
-      view.insertCommandText("start demo --seed-text Ship feature");
+      view.insertCommandText("pipeline start demo --seed-text Ship feature");
       const _textSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       const textAdmissionGate = deferred<PipelineStartAdmissionResult>();
       let textAdmissionCalls = 0;
@@ -1621,7 +1621,7 @@ describe("runTuiEntry", () => {
       await textView.waitUntilOpen();
       await flush();
       textView.focusCommand();
-      textView.insertCommandText('start demo --seed-text "Ship feature"');
+      textView.insertCommandText('pipeline start demo --seed-text "Ship feature"');
       const textBuffer = textView.monitorStates.at(-1)?.commandBuffer ?? "";
       const statesBeforeResolve = textView.monitorStates.length;
       textView.submitCommand(textBuffer);
@@ -1659,7 +1659,7 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
       view.focusCommand();
-      view.insertCommandText("start demo --seed-text pending");
+      view.insertCommandText("pipeline start demo --seed-text pending");
       const bufferBeforeEdit = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(bufferBeforeEdit);
       expect(admissionCalls).toBe(1);
@@ -1699,7 +1699,7 @@ describe("runTuiEntry", () => {
     await closeView.waitUntilOpen();
     await flush();
     closeView.focusCommand();
-    closeView.insertCommandText("start demo --seed-text close");
+    closeView.insertCommandText("pipeline start demo --seed-text close");
     const closeBuffer = closeView.monitorStates.at(-1)?.commandBuffer ?? "";
     closeView.submitCommand(closeBuffer);
     expect(closeAdmissionCalls).toBe(1);
@@ -1759,14 +1759,14 @@ describe("runTuiEntry", () => {
       };
 
       submitParseFailure("wat", "unknown_verb");
-      submitParseFailure("approve foo", "unexpected_arguments");
-      submitParseFailure("start", "missing_project");
+      submitParseFailure("pipeline approve foo", "unexpected_arguments");
+      submitParseFailure("pipeline start", "missing_project");
 
       view.focusCommand();
       while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
         view.deleteCommandBackward();
       }
-      view.insertCommandText("start missing --seed-text text");
+      view.insertCommandText("pipeline start missing --seed-text text");
       const preAdmissionBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(preAdmissionBuffer);
       await flush();
@@ -1803,7 +1803,7 @@ describe("runTuiEntry", () => {
     await refusalView.waitUntilOpen();
     await flush();
     refusalView.focusCommand();
-    refusalView.insertCommandText("start demo --seed-text retry");
+    refusalView.insertCommandText("pipeline start demo --seed-text retry");
     const refusalBuffer = refusalView.monitorStates.at(-1)?.commandBuffer ?? "";
     refusalView.submitCommand(refusalBuffer);
     await flush();
@@ -1834,7 +1834,7 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
       view.focusCommand();
-      view.insertCommandText("start demo --seed-text retry");
+      view.insertCommandText("pipeline start demo --seed-text retry");
       const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(buffer);
       await flush();
@@ -4152,8 +4152,8 @@ describe("runTuiEntry", () => {
     await flush();
     await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
     view.focusCommand();
-    view.insertCommandText("log");
-    view.submitCommand("log");
+    view.insertCommandText("run log");
+    view.submitCommand("run log");
     await flush();
 
     expect(view.isClosed()).toBe(true);
@@ -4196,8 +4196,8 @@ describe("runTuiEntry", () => {
     await flush();
     await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
     view.focusCommand();
-    view.insertCommandText("log");
-    view.submitCommand("log");
+    view.insertCommandText("run log");
+    view.submitCommand("run log");
     await flush();
 
     expect(view.isClosed()).toBe(true);
@@ -4226,7 +4226,7 @@ describe("runTuiEntry", () => {
     );
     await view.waitUntilOpen();
     await flush();
-    dockCommandFailureAsserter(view, "log")("no_selection");
+    dockCommandFailureAsserter(view, "run log")("no_selection");
     expect(logFollowCalls).toBe(0);
     view.quit();
     expect(await pending).toBe(0);
@@ -4257,7 +4257,7 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
 
-      const expectLogFailure = dockCommandFailureAsserter(view, "log");
+      const expectLogFailure = dockCommandFailureAsserter(view, "run log");
 
       expectLogFailure("not_a_run", () => {
         view.selectNode("pipe-alpha");
@@ -4291,7 +4291,7 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
       await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
-      for (const verb of ["kill", "resume-run"] as const) {
+      for (const verb of ["run kill", "run resume"] as const) {
         view.focusCommand();
         while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
           view.deleteCommandBackward();
@@ -4326,8 +4326,8 @@ describe("runTuiEntry", () => {
       await flush();
       await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
       view.focusCommand();
-      view.insertCommandText("resume-run");
-      view.submitCommand("resume-run");
+      view.insertCommandText("run resume");
+      view.submitCommand("run resume");
       await flush();
       expect(clientOptions.methods).toContain("resume:run-matched");
       expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
@@ -4355,8 +4355,8 @@ describe("runTuiEntry", () => {
       await flush();
       await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
       for (const [verb, rpc] of [
-        ["kill", "kill:run-matched"],
-        ["resume-run", "resume:run-matched"],
+        ["run kill", "kill:run-matched"],
+        ["run resume", "resume:run-matched"],
       ] as const) {
         view.focusCommand();
         view.insertCommandText(verb);
@@ -4395,10 +4395,10 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
       await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
-      steeringFailureAsserter(view, clientOptions, "kill", "kill:", true)("not_live_run");
+      steeringFailureAsserter(view, clientOptions, "run kill", "kill:", true)("not_live_run");
       const [status, input] = renderedDockRows(view.monitorStates.at(-1));
       expect(status).toContain("result: not_live_run");
-      expect(input).toContain("kill");
+      expect(input).toContain("run kill");
     } finally {
       view.quit();
     }
@@ -4417,8 +4417,8 @@ describe("runTuiEntry", () => {
     await emptyView.waitUntilOpen();
     await flush();
     emptyView.focusCommand();
-    emptyView.insertCommandText("kill");
-    emptyView.submitCommand("kill");
+    emptyView.insertCommandText("run kill");
+    emptyView.submitCommand("run kill");
     expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
     emptyView.quit();
     expect(await emptyPending).toBe(0);
@@ -4444,7 +4444,7 @@ describe("runTuiEntry", () => {
     try {
       await view.waitUntilOpen();
       await flush();
-      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "kill", "kill:", true);
+      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "run kill", "kill:", true);
 
       view.selectNode("pipe-alpha");
       expectKillFailure("stale_non_expandable");
@@ -4460,7 +4460,7 @@ describe("runTuiEntry", () => {
 
       const runIdSpy = spyOn(tuiEntry, "selectedRunIdFromState").mockReturnValue(null);
       try {
-        const expectResumeRunFailure = steeringFailureAsserter(view, clientOptions, "resume-run", "resume:", true);
+        const expectResumeRunFailure = steeringFailureAsserter(view, clientOptions, "run resume", "resume:", true);
         expectKillFailure("stale_non_expandable");
         expectResumeRunFailure("stale_non_expandable");
       } finally {
@@ -4471,7 +4471,7 @@ describe("runTuiEntry", () => {
       while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
         view.deleteCommandBackward();
       }
-      view.insertCommandText("resume-run");
+      view.insertCommandText("run resume");
       const resumeBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       const resumeBefore = countRpcMethod(clientOptions.methods, "resume:", true);
       view.submitCommand(resumeBuffer);
@@ -4508,7 +4508,7 @@ describe("runTuiEntry", () => {
       await view.waitUntilOpen();
       await flush();
       view.focusCommand();
-      view.insertCommandText("start demo --seed-text pending");
+      view.insertCommandText("pipeline start demo --seed-text pending");
       const startBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(startBuffer);
       expect(admissionCalls).toBe(1);
@@ -4518,12 +4518,12 @@ describe("runTuiEntry", () => {
       while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
         view.deleteCommandBackward();
       }
-      view.insertCommandText("resume-run");
-      view.submitCommand("resume-run");
+      view.insertCommandText("run resume");
+      view.submitCommand("run resume");
       await flush();
       expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(1);
 
-      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "kill", "kill:", true);
+      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "run kill", "kill:", true);
       view.selectNode("pipe-alpha");
       expectKillFailure("stale_non_expandable");
 
@@ -4560,8 +4560,8 @@ describe("runTuiEntry", () => {
       await flush();
       await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
       view.focusCommand();
-      view.insertCommandText("approve");
-      view.submitCommand("approve");
+      view.insertCommandText("pipeline approve");
+      view.submitCommand("pipeline approve");
       await flush();
       expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
       expect(approveCalls).toEqual([{ pipelineId: "pipe-await", stageId: "gate", branchKey: "default" }]);
@@ -4599,8 +4599,8 @@ describe("runTuiEntry", () => {
       await flush();
       await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
       view.focusCommand();
-      view.insertCommandText("reject");
-      view.submitCommand("reject");
+      view.insertCommandText("pipeline reject");
+      view.submitCommand("pipeline reject");
       await flush();
       expect(countRpcMethod(clientOptions.methods, "pipeline_reject")).toBe(1);
       expect(rejectCalls).toEqual([{ pipelineId: "pipe-await", stageId: "gate", branchKey: "default" }]);
@@ -4638,8 +4638,8 @@ describe("runTuiEntry", () => {
       await flush();
       view.selectNode("pipe-alpha");
       view.focusCommand();
-      view.insertCommandText("resume");
-      view.submitCommand("resume");
+      view.insertCommandText("pipeline resume");
+      view.submitCommand("pipeline resume");
       await flush();
       expect(countRpcMethod(clientOptions.methods, "pipeline_resume")).toBe(1);
       expect(resumeCalls).toEqual([{ pipelineId: "pipe-alpha" }]);
@@ -4667,12 +4667,12 @@ describe("runTuiEntry", () => {
     await emptyView.waitUntilOpen();
     await flush();
     emptyView.focusCommand();
-    emptyView.insertCommandText("approve");
-    emptyView.submitCommand("approve");
+    emptyView.insertCommandText("pipeline approve");
+    emptyView.submitCommand("pipeline approve");
     expect(emptyView.monitorStates.at(-1)).toMatchObject({
       selectedNodeId: null,
       focus: "command",
-      commandBuffer: "approve",
+      commandBuffer: "pipeline approve",
       lastCommandResult: "no_selection",
     });
     emptyView.quit();
@@ -4697,7 +4697,7 @@ describe("runTuiEntry", () => {
     try {
       await view.waitUntilOpen();
       await flush();
-      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "approve", "pipeline_approve");
+      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "pipeline approve", "pipeline_approve");
 
       await expandPipelineAndSelect(view, "pipe-await", "run-await");
       expectApproveFailure("run_leaf");
@@ -4732,8 +4732,8 @@ describe("runTuiEntry", () => {
     await emptyView.waitUntilOpen();
     await flush();
     emptyView.focusCommand();
-    emptyView.insertCommandText("reject");
-    emptyView.submitCommand("reject");
+    emptyView.insertCommandText("pipeline reject");
+    emptyView.submitCommand("pipeline reject");
     expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
     emptyView.quit();
     expect(await emptyPending).toBe(0);
@@ -4757,7 +4757,7 @@ describe("runTuiEntry", () => {
     try {
       await view.waitUntilOpen();
       await flush();
-      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "reject", "pipeline_reject");
+      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "pipeline reject", "pipeline_reject");
 
       await expandPipelineAndSelect(view, "pipe-await", "run-await");
       expectRejectFailure("run_leaf");
@@ -4792,8 +4792,8 @@ describe("runTuiEntry", () => {
     await emptyView.waitUntilOpen();
     await flush();
     emptyView.focusCommand();
-    emptyView.insertCommandText("resume");
-    emptyView.submitCommand("resume");
+    emptyView.insertCommandText("pipeline resume");
+    emptyView.submitCommand("pipeline resume");
     expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
     emptyView.quit();
     expect(await emptyPending).toBe(0);
@@ -4814,7 +4814,7 @@ describe("runTuiEntry", () => {
     try {
       await view.waitUntilOpen();
       await flush();
-      const expectResumeFailure = steeringFailureAsserter(view, clientOptions, "resume", "pipeline_resume");
+      const expectResumeFailure = steeringFailureAsserter(view, clientOptions, "pipeline resume", "pipeline_resume");
 
       await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
       expectResumeFailure("run_leaf");
@@ -4873,8 +4873,8 @@ describe("runTuiEntry", () => {
     try {
       await view.waitUntilOpen();
       await flush();
-      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "approve", "pipeline_approve");
-      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "reject", "pipeline_reject");
+      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "pipeline approve", "pipeline_approve");
+      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "pipeline reject", "pipeline_reject");
 
       const initialState = view.monitorStates.at(-1);
       const awaitingGateId = attentionRowIdByKind(initialState, "awaiting-gate");
@@ -4893,8 +4893,8 @@ describe("runTuiEntry", () => {
 
       view.selectNode(awaitingGateId);
       view.focusCommand();
-      view.insertCommandText("approve");
-      view.submitCommand("approve");
+      view.insertCommandText("pipeline approve");
+      view.submitCommand("pipeline approve");
       await flush();
       expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
       expect(approveCalls).toEqual([{ pipelineId: "pipe-attn-gates", stageId: "approve-plan", branchKey: "default" }]);
@@ -4907,8 +4907,8 @@ describe("runTuiEntry", () => {
 
       view.selectNode(awaitingGateId);
       view.focusCommand();
-      view.insertCommandText("reject");
-      view.submitCommand("reject");
+      view.insertCommandText("pipeline reject");
+      view.submitCommand("pipeline reject");
       await flush();
       expect(countRpcMethod(clientOptions.methods, "pipeline_reject")).toBe(1);
       expect(rejectCalls).toEqual([{ pipelineId: "pipe-attn-gates", stageId: "approve-plan", branchKey: "default" }]);
@@ -5000,8 +5000,8 @@ describe("runTuiEntry", () => {
 
       view.selectNode(newestGateId);
       view.focusCommand();
-      view.insertCommandText("approve");
-      view.submitCommand("approve");
+      view.insertCommandText("pipeline approve");
+      view.submitCommand("pipeline approve");
       await flush();
 
       expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
@@ -5015,11 +5015,11 @@ describe("runTuiEntry", () => {
   });
 
   test("typed approve daemon refusal retains command input and reports verbatim detail", async () => {
-    await runAwaitingStageSteeringRefusalTest("approve", "pipelineApproveImpl");
+    await runAwaitingStageSteeringRefusalTest("pipeline approve", "pipelineApproveImpl");
   });
 
   test("typed reject daemon refusal retains command input and reports verbatim detail", async () => {
-    await runAwaitingStageSteeringRefusalTest("reject", "pipelineRejectImpl");
+    await runAwaitingStageSteeringRefusalTest("pipeline reject", "pipelineRejectImpl");
   });
 
   test("typed resume daemon refusal retains command input and reports verbatim detail", async () => {
@@ -5046,7 +5046,7 @@ describe("runTuiEntry", () => {
       await flush();
       view.selectNode("pipe-alpha");
       view.focusCommand();
-      view.insertCommandText("resume");
+      view.insertCommandText("pipeline resume");
       const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(buffer);
       await flush();
@@ -5097,7 +5097,7 @@ describe("runTuiEntry", () => {
 
       await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
       view.focusCommand();
-      view.insertCommandText("approve");
+      view.insertCommandText("pipeline approve");
       const approveBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(approveBuffer);
       expect(approveCalls).toBe(1);
@@ -5121,7 +5121,7 @@ describe("runTuiEntry", () => {
       while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
         view.deleteCommandBackward();
       }
-      view.insertCommandText("reject");
+      view.insertCommandText("pipeline reject");
       const rejectBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(rejectBuffer);
       expect(rejectCalls).toBe(1);
@@ -5145,7 +5145,7 @@ describe("runTuiEntry", () => {
       while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
         view.deleteCommandBackward();
       }
-      view.insertCommandText("resume");
+      view.insertCommandText("pipeline resume");
       const resumeBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(resumeBuffer);
       expect(resumeCalls).toBe(1);
@@ -5191,7 +5191,7 @@ describe("runTuiEntry", () => {
     closeView.selectNode(PIPELINE_STAGE_AWAITING);
     await flush();
     closeView.focusCommand();
-    closeView.insertCommandText("approve");
+    closeView.insertCommandText("pipeline approve");
     const closeBuffer = closeView.monitorStates.at(-1)?.commandBuffer ?? "";
     closeView.submitCommand(closeBuffer);
     expect(closeApproveCalls).toBe(1);
@@ -5231,7 +5231,7 @@ describe("runTuiEntry", () => {
       await flush();
       await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
       view.focusCommand();
-      view.insertCommandText("approve");
+      view.insertCommandText("pipeline approve");
       const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       view.submitCommand(buffer);
       expect(approveCalls).toBe(1);
@@ -5597,7 +5597,7 @@ describe("runTuiEntry", () => {
         await view.waitUntilOpen();
         await flush();
         view.focusCommand();
-        view.insertCommandText("start demo --seed seeds/foo.md");
+        view.insertCommandText("pipeline start demo --seed seeds/foo.md");
         const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
         view.submitCommand(buffer);
         await flush();

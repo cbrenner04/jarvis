@@ -90,6 +90,7 @@ const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
   claude: {
     critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] },
     actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] },
+    routing: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] },
     adversary: { rungs: [{ adapterModel: "adversary", priceKey: "adversary" }] },
     advocate: { rungs: [{ adapterModel: "advocate", priceKey: "advocate" }] },
     adjudicator: { rungs: [{ adapterModel: "adjudicator", priceKey: "adjudicator" }] },

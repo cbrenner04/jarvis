@@ -41,6 +41,7 @@ const FULL_ROLES = {
   advocate: RUNG,
   adjudicator: RUNG,
   actuator: RUNG,
+  routing: RUNG,
 };
 
 const VALID_AGENT_MODEL_CONFIG = {

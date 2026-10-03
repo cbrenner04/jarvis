@@ -21,6 +21,7 @@ const VALID_CLAUDE = {
   advocate: { rungs: [{ adapterModel: "m4", priceKey: "p4" }] },
   adjudicator: { rungs: [{ adapterModel: "m5", priceKey: "p5" }] },
   actuator: { rungs: [{ adapterModel: "m6", priceKey: "p6" }] },
+  routing: { rungs: [{ adapterModel: "m6", priceKey: "p6" }] },
 };
 
 describe("validateAgentModelConfig", () => {
@@ -28,6 +29,7 @@ describe("validateAgentModelConfig", () => {
     ["missing required role (actuator)", { ...VALID_CLAUDE, actuator: undefined }, ["claude", "actuator", "missing"]],
     ["missing required role (critic)", { ...VALID_CLAUDE, critic: undefined }, ["claude", "critic", "missing"]],
     ["missing required role (shrink)", { ...VALID_CLAUDE, shrink: undefined }, ["claude", "shrink", "missing"]],
+    ["missing required role (routing)", { ...VALID_CLAUDE, routing: undefined }, ["claude", "routing", "missing"]],
     ["missing rungs field", { ...VALID_CLAUDE, plan: {} }, ["claude", "plan", "non-empty array"]],
     ["empty rungs array", { ...VALID_CLAUDE, plan: { rungs: [] } }, ["claude", "plan", "non-empty array"]],
     ["non-array rungs", { ...VALID_CLAUDE, plan: { rungs: "not-array" } }, ["claude", "plan", "non-empty array"]],
@@ -225,6 +227,23 @@ describe("resolveInvocationBindings", () => {
 
     expect(bindings).toEqual(["claude/claude-critic-1", "claude/claude-critic-2", "codex/codex-critic-1"]);
     expect(bindings).not.toContain("claude/claude-adversary-1");
+  });
+
+  test("routing resolves a binding from the machine profile like other roles", () => {
+    const bindings = resolveInvocationBindings(
+      resolveExecutableRole("routing"),
+      ["claude", "codex"],
+      {
+        claude: { routing: { rungs: [{ adapterModel: "claude-cheap", priceKey: "claude-cheap-price" }] } },
+        codex: { routing: { rungs: [{ adapterModel: "codex-cheap", priceKey: "codex-cheap-price" }] } },
+      },
+      (binding) => binding,
+    );
+
+    expect(bindings).toEqual([
+      { agentId: "claude", adapterModel: "claude-cheap", priceKey: "claude-cheap-price" },
+      { agentId: "codex", adapterModel: "codex-cheap", priceKey: "codex-cheap-price" },
+    ]);
   });
 
   test("actuator resolves head-only bindings", () => {

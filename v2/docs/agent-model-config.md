@@ -83,7 +83,8 @@ Per-agent map from role to escalation list.
   "critic": { "rungs": [ /* Model */ ] },
   "advocate": { "rungs": [ /* Model */ ] },
   "adjudicator": { "rungs": [ /* Model */ ] },
-  "actuator": { "rungs": [ /* Model */ ] }
+  "actuator": { "rungs": [ /* Model */ ] },
+  "routing": { "rungs": [ /* Model */ ] }
 }
 ```
 
@@ -174,10 +175,40 @@ Empty `agents` resolves to `[]`. Shared invocation then returns `no_binding`; th
 | `advocate` | full-list | walk `rungs[0..n]` |
 | `adjudicator` | full-list | walk `rungs[0..n]` |
 | `actuator` | head-only | only `rungs[0]`; quota advances outer agent loop |
+| `routing` | full-list | walk `rungs[0..n]` |
 
 Head-only `actuator` matches v1 `reviewActuator` verdict-tier semantics: inner rungs beyond the head are not walked on quota for the same agent.
 
 **Shrink footnote:** v2 model resolution has a dedicated `shrink` role with its own rungs. `executeWorkflow` consumes those rungs for the hidden write-loop pass after an `implement` write step returns `complete`. Rung strength is config-author guidance only; load validation does not inspect model names or prices as policy proxies.
+
+## Routing role
+
+`routing` is the cheap, tool-free translation call behind free-text routing: it turns an operator sentence into one JSON object the [routing action catalog](../src/cli/free-text-routing-actions.ts) validates. It is an executable role like any other — required for every agent in the effective order at load, resolved through the same machine-profile rungs (`resolveInvocationBindings("routing", …)`), no separate model ranking. Both shipped profiles bind it to the cheapest model already listed for each agent.
+
+Bindings come from `createRoutingAgentBinding` in [`shared/invocation/agents.ts`](../../shared/invocation/agents.ts), not `createResolvedAgentBinding`. The routing invocation receives only the prompt and its `cwd`; the caller chooses a neutral `cwd` because vendor CLIs still read project settings from it.
+
+### Tool-free invocation contract
+
+| Vendor | Form | Notes |
+| --- | --- | --- |
+| `claude` | `claude -p --tools "" --strict-mcp-config --permission-prompts none --model <m> --output-format stream-json --verbose` | `--tools ""` disables every built-in tool; `--strict-mcp-config` drops settings-sourced MCP servers; anything that would still prompt is auto-denied. No `--permission-mode`, no `--add-dir`. |
+| `codex` | `codex exec --skip-git-repo-check --color never --sandbox read-only -c approval_policy="never" --json --model <m>` | codex has no tool-disabling flag; the read-only OS sandbox plus auto-denied escalation is its strongest honest form (read-only shell remains possible, which the transcript check below turns into a named failure). No `--add-dir`; `codexSandboxMode` does not apply. Usage comes from the `turn.completed` event, not the session rollout. |
+| `cursor` | **refused** | `cursor-agent` has no tool-disabling flag; `--mode ask` keeps read tools and requires a workspace grant. |
+| `opencode` | **refused** | No tool-disabling flag; tool sets live only in project agent config. |
+
+Refusal is `RoutingRefusalError` (names the agent) thrown by `createRoutingAgentBinding` before any process starts — a vendor that cannot run tool-free never runs degraded. `routingRefusalReason(agentId)` ([`shared/invocation/routing.ts`](../../shared/invocation/routing.ts)) answers the same question without constructing a binding.
+
+### Bounds and named failures
+
+One spawn per call: no transient retry, no re-prompt. The call is bounded by a whole-call wall clock (`ROUTING_TIMEOUT_MS`, 60 s; `timeoutMs` overrides) and the final text by `ROUTING_MAX_OUTPUT_CHARS` (4096). A routing settlement is an ordinary `InvocationResult` (so quota fallback across agents works unchanged) whose `error` variant may carry `routingFailure`, read with `routingFailureOf(result)`:
+
+| `routingFailure` | Meaning |
+| --- | --- |
+| `timeout` | The wall clock fired; the child was aborted and killed. |
+| `tool_call` | The transcript shows a tool attempt (`tool_use` block for claude, any non-text item for codex); `stderr` names the tool. |
+| `malformed_output` | The final text is not one JSON object (a single surrounding code fence is tolerated), exceeds the output bound, or codex emitted no agent message. |
+
+On `ok`, `stdout` is the JSON object text (fence stripped); catalog validation (`validateRoutingRequest`) is the v2 consumer's job. A caller abort settles as the usual `aborted: <reason>` error, not a routing failure. Usage and cost are attached to named failures when the vendor reported them.
 
 ## Terminal outcomes
 
@@ -205,7 +236,7 @@ One machine-wide `idleOutputTimeoutMs` policy governs workflow write invocations
 | --- | --- |
 | Every `agent` in project `agents` has a `ModelsByRole` entry in the data file | hard error |
 | For each such agent, every required role has a `ModelEscalation` entry | hard error |
-| Required roles = closed `Role` union minus optional `operator`; includes `critic` and `shrink` | — |
+| Required roles = closed `Role` union minus optional `operator`; includes `critic`, `shrink`, and `routing` | — |
 | `operator` entry absent | load succeeds; resolving `operator` before Phase 9 is a **runtime** error |
 | `rungs` missing or empty for any present `(agent, role)` | hard error |
 | Duplicate names in project `agents` | hard error |

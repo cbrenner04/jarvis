@@ -69,6 +69,14 @@
             "priceKey": "claude-opus-5-5"
           }
         ]
+      },
+      "routing": {
+        "rungs": [
+          {
+            "adapterModel": "claude-sonnet-5-5",
+            "priceKey": "claude-sonnet-5-5"
+          }
+        ]
       }
     },
     "codex": {
@@ -129,6 +137,14 @@
         ]
       },
       "actuator": {
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-terra",
+            "priceKey": "gpt-5.6-terra"
+          }
+        ]
+      },
+      "routing": {
         "rungs": [
           {
             "adapterModel": "gpt-5.6-terra",
@@ -201,6 +217,14 @@
             "priceKey": "Composer 2.5"
           }
         ]
+      },
+      "routing": {
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       }
     },
     "opencode": {
@@ -261,6 +285,14 @@
         ]
       },
       "actuator": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "routing": {
         "rungs": [
           {
             "adapterModel": "opencode/deepseek-v4-flash-free",

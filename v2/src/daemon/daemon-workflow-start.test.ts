@@ -180,6 +180,7 @@ const DEBATE_AGENT_MODEL_CONFIG = {
     advocate: { rungs: [{ adapterModel: "ADVOC", priceKey: "p-advoc" }] },
     adjudicator: { rungs: [{ adapterModel: "ADJ", priceKey: "p-adj" }] },
     actuator: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
+    routing: { rungs: [{ adapterModel: "ACT", priceKey: "p-act" }] },
   },
 };
 
@@ -995,6 +996,7 @@ test("second write-loop admission on a live handler resolves rungs from the edit
     advocate: rung("advoc"),
     adjudicator: rung("adj"),
     actuator: rung("act"),
+    routing: rung("act"),
   });
   const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
   const writeProfile = (implementModel: string) => {

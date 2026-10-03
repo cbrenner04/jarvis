@@ -18,6 +18,16 @@ import type {
   ProcessGroupRecorder,
 } from "./execute.ts";
 import { parseOpencodeJsonOutput } from "./opencode-json.ts";
+import {
+  findClaudeRoutingToolCall,
+  parseCodexExecJsonOutput,
+  parseRoutingOutput,
+  ROUTING_TIMEOUT_MS,
+  type RoutingInvocationError,
+  RoutingRefusalError,
+  routingFailure,
+  routingRefusalReason,
+} from "./routing.ts";
 
 export type ResolvedAgentBinding = {
   agentId: string;
@@ -53,7 +63,12 @@ export type ResolvedAgentBindingOptions = {
   abortKillGraceMs?: number;
 };
 
-function bindingAgentRunOptions(opts: ResolvedAgentBindingOptions): AgentRunOptions {
+function bindingAgentRunOptions(
+  opts: Pick<
+    ResolvedAgentBindingOptions,
+    "probeAgentDescendantProcessGroups" | "signalProcessGroup" | "abortKillGraceMs"
+  >,
+): AgentRunOptions {
   return {
     ...(opts.probeAgentDescendantProcessGroups !== undefined
       ? { probeAgentDescendantProcessGroups: opts.probeAgentDescendantProcessGroups }
@@ -199,6 +214,185 @@ export function createResolvedAgentBinding(
       `agent '${agentId}' model '${adapterModel}' price '${priceKey}' invocation is not wired yet`,
     ),
     metadata,
+  };
+}
+
+export type RoutingInvocationResult = InvocationResult | RoutingInvocationError;
+
+export type RoutingBindingOptions = {
+  spawn?: SpawnFn;
+  /** Whole-call wall clock; default `ROUTING_TIMEOUT_MS`. */
+  timeoutMs?: number;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+  probeAgentDescendantProcessGroups?: ProbeAgentDescendantProcessGroups;
+  signalProcessGroup?: SignalProcessGroup;
+  abortKillGraceMs?: number;
+};
+
+/**
+ * Tool-free invocation forms per vendor. Only the prompt and the explicit `cwd` reach the agent:
+ * no `--add-dir`, no workspace grant, no coding permission mode. Vendors with no honest
+ * tool-disabling form are refused by name at construction (`RoutingRefusalError`).
+ */
+function routingSpawnConfig(agentId: "claude" | "codex", adapterModel: string, cwd: string, spawn?: SpawnFn) {
+  const base = {
+    cwd,
+    stdio: ["pipe", "pipe", "pipe"] as StdioOptions,
+    writeStdin: (stdin: NodeJS.WritableStream, text: string) => {
+      stdin.write(text);
+      stdin.end();
+    },
+    ...(spawn !== undefined ? { spawn } : {}),
+  };
+  if (agentId === "claude") {
+    return {
+      ...base,
+      name: "claude" as const,
+      binary: "claude",
+      // `--tools ""` disables every built-in tool; `--strict-mcp-config` drops settings-sourced MCP
+      // servers; `--permission-prompts none` auto-denies anything that would still ask.
+      buildArgv: () => [
+        "-p",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--permission-prompts",
+        "none",
+        "--model",
+        adapterModel,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+      ],
+      streamErrorPrefix: "claude:",
+      classifier: "claude" as const,
+    };
+  }
+  return {
+    ...base,
+    name: "codex" as const,
+    binary: "codex",
+    // codex has no tool-disabling flag: the read-only OS sandbox plus `approval_policy="never"`
+    // (escalations auto-denied) is the strongest honest form; any tool item in the `--json`
+    // transcript is still a named failure.
+    buildArgv: () => [
+      "exec",
+      "--skip-git-repo-check",
+      "--color",
+      "never",
+      "--sandbox",
+      "read-only",
+      "-c",
+      'approval_policy="never"',
+      "--json",
+      "--model",
+      adapterModel,
+    ],
+    streamErrorPrefix: "codex:",
+    classifier: "codex" as const,
+  };
+}
+
+function settlementOf(result: InvocationResult): InvocationSettlement {
+  const { usage, usage_source, cost_usd, cost_source, warnings } = result as InvocationSettlement;
+  return {
+    ...(usage !== undefined ? { usage } : {}),
+    ...(usage_source !== undefined ? { usage_source } : {}),
+    ...(cost_usd !== undefined ? { cost_usd } : {}),
+    ...(cost_source !== undefined ? { cost_source } : {}),
+    ...(warnings !== undefined ? { warnings } : {}),
+  };
+}
+
+function finalizeClaudeRoutingResult(raw: InvocationResult): RoutingInvocationResult {
+  if (raw.kind !== "ok") return finalizeClaudeInvocationResult(raw);
+  const result = finalizeClaudeInvocationResult(raw);
+  if (result.kind !== "ok") return result;
+  const toolCall = findClaudeRoutingToolCall(raw.stdout);
+  if (toolCall !== null) {
+    return routingFailure("tool_call", `routing: agent attempted tool call '${toolCall}'`, settlementOf(result));
+  }
+  return boundRoutingOutput(result);
+}
+
+function finalizeCodexRoutingResult(raw: InvocationResult, priceKey: string): RoutingInvocationResult {
+  if (raw.kind !== "ok") return raw;
+  const parsed = parseCodexExecJsonOutput(raw.stdout);
+  const settlement: InvocationSettlement =
+    parsed.usage === null
+      ? { usage_source: "unavailable", cost_usd: null, cost_source: "no-usage" }
+      : { usage: parsed.usage, usage_source: "agent", ...codexRoutingCost(parsed.usage, priceKey) };
+  if (parsed.toolCall !== null) {
+    return routingFailure("tool_call", `routing: agent attempted tool call '${parsed.toolCall}'`, settlement);
+  }
+  if (parsed.message === null) {
+    return routingFailure("malformed_output", "routing: no agent message in codex transcript", settlement);
+  }
+  return boundRoutingOutput({ kind: "ok", stdout: parsed.message, stderr: raw.stderr, ...settlement });
+}
+
+function codexRoutingCost(usage: Usage, priceKey: string): Pick<InvocationSettlement, "cost_usd" | "cost_source"> {
+  try {
+    const cost = computeCost(usage, priceKey, loadPrices());
+    return { cost_usd: cost.cost_usd, cost_source: cost.cost_source };
+  } catch {
+    return { cost_usd: null, cost_source: "no-price" };
+  }
+}
+
+function boundRoutingOutput(result: InvocationOk): RoutingInvocationResult {
+  const parsed = parseRoutingOutput(result.stdout);
+  if (!parsed.ok) return routingFailure(parsed.reason, `routing: ${parsed.detail}`, settlementOf(result));
+  return { ...result, stdout: parsed.json };
+}
+
+/**
+ * One bounded, tool-free routing call: a single process attempt, no transient retry, a whole-call timeout,
+ * and a transcript/output check that names its failure. `cursor`/`opencode`/unknown agents throw
+ * `RoutingRefusalError` here, before any process starts.
+ */
+export function createRoutingAgentBinding(
+  args: ResolvedAgentBinding,
+  opts: RoutingBindingOptions = {},
+): InvocationBinding<RoutingInvocationResult> {
+  const { agentId, adapterModel, priceKey } = args;
+  const refusal = routingRefusalReason(agentId);
+  if (refusal !== null || (agentId !== "claude" && agentId !== "codex")) {
+    throw new RoutingRefusalError(agentId, refusal ?? "no tool-free invocation form is wired");
+  }
+  const timeoutMs = opts.timeoutMs ?? ROUTING_TIMEOUT_MS;
+  const setTimer = opts.setTimeout ?? setTimeout;
+  const clearTimer = opts.clearTimeout ?? clearTimeout;
+  return {
+    id: `${agentId}/${adapterModel}/${priceKey}`,
+    metadata: { agent: agentId, model: adapterModel },
+    invoke: async ({ prompt, cwd, signal, processGroupRecorder }) => {
+      const controller = new AbortController();
+      const forwardAbort = () => controller.abort(signal?.reason ?? "aborted");
+      if (signal?.aborted) forwardAbort();
+      else signal?.addEventListener("abort", forwardAbort, { once: true });
+      let timedOut = false;
+      const timer = setTimer(() => {
+        timedOut = true;
+        controller.abort("routing timeout");
+      }, timeoutMs);
+      timer.unref?.();
+      try {
+        const raw = await singleSpawn(routingSpawnConfig(agentId, adapterModel, cwd, opts.spawn), prompt, {
+          signal: controller.signal,
+          ...(processGroupRecorder !== undefined ? { processGroupRecorder } : {}),
+          ...bindingAgentRunOptions(opts),
+          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+        });
+        if (timedOut) return routingFailure("timeout", `routing: no result within ${timeoutMs}ms`);
+        return agentId === "claude" ? finalizeClaudeRoutingResult(raw) : finalizeCodexRoutingResult(raw, priceKey);
+      } finally {
+        clearTimer(timer);
+        signal?.removeEventListener("abort", forwardAbort);
+      }
+    },
   };
 }
 

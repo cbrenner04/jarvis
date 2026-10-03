@@ -16,6 +16,7 @@ Model resolution keys are concrete **roles**, not coarse categories. The closed 
 | `advocate` | Read-only defense in a review debate — responds to adversary findings. |
 | `adjudicator` | Read-only verdict synthesis — emits the outcome-altitude instruction the actuator applies. |
 | `actuator` | Verdict application — the only writer after either review primitive produces a non-empty verdict. |
+| `routing` | Tool-free free-text translation — maps an operator sentence to one catalog action; invocation contract in [`agent-model-config.md` § Routing role](agent-model-config.md#routing-role). |
 | `operator` | Natural-language routing and steering (wired in Phase 9; behavior binding deferred). |
 
 ## Step binding and resolution
@@ -42,6 +43,7 @@ Inner rung detail (consumption modes, flattening, terminal outcomes): [`agent-mo
 | `advocate` | `review-debate` | Read-only; second reviewer. |
 | `adjudicator` | `review-debate` | Read-only; emits verdict. |
 | `actuator` | `review`, `review-debate` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |
+| `routing` | — | Not a workflow step: invoked by the free-text router through `createRoutingAgentBinding`; `cursor`/`opencode` refuse it by name. |
 | `operator` | — | Behavior binding deferred to Phase 9. |
 
 ## Decisions

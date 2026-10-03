@@ -9,6 +9,7 @@ const EXECUTABLE_ROLES = [
   "advocate",
   "adjudicator",
   "actuator",
+  "routing",
 ] as const;
 
 /** Closed role subset that may reach shared invocation today. */

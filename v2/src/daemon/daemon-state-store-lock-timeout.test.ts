@@ -37,6 +37,7 @@ function installLockTimeoutMachineProfile(): void {
     advocate: rung("advoc", "advoc"),
     adjudicator: rung("adj", "adj"),
     actuator: rung("act", "act"),
+    routing: rung("act", "act"),
   };
   writeFileSync(
     join(machinesDir, `${LOCK_TIMEOUT_MACHINE_PROFILE}.json`),

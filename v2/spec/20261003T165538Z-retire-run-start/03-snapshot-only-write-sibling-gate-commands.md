@@ -29,3 +29,9 @@
 ## Documentation updates
 
 - None beyond subspec 04 catalog/runbook alignment.
+
+## Blocker
+
+`bun run typecheck` passes; `workflow-runner-resume-review-dispatch.test.ts` passes (50/50). `bun run test:v2` fails after serial retry (`JARVIS_TEST_CONCURRENCY=1`): `daemon-run-dismiss.test.ts` (2) and `daemon-run-failure-capture.test.ts` (9) call `startRunDirect`/`mockWriteLoopInput`, which `start` now rejects (`Direct write start via input is not supported; provide workflow steps` from subspec 02). Those files are out of scope for this subspec (`Modify only files named by spec`). Cannot tick the combined typecheck/`test:v2` criterion without cross-subspec test rewrites.
+
+blocked

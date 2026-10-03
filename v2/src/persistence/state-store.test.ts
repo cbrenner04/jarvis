@@ -1735,6 +1735,26 @@ describe("pipelines", () => {
     expect(reloadedRated.admittedSelection).toEqual(ratingSelection);
   });
 
+  test("a corrupt admitted_selection column throws on load instead of reading as name-selected", () => {
+    const pipelineId = store.createPipeline({
+      definition: SAMPLE_PIPELINE_DEFINITION,
+      context: SAMPLE_PIPELINE_CONTEXT,
+      admittedSelection: {
+        effective: { risk: "low", effort: "low" },
+        sources: { risk: "seed", effort: "seed" },
+        registryName: SAMPLE_PIPELINE_DEFINITION.name,
+      },
+    });
+    store.close();
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE pipelines SET admitted_selection = ? WHERE id = ?").run('{"effective":{}}', pipelineId);
+    raw.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    expect(() => store.loadPipeline(pipelineId)).toThrow(/admitted_selection is corrupt: sources must be an object/);
+    expect(() => store.listPipelines()).toThrow(/admitted_selection is corrupt/);
+  });
+
   test("complete admitted context round-trips through createPipeline and store reload and passes loadPipelineContext", () => {
     const context: PipelineContext = { ...SAMPLE_PIPELINE_CONTEXT };
     const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION, context });

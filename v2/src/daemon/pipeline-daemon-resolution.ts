@@ -124,10 +124,9 @@ function isPipelineStageSnapshot(value: unknown): boolean {
   );
 }
 
+/** Absent or `null` (name-selected) is a valid snapshot; a present object must load. */
 function isAdmittedSelectionSnapshot(value: unknown): boolean {
-  if (value === undefined) return true;
-  const parsed = loadAdmittedPipelineSelection(value);
-  return parsed.ok && parsed.selection !== null;
+  return value === undefined || loadAdmittedPipelineSelection(value).ok;
 }
 
 function isPipelineSnapshot(value: unknown): value is PipelineSnapshot {

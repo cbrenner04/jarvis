@@ -22,8 +22,11 @@ import type { getPipelineDefinition } from "./pipeline-registry.ts";
 
 type PipelineLookup = typeof getPipelineDefinition;
 
-/** Ratings supplied per start (seed frontmatter today); raw strings, validated here before floors apply. */
-type SuppliedRatings = Partial<Record<RatingDimension, string>>;
+/**
+ * Ratings supplied per start: seed frontmatter merged with `--risk` / `--effort` (flag wins per dimension). Raw values —
+ * an untyped caller may pass a non-string — validated here before the `pipeline.name` short-circuit and before floors.
+ */
+export type SuppliedRatings = Partial<Record<RatingDimension, unknown>>;
 
 type InvalidProjectPipelineConfigError = {
   code: "invalid-project-pipeline-config";
@@ -207,13 +210,39 @@ function ratingRank(level: RatingLevel): number {
   return RATING_LEVELS.indexOf(level);
 }
 
+/** Every supplied rating must be on the scale, even when `pipeline.name` will ignore it for selection. */
+function validateSuppliedRatings(
+  supplied: SuppliedRatings,
+): { ok: true; levels: Partial<Record<RatingDimension, RatingLevel>> } | { ok: false; error: InvalidRatingError } {
+  const levels: Partial<Record<RatingDimension, RatingLevel>> = {};
+  for (const dimension of RATING_DIMENSIONS) {
+    const raw = supplied[dimension];
+    if (raw === undefined) continue;
+    // Guard before `parseRatingLevel`: a non-string from an untyped caller refuses, never throws.
+    const level = typeof raw === "string" ? parseRatingLevel(raw) : undefined;
+    if (level === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "invalid-rating",
+          dimension,
+          value: typeof raw === "string" ? raw : String(raw),
+          message: `${dimension} rating must be one of ${RATING_LEVELS.join(", ")}; got ${JSON.stringify(raw)}`,
+        },
+      };
+    }
+    levels[dimension] = level;
+  }
+  return { ok: true, levels };
+}
+
 /**
- * Per dimension: validate the supplied rating, then `effective = max(project minimum, supplied)`. A minimum is a floor,
- * never a default: with nothing supplied the dimension is unresolved even when a minimum exists.
+ * Per dimension: `effective = max(project minimum, supplied)`. A minimum is a floor, never a default: with nothing
+ * supplied the dimension is unresolved even when a minimum exists.
  */
 function resolveEffectiveRatings(
   minimums: ParsedProjectPipeline["minimums"],
-  supplied: SuppliedRatings,
+  supplied: Partial<Record<RatingDimension, RatingLevel>>,
   ratingFlagPresence: Partial<Record<RatingDimension, true>>,
 ):
   | {
@@ -221,30 +250,18 @@ function resolveEffectiveRatings(
       ratings: Record<RatingDimension, RatingLevel>;
       sources: Record<RatingDimension, RatingAdmissionSource>;
     }
-  | { ok: false; error: InvalidRatingError | UnresolvedRatingError } {
+  | { ok: false; error: UnresolvedRatingError } {
   const ratings: Partial<Record<RatingDimension, RatingLevel>> = {};
   const sources: Partial<Record<RatingDimension, RatingAdmissionSource>> = {};
   for (const dimension of RATING_DIMENSIONS) {
-    const raw = supplied[dimension];
-    if (raw === undefined) {
+    const suppliedLevel = supplied[dimension];
+    if (suppliedLevel === undefined) {
       return {
         ok: false,
         error: {
           code: "unresolved-rating",
           dimension,
-          message: `${dimension} rating is unresolved: the seed supplies none and a project minimum is a floor, not a default`,
-        },
-      };
-    }
-    const suppliedLevel = parseRatingLevel(raw);
-    if (suppliedLevel === undefined) {
-      return {
-        ok: false,
-        error: {
-          code: "invalid-rating",
-          dimension,
-          value: raw,
-          message: `${dimension} rating must be one of ${RATING_LEVELS.join(", ")}; got ${JSON.stringify(raw)}`,
+          message: `${dimension} rating is unresolved: neither seed frontmatter nor --${dimension} supplies one, and a project minimum is a floor, not a default`,
         },
       };
     }
@@ -293,10 +310,13 @@ function selectPipeline(
 ):
   | { ok: true; selection: Selection; admissionRatings?: AdmissionRatingMetadata }
   | { ok: false; error: InvalidRatingError | UnresolvedRatingError } {
+  // Validate every supplied value first: a malformed `--risk` / `--effort` refuses even when `pipeline.name` wins.
+  const validated = validateSuppliedRatings(supplied);
+  if (!validated.ok) return validated;
   if (parsed.name !== undefined) {
     return { ok: true, selection: { name: parsed.name, label: `${pipelineKey}.name`, ratingSelected: false } };
   }
-  const effective = resolveEffectiveRatings(parsed.minimums, supplied, ratingFlagPresence);
+  const effective = resolveEffectiveRatings(parsed.minimums, validated.levels, ratingFlagPresence);
   if (!effective.ok) return effective;
   const name = selectPipelineForRatings(effective.ratings);
   return {
@@ -338,9 +358,10 @@ function applyReviewOverrides(
 }
 
 /**
- * Resolves a project's admitted pipeline definition. `pipeline.name`, when set, selects the definition outright;
- * otherwise the effective (risk, effort) pair — each dimension `max(project minimum, supplied rating)` — selects it
- * through `RATING_PAIR_PIPELINES`. Terminal action, supersede, and review overrides apply to the selected copy.
+ * Resolves a project's admitted pipeline definition. Supplied ratings are validated first (`invalid-rating`); then
+ * `pipeline.name`, when set, selects the definition outright and the ratings play no further part. Otherwise the
+ * effective (risk, effort) pair — each dimension `max(project minimum, supplied rating)` — selects it through
+ * `RATING_PAIR_PIPELINES`. Terminal action, supersede, and review overrides apply to the selected copy.
  */
 export function resolveProjectPipeline(
   config: ProjectPipelineConfig,

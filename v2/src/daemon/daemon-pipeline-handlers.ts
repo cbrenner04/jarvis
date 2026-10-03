@@ -222,6 +222,13 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     if (!admittedSelection.ok) {
       return { kind: "error", code: "invalid_params", message: admittedSelection.error.errors.join("; ") };
     }
+    if (admittedSelection.selection !== null && admittedSelection.selection.registryName !== definition.name) {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: `admittedSelection.registryName "${admittedSelection.selection.registryName}" must equal definition.name "${definition.name}"`,
+      };
+    }
     const pipelineId = store.createPipeline({
       definition,
       context: admittedContext.context,

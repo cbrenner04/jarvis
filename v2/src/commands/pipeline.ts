@@ -324,8 +324,14 @@ function parsePipelineStartArgs(argv: readonly string[]): PipelineStartCliInput 
   const seedText = typeof values["seed-text"] === "string" ? values["seed-text"] : undefined;
   if ((seedPath === undefined) === (seedText === undefined)) return { ok: false };
 
-  const input: PipelineStartAdmissionInput =
-    seedText !== undefined ? { projectKey, seedText } : { projectKey, seedPath: seedPath! };
+  let input: PipelineStartAdmissionInput;
+  if (seedText !== undefined) {
+    input = { projectKey, seedText };
+  } else if (seedPath !== undefined) {
+    input = { projectKey, seedPath };
+  } else {
+    return { ok: false };
+  }
   if (typeof values.risk === "string") input.risk = values.risk;
   if (typeof values.effort === "string") input.effort = values.effort;
   return { ok: true, input, detach };
@@ -576,9 +582,9 @@ function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: n
         seedBasename(pipeline.seedPath),
         formatPipelineCreatedAge(pipeline.createdAt, nowMs),
         renderStageSummary(pipeline.stages),
-        ...(pipeline.admittedSelection !== undefined
-          ? [formatAdmittedPipelineSelectionSummary(pipeline.admittedSelection)]
-          : []),
+        // Fixed column: `-` for a name-selected pipeline keeps the table rectangular and the
+        // `--all` dismissal marker in one place.
+        pipeline.admittedSelection == null ? "-" : formatAdmittedPipelineSelectionSummary(pipeline.admittedSelection),
         // Mutation checkpoint: replacing this conditional spread with `...[]` must turn the
         // --all dismissal-marker test RED; replacing it with an unconditional spread must
         // turn the without-`--all` no-marker test RED.

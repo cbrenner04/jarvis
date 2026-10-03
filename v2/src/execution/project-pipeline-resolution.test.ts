@@ -677,7 +677,8 @@ describe("rating selection", () => {
       expect(result.error).toEqual({
         code: "unresolved-rating",
         dimension: "risk",
-        message: "risk rating is unresolved: the seed supplies none and a project minimum is a floor, not a default",
+        message:
+          "risk rating is unresolved: neither seed frontmatter nor --risk supplies one, and a project minimum is a floor, not a default",
       });
       expect(lookupCalls).toBe(0);
     }
@@ -715,13 +716,42 @@ describe("rating selection", () => {
     expect(unresolved.error).toEqual({
       code: "unresolved-rating",
       dimension: "effort",
-      message: "effort rating is unresolved: the seed supplies none and a project minimum is a floor, not a default",
+      message:
+        "effort rating is unresolved: neither seed frontmatter nor --effort supplies one, and a project minimum is a floor, not a default",
     });
     expect(formatProjectPipelineResolutionError(unresolved)).toBe(
-      "unresolved-rating: effort rating is unresolved: the seed supplies none and a project minimum is a floor, not a default",
+      "unresolved-rating: effort rating is unresolved: neither seed frontmatter nor --effort supplies one, and a project minimum is a floor, not a default",
     );
     expect(selectedName(RATED, { risk: " high ", effort: "low" })).toBe("full-review");
     expect(lookupCalls).toBe(0);
+  });
+
+  test("rejects a malformed or non-string supplied rating before the name short-circuit, without throwing", () => {
+    const withName = resolveProjectPipeline(
+      config("demo", { ...RATED, name: "fast" }),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+      { risk: "extreme", effort: "low" },
+    );
+    expectFailure(withName);
+    expect(withName.error).toEqual({
+      code: "invalid-rating",
+      dimension: "risk",
+      value: "extreme",
+      message: 'risk rating must be one of low, medium, high; got "extreme"',
+    });
+
+    const nonString = resolveProjectPipeline(config("demo", RATED), getPipelineDefinition, ALL_REVIEW_ROLES_CONFIG, {
+      risk: "low",
+      effort: 42,
+    });
+    expectFailure(nonString);
+    expect(nonString.error).toEqual({
+      code: "invalid-rating",
+      dimension: "effort",
+      value: "42",
+      message: "effort rating must be one of low, medium, high; got 42",
+    });
   });
 
   test("an explicit pipeline.name wins over ratings and minimums", () => {

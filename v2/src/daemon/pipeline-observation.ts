@@ -185,7 +185,7 @@ export type PipelineSnapshot = {
   createdAt: number;
   finishedAtMs: number | null;
   dismissedAt: number | null;
-  admittedSelection?: AdmittedPipelineSelection;
+  admittedSelection?: AdmittedPipelineSelection | null;
   stages: Array<{
     id: string;
     stageId: string;

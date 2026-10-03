@@ -1,13 +1,9 @@
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import { isRecord } from "../../../shared/is-record.ts";
 import {
-  parseRatingLevel,
   parseSeedMetadata,
   RATING_DIMENSIONS,
-  RATING_LEVELS,
   type RatingDimension,
-  type RatingLevel,
   type SeedMetadata,
 } from "../../../shared/seed-metadata.ts";
 import { formatConnectionError, formatLifecycleError, formatRpcError } from "../cli/ipc.ts";
@@ -19,6 +15,7 @@ import type { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import {
   formatProjectPipelineResolutionError,
   type resolveProjectPipeline,
+  type SuppliedRatings,
 } from "../execution/project-pipeline-resolution.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { AdmittedPipelineSelection, PipelineContext } from "../persistence/state-store.ts";
@@ -218,51 +215,25 @@ function isAdmissionResult(value: object): value is PipelineStartAdmissionResult
   return "kind" in value;
 }
 
-function pipelineHasExplicitName(pipeline: unknown): boolean {
-  return isRecord(pipeline) && typeof pipeline.name === "string" && pipeline.name.length > 0;
-}
-
-type ParsedFlagRatings =
-  | {
-      ok: true;
-      levels: Partial<Record<RatingDimension, RatingLevel>>;
-      presence: Partial<Record<RatingDimension, true>>;
-    }
-  | { ok: false; dimension: RatingDimension; value: string };
-
-function parsePipelineStartFlagRatings(input: PipelineStartAdmissionInput): ParsedFlagRatings {
-  const levels: Partial<Record<RatingDimension, RatingLevel>> = {};
-  const presence: Partial<Record<RatingDimension, true>> = {};
-  for (const dimension of RATING_DIMENSIONS) {
-    const raw = input[dimension];
-    if (raw === undefined) continue;
-    const level = parseRatingLevel(raw);
-    if (level === undefined) {
-      return { ok: false, dimension, value: raw };
-    }
-    levels[dimension] = level;
-    presence[dimension] = true;
-  }
-  return { ok: true, levels, presence };
-}
-
-/** Merges seed frontmatter ratings with CLI flag overrides before `resolveProjectPipeline`. */
-export function mergePipelineStartSuppliedRatings(
+/**
+ * Seed frontmatter merged with the defined `--risk` / `--effort` flags (flag wins per dimension), plus which dimensions
+ * a flag supplied. Values stay raw: `resolveProjectPipeline` validates them, so a malformed flag refuses even when
+ * `pipeline.name` ignores ratings for selection.
+ */
+function pipelineStartSuppliedRatings(
   metadata: SeedMetadata,
-  levels: Partial<Record<RatingDimension, RatingLevel>>,
-  presence: Partial<Record<RatingDimension, true>>,
-): Partial<Record<RatingDimension, string>> {
-  const supplied: Partial<Record<RatingDimension, string>> = {};
+  input: PipelineStartAdmissionInput,
+): { supplied: SuppliedRatings; ratingFlagPresence: Partial<Record<RatingDimension, true>> } {
+  const flags: SuppliedRatings = {};
+  const ratingFlagPresence: Partial<Record<RatingDimension, true>> = {};
   for (const dimension of RATING_DIMENSIONS) {
-    // Mutation checkpoint: preferring seed when a flag is present must turn flag override tests RED.
-    if (presence[dimension]) {
-      const level = levels[dimension];
-      if (level !== undefined) supplied[dimension] = level;
-    } else if (metadata[dimension] !== undefined) {
-      supplied[dimension] = metadata[dimension];
-    }
+    const raw: unknown = input[dimension];
+    if (raw === undefined) continue;
+    flags[dimension] = raw;
+    ratingFlagPresence[dimension] = true;
   }
-  return supplied;
+  // Mutation checkpoint: spreading the seed after the flags must turn flag override tests RED.
+  return { supplied: { risk: metadata.risk, effort: metadata.effort, ...flags }, ratingFlagPresence };
 }
 
 export async function admitPipelineStart(
@@ -292,28 +263,7 @@ export async function admitPipelineStart(
     return preAdmissionFailure("invalid-seed-rating", `pipeline: ${metadata.message}\n`);
   }
 
-  let supplied: Partial<Record<RatingDimension, string>> = {};
-  let ratingFlagPresence: Partial<Record<RatingDimension, true>> = {};
-  if (!pipelineHasExplicitName(config.pipeline)) {
-    const flags = parsePipelineStartFlagRatings(input);
-    if (!flags.ok) {
-      return preAdmissionFailure(
-        "invalid-project-pipeline",
-        formatProjectPipelineResolutionError({
-          ok: false,
-          error: {
-            code: "invalid-rating",
-            dimension: flags.dimension,
-            value: flags.value,
-            message: `${flags.dimension} rating must be one of ${RATING_LEVELS.join(", ")}; got ${JSON.stringify(flags.value)}`,
-          },
-        }),
-      );
-    }
-    ratingFlagPresence = flags.presence;
-    supplied = mergePipelineStartSuppliedRatings(metadata.metadata, flags.levels, flags.presence);
-  }
-
+  const { supplied, ratingFlagPresence } = pipelineStartSuppliedRatings(metadata.metadata, input);
   const pipelineResolution = deps.resolveProjectPipeline(
     { projectKey, pipeline: config.pipeline },
     deps.getPipelineDefinition,

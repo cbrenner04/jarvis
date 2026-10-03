@@ -13,7 +13,7 @@ import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { createHoldableAsyncFn } from "../testing/holdable-async-subprocess-runner.ts";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
   createBindingFactory,
   doneWithArtifactBindingFactory,
@@ -106,15 +106,15 @@ function workflowAdmission() {
 }
 
 test("check_workflow_start_claim refuses a queued (project, branch)", async () => {
-  const { workflowStart, lifecycle } = workflowAdmission();
-  memoryHeadroom = false;
-  const queued = await lifecycle.start(
-    requestFrame("s1", "start", {
-      input: mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }),
-    }),
-    new AbortController().signal,
-  );
-  expect(queued.kind).toBe("response");
+  const { workflowStart } = workflowAdmission();
+  stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/fake/worktrees/demo/workflow-branch",
+    branch: "workflow-branch",
+    specPath: "spec.md",
+    status: "queued",
+  });
 
   const response = await workflowStart.check_workflow_start_claim(
     requestFrame("probe-1", "check_workflow_start_claim", { project: "demo", branch: "workflow-branch" }),

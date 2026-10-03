@@ -5,18 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
-import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
-import { executeWriteLoop } from "../execution/write-loop.ts";
-import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import {
+  createHeldWorkflowBindings,
   flushBackgroundRuns,
+  type HeldWorkflowBindings,
   listRunsDirect,
   loadRunOrThrow,
-  mockWriteLoopInput,
   startRunDirect,
   workflowSnapshot,
+  workflowWriteStep,
 } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, runListTerminalFinishAtMs, settleKilledWorkflowOwnership } from "./daemon.ts";
@@ -45,19 +43,24 @@ async function waitDirect(h: Handlers, runId: string) {
 let stateStore: StateStore;
 let stateStorePath: string;
 let fakeExecutor: FakeWriteLoopExecutor;
+let held: HeldWorkflowBindings;
 let memoryHeadroom: boolean;
 let handlers: Handlers;
 
-const AGENT_MODEL_CONFIG: AgentModelConfig = {
-  codex: {
-    implement: {
-      rungs: [
-        { adapterModel: "codex-fast", priceKey: "codex-fast" },
-        { adapterModel: "codex-deep", priceKey: "codex-deep" },
-      ],
-    },
-  },
-};
+/** Polls until `predicate` holds or `timeoutMs` elapses; the caller's own assertion then reports the failure. */
+async function waitFor(predicate: () => Promise<boolean> | boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await predicate()) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
+async function isLive(h: Handlers, runId: string | undefined): Promise<boolean> {
+  return (await listRunsDirect(h))?.find((row) => row.runId === runId)?.isLive === true;
+}
+
+/** Write step whose binding stays live until `held` settles or aborts it. */
+function heldStep(overrides: Parameters<typeof workflowWriteStep>[0] = {}) {
+  return workflowWriteStep({ createBinding: held.createBinding, ...overrides });
+}
 
 const OPERATOR_FAILURE_RECORD: OperatorFailureRecord = {
   expectation: "ready gate passes",
@@ -70,14 +73,11 @@ const OPERATOR_FAILURE_RECORD: OperatorFailureRecord = {
   ],
 };
 
-function serialized(input: WriteLoopInput): WriteLoopInput {
-  return JSON.parse(JSON.stringify(input)) as WriteLoopInput;
-}
-
 beforeEach(() => {
   stateStorePath = join(tmpdir(), `jarvis-state-${process.pid}-${Date.now()}.db`);
   stateStore = openStateStore(stateStorePath);
   fakeExecutor = createFakeWriteLoopExecutor();
+  held = createHeldWorkflowBindings();
   memoryHeadroom = true;
 
   handlers = createRunControlHandlers({
@@ -92,7 +92,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   fakeExecutor.abortAll();
-  await flushBackgroundRuns();
+  held.abortAll();
+  await flushBackgroundRuns(3);
   try {
     stateStore.close();
   } catch {
@@ -101,90 +102,17 @@ afterEach(async () => {
 });
 
 test("start admits a second (project, branch) while another run is active", async () => {
-  await startRunDirect(handlers);
+  await startRunDirect(handlers, heldStep());
 
-  const response2 = await handlers.start(
-    {
-      kind: "request",
-      id: "s2",
-      method: "start",
-      params: { input: mockWriteLoopInput({ projectName: "other-project" }) },
-    },
-    new AbortController().signal,
-  );
-  expect(response2.kind).toBe("response");
-});
-
-test("start persists a queued run when memory headroom is unavailable", async () => {
-  memoryHeadroom = false;
-
-  const runId = await startRunDirect(handlers);
-  expect(typeof runId).toBe("string");
-  if (runId) {
-    const run = loadRunOrThrow(stateStore, runId);
-    expect(run.status).toBe("queued");
-    expect(fakeExecutor.isAbortSignalTriggered()).toBe(false);
-  }
-
-  const runs = await listRunsDirect(handlers);
-  const row = runs?.find((candidate) => candidate.runId === runId);
-  expect(row?.status).toBe("queued");
-  expect(row?.isLive).toBe(false);
-});
-
-test("start resolves serialized workflow-step input from binding context", async () => {
-  const starts: WriteLoopInput[] = [];
-  const localHandlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: async (input) => {
-      starts.push(input);
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-    writeLoopBindingSourceDeps: { forceSnapshotAgentModelConfig: true },
-  });
-  const input: WriteLoopInput = {
-    ...mockWriteLoopInput({ projectName: "workflow-project", branchName: "workflow-branch" }),
-    bindings: [{ id: "codex" } as WriteLoopInput["bindings"][number]],
-    bindingResolution: {
-      role: "implement",
-      agents: ["codex"],
-      agentModelConfig: AGENT_MODEL_CONFIG,
-    },
-    stepId: "step-1",
-  };
-
-  const runId = await startRunDirect(localHandlers, serialized(input));
-
-  expect(runId).toBeDefined();
-  expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual([
-    "codex/codex-fast/codex-fast",
-    "codex/codex-deep/codex-deep",
-  ]);
-});
-
-test("start rejects a second start for a (project, branch) with an existing queued run", async () => {
-  memoryHeadroom = false;
-  const input = mockWriteLoopInput();
-  await startRunDirect(handlers, input);
-
-  const response2 = await handlers.start(
-    { kind: "request", id: "s2", method: "start", params: { input } },
-    new AbortController().signal,
-  );
-  expect(response2.kind).toBe("error");
-  if (response2.kind === "error") {
-    expect(response2.code).toBe("worktree_claimed");
-  }
+  const second = await startRunDirect(handlers, heldStep({ worktree: { projectName: "other-project" } }));
+  expect(typeof second).toBe("string");
 });
 
 test("start rejects second start for same (project, branch) while first is active", async () => {
-  const input = mockWriteLoopInput();
-  await startRunDirect(handlers, input);
+  await startRunDirect(handlers, heldStep());
 
   const response2 = await handlers.start(
-    { kind: "request", id: "s2", method: "start", params: { input } },
+    { kind: "request", id: "s2", method: "start", params: { steps: [heldStep()] } },
     new AbortController().signal,
   );
   expect(response2.kind).toBe("error");
@@ -194,15 +122,15 @@ test("start rejects second start for same (project, branch) while first is activ
 });
 
 test("settled run is no longer live in list", async () => {
-  await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, heldStep());
 
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
+  held.settleAll();
+  await waitFor(async () => !(await isLive(handlers, runId)));
 
   const runs = await listRunsDirect(handlers);
-  expect(runs?.length).toBeGreaterThan(0);
-  const run = runs?.[0];
+  const run = runs?.find((candidate) => candidate.runId === runId);
   expect(run?.isLive).toBe(false);
+  expect(run?.status).toBe("completed");
 });
 
 test("list returns only stored operator failure records without loading terminal logs", async () => {
@@ -242,112 +170,33 @@ test("list returns only stored operator failure records without loading terminal
   expect(rows?.find((row) => row.runId === absentRunId)).not.toHaveProperty("failure");
 });
 
-test("direct timeout releases liveness and worktree ownership", async () => {
-  const logsPath = join(tmpdir(), `jarvis-timeout-${process.pid}-${Date.now()}.jsonl`);
-  const sink = openLogSink(logsPath);
-  const localHandlers = createRunControlHandlers({
-    stateStore,
-    logReader: openLogReader(logsPath),
-    writeLoopExecutor: async (input, signal) => {
-      await executeWriteLoop({ ...input, stateStore, logSink: sink, signal });
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-  const input: WriteLoopInput = {
-    ...mockWriteLoopInput({
-      projectName: "timeout-direct",
-      branchName: "timeout-direct",
-      git: false,
-      localPath: join(tmpdir(), `jarvis-timeout-worktree-${process.pid}-${Date.now()}`),
-    }),
-    iterationTimeoutMs: 5,
-    bindings: [
-      {
-        id: "stall",
-        invoke: ({ signal }) =>
-          new Promise((resolve) =>
-            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
-              once: true,
-            }),
-          ),
-      },
-    ],
-  };
-
-  const runId = await startRunDirect(localHandlers, input);
-  const deadline = Date.now() + 100;
-  while (Date.now() < deadline) {
-    const row = (await listRunsDirect(localHandlers))?.find((candidate) => candidate.runId === runId);
-    if (row?.status === "failed" && !row?.isLive) break;
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  const row = (await listRunsDirect(localHandlers))?.find((candidate) => candidate.runId === runId);
-  expect(row).toMatchObject({ status: "failed", isLive: false });
-  const waited = await waitDirect(localHandlers, runId as string);
-  expect(waited).toMatchObject({
-    kind: "response",
-    result: { runStatus: "failed", loopOutcomeKind: "iteration_timeout" },
-  });
-
-  const restarted = await startRunDirect(localHandlers, input);
-  expect(restarted).toBeTruthy();
-  const deadline2 = Date.now() + 100;
-  while (Date.now() < deadline2) {
-    const runs = await listRunsDirect(localHandlers);
-    if (runs?.find((r) => r.runId === restarted)) break;
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  sink.close();
-});
-
 test("two admitted runs progress concurrently, settling independently", async () => {
-  const input1 = mockWriteLoopInput({ projectName: "project-one", branchName: "branch-one" });
-  const input2 = mockWriteLoopInput({ projectName: "project-two", branchName: "branch-two" });
-
-  const runId1 = await startRunDirect(handlers, input1);
-  const runId2 = await startRunDirect(handlers, input2);
+  const runId1 = await startRunDirect(
+    handlers,
+    heldStep({ worktree: { projectName: "project-one", branchName: "branch-one" } }),
+  );
+  const runId2 = await startRunDirect(
+    handlers,
+    heldStep({ worktree: { projectName: "project-two", branchName: "branch-two" } }),
+  );
   await flushBackgroundRuns();
 
-  expect(fakeExecutor.pendingCount()).toBe(2);
+  expect(held.pendingCount()).toBe(2);
 
   const runsBothLive = await listRunsDirect(handlers);
   expect(runsBothLive?.find((run) => run.runId === runId1)?.isLive).toBe(true);
   expect(runsBothLive?.find((run) => run.runId === runId2)?.isLive).toBe(true);
 
-  fakeExecutor.settleFirst();
-  await flushBackgroundRuns();
-  // Fake executor mirrors only liveness, not the real loop's terminal status
-  // commit; simulate that commit directly, as other tests in this file do.
-  stateStore.setRunStatus(runId1 as string, "completed");
+  held.settleFirst();
+  await waitFor(async () => !(await isLive(handlers, runId1)));
 
-  expect(fakeExecutor.pendingCount()).toBe(1);
+  expect(held.pendingCount()).toBe(1);
   const runsAfterFirstSettles = await listRunsDirect(handlers);
-  expect(runsAfterFirstSettles?.find((run) => run.runId === runId1)?.status).toBe("completed");
+  expect(runsAfterFirstSettles?.find((run) => run.runId === runId1)?.isLive).toBe(false);
   expect(runsAfterFirstSettles?.find((run) => run.runId === runId2)?.isLive).toBe(true);
 });
 
 test("list returns workflow step snapshots for live, stopped, and completed workflow-backed runs", async () => {
-  fakeExecutor = createFakeWriteLoopExecutor((input) => {
-    const run = stateStore.findRunByProjectBranch({
-      project: input.worktree.projectName,
-      branch: input.worktree.branchName,
-      stepId: input.stepId ?? null,
-    });
-    if (run && run.attempts.length === 0) {
-      stateStore.recordAttemptStart(run.id);
-    }
-  });
-  handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
   const snapshot = workflowSnapshot("workflow-1", [
     { stepId: "step-1", role: "implement" },
     { stepId: "step-2", role: "review" },
@@ -368,12 +217,21 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   const priorAttempt2Id = stateStore.recordAttemptStart(priorRunId);
   stateStore.commitCompletionBoundary({ attemptId: priorAttempt2Id, runStatus: "completed", outcomeKind: "done" });
 
-  const liveRunId = await startRunDirect(handlers, {
-    ...mockWriteLoopInput({ projectName: "wf-project", branchName: "wf-live", projectRoot: "/tmp/wf-project" }),
+  const liveRunId = stateStore.createRun({
+    project: "wf-project",
+    specRef: "main",
+    worktreePath: "/tmp/wf-project",
+    branch: "wf-live",
+    specPath: "/tmp/spec.md",
     stepId: "step-2",
     workflowSnapshot: snapshot,
   });
-  expect(liveRunId).toBeDefined();
+  const liveAttemptId = stateStore.recordAttemptStart(liveRunId);
+  handlers.context.activeRuns.set(liveRunId, {
+    kind: "workflow",
+    runId: liveRunId,
+    abortController: new AbortController(),
+  });
 
   let runs = await listRunsDirect(handlers);
   const liveRow = runs?.find((row) => row.runId === liveRunId);
@@ -386,12 +244,9 @@ test("list returns workflow step snapshots for live, stopped, and completed work
     ],
   });
 
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
-  const liveAttemptId = loadRunOrThrow(stateStore, liveRunId as string).attempts[0]?.id;
-  expect(liveAttemptId).toBeDefined();
+  handlers.context.activeRuns.delete(liveRunId);
   stateStore.commitCompletionBoundary({
-    attemptId: liveAttemptId as string,
+    attemptId: liveAttemptId,
     runStatus: "completed",
     outcomeKind: "done",
   });
@@ -1034,7 +889,7 @@ test("list sets finishedAtMs to later reconciledAt when attempt completed_at is 
 });
 
 test("list includes error on terminal rows and omits it on in-progress and completed", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, heldStep());
   if (!runId) return;
 
   let runs = await listRunsDirect(handlers);
@@ -1050,7 +905,7 @@ test("list includes error on terminal rows and omits it on in-progress and compl
     nextAction: "stop",
   });
 
-  fakeExecutor.settleAll();
+  held.settleAll();
   await flushBackgroundRuns();
   stateStore.setRunStatus(runId, "completed");
 
@@ -1060,7 +915,7 @@ test("list includes error on terminal rows and omits it on in-progress and compl
 });
 
 test("kill aborts an active run and records killed status", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, heldStep());
   if (!runId) return;
 
   const killResponse = await killDirect(handlers, runId);
@@ -1068,7 +923,7 @@ test("kill aborts an active run and records killed status", async () => {
   if (killResponse.kind === "response") {
     expect((killResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
   }
-  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
+  expect(held.isAbortSignalTriggered()).toBe(true);
 
   const runs = await listRunsDirect(handlers);
   const run = runs?.find((candidate) => candidate.runId === runId);
@@ -1087,7 +942,7 @@ test("active deferred and forced kill use terminal settlement after admission", 
     throw new Error("legacy guarded kill called");
   };
 
-  const activeRunId = await startRunDirect(handlers);
+  const activeRunId = await startRunDirect(handlers, heldStep());
   if (!activeRunId) return;
   const forcedRunId = seedRun({ status: "paused" });
   const deferredRunId = seedRun();
@@ -1133,11 +988,11 @@ test("daemon production terminal writers are restricted to atomic settlement", (
   const regexPinnedSlice = indexOfReconciliationAdmissionSlice(stateStoreSource);
   expect(regexPinnedDaemonSettlementGuard(concatenated, regexPinnedSlice)).toBe(true);
 
-  const reformattedPromote = (sources["daemon.ts"] ?? "").replace(
-    'store.setRunStatus(run.id, "in-progress")',
-    'store.setRunStatus(\n        run.id,\n        "in-progress",\n      )',
+  const reformattedPause = (sources["daemon-workflow-admission-handlers.ts"] ?? "").replace(
+    'store.setRunStatus(runId, "paused")',
+    'store.setRunStatus(\n        runId,\n        "paused",\n      )',
   );
-  const reformattedSources = { ...sources, "daemon.ts": reformattedPromote };
+  const reformattedSources = { ...sources, "daemon-workflow-admission-handlers.ts": reformattedPause };
   const reformattedConcatenated = Object.values(reformattedSources).join("\n");
   expect(regexPinnedDaemonSettlementGuard(reformattedConcatenated, regexPinnedSlice)).toBe(false);
   const reformattedResult = scanDaemonTerminalSettlement(reformattedSources);
@@ -1158,7 +1013,7 @@ test("kill rejects unknown run ID", async () => {
 });
 
 test("kill preserves boundary-terminal status on an active run but still aborts", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, heldStep());
   if (!runId) return;
 
   const attemptId = stateStore.recordAttemptStart(runId);
@@ -1166,7 +1021,8 @@ test("kill preserves boundary-terminal status on an active run but still aborts"
 
   const killResponse = await killDirect(handlers, runId);
   expect(killResponse.kind).toBe("response");
-  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
+  expect(held.isAbortSignalTriggered()).toBe(true);
+  await waitFor(() => !handlers.hasActiveRuns());
   expect(loadRunOrThrow(stateStore, runId).status).toBe("blocked");
 
   const runs = await listRunsDirect(handlers);
@@ -1174,7 +1030,7 @@ test("kill preserves boundary-terminal status on an active run but still aborts"
 });
 
 test("kill still sets killed when the committed boundary is in-progress", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, heldStep());
   if (!runId) return;
 
   const attemptId = stateStore.recordAttemptStart(runId);
@@ -1186,7 +1042,7 @@ test("kill still sets killed when the committed boundary is in-progress", async 
 });
 
 test("kill still sets killed on a paused run", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, heldStep());
   if (!runId) return;
 
   const attemptId = stateStore.recordAttemptStart(runId);
@@ -1226,12 +1082,12 @@ test("kill without force still rejects a non-active paused run", async () => {
 });
 
 test("kill with force on an active run still takes the abort path", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, heldStep());
   if (!runId) return;
 
   const killResponse = await killDirect(handlers, runId, true);
   expect(killResponse.kind).toBe("response");
-  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
+  expect(held.isAbortSignalTriggered()).toBe(true);
   expect(loadRunOrThrow(stateStore, runId).status).toBe("killed");
 });
 

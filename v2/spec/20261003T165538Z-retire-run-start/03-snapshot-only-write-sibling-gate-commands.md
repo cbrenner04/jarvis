@@ -26,7 +26,7 @@
 - [x] `grep -n queuedInput v2/src/execution/workflow-runner-resume.ts` returns zero matches inside `resolveWriteSiblingCommandSource`; fails on main while ~475–496 still spread `queuedInput`.
 - [x] New or updated regression in `workflow-runner-resume-review-dispatch.test.ts` fails on main when `queuedInput` gate commands would win over absent snapshot commands, and passes after snapshot-only `resolveWriteSiblingCommandSource`.
 - [x] `workflow-runner-resume-review-dispatch.test.ts` `review row gate-command reconstruction prefers persisted snapshot step over write sibling` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

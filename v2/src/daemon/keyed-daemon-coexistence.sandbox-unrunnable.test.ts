@@ -11,8 +11,17 @@ import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { daemonPathsByDigest } from "../paths";
 import { openStateStore } from "../persistence/state-store";
+import { createCommittedGitFixtureTemplate } from "../testing/git-fixture-template";
 import { withHandoffIdentity } from "../testing/handoff-identity";
-import { listRuns, mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control";
+import {
+  createHeldWorkflowBindings,
+  heldWorkflowStepSeam,
+  listRuns,
+  startRun,
+  toIpcHandlers,
+  withWorkflowStepSeam,
+  workflowWriteStep,
+} from "../testing/run-control";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
@@ -131,6 +140,7 @@ describe("daemon (stable public address)", () => {
       // so the successor's real cross-process liveness check correctly finds it alive.
       const incumbentStore = openStateStore(dbPath);
       const fakeExecutor = createFakeWriteLoopExecutor();
+      const held = createHeldWorkflowBindings();
       const incumbentHandlers = createRunControlHandlers({
         stateStore: incumbentStore,
         writeLoopExecutor: fakeExecutor.executor,
@@ -138,7 +148,10 @@ describe("daemon (stable public address)", () => {
         hasMemoryHeadroom: () => true,
         settleDelayMs: 0,
       });
-      const ipcHandlers = toIpcHandlers(incumbentHandlers);
+      const ipcHandlers = withWorkflowStepSeam(
+        toIpcHandlers(incumbentHandlers),
+        heldWorkflowStepSeam(held.createBinding),
+      );
       let incumbentPrivateKillCalls = 0;
       const incumbentPrivateKill: RpcHandler = (frame, signal) => {
         incumbentPrivateKillCalls += 1;
@@ -187,7 +200,7 @@ describe("daemon (stable public address)", () => {
           kind: "request",
           id: "claim-owned-worktree",
           method: "start",
-          params: { input: mockWriteLoopInput() },
+          params: { steps: [workflowWriteStep()] },
         });
         expect(await successorClient.nextFrame()).toMatchObject({
           kind: "error",
@@ -209,9 +222,18 @@ describe("daemon (stable public address)", () => {
 
         // Unrelated (project, branch) stays admissible on the incoming generation while the
         // incumbent drains — this proves admission for other work, not a second claim above.
+        // The successor is a real daemon with no in-process step seam: it materializes a real
+        // worktree from a committed repo and runs the PATH-faked agent (test preload).
         const successorRunId = await startRun(
           successorClient,
-          mockWriteLoopInput({ projectName: "successor-project", branchName: "successor-branch" }),
+          workflowWriteStep({
+            worktree: {
+              projectName: "successor-project",
+              branchName: "successor-branch",
+              projectRoot: createCommittedGitFixtureTemplate().copy(),
+              baseRef: "HEAD",
+            },
+          }),
         );
         expect(typeof successorRunId).toBe("string");
         expect(successorRunId).not.toBe(incumbentRunId);
@@ -237,6 +259,7 @@ describe("daemon (stable public address)", () => {
         expect(incumbentPrivateKillCalls).toBe(1);
         killClient.close();
       } finally {
+        held.abortAll();
         fakeExecutor.abortAll();
         await incumbentPrivateServer.close();
         await incumbentPublicServer.close();

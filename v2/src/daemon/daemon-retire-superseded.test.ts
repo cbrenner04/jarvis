@@ -3,9 +3,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, listRunsDirect, loadRunOrThrow, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns, listRunsDirect, loadRunOrThrow, workflowWriteStep } from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, shouldShutdownNow, type WriteLoopBindingSourceDeps } from "./daemon.ts";
@@ -246,7 +245,7 @@ test("observation methods still work after supersede", async () => {
 test("start after retiring is rejected before any worktree materialization", async () => {
   handlers.setRetiring();
 
-  const worktree = mockWriteLoopInput().worktree;
+  const worktree = workflowWriteStep().worktree;
   const response = await handlers.start(
     {
       kind: "request",

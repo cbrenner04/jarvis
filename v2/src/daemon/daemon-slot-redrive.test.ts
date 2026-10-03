@@ -268,9 +268,8 @@ test("a slot-refused lane waiting on a harness finalization gate release re-driv
 
 test("a slot-refused lane settled while the gate is held is re-driven through resume once the holder releases", async () => {
   const holder = holdGate();
-  const { runs, enqueueRefusedLane } = daemonHarness((_input, runId, call) => {
-    if (call === 1) refuseGate(runId);
-  });
+  // The seeded row already holds the refusal; the re-driven loop runs clean.
+  const { runs, enqueueRefusedLane } = daemonHarness(() => {});
 
   const runId = enqueueRefusedLane("write-path");
   await tick();
@@ -281,6 +280,7 @@ test("a slot-refused lane settled while the gate is held is re-driven through re
   await tick();
 
   expect(runs).toEqual([runId]);
+  expect(store.loadRun(runId)?.status).toBe("in-progress");
   expect(store.loadRun(runId)?.gateRefusalRecoveryState).toMatchObject({ slotRedriveCount: 1 });
   expect(eventsOf(runId).filter((event) => event.kind === "slot_redrive")).toEqual([
     { kind: "slot_redrive", slotRedriveCount: 1, bound: MAX_SLOT_REDRIVES },
@@ -531,8 +531,8 @@ test("a ceiling_headroom refusal is never auto-re-driven and stays failed and re
 
 test("exhausting the bound settles the lane failed with slot_redrive_exhausted and a slot_redrive event per attempt", async () => {
   const { runs, enqueueRefusedLane } = daemonHarness((_input, runId, call) => {
-    // A gate pass between attempts must not reset the durable count.
-    if (call === 3)
+    // A gate pass between re-drives must not reset the durable count (the seeded refusal is attempt 0).
+    if (call === 2)
       store.commitCompletionBoundary({
         attemptId: store.recordAttemptStart(runId),
         runStatus: "in-progress",
@@ -545,7 +545,7 @@ test("exhausting the bound settles the lane failed with slot_redrive_exhausted a
   holdGate().release();
   for (let i = 0; i < MAX_SLOT_REDRIVES + 4; i++) await tick();
 
-  expect(runs).toHaveLength(MAX_SLOT_REDRIVES + 1);
+  expect(runs).toHaveLength(MAX_SLOT_REDRIVES);
   expect(store.loadRun(runId)).toMatchObject({
     status: "failed",
     terminalCause: "gate_invocation_refused",

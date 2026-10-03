@@ -4,11 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { mockWriteLoopInput } from "../testing/run-control.ts";
-import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   type OwnershipKey,
   type PromoteQueuedRunDeps,
@@ -106,15 +104,14 @@ function createFakeSpawnWriteLoop(registry: WorktreeOwnershipRegistry) {
   return { spawnWriteLoop, calls };
 }
 
-function workflowInput(overrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
-  return {
-    ...mockWriteLoopInput(overrides),
-    bindings: [{ id: "codex" } as WriteLoopInput["bindings"][number]],
-    bindingResolution: {
-      role: "implement",
-      agents: ["codex", "cursor"],
-      agentModelConfig: AGENT_MODEL_CONFIG,
-    },
+function queueRun(store: StateStore, branch: string): string {
+  return store.createRun({
+    project: branch,
+    specRef: "main",
+    worktreePath: `/tmp/${branch}/worktree`,
+    branch,
+    specPath: "/tmp/test-project/spec.md",
+    status: "queued",
     stepId: "step-1",
     workflowSnapshot: {
       invocationId: "workflow-1",
@@ -129,20 +126,6 @@ function workflowInput(overrides: Partial<WriteLoopInput["worktree"]> = {}): Wri
         },
       ],
     },
-  };
-}
-
-function queueRun(store: StateStore, branch: string): string {
-  const input = workflowInput({ projectName: branch, branchName: branch });
-  return store.createRun({
-    project: input.worktree.projectName,
-    specRef: input.worktree.baseRef,
-    worktreePath: getExternalWorktreePath(input.worktree),
-    branch: input.worktree.branchName,
-    specPath: input.specPath,
-    status: "queued",
-    stepId: "step-1",
-    workflowSnapshot: input.workflowSnapshot as NonNullable<WriteLoopInput["workflowSnapshot"]>,
   });
 }
 

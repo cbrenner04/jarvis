@@ -6,7 +6,7 @@ import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-suppor
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
-import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns, loadRunOrThrow } from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import type { WriteLoopBindingSourceDeps } from "./daemon.ts";
@@ -20,6 +20,7 @@ import {
   RUN_BUDGET_CHECKPOINT_INTERVAL_MS,
   type RunTimeoutTimers,
   remainingRunBudgetMs,
+  runBudgetKey,
   runTimeoutSettles,
   runTimeoutShouldFire,
   settleRunTimeout,
@@ -282,11 +283,16 @@ test("timer fire aborts a resumed workflow dispatch, settles killed/run_timeout 
       .tail(runId)
       .map((record) => record.event.kind),
   ).toContain("run_timeout");
-  expect(store.readRunBudgetConsumedMs(runId)).toBe(1_000);
+  expect(store.readRunBudgetConsumedMs(runBudgetKey(run))).toBe(1_000);
 });
 
 function pausedRun(): string {
   return pausedWorkflowRun();
+}
+
+/** Workflow rows charge their budget under the invocation id, not the row id. */
+function budgetKeyOf(runId: string): string {
+  return runBudgetKey(loadRunOrThrow(store, runId));
 }
 
 function resumeHandlers(budgetMs: number) {
@@ -313,7 +319,7 @@ function resumeHandlers(budgetMs: number) {
 
 test("resume refuses run_timeout_exhausted when the budget is spent", async () => {
   const runId = pausedRun();
-  store.writeRunBudgetConsumedMs(runId, 1_000);
+  store.writeRunBudgetConsumedMs(budgetKeyOf(runId), 1_000);
   const { handlers } = resumeHandlers(1_000);
   const resumed = await handlers.resume(
     { kind: "request", id: "r", method: "resume", params: { runId } },
@@ -324,7 +330,7 @@ test("resume refuses run_timeout_exhausted when the budget is spent", async () =
 
 test("resume admits when budget remains", async () => {
   const runId = pausedRun();
-  store.writeRunBudgetConsumedMs(runId, 999);
+  store.writeRunBudgetConsumedMs(budgetKeyOf(runId), 999);
   const { handlers, executor } = resumeHandlers(1_000);
   const resumed = await handlers.resume(
     { kind: "request", id: "r", method: "resume", params: { runId } },
@@ -475,7 +481,7 @@ test("no wired budget arms no timer and never refuses resume", async () => {
   expect(store.readRunBudgetConsumedMs("inv-none")).toBe(0);
 
   const runId = pausedRun();
-  store.writeRunBudgetConsumedMs(runId, Number.MAX_SAFE_INTEGER);
+  store.writeRunBudgetConsumedMs(budgetKeyOf(runId), Number.MAX_SAFE_INTEGER);
   const executor = createFakeWriteLoopExecutor();
   const ctx = createRunControlHandlerContext({
     stateStore: store,
@@ -484,6 +490,7 @@ test("no wired budget arms no timer and never refuses resume", async () => {
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "unsupported" }),

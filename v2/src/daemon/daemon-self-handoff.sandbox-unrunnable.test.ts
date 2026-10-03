@@ -7,10 +7,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
+import { startIpcServer } from "../ipc/server";
 import type { IpcFrame, ResponseFrame } from "../ipc/types";
 import type { LogReader, LogSink } from "../persistence/log-stream";
 import { openStateStore, type StateStore } from "../persistence/state-store";
-import { flushBackgroundRuns, listRuns, loadRunOrThrow, mockWriteLoopInput, startRun } from "../testing/run-control";
+import {
+  createHeldWorkflowBindings,
+  type HeldWorkflowBindings,
+  heldWorkflowStepSeam,
+  listRuns,
+  loadRunOrThrow,
+  startRun,
+  withWorkflowStepSeam,
+  workflowWriteStep,
+} from "../testing/run-control";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
 import { startDaemonRuntime } from "./daemon";
@@ -48,9 +58,9 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, boundMs: num
   }
 }
 
-/** True when `socketPath` refuses a `start` because its generation is retiring. */
+/** True when `socketPath` refuses a `start` because its generation is retiring (empty steps never admit otherwise). */
 async function isSuperseded(socketPath: string): Promise<boolean> {
-  const frame = await request(socketPath, "start", { input: mockWriteLoopInput() });
+  const frame = await request(socketPath, "start", { steps: [] });
   return frame.kind === "error" && (frame as { code?: string }).code === "daemon_superseded";
 }
 
@@ -142,7 +152,7 @@ type Harness = {
   publicSocketPath: string;
   privateSocketPath: string;
   store: StateStore;
-  fakeExecutor: ReturnType<typeof createFakeWriteLoopExecutor>;
+  held: HeldWorkflowBindings;
   anchorRunId: string;
   close: () => Promise<void>;
 };
@@ -159,6 +169,7 @@ async function startIncumbent(
   const privateSocketPath = join(root, "daemon-incumbent.sock");
   const store = openStateStore(join(root, "state.sqlite"));
   const fakeExecutor = createFakeWriteLoopExecutor();
+  const held = createHeldWorkflowBindings();
   const extraDeps = buildDeps({ publicSocketPath, privateSocketPath });
 
   const runtime = await startDaemonRuntime(publicSocketPath, store, fakeReader(), {
@@ -166,18 +177,11 @@ async function startIncumbent(
     openLogSink: () => fakeSink(),
     enumerateOtherDaemonSockets: () => [],
     hasMemoryHeadroom: () => true,
-    // Settling the fake executor drives the same terminal-settlement call the real write loop
-    // makes on success, so a test can observe a run reach "completed" through actual execution
-    // rather than asserting a status it wrote itself.
-    writeLoopExecutor: async (input, signal) => {
-      await fakeExecutor.executor(input, signal);
-      const run = store.findRunByProjectBranch({
-        project: input.worktree.projectName,
-        branch: input.worktree.branchName,
-        stepId: input.stepId ?? null,
-      });
-      if (run !== null) store.commitTerminalRunSettlement({ runId: run.id, status: "completed" });
-    },
+    writeLoopExecutor: fakeExecutor.executor,
+    // Held bindings keep the anchor live; settling one lets the real write loop reach "completed"
+    // through actual execution rather than a status the test wrote itself.
+    startIpcServer: (path, handlers) =>
+      startIpcServer(path, withWorkflowStepSeam(handlers ?? {}, heldWorkflowStepSeam(held.createBinding))),
     processExit: (code: number) => {
       throw new Error(`unexpected daemon exit ${code}`);
     },
@@ -189,7 +193,7 @@ async function startIncumbent(
   const client = await connectIpcClient(privateSocketPath);
   const anchorRunId = await startRun(
     client,
-    mockWriteLoopInput({ projectName: `${name}-anchor`, branchName: "anchor" }),
+    workflowWriteStep({ worktree: { projectName: `${name}-anchor`, branchName: "anchor" } }),
   );
   client.close();
   if (typeof anchorRunId !== "string") throw new Error("expected anchor run to admit");
@@ -198,12 +202,14 @@ async function startIncumbent(
     publicSocketPath,
     privateSocketPath,
     store,
-    fakeExecutor,
+    held,
     anchorRunId,
     close: async () => {
       await runtime.close();
+      held.abortAll();
       fakeExecutor.abortAll();
-      await flushBackgroundRuns(3);
+      // Aborted loops settle their rows asynchronously; let them land before the store closes.
+      await waitFor(() => store.listRuns().every((run) => run.status !== "in-progress"), 5_000);
       store.close();
       rmSync(root, { recursive: true, force: true });
     },
@@ -260,9 +266,10 @@ describe("daemon self-handoff (real sockets)", () => {
         const rows = await listRuns(await connectIpcClient(harness.privateSocketPath));
         expect(rows?.find((row) => row.runId === harness.anchorRunId)?.isLive).toBe(true);
 
-        harness.fakeExecutor.settleAll();
-        await flushBackgroundRuns(3);
-        expect(loadRunOrThrow(harness.store, harness.anchorRunId).status).toBe("completed");
+        harness.held.settleAll();
+        expect(
+          await waitFor(() => loadRunOrThrow(harness.store, harness.anchorRunId).status === "completed", 5_000),
+        ).toBe(true);
       } finally {
         await harness.close();
       }

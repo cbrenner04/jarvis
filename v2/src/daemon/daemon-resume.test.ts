@@ -29,7 +29,14 @@ import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import {
+  createHeldWorkflowBindings,
+  flushBackgroundRuns,
+  type HeldWorkflowBindings,
+  listRunsDirect,
+  startRunDirect,
+  workflowWriteStep,
+} from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry, type WriteLoopBindingSourceDeps } from "./daemon.ts";
@@ -46,6 +53,7 @@ const runner = createStubMarkdownlintRunner();
 let stateStore: StateStore;
 let starts: WriteLoopInput[];
 let fakeExecutor: FakeWriteLoopExecutor;
+let held: HeldWorkflowBindings;
 let handlers: Handlers;
 let dbPath: string;
 let profileHome: string;
@@ -106,6 +114,7 @@ beforeEach(() => {
   fakeExecutor = createFakeWriteLoopExecutor((input) => {
     starts.push(input);
   });
+  held = createHeldWorkflowBindings();
   profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-profile-home-"));
   machinesDir = join(profileHome, "machines");
   previousJarvisHome = process.env.JARVIS_HOME;
@@ -116,7 +125,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   fakeExecutor.abortAll();
-  await flushBackgroundRuns();
+  held.abortAll();
+  await flushBackgroundRuns(3);
   mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
   if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
   else process.env.JARVIS_HOME = previousJarvisHome;
@@ -320,11 +330,11 @@ test("resume rejects unknown run ID", async () => {
 });
 
 test("resume rejects terminal run status", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, workflowWriteStep({ createBinding: held.createBinding }));
   if (!runId) return;
 
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
+  held.settleAll();
+  await flushBackgroundRuns(3);
   stateStore.setRunStatus(runId, "completed");
 
   const response = await resumeDirect(handlers, runId);
@@ -868,7 +878,7 @@ test("resume on a workflow paused run with a non-executable role returns a contr
 });
 
 test("resume rejects an unsupported paused run before checking another in-flight run", async () => {
-  await startRunDirect(handlers);
+  await startRunDirect(handlers, workflowWriteStep({ createBinding: held.createBinding }));
 
   const pausedRunId = stateStore.createRun({
     project: "test-project",
@@ -887,7 +897,7 @@ test("resume rejects an unsupported paused run before checking another in-flight
 });
 
 test("resume rejects worktree_claimed when the (project, branch) is already live", async () => {
-  await startRunDirect(handlers);
+  await startRunDirect(handlers, workflowWriteStep({ createBinding: held.createBinding }));
 
   const pausedRunId = createWorkflowRun({ invocationId: "claimed-resume" });
   stateStore.setRunStatus(pausedRunId, "paused");

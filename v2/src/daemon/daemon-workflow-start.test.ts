@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
@@ -10,7 +10,6 @@ import {
 } from "../../../shared/prompts/review-profile.ts";
 import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
-import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import type {
   AnyWorkflowStep,
@@ -18,10 +17,9 @@ import type {
   ReviewWorkflowStep,
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { flushBackgroundRuns, listRunsDirect, startRunDirect, workflowWriteStep } from "../testing/run-control.ts";
 import {
   createBindingFactory,
   doneBindingFactory,
@@ -31,12 +29,7 @@ import {
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWithExternalWorktree } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import {
-  activeRunAcceptsKill,
-  createRunControlHandlers,
-  WorktreeOwnershipRegistry,
-  type WriteLoopBindingSourceDeps,
-} from "./daemon.ts";
+import { activeRunAcceptsKill, createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();
 
@@ -249,6 +242,18 @@ let registry: WorktreeOwnershipRegistry;
 
 function requestFrame(id: string, method: string, params?: unknown) {
   return { kind: "request" as const, id, method, params };
+}
+
+/** Durable `queued` row for `(demo, workflow-branch)`; nothing admits queued rows any more, so the claim check is seeded directly. */
+function seedQueuedRun(branch = "workflow-branch"): string {
+  return stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: `/fake/worktrees/demo/${branch}`,
+    branch,
+    specPath: "spec.md",
+    status: "queued",
+  });
 }
 
 beforeEach(() => {
@@ -607,8 +612,11 @@ test("start with steps is rejected insufficient_memory rather than queued when h
   expect(response).toEqual({ kind: "error", code: "insufficient_memory", message: expect.any(String) });
 });
 
-test("start with steps is rejected worktree_claimed when a live bare run holds the (project, branch)", async () => {
-  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));
+test("start with steps is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {
+  await startRunDirect(
+    handlers,
+    workflowWriteStep({ worktree: { projectName: "demo", branchName: "workflow-branch" } }),
+  );
 
   const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
   const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
@@ -616,8 +624,7 @@ test("start with steps is rejected worktree_claimed when a live bare run holds t
 });
 
 test("check_workflow_start_claim matches start worktree_claimed for a queued (project, branch)", async () => {
-  memoryHeadroom = false;
-  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));
+  seedQueuedRun();
 
   const response = await handlers.check_workflow_start_claim(
     requestFrame("probe-1", "check_workflow_start_claim", { project: "demo", branch: "workflow-branch" }),
@@ -635,8 +642,7 @@ test("check_workflow_start_claim admits an unclaimed (project, branch)", async (
 });
 
 test("start with steps is rejected worktree_claimed when the (project, branch) already has a queued run", async () => {
-  memoryHeadroom = false;
-  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));
+  seedQueuedRun();
 
   const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
   const response = await handlers.start(requestFrame("s2", "start", { steps }), new AbortController().signal);
@@ -844,22 +850,6 @@ test("start with steps reclaims a non-live workflow claim for the same (project,
   expect(response.kind).toBe("response");
 });
 
-test("start with input is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {
-  const liveSteps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch", neverResolvingBindingFactory)];
-  const liveResponse = await handlers.start(
-    requestFrame("s1", "start", { steps: liveSteps }),
-    new AbortController().signal,
-  );
-  expect(liveResponse.kind).toBe("response");
-  await flushBackgroundRuns();
-
-  const response = await handlers.start(
-    requestFrame("s2", "start", { input: mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }) }),
-    new AbortController().signal,
-  );
-  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
-});
-
 test("start with steps is rejected invalid_params when the first step is review-debate", async () => {
   const steps: AnyWorkflowStep[] = [createDebateStep("debate-1", "debate-branch")];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
@@ -961,83 +951,6 @@ test("a workflow that dies in durable review-debate marks its debate row failed 
     .map((record) => record.event.kind);
   expect(kinds.at(-1)).toBe("run_execution_failed");
   rmSync(logsPath, { force: true });
-});
-
-test("second write-loop admission on a live handler resolves rungs from the edited machine profile", async () => {
-  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-profile-edit-"));
-  const machinesDir = join(profileHome, "machines");
-  const machineProfile = "workflow-admission-profile";
-  const previousHome = process.env.JARVIS_HOME;
-  process.env.JARVIS_HOME = profileHome;
-
-  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
-  const claudeBundle = (implementModel: string) => ({
-    plan: rung("plan"),
-    implement: rung(implementModel),
-    shrink: rung("shrink"),
-    adversary: rung("adv"),
-    critic: rung("crit"),
-    advocate: rung("advoc"),
-    adjudicator: rung("adj"),
-    actuator: rung("act"),
-    routing: rung("act"),
-  });
-  const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
-  const writeProfile = (implementModel: string) => {
-    mkdirSync(machinesDir, { recursive: true });
-    writeFileSync(
-      join(machinesDir, `${machineProfile}.json`),
-      JSON.stringify({ models: { claude: claudeBundle(implementModel) } }),
-    );
-    writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
-    writeLoopBindingSourceDeps.machineConfigPath = join(profileHome, "config.json");
-    writeLoopBindingSourceDeps.machinesDir = machinesDir;
-  };
-
-  const staleConfig: AgentModelConfig = {
-    claude: { implement: { rungs: [{ adapterModel: "stale-admission-model", priceKey: "stale-admission-model" }] } },
-  };
-  const admitted: WriteLoopInput[] = [];
-  fakeExecutor = createFakeWriteLoopExecutor((input) => {
-    admitted.push(input);
-  });
-  handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    registry,
-    writeLoopBindingSourceDeps,
-  });
-
-  try {
-    writeProfile("first-admission-model");
-    const firstInput: WriteLoopInput = {
-      ...mockWriteLoopInput({ projectName: "demo", branchName: "profile-edit-1" }),
-      bindings: [],
-      bindingResolution: { role: "implement", agents: ["claude"], agentModelConfig: staleConfig },
-    };
-    await startRunDirect(handlers, firstInput);
-    fakeExecutor.settleFirst();
-    await flushBackgroundRuns();
-
-    writeProfile("second-admission-model");
-    const secondInput: WriteLoopInput = {
-      ...mockWriteLoopInput({ projectName: "demo", branchName: "profile-edit-2" }),
-      bindings: [],
-      bindingResolution: { role: "implement", agents: ["claude"], agentModelConfig: staleConfig },
-    };
-    await startRunDirect(handlers, secondInput);
-    await flushBackgroundRuns();
-
-    expect(admitted).toHaveLength(2);
-    expect(admitted[0]?.bindings[0]?.id).toContain("first-admission-model");
-    expect(admitted[1]?.bindings[0]?.id).toContain("second-admission-model");
-  } finally {
-    if (previousHome === undefined) delete process.env.JARVIS_HOME;
-    else process.env.JARVIS_HOME = previousHome;
-    rmSync(profileHome, { recursive: true, force: true });
-  }
 });
 
 test("terminal successor shell stall releases the branch claim for a fresh start", async () => {

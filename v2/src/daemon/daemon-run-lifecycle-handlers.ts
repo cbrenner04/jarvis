@@ -506,6 +506,7 @@ export function createRunLifecycleHandlers(
   const runTimeoutRefusal = (run: { id: string; project: string; workflowSnapshot?: WorkflowSnapshot | null }) =>
     runTimeoutExhaustedRefusal(store, runBudgetKey(run), ctx.runTimeout?.budgetMs?.(run.project));
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat snapshot-step guard chain plus one conditional-spread write-loop input literal; nesting inside the binding-source factory adds the increments
   const reconstructWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
     const snapshot = run.workflowSnapshot;
     if (!snapshot) return { ok: false, message: "run has no matching workflow snapshot step" };

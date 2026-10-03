@@ -38,7 +38,6 @@ const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
     functionName: "reconcileOrphanedRuns",
     writer: "commitTerminalRunSettlement",
   },
-  { file: "daemon.ts", functionName: "promoteQueuedRunImpl", writer: "commitTerminalRunSettlement" },
   { file: "daemon.ts", functionName: "recoverReconciledRuns", writer: "commitTerminalRunSettlement" },
   {
     file: "daemon-run-reconciliation.ts",
@@ -73,7 +72,6 @@ const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
 ];
 
 const PERMITTED_DAEMON_NONTERMINAL_SET_RUN_STATUS: PermittedDaemonNonterminalSetRunStatus[] = [
-  { file: "daemon.ts", functionName: "promoteQueuedRunImpl", status: "in-progress" },
   { file: "daemon-run-lifecycle-handlers.ts", functionName: "restoreRunAfterFailedResume", status: "paused" },
   { file: "daemon-workflow-admission-handlers.ts", functionName: "settleReplacedLinkedResume", status: "paused" },
 ];
@@ -318,8 +316,8 @@ export function regexPinnedDaemonSettlementGuard(
   const setRunStatusCaptures = [...concatenatedProductionSources.matchAll(/\.setRunStatus\s*\(([^)]*)\)/g)].map(
     (match) => match[1]?.trim(),
   );
-  // Queue promotion, failed-resume restoration, and a linked resume paused on its replacement.
-  if (setRunStatusCaptures.sort().join("|") !== 'prior.id, "paused"|run.id, "in-progress"|runId, "paused"') {
+  // Failed-resume restoration and a linked resume paused on its replacement.
+  if (setRunStatusCaptures.sort().join("|") !== 'prior.id, "paused"|runId, "paused"') {
     return false;
   }
   if (reconciliationAdmissionSlice.includes("UPDATE runs SET status")) return false;

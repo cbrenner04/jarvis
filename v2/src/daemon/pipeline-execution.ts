@@ -1728,8 +1728,9 @@ type TerminalSettlementDeps = Pick<
   "store" | "executeTerminalPublication" | "supersedeGh" | "subprocessRunner" | "staleResetPreflight"
 >;
 
-/** A dependent lane publishes only after its predecessor's merge is rebased out of its branches. */
+/** A dependent lane publishes only after its predecessor's merge is rebased out of the publishing branch (never the plan branch about to be superseded). */
 async function rebaseLaneBeforePublication(
+  pipelineId: string,
   deps: TerminalSettlementDeps,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchKey: string | undefined,
@@ -1737,8 +1738,10 @@ async function rebaseLaneBeforePublication(
   const split = branchKey === undefined ? null : findFanOutSplit(pipeline);
   if (split === null || branchKey === undefined) return { ok: true, merged: false };
   const predecessor = chainPredecessorOf(persistedFanOutLaneChain(pipeline, split), branchKey);
-  if (predecessor === undefined) return { ok: true, merged: false };
-  return rebaseLaneAfterPredecessorMerge(chainedLaneGitDeps(deps), pipeline, split, branchKey, predecessor);
+  const final = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, branchKey);
+  if (predecessor === undefined || final === undefined) return { ok: true, merged: false };
+  const git = chainedLaneGitDeps(deps);
+  return rebaseLaneAfterPredecessorMerge(git, pipelineId, pipeline, split, branchKey, predecessor, final.stageId);
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal-publication settlement fans over terminalAction, PR evidence, and retarget cases
@@ -1763,7 +1766,7 @@ async function settleOneLaneTerminalPublication(
     return;
   }
 
-  const stacked = await rebaseLaneBeforePublication(deps, pipeline, branchKey);
+  const stacked = await rebaseLaneBeforePublication(pipelineId, deps, pipeline, branchKey);
   if (!stacked.ok) {
     commitTerminalPublicationFailureSafely(store, {
       pipelineId,
@@ -1911,6 +1914,10 @@ export async function recoverContinuablePipelines(
     if (owner !== null && (await isOwnerAliveProbe(owner))) continue;
     const outcome = await continuePipeline(pipeline.id, pipelineDeps);
     if (outcome.kind === "continued") continued += 1;
+  }
+  for (const pipeline of store.listPipelines()) {
+    if (pipeline.status !== "active" || pipeline.dismissedAt !== null) continue;
+    await rebaseCompletedDependentLanes(pipeline.id, pipelineDeps);
   }
   return { continued };
 }
@@ -2095,7 +2102,7 @@ export function fanOutBranchSuffixTerminallySettled(
   return false;
 }
 
-function fanOutLaneProgress(
+export function fanOutLaneProgress(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   split: FanOutSplit,
   branchKey: string,
@@ -2105,7 +2112,8 @@ function fanOutLaneProgress(
   for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
     if (!isAuthoredStageSatisfied(stage, record)) complete = false;
     // A provisional skip awaits its failed predecessor's reopen; only a terminal skip ends the lane.
-    if (record.status === "failed" || record.status === "rejected") ended = true;
+    if (record.status === "failed" && !isChainedLaneRebaseRefusal(record.failureDetail)) ended = true;
+    if (record.status === "rejected") ended = true;
     if (record.status === "skipped" && record.skipProvenance === "terminal") ended = true;
   }
   if (complete) return "complete";
@@ -2121,22 +2129,6 @@ function fanOutLaneGate(
   return laneChainGate(chain, branchKey, (lane) => fanOutLaneProgress(pipeline, split, lane));
 }
 
-/** The predecessor lane's final succeeded workflow stage, its entry run, and the PR it published. */
-type ChainPredecessorTip = { record: PipelineStageRecord; run: Run; prNumber?: number };
-
-function chainPredecessorTip(
-  store: StateStore,
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  split: FanOutSplit,
-  predecessor: string,
-): ChainPredecessorTip | undefined {
-  const record = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, predecessor);
-  const artifact = narrowPipelineStageArtifact(record?.artifact);
-  const run = artifact === undefined ? null : store.loadRun(artifact.entryRunId);
-  if (record === undefined || run === null || !run.branch) return undefined;
-  return { record, run, ...(artifact?.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}) };
-}
-
 /** Branch of the predecessor lane's final succeeded workflow stage — the ref a chained lane forks from. */
 function fanOutLaneForkRef(
   store: StateStore,
@@ -2144,7 +2136,10 @@ function fanOutLaneForkRef(
   split: FanOutSplit,
   predecessor: string,
 ): string | undefined {
-  return chainPredecessorTip(store, pipeline, split, predecessor)?.run.branch;
+  const record = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, predecessor);
+  const entryRunId = narrowPipelineStageArtifact(record?.artifact)?.entryRunId;
+  const branch = entryRunId === undefined ? undefined : store.loadRun(entryRunId)?.branch;
+  return branch ? branch : undefined;
 }
 
 /** Git and `gh` seams for the chained-lane rebase; production defaults when a dep is absent. */
@@ -2163,37 +2158,141 @@ function chainedLaneGitDeps(deps: {
   };
 }
 
-/** A succeeded workflow-stage branch of a lane: the worktree a predecessor merge leaves stacked. */
-type LaneBranch = { stageId: string; worktreePath: string; branch: string; baseRef: string };
+/** Marker on a chained-lane rebase refusal's `failureDetail`: the lane is recoverable, not dead. */
+const CHAINED_LANE_REBASE_REFUSAL = "chained_lane_rebase_refused";
 
-function openLaneBranches(
+/** True for a `failed` row written by a chained-lane rebase refusal — retryable via `pipeline resume`, never severing successors. */
+export function isChainedLaneRebaseRefusal(failureDetail: unknown): boolean {
+  return isRecord(failureDetail) && failureDetail.code === CHAINED_LANE_REBASE_REFUSAL;
+}
+
+type ChainedLaneRefusal = {
+  ok: false;
+  reason:
+    | "tip_unresolved"
+    | "merge_probe_failed"
+    | "base_fetch_failed"
+    | "dirty_worktree"
+    | "remote_diverged"
+    | "rebase_conflict"
+    | "push_rejected";
+  message: string;
+};
+type ChainedLaneRebase = { ok: true; merged: boolean } | ChainedLaneRefusal;
+
+/** The project checkout the pipeline was admitted from: repo-wide git (`rev-parse`, base fetch) and `gh` run there. */
+function pipelineProjectCwd(pipeline: Pipeline): string | undefined {
+  const loaded = loadPipelineContext(pipeline.context);
+  return loaded.ok ? loaded.context.cwd : undefined;
+}
+
+/** The predecessor's final succeeded workflow stage, its entry run, the tip SHA its dependents forked from, and its PR. */
+type ChainPredecessorTip = { record: PipelineStageRecord; run: Run; sha: string; prNumber?: number };
+
+/**
+ * Resolve the predecessor tip as a SHA. The branch name is mutable and gone once cleanup retires the
+ * lane, so the SHA is read once while the ref exists and persisted on the predecessor's stage
+ * artifact (`forkTipSha`); later passes read the persisted value.
+ */
+async function resolveChainPredecessorTip(
+  git: ChainedLaneGitDeps,
+  pipelineId: string,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  predecessor: string,
+  cwd: string,
+): Promise<ChainPredecessorTip | ChainedLaneRefusal | undefined> {
+  const record = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, predecessor);
+  const artifact = narrowPipelineStageArtifact(record?.artifact);
+  const run = artifact === undefined ? null : git.store.loadRun(artifact.entryRunId);
+  if (record === undefined || artifact === undefined || run === null || !run.branch) return undefined;
+  const prNumber = artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {};
+  if (artifact.forkTipSha !== undefined) return { record, run, sha: artifact.forkTipSha, ...prNumber };
+  let sha: string;
+  try {
+    sha = (await git.runner.runAsync("git", ["rev-parse", "--verify", `${run.branch}^{commit}`], cwd)).trim();
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "tip_unresolved",
+      message: `predecessor lane "${predecessor}" tip ${run.branch} cannot be resolved in ${cwd}: ${errorText(error)}`,
+    };
+  }
+  git.store.updateStage({
+    pipelineId,
+    stageId: record.stageId,
+    branchKey: predecessor,
+    patch: { artifact: { ...artifact, forkTipSha: sha } },
+  });
+  return { record, run, sha, ...prNumber };
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Durable `rebasedAfterPredecessorMerge` stamp on a lane stage artifact. */
+type PredecessorRebaseStamp = { predecessor: string; predecessorTip: string; at: number };
+
+function laneRebaseStamp(artifact: PipelineStageArtifact | undefined): PredecessorRebaseStamp | undefined {
+  const stamp = artifact?.rebasedAfterPredecessorMerge;
+  return isRecord(stamp) && typeof stamp.predecessor === "string" ? (stamp as PredecessorRebaseStamp) : undefined;
+}
+
+/** A succeeded workflow-stage branch of a lane not yet rebased past the predecessor merge. */
+type LaneBranch = {
+  stageId: string;
+  artifact: PipelineStageArtifact;
+  worktreePath: string;
+  branch: string;
+  baseRef: string;
+};
+
+function unrebasedLaneBranches(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   split: FanOutSplit,
   lane: string,
-): LaneBranch[] {
+  onlyStageId?: string,
+): { branches: LaneBranch[]; stamped: boolean } {
   const branches: LaneBranch[] = [];
+  let stamped = false;
   for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, lane)) {
     if (stage.kind !== "workflow" || record.status !== "succeeded") continue;
-    const entryRunId = narrowPipelineStageArtifact(record.artifact)?.entryRunId;
-    const run = entryRunId === undefined ? null : store.loadRun(entryRunId);
+    const artifact = narrowPipelineStageArtifact(record.artifact);
+    if (artifact === undefined) continue;
+    if (laneRebaseStamp(artifact) !== undefined) {
+      stamped = true;
+      continue;
+    }
+    if (onlyStageId !== undefined && stage.stageId !== onlyStageId) continue;
+    const run = store.loadRun(artifact.entryRunId);
     if (run === null || !run.worktreePath || !run.branch) continue;
-    branches.push({ stageId: stage.stageId, worktreePath: run.worktreePath, branch: run.branch, baseRef: run.specRef });
+    branches.push({
+      stageId: stage.stageId,
+      artifact,
+      worktreePath: run.worktreePath,
+      branch: run.branch,
+      baseRef: run.specRef,
+    });
   }
-  return branches;
+  return { branches, stamped };
 }
 
 /**
- * Whether the predecessor's implement PR merged: the harness `merge` publication stamped success,
- * lane settlement recorded the PR merged, or `gh` reports its recorded PR `MERGED`. A probe error
- * reads as not merged.
+ * Whether the predecessor's implement PR merged: a lane branch already stamped, lane settlement
+ * recorded the PR merged, a `merge` terminal action stamped success, or `gh` reports the recorded PR
+ * `MERGED` from the project checkout. No recorded PR means not merged; a probe error is a refusal.
  */
 async function chainPredecessorMerged(
   git: ChainedLaneGitDeps,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   tip: ChainPredecessorTip,
+  predecessor: string,
   cwd: string,
-): Promise<boolean> {
+  stamped: boolean,
+): Promise<boolean | ChainedLaneRefusal> {
+  if (stamped) return true;
   const artifact = narrowPipelineStageArtifact(tip.record.artifact);
   if (artifact?.lanePrOutcome?.kind === "lane_pr_merged") return true;
   const stamp = stageTerminalPublicationFromArtifact(tip.record.artifact);
@@ -2201,77 +2300,197 @@ async function chainPredecessorMerged(
   if (tip.prNumber === undefined) return false;
   try {
     return (await git.supersedeGh.prState(cwd, tip.prNumber)).state === "MERGED";
-  } catch {
-    return false;
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "merge_probe_failed",
+      message: `predecessor lane "${predecessor}" merge state unknown: gh pr view #${tip.prNumber} in ${cwd} failed: ${errorText(error)}`,
+    };
   }
 }
 
-type LaneBranchRebase = { kind: "rebased" } | { kind: "not-stacked" } | { kind: "failed"; message: string };
+type LaneBranchRebase = { ok: true } | { ok: false; reason: ChainedLaneRefusal["reason"]; detail: string };
 
-/**
- * `git rebase --onto origin/<base> <predecessor-tip>` in one lane worktree, then a lease push so the
- * PR diff carries only the lane's own commits. A branch no longer stacked on the predecessor tip is
- * left alone; a failed rebase is aborted so no partial rebase remains.
- */
-async function rebaseLaneBranchOntoBase(
+/** Local HEAD must equal the fetched remote tip before the branch is rewritten; that tip is the push lease. */
+async function fetchedRemoteTipMatchingHead(
   runner: AsyncSubprocessRunner,
   lane: LaneBranch,
-  predecessorTip: string,
-): Promise<LaneBranchRebase> {
+): Promise<{ ok: true; remoteTip: string } | { ok: false; reason: "remote_diverged"; detail: string }> {
   const cwd = lane.worktreePath;
-  const git = (args: string[], network = false) =>
-    runner.runAsync("git", args, cwd, network ? networkSubprocessOptions() : undefined);
+  let remoteTip: string;
   try {
-    await git(["merge-base", "--is-ancestor", predecessorTip, "HEAD"]);
-  } catch {
-    return { kind: "not-stacked" };
-  }
-  try {
-    const oldTip = (await git(["rev-parse", "HEAD"])).trim();
-    await git(["fetch", "origin", lane.baseRef], true);
-    try {
-      await git(["rebase", "--onto", `origin/${lane.baseRef}`, predecessorTip]);
-    } catch (error) {
-      await git(["rebase", "--abort"]).catch(() => undefined);
-      throw error;
-    }
-    await git(
-      ["push", `--force-with-lease=refs/heads/${lane.branch}:${oldTip}`, "origin", `HEAD:refs/heads/${lane.branch}`],
-      true,
-    );
-    return { kind: "rebased" };
+    await runner.runAsync("git", ["fetch", "origin", lane.branch], cwd, networkSubprocessOptions());
+    remoteTip = (await runner.runAsync("git", ["rev-parse", "FETCH_HEAD"], cwd)).trim();
   } catch (error) {
-    return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      reason: "remote_diverged",
+      detail: `origin/${lane.branch} cannot be fetched: ${errorText(error)}`,
+    };
   }
+  const head = (await runner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
+  if (head !== remoteTip) {
+    return {
+      ok: false,
+      reason: "remote_diverged",
+      detail: `origin/${lane.branch} is at ${remoteTip.slice(0, 12)} but local HEAD is at ${head.slice(0, 12)}; reconcile them by hand before the harness rebases`,
+    };
+  }
+  return { ok: true, remoteTip };
 }
 
-type ChainedLaneRebase = { ok: true; merged: boolean } | { ok: false; message: string };
+/**
+ * Rebase one lane worktree past the merged predecessor: a branch no longer stacked on the tip is
+ * left alone; a dirty tree and a remote that diverged from local HEAD each refuse before anything
+ * is rewritten; then `git rebase --onto origin/<base> <tip-sha>` (aborted on conflict, so no partial
+ * rebase remains) and a lease push against the fetched remote tip.
+ */
+async function rebaseLaneBranch(
+  runner: AsyncSubprocessRunner,
+  lane: LaneBranch,
+  tipSha: string,
+  fetchBase: () => Promise<LaneBranchRebase>,
+): Promise<LaneBranchRebase> {
+  const cwd = lane.worktreePath;
+  try {
+    await runner.runAsync("git", ["merge-base", "--is-ancestor", tipSha, "HEAD"], cwd);
+  } catch {
+    return { ok: true };
+  }
+  const dirty = await listDirtyWorktreePathsForStaleReset(cwd, runner);
+  if (dirty.status !== "clean") {
+    const detail = dirty.status === "dirty" ? `dirty paths: ${dirty.paths.join(", ") || "(unlisted)"}` : dirty.status;
+    return { ok: false, reason: "dirty_worktree", detail: `worktree is not clean (${detail})` };
+  }
+  const remote = await fetchedRemoteTipMatchingHead(runner, lane);
+  if (!remote.ok) return remote;
+  const base = await fetchBase();
+  if (!base.ok) return base;
+  try {
+    await runner.runAsync("git", ["rebase", "--onto", `origin/${lane.baseRef}`, tipSha], cwd);
+  } catch (error) {
+    await runner.runAsync("git", ["rebase", "--abort"], cwd).catch(() => undefined);
+    return {
+      ok: false,
+      reason: "rebase_conflict",
+      detail: `git rebase --onto origin/${lane.baseRef} ${tipSha.slice(0, 12)} conflicted and was aborted: ${errorText(error)}`,
+    };
+  }
+  try {
+    await runner.runAsync(
+      "git",
+      [
+        "push",
+        `--force-with-lease=refs/heads/${lane.branch}:${remote.remoteTip}`,
+        "origin",
+        `HEAD:refs/heads/${lane.branch}`,
+      ],
+      cwd,
+      networkSubprocessOptions(),
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "push_rejected",
+      detail: `lease push rejected after the local rebase: ${errorText(error)}`,
+    };
+  }
+  return { ok: true };
+}
+
+/** `git fetch origin <base>` in the project checkout, at most once per lane pass and only once a stacked branch needs it. */
+function baseFetcher(runner: AsyncSubprocessRunner, cwd: string, baseRef: string): () => Promise<LaneBranchRebase> {
+  let fetched: Promise<LaneBranchRebase> | undefined;
+  return () => {
+    fetched ??= runner
+      .runAsync("git", ["fetch", "origin", baseRef], cwd, networkSubprocessOptions())
+      .then((): LaneBranchRebase => ({ ok: true }))
+      .catch(
+        (error: unknown): LaneBranchRebase => ({
+          ok: false,
+          reason: "base_fetch_failed",
+          detail: `git fetch origin ${baseRef} in ${cwd} failed: ${errorText(error)}`,
+        }),
+      );
+    return fetched;
+  };
+}
 
 /**
- * After the predecessor lane's implement PR merges, rebase every open branch of `lane` onto the
- * default base so its PRs stop carrying the predecessor's (now squash-merged) commits. A rebase
- * failure refuses the lane, naming the predecessor.
+ * After the predecessor lane's implement PR merges, rebase the lane's not-yet-stamped succeeded
+ * branches (or only `onlyStageId`) onto the default base so they stop carrying the predecessor's
+ * squash-merged commits; each rebased row is stamped `rebasedAfterPredecessorMerge` so later passes
+ * short-circuit. The base is fetched at most once per lane. Any step failure refuses, naming the predecessor.
  */
 async function rebaseLaneAfterPredecessorMerge(
   git: ChainedLaneGitDeps,
+  pipelineId: string,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   split: FanOutSplit,
   lane: string,
   predecessor: string,
+  onlyStageId?: string,
 ): Promise<ChainedLaneRebase> {
-  const tip = chainPredecessorTip(git.store, pipeline, split, predecessor);
+  const cwd = pipelineProjectCwd(pipeline);
+  if (cwd === undefined) return { ok: true, merged: false };
+  // Sibling walks admit the same lane concurrently (its own suffix task and its predecessor's
+  // release); a rebase must never run twice on one worktree, so passes for a lane queue up and
+  // each later one re-reads the rows its predecessor stamped.
+  return serializedPerLane(`${pipelineId}:${lane}`, async () => {
+    const fresh = git.store.loadPipeline(pipelineId) ?? pipeline;
+    return rebaseLaneBranchesNow(git, pipelineId, fresh, split, lane, predecessor, cwd, onlyStageId);
+  });
+}
+
+const laneRebaseQueue = new Map<string, Promise<unknown>>();
+
+async function serializedPerLane<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const prior = laneRebaseQueue.get(key) ?? Promise.resolve();
+  const next = prior.then(task, task);
+  laneRebaseQueue.set(key, next);
+  try {
+    return await next;
+  } finally {
+    if (laneRebaseQueue.get(key) === next) laneRebaseQueue.delete(key);
+  }
+}
+
+async function rebaseLaneBranchesNow(
+  git: ChainedLaneGitDeps,
+  pipelineId: string,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  lane: string,
+  predecessor: string,
+  cwd: string,
+  onlyStageId?: string,
+): Promise<ChainedLaneRebase> {
+  const tip = await resolveChainPredecessorTip(git, pipelineId, pipeline, split, predecessor, cwd);
   if (tip === undefined) return { ok: true, merged: false };
-  const branches = openLaneBranches(git.store, pipeline, split, lane);
-  const cwd = branches[0]?.worktreePath ?? tip.run.worktreePath;
-  if (!cwd || !(await chainPredecessorMerged(git, pipeline, tip, cwd))) return { ok: true, merged: false };
+  if ("ok" in tip) return tip;
+  const { branches, stamped } = unrebasedLaneBranches(git.store, pipeline, split, lane, onlyStageId);
+  const merged = await chainPredecessorMerged(git, pipeline, tip, predecessor, cwd, stamped);
+  if (merged !== true) return merged === false ? { ok: true, merged: false } : merged;
+  const first = branches[0];
+  if (first === undefined) return { ok: true, merged: true };
+  const pr = tip.prNumber === undefined ? "" : ` (#${tip.prNumber})`;
+  const fetchBase = baseFetcher(git.runner, cwd, first.baseRef);
   for (const branch of branches) {
-    const result = await rebaseLaneBranchOntoBase(git.runner, branch, tip.run.branch);
-    if (result.kind !== "failed") continue;
-    const pr = tip.prNumber === undefined ? "" : ` (#${tip.prNumber})`;
-    return {
-      ok: false,
-      message: `predecessor lane "${predecessor}" merged${pr}; rebasing lane "${lane}" branch "${branch.branch}" (${branch.stageId}) in ${branch.worktreePath} onto origin/${branch.baseRef} from ${tip.run.branch} failed: ${result.message}`,
-    };
+    const result = await rebaseLaneBranch(git.runner, branch, tip.sha, fetchBase);
+    if (!result.ok) {
+      return {
+        ok: false,
+        reason: result.reason,
+        message: `predecessor lane "${predecessor}" merged${pr}; lane "${lane}" branch "${branch.branch}" (${branch.stageId}) in ${branch.worktreePath}: ${result.detail}`,
+      };
+    }
+    const stamp: PredecessorRebaseStamp = { predecessor, predecessorTip: tip.sha, at: Date.now() };
+    git.store.updateStage({
+      pipelineId,
+      stageId: branch.stageId,
+      branchKey: lane,
+      patch: { artifact: { ...branch.artifact, rebasedAfterPredecessorMerge: stamp } },
+    });
   }
   return { ok: true, merged: true };
 }
@@ -2329,7 +2548,7 @@ type ChainedLaneAdmission =
 /**
  * Hold a lane until its chain predecessor completes, settle it `skipped` once severed, else fork from
  * the predecessor branch — or, once the predecessor's PR merged, rebase the lane's open branches and
- * fork from the default base instead. A failed rebase refuses the lane.
+ * fork from the default base instead. A rebase refusal fails only the admitted stage, retryably.
  */
 async function admitChainedLane(
   git: ChainedLaneGitDeps,
@@ -2347,16 +2566,72 @@ async function admitChainedLane(
     return { kind: "stop" };
   }
   if (gate.predecessor === undefined) return { kind: "dispatch" };
-  const rebase = await rebaseLaneAfterPredecessorMerge(git, pipeline, split, branchKey, gate.predecessor);
+  const rebase = await rebaseLaneAfterPredecessorMerge(git, pipelineId, pipeline, split, branchKey, gate.predecessor);
   if (!rebase.ok) return { kind: "refuse", message: rebase.message };
   const forkRef = rebase.merged ? undefined : fanOutLaneForkRef(store, pipeline, split, gate.predecessor);
   return forkRef === undefined ? { kind: "dispatch" } : { kind: "dispatch", forkRef };
+}
+
+/** Fail the admitted stage with the retryable rebase-refusal marker: the lane reopens via `pipeline resume`; successors stay held, not severed. */
+function refuseChainedLaneStage(
+  store: StateStore,
+  pipelineId: string,
+  stageId: string,
+  branchKey: string,
+  stageRecords: readonly PipelineStageRecord[],
+  skipFromPosition: number,
+  message: string,
+): StageStepOutcome {
+  store.updateStage({
+    pipelineId,
+    stageId,
+    branchKey,
+    patch: {
+      status: "failed",
+      endedAt: Date.now(),
+      failureDetail: {
+        ...buildStageFailureRecord("chained lane rebases onto its merged predecessor", message, true),
+        code: CHAINED_LANE_REBASE_REFUSAL,
+      },
+    },
+  });
+  skipRemainingStages(store, pipelineId, stageRecords, skipFromPosition, branchKey);
+  return "stop";
 }
 
 /** Chain predecessor of a dependent lane, or `undefined` for independent and head lanes. */
 function chainPredecessorOf(chain: FanOutLaneChain | undefined, branchKey: string): string | undefined {
   const index = chain === undefined ? -1 : chain.dependent.indexOf(branchKey);
   return index > 0 ? chain?.dependent[index - 1] : undefined;
+}
+
+/**
+ * Sweep: a complete dependent lane whose published branch still stacks on a predecessor that has
+ * since merged (a `ready` lane merged by the operator later, for example) is rebased and lease-pushed
+ * here — at the end of every `runPipeline` pass and at daemon start. Refusals are not recorded: the
+ * lane is already settled, and the next sweep retries until the branch is rebased or hand-rebased.
+ */
+async function rebaseCompletedDependentLanes(pipelineId: string, deps: TerminalSettlementDeps): Promise<void> {
+  const pipeline = deps.store.loadPipeline(pipelineId);
+  const split = pipeline ? findFanOutSplit(pipeline) : null;
+  const chain = pipeline && split !== null ? persistedFanOutLaneChain(pipeline, split) : undefined;
+  if (!pipeline || split === null || chain === undefined) return;
+  for (const lane of chain.dependent) {
+    const predecessor = chainPredecessorOf(chain, lane);
+    if (predecessor === undefined || fanOutLaneProgress(pipeline, split, lane) !== "complete") continue;
+    const final = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, lane);
+    if (final === undefined || laneRebaseStamp(narrowPipelineStageArtifact(final.artifact)) !== undefined) continue;
+    const fresh = deps.store.loadPipeline(pipelineId) ?? pipeline;
+    await rebaseLaneAfterPredecessorMerge(
+      chainedLaneGitDeps(deps),
+      pipelineId,
+      fresh,
+      split,
+      lane,
+      predecessor,
+      final.stageId,
+    );
+  }
 }
 
 /** Terminally skip every open row of a dependent lane whose chain predecessor failed or was rejected. */
@@ -3495,7 +3770,7 @@ async function runFanOutBranchAction(
   const chainAdmission = (await opts.laneAdmission?.(targetBranchKey)) ?? { kind: "dispatch" };
   if (chainAdmission.kind === "stop") return "skip";
   if (chainAdmission.kind === "refuse") {
-    failWorkflowStageAt(
+    refuseChainedLaneStage(
       store,
       pipelineId,
       stage.stageId,
@@ -3503,7 +3778,6 @@ async function runFanOutBranchAction(
       stageRecords,
       index + 1,
       chainAdmission.message,
-      false,
     );
     return "acted";
   }
@@ -3778,7 +4052,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     const chainAdmission = await admitChainedLaneStage(args, current);
     if (chainAdmission.kind === "stop") return "stop";
     if (chainAdmission.kind === "refuse") {
-      return failWorkflowStageAt(
+      return refuseChainedLaneStage(
         store,
         pipelineId,
         stage.stageId,
@@ -3786,7 +4060,6 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
         stageRecords,
         index + 1,
         chainAdmission.message,
-        false,
       );
     }
 
@@ -4134,6 +4407,7 @@ export async function runPipeline(
     }
 
     await settlePipelineTerminalPublication(pipelineId, executionDeps);
+    await rebaseCompletedDependentLanes(pipelineId, executionDeps);
   } catch (error) {
     failStrandedPipelineStage(store, pipelineId, definition, error);
   }

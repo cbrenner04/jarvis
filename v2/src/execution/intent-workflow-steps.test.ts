@@ -134,6 +134,34 @@ describe("buildIntentWorkflowSteps", () => {
     expect(inline.steps[0]).toMatchObject({ landing: { inputs: { paths: [], consumeFrom: "worktree" } } });
   });
 
+  test("validates seed frontmatter ratings before loading steps", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-builder-ratings-"));
+    writeFileSync(join(root, "rated.md"), "---\nname: rated\nrisk: high\neffort: low\n---\n\n# Rated\n", "utf8");
+    writeFileSync(
+      join(root, "malformed.md"),
+      "---\nname: malformed\nrisk: low\neffort: extreme\n---\n\n# Malformed\n",
+      "utf8",
+    );
+    let loaded = 0;
+    const deps = {
+      resolveProjectMatch: () => ({ ...match, root }),
+      loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) => {
+        loaded += 1;
+        return load(steps);
+      },
+    };
+
+    const ok = await buildIntentWorkflowSteps({ cwd: root, seed: "rated.md" }, deps);
+    expect(ok).toMatchObject({ ok: true });
+    expect(loaded).toBe(1);
+    const rejected = await buildIntentWorkflowSteps({ cwd: root, seed: "malformed.md" }, deps);
+    expect(rejected).toEqual({
+      ok: false,
+      error: 'intent: seed frontmatter `effort:` must be one of low, medium, high; got "extreme"',
+    });
+    expect(loaded).toBe(1);
+  });
+
   test("rejects dual seeds, traversal, and reserved slugs before loading steps", async () => {
     let loaded = false;
     const deps = {

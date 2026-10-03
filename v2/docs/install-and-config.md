@@ -18,7 +18,7 @@ cd jarvis
 ln -s "$(pwd)/bin/jarvis"  <dir-on-PATH>/jarvis
 ```
 
-Verify: `jarvis config path` prints an absolute path (see [Config](#config)).
+Verify: `jarvis help` lists the commands (`init`, `daemon`, `run`, …). Then run [`jarvis init`](#jarvis-init).
 
 ## `jarvis init`
 
@@ -83,38 +83,18 @@ Two layers — do not conflate them:
 
 | Layer | Path | Contents |
 | --- | --- | --- |
-| **Per-machine** | `~/.jarvis/config.json` (expanded absolute path from `jarvis config path`) | Agent fallback order (`agents`), required `machineProfile` selector, optional `notificationSinkCommand`, optional `projects` registry |
+| **Per-machine** | `~/.jarvis/config.json` (hand-edited; `jarvis init` merges into it) | Agent fallback order (`agents`), required `machineProfile` selector, optional `notificationSinkCommand`, optional `projects` registry |
 | **Machine-independent** | Repo `config/machines/<profileName>.json` | Role→model store (`models` map: agent → role → `rungs`); seeded profiles include `home` and `work` |
 
 Full schema and validation rules: [`agent-model-config.md`](./agent-model-config.md).
 
-### `jarvis config`
+### Agent order
 
-| Command | Output | Exit |
-| --- | --- | --- |
-| `jarvis config show` | Configured `agents`, one name per line; or `No machine agent override configured.` when the file is absent or has no `agents` key | `0` on success; `1` with a config-read error on stderr when the file is invalid |
-| `jarvis config path` | Fully expanded absolute path to the machine config file (no tilde substitution) | `0` |
-| `jarvis config set-agents <csv>` | `{"agents":[...]}` JSON with the landed order | `0` on success; `1` on bad CSV or invalid existing file |
+The agent fallback order is the top-level `agents` array in `~/.jarvis/config.json`: bare agent names (no `agent:model` tokens), non-empty, duplicate-free. `jarvis init` seeds it from the runnable agents on `PATH` only when the key is absent and never reorders an existing array — to change the order, hand-edit the file, then confirm with `jarvis init --check` (the `agents` and `machine-profile` lines). Per-target-repo order: [Per-project overrides](#per-project-overrides). There is no `jarvis config` command (retired).
 
-`set-agents` takes bare comma-separated agent names (trimmed segments; rejects empty segments and any segment containing `:`). It replaces the full `agents` array and preserves other top-level keys.
+### `machineProfile`
 
-Example bootstrap:
-
-```bash
-jarvis config set-agents claude,codex,cursor
-# {"agents":["claude","codex","cursor"]}
-
-jarvis config show
-# claude
-# codex
-# cursor
-```
-
-### Required `machineProfile` hand-edit
-
-No `jarvis config` subcommand writes `machineProfile`. `show` and `path` are read-only; `set-agents` writes only `agents`. Role→model resolution hard-requires `machineProfile`, so the CLI alone cannot produce a runnable machine.
-
-After `set-agents`, edit `~/.jarvis/config.json` and add a profile name that matches a committed file under `config/machines/`:
+Role→model resolution hard-requires `machineProfile`; `jarvis init --profile <name>` writes it when absent. For a hand-edit, use a profile name that matches a committed file under `config/machines/`:
 
 ```json
 {
@@ -127,7 +107,7 @@ Use `work` when this machine should not load Claude bindings (`config/machines/w
 
 ### Operator notification sink
 
-Optional top-level `notificationSinkCommand` (non-empty string) names a shell command the daemon spawns fire-and-forget when a derived operator incident becomes owed. The command receives one JSON object on stdin per notification (`incidentId`, `kind`, `transition`, `pipelineId`, `runId`, `cause`, …). Examples: `terminal-notifier -message -`, a Slack `curl` wrapper, or a script that re-invokes an agent session. A blank or non-string value is treated as absent — the sweep still maintains the delivery ledger but spawns nothing. There is no `jarvis config` subcommand for this field; hand-edit `~/.jarvis/config.json`. Semantics: [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications).
+Optional top-level `notificationSinkCommand` (non-empty string) names a shell command the daemon spawns fire-and-forget when a derived operator incident becomes owed. The command receives one JSON object on stdin per notification (`incidentId`, `kind`, `transition`, `pipelineId`, `runId`, `cause`, …). Examples: `terminal-notifier -message -`, a Slack `curl` wrapper, or a script that re-invokes an agent session. A blank or non-string value is treated as absent — the sweep still maintains the delivery ledger but spawns nothing. Hand-edit `~/.jarvis/config.json`. Semantics: [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications).
 
 ### Project registry
 
@@ -242,14 +222,14 @@ An explicit `jarvis run workflow implement --review-passes <n>` overrides the re
 
 ### Cleanup
 
-`jarvis cleanup` reads optional machine keys from `~/.jarvis/config.json`. Session-log retention is global (not project-scoped); hand-edit the block — there is no `jarvis config` subcommand for it. Operator semantics: [operator-runbook.md § Session-log retention](./operator-runbook.md#session-log-retention). When the block is absent, defaults are `hotDays` `14` and `coldDays` `90` (cold widened from the prior single-key `14`-day default).
+`jarvis cleanup` reads optional machine keys from `~/.jarvis/config.json`. Session-log retention is global (not project-scoped); hand-edit the block. Operator semantics: [operator-runbook.md § Session-log retention](./operator-runbook.md#session-log-retention). When the block is absent, defaults are `hotDays` `14` and `coldDays` `90` (cold widened from the prior single-key `14`-day default).
 
 | Key | Role | Default | Validation |
 | --- | --- | --- | --- |
 | `retention.sessions.hotDays` | Plain-to-gzip boundary: eligible terminal-run logs (by `finishedAt`) and orphan plain `.log` files (by that file's `mtime`) past `now - hotDays` are compressed to sibling `.log.gz` under flat `~/.jarvis/sessions/` and under `~/.jarvis/sessions/<YYYY-MM>/` (see [operator-runbook.md § Session-log retention](./operator-runbook.md#session-log-retention)) | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — reports `retention.sessions.hotDays must be a positive integer`, or when `retention` / `retention.sessions` is not an object reports `retention.sessions.hotDays and retention.sessions.coldDays must be positive integers` — without affecting other cleanup slices |
 | `retention.sessions.coldDays` | Gzip deletion boundary: eligible terminal-run logs (by `finishedAt`) and orphan `.log.gz` files (by that gzip file's `mtime`) past `now - coldDays` are removed; must be strictly greater than `hotDays`. Same flat and month-shard discovery scope as `hotDays`. | `90` when absent | Positive integer, must be strictly greater than `retention.sessions.hotDays`; non-integer, zero, negative, non-number, or ordering failure skips session-log reaping — stderr names `retention.sessions.coldDays` or both fields when `retention` / `retention.sessions` is not an object (`retention.sessions.hotDays and retention.sessions.coldDays must be positive integers`) or reports `retention.sessions.coldDays must be greater than retention.sessions.hotDays` — without affecting other cleanup slices |
 
-There is no `jarvis config` subcommand for these fields; hand-edit `~/.jarvis/config.json`.
+Hand-edit `~/.jarvis/config.json` for these fields.
 
 ## Daemon
 
@@ -274,9 +254,9 @@ jarvis daemon status   # expect: running (exit 0)
 
 Errors surface at different commands — fix the file or knob the message names, then re-run **that** command.
 
-### Config-load errors → `jarvis config show`
+### Config-load errors → `jarvis init --check`
 
-Surfaced when reading `~/.jarvis/config.json` (also blocks `set-agents` writes against an invalid file):
+Surfaced by the first command that reads `~/.jarvis/config.json` (`jarvis init --check` before any probe, or `jarvis run …`):
 
 | Symptom (stderr) | Fix |
 | --- | --- |
@@ -288,11 +268,9 @@ Surfaced when reading `~/.jarvis/config.json` (also blocks `set-agents` writes a
 | `Machine config 'agents' entry at index N must not be an empty string` | Remove empty entries |
 | `Machine config 'agents' contains duplicate entry: "<name>"` | Deduplicate `agents` |
 
-`set-agents` CSV parse failures (before any write) print their own stderr lines and exit `1` without mutating the file.
-
 ### Model-resolution errors → `jarvis run`
 
-These run after machine config parses. They surface when building a run/write input — e.g. `jarvis run start …` or `jarvis run workflow implement …` — not at `jarvis config show`.
+These run after machine config parses. They surface when building a run/write input — e.g. `jarvis run start …` or `jarvis run workflow implement …` — not at config parse.
 
 | Symptom | Fix |
 | --- | --- |

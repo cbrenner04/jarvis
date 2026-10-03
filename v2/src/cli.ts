@@ -11,7 +11,6 @@ import { createRuntimeDeps } from "./cli/deps.ts";
 import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
 import type { Io } from "./cli/io.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
-import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
 import { runInitCommand } from "./commands/init.ts";
 import { runNotificationsCommand } from "./commands/notifications.ts";
@@ -75,7 +74,6 @@ function commandEntry(name: string, handler: CommandHandler): CommandEntry {
 const commandEntries: readonly CommandEntry[] = [
   commandEntry("init", runInitCliCommand),
   commandEntry("daemon", runDaemonCommand),
-  commandEntry("config", runConfigCommand),
   commandEntry("run", runRunCommand),
   commandEntry("tui", runTuiCommand),
   commandEntry("pipeline", runPipelineCommand),

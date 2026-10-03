@@ -83,7 +83,7 @@ Template for a new gotcha:
 ## Session start
 
 1. `jarvis daemon status` — start with `jarvis daemon start` if `stopped`; `inconclusive` means a socket that accepts connections but did not answer `health` within the short and retry budgets, so the daemon is live-but-busy — do not `kill -9` or start another (check `lsof` and wait). A running daemon converges on a merged harness fix on its own (self-handoff); restart it yourself only to converge immediately rather than wait out the sampling interval (see [Daemon lifecycle](#daemon-lifecycle)).
-2. `jarvis config show` — agents listed; `machineProfile` hand-edited in `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)).
+2. `agents` order and `machineProfile` are hand-edited in `~/.jarvis/config.json` (see [`install-and-config.md` § Agent order](./install-and-config.md#agent-order)); step 3 reports both.
 3. Verify readiness: `jarvis init --profile home` from the Git worktree root (idempotent — safe to rerun; use `--name <key>` only to select a safe explicit registry key). It bootstraps/registers as needed, then prints one `bun`/`github-auth`/`agents`/`machine-profile`/`project-registration`/`origin`/`spec-directory`/`daemon` line and exits `1` on a required check's failure — treat that report as the session-start go/no-go before starting a run.
 4. Sweep for leaked test orphans before launching heavy work — **by CPU and parentage, not age** (see [Known gotchas](#known-gotchas) — leaked `bun test` children).
 5. Review open work in `v2/spec/seeds/` and `v2/spec/ready-intents/`.
@@ -1021,7 +1021,7 @@ Every cleanup ages eligible session logs under `~/.jarvis/sessions/`. This slice
 
 ### Agent order lives in the top-level `agents` array
 
-v2 reads the flat top-level **`agents`** array of bare names (`jarvis config set-agents`, `v2/src/cli.ts` → `loadMachineConfig`) and the role→model rungs in `config/machines/<profile>.json`. It never reads `modes.*.agentOrder` — those keys in an older `~/.jarvis/config.json` are frozen-v1 leftovers and are ignored. Observed 2026-07-14: codex was moved to the front of every `modes.*.agentOrder` and every subsequent run still invoked claude. There is no per-run `--agent` override; change the order or the machine profile instead. To vary order per target repo, set `projects.<key>.overrides.agents` (and `projects.<key>.overrides.idleOutputTimeoutMs` for slow silent toolchains) — admitted runs keep the order they were admitted with ([install-and-config.md § Per-project overrides](./install-and-config.md#per-project-overrides)).
+v2 reads the flat top-level **`agents`** array of bare names (hand-edited — [install-and-config.md § Agent order](./install-and-config.md#agent-order); read by `loadMachineConfig`) and the role→model rungs in `config/machines/<profile>.json`. It never reads `modes.*.agentOrder` — those keys in an older `~/.jarvis/config.json` are frozen-v1 leftovers and are ignored. Observed 2026-07-14: codex was moved to the front of every `modes.*.agentOrder` and every subsequent run still invoked claude. There is no per-run `--agent` override; change the order or the machine profile instead. To vary order per target repo, set `projects.<key>.overrides.agents` (and `projects.<key>.overrides.idleOutputTimeoutMs` for slow silent toolchains) — admitted runs keep the order they were admitted with ([install-and-config.md § Per-project overrides](./install-and-config.md#per-project-overrides)).
 
 ## Concurrency
 

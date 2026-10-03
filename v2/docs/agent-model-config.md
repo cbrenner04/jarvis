@@ -13,7 +13,7 @@ Two axes, two stores:
 
 Two profiles are seeded: `home` (full claude+codex+cursor roster) and `work` (codex+cursor only, no `claude`). Which profile a machine loads is resolved at startup from the required `machineProfile` key in `~/.jarvis/config.json` (`resolveMachineProfile`, [`machine-config-loader.ts`](../src/config/machine-config-loader.ts)). A missing or empty `machineProfile` is a hard error; an existing key naming a profile with no matching `config/machines/<profileName>.json` is also a hard error. `machineProfile` is an open string — any non-empty value is accepted.
 
-The machine agent order is edited with `jarvis config set-agents <agent,agent,...>` and inspected with `jarvis config show` / `jarvis config path` ([Read-only inspection](#read-only-inspection)). `set-agents` replaces the full `agents` array, preserves unrelated top-level keys in `~/.jarvis/config.json` (e.g. v1's `projects`, `machineProfile`), creates missing `~/.jarvis/` state on success, and refuses to overwrite an existing file that is not a valid machine-config object.
+The machine agent order is hand-edited: the top-level `agents` array in `~/.jarvis/config.json` ([install-and-config.md § Agent order](install-and-config.md#agent-order)). `jarvis init` seeds it from the runnable agents on `PATH` only when the key is absent; `jarvis init --check` reports the configured roster ([Read-only inspection](#read-only-inspection)). The `jarvis config` CLI (`show`/`path`/`set-agents`) is retired.
 
 Per-project variance is **only** the ordered agent list: `projects.<key>.overrides.agents` shadows the top-level `agents` for that project's workflow and pipeline steps, resolved once per step at admission and carried in the persisted snapshot ([install-and-config.md § Per-project overrides](install-and-config.md#per-project-overrides)). Role→model assignments are shared across machines and projects loading the same profile. Load validation applies **only** to agents listed in the project's effective order — extra agents in the loaded profile are ignored at load (see [Load-time validation](#load-time-validation)). Workflow-source validation is separate: after config load succeeds, the loaded workflow `steps` array must still resolve each step role for every machine-configured agent before the workflow is allowed to run (see [`workflow-runner.md`](workflow-runner.md)).
 
@@ -222,22 +222,15 @@ Config load validates the config artifact itself. It does **not** prove that a l
 
 **Target surface:** both `--agent` and `--model` are required together. That pair bypasses load validation and both loops for one invocation. No matching `(agent, role)` entry is needed.
 
-**Interim shipped surface:** `jarvis run start` and workflow write steps resolve their ordered outer fallback list (agent IDs, no per-role models) from machine config only — no CLI override. See [`write-behavior.md`](write-behavior.md). This predates full `AgentModelConfig` resolution and does not implement inner rungs or role-aware binding. `jarvis config set-agents <agent,agent,...>` persists the outer list to `~/.jarvis/config.json`.
+**Interim shipped surface:** `jarvis run start` and workflow write steps resolve their ordered outer fallback list (agent IDs, no per-role models) from machine config only — no CLI override. See [`write-behavior.md`](write-behavior.md). This predates full `AgentModelConfig` resolution and does not implement inner rungs or role-aware binding. The outer list is the hand-edited top-level `agents` array in `~/.jarvis/config.json`.
 
-`set-agents` parses at the command boundary before any filesystem mutation: empty CSV segments are rejected, and `agent:model` tokens are rejected because the machine file stores agent order only. After that parse step, the landed array reuses the machine-config loader contract: `agents` must be a non-empty, string-only, duplicate-free array.
+The machine-config loader contract: `agents` must be a non-empty, string-only, duplicate-free array of bare agent names (the machine file stores agent order only, never `agent:model` tokens).
 
 Precedence for the write/run-start commands: machine config `agents` when present, else `DEFAULT_WRITE_AGENTS` (`["claude"]`).
 
-Success stdout for `set-agents` is JSON with the landed order: `{"agents":["claude","codex"]}`. Failures print one stderr line naming the rejected input or invalid file state, exit non-zero, preserve prior file content, and do not create `~/.jarvis/` or `config.json` when input is rejected before the write path starts.
-
 ### Read-only inspection
 
-`jarvis config show` — machine `agents` order only (not role→model or workflow config):
-- configured `agents`: one name per line (exit 0)
-- file absent or no `agents` key: `No machine agent override configured.` (exit 0)
-- malformed JSON or validation failure: config-read error on stderr, exit non-zero
-
-`jarvis config path` — expanded absolute machine-config path (exit 0).
+`jarvis init --check` — read-only readiness report: the `agents` line covers every configured agent's runnability, the `machine-profile` line covers the selected profile's bindings; malformed config exits `1` before any probe. The file itself is `~/.jarvis/config.json`; read it directly for the order.
 
 No single-flag override. No per-step config override.
 

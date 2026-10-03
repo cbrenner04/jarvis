@@ -20,7 +20,6 @@ import {
 } from "./command-help-flags.ts";
 import {
   CLEANUP_USAGE,
-  CONFIG_USAGE,
   DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
@@ -105,25 +104,6 @@ export const commandTree: CommandNode = {
           summary: "Stream daemon logs.",
           usage: DAEMON_LOG_USAGE,
           flags: DAEMON_LOG_HELP_FLAGS,
-        },
-      ],
-    },
-    {
-      name: "config",
-      summary: "Show or update machine configuration.",
-      usage: CONFIG_USAGE,
-      subcommands: [
-        {
-          name: "show",
-          summary: "Show current machine configuration.",
-        },
-        {
-          name: "path",
-          summary: "Show configuration file path.",
-        },
-        {
-          name: "set-agents",
-          summary: "Set agent fallback order.",
         },
       ],
     },

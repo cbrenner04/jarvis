@@ -4,7 +4,7 @@ Conventions for working in this repo — humans and coding agents alike. **BE TE
 
 ## What this repo is
 
-Jarvis is a minimal coding-agent harness driving an underlying agent CLI (`claude`, `codex`, `cursor`, …). One engine: **`jarvis` (`v2/src/cli.ts`)**, a daemon-backed workflow runner: `init`, `daemon`, `config`, `run` (start/list/log/pause/resume/kill/dismiss/undismiss/wait), `run workflow intent|plan|implement`, `pipeline` (start/list/wait/approve/reject/resume/recover/dismiss/undismiss), `tui`, `cleanup`. Docs: [v2/docs/](v2/docs/), start at [v2/docs/onboarding.md](v2/docs/onboarding.md).
+Jarvis is a minimal coding-agent harness driving an underlying agent CLI (`claude`, `codex`, `cursor`, …). One engine: **`jarvis` (`v2/src/cli.ts`)**, a daemon-backed workflow runner: `init`, `daemon`, `run` (start/list/log/pause/resume/kill/dismiss/undismiss/wait), `run workflow intent|plan|implement`, `pipeline` (start/list/wait/approve/reject/resume/recover/dismiss/undismiss), `tui`, `cleanup`. Docs: [v2/docs/](v2/docs/), start at [v2/docs/onboarding.md](v2/docs/onboarding.md).
 
 Work here is work on the harness itself. Layout:
 
@@ -17,9 +17,10 @@ Work here is work on the harness itself. Layout:
 
 - **Stack**: TypeScript on Bun, strict typing (`strict`, `noUncheckedIndexedAccess`).
 - **Distribution**: personal use — clone and symlink the binary onto `PATH`. No npm publish. **Single operator**: the repo owner is the only user — "every user" means one person, so don't design for multi-user config, onboarding, or required-by-default setup.
-- **Config**: `~/.jarvis/config.json` holds the project registry and the `agents` order (edit via `jarvis config set-agents`); role→model rungs live in committed `config/machines/<profile>.json`. See [v2/docs/install-and-config.md](v2/docs/install-and-config.md).
+- **Config**: `~/.jarvis/config.json` holds the project registry and the `agents` order (hand-edited; `jarvis init` seeds it when absent); role→model rungs live in committed `config/machines/<profile>.json`. See [v2/docs/install-and-config.md](v2/docs/install-and-config.md).
 - **Agent fallback order**: `claude → codex → cursor`, configurable; advances on quota only. See [v2/docs/agent-model-config.md](v2/docs/agent-model-config.md).
 - **Spec format** (target repos): Markdown with `- [ ]` task lists. Complete = zero unchecked items.
+- **Git operations**: `shared/git.ts` is the canonical Git boundary for Jarvis-owned code (v2, shared, root scripts). New code calls its typed exports rather than constructing `git` argv; the remaining inline callers migrate under the centralize-deterministic-operations intents, and a guard lands with `guard-prevents-git-spawning-bypass`. See [v2/docs/v2-architecture.md § Git operation ownership](v2/docs/v2-architecture.md#git-operation-ownership).
 - **Quota detection**: per-agent stderr/exit-code heuristics — [v2/docs/quota-signals.md](v2/docs/quota-signals.md).
 - **Operator docs**: [v2/docs/operator-runbook.md](v2/docs/operator-runbook.md) (command mechanics, recovery); [v2/docs/operator-practices.md](v2/docs/operator-practices.md) (session discipline, merging, cost reporting, sandbox blindness).
 

@@ -59,6 +59,32 @@ Sibling seeds/intents that edit the same code seam must be planned (and implemen
 
 For an independent intent with no prerequisites, leave the `## Prerequisites` body empty or write `none`; landing normalizes a `none`/`None.` body to empty. Split landing requires every other prerequisite bullet to end with `(delivered by: <name>)` (another intent in the same split) or `(already true: <reason>)`; see [workflow-runner.md](./workflow-runner.md). Pipeline fan-out derives lane order from those markers: lanes linked by `(delivered by: …)` serial-chain providers-first, the rest run concurrently off `main`; ready-intent frontmatter `independent: true|false` overrides the inference ([pipeline-execution.md § Fan-out lanes](./pipeline-execution.md#fan-out-lanes)).
 
+### Seed ratings
+
+A seed's frontmatter carries `name:` plus optional `risk:` and `effort:` ratings. Each is a separate judgment; neither substitutes for the other. One closed scale serves both dimensions, and the same vocabulary is what project minimums and pipeline-selection flags will speak (`shared/seed-metadata.ts`: `RATING_LEVELS`, `parseSeedMetadata`).
+
+```markdown
+---
+name: seed-frontmatter-carries-risk-and-effort
+risk: medium
+effort: low
+---
+```
+
+`risk` — consequences of getting the change wrong:
+
+- `low` — contained; a wrong change is caught by scoped tests or reverted trivially (a doc section, a log line, a test fixture).
+- `medium` — a wrong change degrades one workflow or surface until fixed (a CLI flag, a parser, one stage's dispatch rule).
+- `high` — a wrong change corrupts durable state, loses work, or stalls every run (state-store migration, daemon dispatch, git publication).
+
+`effort` — expected size of the change:
+
+- `low` — one surface, a handful of files, one sitting (add a frontmatter field).
+- `medium` — one surface with several linked edits and tests across a seam (a new subcommand with persistence).
+- `high` — multiple surfaces or a cross-stage protocol change; expect several subspecs (a new pipeline stage).
+
+Values are exact lowercase; `intent` refuses a seed whose supplied rating is off the scale, naming the field (`effort:` must be one of low, medium, high; got "extreme"). A missing rating is not an error — seeds without ratings keep parsing; whether admission requires one is pipeline policy, not parsing.
+
 The `## Decisions` section is authored as a Markdown bullet list (`- entry`), one entry per bullet — bare consecutive lines soft-wrap into a single paragraph and fail the `no-hard-wrap` lint.
 
 Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.

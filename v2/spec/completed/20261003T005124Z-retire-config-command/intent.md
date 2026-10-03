@@ -19,11 +19,11 @@ name: retire-config-command
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/config.ts` is deleted and `jarvis config` is an unknown command.
-- [ ] `jarvis help` does not list `config` as a command.
-- [ ] Agent-order management is documented with a clear home (either in `init` command or as hand-edit guidance in `v2/docs/install-and-config.md` or `v2/docs/agent-model-config.md`, per plan decision).
-- [ ] Install smoke check works and passes; the verify line in `v2/docs/install-and-config.md` is updated from `jarvis config path` to the documented alternative (e.g., `jarvis help`, `init`, or equivalent).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/commands/config.ts` is deleted and `jarvis config` is an unknown command.
+- [x] `jarvis help` does not list `config` as a command.
+- [x] Agent-order management is documented with a clear home (either in `init` command or as hand-edit guidance in `v2/docs/install-and-config.md` or `v2/docs/agent-model-config.md`, per plan decision).
+- [x] Install smoke check works and passes; the verify line in `v2/docs/install-and-config.md` is updated from `jarvis config path` to the documented alternative (e.g., `jarvis help`, `init`, or equivalent).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

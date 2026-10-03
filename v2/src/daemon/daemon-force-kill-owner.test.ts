@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
@@ -7,9 +7,10 @@ import type { IpcClient } from "../ipc/client.ts";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
+import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, startDaemonRuntime } from "./daemon.ts";
+import { createRunControlHandlers, startDaemonRuntime, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 import { createStableRunHandlers } from "./daemon-stable-run-routing.ts";
 
 function handlerClient(handler: RpcHandler): IpcClient {
@@ -156,6 +157,49 @@ for (const mode of [
 
 test("force kill routes an active older-peer owner through the normal abort path", async () => {
   const root = trackedMkdtempSync(join(tmpdir(), "jarvis-force-owner-active-"));
+  const profileHome = trackedMkdtempSync(join(root, "profile"));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, "force-kill.json"),
+    JSON.stringify({
+      models: {
+        codex: {
+          implement: rung("codex-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+        cursor: {
+          implement: rung("cursor-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: "force-kill", agents: ["codex", "cursor"] }),
+  );
+  const previousJarvisHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+  const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  };
   const path = join(root, "state.sqlite");
   const ownerStore = openStateStore(path, { currentIdentity: "owner", isOwnerAlive: async () => true });
   const ownerExecutor = createFakeWriteLoopExecutor();
@@ -164,6 +208,7 @@ test("force kill routes an active older-peer owner through the normal abort path
     writeLoopExecutor: ownerExecutor.executor,
     failureReporter: () => undefined,
     hasMemoryHeadroom: () => true,
+    writeLoopBindingSourceDeps,
   });
   const successorStore = openStateStore(path, { currentIdentity: "successor", isOwnerAlive: async () => true });
   const successor = createRunControlHandlers({
@@ -172,8 +217,34 @@ test("force kill routes an active older-peer owner through the normal abort path
     failureReporter: () => undefined,
   });
   try {
-    const runId = await startRunDirect(owner);
-    if (runId === undefined) throw new Error("run not started");
+    const runId = ownerStore.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/test-project",
+      branch: "test-branch",
+      specPath: "/tmp/spec.md",
+      stepId: "implement",
+      status: "paused",
+      workflowSnapshot: {
+        invocationId: "inv-force-kill",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "rules",
+            expectedArtifactPath: "out.md",
+            agents: ["codex"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      },
+    });
+    const resumed = await owner.resume(
+      { kind: "request", id: "r", method: "resume", params: { runId } },
+      new AbortController().signal,
+    );
+    if (resumed.kind !== "response") throw new Error("run not started");
+    await flushBackgroundRuns();
     owner.setRetiring();
     expect(owner.hasActiveRuns()).toBe(true);
     const routed = createStableRunHandlers(
@@ -192,6 +263,8 @@ test("force kill routes an active older-peer owner through the normal abort path
     expect(response).toMatchObject({ kind: "response", result: { outcome: "force-settled", status: "killed" } });
     expect(ownerExecutor.isAbortSignalTriggered()).toBe(true);
   } finally {
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
     ownerExecutor.abortAll();
     await flushBackgroundRuns();
     owner.close();

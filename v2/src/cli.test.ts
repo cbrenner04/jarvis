@@ -9,7 +9,6 @@ import {
   WORKFLOW_INTENT_HELP_FLAGS,
   WORKFLOW_PLAN_HELP_FLAGS,
   WORKFLOW_REVIEW_FEEDBACK_HELP_FLAGS,
-  WRITE_HELP_FLAGS,
 } from "./cli/command-help-flags.ts";
 import type { CommandNode } from "./cli/command-tree.ts";
 import { commandTree, formatCommandFlagHelpLine, renderHelpNode, resolveHelpPath } from "./cli/command-tree.ts";
@@ -23,7 +22,6 @@ import {
   PIPELINE_USAGE,
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
-  RUN_START_USAGE,
   RUN_USAGE,
   TUI_USAGE,
   WORKFLOW_IMPLEMENT_USAGE,
@@ -154,7 +152,6 @@ describe("v2 cli dispatch", () => {
     expect(code).toBe(0);
     const output = cap.read().stdout;
     expect(output).toContain("usage: jarvis run");
-    expect(output).toContain("start\tStart a new run.");
     expect(output).toContain("list\tList runs.");
     expect(output).toContain("workflow\tRun workflow presets.");
   });
@@ -182,15 +179,6 @@ describe("v2 cli dispatch", () => {
     expect(cap.read().stdout).toBe(RUN_USAGE);
   });
 
-  test("help run start prints RUN_START_USAGE", async () => {
-    const cap = captureIo();
-
-    const code = await main(["help", "run", "start"], cap.io);
-
-    expect(code).toBe(0);
-    expect(cap.read().stdout).toContain("usage: jarvis run start");
-  });
-
   test("help run workflow intent prints WORKFLOW_INTENT_USAGE", async () => {
     const cap = captureIo();
 
@@ -202,7 +190,6 @@ describe("v2 cli dispatch", () => {
 
   describe("command help lists registered flags", () => {
     const cases = [
-      ["run start", ["help", "run", "start"], RUN_START_USAGE, WRITE_HELP_FLAGS],
       ["cleanup", ["help", "cleanup"], CLEANUP_USAGE, CLEANUP_HELP_FLAGS],
       ["run list", ["help", "run", "list"], RUN_LIST_USAGE, RUN_LIST_HELP_FLAGS],
       ["run kill", ["help", "run", "kill"], RUN_KILL_USAGE, RUN_KILL_HELP_FLAGS],
@@ -343,13 +330,13 @@ describe("v2 cli dispatch", () => {
     expect(cap.read().stderr).toContain("did you mean run?");
   });
 
-  test("help run strt suggests start", async () => {
+  test("help run strt omits a suggestion when multiple close siblings match", async () => {
     const cap = captureIo();
 
     const code = await main(["help", "run", "strt"], cap.io);
 
     expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("did you mean start?");
+    expect(cap.read().stderr).not.toContain("did you mean");
   });
 
   // `stat` is within distance 2 of `start`, `stop`, and `status`, so only a guard keyed on

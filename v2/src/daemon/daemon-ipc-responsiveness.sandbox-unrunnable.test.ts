@@ -1,7 +1,9 @@
 // Proves daemon IPC stays responsive while a held run-path async op is pending.
 // One property, parametrized over three hold points: the finalization ready gate,
 // a run-path git command, and completion-publication's gh call. Real sockets are
-// the seam under test, so this stays sandbox-unrunnable.
+// the seam under test, so this stays sandbox-unrunnable. Each run is a durable paused
+// workflow row admitted through `resume`, the one daemon path that still drives the
+// injected `writeLoopExecutor`.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -9,16 +11,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createCompletionPublisher } from "../execution/completion-publisher.ts";
-import { withExternalWorktree } from "../execution/external-worktree.ts";
+import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";
 import { createReadyFinalizer } from "../execution/ready-finalize.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
-import { connectIpcClient } from "../ipc/client.ts";
+import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createHoldableAsyncFn } from "../testing/holdable-async-subprocess-runner.ts";
-import { listRuns, mockWriteLoopInput, startRun, toIpcHandlers } from "../testing/run-control.ts";
+import { listRuns, mockWriteLoopInput, toIpcHandlers } from "../testing/run-control.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 
@@ -84,6 +87,39 @@ function fakeGitRunner(): AsyncSubprocessRunner {
   };
 }
 
+/** Durable paused workflow row for `input`'s worktree; `resume` reconstructs it from the snapshot and spawns `writeLoopExecutor`. */
+function seedPausedRow(store: StateStore, input: WriteLoopInput): string {
+  return store.createRun({
+    project: input.worktree.projectName,
+    specRef: input.worktree.baseRef,
+    worktreePath: getExternalWorktreePath(input.worktree),
+    branch: input.worktree.branchName,
+    specPath: "spec.md",
+    stepId: "step-1",
+    status: "paused",
+    workflowSnapshot: {
+      invocationId: `inv-${input.worktree.branchName}`,
+      steps: [
+        {
+          stepId: "step-1",
+          role: "implement",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          agents: ["claude"],
+          agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+}
+
+async function resumeRun(client: IpcClient, runId: string): Promise<string | undefined> {
+  client.send({ kind: "request", id: "r1", method: "resume", params: { runId } });
+  const frame = await client.nextFrame();
+  expect(frame.kind).toBe("response");
+  return frame.kind === "response" ? runId : undefined;
+}
+
 function completionStepInput(base: WriteLoopInput, jarvisRoot: string, stateStore: StateStore): WriteLoopInput {
   return {
     ...base,
@@ -114,8 +150,8 @@ const holdCases: HoldCase[] = [
       return {
         executor: async (input, signal) => {
           await executeWriteLoop({
-            ...completionStepInput(startInput, jarvisRoot, stateStore),
-            worktree: input.worktree,
+            // The reconstructed resume input carries the row identity (`stepId`, snapshot) the loop reuses.
+            ...completionStepInput(input, jarvisRoot, stateStore),
             readyFinalizer,
             signal,
           });
@@ -137,7 +173,7 @@ const holdCases: HoldCase[] = [
       const worktreePath = join(jarvisRoot, "worktrees", "demo", "held-git");
       return {
         executor: async (input) => {
-          await withExternalWorktree(input.worktree, async () => undefined, runner);
+          await withExternalWorktree({ ...input.worktree, jarvisRoot }, async () => undefined, runner);
         },
         whenPending: holdable.whenPending,
         release: holdable.release,
@@ -183,8 +219,8 @@ const holdCases: HoldCase[] = [
       return {
         executor: async (input, signal) => {
           await executeWriteLoop({
-            ...completionStepInput(startInput, jarvisRoot, stateStore),
-            worktree: input.worktree,
+            // The reconstructed resume input carries the row identity (`stepId`, snapshot) the loop reuses.
+            ...completionStepInput(input, jarvisRoot, stateStore),
             completionPublisher,
             signal,
           });
@@ -246,6 +282,7 @@ for (const holdCase of holdCases) {
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps: { forceSnapshotAgentModelConfig: true },
     });
 
     const socketPath = join(tmpdir(), `jarvis-ipc-responsiveness-${process.pid}-${Date.now()}-${Math.random()}.sock`);
@@ -255,7 +292,7 @@ for (const holdCase of holdCases) {
       const startClient = await connectIpcClient(socketPath, 2_000);
       const listClient = await connectIpcClient(socketPath, 2_000);
 
-      const startPromise = startRun(startClient, seam.startInput);
+      const startPromise = resumeRun(startClient, seedPausedRow(stateStore, seam.startInput));
 
       await seam.whenPending();
       let released = false;

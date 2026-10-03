@@ -6,41 +6,35 @@ One happy path from prerequisites through a completed run and its draft PR. This
 
 Intent, plan, and implement reviews use the same light or debate cycle. A light review runs critic then actuator for a non-empty verdict; debate runs adversary, advocate, adjudicator, then actuator. The selected profile supplies prompts, verdict handling, boundaries, and the existing workflow-worktree cwd. Reviewed intent retains diagnostics and resumes landing without rerunning roles; plan keeps its in-tree verdict, while implement protects the completed spec tree.
 
-The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) so live `kill` is exercised on the active run. Workflow-started implement supports live `kill` but not `resume` — see [Workflow-started implement](#workflow-started-implement).
+The walkthrough drives a detached `jarvis run workflow implement` run so live `kill` and `wait` are exercised on the active row — see [Workflow-started implement](#workflow-started-implement). There is no ad-hoc write loop: workflow steps are the only write admission.
 
 ## Prerequisites
 
 Before starting, run `jarvis init --profile <profile>` from the Git worktree top level (add `--name <key>` for an explicit registry key, `--target-dir <dir> --scaffold` to configure and scaffold the planning directory). It bootstraps `machineProfile`/`agents` in `~/.jarvis/config.json` (see [`agent-model-config.md`](./agent-model-config.md)), registers the current repo (see [`install-and-config.md`](./install-and-config.md)), and prints a readiness report — one `bun`/`github-auth`/`agents`/`machine-profile`/`project-registration`/`origin`/`spec-directory`/`daemon` line each, in that order. `bun`, `github-auth`, `agents`, `machine-profile`, `project-registration`, and `origin` are required and exit `1` on any non-`ok`; `spec-directory` and `daemon` are warnings only. Re-run `jarvis init` at any time to re-verify readiness without repeating setup.
 
-`--project-root` on `jarvis run start` is the path to the target repo; `--project` is the registered project key.
-
 Have a spec with unchecked tasks ready. Paths below are relative to the worktree Jarvis creates under `~/.jarvis/worktrees/<project>/<branch>/`.
 
 ## Start a run
 
-Launch an ad-hoc write loop against your spec. This mutating dispatch command automatically starts or reuses the stable daemon at `~/.jarvis/daemon.sock`, regardless of invoking executable digest, and remains available for subsequent `jarvis` invocations. Every flag below is required except `--max-iterations`:
+Launch the implement workflow against your spec, detached so the CLI returns the run ID instead of blocking on `wait`. This mutating dispatch command automatically starts or reuses the stable daemon at `~/.jarvis/daemon.sock`, regardless of invoking executable digest, and remains available for subsequent `jarvis` invocations. The project is resolved from the registered project that contains `--spec`:
 
 ```bash
-jarvis run start \
-  --project-root /path/to/your-repo \
-  --project your-project \
-  --branch your/feature-branch \
+jarvis run workflow implement \
   --base main \
-  --spec v2/spec/your-spec/index.md \
-  --artifact v2/spec/your-spec/index.md
+  --spec /path/to/your-repo/v2/spec/your-spec/index.md \
+  --detach
 ```
 
 | Flag | Meaning |
 | --- | --- |
-| `--project-root` | Registered repo root |
-| `--project` | Project name from `~/.jarvis/config.json` |
-| `--branch` | Feature branch Jarvis creates or resumes in the worktree |
 | `--base` | Base git ref for the worktree |
-| `--spec` | Spec path inside the worktree |
-| `--artifact` | Completion-contract file the write loop checks when the agent returns `done` or `no-work` — typically the spec `index.md` or another deliverable the spec names |
-| `--max-iterations` | Optional per-invocation iteration budget (default 10) |
+| `--spec` | Spec path; a relative path resolves from the invocation cwd, and the registered project containing it is the run's project |
+| `--branch` | Optional feature branch Jarvis creates or resumes in the worktree (default: the spec's parent directory basename) |
+| `--artifact` | Completion-contract file for a non-index spec; ignored for an `index.md` |
+| `--review-passes` | Optional review count (default `1`; `0` skips review) |
+| `--detach` | Return after admission instead of blocking on `wait` |
 
-The CLI sends one IPC `start` request and prints the run ID on stdout:
+The CLI sends one IPC `start` request carrying the workflow steps and prints the run ID on stdout:
 
 ```
 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
@@ -52,7 +46,7 @@ Save that ID for observe and steer commands.
 
 ### Run states
 
-While a run is active you see `in-progress` with `live` liveness. A harness-parked row shows `paused` (`not-live`). Terminals include `completed`, `failed`, `blocked`, and `killed`. Queued runs (memory watermark) show `queued` until promoted.
+While a run is active you see `in-progress` with `live` liveness. A harness-parked row shows `paused` (`not-live`). Terminals include `completed`, `failed`, `blocked`, and `killed`. Admission under the memory watermark is refused `insufficient_memory`, not queued.
 
 ### `jarvis tui`
 
@@ -138,7 +132,7 @@ Columns: `runId`, `project`, `branch`, `status`, liveness, then optional `error.
 
 ## Steer
 
-Steering commands target the run ID from `jarvis run start`. They work on ad-hoc (`run start`) runs while the loop is live.
+Steering commands target the run ID printed by the detached `jarvis run workflow implement`. They work while the step is live.
 
 Abort immediately (durable `killed`, dirty worktree):
 
@@ -162,7 +156,7 @@ Example completion:
 {"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":3,"resumable":false}
 ```
 
-**Pause and resume:** there is no operator pause verb; a row is `paused` only when the harness parks it at a committed boundary: an ad-hoc write loop on an invalid terminal token or missing blocker, a workflow on a review-stage shrink or a parked write step. `jarvis run resume <run-id>` resumes a paused ad-hoc row from its durable start input (`queuedInput`) and a paused workflow write step through the daemon's workflow resume — see [`daemon-host.md`](./daemon-host.md).
+**Pause and resume:** there is no operator pause verb; a row is `paused` only when the harness parks a workflow at a committed boundary (a review-stage shrink or a parked write step). `jarvis run resume <run-id>` reconstructs the parked write step from its persisted workflow snapshot plus log replay — see [`daemon-host.md`](./daemon-host.md).
 
 ## Draft PR output
 
@@ -199,7 +193,7 @@ Plan and implement PR bodies contain the deterministic template after `Spec:`: l
 
 ### Finding the branch and PR
 
-- Branch: the `--branch` value you passed to `jarvis run start`, checked out in
+- Branch: the `--branch` value (or its spec-directory default) of `jarvis run workflow implement`, checked out in
   `~/.jarvis/worktrees/<project>/<branch>/` and pushed to `origin`.
 - PR: `gh pr list --head your/feature-branch` or the URL printed by `gh` when
   the draft was created.
@@ -212,7 +206,7 @@ After the implementation PR lands, run `jarvis cleanup your-project --dry-run`, 
 
 ## Optional daemon lifecycle control
 
-The daemon starts automatically on the first mutating dispatch invocation (e.g., `jarvis run start` or `jarvis run workflow implement`). Manual daemon control is optional and useful for lifecycle management only:
+The daemon starts automatically on the first mutating dispatch invocation (e.g., `jarvis run workflow implement` or `jarvis pipeline start`). Manual daemon control is optional and useful for lifecycle management only:
 
 ```bash
 jarvis daemon start
@@ -317,7 +311,7 @@ See [`workflow-runner.md`](./workflow-runner.md) for preset composition and [`wr
 
 ## Workflow-started implement
 
-The implement workflow preset launches a write loop against an `index.md` spec. Live `resume` remains unsupported on workflow-started rows; live `kill` uses the same `jarvis run kill <run-id>` contract as ad-hoc runs (see [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)). Review runs by default (one debate pass); pass `--review-passes 0` to skip it. Like `jarvis run start`, this command automatically starts or reuses the stable daemon.
+The implement workflow preset launches a write loop against an `index.md` spec. Live `kill` uses `jarvis run kill <run-id>`; a harness-parked (`paused`) or resumable terminal row continues via `jarvis run resume` (see [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)). Review runs by default (one debate pass); pass `--review-passes 0` to skip it. This command automatically starts or reuses the stable daemon.
 
 ```bash
 jarvis run workflow implement \
@@ -360,7 +354,7 @@ Publication writes first use `.jarvis-intent-stage` or `.jarvis-plan-stage`. Aft
 
 Use a **configured pipeline** when the project registry names a pipeline definition in `projects.<name>.pipeline` (for example `full-review` with `terminalAction: "ready"`). Registration requires `projects.<name>.root` in `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)). The pipeline walks ordered workflow and approval stages; the daemon persists stage state, handles failure resume, and settles the configured terminal action after every stage succeeds.
 
-**When to use pipeline vs direct `run start`:** `jarvis run start` runs one ad-hoc write loop against a spec you name on the CLI. `jarvis pipeline start <project>` admits the project's configured definition (intent → gates → plan → gates → implement for `full-review`) with a seed (`--seed-text` or `--seed`). Use pipeline when you want the full review-and-approval choreography and terminal `ready` settlement; use `run start` for a single spec iteration without pipeline stages.
+**When to use pipeline vs `run workflow`:** `jarvis run workflow implement` runs one spec-driven write loop against a spec you name on the CLI. `jarvis pipeline start <project>` admits the project's configured definition (intent → gates → plan → gates → implement for `full-review`) with a seed (`--seed-text` or `--seed`). Use pipeline when you want the full review-and-approval choreography and terminal `ready` settlement; use `run workflow` for a single spec iteration without pipeline stages.
 
 **Prerequisites for `full-review`:** registered project with `projects.<name>.pipeline` set to `{ "name": "full-review", "terminalAction": "ready" }`, machine profile and agent bindings configured, git repo with `origin`, and `gh auth status` succeeding (terminal `ready` settlement gates on GitHub).
 

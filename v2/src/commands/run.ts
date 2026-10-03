@@ -18,19 +18,17 @@ import {
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
   RUN_RESUME_USAGE,
-  RUN_START_USAGE,
   RUN_UNDISMISS_USAGE,
   RUN_USAGE,
 } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
+import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { type KillSurvivor, parseRunKillOutcome, type RunKillOutcome } from "../daemon/run-kill-outcome.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { isRunStatus, isTerminalRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { type DismissalMode, type DismissalRow, parseDismissalArgs, reportDismissalOutcome } from "./dismissal.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
-import { parseWriteCliInput } from "./write.ts";
 
 /**
  * `<count>/<bound>` only when the refusal is slot contention AND both numbers are present; the
@@ -256,35 +254,6 @@ function parseListArgv(
   if (values.all === true) params.includeDismissed = true;
 
   return { ok: true, params };
-}
-
-async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
-  const parsed = parseWriteCliInput(argv, deps);
-  if (!parsed.ok) {
-    if (parsed.message !== undefined) io.stderr(parsed.message);
-    io.stderr(RUN_START_USAGE);
-    return 1;
-  }
-
-  return withConnectDispatch(io, deps, async (client) => {
-    let result: unknown;
-    try {
-      result = await request(client, "start", { input: parsed.input });
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      throw error;
-    }
-    const start = parseStartResult(result);
-    if (start === undefined) {
-      io.stderr("invalid daemon response\n");
-      return 1;
-    }
-    io.stdout(`${start.runId}\n`);
-    return 0;
-  });
 }
 
 async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps): Promise<number> {
@@ -518,7 +487,6 @@ async function runRunDismissalCommand(mode: DismissalMode, runId: string, io: Io
 export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
 
-  if (subcommand === "start") return runStartSubcommand(argv.slice(1), io, deps);
   if (subcommand === "workflow") return runWorkflowCommand(argv.slice(1), io, deps);
   if (subcommand === "list") return runListSubcommand(argv.slice(1), io, deps);
 
@@ -576,6 +544,6 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
     return withRunClient(io, deps, async (client) => waitForRunCompletion(client, runId, io));
   }
 
-  io.stderr(subcommand === "start" ? RUN_START_USAGE : RUN_USAGE);
+  io.stderr(RUN_USAGE);
   return 1;
 }

@@ -1,17 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import {
-  flushBackgroundRuns,
-  listRunsDirect,
-  loadRunOrThrow,
-  mockWriteLoopInput,
-  startRunDirect,
-} from "../testing/run-control.ts";
+import { flushBackgroundRuns, listRunsDirect, loadRunOrThrow, workflowWriteStep } from "../testing/run-control.ts";
+import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, shouldShutdownNow } from "./daemon.ts";
+import { createRunControlHandlers, shouldShutdownNow, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -24,8 +20,83 @@ let stateStorePath: string;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
 let handlers: Handlers;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
+let profileHome: string;
+let previousJarvisHome: string | undefined;
+
+async function startLiveRun(h: Handlers): Promise<string> {
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch",
+    specPath: "/tmp/spec.md",
+    stepId: "implement",
+    status: "paused",
+    workflowSnapshot: {
+      invocationId: "inv-retire-superseded",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "rules",
+          expectedArtifactPath: "out.md",
+          agents: ["codex"],
+          agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  const resumed = await h.resume(
+    { kind: "request", id: "r", method: "resume", params: { runId } },
+    new AbortController().signal,
+  );
+  if (resumed.kind !== "response") throw new Error("resume failed");
+  await flushBackgroundRuns();
+  return runId;
+}
 
 beforeEach(() => {
+  profileHome = trackedMkdtempSync(join(tmpdir(), `jarvis-retire-superseded-profile-${process.pid}-`));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, "retire-superseded.json"),
+    JSON.stringify({
+      models: {
+        codex: {
+          implement: rung("codex-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+        cursor: {
+          implement: rung("cursor-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: "retire-superseded", agents: ["codex", "cursor"] }),
+  );
+  previousJarvisHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+  writeLoopBindingSourceDeps = { machineConfigPath: join(profileHome, "config.json"), machinesDir };
   stateStorePath = join(tmpdir(), `jarvis-state-${process.pid}-${Date.now()}.db`);
   stateStore = openStateStore(stateStorePath);
   fakeExecutor = createFakeWriteLoopExecutor();
@@ -37,12 +108,16 @@ beforeEach(() => {
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
 });
 
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
+  if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+  else process.env.JARVIS_HOME = previousJarvisHome;
+  rmSync(profileHome, { recursive: true, force: true });
   try {
     stateStore.close();
   } catch {
@@ -51,7 +126,7 @@ afterEach(async () => {
 });
 
 test("setRetiring makes resume reject with daemon_superseded", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startLiveRun(handlers);
   expect(runId).toBeDefined();
 
   handlers.setRetiring();
@@ -67,7 +142,7 @@ test("setRetiring makes resume reject with daemon_superseded", async () => {
 });
 
 test("hasActiveRuns returns true when write loop is active", async () => {
-  await startRunDirect(handlers);
+  await startLiveRun(handlers);
   expect(handlers.hasActiveRuns()).toBe(true);
 });
 
@@ -85,7 +160,7 @@ test("isRetiring returns true after setRetiring", () => {
 });
 
 test("a daemon with an in-flight run stays up and serving after supersede", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startLiveRun(handlers);
   expect(runId).toBeDefined();
   expect(handlers.hasActiveRuns()).toBe(true);
 
@@ -99,7 +174,7 @@ test("a daemon with an in-flight run stays up and serving after supersede", asyn
 });
 
 test("a run in flight when supersede arrives reaches normal outcome under same daemon", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startLiveRun(handlers);
   expect(runId).toBeDefined();
 
   if (runId) {
@@ -117,26 +192,25 @@ test("a run in flight when supersede arrives reaches normal outcome under same d
 });
 
 test("queued runs are not promoted after supersession", async () => {
-  memoryHeadroom = false;
-  const runId1 = await startRunDirect(handlers);
-  expect(runId1).toBeDefined();
+  const runId1 = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "queued-branch",
+    specPath: "/tmp/spec.md",
+    status: "queued",
+  });
 
-  if (runId1) {
-    const run1 = loadRunOrThrow(stateStore, runId1);
-    expect(run1.status).toBe("queued");
+  handlers.setRetiring();
 
-    handlers.setRetiring();
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns(3);
 
-    fakeExecutor.settleAll();
-    await flushBackgroundRuns(3);
-
-    const updatedRun1 = loadRunOrThrow(stateStore, runId1);
-    expect(updatedRun1.status).toBe("queued");
-  }
+  expect(loadRunOrThrow(stateStore, runId1).status).toBe("queued");
 });
 
 test("resume does not create a claim when rejecting for retirement", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startLiveRun(handlers);
   expect(runId).toBeDefined();
 
   if (runId) {
@@ -156,7 +230,7 @@ test("resume does not create a claim when rejecting for retirement", async () =>
 });
 
 test("observation methods still work after supersede", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startLiveRun(handlers);
   expect(runId).toBeDefined();
 
   handlers.setRetiring();
@@ -171,13 +245,28 @@ test("observation methods still work after supersede", async () => {
 test("start after retiring is rejected before any worktree materialization", async () => {
   handlers.setRetiring();
 
-  const input: WriteLoopInput = {
-    ...mockWriteLoopInput(),
-    stepId: "test-step-1",
-  };
-
+  const worktree = workflowWriteStep().worktree;
   const response = await handlers.start(
-    { kind: "request", id: "s1", method: "start", params: { input } },
+    {
+      kind: "request",
+      id: "s1",
+      method: "start",
+      params: {
+        steps: [
+          {
+            behavior: "write",
+            role: "implement",
+            stepId: "test-step-1",
+            worktree,
+            specPath: "spec.md",
+            stepRules: "r",
+            expectedArtifactPath: "o",
+            agents: ["codex"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      },
+    },
     new AbortController().signal,
   );
 
@@ -187,9 +276,9 @@ test("start after retiring is rejected before any worktree materialization", asy
   }
 
   const run = stateStore.findRunByProjectBranch({
-    project: input.worktree.projectName,
-    branch: input.worktree.branchName,
-    stepId: input.stepId ?? null,
+    project: worktree.projectName,
+    branch: worktree.branchName,
+    stepId: "test-step-1",
   });
   expect(run).toBeNull();
 

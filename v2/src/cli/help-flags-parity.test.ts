@@ -8,6 +8,7 @@ import {
   RUN_KILL_PARSE_ARG_OPTIONS,
   RUN_RESUME_HELP_FLAGS,
   RUN_RESUME_PARSE_ARG_OPTIONS,
+  WORKFLOW_IMPLEMENT_HELP_FLAGS,
   WRITE_HELP_FLAGS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
@@ -21,7 +22,6 @@ import {
 /** Pre-fix hand-maintained list; vacuous when commandTree gains guarded leaves without a matching edit. */
 const HAND_MAINTAINED_PARITY_PATHS = [
   ["init"],
-  ["run", "start"],
   ["cleanup"],
   ["run", "list"],
   ["run", "kill"],
@@ -69,12 +69,12 @@ describe("help flag parser parity", () => {
   });
 
   test("excluding a parser flag from the comparison set fails the guard", () => {
-    const fullParserFlags = parserAcceptedLongFlags(["run", "start"]);
-    const helpWithoutArtifact = WRITE_HELP_FLAGS.filter((flag) => flag.name !== "--artifact");
-    const staleParserFlags = fullParserFlags.filter((flag) => flag !== "--artifact");
+    const fullParserFlags = parserAcceptedLongFlags(["run", "workflow", "implement"]);
+    const helpWithoutSpec = WORKFLOW_IMPLEMENT_HELP_FLAGS.filter((flag) => flag.name !== "--spec");
+    const staleParserFlags = fullParserFlags.filter((flag) => flag !== "--spec");
 
-    expect(missingParserFlagsInHelp(staleParserFlags, helpWithoutArtifact)).toEqual([]);
-    expect(missingParserFlagsInHelp(fullParserFlags, helpWithoutArtifact)).toEqual(["--artifact"]);
+    expect(missingParserFlagsInHelp(staleParserFlags, helpWithoutSpec)).toEqual([]);
+    expect(missingParserFlagsInHelp(fullParserFlags, helpWithoutSpec)).toEqual(["--spec"]);
   });
 
   test("init parser and help flags stay aligned", () => {

@@ -20,7 +20,7 @@ import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pi
 import type { RatingAdmissionSource } from "../execution/project-pipeline-resolution.ts";
 import type { PublicationInputs } from "../execution/publication-landing.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import { isWriteLoopOutcomeKind, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { ORCHESTRATION_STORE_PATH } from "../paths.ts";
 import {
   type LinkedStageSettlement,
@@ -93,6 +93,7 @@ export type WorkflowSnapshotStep = {
   iterationTimeoutMs?: number;
   iterationCeilingMs?: number;
   idleOutputMs?: number;
+  maxIterations?: number;
   fixCommand?: string;
   readyCommand?: string;
   /** Preserves external-plan boundaries for recovery and finalization. */
@@ -202,7 +203,6 @@ export type Run = {
   creationTitle?: string | null;
   stepId?: string | null;
   workflowSnapshot?: WorkflowSnapshot | null;
-  queuedInput?: WriteLoopInput | null;
   prNumber?: number | null;
   prUrl?: string | null;
   reconciledAt?: number | null;
@@ -906,7 +906,6 @@ export interface StateStore {
     stepId?: string;
     workflowSnapshot?: WorkflowSnapshot;
     status?: RunStatus;
-    queuedInput?: WriteLoopInput;
   }): string;
 
   /** Retain the title resolved at the publication boundary for retries. */
@@ -1539,7 +1538,7 @@ const SCHEMA = `
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath,
   downstream_inputs AS downstreamInputsJson, step_id AS stepId,
-  workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
+  workflow_snapshot AS workflowSnapshotJson, creation_title AS creationTitle,
   pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt, finished_at AS finishedAt,
   ready_gate_pgid AS readyGatePgid,
   ready_gate_repair_fence AS readyGateRepairFenceJson,
@@ -2031,7 +2030,6 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
 type RunRow = Omit<
   Run,
   | "workflowSnapshot"
-  | "queuedInput"
   | "readyGateRepairFence"
   | "readyGateRepairFenceCorrupt"
   | "retainedFinalizationCheckpoint"
@@ -2047,7 +2045,6 @@ type RunRow = Omit<
   | "harnessReadyFlipEvidenceCorrupt"
 > & {
   workflowSnapshotJson: string | null;
-  queuedInputJson: string | null;
   readyGateRepairFenceJson: string | null;
   retainedFinalizationCheckpointJson: string | null;
   downstreamInputsJson: string | null;
@@ -2148,7 +2145,6 @@ function gateRefusalRecoveryProjectionFromRow(
 function mapRunRow(row: RunRow): Run {
   const {
     workflowSnapshotJson,
-    queuedInputJson,
     readyGateRepairFenceJson,
     retainedFinalizationCheckpointJson,
     downstreamInputsJson,
@@ -2180,7 +2176,6 @@ function mapRunRow(row: RunRow): Run {
     ...run,
     ...(downstreamInputs !== undefined ? { downstreamInputs } : {}),
     workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
-    queuedInput: queuedInputJson === null ? null : (JSON.parse(queuedInputJson) as WriteLoopInput),
     readyGateRepairFence: parsedFence === "invalid" || parsedFence === null ? null : parsedFence,
     ...(parsedFence === "invalid" ? { readyGateRepairFenceCorrupt: true } : {}),
     retainedFinalizationCheckpoint:
@@ -2323,17 +2318,15 @@ class StateStoreImpl implements StateStore {
     stepId?: string;
     workflowSnapshot?: WorkflowSnapshot;
     status?: RunStatus;
-    queuedInput?: WriteLoopInput;
   }): string {
     const id = crypto.randomUUID();
     const workflowSnapshotJson = args.workflowSnapshot === undefined ? null : JSON.stringify(args.workflowSnapshot);
-    const queuedInputJson = args.queuedInput === undefined ? null : JSON.stringify(args.queuedInput);
     this.db
       .prepare(`
         INSERT INTO runs (
           id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input, creation_title, owner_identity
         )
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, ?, ?)
       `)
       .run(
         id,
@@ -2346,7 +2339,6 @@ class StateStoreImpl implements StateStore {
         args.specPath,
         args.stepId ?? null,
         workflowSnapshotJson,
-        queuedInputJson,
         args.creationTitle ?? null,
         this.currentIdentity,
       );

@@ -29,7 +29,14 @@ import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import {
+  createHeldWorkflowBindings,
+  flushBackgroundRuns,
+  type HeldWorkflowBindings,
+  listRunsDirect,
+  startRunDirect,
+  workflowWriteStep,
+} from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry, type WriteLoopBindingSourceDeps } from "./daemon.ts";
@@ -46,6 +53,7 @@ const runner = createStubMarkdownlintRunner();
 let stateStore: StateStore;
 let starts: WriteLoopInput[];
 let fakeExecutor: FakeWriteLoopExecutor;
+let held: HeldWorkflowBindings;
 let handlers: Handlers;
 let dbPath: string;
 let profileHome: string;
@@ -106,6 +114,7 @@ beforeEach(() => {
   fakeExecutor = createFakeWriteLoopExecutor((input) => {
     starts.push(input);
   });
+  held = createHeldWorkflowBindings();
   profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-profile-home-"));
   machinesDir = join(profileHome, "machines");
   previousJarvisHome = process.env.JARVIS_HOME;
@@ -116,7 +125,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   fakeExecutor.abortAll();
-  await flushBackgroundRuns();
+  held.abortAll();
+  await flushBackgroundRuns(3);
   mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
   if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
   else process.env.JARVIS_HOME = previousJarvisHome;
@@ -320,11 +330,11 @@ test("resume rejects unknown run ID", async () => {
 });
 
 test("resume rejects terminal run status", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startRunDirect(handlers, workflowWriteStep({ createBinding: held.createBinding }));
   if (!runId) return;
 
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
+  held.settleAll();
+  await flushBackgroundRuns(3);
   stateStore.setRunStatus(runId, "completed");
 
   const response = await resumeDirect(handlers, runId);
@@ -868,7 +878,7 @@ test("resume on a workflow paused run with a non-executable role returns a contr
 });
 
 test("resume rejects an unsupported paused run before checking another in-flight run", async () => {
-  await startRunDirect(handlers);
+  await startRunDirect(handlers, workflowWriteStep({ createBinding: held.createBinding }));
 
   const pausedRunId = stateStore.createRun({
     project: "test-project",
@@ -887,7 +897,7 @@ test("resume rejects an unsupported paused run before checking another in-flight
 });
 
 test("resume rejects worktree_claimed when the (project, branch) is already live", async () => {
-  await startRunDirect(handlers);
+  await startRunDirect(handlers, workflowWriteStep({ createBinding: held.createBinding }));
 
   const pausedRunId = createWorkflowRun({ invocationId: "claimed-resume" });
   stateStore.setRunStatus(pausedRunId, "paused");
@@ -3574,38 +3584,6 @@ const PAUSED_LOOP_FINISHED = {
   resumable: true,
 } as const satisfies LogEvent;
 
-function createPausedDirectWriteRun(branchName = "direct-replay", queuedExtra?: Record<string, unknown>): string {
-  const { jarvisRoot } = createJarvisHome();
-  roots.push(join(jarvisRoot, ".."));
-  const queuedInput = {
-    ...mockWriteLoopInput({
-      projectRoot: "/fake",
-      projectName: branchName,
-      branchName,
-      baseRef: "HEAD",
-      jarvisRoot,
-    }),
-    promptId: "implement.prompt.body",
-    maxIterations: 3,
-    bindings: [],
-    bindingResolution: {
-      role: "implement",
-      agents: ["codex"],
-      agentModelConfig: AGENT_MODEL_CONFIG,
-    },
-    ...queuedExtra,
-  } as WriteLoopInput;
-  return stateStore.createRun({
-    project: branchName,
-    specRef: "HEAD",
-    worktreePath: "/fake",
-    branch: branchName,
-    specPath: "spec.md",
-    status: "paused",
-    queuedInput,
-  });
-}
-
 function expectNoCheckpointRepromptReplay(input: WriteLoopInput | undefined): void {
   expect(input).not.toHaveProperty("mutationDirectiveReprompt");
   expect(input).not.toHaveProperty("guardCheckpointReprompt");
@@ -3729,8 +3707,8 @@ test("paused implement resume restores landing-contract but ignores checkpoint r
   });
 });
 
-test("paused direct implement resume ignores historical checkpoint reprompt log events", async () => {
-  const runId = createPausedDirectWriteRun();
+test("paused workflow implement resume ignores historical checkpoint reprompt log events", async () => {
+  const runId = createPausedImplementRepromptRun("direct-replay");
   const response = await resumeDirect(
     createHandlers(
       logReader(runId, [
@@ -3744,40 +3722,21 @@ test("paused direct implement resume ignores historical checkpoint reprompt log 
   expect(response.kind).toBe("response");
   expect(starts).toHaveLength(1);
   expectNoCheckpointRepromptReplay(starts[0]);
-  expect(starts[0]?.maxIterations).toBe(3);
+  expect(starts[0]?.maxIterations).toBeUndefined();
 });
 
-test("paused direct write resume strips stale checkpoint queuedInput without seeding iteration budget", async () => {
-  const runId = createPausedDirectWriteRun("direct-stale-queued", {
-    mutationDirectiveReprompt: {
-      directives: [
-        {
-          pinningFile: "pin-a.test.ts",
-          line: 2,
-          raw: '// @mutate target.ts "missing-a" -> "x"',
-          reason: "target_absent",
-        },
-      ],
-      display: "truncated…",
-    },
-    guardCheckpointReprompt: { repairs: GUARD_REPAIRS },
-    keystoneDirectiveReprompt: {
-      criterionText: "- [x] `keystone.test.ts` — `keystone pin`",
-      pinPath: "keystone.test.ts",
-    },
-    initialIterationsConsumed: 5,
-  });
+test("paused workflow implement resume ignores stale checkpoint fields without seeding iteration budget", async () => {
+  const runId = createPausedImplementRepromptRun("direct-stale-snapshot");
 
   const response = await resumeDirect(createHandlers(), runId);
 
   expect(response.kind).toBe("response");
   expect(starts).toHaveLength(1);
   expectNoCheckpointRepromptReplay(starts[0]);
-  expect(starts[0]?.maxIterations).toBe(3);
 });
 
-test("a direct write resume replays an interrupted plan-draft repair from log", async () => {
-  const runId = createPausedDirectWriteRun("direct-plan-draft-interrupted-repair");
+test("a workflow implement resume replays an interrupted plan-draft repair from log", async () => {
+  const runId = createPausedImplementRepromptRun("direct-plan-draft-interrupted-repair");
 
   const response = await resumeDirect(
     createHandlers(

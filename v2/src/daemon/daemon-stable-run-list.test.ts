@@ -4,7 +4,12 @@ import { join } from "node:path";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { LogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import {
+  createHeldWorkflowBindings,
+  listRunsDirect,
+  startRunDirect,
+  workflowWriteStep,
+} from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, startDaemonRuntime } from "./daemon.ts";
 import type { DaemonListRunRow } from "./daemon-wire.ts";
@@ -127,6 +132,7 @@ test("a stale cached owner row never overwrites a run that completed locally", a
 
 test("a cached owner row never overwrites a run this daemon itself holds live", async () => {
   const fakeExecutor = createFakeWriteLoopExecutor();
+  const held = createHeldWorkflowBindings();
   const handlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
@@ -136,7 +142,10 @@ test("a cached owner row never overwrites a run this daemon itself holds live", 
     ownerRow: (id) => ownerRowFixture(id),
   });
   try {
-    const runId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "local-project" }));
+    const runId = await startRunDirect(
+      handlers,
+      workflowWriteStep({ createBinding: held.createBinding, worktree: { projectName: "local-project" } }),
+    );
     if (runId === undefined) throw new Error("run did not start");
 
     const row = (await listRunsDirect(handlers))?.find((candidate) => candidate.runId === runId);
@@ -144,6 +153,7 @@ test("a cached owner row never overwrites a run this daemon itself holds live", 
     expect(row?.project).toBe("local-project");
     expect(row?.prNumber).toBeUndefined();
   } finally {
+    held.abortAll();
     fakeExecutor.abortAll();
   }
 });

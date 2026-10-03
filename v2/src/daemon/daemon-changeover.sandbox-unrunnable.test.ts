@@ -11,7 +11,15 @@ import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import type { IpcFrame, ResponseFrame } from "../ipc/types";
 import type { LogReader, LogSink } from "../persistence/log-stream";
 import { openStateStore, type StateStore } from "../persistence/state-store";
-import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput } from "../testing/run-control";
+import {
+  createHeldWorkflowBindings,
+  flushBackgroundRuns,
+  type HeldWorkflowBindings,
+  heldWorkflowStepSeam,
+  loadRunOrThrow,
+  withWorkflowStepSeam,
+  workflowWriteStep,
+} from "../testing/run-control";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
@@ -120,7 +128,7 @@ type RuntimeHarness = {
   publicSocketPath: string;
   privateSocketPath: string;
   store: StateStore;
-  fakeExecutor: ReturnType<typeof createFakeWriteLoopExecutor>;
+  held: HeldWorkflowBindings;
   exitCodes: number[];
   publicBindCount: () => number;
   close: () => Promise<void>;
@@ -138,9 +146,11 @@ async function startIncumbent(
   const privateSocketPath = join(root, "daemon-incumbent.sock");
   const store = openStateStore(join(root, "state.sqlite"));
   const fakeExecutor = createFakeWriteLoopExecutor();
+  const held = createHeldWorkflowBindings();
   const exitCodes: number[] = [];
   let publicBindCount = 0;
   const bind = options.bind ?? startIpcServer;
+  const seam = heldWorkflowStepSeam(held.createBinding);
   const runtime = await startDaemonRuntime(publicSocketPath, store, fakeReader(), {
     privateSocketPath,
     openLogSink: () => fakeSink(),
@@ -150,18 +160,11 @@ async function startIncumbent(
       throw new Error(`unexpected process exit ${code}`);
     },
     hasMemoryHeadroom: () => true,
-    writeLoopExecutor: async (input, signal) => {
-      await fakeExecutor.executor(input, signal);
-      const run = store.findRunByProjectBranch({
-        project: input.worktree.projectName,
-        branch: input.worktree.branchName,
-        stepId: input.stepId ?? null,
-      });
-      if (run !== null) store.commitTerminalRunSettlement({ runId: run.id, status: "completed" });
-    },
+    writeLoopExecutor: fakeExecutor.executor,
+    // Held bindings keep admitted work live; settling one lets the real write loop reach "completed".
     startIpcServer: async (path, handlers) => {
       if (path === publicSocketPath) publicBindCount += 1;
-      return bind(path, handlers);
+      return handlers === undefined ? bind(path) : bind(path, withWorkflowStepSeam(handlers, seam));
     },
     ...(options.fallbackMs === undefined ? {} : { handoffFallbackMs: options.fallbackMs }),
   });
@@ -169,15 +172,17 @@ async function startIncumbent(
     publicSocketPath,
     privateSocketPath,
     store,
-    fakeExecutor,
+    held,
     exitCodes,
     publicBindCount: () => publicBindCount,
     close: async () => {
       // Stop the runtime (and its drain-exit loop) before aborting runs: aborting first let an
       // idle retiring incumbent drain-exit mid-teardown under load ("unexpected process exit").
       await runtime.close();
+      held.abortAll();
       fakeExecutor.abortAll();
-      await flushBackgroundRuns(3);
+      // Aborted loops settle their rows asynchronously; let them land before the store closes.
+      await waitFor(() => store.listRuns().every((run) => run.status !== "in-progress"), 5_000);
       store.close();
       rmSync(root, { recursive: true, force: true });
     },
@@ -193,18 +198,18 @@ async function beginChangeover(harness: RuntimeHarness): Promise<string> {
   return result.handoffId as string;
 }
 
+function workStep(projectName: string) {
+  return workflowWriteStep({ worktree: { projectName, branchName: `${projectName}-branch` } });
+}
+
 async function startWork(socketPath: string, projectName: string): Promise<string> {
-  const frame = await request(socketPath, "start", {
-    input: mockWriteLoopInput({ projectName, branchName: `${projectName}-branch` }),
-  });
+  const frame = await request(socketPath, "start", { steps: [workStep(projectName)] });
   if (frame.kind !== "response") throw new Error(`start failed: ${JSON.stringify(frame)}`);
   return ((frame as ResponseFrame).result as { runId: string }).runId;
 }
 
 async function privateStartOutcome(privateSocketPath: string, projectName: string): Promise<string> {
-  const frame = await request(privateSocketPath, "start", {
-    input: mockWriteLoopInput({ projectName, branchName: `${projectName}-branch` }),
-  });
+  const frame = await request(privateSocketPath, "start", { steps: [workStep(projectName)] });
   return frame.kind === "response" ? "admitted" : String((frame as { code?: unknown }).code);
 }
 
@@ -274,7 +279,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         // The outgoing generation is retiring: its own still-live private endpoint refuses new
         // admission — this pre-fix keyed-daemon coexistence model has no such refusal at all.
         const incumbentClient = await connectIpcClient(incumbentPrivate);
-        incumbentClient.send({ kind: "request", id: "s1", method: "start", params: { input: mockWriteLoopInput() } });
+        incumbentClient.send({ kind: "request", id: "s1", method: "start", params: { steps: [workStep("refused")] } });
         const refused = await incumbentClient.nextFrame();
         expect(refused.kind).toBe("error");
         expect((refused as { code?: string }).code).toBe("daemon_superseded");
@@ -402,11 +407,11 @@ describe("daemon handoff changeover (real sockets)", () => {
       const incumbent = await startIncumbent("rollback", { fallbackMs: 5_000 });
       try {
         const admittedRunId = await startWork(incumbent.publicSocketPath, "admitted-before-handoff");
-        expect(await waitFor(() => incumbent.fakeExecutor.pendingCount() === 1, 1_000)).toBe(true);
+        expect(await waitFor(() => incumbent.held.pendingCount() === 1, 5_000)).toBe(true);
 
         const handoffId = await beginChangeover(incumbent);
         const refused = await request(incumbent.privateSocketPath, "start", {
-          input: mockWriteLoopInput({ projectName: "refused-during-handoff" }),
+          steps: [workStep("refused-during-handoff")],
         });
         expect(refused.kind).toBe("error");
         expect((refused as { code?: string }).code).toBe("daemon_superseded");
@@ -428,13 +433,13 @@ describe("daemon handoff changeover (real sockets)", () => {
         // The one rebound listener admits; a stray second listener would have failed the live-socket guard.
         await startWork(incumbent.publicSocketPath, "admitted-after-duplicate-rollback");
 
-        incumbent.fakeExecutor.settleAll();
+        incumbent.held.settleAll();
         expect(
           await waitFor(
             () =>
               loadRunOrThrow(incumbent.store, admittedRunId).status === "completed" &&
               loadRunOrThrow(incumbent.store, newRunId).status === "completed",
-            1_000,
+            5_000,
           ),
         ).toBe(true);
       } finally {
@@ -469,7 +474,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         expect((anotherChangeover as { code?: string }).code).toBe("handoff_committed");
 
         const refused = await request(incumbent.privateSocketPath, "start", {
-          input: mockWriteLoopInput({ projectName: "refused-after-commit" }),
+          steps: [workStep("refused-after-commit")],
         });
         expect(refused.kind).toBe("error");
         expect((refused as { code?: string }).code).toBe("daemon_superseded");
@@ -749,7 +754,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         expect((rollback as { code?: string }).code).toBe("handoff_rollback_failed");
         expect(await answersHealth(incumbent.publicSocketPath)).toBe(false);
         const refused = await request(incumbent.privateSocketPath, "start", {
-          input: mockWriteLoopInput({ projectName: "refused-after-rebind-failure" }),
+          steps: [workStep("refused-after-rebind-failure")],
         });
         expect(refused.kind).toBe("error");
         expect((refused as { code?: string }).code).toBe("daemon_superseded");
@@ -804,7 +809,7 @@ describe("daemon handoff changeover (real sockets)", () => {
         // Pre-fix skipped reopen when wasSuperseded(); post-fix still blocks when supersede predates this pending handoff.
         expect(await health(incumbent.publicSocketPath)).toEqual({ ok: true });
         const refused = await request(incumbent.publicSocketPath, "start", {
-          input: mockWriteLoopInput({ projectName: "refused-after-superseded-rollback" }),
+          steps: [workStep("refused-after-superseded-rollback")],
         });
         expect(refused.kind).toBe("error");
         expect((refused as { code?: string }).code).toBe("daemon_superseded");
@@ -927,9 +932,7 @@ describe("daemon handoff changeover (real sockets)", () => {
           if (path.endsWith("daemon.sock")) {
             publicBinds += 1;
             if (publicBinds === 2) {
-              const frame = await request(path, "start", {
-                input: mockWriteLoopInput({ projectName: "during-rebind", branchName: "during-rebind-branch" }),
-              });
+              const frame = await request(path, "start", { steps: [workStep("during-rebind")] });
               startDuringBind = frame.kind === "response" ? "admitted" : JSON.stringify(frame);
               privateStartDuringBind = await privateStartOutcome(incumbent.privateSocketPath, "private-during-rebind");
               windowObserved.fire();

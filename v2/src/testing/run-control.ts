@@ -1,11 +1,21 @@
 import { expect } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { ListRpcParams } from "../commands/run-list-rpc.ts";
 import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
+import {
+  createBindingFactory,
+  DEFAULT_AGENT_MODEL_CONFIG,
+  neverResolvingBindingFactory,
+} from "./workflow-step-fixtures.ts";
+import { createFakeWithExternalWorktree, createJarvisHome } from "./write-fixtures.ts";
 
 /** Yields `times` macrotask turns so background run spawns/settlements land. */
 export async function flushBackgroundRuns(times = 1): Promise<void> {
@@ -70,6 +80,7 @@ function requestFrame(
   return { kind: "request", id, method, params };
 }
 
+/** Plain `WriteLoopInput` fixture for executor/resume seams; it is not an admission shape. */
 export function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["worktree"]> = {}): WriteLoopInput {
   return {
     worktree: {
@@ -86,11 +97,132 @@ export function mockWriteLoopInput(worktreeOverrides: Partial<WriteLoopInput["wo
   };
 }
 
-export async function startRun(client: IpcClient, input = mockWriteLoopInput()): Promise<string | undefined> {
-  client.send({ kind: "request", id: "s1", method: "start", params: { input } });
+type HeldInvocation = { signal: AbortSignal | undefined; release: (mode: "settle" | "abort") => void };
+
+/**
+ * Write-step bindings that stay live until the test settles or aborts them: the workflow-admission
+ * analogue of `createFakeWriteLoopExecutor`. Settling writes the step's `proof.txt` artifact and
+ * answers `done`; aborting (explicit or via the step signal) answers an invocation error.
+ */
+export function createHeldWorkflowBindings() {
+  const pending: HeldInvocation[] = [];
+  const createBinding = createBindingFactory(
+    ({ cwd, signal }) =>
+      new Promise<InvocationResult>((resolve) => {
+        let released = false;
+        const release = (mode: "settle" | "abort"): void => {
+          if (released) return;
+          released = true;
+          if (mode === "settle") {
+            writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
+            resolve({ kind: "ok", stdout: "done", stderr: "" });
+            return;
+          }
+          resolve({ kind: "error", exitCode: 1, stderr: "aborted" });
+        };
+        pending.push({ signal, release });
+        signal?.addEventListener("abort", () => release("abort"), { once: true });
+      }),
+  );
+  const drain = (mode: "settle" | "abort"): void => {
+    for (const run of pending.splice(0)) run.release(mode);
+  };
+  return {
+    createBinding,
+    settleAll: (): void => drain("settle"),
+    abortAll: (): void => drain("abort"),
+    settleFirst: (): void => pending.shift()?.release("settle"),
+    pendingCount: (): number => pending.length,
+    isAbortSignalTriggered: (): boolean => pending.some((run) => run.signal?.aborted === true),
+  };
+}
+
+export type HeldWorkflowBindings = ReturnType<typeof createHeldWorkflowBindings>;
+
+type WorkflowWriteStepOverrides = Partial<Omit<WriteWorkflowStep, "worktree">> & {
+  worktree?: Partial<WriteWorkflowStep["worktree"]>;
+};
+
+/**
+ * Workflow write step for daemon admission tests: a fresh fake jarvis home with fake
+ * materialization, a never-settling binding unless overridden, and no hidden shrink pass.
+ */
+export function workflowWriteStep(overrides: WorkflowWriteStepOverrides = {}): WriteWorkflowStep {
+  const { jarvisRoot } = createJarvisHome();
+  const { worktree, ...rest } = overrides;
+  return {
+    behavior: "write",
+    stepId: "step-1",
+    role: "implement",
+    agents: ["claude"],
+    agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+    worktree: {
+      projectRoot: "/tmp/test-project",
+      projectName: "test-project",
+      branchName: "test-branch",
+      baseRef: "main",
+      jarvisRoot,
+      ...worktree,
+    },
+    specPath: "spec.md",
+    stepRules: "Return exactly one terminal token.",
+    expectedArtifactPath: "proof.txt",
+    createBinding: neverResolvingBindingFactory,
+    withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    suppressShrink: true,
+    ...rest,
+  };
+}
+
+/** Workflow-step admission over IPC; function-valued step fields do not survive JSON, so the server side re-attaches them via {@link withWorkflowStepSeam}. */
+export async function startRun(
+  client: IpcClient,
+  step: WriteWorkflowStep = workflowWriteStep(),
+): Promise<string | undefined> {
+  client.send({ kind: "request", id: "s1", method: "start", params: { steps: [step] } });
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("response");
   return frame.kind === "response" ? (frame.result as { runId?: string } | undefined)?.runId : undefined;
+}
+
+/** Workflow-step admission for in-process handler tests. */
+export async function startRunDirect(
+  handlers: RunControlHandlers,
+  step: WriteWorkflowStep = workflowWriteStep(),
+): Promise<string | undefined> {
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  return response.kind === "response" ? (response.result as { runId?: string } | undefined)?.runId : undefined;
+}
+
+/** Wraps `start` so every write step that crossed IPC as JSON gets its in-process seams back before admission. */
+export function withWorkflowStepSeam(
+  handlers: Record<string, RpcHandler>,
+  seam: (step: WriteWorkflowStep) => WriteWorkflowStep,
+): Record<string, RpcHandler> {
+  const start = handlers.start;
+  if (start === undefined) return handlers;
+  return {
+    ...handlers,
+    start: (frame, signal) => {
+      const params = frame.params as { steps?: AnyWorkflowStep[] } | undefined;
+      if (!Array.isArray(params?.steps)) return start(frame, signal);
+      const steps = params.steps.map((step) => (step.behavior === "write" ? seam(step) : step));
+      return start({ ...frame, params: { ...params, steps } }, signal);
+    },
+  };
+}
+
+/** Seam for {@link withWorkflowStepSeam}: the given bindings plus fake materialization under the step's `jarvisRoot`. */
+export function heldWorkflowStepSeam(
+  createBinding: NonNullable<WriteWorkflowStep["createBinding"]> = neverResolvingBindingFactory,
+): (step: WriteWorkflowStep) => WriteWorkflowStep {
+  return (step) => ({
+    ...step,
+    createBinding,
+    withExternalWorktree: createFakeWithExternalWorktree(step.worktree.jarvisRoot),
+    suppressShrink: true,
+  });
 }
 
 export async function listRuns(client: IpcClient): Promise<DaemonListRunRow[] | undefined> {
@@ -98,15 +230,6 @@ export async function listRuns(client: IpcClient): Promise<DaemonListRunRow[] | 
   const frame = await client.nextFrame();
   expect(frame.kind).toBe("response");
   return frame.kind === "response" ? (frame.result as ListRunsResult)?.runs : undefined;
-}
-
-export async function startRunDirect(
-  handlers: RunControlHandlers,
-  input = mockWriteLoopInput(),
-): Promise<string | undefined> {
-  const response = await handlers.start(requestFrame("s1", "start", { input }), new AbortController().signal);
-  expect(response.kind).toBe("response");
-  return response.kind === "response" ? (response.result as { runId?: string } | undefined)?.runId : undefined;
 }
 
 export async function listRunsDirect(

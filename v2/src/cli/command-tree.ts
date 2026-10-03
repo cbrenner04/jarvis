@@ -16,7 +16,6 @@ import {
   WORKFLOW_INTENT_HELP_FLAGS,
   WORKFLOW_PLAN_HELP_FLAGS,
   WORKFLOW_REVIEW_FEEDBACK_HELP_FLAGS,
-  WRITE_HELP_FLAGS,
 } from "./command-help-flags.ts";
 import {
   CLEANUP_USAGE,
@@ -42,7 +41,6 @@ import {
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
   RUN_RESUME_USAGE,
-  RUN_START_USAGE,
   RUN_UNDISMISS_USAGE,
   RUN_USAGE,
   TUI_LOG_USAGE,
@@ -112,12 +110,6 @@ export const commandTree: CommandNode = {
       summary: "Manage daemon-backed runs.",
       usage: RUN_USAGE,
       subcommands: [
-        {
-          name: "start",
-          summary: "Start a new run.",
-          usage: RUN_START_USAGE,
-          flags: WRITE_HELP_FLAGS,
-        },
         {
           name: "list",
           summary: "List runs.",

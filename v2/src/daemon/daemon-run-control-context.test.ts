@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireGateInvocationLease } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 
 test("reportReviewProgress accumulates multiple steps per invocation", () => {
@@ -102,7 +102,20 @@ async function redrivenRunIds(resolvePredecessorOwner?: (runId: string) => Promi
       worktreePath: "/tmp/ctx-redrive",
       branch: "ctx-redrive",
       specPath: "/tmp/ctx-redrive-spec.md",
-      queuedInput: mockWriteLoopInput({ branchName: "ctx-redrive", projectName: "ctx" }),
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "ctx-redrive",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "r",
+            expectedArtifactPath: "o",
+            agents: ["codex"],
+            agentModelConfig: { codex: { implement: { rungs: [{ adapterModel: "m", priceKey: "m" }] } } },
+          },
+        ],
+      },
     });
     stateStore.commitCompletionBoundary({
       attemptId: stateStore.recordAttemptStart(runId),

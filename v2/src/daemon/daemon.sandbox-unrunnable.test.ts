@@ -11,7 +11,14 @@ import { connectIpcClient } from "../ipc/client";
 import { startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { openStateStore } from "../persistence/state-store";
-import { listRuns, startRun, toIpcHandlers } from "../testing/run-control";
+import {
+  createHeldWorkflowBindings,
+  heldWorkflowStepSeam,
+  listRuns,
+  startRun,
+  toIpcHandlers,
+  withWorkflowStepSeam,
+} from "../testing/run-control";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
@@ -153,6 +160,7 @@ describe("daemon (real process)", () => {
   socketTest("start and list round-trip over production IPC", async () => {
     const stateStore = openStateStore(join(tmpdir(), `jarvis-smoke-state-${process.pid}-${Date.now()}.db`));
     const fakeExecutor = createFakeWriteLoopExecutor();
+    const held = createHeldWorkflowBindings();
     const handlers = createRunControlHandlers({
       stateStore,
       writeLoopExecutor: fakeExecutor.executor,
@@ -162,7 +170,10 @@ describe("daemon (real process)", () => {
     });
     const socketPath = join(tmpdir(), `jarvis-daemon-smoke-${process.pid}-${Date.now()}.sock`);
     rmSync(socketPath, { force: true });
-    const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
+    const server = await startIpcServer(
+      socketPath,
+      withWorkflowStepSeam(toIpcHandlers(handlers), heldWorkflowStepSeam(held.createBinding)),
+    );
     try {
       const client = await connectIpcClient(socketPath, 2_000);
       const runId = await startRun(client);
@@ -177,6 +188,7 @@ describe("daemon (real process)", () => {
     } finally {
       await server.close();
       rmSync(socketPath, { force: true });
+      held.abortAll();
       fakeExecutor.abortAll();
       await new Promise<void>((resolve) => setImmediate(resolve));
       stateStore.close();

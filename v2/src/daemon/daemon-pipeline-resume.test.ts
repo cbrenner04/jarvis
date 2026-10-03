@@ -21,7 +21,7 @@ import {
 } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
   createBindingFactory,
   DEFAULT_AGENT_MODEL_CONFIG,
@@ -1384,7 +1384,6 @@ function seedImplementGateRefusedSibling(
   worktreePath: string,
   branch: string,
   invocationId: string,
-  withQueuedInput: boolean,
 ): { entryRunId: string; causeRunId: string } {
   const snapshot = implementInPlaceSnapshot(invocationId);
   const entryRunId = store.createRun({
@@ -1405,19 +1404,6 @@ function seedImplementGateRefusedSibling(
     specPath: "spec/feature/index.md",
     stepId: "implement~shrink",
     workflowSnapshot: snapshot,
-    ...(withQueuedInput
-      ? {
-          queuedInput: {
-            ...mockWriteLoopInput({ projectRoot: worktreePath, branchName: branch, localPath: worktreePath }),
-            workflowSnapshot: snapshot,
-            stepId: "implement",
-            specPath: "spec/feature/index.md",
-            stepRules: "implement rules",
-            expectedArtifactPath: "spec/feature/index.md",
-            bindings: [],
-          },
-        }
-      : {}),
   });
   const attemptId = store.recordAttemptStart(causeRunId);
   store.commitCompletionBoundary({
@@ -1541,15 +1527,8 @@ function setupImplementInPlacePipeline(
   worktreePath: string,
   branch: string,
   invocationId: string,
-  withQueuedInput = true,
 ): { pipelineId: string; entryRunId: string; causeRunId: string } {
-  const { entryRunId, causeRunId } = seedImplementGateRefusedSibling(
-    store,
-    worktreePath,
-    branch,
-    invocationId,
-    withQueuedInput,
-  );
+  const { entryRunId, causeRunId } = seedImplementGateRefusedSibling(store, worktreePath, branch, invocationId);
   const pipelineId = store.createPipeline({
     definition: IMPLEMENT_IN_PLACE_DEFINITION,
     context: ADMISSION_CONTEXT,
@@ -1653,7 +1632,6 @@ test("pipeline_resume branchKey resumes only the target implement lane in place"
     worktreePath,
     branch,
     "inv-implement-branch-target",
-    true,
   );
   const logsPath = appendGateRefusalLog(stateStore, causeRunId);
   const resumeHandlers = createRunControlHandlers({
@@ -1782,7 +1760,6 @@ test("pipeline_resume refuses run-resume admission for a qualifying row without 
     worktreePath,
     branch,
     "inv-implement-refused",
-    false,
   );
   const stageBefore = stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "implement");
   const response = await resumeHandlers.pipeline_resume(

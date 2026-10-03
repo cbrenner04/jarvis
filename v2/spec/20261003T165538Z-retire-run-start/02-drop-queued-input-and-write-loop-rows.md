@@ -33,14 +33,14 @@ Direct daemon `start` with `params.input` persists `queuedInput` and registers `
 
 ## Acceptance criteria
 
-- [ ] `grep -rn reconstructDirectWriteResume v2/src --include='*.ts'` returns zero matches; fails on main while `daemon-run-lifecycle-handlers.ts` still defines it.
-- [ ] `grep -rn 'kind: \"write-loop\"' v2/src/daemon --include='*.ts'` returns zero matches; reachable on main at `daemon-run-lifecycle-handlers.ts`, `daemon.ts`, `workflow-invocation-live.test.ts`.
-- [ ] `grep -rn queuedInput v2/src/persistence/state-store.ts` returns zero matches on persisted `Run` shape and insert/update APIs; fails on main while `queuedInput` remains on `Run`.
-- [ ] Daemon test asserting direct-write `start` (`params.input` without workflow `steps`) is rejected or unreachable fails on main and passes after the cut (same admission site as `handleWriteLoopStart`).
-- [ ] `daemon-run-lifecycle-handlers.test.ts` no longer contains `resume admits a paused direct write run with durable queuedInput`; replacement workflow-log resume coverage stays green where behavior is preserved.
-- [ ] `grep -rn queuedInput v2/src/daemon --include='*.ts'` returns zero matches after fallout rewrites; fails on main at lifecycle handlers, `daemon.ts`, and `daemon-queue-promotion.test.ts` direct-write fixtures.
-- [ ] Subspec 02 resume fallout in `workflow-runner-resume.ts` (intent-landing reprompt, stepRules, external plan persistence) and `workflow-runner-resume-intent-landing-contract-reprompt.test.ts` no longer depend on persisted run-row `queuedInput`; gate spreads inside `resolveWriteSiblingCommandSource` remain for subspec 03.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `grep -rn reconstructDirectWriteResume v2/src --include='*.ts'` returns zero matches; fails on main while `daemon-run-lifecycle-handlers.ts` still defines it.
+- [x] `grep -rn 'kind: \"write-loop\"' v2/src/daemon --include='*.ts'` returns zero matches; reachable on main at `daemon-run-lifecycle-handlers.ts`, `daemon.ts`, `workflow-invocation-live.test.ts`.
+- [x] `grep -rn queuedInput v2/src/persistence/state-store.ts` returns zero matches on persisted `Run` shape and insert/update APIs; fails on main while `queuedInput` remains on `Run`.
+- [x] Daemon test asserting direct-write `start` (`params.input` without workflow `steps`) is rejected or unreachable fails on main and passes after the cut (same admission site as `handleWriteLoopStart`).
+- [x] `daemon-run-lifecycle-handlers.test.ts` no longer contains `resume admits a paused direct write run with durable queuedInput`; replacement workflow-log resume coverage stays green where behavior is preserved.
+- [x] `grep -rn queuedInput v2/src/daemon --include='*.ts'` returns zero matches after fallout rewrites; fails on main at lifecycle handlers, `daemon.ts`, and `daemon-queue-promotion.test.ts` direct-write fixtures.
+- [x] Subspec 02 resume fallout in `workflow-runner-resume.ts` (intent-landing reprompt, stepRules, external plan persistence) and `workflow-runner-resume-intent-landing-contract-reprompt.test.ts` no longer depend on persisted run-row `queuedInput`; gate spreads inside `resolveWriteSiblingCommandSource` remain for subspec 03.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

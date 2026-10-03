@@ -28,10 +28,10 @@ Operators still discover and invoke `jarvis run start`, which admitted the only 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/cli.test.ts` `help run` / tree coverage no longer lists `run start`; `jarvis run start` exits non-zero with usage on stderr and sends no IPC (case parallel to `run pause is an unknown subcommand` in `run.test.ts`); fails on main while `run start` remains registered.
-- [ ] `grep -rn parseWriteCliInput v2/src --include='*.ts'` returns zero matches.
-- [ ] `grep -n 'describe("run start")' v2/src/commands/run.test.ts` returns zero matches after deletion; subspec 00 workflow keyed dispatch describe stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/cli.test.ts` `help run` / tree coverage no longer lists `run start`; `jarvis run start` exits non-zero with usage on stderr and sends no IPC (case parallel to `run pause is an unknown subcommand` in `run.test.ts`); fails on main while `run start` remains registered.
+- [x] `grep -rn parseWriteCliInput v2/src --include='*.ts'` returns zero matches.
+- [x] `grep -n 'describe("run start")' v2/src/commands/run.test.ts` returns zero matches after deletion; subspec 00 workflow keyed dispatch describe stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

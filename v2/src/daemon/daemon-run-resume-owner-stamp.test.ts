@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
@@ -8,7 +8,6 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
-import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   createRunControlHandlers,
@@ -25,6 +24,9 @@ const IDENTITY_C = "33333:3000000";
 
 const dbPaths: string[] = [];
 const executors: FakeWriteLoopExecutor[] = [];
+let profileHome: string;
+let previousJarvisHome: string | undefined;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
 
 function trackedDbPath(name: string): string {
   const dbPath = join(tmpdir(), `jarvis-resume-owner-stamp-${name}-${process.pid}-${Date.now()}-${Math.random()}.db`);
@@ -38,9 +40,16 @@ function trackedExecutor(onStart?: (input: unknown) => void): FakeWriteLoopExecu
   return executor;
 }
 
+beforeEach(() => {
+  writeLoopBindingSourceDeps = installResumeBindingProfile();
+});
+
 afterEach(() => {
   for (const executor of executors.splice(0)) executor.abortAll();
   for (const dbPath of dbPaths.splice(0)) removeOrchestrationStore(dbPath);
+  rmSync(profileHome, { recursive: true, force: true });
+  if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+  else process.env.JARVIS_HOME = previousJarvisHome;
 });
 
 function readOwnerIdentity(dbPath: string, runId: string): string | null {
@@ -60,22 +69,32 @@ const WORKFLOW_AGENT_MODEL_CONFIG: AgentModelConfig = {
 };
 
 function installResumeBindingProfile(): WriteLoopBindingSourceDeps {
-  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-owner-stamp-profile-"));
+  previousJarvisHome = process.env.JARVIS_HOME;
+  profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-resume-owner-stamp-profile-"));
   const machinesDir = join(profileHome, "machines");
   mkdirSync(machinesDir, { recursive: true });
   const machineProfile = "resume-owner-stamp-profile";
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
   writeFileSync(
     join(machinesDir, `${machineProfile}.json`),
     JSON.stringify({
       models: {
         codex: {
-          implement: { rungs: [{ adapterModel: "codex-fast", priceKey: "codex-fast" }] },
-          shrink: { rungs: [{ adapterModel: "shrink", priceKey: "shrink" }] },
+          plan: rung("plan"),
+          implement: rung("codex-fast"),
+          shrink: rung("shrink"),
+          adversary: rung("adv"),
+          critic: rung("crit"),
+          advocate: rung("advoc"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
         },
       },
     }),
   );
   writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["codex"] }));
+  process.env.JARVIS_HOME = profileHome;
   return { machineConfigPath: join(profileHome, "config.json"), machinesDir };
 }
 
@@ -107,6 +126,7 @@ function handlersFor(
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
     ...overrides,
   });
 }
@@ -120,14 +140,28 @@ async function resumeDirect(handlers: ReturnType<typeof createRunControlHandlers
 
 function createPausedRun(dbPath: string, worktreeSuffix: string): string {
   const storeA = openStateStore(dbPath, { currentIdentity: IDENTITY_A });
+  const branch = `resume-owner-branch-${worktreeSuffix}`;
   const runId = storeA.createRun({
     project: "project",
     specRef: "main",
     worktreePath: `/tmp/resume-owner-worktree-${worktreeSuffix}`,
-    branch: `resume-owner-branch-${worktreeSuffix}`,
+    branch,
     specPath: `/tmp/resume-owner-spec-${worktreeSuffix}.md`,
+    stepId: "implement",
     status: "paused",
-    queuedInput: mockWriteLoopInput(),
+    workflowSnapshot: {
+      invocationId: `inv-${worktreeSuffix}`,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "rules",
+          expectedArtifactPath: "out.md",
+          agents: ["codex"],
+          agentModelConfig: WORKFLOW_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
   });
   storeA.close();
   return runId;
@@ -266,7 +300,6 @@ test("resume succeeds on a terminal peer-owned row when list already projects re
     iterationsConsumed: 1,
     resumable: true,
   });
-  const writeLoopBindingSourceDeps = installResumeBindingProfile();
   const storeB = openStateStore(dbPath, {
     currentIdentity: IDENTITY_B,
     isOwnerAlive: async (identity) => identity === IDENTITY_A,

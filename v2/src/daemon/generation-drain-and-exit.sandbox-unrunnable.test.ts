@@ -11,12 +11,14 @@ import type { ResponseFrame } from "../ipc/types";
 import { openStateStore, type StateStore } from "../persistence/state-store";
 import { withHandoffIdentity } from "../testing/handoff-identity";
 import {
-  flushBackgroundRuns,
+  createHeldWorkflowBindings,
+  heldWorkflowStepSeam,
   listRuns,
   loadRunOrThrow,
-  mockWriteLoopInput,
   startRun,
   toIpcHandlers,
+  withWorkflowStepSeam,
+  workflowWriteStep,
 } from "../testing/run-control";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
@@ -120,6 +122,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
 
       const incumbentStore = openStateStore(dbPath);
       const fakeExecutor = createFakeWriteLoopExecutor();
+      const held = createHeldWorkflowBindings();
       const incumbentHandlers = createRunControlHandlers({
         stateStore: incumbentStore,
         writeLoopExecutor: fakeExecutor.executor,
@@ -127,7 +130,10 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         hasMemoryHeadroom: () => true,
         settleDelayMs: 0,
       });
-      const ipcHandlers = toIpcHandlers(incumbentHandlers);
+      const ipcHandlers = withWorkflowStepSeam(
+        toIpcHandlers(incumbentHandlers),
+        heldWorkflowStepSeam(held.createBinding),
+      );
 
       let incumbentPublicServer: IpcServer;
       const changeoverHandler = createChangeoverHandler({
@@ -151,14 +157,14 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         const clientA = await connectIpcClient(incumbentPrivate);
         const runIdA = await startRun(
           clientA,
-          mockWriteLoopInput({ projectName: "project-a", branchName: "branch-a" }),
+          workflowWriteStep({ worktree: { projectName: "project-a", branchName: "branch-a" } }),
         );
         clientA.close();
 
         const clientB = await connectIpcClient(incumbentPrivate);
         const runIdB = await startRun(
           clientB,
-          mockWriteLoopInput({ projectName: "project-b", branchName: "branch-b" }),
+          workflowWriteStep({ worktree: { projectName: "project-b", branchName: "branch-b" } }),
         );
         clientB.close();
         if (typeof runIdA !== "string" || typeof runIdB !== "string") {
@@ -184,11 +190,11 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
 
         // Project B's run still reaches its normal outcome, undisturbed by the successor now
         // holding the public address.
-        fakeExecutor.settleAll();
-        await flushBackgroundRuns(3);
-        incumbentStore.setRunStatus(runIdB, "completed");
+        held.settleAll();
+        expect(await waitFor(() => !incumbentHandlers.hasActiveRuns(), 5_000)).toBe(true);
         expect(loadRunOrThrow(incumbentStore, runIdB).status).toBe("completed");
       } finally {
+        held.abortAll();
         fakeExecutor.abortAll();
         await incumbentPrivateServer.close();
         await incumbentPublicServer.close();
@@ -218,6 +224,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
 
       const outgoingStore = openStateStore(dbPath);
       const fakeExecutor = createFakeWriteLoopExecutor();
+      const held = createHeldWorkflowBindings();
       const outgoingHandlers = createRunControlHandlers({
         stateStore: outgoingStore,
         writeLoopExecutor: fakeExecutor.executor,
@@ -225,7 +232,10 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         hasMemoryHeadroom: () => true,
         settleDelayMs: 0,
       });
-      const ipcHandlers = toIpcHandlers(outgoingHandlers);
+      const ipcHandlers = withWorkflowStepSeam(
+        toIpcHandlers(outgoingHandlers),
+        heldWorkflowStepSeam(held.createBinding),
+      );
 
       let outgoingPublicServer: IpcServer;
       const changeoverHandler = createChangeoverHandler({
@@ -278,8 +288,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         expect(exitCodes).toEqual([]);
         expect(existsSync(outgoingPrivate)).toBe(true);
 
-        fakeExecutor.settleAll();
-        await flushBackgroundRuns(3);
+        held.settleAll();
 
         expect(await waitFor(() => exitCodes.length > 0, 5_000)).toBe(true);
         expect(exitCodes).toEqual([0]);
@@ -295,6 +304,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         expect(await waitFor(async () => !(await isRunLiveAt(publicSocketPath, runId)), 3_000)).toBe(true);
       } finally {
         drainExitLoop.stop();
+        held.abortAll();
         fakeExecutor.abortAll();
         try {
           await outgoingPrivateServer.close();
@@ -476,6 +486,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       // (`v2/docs/daemon-host.md`); one store instance stands in for that here.
       const store = openStateStore(dbPath);
       const fakeExecutor = createFakeWriteLoopExecutor();
+      const held = createHeldWorkflowBindings();
 
       // The advisory `unionLiveRunIds` path (`observePredecessorDrain`) is neutralized on the
       // successor: it always reports an empty live set. Any `isLive: true` this test observes
@@ -488,6 +499,8 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         privateSocketPath: predPrivateSocketPath,
         writeLoopExecutor: fakeExecutor.executor,
         hasMemoryHeadroom: () => true,
+        startIpcServer: (path, handlers) =>
+          startIpcServer(path, withWorkflowStepSeam(handlers ?? {}, heldWorkflowStepSeam(held.createBinding))),
       });
       const successor = await startDaemonRuntime(succSocketPath, store, undefined, {
         predecessorSocketPath: predPrivateSocketPath,
@@ -496,7 +509,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
 
       try {
         const predClient = await connectIpcClient(predPrivateSocketPath);
-        const runId = await startRun(predClient, mockWriteLoopInput());
+        const runId = await startRun(predClient);
         predClient.close();
         if (typeof runId !== "string") throw new Error("expected the run to admit on the predecessor");
 
@@ -526,6 +539,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         expect(afterRows?.some((row) => row.runId === runId)).toBe(true);
         expect(await health(succSocketPath)).toEqual({ ok: true });
       } finally {
+        held.abortAll();
         fakeExecutor.abortAll();
         await successor.close();
         store.close();

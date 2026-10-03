@@ -23,7 +23,7 @@ ensureWorkflowRunnerResumeDepsWired();
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type PipelineContext, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, doneBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, shouldShutdownNow, WorktreeOwnershipRegistry } from "./daemon.ts";
@@ -286,8 +286,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
   const attemptSettled = new Promise<void>((resolve) => {
     settleAttempt = resolve;
   });
-  let recoverHandlers!: ReturnType<typeof createRunControlHandlers>;
-  recoverHandlers = createRunControlHandlers({
+  const recoverHandlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: createFakeWriteLoopExecutor().executor,
     failureReporter: () => {},
@@ -636,14 +635,15 @@ test("live workflow starts and recovery share ownership and memory refusal prece
 
   const queued = await runPair(
     "queued",
-    async ({ branch, handlers: queuedHandlers }) => {
-      const queued = await queuedHandlers.start(
-        requestFrame("queue-owner", "start", {
-          input: mockWriteLoopInput({ projectName: "demo", branchName: branch }),
-        }),
-        new AbortController().signal,
-      );
-      expect(queued.kind).toBe("response");
+    async ({ branch }) => {
+      stateStore.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath: `/fake/wt-${branch}`,
+        branch,
+        specPath: "spec.md",
+        status: "queued",
+      });
     },
     "worktree_claimed",
   );
@@ -1351,8 +1351,7 @@ test("pipeline_recover republication omits allowLanePrRepublish and does not cre
   const attemptSettled = new Promise<void>((resolve) => {
     settleAttempt = resolve;
   });
-  let recoverHandlers!: ReturnType<typeof createRunControlHandlers>;
-  recoverHandlers = createRunControlHandlers({
+  const recoverHandlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: createFakeWriteLoopExecutor().executor,
     failureReporter: () => {},

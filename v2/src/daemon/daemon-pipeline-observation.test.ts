@@ -432,7 +432,9 @@ async function expectLaneStageListProjection(
     },
   });
 
-  const snapshot = projectPipelineSnapshot(stateStore.loadPipeline(pipelineId)!);
+  const loadedPipeline = stateStore.loadPipeline(pipelineId);
+  if (loadedPipeline === null) throw new Error("expected pipeline loaded");
+  const snapshot = projectPipelineSnapshot(loadedPipeline);
   const implement = snapshot.stages[0];
   expect(implement?.status).toBe("succeeded");
   expect(implement?.artifact).toMatchObject({ lanePrOutcome: laneOutcome, prNumber: laneOutcome.prNumber });
@@ -1261,7 +1263,9 @@ test("pipeline_wait holds open for failed-plus-running fan-out rows then returns
   });
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(settled).toBe(false);
-  expect(derivePipelineState(stateStore.loadPipeline(pipelineId)!)).toBe("running");
+  const runningPipeline = stateStore.loadPipeline(pipelineId);
+  if (runningPipeline === null) throw new Error("expected pipeline loaded");
+  expect(derivePipelineState(runningPipeline)).toBe("running");
 
   observedStore.updateStage({
     pipelineId,

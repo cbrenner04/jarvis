@@ -25,11 +25,11 @@
 
 ## Acceptance criteria
 
-- [ ] On merge base, `bun test v2/src/commands/workflow.test.ts -t 'keyed daemon auto-start on dispatch'` fails because the describe is absent; after the port the same filter passes.
-- [ ] `v2/src/commands/workflow.test.ts` includes a `keyed daemon auto-start on dispatch` describe (or equivalent) mirroring the five mutating-dispatch cases in `run.test.ts` `describe("keyed daemon auto-start on dispatch")` reachable via `fx.runStartArgs`.
-- [ ] `v2/src/commands/workflow.test.ts` includes a workflow-argv case mirroring `run start dispatches without a preceding status request` from `run.test.ts` `describe("dispatch to keyed daemons")`.
-- [ ] `run.test.ts` `describe("keyed daemon auto-start on dispatch")` and the ported `dispatch to keyed daemons` `run start` case stay green until subspec 01 removes them.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] On merge base, `bun test v2/src/commands/workflow.test.ts -t 'keyed daemon auto-start on dispatch'` fails because the describe is absent; after the port the same filter passes.
+- [x] `v2/src/commands/workflow.test.ts` includes a `keyed daemon auto-start on dispatch` describe (or equivalent) mirroring the five mutating-dispatch cases in `run.test.ts` `describe("keyed daemon auto-start on dispatch")` reachable via `fx.runStartArgs`.
+- [x] `v2/src/commands/workflow.test.ts` includes a workflow-argv case mirroring `run start dispatches without a preceding status request` from `run.test.ts` `describe("dispatch to keyed daemons")`.
+- [x] `run.test.ts` `describe("keyed daemon auto-start on dispatch")` and the ported `dispatch to keyed daemons` `run start` case stay green until subspec 01 removes them.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -10,7 +10,14 @@ import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { openStateStore } from "../persistence/state-store";
-import { listRuns, startRun, toIpcHandlers } from "../testing/run-control";
+import {
+  createHeldWorkflowBindings,
+  heldWorkflowStepSeam,
+  listRuns,
+  startRun,
+  toIpcHandlers,
+  withWorkflowStepSeam,
+} from "../testing/run-control";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
@@ -61,7 +68,8 @@ async function isAdmissionCutOff(socketPath: string): Promise<boolean> {
   try {
     const client = await connectIpcClient(socketPath);
     try {
-      client.send({ kind: "request", id: "admission-probe", method: "start", params: { input: {} } });
+      // Empty steps never admit: `invalid_params` while accepting, `daemon_superseded` once cut off.
+      client.send({ kind: "request", id: "admission-probe", method: "start", params: { steps: [] } });
       const frame = await client.nextFrame();
       return frame.kind === "error" && (frame as { code?: string }).code === "daemon_superseded";
     } finally {
@@ -88,6 +96,7 @@ describe("legacy keyed-daemon migration (real sockets)", () => {
 
       const legacyStore = openStateStore(dbPath);
       const fakeExecutor = createFakeWriteLoopExecutor();
+      const held = createHeldWorkflowBindings();
       const legacyHandlers = createRunControlHandlers({
         stateStore: legacyStore,
         writeLoopExecutor: fakeExecutor.executor,
@@ -95,7 +104,7 @@ describe("legacy keyed-daemon migration (real sockets)", () => {
         hasMemoryHeadroom: () => true,
         settleDelayMs: 0,
       });
-      const ipcHandlers = toIpcHandlers(legacyHandlers);
+      const ipcHandlers = withWorkflowStepSeam(toIpcHandlers(legacyHandlers), heldWorkflowStepSeam(held.createBinding));
       // No `changeover` handler and no public socket: exactly what a pre-stable daemon answers.
       const supersedeHandler = () => {
         legacyHandlers.setRetiring();
@@ -130,14 +139,15 @@ describe("legacy keyed-daemon migration (real sockets)", () => {
 
         // The already-admitted run keeps executing under the legacy generation and reaches its
         // normal outcome there, undisturbed by the successor now holding the public address.
-        fakeExecutor.settleAll();
-        expect(await waitFor(() => !legacyHandlers.hasActiveRuns(), 3_000)).toBe(true);
+        held.settleAll();
+        expect(await waitFor(() => !legacyHandlers.hasActiveRuns(), 5_000)).toBe(true);
         legacyStore.setRunStatus(runId, "completed");
         expect(legacyStore.loadRun(runId)?.status).toBe("completed");
 
         // Once drained, the successor stops reporting the run live.
         expect(await waitFor(async () => !(await isRunLiveAt(publicSocketPath, runId)), 3_000)).toBe(true);
       } finally {
+        held.abortAll();
         fakeExecutor.abortAll();
         await legacyServer.close();
         legacyStore.close();

@@ -37,6 +37,7 @@ import {
   makeCliRepoFixture,
   makeIpcClient,
   makeStaleResetIpcClient,
+  stubAgentModelConfig,
   TEST_EXECUTABLE_DIGEST,
   withStaleResetPreflightUuids,
   withStaleResetWorkflowUuids,
@@ -118,6 +119,32 @@ const PLAN_USAGE =
 
 function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
   return sent.filter((frame) => (frame as { method?: string }).method === method);
+}
+
+const WORKFLOW_IMPLEMENT_DETACH = [...IMPLEMENT_ARGS, "--detach"] as const;
+
+function workflowImplementDispatchDeps(
+  extra: NonNullable<Parameters<typeof main>[2]> = {},
+): NonNullable<Parameters<typeof main>[2]> {
+  return {
+    cwd: () => fx.repoSub,
+    readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+    workflowPresetBuilders: {
+      implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+    },
+    ...extra,
+  };
+}
+
+function expectWorkflowStartDispatch(
+  sent: readonly unknown[],
+  steps: typeof fx.fakeImplementSteps = fx.fakeImplementSteps,
+) {
+  const starts = ipcFramesWithMethod(sent, "start");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]).toMatchObject({ kind: "request", method: "start", params: { steps } });
+  const params = (starts[0] as { params?: Record<string, unknown> }).params;
+  expect(params).not.toHaveProperty("input");
 }
 
 const REJECT_BASE_ARGS = {
@@ -589,6 +616,182 @@ describe("run workflow dispatch", () => {
       stdout: "",
       stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
     });
+  });
+});
+
+describe("dispatch to keyed daemons", () => {
+  test("run workflow implement dispatches without a preceding status request", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000001";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          connectIpcClient: async () =>
+            makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-999" } }], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toHaveLength(1);
+    expectWorkflowStartDispatch(sent);
+    expect(cap.read()).toEqual({ stdout: "run-999\n", stderr: "" });
+  });
+});
+
+describe("keyed daemon auto-start on dispatch", () => {
+  const KEYED_SOCKET = "/keyed/digest-a.sock";
+  const OTHER_SOCKET = "/keyed/digest-b.sock";
+
+  test("run workflow implement auto-starts the keyed daemon when absent, then dispatches", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectPaths: string[] = [];
+    const startCalls: Array<{ socketPath: string; pidPath: string | undefined; logPath: string | undefined }> = [];
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          socketPath: KEYED_SOCKET,
+          pidPath: "/keyed/digest-a.pid",
+          logPath: "/keyed/digest-a.log",
+          connectIpcClient: async (socketPath) => {
+            connectPaths.push(socketPath);
+            if (connectPaths.length === 1) throw new Error("ECONNREFUSED");
+            return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-autostart" } }], { sent });
+          },
+          startDaemon: async (socketPath, options) => {
+            startCalls.push({ socketPath, pidPath: options?.pidPath, logPath: options?.logPath });
+            return { pid: 7, socketPath };
+          },
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-autostart\n", stderr: "" });
+    expect(startCalls).toEqual([
+      { socketPath: KEYED_SOCKET, pidPath: "/keyed/digest-a.pid", logPath: "/keyed/digest-a.log" },
+    ]);
+    expect(connectPaths).toEqual([KEYED_SOCKET, KEYED_SOCKET]);
+    expectWorkflowStartDispatch(sent);
+  });
+
+  test("run workflow implement reuses a running keyed daemon without starting one", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          socketPath: KEYED_SOCKET,
+          connectIpcClient: async () =>
+            makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-reused" } }], { sent }),
+          startDaemon: async () => {
+            throw new Error("should not start");
+          },
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-reused\n", stderr: "" });
+    expectWorkflowStartDispatch(sent);
+  });
+
+  test("a live daemon on another digest's socket receives no request", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const otherSent: unknown[] = [];
+    const startCalls: string[] = [];
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          socketPath: KEYED_SOCKET,
+          connectIpcClient: async (socketPath) => {
+            if (socketPath === OTHER_SOCKET) {
+              const otherRuns = { runs: [{ runId: "other", isLive: true }] };
+              return makeIpcClient([{ kind: "response", id: "list", result: otherRuns }], { sent: otherSent });
+            }
+            if (sent.length === 0 && startCalls.length === 0) throw new Error("ECONNREFUSED");
+            return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-keyed" } }], { sent });
+          },
+          startDaemon: async (socketPath) => {
+            startCalls.push(socketPath);
+            return { pid: 7, socketPath };
+          },
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(startCalls).toEqual([KEYED_SOCKET]);
+    expect(otherSent).toEqual([]);
+    expectWorkflowStartDispatch(sent);
+  });
+
+  test("a non-race start failure reports a lifecycle error with exit 1 and no dispatch", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await main(
+      [...WORKFLOW_IMPLEMENT_DETACH],
+      cap.io,
+      workflowImplementDispatchDeps({
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+        startDaemon: async () => {
+          throw new Error("daemon start failed: log directory missing");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toContain("daemon start failed: log directory missing");
+  });
+
+  test("an exhausted connect deadline exits 1 with a connection error and no dispatch", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let time = 0;
+    const code = await main(
+      [...WORKFLOW_IMPLEMENT_DETACH],
+      cap.io,
+      workflowImplementDispatchDeps({
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+        startDaemon: async (socketPath) => ({ pid: 7, socketPath }),
+        now: () => time,
+        sleep: async (ms) => {
+          time += ms;
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toBe(
+      `Failed to connect to daemon on socket ${KEYED_SOCKET} after starting it (5000ms deadline exceeded)\n`,
+    );
+    expect(time).toBe(5000);
   });
 });
 
@@ -1914,8 +2117,10 @@ describe("shared workflow-start preparation", () => {
       const cap = captureIo();
       const sent: unknown[] = [];
       let builds = 0;
-      const templateStep = fx.fakeImplementSteps[0]!;
-      if (templateStep.behavior !== "write") throw new Error("expected write step fixture");
+      const templateStep = fx.fakeImplementSteps[0];
+      if (templateStep === undefined || templateStep.behavior !== "write") {
+        throw new Error("expected write step fixture");
+      }
       const builtStep = {
         ...templateStep,
         stepId: workflow,
@@ -2398,7 +2603,7 @@ describe("implement preflight stale workspace reset", () => {
    * inert on this path, so a case asserting the gate must not use the implement fixture's stable
    * `index.md` and call the result a plan behavior.
    */
-  function resetPlanSteps(branch = resetBranch): AnyWorkflowStep[] {
+  function _resetPlanSteps(branch = resetBranch): AnyWorkflowStep[] {
     const timestamp = `${new Date().toISOString().replace(/[-:]/gu, "").split(".")[0]}Z`;
     return [
       {

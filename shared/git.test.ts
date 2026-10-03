@@ -4,13 +4,50 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  addWorktree,
+  type BranchCreateResult,
+  type BranchDeleteResult,
+  type BranchDiff,
+  branchDiff,
   branchExistsLocal,
   branchExistsOnOrigin,
+  createBranch,
+  type DiffRange,
+  deleteBranch,
+  deleteRef,
+  diffNameOnly,
+  diffStat,
+  diffUnified,
+  type GitFailureReason,
+  type GitOperation,
+  GitOperationError,
   getCurrentBranch,
   getGitStatusInventory,
+  gitCommonDir,
+  gitDir,
+  isRetryableGitError,
   isWorktreeDirty,
+  listWorktrees,
+  mergeBase,
+  type PushResult,
+  pruneWorktrees,
+  pushBranch,
+  type RefDeleteResult,
+  type RefResolution,
+  removeWorktree,
+  resolveRef,
+  updateRef,
+  type WorktreeAddResult,
+  type WorktreeEntry,
+  type WorktreeRemoveResult,
 } from "./git.ts";
-import type { AsyncSubprocessRunner, SubprocessRunner } from "./subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessOptions,
+  type AsyncSubprocessRunner,
+  NETWORK_SUBPROCESS_TIMEOUT_MS,
+  type SubprocessRunner,
+} from "./subprocess.ts";
 import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 
 /** Fake runner: resolves canned results by exact `cmd args` match, records argv+cwd. */
@@ -231,5 +268,511 @@ describe("isWorktreeDirty", () => {
 
     const clean = fakeRunner({ "git status --porcelain": "" });
     expect(isWorktreeDirty("/repo", clean)).toBe(false);
+  });
+});
+
+// --- Git operations boundary -------------------------------------------------
+
+type AsyncCall = { args: string[]; cwd: string; options: AsyncSubprocessOptions | undefined };
+
+/** Fake async runner: canned results by exact `cmd args` match; records argv, cwd, and options. */
+function fakeAsync(results: Record<string, string | Error>): AsyncSubprocessRunner & { calls: AsyncCall[] } {
+  const calls: AsyncCall[] = [];
+  return {
+    calls,
+    async runAsync(cmd, args, cwd, options) {
+      calls.push({ args: [cmd, ...args], cwd, options });
+      const key = [cmd, ...args].join(" ");
+      const result = results[key];
+      if (result === undefined) throw new Error(`fakeAsync: no canned result for "${key}"`);
+      if (result instanceof Error) throw result;
+      return result;
+    },
+  };
+}
+
+const OID_A = "a".repeat(40);
+const OID_B = "b".repeat(40);
+
+function gitFailure(stderr: string, status = 128): AsyncSubprocessError {
+  return new AsyncSubprocessError("Command failed: git", status, "", stderr, undefined);
+}
+
+function timeoutFailure(): AsyncSubprocessError {
+  return new AsyncSubprocessError("Command timed out after 1ms: git", undefined, "", "", "ETIMEDOUT");
+}
+
+async function rejection(promise: Promise<unknown>): Promise<GitOperationError> {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof GitOperationError) return error;
+    throw new Error(`expected GitOperationError, got ${String(error)}`);
+  }
+  throw new Error("expected rejection");
+}
+
+function expectFailure(
+  error: GitOperationError,
+  operation: GitOperation,
+  reason: GitFailureReason,
+  retryable: boolean,
+) {
+  expect(error.operation).toBe(operation);
+  expect(error.reason).toBe(reason);
+  expect(error.retryable).toBe(retryable);
+  expect(error.name).toBe("GitOperationError");
+  expect(error.message).toStartWith(`git ${operation} ${reason}: `);
+}
+
+describe("mergeBase", () => {
+  test("returns the trimmed OID and pins the command", async () => {
+    const runner = fakeAsync({ "git merge-base main HEAD": `${OID_A}\n` });
+    expect(await mergeBase("/repo", "main", "HEAD", runner)).toBe(OID_A);
+    expect(runner.calls).toEqual([{ args: ["git", "merge-base", "main", "HEAD"], cwd: "/repo", options: {} }]);
+  });
+
+  test("silent exit 1 is no-merge-base; a bad ref is failed; a timeout is retryable", async () => {
+    const unrelated = await rejection(
+      mergeBase("/repo", "main", "lone", fakeAsync({ "git merge-base main lone": gitFailure("", 1) })),
+    );
+    expectFailure(unrelated, "merge-base", "no-merge-base", false);
+    expect(unrelated.message).toContain("main and lone share no ancestor");
+
+    const badRef = await rejection(
+      mergeBase(
+        "/repo",
+        "main",
+        "nope",
+        fakeAsync({ "git merge-base main nope": gitFailure("fatal: Not a valid object name nope\n") }),
+      ),
+    );
+    expectFailure(badRef, "merge-base", "failed", false);
+    expect(badRef.message).toContain("fatal: Not a valid object name nope");
+    expect(badRef.stderr).toBe("fatal: Not a valid object name nope\n");
+    expect(badRef.status).toBe(128);
+
+    const timeout = await rejection(
+      mergeBase("/repo", "main", "HEAD", fakeAsync({ "git merge-base main HEAD": timeoutFailure() })),
+    );
+    expectFailure(timeout, "merge-base", "timeout", true);
+    expect(isRetryableGitError(timeout)).toBe(true);
+  });
+
+  test("rejects output that is not an OID", async () => {
+    const error = await rejection(
+      mergeBase("/repo", "main", "HEAD", fakeAsync({ "git merge-base main HEAD": "garbage\n" })),
+    );
+    expectFailure(error, "merge-base", "failed", false);
+  });
+});
+
+describe("diff operations", () => {
+  const range: DiffRange = { from: OID_A, to: "HEAD" };
+
+  test("stat is trimmed, paths are sorted and empty-filtered, unified is raw", async () => {
+    const runner = fakeAsync({
+      [`git diff --stat ${OID_A} HEAD`]: " a.ts | 1 +\n 1 file changed\n",
+      [`git diff --name-only ${OID_A} HEAD`]: "src/b.ts\n\nsrc/a.ts\n",
+      [`git diff ${OID_A} HEAD`]: "diff --git a/x b/x\n+x\n",
+    });
+    expect(await diffStat("/repo", range, runner)).toBe("a.ts | 1 +\n 1 file changed");
+    expect(await diffNameOnly("/repo", range, runner)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(await diffUnified("/repo", range, runner)).toBe("diff --git a/x b/x\n+x\n");
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "diff", "--stat", OID_A, "HEAD"],
+      ["git", "diff", "--name-only", OID_A, "HEAD"],
+      ["git", "diff", OID_A, "HEAD"],
+    ]);
+  });
+
+  test("a diff failure is the diff operation, never merge-base", async () => {
+    const runner = fakeAsync({ [`git diff --name-only ${OID_A} HEAD`]: gitFailure("fatal: ambiguous argument\n") });
+    expectFailure(await rejection(diffNameOnly("/repo", range, runner)), "diff", "failed", false);
+  });
+});
+
+describe("branchDiff", () => {
+  test("returns the structured report in merge-base, stat, paths, unified order", async () => {
+    const runner = fakeAsync({
+      "git merge-base main HEAD": `${OID_A}\n`,
+      [`git diff --stat ${OID_A} HEAD`]: " a.ts | 1 +\n",
+      [`git diff --name-only ${OID_A} HEAD`]: "b.ts\na.ts\n",
+      [`git diff ${OID_A} HEAD`]: "patch\n",
+    });
+    const report: BranchDiff = await branchDiff("/repo", "main", "HEAD", runner);
+    expect(report).toEqual({
+      mergeBase: OID_A,
+      stat: "a.ts | 1 +",
+      changedPaths: ["a.ts", "b.ts"],
+      unified: "patch\n",
+    });
+    expect(runner.calls.map((call) => call.args.slice(1, 3))).toEqual([
+      ["merge-base", "main"],
+      ["diff", "--stat"],
+      ["diff", "--name-only"],
+      ["diff", OID_A],
+    ]);
+  });
+
+  test("merge-base failure is distinct from a diff failure", async () => {
+    const noBase = fakeAsync({ "git merge-base main HEAD": gitFailure("", 1) });
+    expectFailure(await rejection(branchDiff("/repo", "main", "HEAD", noBase)), "merge-base", "no-merge-base", false);
+    expect(noBase.calls).toHaveLength(1);
+
+    const diffFails = fakeAsync({
+      "git merge-base main HEAD": OID_A,
+      [`git diff --stat ${OID_A} HEAD`]: gitFailure("boom\n"),
+    });
+    expectFailure(await rejection(branchDiff("/repo", "main", "HEAD", diffFails)), "diff", "failed", false);
+  });
+});
+
+const PORCELAIN = [
+  `worktree /repo\nHEAD ${OID_A}\nbranch refs/heads/main\n`,
+  `worktree /wt/feature\nHEAD ${OID_B}\nbranch refs/heads/feature\nlocked hold\nprunable gitdir file points to non-existent location\n`,
+  `worktree /wt/detached\nHEAD ${OID_B}\ndetached\nlocked\n`,
+  "worktree /bare.git\nbare\n",
+].join("\n");
+
+describe("listWorktrees", () => {
+  test("parses every porcelain attribute into typed entries", async () => {
+    const runner = fakeAsync({ "git worktree list --porcelain": PORCELAIN });
+    const entries: WorktreeEntry[] = await listWorktrees("/repo", runner);
+    expect(entries).toEqual([
+      { path: "/repo", head: OID_A, branch: "main", detached: false, bare: false },
+      {
+        path: "/wt/feature",
+        head: OID_B,
+        branch: "feature",
+        detached: false,
+        bare: false,
+        locked: "hold",
+        prunable: "gitdir file points to non-existent location",
+      },
+      { path: "/wt/detached", head: OID_B, detached: true, bare: false, locked: "" },
+      { path: "/bare.git", detached: false, bare: true },
+    ]);
+    expect(runner.calls).toEqual([{ args: ["git", "worktree", "list", "--porcelain"], cwd: "/repo", options: {} }]);
+    expect(await listWorktrees("/repo", fakeAsync({ "git worktree list --porcelain": "" }))).toEqual([]);
+  });
+
+  test("malformed listing and command failure reject as worktree-list", async () => {
+    const malformed = await rejection(
+      listWorktrees("/repo", fakeAsync({ "git worktree list --porcelain": "HEAD abc\n" })),
+    );
+    expectFailure(malformed, "worktree-list", "failed", false);
+    expect(malformed.message).toContain("Malformed worktree listing");
+    const failed = fakeAsync({ "git worktree list --porcelain": gitFailure("fatal: not a git repository\n") });
+    expectFailure(await rejection(listWorktrees("/repo", failed)), "worktree-list", "failed", false);
+  });
+});
+
+describe("addWorktree", () => {
+  const target = { path: "/wt/feature", branch: "feature" };
+
+  test("adds and pins the command", async () => {
+    const runner = fakeAsync({ "git worktree add /wt/feature feature": "" });
+    const result: WorktreeAddResult = await addWorktree("/repo", target, runner);
+    expect(result).toEqual({ status: "added" });
+    expect(runner.calls).toEqual([
+      { args: ["git", "worktree", "add", "/wt/feature", "feature"], cwd: "/repo", options: {} },
+    ]);
+  });
+
+  test("the same (path, branch) already registered is idempotent success", async () => {
+    const runner = fakeAsync({
+      "git worktree add /wt/feature feature": gitFailure("fatal: '/wt/feature' already exists\n"),
+      "git worktree list --porcelain": PORCELAIN,
+    });
+    expect(await addWorktree("/repo", target, runner)).toEqual({ status: "already-registered" });
+    expect(runner.calls.map((call) => call.args[1])).toEqual(["worktree", "worktree"]);
+  });
+
+  test("path taken by another branch, branch in use elsewhere, and other failures reject", async () => {
+    const pathTaken = fakeAsync({
+      "git worktree add /wt/feature other": gitFailure("fatal: '/wt/feature' already exists\n"),
+      "git worktree list --porcelain": PORCELAIN,
+    });
+    expectFailure(
+      await rejection(addWorktree("/repo", { path: "/wt/feature", branch: "other" }, pathTaken)),
+      "worktree-add",
+      "path-exists",
+      false,
+    );
+
+    const inUse = fakeAsync({
+      "git worktree add /wt/again feature": gitFailure(
+        "fatal: 'feature' is already used by worktree at '/wt/feature'\n",
+      ),
+      "git worktree list --porcelain": PORCELAIN,
+    });
+    expectFailure(
+      await rejection(addWorktree("/repo", { path: "/wt/again", branch: "feature" }, inUse)),
+      "worktree-add",
+      "branch-in-use",
+      false,
+    );
+
+    const other = fakeAsync({
+      "git worktree add /wt/feature feature": gitFailure("fatal: invalid reference: feature\n"),
+    });
+    expectFailure(await rejection(addWorktree("/repo", target, other)), "worktree-add", "failed", false);
+    expect(other.calls).toHaveLength(1);
+  });
+});
+
+describe("removeWorktree", () => {
+  test("removes, honours force, and treats an unregistered path as absent", async () => {
+    const runner = fakeAsync({
+      "git worktree remove /wt/feature": "",
+      "git worktree remove --force /wt/feature": "",
+      "git worktree remove /wt/gone": gitFailure("fatal: '/wt/gone' is not a working tree\n"),
+    });
+    const removed: WorktreeRemoveResult = await removeWorktree("/repo", "/wt/feature", runner);
+    expect(removed).toEqual({ status: "removed" });
+    expect(await removeWorktree("/repo", "/wt/feature", runner, { force: true })).toEqual({ status: "removed" });
+    expect(await removeWorktree("/repo", "/wt/gone", runner)).toEqual({ status: "absent" });
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "worktree", "remove", "/wt/feature"],
+      ["git", "worktree", "remove", "--force", "/wt/feature"],
+      ["git", "worktree", "remove", "/wt/gone"],
+    ]);
+  });
+
+  test("dirty and locked worktrees are precondition failures", async () => {
+    const dirty = fakeAsync({
+      "git worktree remove /wt/a": gitFailure(
+        "fatal: '/wt/a' contains modified or untracked files, use --force to delete it\n",
+      ),
+    });
+    expectFailure(await rejection(removeWorktree("/repo", "/wt/a", dirty)), "worktree-remove", "precondition", false);
+    const locked = fakeAsync({
+      "git worktree remove /wt/a": gitFailure("fatal: cannot remove a locked working tree, lock reason: hold\n"),
+    });
+    expectFailure(await rejection(removeWorktree("/repo", "/wt/a", locked)), "worktree-remove", "precondition", false);
+  });
+});
+
+describe("pruneWorktrees", () => {
+  test("pins the command, forwards the signal, and wraps failure", async () => {
+    const controller = new AbortController();
+    const runner = fakeAsync({ "git worktree prune": "" });
+    await pruneWorktrees("/repo", runner, { signal: controller.signal });
+    expect(runner.calls).toEqual([
+      { args: ["git", "worktree", "prune"], cwd: "/repo", options: { signal: controller.signal } },
+    ]);
+    const failed = fakeAsync({ "git worktree prune": gitFailure("fatal: not a git repository\n") });
+    expectFailure(await rejection(pruneWorktrees("/repo", failed)), "worktree-prune", "failed", false);
+  });
+
+  test("a failure after the caller aborted is reported as aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const runner = fakeAsync({
+      "git worktree prune": new AsyncSubprocessError("Command failed", undefined, "", "", "SIGTERM"),
+    });
+    expectFailure(
+      await rejection(pruneWorktrees("/repo", runner, { signal: controller.signal })),
+      "worktree-prune",
+      "aborted",
+      false,
+    );
+  });
+});
+
+describe("createBranch", () => {
+  test("creates, reports an existing branch, and rejects other failures", async () => {
+    const runner = fakeAsync({
+      "git branch feature origin/feature": "",
+      "git branch taken main": gitFailure("fatal: a branch named 'taken' already exists\n"),
+      "git branch bad nope": gitFailure("fatal: not a valid object name: 'nope'\n"),
+    });
+    const created: BranchCreateResult = await createBranch("/repo", "feature", "origin/feature", runner);
+    expect(created).toEqual({ status: "created" });
+    expect(await createBranch("/repo", "taken", "main", runner)).toEqual({ status: "exists" });
+    expectFailure(await rejection(createBranch("/repo", "bad", "nope", runner)), "branch-create", "failed", false);
+    expect(runner.calls[0]).toEqual({
+      args: ["git", "branch", "feature", "origin/feature"],
+      cwd: "/repo",
+      options: {},
+    });
+  });
+});
+
+describe("deleteBranch", () => {
+  test("deletes with -d, forces with -D, absent is idempotent, unmerged is a precondition", async () => {
+    const runner = fakeAsync({
+      "git branch -d merged": "",
+      "git branch -D stale": "",
+      "git branch -d nope": gitFailure("error: branch 'nope' not found\n", 1),
+      "git branch -d unmerged": gitFailure("error: the branch 'unmerged' is not fully merged\n", 1),
+    });
+    const deleted: BranchDeleteResult = await deleteBranch("/repo", "merged", runner);
+    expect(deleted).toEqual({ status: "deleted" });
+    expect(await deleteBranch("/repo", "stale", runner, { force: true })).toEqual({ status: "deleted" });
+    expect(await deleteBranch("/repo", "nope", runner)).toEqual({ status: "absent" });
+    expectFailure(await rejection(deleteBranch("/repo", "unmerged", runner)), "branch-delete", "precondition", false);
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "branch", "-d", "merged"],
+      ["git", "branch", "-D", "stale"],
+      ["git", "branch", "-d", "nope"],
+      ["git", "branch", "-d", "unmerged"],
+    ]);
+  });
+});
+
+describe("resolveRef", () => {
+  test("resolved OID, silent exit 1 as absent, anything else inconclusive", async () => {
+    const runner = fakeAsync({
+      "git rev-parse --verify --quiet feature^{commit}": `${OID_A}\n`,
+      "git rev-parse --verify --quiet nope^{commit}": gitFailure("", 1),
+      "git rev-parse --verify --quiet broken^{commit}": gitFailure("fatal: not a git repository\n"),
+      "git rev-parse --verify --quiet slow^{commit}": timeoutFailure(),
+    });
+    const resolved: RefResolution = await resolveRef("/repo", "feature", runner);
+    expect(resolved).toEqual({ status: "resolved", oid: OID_A });
+    expect(await resolveRef("/repo", "nope", runner)).toEqual({ status: "absent" });
+    expectFailure(await rejection(resolveRef("/repo", "broken", runner)), "ref-query", "failed", false);
+    expectFailure(await rejection(resolveRef("/repo", "slow", runner)), "ref-query", "timeout", true);
+    expect(runner.calls[0]?.args).toEqual(["git", "rev-parse", "--verify", "--quiet", "feature^{commit}"]);
+  });
+});
+
+describe("updateRef", () => {
+  test("pins the plain and compare-and-swap forms; a moved ref is a precondition failure", async () => {
+    const runner = fakeAsync({
+      [`git update-ref refs/heads/a ${OID_A}`]: "",
+      [`git update-ref refs/heads/b ${OID_A} ${OID_B}`]: gitFailure(
+        `fatal: update_ref failed for ref 'refs/heads/b': cannot lock ref 'refs/heads/b': is at ${OID_A} but expected ${OID_B}\n`,
+      ),
+    });
+    await updateRef("/repo", "refs/heads/a", OID_A, runner);
+    expectFailure(
+      await rejection(updateRef("/repo", "refs/heads/b", OID_A, runner, { oldOid: OID_B })),
+      "update-ref",
+      "precondition",
+      false,
+    );
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "update-ref", "refs/heads/a", OID_A],
+      ["git", "update-ref", "refs/heads/b", OID_A, OID_B],
+    ]);
+  });
+});
+
+describe("deleteRef", () => {
+  test("absent skips the mutation, present deletes, inconclusive query propagates", async () => {
+    const runner = fakeAsync({
+      "git rev-parse --verify --quiet refs/remotes/origin/gone^{commit}": gitFailure("", 1),
+      "git rev-parse --verify --quiet refs/remotes/origin/stale^{commit}": `${OID_A}\n`,
+      "git update-ref -d refs/remotes/origin/stale": "",
+      "git rev-parse --verify --quiet refs/remotes/origin/slow^{commit}": timeoutFailure(),
+    });
+    const absent: RefDeleteResult = await deleteRef("/repo", "refs/remotes/origin/gone", runner);
+    expect(absent).toEqual({ status: "absent" });
+    expect(await deleteRef("/repo", "refs/remotes/origin/stale", runner)).toEqual({ status: "deleted" });
+    expectFailure(
+      await rejection(deleteRef("/repo", "refs/remotes/origin/slow", runner)),
+      "ref-query",
+      "timeout",
+      true,
+    );
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/gone^{commit}"],
+      ["git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/stale^{commit}"],
+      ["git", "update-ref", "-d", "refs/remotes/origin/stale"],
+      ["git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/slow^{commit}"],
+    ]);
+  });
+});
+
+describe("pushBranch", () => {
+  test("pins push, upstream, and delete forms under network options", async () => {
+    const controller = new AbortController();
+    const runner = fakeAsync({
+      "git push origin feature": "",
+      "git push -u origin feature": "",
+      "git push upstream --delete feature": "",
+    });
+    const pushed: PushResult = await pushBranch("/repo", { branch: "feature" }, runner);
+    expect(pushed).toEqual({ status: "pushed" });
+    expect(
+      await pushBranch("/repo", { branch: "feature", setUpstream: true }, runner, { signal: controller.signal }),
+    ).toEqual({ status: "pushed" });
+    expect(await pushBranch("/repo", { branch: "feature", remote: "upstream", delete: true }, runner)).toEqual({
+      status: "pushed",
+    });
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "push", "origin", "feature"],
+      ["git", "push", "-u", "origin", "feature"],
+      ["git", "push", "upstream", "--delete", "feature"],
+    ]);
+    const options = runner.calls[1]?.options;
+    expect(options?.timeoutMs).toBe(NETWORK_SUBPROCESS_TIMEOUT_MS);
+    expect(options?.env?.GIT_TERMINAL_PROMPT).toBe("0");
+    expect(options?.signal).toBe(controller.signal);
+    expect(runner.calls[0]?.options?.signal).toBeUndefined();
+  });
+
+  test("deleting an already-absent remote branch is success; other outcomes classify", async () => {
+    const absent = fakeAsync({
+      "git push origin --delete gone": gitFailure("error: unable to delete 'gone': remote ref does not exist\n", 1),
+    });
+    expect(await pushBranch("/repo", { branch: "gone", delete: true }, absent)).toEqual({ status: "already-absent" });
+
+    const cases: Array<[string, GitFailureReason, boolean]> = [
+      ["remote: Permission denied\nfatal: Authentication failed for 'https://x'\n", "auth", false],
+      ["fatal: unable to access 'https://x': Could not resolve host: github.com\n", "network", true],
+      [
+        " ! [rejected] feature -> feature (non-fast-forward)\nerror: failed to push some refs to 'origin'\n",
+        "rejected",
+        false,
+      ],
+      ["fatal: 'origin' does not appear to be a git repository\n", "failed", false],
+    ];
+    for (const [stderr, reason, retryable] of cases) {
+      const runner = fakeAsync({ "git push origin feature": gitFailure(stderr, 1) });
+      const error = await rejection(pushBranch("/repo", { branch: "feature" }, runner));
+      expectFailure(error, "push", reason, retryable);
+      expect(isRetryableGitError(error)).toBe(retryable);
+    }
+    const timeout = fakeAsync({ "git push origin feature": timeoutFailure() });
+    expectFailure(await rejection(pushBranch("/repo", { branch: "feature" }, timeout)), "push", "timeout", true);
+  });
+});
+
+describe("isRetryableGitError", () => {
+  test("false for non-Git errors and fatal reasons", () => {
+    expect(isRetryableGitError(new Error("x"))).toBe(false);
+    expect(isRetryableGitError(new GitOperationError("push", "rejected", "x", "", 1))).toBe(false);
+    expect(isRetryableGitError(new GitOperationError("push", "network", "x", "", 1))).toBe(true);
+  });
+});
+
+describe("gitDir and gitCommonDir", () => {
+  test("gitDir is the trimmed absolute per-worktree dir; failure is git-dir", () => {
+    const runner = fakeRunner({ "git rev-parse --absolute-git-dir": "/repo/.git/worktrees/lane\n" });
+    expect(gitDir("/wt/lane", runner)).toBe("/repo/.git/worktrees/lane");
+    expect(runner.calls).toEqual([{ args: ["git", "rev-parse", "--absolute-git-dir"], cwd: "/wt/lane" }]);
+    const outside = fakeRunner({ "git rev-parse --absolute-git-dir": new Error("fatal: not a git repository") });
+    expect(() => gitDir("/nowhere", outside)).toThrow(GitOperationError);
+    try {
+      gitDir("/nowhere", outside);
+    } catch (error) {
+      expectFailure(error as GitOperationError, "git-dir", "failed", false);
+    }
+  });
+
+  test("gitCommonDir resolves the shared dir absolutely", async () => {
+    const runner = fakeAsync({ "git rev-parse --path-format=absolute --git-common-dir": "/repo/.git/\n" });
+    expect(await gitCommonDir("/wt/lane", runner)).toBe("/repo/.git");
+    expect(runner.calls).toEqual([
+      { args: ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd: "/wt/lane", options: {} },
+    ]);
+    const failed = fakeAsync({
+      "git rev-parse --path-format=absolute --git-common-dir": gitFailure("fatal: not a git repository\n"),
+    });
+    expectFailure(await rejection(gitCommonDir("/nowhere", failed)), "git-dir", "failed", false);
   });
 });

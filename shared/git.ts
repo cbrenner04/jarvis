@@ -1,4 +1,7 @@
+import { resolve } from "node:path";
 import {
+  AsyncSubprocessError,
+  type AsyncSubprocessOptions,
   type AsyncSubprocessRunner,
   isSubprocessTimeout,
   networkSubprocessOptions,
@@ -274,4 +277,530 @@ export async function getCurrentHeadAsync(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<string> {
   return (await runner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
+}
+
+// ---------------------------------------------------------------------------
+// Git operations boundary. Jarvis-owned code constructs no Git commands outside this
+// file: callers pass semantic arguments and get typed results or a `GitOperationError`.
+// Queries (merge-base, diff*, listWorktrees, resolveRef) are stateless; mutations
+// (addWorktree, removeWorktree, pruneWorktrees, createBranch, deleteBranch, updateRef,
+// deleteRef, pushBranch) are stateful and document their idempotency below.
+// ---------------------------------------------------------------------------
+
+export type GitOperation =
+  | "merge-base"
+  | "diff"
+  | "worktree-add"
+  | "worktree-remove"
+  | "worktree-list"
+  | "worktree-prune"
+  | "branch-create"
+  | "branch-delete"
+  | "ref-query"
+  | "update-ref"
+  | "push"
+  | "git-dir";
+
+/**
+ * Why an operation failed. `timeout` and `network` are retryable; everything else is
+ * fatal for the attempt (`aborted` is the caller's own cancellation). `precondition`
+ * names a documented precondition the caller must satisfy first (unmerged branch,
+ * dirty or locked worktree, stale `oldOid`); `failed` is any other non-zero exit.
+ */
+export type GitFailureReason =
+  | "timeout"
+  | "aborted"
+  | "network"
+  | "auth"
+  | "rejected"
+  | "no-merge-base"
+  | "path-exists"
+  | "branch-in-use"
+  | "precondition"
+  | "failed";
+
+const RETRYABLE_REASONS: ReadonlySet<GitFailureReason> = new Set(["timeout", "network"]);
+
+export class GitOperationError extends Error {
+  readonly retryable: boolean;
+  constructor(
+    readonly operation: GitOperation,
+    readonly reason: GitFailureReason,
+    message: string,
+    readonly stderr: string,
+    readonly status: number | undefined,
+    options?: { cause?: unknown },
+  ) {
+    super(`git ${operation} ${reason}: ${message}`, options);
+    this.name = "GitOperationError";
+    this.retryable = RETRYABLE_REASONS.has(reason);
+  }
+}
+
+/** True when `error` is a `GitOperationError` worth retrying (timeout or network). */
+export function isRetryableGitError(error: unknown): boolean {
+  return error instanceof GitOperationError && error.retryable;
+}
+
+type Failure = { message: string; stderr: string; status: number | undefined; timeout: boolean };
+
+function failureOf(error: unknown): Failure {
+  if (error instanceof AsyncSubprocessError) {
+    return { message: error.message, stderr: error.stderr, status: error.status, timeout: isSubprocessTimeout(error) };
+  }
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    stderr: "",
+    status: undefined,
+    timeout: false,
+  };
+}
+
+type ReasonRule = readonly [RegExp, GitFailureReason];
+type OperationOptions = { signal?: AbortSignal | undefined };
+
+/** Maps a runner rejection to `GitOperationError`: timeout/abort first, then `rules` against stderr+message, else `failed`. */
+function gitError(
+  operation: GitOperation,
+  error: unknown,
+  rules: readonly ReasonRule[],
+  options: OperationOptions,
+): GitOperationError {
+  const failure = failureOf(error);
+  const text = `${failure.message}\n${failure.stderr}`;
+  const reason: GitFailureReason = failure.timeout
+    ? "timeout"
+    : options.signal?.aborted
+      ? "aborted"
+      : (rules.find(([pattern]) => pattern.test(text))?.[1] ?? "failed");
+  const detail = failure.stderr.trim().split("\n")[0] || failure.message;
+  return new GitOperationError(operation, reason, detail, failure.stderr, failure.status, { cause: error });
+}
+
+/** True when the rejection matches one of `patterns` (stderr or message). */
+function failureMatches(error: unknown, pattern: RegExp): boolean {
+  const failure = failureOf(error);
+  return !failure.timeout && pattern.test(`${failure.message}\n${failure.stderr}`);
+}
+
+function runOptions(options: OperationOptions): AsyncSubprocessOptions {
+  return options.signal !== undefined ? { signal: options.signal } : {};
+}
+
+// --- diff --------------------------------------------------------------------
+
+/** Two-dot diff bounds. For `base...head` semantics resolve `mergeBase` first and pass it as `from`. */
+export type DiffRange = { from: string; to: string };
+
+const OID_PATTERN = /^[0-9a-f]{40,64}$/;
+
+/**
+ * `git merge-base a b` as a full OID. Rejects with operation `merge-base`: reason
+ * `no-merge-base` when the histories share no ancestor (exit 1, silent), `failed` when a
+ * ref does not resolve — distinct from any `diff` failure so callers can tell them apart.
+ */
+export async function mergeBase(
+  cwd: string,
+  a: string,
+  b: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  let output: string;
+  try {
+    output = await runner.runAsync("git", ["merge-base", a, b], cwd, runOptions(options));
+  } catch (error) {
+    const failure = failureOf(error);
+    const silentExitOne = failure.status === 1 && !failure.timeout && failure.stderr.trim() === "";
+    throw silentExitOne
+      ? new GitOperationError("merge-base", "no-merge-base", `${a} and ${b} share no ancestor`, "", 1, { cause: error })
+      : gitError("merge-base", error, [], options);
+  }
+  const oid = output.trim();
+  if (!OID_PATTERN.test(oid)) {
+    throw new GitOperationError("merge-base", "failed", `unexpected merge-base output ${JSON.stringify(oid)}`, "", 0);
+  }
+  return oid;
+}
+
+async function runDiff(
+  cwd: string,
+  args: string[],
+  runner: AsyncSubprocessRunner,
+  options: OperationOptions,
+): Promise<string> {
+  try {
+    return await runner.runAsync("git", ["diff", ...args], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("diff", error, [], options);
+  }
+}
+
+/** `git diff --stat from to`, trimmed; empty string when nothing changed. */
+export async function diffStat(
+  cwd: string,
+  range: DiffRange,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  return (await runDiff(cwd, ["--stat", range.from, range.to], runner, options)).trim();
+}
+
+/** Changed paths between `from` and `to`, sorted by code unit (deterministic across runs). */
+export async function diffNameOnly(
+  cwd: string,
+  range: DiffRange,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  const output = await runDiff(cwd, ["--name-only", range.from, range.to], runner, options);
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** Raw unified diff between `from` and `to` (not trimmed: the trailing newline is part of the patch). */
+export async function diffUnified(
+  cwd: string,
+  range: DiffRange,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  return runDiff(cwd, [range.from, range.to], runner, options);
+}
+
+export type BranchDiff = { mergeBase: string; stat: string; changedPaths: string[]; unified: string };
+
+/**
+ * Review-context diff of `headRef` against its merge-base with `baseRef`: stat summary,
+ * sorted changed paths, and the unified patch. A merge-base failure surfaces as the
+ * `merge-base` operation; later failures as `diff`.
+ */
+export async function branchDiff(
+  cwd: string,
+  baseRef: string,
+  headRef = "HEAD",
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<BranchDiff> {
+  const base = await mergeBase(cwd, baseRef, headRef, runner, options);
+  const range: DiffRange = { from: base, to: headRef };
+  const stat = await diffStat(cwd, range, runner, options);
+  const changedPaths = await diffNameOnly(cwd, range, runner, options);
+  const unified = await diffUnified(cwd, range, runner, options);
+  return { mergeBase: base, stat, changedPaths, unified };
+}
+
+// --- worktrees ---------------------------------------------------------------
+
+export type WorktreeEntry = {
+  path: string;
+  /** Full HEAD OID; absent for a bare entry. */
+  head?: string;
+  /** Short branch name (`refs/heads/` stripped); absent when detached or bare. */
+  branch?: string;
+  detached: boolean;
+  bare: boolean;
+  /** Lock reason, or `""` when locked without one. */
+  locked?: string;
+  /** Prunable reason as git reports it. */
+  prunable?: string;
+};
+
+function applyWorktreeAttribute(entry: WorktreeEntry, line: string): void {
+  const space = line.indexOf(" ");
+  const key = space === -1 ? line : line.slice(0, space);
+  const value = space === -1 ? "" : line.slice(space + 1);
+  if (key === "HEAD") entry.head = value;
+  else if (key === "branch") entry.branch = value.startsWith("refs/heads/") ? value.slice("refs/heads/".length) : value;
+  else if (key === "detached") entry.detached = true;
+  else if (key === "bare") entry.bare = true;
+  else if (key === "locked") entry.locked = value;
+  else if (key === "prunable") entry.prunable = value;
+}
+
+/** One porcelain block (`worktree <path>` then attribute lines); undefined for a blank block. */
+function parseWorktreeBlock(block: string): WorktreeEntry | undefined {
+  const lines = block.split("\n").filter((line) => line.length > 0);
+  const first = lines[0];
+  if (first === undefined) return undefined;
+  if (!first.startsWith("worktree ")) throw new Error(`Malformed worktree listing: ${JSON.stringify(first)}`);
+  const entry: WorktreeEntry = { path: first.slice("worktree ".length), detached: false, bare: false };
+  for (const line of lines.slice(1)) applyWorktreeAttribute(entry, line);
+  return entry;
+}
+
+/** Parses `git worktree list --porcelain`; rejects a block that does not start with `worktree <path>`. */
+function parseWorktreePorcelain(output: string): WorktreeEntry[] {
+  return output
+    .split(/\n\n+/)
+    .map(parseWorktreeBlock)
+    .filter((entry): entry is WorktreeEntry => entry !== undefined);
+}
+
+/** Registered worktrees of the repository containing `cwd`, main worktree first (git's order). */
+export async function listWorktrees(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<WorktreeEntry[]> {
+  try {
+    return parseWorktreePorcelain(
+      await runner.runAsync("git", ["worktree", "list", "--porcelain"], cwd, runOptions(options)),
+    );
+  } catch (error) {
+    throw gitError("worktree-list", error, [], options);
+  }
+}
+
+export type WorktreeAddResult = { status: "added" } | { status: "already-registered" };
+
+const WORKTREE_ADD_RULES: readonly ReasonRule[] = [
+  [/already exists/, "path-exists"],
+  [/is already (?:used by|checked out)/, "branch-in-use"],
+];
+
+/**
+ * `git worktree add <path> <branch>` for an existing local branch. Idempotent for the
+ * exact (path, branch) pair: when git refuses because the path or branch is taken and the
+ * listing shows `path` already registered on `branch`, resolves `already-registered`.
+ * Any other refusal rejects with `path-exists`, `branch-in-use`, or `failed`.
+ */
+export async function addWorktree(
+  cwd: string,
+  target: { path: string; branch: string },
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<WorktreeAddResult> {
+  try {
+    await runner.runAsync("git", ["worktree", "add", target.path, target.branch], cwd, runOptions(options));
+    return { status: "added" };
+  } catch (error) {
+    const failure = gitError("worktree-add", error, WORKTREE_ADD_RULES, options);
+    if (failure.reason !== "path-exists" && failure.reason !== "branch-in-use") throw failure;
+    const registered = (await listWorktrees(cwd, runner, options)).some(
+      (entry) => resolve(entry.path) === resolve(target.path) && entry.branch === target.branch,
+    );
+    if (registered) return { status: "already-registered" };
+    throw failure;
+  }
+}
+
+export type WorktreeRemoveResult = { status: "removed" } | { status: "absent" };
+
+const WORKTREE_REMOVE_RULES: readonly ReasonRule[] = [
+  [/contains modified or untracked files/, "precondition"],
+  [/locked working tree/, "precondition"],
+];
+
+/**
+ * `git worktree remove [--force] <path>`. Idempotent: an unregistered path resolves
+ * `absent`; a registered path whose directory is already gone resolves `removed`. A
+ * dirty or locked worktree rejects with `precondition` unless `force` is set.
+ */
+export async function removeWorktree(
+  cwd: string,
+  path: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions & { force?: boolean } = {},
+): Promise<WorktreeRemoveResult> {
+  const args = options.force ? ["worktree", "remove", "--force", path] : ["worktree", "remove", path];
+  try {
+    await runner.runAsync("git", args, cwd, runOptions(options));
+    return { status: "removed" };
+  } catch (error) {
+    if (failureMatches(error, /is not a working tree/)) return { status: "absent" };
+    throw gitError("worktree-remove", error, WORKTREE_REMOVE_RULES, options);
+  }
+}
+
+/** `git worktree prune`: drops registrations whose directories are gone. Idempotent; nothing to prune is success. */
+export async function pruneWorktrees(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["worktree", "prune"], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-prune", error, [], options);
+  }
+}
+
+// --- branches, refs, push ----------------------------------------------------
+
+export type BranchCreateResult = { status: "created" } | { status: "exists" };
+
+/**
+ * `git branch <name> <startPoint>`. Resolves `exists` when the branch already exists
+ * (wherever it points: callers needing a specific tip compare with `resolveRef`).
+ */
+export async function createBranch(
+  cwd: string,
+  name: string,
+  startPoint: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<BranchCreateResult> {
+  try {
+    await runner.runAsync("git", ["branch", name, startPoint], cwd, runOptions(options));
+    return { status: "created" };
+  } catch (error) {
+    if (failureMatches(error, /already exists/)) return { status: "exists" };
+    throw gitError("branch-create", error, [], options);
+  }
+}
+
+export type BranchDeleteResult = { status: "deleted" } | { status: "absent" };
+
+/**
+ * `git branch -d|-D <name>`. Idempotent: a missing branch resolves `absent`. Without
+ * `force`, an unmerged branch rejects with `precondition`.
+ */
+export async function deleteBranch(
+  cwd: string,
+  name: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions & { force?: boolean } = {},
+): Promise<BranchDeleteResult> {
+  try {
+    await runner.runAsync("git", ["branch", options.force ? "-D" : "-d", name], cwd, runOptions(options));
+    return { status: "deleted" };
+  } catch (error) {
+    if (failureMatches(error, /not found/)) return { status: "absent" };
+    throw gitError("branch-delete", error, [[/not fully merged/, "precondition"]], options);
+  }
+}
+
+export type RefResolution = { status: "resolved"; oid: string } | { status: "absent" };
+
+/**
+ * `git rev-parse --verify --quiet <ref>^{commit}`. `absent` only on git's silent exit 1;
+ * any other failure (not a repository, timeout, abort) is inconclusive and rejects with
+ * operation `ref-query`, so a hung or broken query is never mistaken for a missing ref.
+ */
+export async function resolveRef(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<RefResolution> {
+  try {
+    const oid = (
+      await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], cwd, runOptions(options))
+    ).trim();
+    return { status: "resolved", oid };
+  } catch (error) {
+    const failure = failureOf(error);
+    if (failure.status === 1 && !failure.timeout && failure.stderr.trim() === "") return { status: "absent" };
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/**
+ * `git update-ref <ref> <newOid> [<oldOid>]`. Stateful; with `oldOid` it is a
+ * compare-and-swap that rejects `precondition` when the ref moved.
+ */
+export async function updateRef(
+  cwd: string,
+  ref: string,
+  newOid: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions & { oldOid?: string } = {},
+): Promise<void> {
+  const args = options.oldOid === undefined ? ["update-ref", ref, newOid] : ["update-ref", ref, newOid, options.oldOid];
+  try {
+    await runner.runAsync("git", args, cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("update-ref", error, [[/cannot lock ref/, "precondition"]], options);
+  }
+}
+
+export type RefDeleteResult = { status: "deleted" } | { status: "absent" };
+
+/**
+ * `git update-ref -d <ref>` after a `resolveRef` check, so the caller learns whether
+ * anything was deleted (git itself exits 0 for a missing ref). Idempotent.
+ */
+export async function deleteRef(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<RefDeleteResult> {
+  if ((await resolveRef(cwd, ref, runner, options)).status === "absent") return { status: "absent" };
+  try {
+    await runner.runAsync("git", ["update-ref", "-d", ref], cwd, runOptions(options));
+    return { status: "deleted" };
+  } catch (error) {
+    throw gitError("update-ref", error, [], options);
+  }
+}
+
+export type PushResult = { status: "pushed" } | { status: "already-absent" };
+
+const PUSH_RULES: readonly ReasonRule[] = [
+  [/Authentication failed|Permission denied|could not read Username|HTTP 401|HTTP 403/i, "auth"],
+  [/Could not resolve host|Connection (?:timed out|refused|reset)|unable to access|early EOF|RPC failed/i, "network"],
+  [/\[rejected\]|failed to push some refs|non-fast-forward/i, "rejected"],
+];
+
+/**
+ * `git push [-u] <remote> <branch>` or `git push <remote> --delete <branch>`, bounded by
+ * the network timeout and non-interactive env. Retryable: `timeout`, `network`. Fatal:
+ * `auth`, `rejected` (non-fast-forward: the caller must reconcile, never force), `failed`.
+ * Deleting a branch the remote no longer has resolves `already-absent` (idempotent).
+ */
+export async function pushBranch(
+  cwd: string,
+  target: { branch: string; remote?: string; setUpstream?: boolean; delete?: boolean },
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<PushResult> {
+  const remote = target.remote ?? "origin";
+  const args = target.delete
+    ? ["push", remote, "--delete", target.branch]
+    : ["push", ...(target.setUpstream ? ["-u"] : []), remote, target.branch];
+  try {
+    await runner.runAsync("git", args, cwd, networkSubprocessOptions({ signal: options.signal }));
+    return { status: "pushed" };
+  } catch (error) {
+    if (target.delete && failureMatches(error, /remote ref does not exist/i)) return { status: "already-absent" };
+    throw gitError("push", error, PUSH_RULES, options);
+  }
+}
+
+// --- repository paths --------------------------------------------------------
+
+/**
+ * Absolute per-worktree git dir (`rev-parse --absolute-git-dir`): `<repo>/.git` for the main
+ * worktree, `<repo>/.git/worktrees/<name>` for a linked one. Synchronous for root scripts;
+ * throws `GitOperationError` (`git-dir`) outside a repository.
+ */
+export function gitDir(cwd: string, runner: SubprocessRunner = realSubprocessRunner): string {
+  try {
+    return runner.run("git", ["rev-parse", "--absolute-git-dir"], cwd).trim();
+  } catch (error) {
+    throw gitError("git-dir", error, [], {});
+  }
+}
+
+/** Absolute common git dir shared by every worktree of the repository containing `cwd`. */
+export async function gitCommonDir(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  try {
+    const output = await runner.runAsync(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      cwd,
+      runOptions(options),
+    );
+    return resolve(output.trim());
+  } catch (error) {
+    throw gitError("git-dir", error, [], options);
+  }
 }

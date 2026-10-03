@@ -553,6 +553,19 @@ Most of v1's git/GitHub machinery is sound and carries forward unchanged: harnes
   proves `health` resolves before that command is released, then releases Git and completes
   the run.
 
+### Git operation ownership
+
+`shared/git.ts` is the single owner of Git for Jarvis-owned code: command construction, output parsing, and error semantics live there, and callers pass semantic arguments (refs, paths, branch names) rather than argv. Every operation takes an injected runner (`AsyncSubprocessRunner`; `SubprocessRunner` only for the sync `gitDir` used by root scripts) and an optional `signal`, so callers test against a fake runner and never reach ambient Git.
+
+Entry points, by family:
+
+- **Queries (stateless).** `mergeBase`, `diffStat` / `diffNameOnly` / `diffUnified` over a `DiffRange`, `branchDiff` (merge-base + stat + sorted changed paths + unified patch, the review-context shape), `listWorktrees` (typed porcelain), `resolveRef`, `gitCommonDir`, `gitDir`, plus the older ref/branch/status probes (`branchExistsLocal*`, `branchExistsOnOrigin*`, `getCurrentBranch*`, `isWorktreeDirty*`, `isGitRepo*`, `getGitStatusInventory`).
+- **Mutations (stateful).** `addWorktree`, `removeWorktree`, `pruneWorktrees`, `createBranch`, `deleteBranch`, `updateRef`, `deleteRef`, `pushBranch`. Each returns a structured result naming what happened (`added` / `already-registered`, `removed` / `absent`, `created` / `exists`, `deleted` / `absent`, `pushed` / `already-absent`) so "already in the goal state" is a value, not an exception. Idempotent: `removeWorktree`, `pruneWorktrees`, `deleteBranch`, `deleteRef`, `pushBranch` with `delete`, and `addWorktree` for the exact (path, branch) pair already registered. Precondition-bearing: `removeWorktree` (clean, unlocked unless `force`), `deleteBranch` (merged unless `force`), `updateRef` with `oldOid` (compare-and-swap), `pushBranch` (fast-forward; a rejection is never retried or forced).
+
+Failures are `GitOperationError` with `operation` (which command family), `reason`, `stderr`, `status`, and `retryable`. Only `timeout` and `network` are retryable (`isRetryableGitError`); `aborted` is the caller's own cancellation; `auth`, `rejected`, `no-merge-base`, `path-exists`, `branch-in-use`, `precondition`, and `failed` are fatal for the attempt. A merge-base failure is reported as operation `merge-base`, distinct from a later `diff` failure. `resolveRef` returns `absent` only on git's silent exit 1; any other failure is inconclusive and throws, so a hung or broken query is never read as a missing ref. The tests pin parsing and error classification against canned stderr, not the invocation path.
+
+Current callers that still construct Git argv inline (`shared/prompts/review-implement.ts` `branchDiff`, `v2/src/commands/cleanup.ts`, `v2/src/execution/external-worktree.ts`, `scripts/ready.ts`) migrate onto these exports in their own intents; new code uses the boundary from the start.
+
 ## Interface & IPC
 
 The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC transport. All daemon control is async/await; there is no CLI here (CLI/TUI surface is a sibling concern, wired via this interface).

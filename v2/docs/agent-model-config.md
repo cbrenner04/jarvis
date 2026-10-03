@@ -25,6 +25,21 @@ The top-level `codexSandboxMode` key in `~/.jarvis/config.json` selects the sand
 
 `danger-full-access` grants ambient trust so trusted local toolchains (e.g. Xcode/CoreSimulator) are reachable — parity with the trust cursor already takes via `--force` and claude via `--permission-mode acceptEdits`. There is no per-project override or command flag; adding one means extending the closed `projects.<key>.overrides` key set.
 
+## Confinement policy
+
+`confinementPolicy` is the vendor-agnostic confinement a write/implement invocation runs under: `sandbox` (filesystem writes confined to the workspace) or `unrestricted` (the adapter's standing flags, unchanged from v1). The vocabulary lives in [`shared/invocation/confinement-policy.ts`](../../shared/invocation/confinement-policy.ts) (`CONFINEMENT_POLICIES`, default `unrestricted`). Resolution cascades `projects.<projectKey>.overrides.confinementPolicy` → top-level `confinementPolicy` → `unrestricted` (`readConfinementPolicy` in [`machine-config-loader.ts`](../src/config/machine-config-loader.ts)); an unrecognized value throws naming the config path.
+
+`createResolvedAgentBinding` ([`shared/invocation/agents.ts`](../../shared/invocation/agents.ts)) takes the policy through `ResolvedAgentBindingOptions.confinementPolicy` and translates it purely and statelessly into vendor flags, exposing the applied mechanism as `binding.confinementMechanism`. A vendor with no flag that confines writes while keeping shell tools usable refuses: `invoke` throws `ConfinementRefusalError` (`vendor`, `policy`) before any spawn, the attempt settles as `model_config`, and the binding always yields to the next agent in the fallback order rather than running degraded.
+
+| Adapter | `unrestricted` (default) | `sandbox` | Mechanism |
+| --- | --- | --- | --- |
+| claude | `--permission-mode acceptEdits` (today's argv) | refused: `--permission-mode` governs approval, not reach; `--restricted` confines file tools but removes Bash | `none` / `refused` |
+| codex | `--sandbox <codexSandboxMode>` (default `workspace-write`) | `--sandbox workspace-write` regardless of `codexSandboxMode` | `none` / `codex-workspace-write` |
+| cursor | `--force` (today's argv) | refused: the binding passes no confinement flag (`cursor-agent --sandbox <mode>` is a candidate once verified) | `none` / `refused` |
+| opencode | today's argv | refused | `none` / `refused` |
+
+Default argv is byte-identical to the pre-policy binding for every adapter; `codexSandboxMode` keeps selecting the codex sandbox only under `unrestricted` and is retired in a later change once policy covers its values.
+
 ## Repo read context
 
 External (`specs: external`) plan draft delivers the target-repo read context as the agent cwd: the write step invokes the agent in a materialized `.git`-less checkout of the target repo at the base, held in a dedicated read-context dir distinct from the durable plan-tree landing home, so every vendor reads it natively (opencode via its `--dir cwd` argv, claude/codex via cwd) with no read-dir flag. Per-vendor read-dir surfaces — claude/codex `--add-dir`, opencode `permission.external_directory` — apply only when the read root diverges from cwd (e.g. external-plan implement, where the spec tree lives outside the code worktree).

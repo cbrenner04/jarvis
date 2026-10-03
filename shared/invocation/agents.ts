@@ -9,6 +9,12 @@ import { loadPrices } from "../prices/load.ts";
 import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-predicate.ts";
 import { probeAgentDescendantProcessGroups } from "./agent-descendant-process-groups.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
+import {
+  type ConfinementMechanism,
+  type ConfinementPolicy,
+  ConfinementRefusalError,
+  DEFAULT_CONFINEMENT_POLICY,
+} from "./confinement-policy.ts";
 import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
 import type {
   InvocationBinding,
@@ -43,6 +49,8 @@ export type SignalProcessGroup = (pgid: number, signal: NodeJS.Signals) => void;
 export type ResolvedAgentBindingOptions = {
   spawn?: SpawnFn;
   codexSandboxMode?: CodexSandboxMode;
+  /** Resolved confinement policy; defaults to `unrestricted`, which reproduces each adapter's standing flags. */
+  confinementPolicy?: ConfinementPolicy;
   codexSessionsDir?: string;
   randomUUID?: () => string;
   setTimeout?: typeof setTimeout;
@@ -87,6 +95,42 @@ export function signalProcessGroupOrLeader(
   }
 }
 
+type CodexConfinement = { sandboxMode: CodexSandboxMode; mechanism: ConfinementMechanism };
+
+/**
+ * Pure policy→flag translation for codex. `unrestricted` keeps the configured `codexSandboxMode`
+ * (today's argv); `sandbox` pins `--sandbox workspace-write` regardless of that setting.
+ */
+function translateCodexConfinement(
+  policy: ConfinementPolicy,
+  configured: CodexSandboxMode | undefined,
+): CodexConfinement {
+  if (policy === "sandbox") return { sandboxMode: "workspace-write", mechanism: "codex-workspace-write" };
+  return { sandboxMode: configured ?? "workspace-write", mechanism: "none" };
+}
+
+/**
+ * claude, cursor, and opencode pass no flag that confines filesystem writes while keeping shell
+ * tools usable (claude `--permission-mode` and cursor `--force` govern approval, not reach), so
+ * only `unrestricted` translates for them; any other policy yields this binding, which throws its
+ * refusal on `invoke` before any spawn and always yields the rung to the next agent.
+ */
+function createRefusingBinding(
+  id: string,
+  metadata: { agent: string; model: string },
+  policy: ConfinementPolicy,
+): InvocationBinding {
+  return {
+    id,
+    metadata,
+    confinementMechanism: "refused",
+    invoke: async () => {
+      throw new ConfinementRefusalError(metadata.agent, policy);
+    },
+    shouldAdvance: () => true,
+  };
+}
+
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
   return {
     id,
@@ -106,10 +150,13 @@ export function createResolvedAgentBinding(
   const { agentId, adapterModel, priceKey } = args;
   const id = `${agentId}/${adapterModel}/${priceKey}`;
   const metadata = { agent: agentId, model: adapterModel };
+  const policy = opts.confinementPolicy ?? DEFAULT_CONFINEMENT_POLICY;
+  if (agentId !== "codex" && policy !== "unrestricted") return createRefusingBinding(id, metadata, policy);
   if (agentId === "claude") {
     return {
       id,
       metadata,
+      confinementMechanism: "none",
       invoke: (invokeArgs) =>
         runClaudeBinding({
           prompt: invokeArgs.prompt,
@@ -126,16 +173,18 @@ export function createResolvedAgentBinding(
   }
 
   if (agentId === "codex") {
+    const codex = translateCodexConfinement(policy, opts.codexSandboxMode);
     return {
       id,
       metadata,
+      confinementMechanism: codex.mechanism,
       invoke: (invokeArgs) =>
         runCodexBinding({
           prompt: invokeArgs.prompt,
           cwd: invokeArgs.cwd,
           adapterModel,
           priceKey,
-          sandboxMode: opts.codexSandboxMode ?? "workspace-write",
+          sandboxMode: codex.sandboxMode,
           ...pickAgentRunOptions(invokeArgs),
           ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
@@ -152,6 +201,7 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
+      confinementMechanism: "none",
       invoke: async ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress, ...invokeArgs }) =>
         finalizeCursorInvocationResult(
           await runCursorBinding({
@@ -178,6 +228,7 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
+      confinementMechanism: "none",
       invoke: (invokeArgs) =>
         runOpencodeBinding({
           prompt: invokeArgs.prompt,

@@ -1,3 +1,4 @@
+import { type ConfinementMechanism, ConfinementRefusalError } from "./confinement-policy.ts";
 import type { SessionLog } from "./session-log.ts";
 
 export type InvocationSettlement = {
@@ -78,6 +79,8 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   }) => Promise<T>;
   shouldAdvance?: (result: T | InvocationError) => boolean;
   metadata?: { agent: string; model: string };
+  /** Vendor mechanism the binding applies for its confinement policy (see `confinement-policy.ts`). */
+  confinementMechanism?: ConfinementMechanism;
 };
 
 export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
@@ -270,9 +273,11 @@ function pickShellCommandCallbacks(args: {
 /**
  * Awaits `binding.invoke`, normalizing a rejection into a `kind: "error"` result
  * (sentinel `exitCode: -1`, thrown diagnostic as `stderr`) so it flows through the
- * same attempt/telemetry/`shouldAdvance` path as a returned result. A rejection
- * that occurs while `signal` is already aborted is a caller-driven cancellation,
- * not a binding failure, and propagates unchanged.
+ * same attempt/telemetry/`shouldAdvance` path as a returned result. A
+ * `ConfinementRefusalError` is a configuration incompatibility raised before any
+ * spawn, so it settles as `model_config`. A rejection that occurs while `signal`
+ * is already aborted is a caller-driven cancellation, not a binding failure, and
+ * propagates unchanged.
  */
 async function invokeBinding<T extends InvocationResult>(
   binding: InvocationBinding<T>,
@@ -282,6 +287,7 @@ async function invokeBinding<T extends InvocationResult>(
     return await binding.invoke(invokeArgs);
   } catch (error) {
     if (invokeArgs.signal?.aborted === true) throw error;
+    if (error instanceof ConfinementRefusalError) return { kind: "model_config", stderr: error.message };
     return {
       kind: "error",
       exitCode: -1,

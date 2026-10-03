@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_CONFINEMENT_POLICY } from "../../../shared/invocation/confinement-policy.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
-  DEFAULT_CONFINEMENT_POLICY,
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
   readCodexSandboxMode,

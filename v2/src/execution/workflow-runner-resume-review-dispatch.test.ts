@@ -55,7 +55,7 @@ import {
   resumeReviewMutationFinalization,
   survivingMutationErrorFromTerminalRecord,
 } from "./workflow-runner-resume.ts";
-import { MAX_MUTATION_REPAIR_ATTEMPTS } from "./write-loop.ts";
+import { MAX_MUTATION_REPAIR_ATTEMPTS, type WriteLoopInput } from "./write-loop.ts";
 
 /** A fake publisher reports the tip it "pushed": the worktree HEAD, as the real publisher does. */
 function pushedHead(worktreePath: string): string {
@@ -934,6 +934,66 @@ describe("executeWorkflow review dispatch", () => {
       rmSync(workspace, { recursive: true, force: true });
       rmSync(dbPath, { force: true });
     }
+  });
+
+  test("resolveWriteSiblingCommandSource ignores legacy run-row queuedInput gate commands", async () => {
+    await withStateStore(async (store) => {
+      const branch = "intent/legacy-queued-input-gate";
+      const invocationId = "intent-legacy-queued-input-gate";
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: "/tmp/legacy-queued-input-gate",
+        branch,
+        workflowSnapshot: {
+          invocationId,
+          creationTitle: `intent: ${branch}`,
+          steps: [
+            {
+              stepId: "intent",
+              role: "plan",
+              durable: true,
+              expectedArtifactPath: ".jarvis-intent-stage",
+              agents: ["claude"],
+              landingInputs: EMPTY_LANDING_INPUTS,
+              fixCommand: "snapshot-fix",
+              readyCommand: "snapshot-ready",
+            },
+            {
+              stepId: "review",
+              role: "",
+              durable: true,
+              behavior: "review" as const,
+            },
+          ],
+        },
+      };
+      store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
+      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+      const reviewRun = store.loadRun(reviewRunId);
+      if (!reviewRun) throw new Error("expected review run");
+      const legacyQueuedInput = {
+        fixCommand: "queued-fix",
+        readyCommand: "queued-ready",
+      } as WriteLoopInput;
+      (reviewRun as { queuedInput?: WriteLoopInput }).queuedInput = legacyQueuedInput;
+      const writeRun = store.findRunByProjectBranch({ project: "demo", branch, stepId: "intent" });
+      if (!writeRun) throw new Error("expected write run");
+      (writeRun as { queuedInput?: WriteLoopInput }).queuedInput = {
+        fixCommand: "write-queued-fix",
+        readyCommand: "write-queued-ready",
+      } as WriteLoopInput;
+
+      const source = resolveWriteSiblingCommandSource(reviewRun, store);
+      expect(source).toEqual({
+        snapshotStep: expect.objectContaining({
+          stepId: "intent",
+          fixCommand: "snapshot-fix",
+          readyCommand: "snapshot-ready",
+        }),
+      });
+      expect(Object.hasOwn(source ?? {}, "queuedInput")).toBe(false);
+    });
   });
 
   test("review-mutation gate-only resume invokes persisted review snapshot readyCommand after store reload", async () => {

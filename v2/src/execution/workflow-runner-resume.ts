@@ -451,20 +451,10 @@ function resolveReviewRowHead(
   return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent, behavior: step.behavior, reviewPass } };
 }
 
-/** Durable source for a resume's stamped `fixCommand`/`readyCommand`: the write row's `queuedInput`
- * (direct writes) first, then the workflow snapshot's write step (workflow rows). Never the
- * default machine-config path — a pipeline admitted under a scoped config stamped these at dispatch. */
+/** Durable source for a resume's stamped `fixCommand`/`readyCommand` from workflow snapshot steps only. */
 type WriteSiblingCommandSource = {
-  queuedInput?: WriteLoopInput;
   snapshotStep?: WorkflowSnapshotStep;
 };
-
-type LegacyQueuedInputCarrier = { queuedInput?: WriteLoopInput | null };
-
-function legacyQueuedInput(run: unknown): WriteLoopInput | null | undefined {
-  if (typeof run !== "object" || run === null) return undefined;
-  return (run as LegacyQueuedInputCarrier).queuedInput;
-}
 
 function snapshotStepHasGateCommands(step: WorkflowSnapshotStep | undefined): boolean {
   return step?.fixCommand !== undefined || step?.readyCommand !== undefined;
@@ -478,20 +468,14 @@ export function resolveWriteSiblingCommandSource(
   const snapshot = run.workflowSnapshot;
   const ownStep = snapshot?.steps.find((candidate) => candidate.stepId === run.stepId);
   if (ownStep && ownStep.behavior !== "review" && ownStep.behavior !== "review-debate") {
-    return {
-      ...(legacyQueuedInput(run) != null ? { queuedInput: legacyQueuedInput(run) as WriteLoopInput } : {}),
-      snapshotStep: ownStep,
-    };
+    return { snapshotStep: ownStep };
   }
   if (
     ownStep &&
     (ownStep.behavior === "review" || ownStep.behavior === "review-debate") &&
     snapshotStepHasGateCommands(ownStep)
   ) {
-    return {
-      ...(legacyQueuedInput(run) != null ? { queuedInput: legacyQueuedInput(run) as WriteLoopInput } : {}),
-      snapshotStep: ownStep,
-    };
+    return { snapshotStep: ownStep };
   }
   const writeStepId = snapshot ? findDurableWriteStepId(snapshot.steps) : undefined;
   const writeRun = writeStepId
@@ -499,10 +483,7 @@ export function resolveWriteSiblingCommandSource(
     : null;
   if (!writeRun) return undefined;
   const snapshotStep = snapshot?.steps.find((candidate) => candidate.stepId === writeStepId);
-  return {
-    ...(legacyQueuedInput(writeRun) != null ? { queuedInput: legacyQueuedInput(writeRun) as WriteLoopInput } : {}),
-    ...(snapshotStep !== undefined ? { snapshotStep } : {}),
-  };
+  return snapshotStep !== undefined ? { snapshotStep } : undefined;
 }
 
 /**

@@ -109,6 +109,10 @@ Use `work` when this machine should not load Claude bindings (`config/machines/w
 
 Optional top-level `notificationSinkCommand` (non-empty string) names a shell command the daemon spawns fire-and-forget when a derived operator incident becomes owed. The command receives one JSON object on stdin per notification (`incidentId`, `kind`, `transition`, `pipelineId`, `runId`, `cause`, …). Examples: `terminal-notifier -message -`, a Slack `curl` wrapper, or a script that re-invokes an agent session. A blank or non-string value is treated as absent — the sweep still maintains the delivery ledger but spawns nothing. Hand-edit `~/.jarvis/config.json`. Semantics: [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications).
 
+### Confinement policy
+
+Optional top-level `confinementPolicy` names the vendor-agnostic confinement every agent invocation requests: `"sandbox"` (filesystem-confined) or `"unrestricted"` (default when absent; preserves today's per-vendor flags, so confinement is opt-in). `projects.<key>.overrides.confinementPolicy` shadows it per project ([Per-project overrides](#per-project-overrides)). Any other value, at either level, fails resolution with an error naming the full path (`readConfinementPolicy`).
+
 ### Project registry
 
 Optional `projects` entries map a registry key to a project object. `root` is required; `origin` is optional. Longest matching root wins when resolving a spec path to a project.
@@ -151,6 +155,7 @@ Per-project implement defaults:
 | --- | --- | --- |
 | `projects.<key>.overrides.agents` | Top-level `agents` (fallback order) | Same as `agents`: non-empty array of unique non-empty strings; each agent must be bound in the machine profile |
 | `projects.<key>.overrides.idleOutputTimeoutMs` | Top-level `idleOutputTimeoutMs` | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+| `projects.<key>.overrides.confinementPolicy` | Top-level `confinementPolicy` | `"sandbox"` (filesystem-confined invocations) or `"unrestricted"` (today's vendor defaults); any other value fails resolution naming the path |
 
 The key set is closed: any other key, a non-object block, or a malformed value fails resolution with an error naming the full path (e.g. `projects.chess.overrides.agentz`). Resolution happens once per step at admission — `run workflow` CLI admission and daemon pipeline-stage dispatch, plus `jarvis pipeline start` pre-admission for `agents` — onto the step's `agents` and `idleOutputMs`, which the persisted workflow snapshot carries; resume and the daemon never re-read the block. Absent block = machine-wide behavior. `jarvis run start` (ad-hoc write) ignores overrides. `runTimeoutMs` keeps its older flat `projects.<key>.runTimeoutMs` form.
 

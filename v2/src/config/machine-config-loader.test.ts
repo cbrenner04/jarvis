@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import {
+  DEFAULT_CONFINEMENT_POLICY,
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
   readCodexSandboxMode,
   readConfiguredIdleOutputTimeoutMs,
+  readConfinementPolicy,
   readMachineConfigDocument,
   readNotificationSinkCommand,
   readProjectConfigOverrides,
@@ -457,7 +459,7 @@ describe("project config overrides", () => {
     expect(() =>
       readProjectConfigOverrides("demo", writeConfig({ projects: { demo: { overrides: { runTimeoutMs: 1 } } } })),
     ).toThrow(
-      "'projects.demo.overrides.runTimeoutMs' is not a supported override (allowed: agents, idleOutputTimeoutMs)",
+      "'projects.demo.overrides.runTimeoutMs' is not a supported override (allowed: agents, idleOutputTimeoutMs, confinementPolicy)",
     );
     expect(() =>
       readProjectConfigOverrides(
@@ -468,6 +470,42 @@ describe("project config overrides", () => {
     expect(() =>
       readProjectConfigOverrides("demo", writeConfig({ projects: { demo: { overrides: { agents: ["a", "a"] } } } })),
     ).toThrow(`Machine config 'projects.demo.overrides.agents' contains duplicate entry: "a"`);
+  });
+});
+
+describe("readConfinementPolicy", () => {
+  test("defaults to unrestricted when neither the machine key nor an override is set", () => {
+    expect(DEFAULT_CONFINEMENT_POLICY).toBe("unrestricted");
+    expect(readConfinementPolicy("/nonexistent/path/config.json")).toBe("unrestricted");
+    expect(readConfinementPolicy(writeConfig({ projects: { demo: {} } }), "demo")).toBe("unrestricted");
+  });
+
+  test("a project override shadows the machine default; an unset project inherits it", () => {
+    const configPath = writeConfig({
+      confinementPolicy: "sandbox",
+      projects: { demo: { overrides: { confinementPolicy: "unrestricted" } }, other: {} },
+    });
+    expect(readConfinementPolicy(configPath)).toBe("sandbox");
+    expect(readConfinementPolicy(configPath, "demo")).toBe("unrestricted");
+    expect(readConfinementPolicy(configPath, "other")).toBe("sandbox");
+    expect(readProjectConfigOverrides("demo", configPath).confinementPolicy).toBe("unrestricted");
+  });
+
+  test("rejects unknown policy values naming the full config path", () => {
+    const expected = `must be one of "sandbox", "unrestricted"`;
+    expect(() => readConfinementPolicy(writeConfig({ confinementPolicy: "seatbelt" }))).toThrow(
+      `Machine config 'confinementPolicy' ${expected}`,
+    );
+    expect(() => readConfinementPolicy(writeConfig({ confinementPolicy: 1 }), "demo")).toThrow(
+      `Machine config 'confinementPolicy' ${expected}`,
+    );
+    const overridePath = writeConfig({ projects: { demo: { overrides: { confinementPolicy: "seatbelt" } } } });
+    expect(() => readConfinementPolicy(overridePath, "demo")).toThrow(
+      `Machine config 'projects.demo.overrides.confinementPolicy' ${expected}`,
+    );
+    expect(() => readProjectConfigOverrides("demo", overridePath)).toThrow(
+      `Machine config 'projects.demo.overrides.confinementPolicy' ${expected}`,
+    );
   });
 });
 

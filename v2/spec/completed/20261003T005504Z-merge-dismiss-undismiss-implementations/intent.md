@@ -18,10 +18,10 @@ name: merge-dismiss-undismiss-implementations
 
 ## Acceptance criteria
 
-- [ ] A shared dismissal function or module is extracted and invoked by both run and pipeline commands; the source functions are simplified or deleted.
-- [ ] `run.test.ts` dismiss tests stay green (behavior unchanged by extraction).
-- [ ] `pipeline.test.ts` dismiss tests stay green (behavior unchanged by extraction).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A shared dismissal function or module is extracted and invoked by both run and pipeline commands; the source functions are simplified or deleted.
+- [x] `run.test.ts` dismiss tests stay green (behavior unchanged by extraction).
+- [x] `pipeline.test.ts` dismiss tests stay green (behavior unchanged by extraction).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

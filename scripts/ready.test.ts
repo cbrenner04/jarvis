@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { SubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
+  INSTALL_DIGEST_FILENAME,
   READY_STEP_COMPLETION_MARKER,
   READY_STEP_START_MARKER,
   type ReadyStepCompletion,
+  readRecordedInstallDigest,
   readyAttemptEnvironment,
+  resolveGitDir,
   runReady,
+  writeRecordedInstallDigest,
 } from "./ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
 
@@ -199,5 +208,46 @@ describe("ready step completion evidence", () => {
     expect(terminal).toMatchObject({ command: "bun run lint:md", status: 3 });
     const files = selectRecords<{ attemptId: string; path: string }>(writes, FAILING_TEST_FILE_MARKER);
     expect(files.some((record) => record.attemptId === terminal?.attemptId)).toBe(false);
+  });
+});
+
+describe("install digest git dir resolution", () => {
+  function fakeRunner(result: string | Error): SubprocessRunner & { calls: Array<{ args: string[]; cwd: string }> } {
+    const calls: Array<{ args: string[]; cwd: string }> = [];
+    return {
+      calls,
+      run(cmd, args, cwd) {
+        calls.push({ args: [cmd, ...args], cwd });
+        if (result instanceof Error) throw result;
+        return result;
+      },
+    };
+  }
+  const revParse = (cwd: string) => ({ args: ["git", "rev-parse", "--absolute-git-dir"], cwd });
+
+  test("the digest lives under the per-worktree git dir the shared boundary resolves through the injected runner", () => {
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "ready-digest-"));
+    const worktreeGitDir = join(repoRoot, "common", "worktrees", "lane");
+    const runner = fakeRunner(`${worktreeGitDir}\n`);
+    expect(resolveGitDir(repoRoot, runner)).toBe(worktreeGitDir);
+    writeRecordedInstallDigest(repoRoot, "lock:tree", runner);
+    expect(readFileSync(join(worktreeGitDir, INSTALL_DIGEST_FILENAME), "utf8")).toBe("lock:tree\n");
+    expect(readRecordedInstallDigest(repoRoot, runner)).toBe("lock:tree");
+    expect(existsSync(join(repoRoot, ".git"))).toBe(false);
+    expect(runner.calls).toEqual([revParse(repoRoot), revParse(repoRoot), revParse(repoRoot)]);
+  });
+
+  test("falls back to <repoRoot>/.git when the boundary throws outside a repository", () => {
+    const repoRoot = trackedMkdtempSync(join(tmpdir(), "ready-digest-"));
+    const outside = Object.assign(new Error("Command failed: git rev-parse --absolute-git-dir"), {
+      status: 128,
+      stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+    });
+    const runner = fakeRunner(outside);
+    expect(resolveGitDir(repoRoot, runner)).toBe(join(repoRoot, ".git"));
+    expect(readRecordedInstallDigest(repoRoot, runner)).toBeUndefined();
+    writeRecordedInstallDigest(repoRoot, "lock:tree", runner);
+    expect(readFileSync(join(repoRoot, ".git", INSTALL_DIGEST_FILENAME), "utf8")).toBe("lock:tree\n");
+    expect(readRecordedInstallDigest(repoRoot, runner)).toBe("lock:tree");
   });
 });

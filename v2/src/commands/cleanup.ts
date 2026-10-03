@@ -43,6 +43,7 @@ import {
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
 import { publishArchiveReady } from "../execution/completion-publisher.ts";
 import { isMaterializedNodeModulesPath, isNotGitRepositoryDiagnostic } from "../execution/external-worktree.ts";
+import { GitHubOperationError } from "../execution/github-operations.ts";
 import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
@@ -1548,14 +1549,7 @@ async function applyEndArchivePublication(
         throw failure;
       }
     };
-    const gh = async (cwd: string, args: readonly string[]) => {
-      try {
-        return await runner.runAsync("gh", [...args], cwd);
-      } catch (error) {
-        const failure: ArchivePublicationStepFailure = { step: "pr", error };
-        throw failure;
-      }
-    };
+    const gh = async (cwd: string, args: readonly string[]) => runner.runAsync("gh", [...args], cwd);
     try {
       const result = await publishArchiveReady(
         { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },
@@ -1565,7 +1559,7 @@ async function applyEndArchivePublication(
     } catch (failure: unknown) {
       exit = 1;
       const stepFailure = failure as Partial<ArchivePublicationStepFailure>;
-      const step = stepFailure.step === "push" || stepFailure.step === "pr" ? stepFailure.step : "push";
+      const step = failure instanceof GitHubOperationError || stepFailure.step === "pr" ? "pr" : "push";
       io.stderr(`Archive publication failed at ${step}: ${errorMessage(stepFailure.error ?? failure)}\n`);
       const commitCount = await archivePublicationCommitCount(target, sessions, runner);
       reportArchivePublicationManualFallback(target, commitCount, io);

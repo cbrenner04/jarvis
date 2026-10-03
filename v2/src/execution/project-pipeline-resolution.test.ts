@@ -648,18 +648,15 @@ describe("rating selection", () => {
     expect(selectedName({ ...RATED, minimumRisk: "low", minimumEffort: "low" }, { risk: "high", effort: "high" })).toBe(
       "full-review",
     );
-  });
-
-  test("labels a dimension minimum when a configured floor lifts the supplied rating", () => {
-    const result = resolveProjectPipeline(
+    const floored = resolveProjectPipeline(
       config("demo", { ...RATED, minimumRisk: "medium" }),
       getPipelineDefinition,
       ALL_REVIEW_ROLES_CONFIG,
       { risk: "low", effort: "low" },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("expected resolution");
-    expect(result.admissionRatings).toEqual({
+    expect(floored.ok).toBe(true);
+    if (!floored.ok) throw new Error("expected resolution");
+    expect(floored.admissionRatings).toEqual({
       effective: { risk: "medium", effort: "low" },
       sources: { risk: "minimum", effort: "seed" },
     });

@@ -292,10 +292,9 @@ export async function admitPipelineStart(
     return preAdmissionFailure("invalid-seed-rating", `pipeline: ${metadata.message}\n`);
   }
 
-  const explicitName = pipelineHasExplicitName(config.pipeline);
   let supplied: Partial<Record<RatingDimension, string>> = {};
   let ratingFlagPresence: Partial<Record<RatingDimension, true>> = {};
-  if (!explicitName) {
+  if (!pipelineHasExplicitName(config.pipeline)) {
     const flags = parsePipelineStartFlagRatings(input);
     if (!flags.ok) {
       return preAdmissionFailure(
@@ -336,11 +335,7 @@ export async function admitPipelineStart(
   const admittedSelection: AdmittedPipelineSelection | null =
     pipelineResolution.admissionRatings === undefined
       ? null
-      : {
-          effective: pipelineResolution.admissionRatings.effective,
-          sources: pipelineResolution.admissionRatings.sources,
-          registryName: pipelineResolution.definition.name,
-        };
+      : { ...pipelineResolution.admissionRatings, registryName: pipelineResolution.definition.name };
 
   let connection: PipelineStartAdmissionConnection;
   let retained = false;

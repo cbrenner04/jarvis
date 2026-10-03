@@ -324,17 +324,11 @@ function parsePipelineStartArgs(argv: readonly string[]): PipelineStartCliInput 
   const seedText = typeof values["seed-text"] === "string" ? values["seed-text"] : undefined;
   if ((seedPath === undefined) === (seedText === undefined)) return { ok: false };
 
-  const risk = typeof values.risk === "string" ? values.risk : undefined;
-  const effort = typeof values.effort === "string" ? values.effort : undefined;
-  const ratingFlags = { ...(risk === undefined ? {} : { risk }), ...(effort === undefined ? {} : { effort }) };
-
-  if (seedText !== undefined) {
-    return { ok: true, input: { projectKey, seedText, ...ratingFlags }, detach };
-  }
-  if (seedPath !== undefined) {
-    return { ok: true, input: { projectKey, seedPath, ...ratingFlags }, detach };
-  }
-  return { ok: false };
+  const input: PipelineStartAdmissionInput =
+    seedText !== undefined ? { projectKey, seedText } : { projectKey, seedPath: seedPath! };
+  if (typeof values.risk === "string") input.risk = values.risk;
+  if (typeof values.effort === "string") input.effort = values.effort;
+  return { ok: true, input, detach };
 }
 
 async function waitForPipelineTerminal(client: IpcClient, pipelineId: string, io: Io, deps: CliDeps): Promise<number> {
@@ -401,7 +395,7 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
 
   io.stdout(`${admission.pipelineId}\n`);
   if (admission.admittedSelection !== null) {
-    io.stderr(formatPipelineStartAdmittedSelectionLine(admission.admittedSelection));
+    io.stderr(`pipeline: admitted ${formatAdmittedPipelineSelectionSummary(admission.admittedSelection)}\n`);
   }
   if (parsed.detach) return 0;
   if (attachedClient === undefined) {
@@ -567,10 +561,6 @@ function seedBasename(seedPath: string | undefined): string {
 export function formatAdmittedPipelineSelectionSummary(selection: AdmittedPipelineSelection): string {
   const { effective, sources, registryName } = selection;
   return `risk=${effective.risk}(${sources.risk}) effort=${effective.effort}(${sources.effort}) ${registryName}`;
-}
-
-function formatPipelineStartAdmittedSelectionLine(selection: AdmittedPipelineSelection): string {
-  return `pipeline: admitted ${formatAdmittedPipelineSelectionSummary(selection)}\n`;
 }
 
 function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: number, showDismissal: boolean): string {

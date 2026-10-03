@@ -17,6 +17,7 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import type { RatingAdmissionSource } from "../execution/project-pipeline-resolution.ts";
 import type { PublicationInputs } from "../execution/publication-landing.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
@@ -294,12 +295,12 @@ export function loadPipelineContext(value: unknown): LoadPipelineContextResult {
   return { ok: true, context };
 }
 
-export type AdmittedPipelineSelectionSource = "seed" | "flag" | "minimum";
+export type AdmittedPipelineSelectionSource = RatingAdmissionSource;
 
 /** Durable rating-driven admission metadata; `null` when the pipeline was selected by explicit `pipeline.name`. */
 export type AdmittedPipelineSelection = {
   effective: Record<"risk" | "effort", RatingLevel>;
-  sources: Record<"risk" | "effort", AdmittedPipelineSelectionSource>;
+  sources: Record<"risk" | "effort", RatingAdmissionSource>;
   registryName: string;
 };
 
@@ -312,7 +313,7 @@ type LoadAdmittedPipelineSelectionResult =
   | { ok: true; selection: AdmittedPipelineSelection | null }
   | { ok: false; error: AdmittedPipelineSelectionLoaderError };
 
-const ADMITTED_PIPELINE_SELECTION_SOURCES = new Set<AdmittedPipelineSelectionSource>(["seed", "flag", "minimum"]);
+const ADMITTED_PIPELINE_SELECTION_SOURCES = new Set<RatingAdmissionSource>(["seed", "flag", "minimum"]);
 
 /** Validate `pipeline_start` admitted-selection metadata before row insert. */
 export function loadAdmittedPipelineSelection(value: unknown): LoadAdmittedPipelineSelectionResult {
@@ -341,7 +342,7 @@ export function loadAdmittedPipelineSelection(value: unknown): LoadAdmittedPipel
 
   const errors: string[] = [];
   const effective: Partial<Record<"risk" | "effort", RatingLevel>> = {};
-  const sources: Partial<Record<"risk" | "effort", AdmittedPipelineSelectionSource>> = {};
+  const sources: Partial<Record<"risk" | "effort", RatingAdmissionSource>> = {};
   for (const dimension of RATING_DIMENSIONS) {
     const rawLevel = effectiveRaw[dimension];
     const level = typeof rawLevel === "string" ? parseRatingLevel(rawLevel) : undefined;
@@ -351,13 +352,10 @@ export function loadAdmittedPipelineSelection(value: unknown): LoadAdmittedPipel
       effective[dimension] = level;
     }
     const source = sourcesRaw[dimension];
-    if (
-      typeof source !== "string" ||
-      !ADMITTED_PIPELINE_SELECTION_SOURCES.has(source as AdmittedPipelineSelectionSource)
-    ) {
+    if (typeof source !== "string" || !ADMITTED_PIPELINE_SELECTION_SOURCES.has(source as RatingAdmissionSource)) {
       errors.push(`sources.${dimension} must be seed, flag, or minimum`);
     } else {
-      sources[dimension] = source as AdmittedPipelineSelectionSource;
+      sources[dimension] = source as RatingAdmissionSource;
     }
   }
   if (errors.length > 0) {
@@ -368,7 +366,7 @@ export function loadAdmittedPipelineSelection(value: unknown): LoadAdmittedPipel
     ok: true,
     selection: {
       effective: effective as Record<"risk" | "effort", RatingLevel>,
-      sources: sources as Record<"risk" | "effort", AdmittedPipelineSelectionSource>,
+      sources: sources as Record<"risk" | "effort", RatingAdmissionSource>,
       registryName: registryName as string,
     },
   };

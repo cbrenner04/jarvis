@@ -178,8 +178,8 @@ test("pipeline list distinguishes null from non-numeric nullable timestamps", as
 test("pipeline list rejects explicit null admittedSelection and accepts a valid admission object", async () => {
   const base = pipelineSnapshot(PIPELINE_ID);
   const admittedSelection = {
-    effective: { risk: "high", effort: "low" },
-    sources: { risk: "flag", effort: "seed" },
+    effective: { risk: "high" as const, effort: "low" as const },
+    sources: { risk: "flag" as const, effort: "seed" as const },
     registryName: "demo",
   };
 

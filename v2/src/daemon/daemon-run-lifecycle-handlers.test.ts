@@ -1283,7 +1283,10 @@ test("kill releases workflow write ownership", async () => {
   const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
   expect(resumed.kind).toBe("response");
 
-  const killed = await handlers.kill({ kind: "request", id: "k1", method: "kill", params: { runId } }, signal);
+  const killed = await handlers.kill(
+    { kind: "request", id: "k1", method: "kill", params: { runId, force: true } },
+    signal,
+  );
   expect(killed).toMatchObject({ kind: "response", result: { ok: true, status: "killed" } });
   await flushBackgroundRuns();
 

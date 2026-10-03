@@ -4,20 +4,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunStatus, StateStore, WorkflowSnapshot } from "../persistence/state-store.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import {
-  flushBackgroundRuns,
-  listRunsDirect,
-  loadRunOrThrow,
-  mockWriteLoopInput,
-  startRunDirect,
-  workflowSnapshot,
-} from "../testing/run-control.ts";
+import { flushBackgroundRuns, listRunsDirect, loadRunOrThrow, workflowSnapshot } from "../testing/run-control.ts";
+import { neverResolvingBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 type DismissalResult = { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
+
+const { createWriteStep } = writeStepFixtures();
+
+async function startLiveWorkflowRun(h: Handlers, projectName: string, branchName: string): Promise<string> {
+  const step = createWriteStep("step-1", branchName, neverResolvingBindingFactory, { suppressShrink: true });
+  step.worktree.projectName = projectName;
+  const response = await h.start(requestFrame("s-live", "start", { steps: [step] }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  if (!runId) throw new Error("expected an admitted run id");
+  await flushBackgroundRuns();
+  return runId;
+}
 
 function requestFrame(id: string, method: string, params?: unknown) {
   return { kind: "request" as const, id, method, params };
@@ -299,11 +306,7 @@ test("a dismissed sibling step run does not change a surviving entry row's proje
 });
 
 test("dismissing a mid-flight run changes only dismissed_at and lets it settle to terminal", async () => {
-  const runId = await startRunDirect(
-    handlers,
-    mockWriteLoopInput({ projectName: "mid-flight-dismiss", branchName: "mid-flight-dismiss" }),
-  );
-  if (!runId) throw new Error("expected an admitted run id");
+  const runId = await startLiveWorkflowRun(handlers, "mid-flight-dismiss", "mid-flight-dismiss");
 
   const beforeRun = loadRunOrThrow(stateStore, runId);
   expect(beforeRun.status).toBe("in-progress");
@@ -366,11 +369,7 @@ test("dismiss { project } dismisses matched-project and invocation-linked termin
     workflowSnapshot: workflowSnapshot("inv-bulk-rpc-live", [{ stepId: "sibling-live", role: "implement" }]),
   });
   const otherProjectTerminal = seedRun(stateStore, { status: "completed", project: "other-proj", branch: "op" });
-  const liveRunId = await startRunDirect(
-    handlers,
-    mockWriteLoopInput({ projectName: "bulk-proj", branchName: "bulk-proj-live" }),
-  );
-  if (!liveRunId) throw new Error("expected an admitted live run id");
+  const liveRunId = await startLiveWorkflowRun(handlers, "bulk-proj", "bulk-proj-live");
 
   const response = await dismissParams(handlers, { project: "bulk-proj" });
   expect(response).toEqual({ kind: "response", result: { kind: "applied", dismissedCount: 3 } });

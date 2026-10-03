@@ -1,8 +1,10 @@
 import { expect } from "bun:test";
+import { join } from "node:path";
 import type { ListRpcParams } from "../commands/run-list-rpc.ts";
 import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { createMinimalDispatchWriteStep, neverResolvingBindingFactory } from "./workflow-step-fixtures.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
@@ -104,7 +106,23 @@ export async function startRunDirect(
   handlers: RunControlHandlers,
   input = mockWriteLoopInput(),
 ): Promise<string | undefined> {
-  const response = await handlers.start(requestFrame("s1", "start", { input }), new AbortController().signal);
+  const worktree = input.worktree;
+  const step = createMinimalDispatchWriteStep({
+    stepId: input.stepId ?? "step-1",
+    worktree: {
+      projectRoot: worktree.projectRoot,
+      projectName: worktree.projectName,
+      branchName: worktree.branchName,
+      baseRef: worktree.baseRef,
+      jarvisRoot: join(worktree.projectRoot, ".jarvis"),
+    },
+    specPath: input.specPath.replace(/^\//, "") || "spec.md",
+    stepRules: input.stepRules,
+    expectedArtifactPath: input.expectedArtifactPath.replace(/^\//, "") || "artifact",
+    createBinding: neverResolvingBindingFactory,
+    suppressShrink: true,
+  });
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
   expect(response.kind).toBe("response");
   return response.kind === "response" ? (response.result as { runId?: string } | undefined)?.runId : undefined;
 }

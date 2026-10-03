@@ -28,6 +28,12 @@
 - [x] `workflow-runner-resume-review-dispatch.test.ts` `review row gate-command reconstruction prefers persisted snapshot step over write sibling` stays green.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
+## Blocker
+
+In-scope collateral (`daemon-run-dismiss.test.ts`, `daemon-run-failure-capture.test.ts`) passes; `bun run typecheck` passes. `bun run test:v2` still fails on subspec-02 fallout outside the named file list (`daemon-run-resume-owner-stamp.test.ts`, `daemon-slot-redrive.test.ts`, and peers still on direct `start`/`startRunDirect`). `v2/src/testing/run-control.ts` `startRunDirect` now admits via workflow steps for remaining `startRunDirect` callers; slot-redrive `daemonHarness` still needs a workflow-shaped `handleWorkflowStart` seam.
+
+blocked
+
 ## Documentation updates
 
 - None beyond subspec 04 catalog/runbook alignment.

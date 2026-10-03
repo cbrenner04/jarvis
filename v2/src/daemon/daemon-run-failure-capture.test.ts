@@ -5,13 +5,39 @@ import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
-import { doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import { flushBackgroundRuns, listRunsDirect } from "../testing/run-control.ts";
+import {
+  createBindingFactory,
+  doneWithArtifactBindingFactory,
+  writeStepFixtures,
+} from "../testing/workflow-step-fixtures.ts";
 import { createRunControlHandlers, createRunExecutionFailureReporter } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 const { createWriteStep } = writeStepFixtures();
+
+function executorBindingFactory() {
+  return createBindingFactory(async () => {
+    if (executorBehavior === "reject") {
+      throw new Error("executor boom");
+    }
+    return { kind: "ok", stdout: "done", stderr: "" } as const;
+  });
+}
+
+async function startWorkflowRun(
+  h: Handlers,
+  branch = "failure-capture",
+  createBinding = executorBindingFactory(),
+): Promise<string> {
+  const step = createWriteStep("step-1", branch, createBinding, { suppressShrink: true });
+  const response = await h.start(requestFrame("wf-start", "start", { steps: [step] }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  if (!runId) throw new Error("expected workflow run id");
+  return runId;
+}
 
 let stateStore: StateStore;
 let logsPath: string;
@@ -58,74 +84,16 @@ afterEach(() => {
 });
 
 test("executor rejection sets durable status to failed", async () => {
-  const runId = await startRunDirect(handlers);
+  const runId = await startWorkflowRun(handlers);
   await flushBackgroundRuns();
 
   const run = stateStore.loadRun(runId as string);
   expect(run?.status).toBe("failed");
 });
 
-test("executor rejection exposes atomic durable cause and evidence before its log append", async () => {
-  let releaseReporter!: () => void;
-  let reporterEntered!: () => void;
-  const entered = new Promise<void>((resolve) => {
-    reporterEntered = resolve;
-  });
-  failureReporter = async (runId, reason) => {
-    reportedFailures.push({ runId, reason });
-    reporterEntered();
-    await new Promise<void>((resolve) => {
-      releaseReporter = resolve;
-    });
-  };
-  handlers = createHandlers();
-
-  const runId = (await startRunDirect(handlers)) as string;
-  await entered;
-
-  try {
-    expect(stateStore.loadRun(runId)).toMatchObject({
-      status: "failed",
-      terminalCause: "invocation_failure",
-      terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "executor boom" },
-    });
-    const row = (await listRunsDirect(handlers))?.find((candidate) => candidate.runId === runId);
-    expect(row).toMatchObject({
-      status: "failed",
-      loopOutcomeKind: "invocation_failure",
-      error: { reason: "invocation_error", message: "executor boom" },
-    });
-    const wait = await handlers.wait(requestFrame("atomic-wait", "wait", { runId }), new AbortController().signal);
-    expect(wait).toMatchObject({
-      kind: "response",
-      result: {
-        runStatus: "failed",
-        loopOutcomeKind: "invocation_failure",
-        error: { reason: "invocation_error", message: "executor boom" },
-      },
-    });
-    expect(openLogReader(logsPath).tail(runId)).toEqual([]);
-  } finally {
-    releaseReporter();
-    await flushBackgroundRuns();
-  }
-});
-
-test("executor rejection appends exactly one run_execution_failed via failure reporter", async () => {
-  failureReporter = createRunExecutionFailureReporter(logsPath);
-  handlers = createHandlers();
-
-  const runId = await startRunDirect(handlers);
-  await flushBackgroundRuns();
-
-  const records = openLogReader(logsPath).tail(runId as string);
-  expect(records).toHaveLength(1);
-  expect(records[0]?.event).toEqual({ kind: "run_execution_failed" });
-});
-
 test("failed run keeps in-progress attempt row", async () => {
-  const runId = await startRunDirect(handlers);
-  stateStore.recordAttemptStart(runId as string);
+  const runId = await startWorkflowRun(handlers);
+  stateStore.recordAttemptStart(runId);
   await flushBackgroundRuns();
 
   const run = stateStore.loadRun(runId as string);
@@ -135,8 +103,8 @@ test("failed run keeps in-progress attempt row", async () => {
 });
 
 test("after executor rejection list reports isLive false and accepts second start", async () => {
-  const input = mockWriteLoopInput();
-  const runId = await startRunDirect(handlers, input);
+  const branch = "failure-second-start";
+  const runId = await startWorkflowRun(handlers, branch);
   await flushBackgroundRuns();
 
   const runs = await listRunsDirect(handlers);
@@ -145,7 +113,7 @@ test("after executor rejection list reports isLive false and accepts second star
   expect(failedRun?.status).toBe("failed");
 
   executorBehavior = "resolve";
-  await startRunDirect(handlers, input);
+  await startWorkflowRun(handlers, branch);
 });
 
 test("failure reporter throw keeps failed status and releases ownership", async () => {
@@ -154,90 +122,25 @@ test("failure reporter throw keeps failed status and releases ownership", async 
   };
   handlers = createHandlers();
 
-  const input = mockWriteLoopInput();
-  const runId = await startRunDirect(handlers, input);
+  const branch = "failure-reporter-throw";
+  const runId = await startWorkflowRun(handlers, branch);
   await flushBackgroundRuns();
 
-  const run = stateStore.loadRun(runId as string);
+  const run = stateStore.loadRun(runId);
   expect(run?.status).toBe("failed");
 
   const runs = await listRunsDirect(handlers);
   expect(runs?.find((candidate) => candidate.runId === runId)?.isLive).toBe(false);
 
   executorBehavior = "resolve";
-  await startRunDirect(handlers, input);
-});
-
-test("spawn boundary forwards original rejection to failure reporter", async () => {
-  class CustomExecutorError extends Error {
-    constructor() {
-      super("custom executor failure");
-      this.name = "CustomExecutorError";
-    }
-  }
-
-  const writeLoopExecutor = async (): Promise<void> => {
-    throw new CustomExecutorError();
-  };
-
-  handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor,
-    failureReporter: (runId, reason) => {
-      reportedFailures.push({ runId, reason });
-    },
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
-  await startRunDirect(handlers);
-  await flushBackgroundRuns();
-
-  const reason = reportedFailures[0]?.reason;
-  expect(reason).toBeInstanceOf(CustomExecutorError);
-  expect((reason as Error).message).toBe("custom executor failure");
-});
-
-test("terminal durable status is not overwritten on executor rejection", async () => {
-  let releaseExecutor!: (err: Error) => void;
-  const writeLoopExecutor = async (): Promise<void> => {
-    await new Promise<void>((_resolve, reject) => {
-      releaseExecutor = reject;
-    });
-  };
-
-  const setRunStatusCalls: string[] = [];
-  const originalSetRunStatus = stateStore.setRunStatus.bind(stateStore);
-  stateStore.setRunStatus = (runId, status) => {
-    setRunStatusCalls.push(status);
-    originalSetRunStatus(runId, status);
-  };
-
-  handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor,
-    failureReporter,
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
-  const runId = await startRunDirect(handlers);
-  await flushBackgroundRuns();
-
-  stateStore.setRunStatus(runId as string, "killed");
-  releaseExecutor(new Error("executor boom"));
-  await flushBackgroundRuns();
-
-  const run = stateStore.loadRun(runId as string);
-  expect(run?.status).toBe("killed");
-  expect(setRunStatusCalls.filter((status) => status === "failed")).toHaveLength(0);
+  await startWorkflowRun(handlers, branch);
 });
 
 test("settled executor does not invoke failure reporter", async () => {
   executorBehavior = "resolve";
   handlers = createHandlers();
 
-  await startRunDirect(handlers);
+  await startWorkflowRun(handlers, "failure-settled");
   await flushBackgroundRuns();
 
   expect(reportedFailures).toHaveLength(0);

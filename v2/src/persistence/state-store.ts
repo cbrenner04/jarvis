@@ -295,8 +295,6 @@ export function loadPipelineContext(value: unknown): LoadPipelineContextResult {
   return { ok: true, context };
 }
 
-export type AdmittedPipelineSelectionSource = RatingAdmissionSource;
-
 /** Durable rating-driven admission metadata; `null` when the pipeline was selected by explicit `pipeline.name`. */
 export type AdmittedPipelineSelection = {
   effective: Record<"risk" | "effort", RatingLevel>;

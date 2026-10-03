@@ -36,12 +36,12 @@ type UnresolvedRatingError = { code: "unresolved-rating"; dimension: RatingDimen
 
 export type RatingAdmissionSource = "seed" | "flag" | "minimum";
 
-export type AdmissionRatingMetadata = {
+type AdmissionRatingMetadata = {
   effective: Record<RatingDimension, RatingLevel>;
   sources: Record<RatingDimension, RatingAdmissionSource>;
 };
 
-export type ProjectPipelineResolutionOptions = {
+type ProjectPipelineResolutionOptions = {
   ratingFlagPresence?: Partial<Record<RatingDimension, true>>;
 };
 

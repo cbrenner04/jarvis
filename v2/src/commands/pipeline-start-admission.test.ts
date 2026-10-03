@@ -145,6 +145,62 @@ describe("pipeline start admission", () => {
     expect(harness.requests.some((request) => request.method === "pipeline_wait")).toBe(false);
   });
 
+  test("seed frontmatter ratings reach resolution and select the mapped definition for a name-less pipeline", async () => {
+    const seedDir = join(fixtureRoot, "rated-seeds");
+    mkdirSync(seedDir, { recursive: true });
+    writeFileSync(join(seedDir, "risky.md"), "---\nname: risky\nrisk: high\neffort: low\n---\nBody", "utf8");
+    const ratedProject = () => ({ pipeline: { terminalAction: "leave-draft", minimumEffort: "medium" } });
+
+    const fromText = makeHarness({ readProjectConfigRecord: ratedProject });
+    const textResult = await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody" },
+      fromText.deps,
+    );
+    expect(textResult).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(fromText.requests[0]?.params).toMatchObject({ definition: { name: "full-light-review" } });
+
+    const fromPath = makeHarness({ readProjectConfigRecord: ratedProject });
+    const pathResult = await admitPipelineStart(
+      { projectKey: "demo", seedPath: "../rated-seeds/risky.md" },
+      fromPath.deps,
+    );
+    expect(pathResult).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(fromPath.requests[0]?.params).toMatchObject({
+      definition: { name: "full-review" },
+      context: { seedPath: "../rated-seeds/risky.md" },
+    });
+
+    const unrated = makeHarness({ readProjectConfigRecord: ratedProject });
+    const unratedResult = await admitPipelineStart({ projectKey: "demo", seedText: "Body" }, unrated.deps);
+    expect(unratedResult).toMatchObject({
+      kind: "pre-admission-failure",
+      failure: "invalid-project-pipeline",
+      detail: expect.stringContaining("unresolved-rating: risk rating is unresolved"),
+    });
+    expectNoDaemonContact(unrated);
+  });
+
+  test("rejects a malformed seed rating by field before pipeline resolution", async () => {
+    let resolutions = 0;
+    const harness = makeHarness({
+      resolveProjectPipeline: (...args) => {
+        resolutions += 1;
+        return resolveProjectPipeline(...args);
+      },
+    });
+    const result = await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\neffort: extreme\n---\nBody" },
+      harness.deps,
+    );
+    expect(result).toEqual({
+      kind: "pre-admission-failure",
+      failure: "invalid-seed-rating",
+      detail: 'pipeline: seed frontmatter `effort:` must be one of low, medium, high; got "extreme"\n',
+    });
+    expect(resolutions).toBe(0);
+    expectNoDaemonContact(harness);
+  });
+
   test("rejects absent, duplicate, and malformed seed fields before configuration access", async () => {
     for (const input of [
       { projectKey: "demo" },

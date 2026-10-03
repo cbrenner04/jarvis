@@ -1,11 +1,12 @@
 import { isRecord } from "../../../shared/is-record.ts";
 import {
+  parseRatingLevel,
   RATING_DIMENSIONS,
   RATING_LEVELS,
   type RatingDimension,
   type RatingLevel,
 } from "../../../shared/seed-metadata.ts";
-import { WORKFLOW_REVIEW_POSTURES } from "../commands/workflow-start-preparation.ts";
+import { isWorkflowReviewPosture, WORKFLOW_REVIEW_POSTURES } from "../commands/workflow-start-preparation.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { ProjectPipelineConfig } from "../config/machine-config-loader.ts";
 import {
@@ -21,7 +22,7 @@ import type { getPipelineDefinition } from "./pipeline-registry.ts";
 
 type PipelineLookup = typeof getPipelineDefinition;
 
-/** Ratings supplied per start (seed frontmatter or a CLI override); raw strings, validated here before floors apply. */
+/** Ratings supplied per start (seed frontmatter today); raw strings, validated here before floors apply. */
 type SuppliedRatings = Partial<Record<RatingDimension, string>>;
 
 type InvalidProjectPipelineConfigError = {
@@ -127,6 +128,9 @@ function parseReviewOverrides(
     if (typeof posture !== "string") {
       return invalid(overrideKey, `${overrideKey} must be a string`);
     }
+    if (!isWorkflowReviewPosture(posture)) {
+      return invalid(overrideKey, `${overrideKey} has unknown review posture "${posture}"`);
+    }
     reviewOverrides.push([stageId, posture]);
   }
   return { ok: true, reviewOverrides };
@@ -192,50 +196,49 @@ function ratingRank(level: RatingLevel): number {
   return RATING_LEVELS.indexOf(level);
 }
 
-/** Per dimension: validate the supplied rating, then `effective = max(project minimum, supplied)`; neither may be absent. */
+/**
+ * Per dimension: validate the supplied rating, then `effective = max(project minimum, supplied)`. A minimum is a floor,
+ * never a default: with nothing supplied the dimension is unresolved even when a minimum exists.
+ */
 function resolveEffectiveRatings(
   minimums: ParsedProjectPipeline["minimums"],
   supplied: SuppliedRatings,
-  minimumKeyPrefix: string,
 ):
   | { ok: true; ratings: Record<RatingDimension, RatingLevel> }
   | { ok: false; error: InvalidRatingError | UnresolvedRatingError } {
   const ratings: Partial<Record<RatingDimension, RatingLevel>> = {};
   for (const dimension of RATING_DIMENSIONS) {
     const raw = supplied[dimension];
-    let suppliedLevel: RatingLevel | undefined;
-    if (raw !== undefined) {
-      suppliedLevel = RATING_LEVELS.find((level) => level === raw);
-      if (suppliedLevel === undefined) {
-        return {
-          ok: false,
-          error: {
-            code: "invalid-rating",
-            dimension,
-            value: raw,
-            message: `${dimension} rating must be one of ${RATING_LEVELS.join(", ")}; got ${JSON.stringify(raw)}`,
-          },
-        };
-      }
-    }
-    const minimum = minimums[dimension];
-    const effective =
-      suppliedLevel === undefined || (minimum !== undefined && ratingRank(minimum) > ratingRank(suppliedLevel))
-        ? (minimum ?? suppliedLevel)
-        : suppliedLevel;
-    if (effective === undefined) {
+    if (raw === undefined) {
       return {
         ok: false,
         error: {
           code: "unresolved-rating",
           dimension,
-          message: `${dimension} rating is unresolved: none supplied and ${minimumKeyPrefix}.${MINIMUM_KEYS[dimension]} is absent`,
+          message: `${dimension} rating is unresolved: the seed supplies none and a project minimum is a floor, not a default`,
         },
       };
     }
-    ratings[dimension] = effective;
+    const suppliedLevel = parseRatingLevel(raw);
+    if (suppliedLevel === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "invalid-rating",
+          dimension,
+          value: raw,
+          message: `${dimension} rating must be one of ${RATING_LEVELS.join(", ")}; got ${JSON.stringify(raw)}`,
+        },
+      };
+    }
+    ratings[dimension] = maxRating(suppliedLevel, minimums[dimension]);
   }
   return { ok: true, ratings: ratings as Record<RatingDimension, RatingLevel> };
+}
+
+function maxRating(supplied: RatingLevel, minimum: RatingLevel | undefined): RatingLevel {
+  if (minimum === undefined) return supplied;
+  return ratingRank(minimum) > ratingRank(supplied) ? minimum : supplied;
 }
 
 function postureRank(posture: string): number {
@@ -259,7 +262,7 @@ function selectPipeline(
   if (parsed.name !== undefined) {
     return { ok: true, selection: { name: parsed.name, label: `${pipelineKey}.name`, ratingSelected: false } };
   }
-  const effective = resolveEffectiveRatings(parsed.minimums, supplied, pipelineKey);
+  const effective = resolveEffectiveRatings(parsed.minimums, supplied);
   if (!effective.ok) return effective;
   const name = selectPipelineForRatings(effective.ratings);
   return {
@@ -288,7 +291,7 @@ function applyReviewOverrides(
       return invalid(overrideKey, `${overrideKey} cannot target an approval stage`);
     }
     // Rating selection is a floor: an override may strengthen a stage's review but never weaken it.
-    if (selection.ratingSelected && postureRank(posture) >= 0 && postureRank(posture) < postureRank(stage.review)) {
+    if (selection.ratingSelected && postureRank(posture) < postureRank(stage.review)) {
       return invalid(
         overrideKey,
         `${overrideKey} cannot weaken review "${stage.review}" to "${posture}" below ${selection.label}`,

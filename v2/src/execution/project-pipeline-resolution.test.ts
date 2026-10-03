@@ -208,6 +208,11 @@ describe("resolveProjectPipeline", () => {
       pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, { plan: null as unknown as string }),
       "projects.demo.pipeline.reviewOverrides.plan",
     ],
+    [
+      "off-scale override posture",
+      pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, { plan: "Light" }),
+      "projects.demo.pipeline.reviewOverrides.plan",
+    ],
     ["stages key", { ...pipelineConfig("fast"), stages: [] }, "projects.demo.pipeline.stages"],
     ["prompt key", { ...pipelineConfig("fast"), prompt: "x" }, "projects.demo.pipeline.prompt"],
     ["code key", { ...pipelineConfig("fast"), code: "x" }, "projects.demo.pipeline.code"],
@@ -495,7 +500,7 @@ describe("resolveProjectPipeline", () => {
     });
   });
 
-  test("passes invalid override postures to the definition validator and preserves every error", () => {
+  test("rejects an off-scale override posture at its key and still forwards source validator errors", () => {
     const source: PipelineDefinition = {
       name: "invalid",
       stages: [
@@ -505,12 +510,25 @@ describe("resolveProjectPipeline", () => {
       ],
     };
     const lookup = () => ({ ok: true, definition: source }) as const;
+
+    const offScale = resolveProjectPipeline(
+      config("demo", pipelineConfig("invalid", DEFAULT_TERMINAL_ACTION, { "plan-a": "heavy" })),
+      lookup,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    expectFailure(offScale);
+    expect(offScale.error).toEqual({
+      code: "invalid-project-pipeline-config",
+      key: "projects.demo.pipeline.reviewOverrides.plan-a",
+      message: 'projects.demo.pipeline.reviewOverrides.plan-a has unknown review posture "heavy"',
+    });
+
     const composed: PipelineDefinition = {
       ...source,
       terminalAction: DEFAULT_TERMINAL_ACTION,
       supersede: DEFAULT_SUPERSEDE,
       stages: [
-        { stageId: "plan-a", kind: "workflow", workflow: "plan", review: "heavy" },
+        { stageId: "plan-a", kind: "workflow", workflow: "plan", review: "light" },
         { stageId: "plan-b", kind: "workflow", workflow: "plan", review: "massive" },
         { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
       ],
@@ -519,11 +537,10 @@ describe("resolveProjectPipeline", () => {
     if (expected.ok) throw new Error("expected validator failure");
 
     const result = resolveProjectPipeline(
-      config("demo", pipelineConfig("invalid", DEFAULT_TERMINAL_ACTION, { "plan-a": "heavy" })),
+      config("demo", pipelineConfig("invalid", DEFAULT_TERMINAL_ACTION, { "plan-a": "light" })),
       lookup,
       ALL_REVIEW_ROLES_CONFIG,
     );
-
     expect(result).toEqual({
       ok: false,
       error: { code: "invalid-pipeline-definition", errors: expected.errors },
@@ -531,7 +548,7 @@ describe("resolveProjectPipeline", () => {
     for (const error of expected.errors) {
       expect(error).toEqual({
         code: "invalid-review-posture",
-        stageId: expect.any(String),
+        stageId: "plan-b",
         field: "review",
         message: expect.stringContaining("review"),
       });
@@ -631,7 +648,27 @@ describe("rating selection", () => {
     expect(selectedName({ ...RATED, minimumRisk: "low", minimumEffort: "low" }, { risk: "high", effort: "high" })).toBe(
       "full-review",
     );
-    expect(selectedName({ ...RATED, minimumRisk: "low", minimumEffort: "low" })).toBe("fast");
+  });
+
+  test("a minimum is a floor, not a default: nothing supplied is unresolved with or without minimums", () => {
+    for (const pipeline of [RATED, { ...RATED, minimumRisk: "high", minimumEffort: "high" }]) {
+      let lookupCalls = 0;
+      const result = resolveProjectPipeline(
+        config("demo", pipeline),
+        (name) => {
+          lookupCalls += 1;
+          return getPipelineDefinition(name);
+        },
+        ALL_REVIEW_ROLES_CONFIG,
+      );
+      expectFailure(result);
+      expect(result.error).toEqual({
+        code: "unresolved-rating",
+        dimension: "risk",
+        message: "risk rating is unresolved: the seed supplies none and a project minimum is a floor, not a default",
+      });
+      expect(lookupCalls).toBe(0);
+    }
   });
 
   test("validates a supplied rating before the floor applies and names an unresolved dimension before lookup", () => {
@@ -666,11 +703,12 @@ describe("rating selection", () => {
     expect(unresolved.error).toEqual({
       code: "unresolved-rating",
       dimension: "effort",
-      message: "effort rating is unresolved: none supplied and projects.demo.pipeline.minimumEffort is absent",
+      message: "effort rating is unresolved: the seed supplies none and a project minimum is a floor, not a default",
     });
     expect(formatProjectPipelineResolutionError(unresolved)).toBe(
-      "unresolved-rating: effort rating is unresolved: none supplied and projects.demo.pipeline.minimumEffort is absent",
+      "unresolved-rating: effort rating is unresolved: the seed supplies none and a project minimum is a floor, not a default",
     );
+    expect(selectedName(RATED, { risk: " high ", effort: "low" })).toBe("full-review");
     expect(lookupCalls).toBe(0);
   });
 
@@ -682,6 +720,7 @@ describe("rating selection", () => {
       ),
     ).toBe("fast");
     expect(selectedName({ ...RATED, name: "fast" })).toBe("fast");
+    expect(selectedName({ ...RATED, name: "fast", minimumRisk: "high" })).toBe("fast");
     const malformedMinimum = resolveProjectPipeline(
       config("demo", { ...RATED, name: "fast", minimumRisk: "extreme" }),
       getPipelineDefinition,
@@ -697,9 +736,10 @@ describe("rating selection", () => {
 
   test("review overrides may strengthen but never weaken a rating-selected pipeline", () => {
     const weakened = resolveProjectPipeline(
-      config("demo", { ...RATED, minimumRisk: "high", minimumEffort: "low", reviewOverrides: { plan: "light" } }),
+      config("demo", { ...RATED, minimumRisk: "high", reviewOverrides: { plan: "light" } }),
       getPipelineDefinition,
       ALL_REVIEW_ROLES_CONFIG,
+      { risk: "low", effort: "low" },
     );
     expectFailure(weakened);
     expect(weakened.error).toEqual({
@@ -710,9 +750,10 @@ describe("rating selection", () => {
     });
 
     const strengthened = resolveProjectPipeline(
-      config("demo", { ...RATED, minimumRisk: "low", minimumEffort: "low", reviewOverrides: { implement: "debate" } }),
+      config("demo", { ...RATED, reviewOverrides: { implement: "debate" } }),
       getPipelineDefinition,
       ALL_REVIEW_ROLES_CONFIG,
+      { risk: "low", effort: "low" },
     );
     expect(strengthened.ok).toBe(true);
     if (!strengthened.ok) throw new Error("expected resolution");

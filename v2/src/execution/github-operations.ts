@@ -1,3 +1,4 @@
+import { errorMessage } from "../../../shared/error-message.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessOptions,
@@ -95,7 +96,7 @@ function failureOf(error: unknown): Failure {
   const status =
     typeof shaped?.status === "number" ? shaped.status : typeof shaped?.code === "number" ? shaped.code : undefined;
   return {
-    message: error instanceof Error ? error.message : String(error),
+    message: errorMessage(error),
     stdout: textOf(shaped?.stdout),
     stderr: textOf(shaped?.stderr),
     status,

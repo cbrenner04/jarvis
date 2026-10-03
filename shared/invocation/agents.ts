@@ -9,6 +9,7 @@ import { loadPrices } from "../prices/load.ts";
 import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-predicate.ts";
 import { probeAgentDescendantProcessGroups } from "./agent-descendant-process-groups.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
+import { codexUsageFromTotals } from "./codex-usage.ts";
 import {
   type ConfinementMechanism,
   type ConfinementPolicy,
@@ -23,7 +24,19 @@ import type {
   InvocationSettlement,
   ProcessGroupRecorder,
 } from "./execute.ts";
+import { asJsonObject } from "./json-lines.ts";
 import { parseOpencodeJsonOutput } from "./opencode-json.ts";
+import {
+  findClaudeRoutingToolCall,
+  parseCodexExecJsonOutput,
+  parseRoutingOutput,
+  ROUTING_TIMEOUT_MS,
+  type RoutingInvocationError,
+  RoutingRefusalError,
+  resolveToolFreeVendor,
+  routingFailure,
+  type ToolFreeVendor,
+} from "./routing.ts";
 
 export type ResolvedAgentBinding = {
   agentId: string;
@@ -61,7 +74,12 @@ export type ResolvedAgentBindingOptions = {
   abortKillGraceMs?: number;
 };
 
-function bindingAgentRunOptions(opts: ResolvedAgentBindingOptions): AgentRunOptions {
+function bindingAgentRunOptions(
+  opts: Pick<
+    ResolvedAgentBindingOptions,
+    "probeAgentDescendantProcessGroups" | "signalProcessGroup" | "abortKillGraceMs"
+  >,
+): AgentRunOptions {
   return {
     ...(opts.probeAgentDescendantProcessGroups !== undefined
       ? { probeAgentDescendantProcessGroups: opts.probeAgentDescendantProcessGroups }
@@ -315,6 +333,199 @@ export function createResolvedAgentBinding(
   };
 }
 
+export type RoutingInvocationResult = InvocationResult | RoutingInvocationError;
+
+export type RoutingBindingOptions = {
+  spawn?: SpawnFn;
+  /** Whole-call wall clock; default `ROUTING_TIMEOUT_MS`. */
+  timeoutMs?: number;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+  probeAgentDescendantProcessGroups?: ProbeAgentDescendantProcessGroups;
+  signalProcessGroup?: SignalProcessGroup;
+  abortKillGraceMs?: number;
+};
+
+/**
+ * Tool-free invocation forms per vendor. Only the prompt and the explicit `cwd` reach the agent:
+ * no `--add-dir`, no workspace grant, no coding permission mode, no settings-file inheritance.
+ */
+function routingSpawnConfig(vendor: ToolFreeVendor, adapterModel: string, cwd: string, spawn?: SpawnFn) {
+  const base = {
+    cwd,
+    stdio: ["pipe", "pipe", "pipe"] as StdioOptions,
+    writeStdin: (stdin: NodeJS.WritableStream, text: string) => {
+      stdin.write(text);
+      stdin.end();
+    },
+    ...(spawn !== undefined ? { spawn } : {}),
+  };
+  if (vendor === "claude") {
+    return {
+      ...base,
+      name: "claude" as const,
+      binary: "claude",
+      // `--tools ""` disables every built-in tool; `--restricted` ignores user/project/local settings
+      // (so repo hooks and permission grants never load); `--strict-mcp-config` drops settings-sourced
+      // MCP servers; `--permission-prompts none` auto-denies anything that would still ask.
+      buildArgv: () => [
+        "-p",
+        "--tools",
+        "",
+        "--restricted",
+        "--strict-mcp-config",
+        "--permission-prompts",
+        "none",
+        "--model",
+        adapterModel,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+      ],
+      streamErrorPrefix: "claude:",
+      classifier: "claude" as const,
+    };
+  }
+  return {
+    ...base,
+    name: "codex" as const,
+    binary: "codex",
+    // codex has no tool-disabling flag: the read-only OS sandbox plus `approval_policy="never"`
+    // (escalations auto-denied) is the strongest honest form; any tool item in the `--json`
+    // transcript is still a named failure.
+    buildArgv: () => [
+      "exec",
+      "--skip-git-repo-check",
+      "--color",
+      "never",
+      "--sandbox",
+      "read-only",
+      "-c",
+      'approval_policy="never"',
+      "--json",
+      "--model",
+      adapterModel,
+    ],
+    streamErrorPrefix: "codex:",
+    classifier: "codex" as const,
+  };
+}
+
+function settlementOf(result: InvocationResult): InvocationSettlement {
+  const { usage, usage_source, cost_usd, cost_source, warnings } = result as InvocationSettlement;
+  return {
+    ...(usage !== undefined ? { usage } : {}),
+    ...(usage_source !== undefined ? { usage_source } : {}),
+    ...(cost_usd !== undefined ? { cost_usd } : {}),
+    ...(cost_source !== undefined ? { cost_source } : {}),
+    ...(warnings !== undefined ? { warnings } : {}),
+  };
+}
+
+function finalizeClaudeRoutingResult(raw: InvocationResult): RoutingInvocationResult {
+  const toolCall = raw.kind === "ok" ? findClaudeRoutingToolCall(raw.stdout) : null;
+  const result = finalizeClaudeInvocationResult(raw);
+  if (result.kind !== "ok") return result;
+  if (toolCall !== null) {
+    return routingFailure("tool_call", `routing: agent attempted tool call '${toolCall}'`, settlementOf(result));
+  }
+  return boundRoutingOutput(result);
+}
+
+/** codex `--json` keeps the event stream on stdout (ok) or in the combined diagnostics (non-ok). */
+function codexRoutingSettlement(usage: Usage | null, priceKey: string): InvocationSettlement {
+  return usage === null
+    ? { usage_source: "unavailable", cost_usd: null, cost_source: "no-usage" }
+    : { usage, usage_source: "agent", ...usageCostSettlement(usage, priceKey) };
+}
+
+function finalizeCodexRoutingResult(raw: InvocationResult, priceKey: string): RoutingInvocationResult {
+  if (raw.kind !== "ok") {
+    const stream = "diagnostics" in raw && typeof raw.diagnostics === "string" ? raw.diagnostics : raw.stderr;
+    return { ...raw, ...codexRoutingSettlement(parseCodexExecJsonOutput(stream).usage, priceKey) };
+  }
+  const parsed = parseCodexExecJsonOutput(raw.stdout);
+  const settlement = codexRoutingSettlement(parsed.usage, priceKey);
+  if (parsed.error !== null) {
+    return { kind: "error", exitCode: -1, stderr: `codex: ${parsed.error}`, diagnostics: raw.stdout, ...settlement };
+  }
+  if (parsed.toolCall !== null) {
+    return routingFailure("tool_call", `routing: agent attempted tool call '${parsed.toolCall}'`, settlement);
+  }
+  if (parsed.message === null) {
+    return routingFailure("malformed_output", "routing: no agent message in codex transcript", settlement);
+  }
+  return boundRoutingOutput({ kind: "ok", stdout: parsed.message, stderr: raw.stderr, ...settlement });
+}
+
+function boundRoutingOutput(result: InvocationOk): RoutingInvocationResult {
+  const parsed = parseRoutingOutput(result.stdout);
+  if (!parsed.ok) return routingFailure(parsed.reason, `routing: ${parsed.detail}`, settlementOf(result));
+  return { ...result, stdout: parsed.json };
+}
+
+function routingTimeoutResult(raw: InvocationResult, timeoutMs: number): RoutingInvocationError {
+  const diagnostics =
+    "diagnostics" in raw && typeof raw.diagnostics === "string" && raw.diagnostics.length > 0
+      ? raw.diagnostics
+      : raw.kind === "ok"
+        ? raw.stdout
+        : undefined;
+  return routingFailure("timeout", `routing: no result within ${timeoutMs}ms`, {
+    ...settlementOf(raw),
+    ...(diagnostics !== undefined && diagnostics.length > 0 ? { diagnostics } : {}),
+  });
+}
+
+/**
+ * One bounded, tool-free routing call: a single process attempt, no transient retry, a whole-call
+ * timeout, and a transcript/output check that names its failure. Vendors with no tool-free form
+ * throw `RoutingRefusalError` here, before any process starts; callers resolving an agent order
+ * filter with `resolveToolFreeVendor` first.
+ */
+export function createRoutingAgentBinding(
+  args: ResolvedAgentBinding,
+  opts: RoutingBindingOptions = {},
+): InvocationBinding<RoutingInvocationResult> {
+  const { agentId, adapterModel, priceKey } = args;
+  const resolved = resolveToolFreeVendor(agentId);
+  if ("refusal" in resolved) throw new RoutingRefusalError(agentId, resolved.refusal);
+  const vendor = resolved.vendor;
+  const timeoutMs = opts.timeoutMs ?? ROUTING_TIMEOUT_MS;
+  const setTimer = opts.setTimeout ?? setTimeout;
+  const clearTimer = opts.clearTimeout ?? clearTimeout;
+  return {
+    id: `${agentId}/${adapterModel}/${priceKey}`,
+    metadata: { agent: agentId, model: adapterModel },
+    invoke: async ({ prompt, cwd, signal, processGroupRecorder }) => {
+      const controller = new AbortController();
+      const forwardAbort = () => controller.abort(signal?.reason ?? "aborted");
+      if (signal?.aborted) forwardAbort();
+      else signal?.addEventListener("abort", forwardAbort, { once: true });
+      let timedOut = false;
+      const timer = setTimer(() => {
+        timedOut = true;
+        controller.abort("routing timeout");
+      }, timeoutMs);
+      timer.unref?.();
+      try {
+        const raw = await singleSpawn(routingSpawnConfig(vendor, adapterModel, cwd, opts.spawn), prompt, {
+          signal: controller.signal,
+          ...(processGroupRecorder !== undefined ? { processGroupRecorder } : {}),
+          ...bindingAgentRunOptions(opts),
+          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+        });
+        if (timedOut) return routingTimeoutResult(raw, timeoutMs);
+        return vendor === "claude" ? finalizeClaudeRoutingResult(raw) : finalizeCodexRoutingResult(raw, priceKey);
+      } finally {
+        clearTimer(timer);
+        signal?.removeEventListener("abort", forwardAbort);
+      }
+    },
+  };
+}
+
 type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 type AgentRunOptions = {
@@ -343,13 +554,6 @@ type ShellToolParseState = {
   pendingInputJson: Map<string, { name: string; partial: string }>;
   awaitingShellCompletion: Set<string>;
 };
-
-function asJsonObject(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
 
 function isClaudeShellToolName(name: unknown): boolean {
   return name === "Bash" || name === "Shell";
@@ -1130,15 +1334,8 @@ function recoveredCursorSettlement(
   const patch: Partial<InvocationSettlement> = {
     usage: parsed.usage,
     usage_source: "agent",
-    cost_usd: null,
+    ...usageCostSettlement(parsed.usage, priceKey),
   };
-  try {
-    const cost = computeCost(parsed.usage, priceKey, loadPrices());
-    patch.cost_usd = cost.cost_usd;
-    patch.cost_source = cost.cost_source;
-  } catch {
-    patch.cost_source = "no-price";
-  }
   const allNull = Object.values(parsed.usage).every((value) => value === null);
   if (allNull) {
     patch.cost_source = "no-usage";
@@ -1247,13 +1444,7 @@ function finalizeCursorInvocationResult(result: InvocationResult, priceKey: stri
   if (parsed.usage !== undefined) {
     output.usage = parsed.usage;
     output.usage_source = "agent";
-    try {
-      const cost = computeCost(parsed.usage, priceKey, loadPrices());
-      output.cost_usd = cost.cost_usd;
-      output.cost_source = cost.cost_source;
-    } catch {
-      output.cost_source = "no-price";
-    }
+    Object.assign(output, usageCostSettlement(parsed.usage, priceKey));
   } else {
     output.usage_source = "unavailable";
     output.cost_source = "no-usage";
@@ -1445,25 +1636,23 @@ function finalizeCodexInvocationResult(
     };
   }
 
-  let cost_usd: number | null = null;
-  let cost_source: InvocationOk["cost_source"] = "no-usage";
-  try {
-    const cost = computeCost(usage, priceKey, loadPrices());
-    cost_usd = cost.cost_usd;
-    cost_source = cost.cost_source;
-  } catch {
-    cost_usd = null;
-    cost_source = "no-price";
-  }
-
   return {
     ...result,
     usage,
     usage_source: "agent",
-    cost_usd,
-    cost_source,
+    ...usageCostSettlement(usage, priceKey),
     ...(rollout.parseWarnings.length > 0 ? { warnings: mergeWarnings(result.warnings, rollout.parseWarnings) } : {}),
   };
+}
+
+/** Price `usage` under `priceKey`; a missing price row settles as `no-price`, never a thrown error. */
+function usageCostSettlement(usage: Usage, priceKey: string): Pick<InvocationSettlement, "cost_usd" | "cost_source"> {
+  try {
+    const cost = computeCost(usage, priceKey, loadPrices());
+    return { cost_usd: cost.cost_usd, cost_source: cost.cost_source };
+  } catch {
+    return { cost_usd: null, cost_source: "no-price" };
+  }
 }
 
 function mergeWarnings(existing: string[] | undefined, added: string[]): string[] {
@@ -1530,33 +1719,10 @@ function selectLastCodexTokenCountEvent(lines: string[]): Record<string, unknown
 }
 
 function mapCodexTokenUsageFromEvent(event: Record<string, unknown>): Usage | null {
-  const payload = event.payload;
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const payloadRec = payload as Record<string, unknown>;
-  if (payloadRec.type !== "token_count") return null;
-  const info = payloadRec.info;
-  if (info === null || typeof info !== "object" || Array.isArray(info)) return null;
-  const infoRec = info as Record<string, unknown>;
-  const total = infoRec.total_token_usage;
-  if (total === null || typeof total !== "object" || Array.isArray(total)) return null;
-  const totalRec = total as Record<string, unknown>;
-
-  const input = codexNumberOrNull(totalRec.input_tokens);
-  const cachedInput = codexNumberOrNull(totalRec.cached_input_tokens);
-  const output = codexNumberOrNull(totalRec.output_tokens);
-
-  const freshInput = input !== null ? (cachedInput !== null ? Math.max(0, input - cachedInput) : input) : null;
-
-  return {
-    input_tokens: freshInput,
-    output_tokens: output,
-    cache_read_input_tokens: cachedInput,
-    cache_creation_input_tokens: null,
-  };
-}
-
-function codexNumberOrNull(value: unknown): number | null {
-  return typeof value === "number" ? value : null;
+  const payload = asJsonObject(event.payload);
+  if (payload === null || payload.type !== "token_count") return null;
+  const total = asJsonObject(asJsonObject(payload.info)?.total_token_usage);
+  return total === null ? null : codexUsageFromTotals(total);
 }
 
 async function runCursorBinding(args: {

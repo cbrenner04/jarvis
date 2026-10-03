@@ -57,6 +57,7 @@ beforeEach(() => {
           advocate: rung("advoc"),
           adjudicator: rung("adj"),
           actuator: rung("act"),
+          routing: rung("act"),
         },
       },
     }),

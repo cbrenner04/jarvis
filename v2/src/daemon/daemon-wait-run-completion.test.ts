@@ -52,6 +52,7 @@ function installWaitCompletionMachineProfile(): void {
     advocate: rung("advoc", "advoc"),
     adjudicator: rung("adj", "adj"),
     actuator: rung("act", "act"),
+    routing: rung("act", "act"),
   };
   writeFileSync(
     join(machinesDir, `${WAIT_COMPLETION_MACHINE_PROFILE}.json`),

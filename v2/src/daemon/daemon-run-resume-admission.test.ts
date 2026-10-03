@@ -23,6 +23,7 @@ const AGENT_MODEL_CONFIG: AgentModelConfig = {
     advocate: { rungs: [{ adapterModel: "advoc", priceKey: "advoc" }] },
     adjudicator: { rungs: [{ adapterModel: "adj", priceKey: "adj" }] },
     actuator: { rungs: [{ adapterModel: "act", priceKey: "act" }] },
+    routing: { rungs: [{ adapterModel: "act", priceKey: "act" }] },
   },
 };
 

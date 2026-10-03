@@ -1466,6 +1466,7 @@ function implementResumeBindingDeps(): { jarvisRoot: string; bindingDeps: WriteL
           advocate: rung("advoc"),
           adjudicator: rung("adj"),
           actuator: rung("act"),
+          routing: rung("act"),
         },
       },
     }),

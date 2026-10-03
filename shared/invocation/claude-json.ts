@@ -1,3 +1,5 @@
+import { parseJsonObjectLines } from "./json-lines.ts";
+
 const claudeQuotaEnvelopePatterns = [
   /\byou['’]ve hit your (?:session|weekly|opus) limit\b/i,
   /\byou['’]ve hit your monthly spend limit\b/i,
@@ -31,19 +33,9 @@ function isResultEvent(value: unknown): value is Record<string, unknown> {
 function findTerminalResultEvent(stdout: string): { envelope: unknown | null; warnings: string[] } {
   let lastResult: unknown = null;
 
-  for (const line of stdout.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "") {
-      continue;
-    }
-
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (isResultEvent(parsed)) {
-        lastResult = parsed;
-      }
-    } catch {
-      // Skip unparseable NDJSON lines.
+  for (const frame of parseJsonObjectLines(stdout)) {
+    if (isResultEvent(frame)) {
+      lastResult = frame;
     }
   }
 

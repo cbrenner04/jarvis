@@ -29,10 +29,6 @@ import { resolveProjectPipeline } from "../execution/project-pipeline-resolution
 import type { IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { type AdmittedPipelineSelection, openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { formatAdmittedPipelineSelectionSummary } from "./pipeline.ts";
-import { flushBackgroundRuns } from "../testing/run-control.ts";
-import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 import {
   type CliRepoFixture,
   captureIo,
@@ -43,6 +39,10 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { formatAdmittedPipelineSelectionSummary } from "./pipeline.ts";
 
 let fx: CliRepoFixture;
 

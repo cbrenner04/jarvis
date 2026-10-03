@@ -38,11 +38,11 @@ import type {
   PipelineSnapshot,
   PipelineTerminalState,
 } from "../daemon/pipeline-observation.ts";
-import type { AdmittedPipelineSelection } from "../persistence/state-store.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import type { AdmittedPipelineSelection } from "../persistence/state-store.ts";
 import { type DismissalMode, type DismissalRow, parseDismissalArgs, reportDismissalOutcome } from "./dismissal.ts";
 import { admitPipelineStart, type PipelineStartAdmissionInput } from "./pipeline-start-admission.ts";
 

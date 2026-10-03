@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { RATING_LEVELS } from "../../../shared/seed-metadata.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
@@ -12,7 +13,6 @@ import {
   type PipelineStartAdmissionDeps,
   type PipelineStartAdmissionInput,
 } from "./pipeline-start-admission.ts";
-import { RATING_LEVELS } from "../../../shared/seed-metadata.ts";
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
   claude: {

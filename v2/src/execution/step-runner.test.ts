@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { SessionLog, SessionLogTag } from "../../../shared/invocation/session-log.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
-import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { resolveInvocationBindings } from "../config/agent-model-config.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { parseStepOutcomeToken, parseStepOutcomeTokenDetail, runStep, type StepContract } from "./step-runner.ts";
 
 function fakeSessionLog(): { log: SessionLog; lines: { tag: SessionLogTag; text: string }[] } {

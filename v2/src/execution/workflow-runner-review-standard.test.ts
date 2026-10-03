@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
-import { withStateStore } from "../testing/write-fixtures.ts";
 import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
+import { withStateStore } from "../testing/write-fixtures.ts";
 import {
   config,
   loadTelemetryRows,

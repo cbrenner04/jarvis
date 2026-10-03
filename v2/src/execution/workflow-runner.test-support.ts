@@ -17,6 +17,7 @@ import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { openStateStore } from "../persistence/state-store.ts";
 import { createCommittedGitFixtureTemplate } from "../testing/git-fixture-template.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import type { PublicationInputs } from "./publication-landing.ts";
@@ -122,8 +123,7 @@ export function createBindingFactory(
       id: `${agentId}/${adapterModel}`,
       invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
       metadata: { agent: agentId, model: adapterModel },
-      confinementPolicy: "unrestricted",
-      confinementMechanism: "none",
+      ...unrestrictedBindingConfinement,
     } satisfies InvocationBinding;
   };
 }
@@ -401,8 +401,7 @@ export function createDebateBindingFactory(
       id: `${agentId}/${adapterModel}`,
       invoke: () => invoke({ agentId, adapterModel }),
       metadata: { agent: agentId, model: adapterModel },
-      confinementPolicy: "unrestricted",
-      confinementMechanism: "none",
+      ...unrestrictedBindingConfinement,
     } satisfies InvocationBinding;
   };
 }
@@ -413,8 +412,7 @@ export function createReviewDebateActuatorFailureBindingFactory(
   return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
     id: `${agentId}/${adapterModel}`,
     metadata: { agent: agentId, model: adapterModel },
-    confinementPolicy: "unrestricted",
-    confinementMechanism: "none",
+    ...unrestrictedBindingConfinement,
     invoke: ({ signal }) => {
       if (adapterModel !== "ACT") {
         return Promise.resolve(

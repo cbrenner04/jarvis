@@ -1,6 +1,20 @@
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
+import type {
+  InvocationBinding,
+  InvocationResult,
+  InvocationCompletedRecord,
+} from "../../../shared/invocation/execute.ts";
+
+export const unrestrictedBindingConfinement = {
+  confinementPolicy: "unrestricted",
+  confinementMechanism: "none",
+} as const satisfies Pick<InvocationBinding, "confinementPolicy" | "confinementMechanism">;
+
+export const unrestrictedInvocationConfinement = {
+  confinement_policy: "unrestricted",
+  confinement_mechanism: "none",
+} as const satisfies Pick<InvocationCompletedRecord, "confinement_policy" | "confinement_mechanism">;
 
 /** A scripted outcome for one simulated invocation pass. */
 type SimulatedOutcome = "quota" | "model_config" | "error" | "done" | "no-work" | "blocked" | "progress" | "stall";
@@ -45,8 +59,7 @@ export function simulatedBindings(
       agent: `sim-agent-${index + 1}`,
       model: `sim-model-${index + 1}`,
     },
-    confinementPolicy: "unrestricted",
-    confinementMechanism: "none",
+    ...unrestrictedBindingConfinement,
     invoke: async ({ cwd }): Promise<InvocationResult> => {
       const terminal = TERMINAL_OUTCOMES[outcome];
       if (terminal) return terminal;

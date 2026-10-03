@@ -17,6 +17,7 @@ import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { landPublication } from "./publication-landing.ts";
 import { checkStagedPlanDraft, executeWrite } from "./write.ts";
@@ -2046,8 +2047,7 @@ describe("write behavior", () => {
         {
           id: "agent",
           metadata: { agent: "claude", model: "m1" },
-          confinementPolicy: "unrestricted",
-          confinementMechanism: "none",
+          ...unrestrictedBindingConfinement,
           invoke: async ({ cwd }) => {
             writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
             return { kind: "ok", stdout: "done", stderr: "" };

@@ -79,9 +79,7 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   }) => Promise<T>;
   shouldAdvance?: (result: T | InvocationError) => boolean;
   metadata?: { agent: string; model: string };
-  /** Resolved confinement policy for this binding (omitted only when `confinementMechanism` is `refused`). */
   confinementPolicy?: ConfinementPolicy;
-  /** Vendor mechanism the binding applies for its confinement policy (see `confinement-policy.ts`). */
   confinementMechanism?: ConfinementMechanism;
 };
 
@@ -241,9 +239,7 @@ async function appendInvocationTelemetry<T extends InvocationResult>(
     telemetry,
     invocationId,
     metadata,
-    confinementPolicy: binding.confinementPolicy,
-    confinementMechanism: binding.confinementMechanism,
-    bindingId: binding.id,
+    binding,
     bindingIndex,
     result,
     durationMs: Date.now() - startedAt,
@@ -431,15 +427,14 @@ function createInvocationCompletedRecord(args: {
   telemetry: InvocationTelemetryContext;
   invocationId: string;
   metadata: { agent: string; model: string };
-  confinementPolicy: ConfinementPolicy | undefined;
-  confinementMechanism: ConfinementMechanism | undefined;
-  bindingId: string;
+  binding: Pick<InvocationBinding, "id" | "confinementPolicy" | "confinementMechanism">;
   bindingIndex: number;
   result: InvocationResult;
   durationMs: number;
 }): InvocationCompletedRecord {
-  if (args.confinementPolicy === undefined || args.confinementMechanism === undefined) {
-    throw new Error(`invocation_completed requires binding confinement fields (binding_id=${args.bindingId})`);
+  const { id: bindingId, confinementPolicy, confinementMechanism } = args.binding;
+  if (confinementPolicy === undefined || confinementMechanism === undefined) {
+    throw new Error(`invocation_completed requires binding confinement fields (binding_id=${bindingId})`);
   }
   const settlement = settlementFromResult(args.result);
 
@@ -457,9 +452,9 @@ function createInvocationCompletedRecord(args: {
     role: args.telemetry.role,
     agent: args.metadata.agent,
     model: args.metadata.model,
-    confinement_policy: args.confinementPolicy,
-    confinement_mechanism: args.confinementMechanism,
-    binding_id: args.bindingId,
+    confinement_policy: confinementPolicy,
+    confinement_mechanism: confinementMechanism,
+    binding_id: bindingId,
     binding_index: args.bindingIndex,
     duration_ms: args.durationMs,
     worktree_path: args.telemetry.worktreePath,

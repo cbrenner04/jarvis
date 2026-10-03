@@ -14,6 +14,16 @@ import {
 } from "./execute.ts";
 import { openSessionLog, type SessionLog, type SessionLogTag } from "./session-log.ts";
 
+const unrestrictedConfinement = {
+  confinementPolicy: "unrestricted",
+  confinementMechanism: "none",
+} as const satisfies Pick<InvocationBinding, "confinementPolicy" | "confinementMechanism">;
+
+const codexSandboxConfinement = {
+  confinementPolicy: "sandbox",
+  confinementMechanism: "codex-workspace-write",
+} as const satisfies Pick<InvocationBinding, "confinementPolicy" | "confinementMechanism">;
+
 let scratchDir: string;
 
 beforeEach(() => {
@@ -45,8 +55,7 @@ function binding(id: string, result: InvocationResult): InvocationBinding {
       agent: `${id}-agent`,
       model: `${id}-model`,
     },
-    confinementPolicy: "unrestricted",
-    confinementMechanism: "none",
+    ...unrestrictedConfinement,
     invoke: async () => result,
   };
 }
@@ -243,15 +252,13 @@ describe("shared invocation fallback", () => {
         {
           id: "codex",
           metadata: { agent: "codex", model: "gpt" },
-          confinementPolicy: "sandbox",
-          confinementMechanism: "codex-workspace-write",
+          ...codexSandboxConfinement,
           invoke: async () => ({ kind: "quota", stderr: "quota" }),
         },
         {
           id: "claude",
           metadata: { agent: "claude", model: "sonnet" },
-          confinementPolicy: "unrestricted",
-          confinementMechanism: "none",
+          ...unrestrictedConfinement,
           invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }),
         },
       ] as InvocationBinding[],
@@ -442,8 +449,7 @@ describe("shared invocation fallback", () => {
         {
           id: "codex-binding",
           metadata: { agent: "codex", model: "gpt-5" },
-          confinementPolicy: "sandbox",
-          confinementMechanism: "codex-workspace-write",
+          ...codexSandboxConfinement,
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",
@@ -650,8 +656,7 @@ describe("shared invocation fallback", () => {
         {
           id: "claude-binding",
           metadata: { agent: "claude", model: "sonnet" },
-          confinementPolicy: "unrestricted",
-          confinementMechanism: "none",
+          ...unrestrictedConfinement,
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",
@@ -697,8 +702,7 @@ describe("shared invocation fallback", () => {
         {
           id: "spawner",
           metadata: { agent: "claude", model: "sonnet" },
-          confinementPolicy: "unrestricted",
-          confinementMechanism: "none",
+          ...unrestrictedConfinement,
           invoke: async () => {
             throw new Error("spawn ENOENT");
           },
@@ -829,8 +833,7 @@ describe("shared invocation fallback", () => {
         {
           id: "normalized",
           metadata: { agent: "claude", model: "sonnet" },
-          confinementPolicy: "unrestricted",
-          confinementMechanism: "none",
+          ...unrestrictedConfinement,
           shouldAdvance: (r) => r.kind === "error",
           invoke: async () => {
             throw new Error("spawn failed");
@@ -860,8 +863,7 @@ describe("shared invocation fallback", () => {
         {
           id: "spawner",
           metadata: { agent: "claude", model: "sonnet" },
-          confinementPolicy: "unrestricted",
-          confinementMechanism: "none",
+          ...unrestrictedConfinement,
           invoke: async () => {
             throw new Error("spawn ENOENT: no such file or directory");
           },
@@ -966,8 +968,7 @@ describe("telemetry text field cap", () => {
         {
           id: "codex-binding",
           metadata: { agent: "codex", model: "gpt-5" },
-          confinementPolicy: "sandbox",
-          confinementMechanism: "codex-workspace-write",
+          ...codexSandboxConfinement,
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",

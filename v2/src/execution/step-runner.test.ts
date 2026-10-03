@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { SessionLog, SessionLogTag } from "../../../shared/invocation/session-log.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { parseStepOutcomeToken, parseStepOutcomeTokenDetail, runStep, type StepContract } from "./step-runner.ts";
 
@@ -26,8 +27,7 @@ function okBinding(stdout: string): InvocationBinding {
   return {
     id: "agent",
     metadata: { agent: "claude", model: "m1" },
-    confinementPolicy: "unrestricted",
-    confinementMechanism: "none",
+    ...unrestrictedBindingConfinement,
     invoke: async () => ({ kind: "ok", stdout, stderr: "" }),
   };
 }
@@ -78,8 +78,7 @@ function createImplementBindings(
       agent: binding.agentId,
       model: binding.adapterModel,
     },
-    confinementPolicy: "unrestricted",
-    confinementMechanism: "none",
+    ...unrestrictedBindingConfinement,
     invoke: invoke(binding),
   }));
 }
@@ -405,8 +404,7 @@ describe("step runner token re-prompt", () => {
     return {
       id: "agent",
       metadata: { agent: "claude", model: "m1" },
-      confinementPolicy: "unrestricted",
-      confinementMechanism: "none",
+      ...unrestrictedBindingConfinement,
       invoke: async () => {
         const reply = replies[call] ?? replies[replies.length - 1] ?? "";
         call += 1;
@@ -728,8 +726,7 @@ describe("step runner token re-prompt", () => {
     return {
       id: "agent",
       metadata: { agent: "claude", model: "opus" },
-      confinementPolicy: "unrestricted",
-      confinementMechanism: "none",
+      ...unrestrictedBindingConfinement,
       invoke: async ({ idleOutputMs }) => {
         call += 1;
         if (call === 1) return { kind: "ok", stdout: "no token here", stderr: "" };

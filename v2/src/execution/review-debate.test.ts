@@ -5,14 +5,14 @@ import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { bindReviewPromptProfile, implementReviewProfile } from "../../../shared/prompts/review-profile.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { executeReviewDebate, type ReviewDebateInput } from "./review-debate.ts";
 
 function okBinding(id: string, stdout: string, calls: string[]): InvocationBinding {
   return {
     id,
     metadata: { agent: `agent-${id}`, model: `model-${id}` },
-    confinementPolicy: "unrestricted",
-    confinementMechanism: "none",
+    ...unrestrictedBindingConfinement,
     invoke: async () => {
       calls.push(id);
       return { kind: "ok", stdout, stderr: "" };
@@ -24,8 +24,7 @@ function quotaBinding(id: string, calls: string[]): InvocationBinding {
   return {
     id,
     metadata: { agent: `agent-${id}`, model: `model-${id}` },
-    confinementPolicy: "unrestricted",
-    confinementMechanism: "none",
+    ...unrestrictedBindingConfinement,
     invoke: async () => {
       calls.push(id);
       return { kind: "quota", stderr: "quota" };

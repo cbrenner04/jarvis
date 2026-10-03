@@ -21,11 +21,11 @@ Root scripts (`scripts/ready.ts`) construct Git commands directly: `git rev-pars
 
 ## Acceptance criteria
 
-- [ ] `shared/git.ts` exports a `gitDir` operation that resolves the absolute git directory path, respecting worktree indirection.
-- [ ] `scripts/ready.ts` calls `gitDir` instead of invoking `git rev-parse --absolute-git-dir` directly.
-- [ ] `ready.ts` test fixtures inject a test runner to `gitDir`; test verifies the correct Git command is called.
-- [ ] Other root scripts that use Git state/paths also delegate to `shared/git.ts` operations.
-- [ ] `bun run typecheck` and `bun run test` (root tooling tests) pass.
+- [x] `shared/git.ts` exports a `gitDir` operation that resolves the absolute git directory path, respecting worktree indirection.
+- [x] `scripts/ready.ts` calls `gitDir` instead of invoking `git rev-parse --absolute-git-dir` directly.
+- [x] `ready.ts` test fixtures inject a test runner to `gitDir`; test verifies the correct Git command is called.
+- [x] Other root scripts that use Git state/paths also delegate to `shared/git.ts` operations.
+- [x] `bun run typecheck` and `bun run test` (root tooling tests) pass.
 
 ## Documentation updates
 

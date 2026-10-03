@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   AsyncSubprocessError,
@@ -302,24 +303,27 @@ export type GitOperation =
   | "git-dir";
 
 /**
- * Why an operation failed. `timeout` and `network` are retryable; everything else is
- * fatal for the attempt (`aborted` is the caller's own cancellation). `precondition`
- * names a documented precondition the caller must satisfy first (unmerged branch,
- * dirty or locked worktree, stale `oldOid`); `failed` is any other non-zero exit.
+ * Why an operation failed. `timeout`, `network`, and `lock` (ref lock-file contention with
+ * another git process) are retryable; everything else is fatal for the attempt (`aborted`
+ * is the caller's own cancellation). `precondition` names a documented precondition the
+ * caller must satisfy first (unmerged branch, dirty or locked worktree, stale `oldOid`);
+ * `too-large` is output over the operation's buffer bound; `failed` is any other non-zero exit.
  */
 export type GitFailureReason =
   | "timeout"
   | "aborted"
   | "network"
+  | "lock"
   | "auth"
   | "rejected"
   | "no-merge-base"
   | "path-exists"
   | "branch-in-use"
   | "precondition"
+  | "too-large"
   | "failed";
 
-const RETRYABLE_REASONS: ReadonlySet<GitFailureReason> = new Set(["timeout", "network"]);
+const RETRYABLE_REASONS: ReadonlySet<GitFailureReason> = new Set(["timeout", "network", "lock"]);
 
 export class GitOperationError extends Error {
   readonly retryable: boolean;
@@ -342,17 +346,30 @@ export function isRetryableGitError(error: unknown): boolean {
   return error instanceof GitOperationError && error.retryable;
 }
 
-type Failure = { message: string; stderr: string; status: number | undefined; timeout: boolean };
+type Failure = { message: string; stderr: string; status: number | undefined; timeout: boolean; tooLarge: boolean };
 
+const MAX_BUFFER_CODE = "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+
+/** Normalizes an async (`AsyncSubprocessError`) or sync (`execFileSync`-shaped) rejection. */
 function failureOf(error: unknown): Failure {
   if (error instanceof AsyncSubprocessError) {
-    return { message: error.message, stderr: error.stderr, status: error.status, timeout: isSubprocessTimeout(error) };
+    return {
+      message: error.message,
+      stderr: error.stderr,
+      status: error.status,
+      timeout: isSubprocessTimeout(error),
+      tooLarge: error.code === MAX_BUFFER_CODE,
+    };
   }
+  const shaped = error as { stderr?: unknown; status?: unknown; code?: unknown } | null;
+  const stderr = shaped?.stderr;
   return {
     message: error instanceof Error ? error.message : String(error),
-    stderr: "",
-    status: undefined,
-    timeout: false,
+    stderr:
+      typeof stderr === "string" ? stderr : stderr instanceof Uint8Array ? Buffer.from(stderr).toString("utf8") : "",
+    status: typeof shaped?.status === "number" ? shaped.status : undefined,
+    timeout: shaped?.code === "ETIMEDOUT",
+    tooLarge: shaped?.code === MAX_BUFFER_CODE,
   };
 }
 
@@ -372,7 +389,9 @@ function gitError(
     ? "timeout"
     : options.signal?.aborted
       ? "aborted"
-      : (rules.find(([pattern]) => pattern.test(text))?.[1] ?? "failed");
+      : failure.tooLarge
+        ? "too-large"
+        : (rules.find(([pattern]) => pattern.test(text))?.[1] ?? "failed");
   const detail = failure.stderr.trim().split("\n")[0] || failure.message;
   return new GitOperationError(operation, reason, detail, failure.stderr, failure.status, { cause: error });
 }
@@ -383,8 +402,26 @@ function failureMatches(error: unknown, pattern: RegExp): boolean {
   return !failure.timeout && pattern.test(`${failure.message}\n${failure.stderr}`);
 }
 
-function runOptions(options: OperationOptions): AsyncSubprocessOptions {
-  return options.signal !== undefined ? { signal: options.signal } : {};
+function runOptions(options: OperationOptions, extra: AsyncSubprocessOptions = {}): AsyncSubprocessOptions {
+  return options.signal !== undefined ? { ...extra, signal: options.signal } : extra;
+}
+
+/** Ref lock-file contention with a concurrent git process: transient, retry after it exits. */
+const LOCK_RULE: ReasonRule = [
+  /Unable to create '.*\.lock': File exists|could not lock|cannot lock ref '[^']*': (?!is at)/,
+  "lock",
+];
+
+/** Same filesystem location, through symlinks (macOS `/tmp` → `/private/tmp`) when both exist. */
+function samePath(a: string, b: string): boolean {
+  const canonical = (path: string) => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return resolve(path);
+    }
+  };
+  return canonical(a) === canonical(b);
 }
 
 // --- diff --------------------------------------------------------------------
@@ -393,6 +430,13 @@ function runOptions(options: OperationOptions): AsyncSubprocessOptions {
 export type DiffRange = { from: string; to: string };
 
 const OID_PATTERN = /^[0-9a-f]{40,64}$/;
+
+/**
+ * Stdout bound for diff output (64 MiB; the runner's default is Node's 1 MiB). Larger output
+ * rejects with reason `too-large`: callers wanting a bounded excerpt use `diffStat` /
+ * `diffNameOnly` instead of the unified patch.
+ */
+export const DIFF_MAX_BUFFER = 64 * 1024 * 1024;
 
 /**
  * `git merge-base a b` as a full OID. Rejects with operation `merge-base`: reason
@@ -430,7 +474,7 @@ async function runDiff(
   options: OperationOptions,
 ): Promise<string> {
   try {
-    return await runner.runAsync("git", ["diff", ...args], cwd, runOptions(options));
+    return await runner.runAsync("git", ["diff", ...args], cwd, runOptions(options, { maxBuffer: DIFF_MAX_BUFFER }));
   } catch (error) {
     throw gitError("diff", error, [], options);
   }
@@ -486,9 +530,11 @@ export async function branchDiff(
 ): Promise<BranchDiff> {
   const base = await mergeBase(cwd, baseRef, headRef, runner, options);
   const range: DiffRange = { from: base, to: headRef };
-  const stat = await diffStat(cwd, range, runner, options);
-  const changedPaths = await diffNameOnly(cwd, range, runner, options);
-  const unified = await diffUnified(cwd, range, runner, options);
+  const [stat, changedPaths, unified] = await Promise.all([
+    diffStat(cwd, range, runner, options),
+    diffNameOnly(cwd, range, runner, options),
+    diffUnified(cwd, range, runner, options),
+  ]);
   return { mergeBase: base, stat, changedPaths, unified };
 }
 
@@ -564,8 +610,9 @@ const WORKTREE_ADD_RULES: readonly ReasonRule[] = [
 /**
  * `git worktree add <path> <branch>` for an existing local branch. Idempotent for the
  * exact (path, branch) pair: when git refuses because the path or branch is taken and the
- * listing shows `path` already registered on `branch`, resolves `already-registered`.
- * Any other refusal rejects with `path-exists`, `branch-in-use`, or `failed`.
+ * listing shows `path` (compared through symlinks) already registered on `branch`, resolves
+ * `already-registered`. Any other refusal rejects with `path-exists`, `branch-in-use`, or
+ * `failed`; a listing failure during that check rethrows the original add classification.
  */
 export async function addWorktree(
   cwd: string,
@@ -579,10 +626,15 @@ export async function addWorktree(
   } catch (error) {
     const failure = gitError("worktree-add", error, WORKTREE_ADD_RULES, options);
     if (failure.reason !== "path-exists" && failure.reason !== "branch-in-use") throw failure;
-    const registered = (await listWorktrees(cwd, runner, options)).some(
-      (entry) => resolve(entry.path) === resolve(target.path) && entry.branch === target.branch,
-    );
-    if (registered) return { status: "already-registered" };
+    let entries: WorktreeEntry[];
+    try {
+      entries = await listWorktrees(cwd, runner, options);
+    } catch {
+      throw failure;
+    }
+    if (entries.some((entry) => entry.branch === target.branch && samePath(entry.path, target.path))) {
+      return { status: "already-registered" };
+    }
     throw failure;
   }
 }
@@ -595,9 +647,10 @@ const WORKTREE_REMOVE_RULES: readonly ReasonRule[] = [
 ];
 
 /**
- * `git worktree remove [--force] <path>`. Idempotent: an unregistered path resolves
- * `absent`; a registered path whose directory is already gone resolves `removed`. A
- * dirty or locked worktree rejects with `precondition` unless `force` is set.
+ * `git worktree remove [--force --force] <path>`. Idempotent: an unregistered path resolves
+ * `absent`; a registered path whose directory is already gone resolves `removed`. A dirty
+ * or locked worktree rejects with `precondition` unless `force` is set (passed twice: git
+ * needs the second `--force` to override a lock).
  */
 export async function removeWorktree(
   cwd: string,
@@ -605,7 +658,7 @@ export async function removeWorktree(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions & { force?: boolean } = {},
 ): Promise<WorktreeRemoveResult> {
-  const args = options.force ? ["worktree", "remove", "--force", path] : ["worktree", "remove", path];
+  const args = options.force ? ["worktree", "remove", "--force", "--force", path] : ["worktree", "remove", path];
   try {
     await runner.runAsync("git", args, cwd, runOptions(options));
     return { status: "removed" };
@@ -648,7 +701,7 @@ export async function createBranch(
     return { status: "created" };
   } catch (error) {
     if (failureMatches(error, /already exists/)) return { status: "exists" };
-    throw gitError("branch-create", error, [], options);
+    throw gitError("branch-create", error, [LOCK_RULE], options);
   }
 }
 
@@ -656,7 +709,8 @@ export type BranchDeleteResult = { status: "deleted" } | { status: "absent" };
 
 /**
  * `git branch -d|-D <name>`. Idempotent: a missing branch resolves `absent`. Without
- * `force`, an unmerged branch rejects with `precondition`.
+ * `force`, an unmerged branch rejects with `precondition`; a branch checked out in any
+ * worktree rejects with `branch-in-use` even under `force` (remove the worktree first).
  */
 export async function deleteBranch(
   cwd: string,
@@ -669,14 +723,19 @@ export async function deleteBranch(
     return { status: "deleted" };
   } catch (error) {
     if (failureMatches(error, /not found/)) return { status: "absent" };
-    throw gitError("branch-delete", error, [[/not fully merged/, "precondition"]], options);
+    throw gitError(
+      "branch-delete",
+      error,
+      [[/not fully merged/, "precondition"], [/checked out at/, "branch-in-use"], LOCK_RULE],
+      options,
+    );
   }
 }
 
 export type RefResolution = { status: "resolved"; oid: string } | { status: "absent" };
 
 /**
- * `git rev-parse --verify --quiet <ref>^{commit}`. `absent` only on git's silent exit 1;
+ * `git rev-parse --verify --quiet <ref>` (unpeeled: a ref to any object resolves). `absent` only on git's silent exit 1;
  * any other failure (not a repository, timeout, abort) is inconclusive and rejects with
  * operation `ref-query`, so a hung or broken query is never mistaken for a missing ref.
  */
@@ -688,7 +747,7 @@ export async function resolveRef(
 ): Promise<RefResolution> {
   try {
     const oid = (
-      await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], cwd, runOptions(options))
+      await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", ref], cwd, runOptions(options))
     ).trim();
     return { status: "resolved", oid };
   } catch (error) {
@@ -700,7 +759,8 @@ export async function resolveRef(
 
 /**
  * `git update-ref <ref> <newOid> [<oldOid>]`. Stateful; with `oldOid` it is a
- * compare-and-swap that rejects `precondition` when the ref moved.
+ * compare-and-swap that rejects `precondition` when the ref moved. Lock-file contention
+ * with another git process is the retryable `lock`.
  */
 export async function updateRef(
   cwd: string,
@@ -713,7 +773,7 @@ export async function updateRef(
   try {
     await runner.runAsync("git", args, cwd, runOptions(options));
   } catch (error) {
-    throw gitError("update-ref", error, [[/cannot lock ref/, "precondition"]], options);
+    throw gitError("update-ref", error, [[/is at .* but expected/, "precondition"], LOCK_RULE], options);
   }
 }
 
@@ -734,14 +794,18 @@ export async function deleteRef(
     await runner.runAsync("git", ["update-ref", "-d", ref], cwd, runOptions(options));
     return { status: "deleted" };
   } catch (error) {
-    throw gitError("update-ref", error, [], options);
+    throw gitError("update-ref", error, [LOCK_RULE], options);
   }
 }
 
 export type PushResult = { status: "pushed" } | { status: "already-absent" };
 
+// Order matters: a GitHub HTTPS 401/403 also says "unable to access", so auth is tested first.
 const PUSH_RULES: readonly ReasonRule[] = [
-  [/Authentication failed|Permission denied|could not read Username|HTTP 401|HTTP 403/i, "auth"],
+  [
+    /Authentication failed|Permission (?:to .* )?denied|could not read Username|returned error: 40[13]|HTTP 40[13]/i,
+    "auth",
+  ],
   [/Could not resolve host|Connection (?:timed out|refused|reset)|unable to access|early EOF|RPC failed/i, "network"],
   [/\[rejected\]|failed to push some refs|non-fast-forward/i, "rejected"],
 ];

@@ -27,6 +27,7 @@ import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
 import { type KillSurvivor, parseRunKillOutcome, type RunKillOutcome } from "../daemon/run-kill-outcome.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { isRunStatus, isTerminalRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
+import { type DismissalMode, type DismissalRow, parseDismissalArgs, reportDismissalOutcome } from "./dismissal.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
@@ -432,20 +433,14 @@ function renderRunKillOutcome(runId: string, result: unknown, io: Io): number {
   return 0;
 }
 
-type RunDismissalOutcome =
-  | { kind: "applied"; runId: string; status: RunStatus }
-  | { kind: "refused"; runId: string; reason: string };
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
-
-function parseRunDismissalArgs(argv: readonly string[]): { ok: true; runId: string } | { ok: false } {
-  if (argv.length !== 1) return { ok: false };
-  const runId = argv[0];
-  if (runId === undefined || runId.trim().length === 0) return { ok: false };
-  return { ok: true, runId };
-}
+const RUN_DISMISSAL_ROW: DismissalRow<RunStatus> = {
+  kind: "run",
+  idField: "runId",
+  stateField: "status",
+  parseState: (value) => (isRunStatus(value) ? value : undefined),
+  isTerminal: isTerminalRunStatus,
+  confirmation: (mode, runId) => `${mode === "dismiss" ? "dismissed" : "undismissed"} ${runId}`,
+};
 
 const RUN_DISMISS_SELECTOR_CONFLICT = "run dismiss: a run ID and --project are mutually exclusive\n";
 
@@ -469,8 +464,8 @@ function parseRunDismissSelector(
     return { ok: false };
   }
   if (values.project === undefined) {
-    const single = parseRunDismissalArgs(positionals);
-    return single.ok ? { ok: true, selector: { kind: "run", runId: single.runId } } : { ok: false };
+    const single = parseDismissalArgs(positionals);
+    return single.ok ? { ok: true, selector: { kind: "run", runId: single.id } } : { ok: false };
   }
   if (positionals.length > 0) return { ok: false, error: RUN_DISMISS_SELECTOR_CONFLICT };
   if (values.project.trim().length === 0) return { ok: false };
@@ -514,45 +509,11 @@ async function runRunBulkDismissalCommand(project: string, io: Io, deps: CliDeps
   });
 }
 
-function parseRunDismissalOutcome(value: unknown): RunDismissalOutcome | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const record = value as { kind?: unknown; runId?: unknown; status?: unknown; reason?: unknown };
-  if (!isNonEmptyString(record.runId)) return undefined;
-  if (record.kind === "applied") {
-    if (typeof record.status !== "string" || !isRunStatus(record.status)) return undefined;
-    return { kind: "applied", runId: record.runId, status: record.status };
-  }
-  if (record.kind === "refused" && typeof record.reason === "string") {
-    return { kind: "refused", runId: record.runId, reason: record.reason };
-  }
-  return undefined;
-}
-
-async function runRunDismissalCommand(
-  mode: "dismiss" | "undismiss",
-  runId: string,
-  io: Io,
-  deps: CliDeps,
-): Promise<number> {
+async function runRunDismissalCommand(mode: DismissalMode, runId: string, io: Io, deps: CliDeps): Promise<number> {
   return withRunClient(io, deps, async (client) => {
     const sent = await requestDismissal(client, mode, { runId }, io);
     if (sent === undefined) return 1;
-    const outcome = parseRunDismissalOutcome(sent.response);
-    if (outcome === undefined) {
-      io.stderr("invalid daemon response\n");
-      return 1;
-    }
-    if (outcome.kind === "refused") {
-      io.stderr(`${outcome.reason}\n`);
-      return 1;
-    }
-    // Mutation checkpoint: neutering this guard to `if (false)` must drop the live-status
-    // warning, turning the live-run-dismissal test RED.
-    if (mode === "dismiss" && !isTerminalRunStatus(outcome.status)) {
-      io.stderr(`run dismiss: ${outcome.runId} is ${outcome.status} and now hidden from listings\n`);
-    }
-    io.stdout(`${mode === "dismiss" ? "dismissed" : "undismissed"} ${outcome.runId}\n`);
-    return 0;
+    return reportDismissalOutcome(RUN_DISMISSAL_ROW, mode, sent.response, io);
   });
 }
 
@@ -598,12 +559,12 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
   }
 
   if (subcommand === "undismiss") {
-    const parsed = parseRunDismissalArgs(argv.slice(1));
+    const parsed = parseDismissalArgs(argv.slice(1));
     if (!parsed.ok) {
       io.stderr(RUN_UNDISMISS_USAGE);
       return 1;
     }
-    return runRunDismissalCommand("undismiss", parsed.runId, io, deps);
+    return runRunDismissalCommand("undismiss", parsed.id, io, deps);
   }
 
   if (isRunAction(subcommand)) return runActionCommand(subcommand, argv.slice(1), io, deps);

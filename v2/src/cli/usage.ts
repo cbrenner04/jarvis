@@ -2,8 +2,7 @@ export const INIT_USAGE =
   "usage: jarvis init [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]\n";
 export const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|log>\n";
 export const DAEMON_LOG_USAGE = "usage: jarvis daemon log [--follow]\n";
-export const RUN_USAGE = "usage: jarvis run <start|list|log|resume|kill|dismiss|undismiss|wait|workflow> [args]
-";
+export const RUN_USAGE = "usage: jarvis run <start|list|log|resume|kill|dismiss|undismiss|wait|workflow> [args]\n";
 export const RUN_LOG_USAGE = "usage: jarvis run log <run-id> [--follow]\n";
 export const RUN_KILL_USAGE = "usage: jarvis run kill <run-id> [--force]\n";
 export const RUN_RESUME_USAGE = "usage: jarvis run resume <run-id> [--allow-lane-pr-republish]\n";

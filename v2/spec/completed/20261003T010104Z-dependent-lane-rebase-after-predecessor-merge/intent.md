@@ -19,9 +19,9 @@ Unsplit rationale: the merge detection and rebase both live in the pipeline lane
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts`: a dependent lane whose predecessor squash-merged is rebased onto `main` so its PR diff carries only its own commits; fails against current code (no rebase on merge).
-- [ ] `pipeline-execution.test.ts`: a conflicting rebase aborts cleanly and fails the lane naming the predecessor; fails against current code.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `pipeline-execution.test.ts`: a dependent lane whose predecessor squash-merged is rebased onto `main` so its PR diff carries only its own commits; fails against current code (no rebase on merge).
+- [x] `pipeline-execution.test.ts`: a conflicting rebase aborts cleanly and fails the lane naming the predecessor; fails against current code.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

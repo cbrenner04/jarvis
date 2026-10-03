@@ -3,8 +3,14 @@ import { execSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DIFF_MAX_BUFFER } from "../git.ts";
 import { locateMarkerSlice } from "../structural-test-locator.ts";
-import { realAsyncSubprocessRunner } from "../subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessOptions,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../subprocess.ts";
 import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
 import { assembleStepTemplate } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
@@ -112,6 +118,81 @@ describe("renderPatchReviewCriticPrompt branch diff", () => {
       expect(rendered).not.toContain("not a unified diff");
     }
     expect(new Set(payloads).size).toBe(1);
+  });
+});
+
+describe("branchDiff delegates to the shared git boundary", () => {
+  const OID = "a".repeat(40);
+  type Call = { args: string[]; options: AsyncSubprocessOptions | undefined };
+
+  /** Spec tree only — no `git init`, so any diff content must come from the injected runner. */
+  function specOnlyContext(): ReviewDebateRenderContext {
+    const cwd = trackedMkdtempSync(join(tmpdir(), "review-implement-mock-diff-"));
+    tempDirs.push(cwd);
+    mkdirSync(join(cwd, "spec"), { recursive: true });
+    writeFileSync(join(cwd, "spec/00-task.md"), "# Task\n\n- [x] done\n");
+    return { specPath: "spec/00-task.md", cwd, passNumber: 1, totalPasses: 1, baseBranch: "develop" };
+  }
+
+  function mockRunner(results: Record<string, string | Error>): AsyncSubprocessRunner & { calls: Call[] } {
+    const calls: Call[] = [];
+    return {
+      calls,
+      async runAsync(cmd, args, _cwd, options) {
+        calls.push({ args: [cmd, ...args], options });
+        const result = results[[cmd, ...args].join(" ")];
+        if (result === undefined) throw new Error(`mockRunner: no canned result for "${[cmd, ...args].join(" ")}"`);
+        if (result instanceof Error) throw result;
+        return result;
+      },
+    };
+  }
+
+  test("renders stat, sorted changed paths, and trimmed unified diff from the boundary's structured result", async () => {
+    const context = specOnlyContext();
+    const unified = "diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -0,0 +1 @@\n+b\n";
+    const runner = mockRunner({
+      "git merge-base develop HEAD": `${OID}\n`,
+      [`git diff --stat ${OID} HEAD`]: " b.txt | 1 +\n 1 file changed\n",
+      [`git diff --name-only ${OID} HEAD`]: "b.txt\na.txt\n",
+      [`git diff ${OID} HEAD`]: unified,
+    });
+
+    const rendered = extractBranchDiff(await renderPatchReviewCriticPrompt(context, runner));
+
+    expect(rendered).toBe(`b.txt | 1 +\n 1 file changed\n\nChanged paths:\na.txt\nb.txt\n\n${unified.trim()}`);
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "merge-base", "develop", "HEAD"],
+      ["git", "diff", "--stat", OID, "HEAD"],
+      ["git", "diff", "--name-only", OID, "HEAD"],
+      ["git", "diff", OID, "HEAD"],
+    ]);
+    // The boundary, not the prompt module, owns the diff invocation: every diff carries its buffer bound.
+    for (const call of runner.calls.slice(1)) expect(call.options?.maxBuffer).toBe(DIFF_MAX_BUFFER);
+  });
+
+  test("empty diff renders the no-changes orientation only", async () => {
+    const runner = mockRunner({
+      "git merge-base develop HEAD": OID,
+      [`git diff --stat ${OID} HEAD`]: "",
+      [`git diff --name-only ${OID} HEAD`]: "",
+      [`git diff ${OID} HEAD`]: "",
+    });
+
+    expect(extractBranchDiff(await renderPatchReviewCriticPrompt(specOnlyContext(), runner))).toBe("(no changes)");
+  });
+
+  test("merge-base failure renders the placeholder with the boundary's reason and skips the diffs", async () => {
+    const runner = mockRunner({
+      "git merge-base develop HEAD": new AsyncSubprocessError("git merge-base exited 1", 1, "", "", undefined),
+    });
+
+    const rendered = extractBranchDiff(await renderPatchReviewCriticPrompt(specOnlyContext(), runner));
+
+    expect(rendered).toBe(
+      "(failed to generate diff: git merge-base no-merge-base: develop and HEAD share no ancestor)",
+    );
+    expect(runner.calls).toHaveLength(1);
   });
 });
 

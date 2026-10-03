@@ -32,7 +32,7 @@ Declared policies: `plan.prompt.*` (draft, review roles, review-actuator) are `b
 - `implement.prompt.shrink` (`prompts/implement/shrink.md`) — the post-completion shrink step; layers `global.terse` and `global.no-hard-wrap` only.
 - Implement PR bodies are harness-rendered from the spec tree, the shrink narrative, and commit trailers, with no prompt step; see [`workflow-runner.md § Implement PR body template`](./workflow-runner.md#implement-pr-body-template).
 
-`write.execute` (`prompts/write/execute.md`, `behavior: write`) is **not** the implement prompt: it is the default only for a standalone `jarvis run start` write loop with no workflow, injecting `SPEC_PATH`, `PRINCIPLES` (`write.principles`), and `STEP_RULES`.
+`write.execute` (`prompts/write/execute.md`, `behavior: write`) is **not** the implement prompt: it is `executeWrite`'s default `promptId` for a write step that names none (the implement preset binds `implement.prompt.body`), injecting `SPEC_PATH`, `PRINCIPLES` (`write.principles`), and `STEP_RULES`.
 
 ### Plan
 

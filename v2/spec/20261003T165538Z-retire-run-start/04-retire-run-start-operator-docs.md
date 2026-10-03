@@ -27,9 +27,9 @@ Operator docs still teach ad-hoc `run start` for kill demos, timeout keys, mutat
 
 ## Acceptance criteria
 
-- [ ] `rg 'run start' v2/docs --glob '*.md'` returns no operator-facing command invocations except historical v1 comparison context explicitly marked frozen/retired; fails on main while walkthrough and write-behavior still show live `jarvis run start` examples.
-- [ ] `v2/docs/v1-behaviors.md` records retirement of `jarvis run start`, direct daemon `start` admission for ad-hoc write loops, durable `queuedInput` on run rows, and removal of queued direct-write promotion tied to those rows.
-- [ ] `bun run typecheck` passes; docs-only surface — no additional test gate beyond typecheck.
+- [x] `rg 'run start' v2/docs --glob '*.md'` returns no operator-facing command invocations except historical v1 comparison context explicitly marked frozen/retired; fails on main while walkthrough and write-behavior still show live `jarvis run start` examples.
+- [x] `v2/docs/v1-behaviors.md` records retirement of `jarvis run start`, direct daemon `start` admission for ad-hoc write loops, durable `queuedInput` on run rows, and removal of queued direct-write promotion tied to those rows.
+- [x] `bun run typecheck` passes; docs-only surface — no additional test gate beyond typecheck.
 
 ## Documentation updates
 

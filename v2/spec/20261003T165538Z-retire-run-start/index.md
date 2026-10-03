@@ -6,7 +6,7 @@
 - [x] [01-remove-run-start-cli-surface.md](./01-remove-run-start-cli-surface.md) — drop `run start`, `parseWriteCliInput`, and help/usage discovery
 - [x] [02-drop-queued-input-and-write-loop-rows.md](./02-drop-queued-input-and-write-loop-rows.md) — remove daemon direct-`start` admission, `reconstructDirectWriteResume`, and `queuedInput` from durable run state
 - [x] [03-snapshot-only-write-sibling-gate-commands.md](./03-snapshot-only-write-sibling-gate-commands.md) — `resolveWriteSiblingCommandSource` uses snapshot steps only
-- [ ] [04-retire-run-start-operator-docs.md](./04-retire-run-start-operator-docs.md) — align walkthrough, config, runbook, write-behavior, and behavior catalog
+- [x] [04-retire-run-start-operator-docs.md](./04-retire-run-start-operator-docs.md) — align walkthrough, config, runbook, write-behavior, and behavior catalog
 
 ## Prerequisites
 

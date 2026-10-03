@@ -18,10 +18,10 @@ Operators and spec authors lack documented `--risk`/`--effort` behavior, admissi
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents `--risk` and `--effort`, admission selection feedback, and unresolved-rating refusal when neither seed nor flag supplies a dimension.
-- [ ] `v2/docs/pipeline-execution.md` documents durable `admittedSelection`, list visibility, and that resume/recovery do not re-derive pipeline definition from seed or config.
-- [ ] `v2/docs/spec-guidance.md` states seeds should carry both ratings, describes inline seed treatment, and covers existing unrated seeds plus CLI flags.
-- [ ] `v2/docs/v1-behaviors.md` records rating-based selection at `pipeline start` with Sources citing admission and persistence paths.
+- [x] `v2/docs/operator-runbook.md` documents `--risk` and `--effort`, admission selection feedback, and unresolved-rating refusal when neither seed nor flag supplies a dimension.
+- [x] `v2/docs/pipeline-execution.md` documents durable `admittedSelection`, list visibility, and that resume/recovery do not re-derive pipeline definition from seed or config.
+- [x] `v2/docs/spec-guidance.md` states seeds should carry both ratings, describes inline seed treatment, and covers existing unrated seeds plus CLI flags.
+- [x] `v2/docs/v1-behaviors.md` records rating-based selection at `pipeline start` with Sources citing admission and persistence paths.
 
 ## Documentation updates
 

@@ -82,17 +82,17 @@ async function waitUntilSent(owner: ReturnType<typeof ownerClient>): Promise<voi
   expect(owner.sent).toHaveLength(1);
 }
 
-function localHandlers(calls: string[]): Record<"wait" | "pause" | "kill", RpcHandler> {
+function localHandlers(calls: string[]): Record<"wait" | "kill", RpcHandler> {
   const local =
     (method: string): RpcHandler =>
     (frame) => {
       calls.push(method);
       return { kind: "response", result: { local: true, params: frame.params } };
     };
-  return { wait: local("wait"), pause: local("pause"), kill: local("kill") };
+  return { wait: local("wait"), kill: local("kill") };
 }
 
-function frame(method: "wait" | "pause" | "kill", params: unknown = { runId: "run-1" }) {
+function frame(method: "wait" | "kill", params: unknown = { runId: "run-1" }) {
   return { kind: "request", id: `request-${method}`, method, params } as const;
 }
 
@@ -188,9 +188,9 @@ describe("stable run unary routing", () => {
       connectOwnerClient: rejectsConnect,
     });
 
-    await current.pause(frame("pause"), new AbortController().signal);
+    await current.wait(frame("wait"), new AbortController().signal);
     await unowned.kill(frame("kill"), new AbortController().signal);
-    expect(localCalls).toEqual(["pause", "kill"]);
+    expect(localCalls).toEqual(["wait", "kill"]);
     expect(resolves).toBe(1);
   });
 
@@ -212,7 +212,7 @@ describe("stable run unary routing", () => {
     expect(localCalls).toEqual(["wait"]);
   });
 
-  test("pause preserves complete params and owner application errors unchanged", async () => {
+  test("kill preserves complete params and owner application errors unchanged", async () => {
     const owner = ownerClient({ kind: "error", code: "owner_refusal", message: "owner says no" });
     const handlers = createStableRunHandlers(localHandlers([]), {
       predecessorSocketPath: PREDECESSOR_SOCKET_PATH,
@@ -222,12 +222,12 @@ describe("stable run unary routing", () => {
     });
     const params = { runId: "run-1", futureField: { preserved: true } };
 
-    expect(await handlers.pause(frame("pause", params), new AbortController().signal)).toEqual({
+    expect(await handlers.kill(frame("kill", params), new AbortController().signal)).toEqual({
       kind: "error",
       code: "owner_refusal",
       message: "owner says no",
     });
-    expect(owner.sent[0]).toMatchObject({ method: "pause", params });
+    expect(owner.sent[0]).toMatchObject({ method: "kill", params });
     expect(owner.closeCount()).toBe(1);
   });
 

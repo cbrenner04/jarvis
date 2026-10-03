@@ -151,10 +151,6 @@ export const commandTree: CommandNode = {
           flags: RUN_LOG_HELP_FLAGS,
         },
         {
-          name: "pause",
-          summary: "Pause a run.",
-        },
-        {
           name: "resume",
           summary: "Resume a paused run.",
           usage: RUN_RESUME_USAGE,

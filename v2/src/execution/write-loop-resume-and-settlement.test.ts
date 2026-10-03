@@ -17,7 +17,6 @@ import {
   progressThenDone,
   registerWriteLoopExecuteWriteMockHooks,
   runLoop,
-  runLoopWithPause,
   TestLogSink,
 } from "./write-loop.test-support.ts";
 import type { WriteLoopOutcomeKind } from "./write-loop.ts";
@@ -624,82 +623,21 @@ describe("write loop", () => {
     ).rejects.toThrow("Simulated append error");
   });
 
-  test("pause at iteration boundary lets the in-flight step finish and commit its boundary", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const dirtiedMarker = "paused.txt";
-    let attempts = 0;
-    const bindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async ({ cwd }) => {
-          attempts += 1;
-          writeFileSync(join(cwd, dirtiedMarker), `attempt-${attempts}\n`, "utf8");
-          return { kind: "ok", stdout: "progress", stderr: "" };
-        },
-      },
-    ];
-
-    const result = await runLoopWithPause({
-      jarvisRoot,
-      stateDbPath,
-      bindings,
-      pauseAfterAttempts: 2,
-      maxIterations: 10,
-    });
-
-    expect(result.kind).toBe("paused");
-    expect(result.iterationsConsumed).toBe(3);
-    expect(result.resumable).toBe(true);
-
-    // Verify the second attempt completed and persisted
-    const run = loadRunOnce(stateDbPath, result.runId);
-    expect(run?.status).toBe("paused");
-    expect(run?.attemptCount).toBe(3); // Three completed attempts
-    const lastAttempt = run?.attempts[run.attempts.length - 1];
-    expect(lastAttempt?.status).toBe("completed");
-    expect(lastAttempt?.outcomeKind).toBe("progress");
-
-    // Verify the marker was written
-    const markerPath = join(jarvisRoot, "worktrees", "demo", "pause-run", dirtiedMarker);
-    expect(existsSync(markerPath)).toBe(true);
-    expect(readFileSync(markerPath, "utf8")).toBe("attempt-3\n");
-  });
-
-  test("paused run outcome kind is distinct from budget-exhausted", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-
-    const result = await runLoopWithPause({
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["progress"]),
-      pauseAfterAttempts: 1,
-      maxIterations: 10,
-      logSink: sink,
-    });
-
-    expect(result.kind).toBe("paused");
-
-    const events = sink.getEventsForRun(result.runId);
-    const finishedEvent = events[events.length - 1];
-    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe("paused");
-    expect(finishedEvent?.kind === "loop_finished" && finishedEvent.resumable).toBe(true);
-  });
-
   test("resuming a paused run starts a fresh attempt and continues", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 
-    // First run: pause after 1 attempt
-    const pauseResult = await runLoopWithPause({
+    // First run: two progress attempts, then the harness parks the row paused.
+    const pauseResult = await runLoop({
       jarvisRoot,
       stateDbPath,
+      branchName: "pause-run",
       bindings: simulatedBindings(["progress"]),
-      pauseAfterAttempts: 1,
-      maxIterations: 10,
+      maxIterations: 2,
     });
-
-    expect(pauseResult.kind).toBe("paused");
     expect(pauseResult.iterationsConsumed).toBe(2);
+    const pausingStore = openStateStore(stateDbPath);
+    pausingStore.setRunStatus(pauseResult.runId, "paused");
+    pausingStore.close();
 
     // Verify paused status
     let run = loadRunOnce(stateDbPath, pauseResult.runId);

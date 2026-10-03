@@ -24,7 +24,7 @@ import { createRunControlHandlers } from "./daemon.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
-type WriteLoopExecutor = (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
+type WriteLoopExecutor = (input: WriteLoopInput, signal: AbortSignal) => Promise<void>;
 
 type HoldCase = {
   /** Run-path op the seam holds while IPC is probed. */
@@ -107,13 +107,12 @@ const holdCases: HoldCase[] = [
         jarvisRoot,
       });
       return {
-        executor: async (input, signal, pauseSignal) => {
+        executor: async (input, signal) => {
           await executeWriteLoop({
             ...completionStepInput(startInput, jarvisRoot, stateStore),
             worktree: input.worktree,
             readyFinalizer,
             signal,
-            pauseSignal,
           });
         },
         whenPending: heldGate.whenPending,
@@ -177,13 +176,12 @@ const holdCases: HoldCase[] = [
       });
       const startInput = mockWriteLoopInput({ projectName: "demo", branchName, projectRoot: "/fake", jarvisRoot });
       return {
-        executor: async (input, signal, pauseSignal) => {
+        executor: async (input, signal) => {
           await executeWriteLoop({
             ...completionStepInput(startInput, jarvisRoot, stateStore),
             worktree: input.worktree,
             completionPublisher,
             signal,
-            pauseSignal,
           });
         },
         whenPending: holdableGh.whenPending,
@@ -233,9 +231,9 @@ for (const holdCase of holdCases) {
     });
     const handlers = createRunControlHandlers({
       stateStore,
-      writeLoopExecutor: async (input, signal, pauseSignal) => {
+      writeLoopExecutor: async (input, signal) => {
         try {
-          await seam.executor(input, signal, pauseSignal);
+          await seam.executor(input, signal);
         } finally {
           finishRun?.();
         }

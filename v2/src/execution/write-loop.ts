@@ -432,7 +432,6 @@ export type WriteLoopInput = WriteExecuteInput & {
   schedule?: WallSegmentSchedule;
   stateStore?: StateStore;
   logSink?: LogSink;
-  pauseSignal?: AbortSignal;
   stepId?: string;
   workflowSnapshot?: WorkflowSnapshot;
   bindingResolution?: {
@@ -1814,10 +1813,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         pendingDraftContractReprompt = context;
         draftContractRepromptSpent = true;
         if (args.signal?.aborted) return finishLoop(args, runId, "progress", iterationsConsumed, true);
-        if (args.pauseSignal?.aborted) {
-          store.setRunStatus(runId, "paused");
-          return finishLoop(args, runId, "paused", iterationsConsumed, true);
-        }
         continue;
       }
 
@@ -1860,12 +1855,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
         if (args.signal?.aborted) {
           return finishLoop(args, runId, "progress", iterationsConsumed, true);
-        }
-
-        // Check for graceful pause at the loop boundary
-        if (args.pauseSignal?.aborted) {
-          store.setRunStatus(runId, "paused");
-          return finishLoop(args, runId, "paused", iterationsConsumed, true);
         }
 
         continue;
@@ -1947,10 +1936,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           if (args.signal?.aborted) {
             return finishLoop(args, runId, "progress", iterationsConsumed, true);
           }
-          if (args.pauseSignal?.aborted) {
-            store.setRunStatus(runId, "paused");
-            return finishLoop(args, runId, "paused", iterationsConsumed, true);
-          }
           continue;
         }
         pendingLandingReprompt = undefined;
@@ -2030,10 +2015,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           };
           if (args.signal?.aborted) {
             return finishLoop(args, runId, "progress", iterationsConsumed, true);
-          }
-          if (args.pauseSignal?.aborted) {
-            store.setRunStatus(runId, "paused");
-            return finishLoop(args, runId, "paused", iterationsConsumed, true);
           }
           continue;
         }
@@ -2161,10 +2142,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           if (args.signal?.aborted) {
             return finishLoop(args, runId, "progress", iterationsConsumed, true);
           }
-          if (args.pauseSignal?.aborted) {
-            store.setRunStatus(runId, "paused");
-            return finishLoop(args, runId, "paused", iterationsConsumed, true);
-          }
           continue;
         }
         if (lintResult.kind === "invocation_error") {
@@ -2261,10 +2238,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
         pendingMeasurementCriteriaReprompt = unverifiedMeasurements;
         if (args.signal?.aborted) return finishLoop(args, runId, "progress", iterationsConsumed, true);
-        if (args.pauseSignal?.aborted) {
-          store.setRunStatus(runId, "paused");
-          return finishLoop(args, runId, "paused", iterationsConsumed, true);
-        }
         continue;
       }
 
@@ -2383,10 +2356,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             pendingSurvivingMutationReprompt = survivingMutationRepromptContext(verificationResult);
             if (args.signal?.aborted) {
               return finishLoop(args, runId, "progress", iterationsConsumed, true);
-            }
-            if (args.pauseSignal?.aborted) {
-              store.setRunStatus(runId, "paused");
-              return finishLoop(args, runId, "paused", iterationsConsumed, true);
             }
             continue;
           }
@@ -5778,7 +5747,7 @@ async function checkpointSettledIteration(
 /**
  * Shared by the mutation-directive and keystone-directive reprompt arms: commit the current
  * iteration as a resumable `progress` boundary, let the caller log its reprompt-specific event,
- * then honor any abort/pause signal. Returns a terminal `WriteLoopResult` to return from the loop,
+ * then honor any abort signal. Returns a terminal `WriteLoopResult` to return from the loop,
  * or `undefined` to `continue` the loop.
  */
 async function _commitRepromptProgressBoundary(
@@ -5814,10 +5783,6 @@ async function _commitRepromptProgressBoundary(
   emitReprompt();
   if (args.signal?.aborted) {
     return finishLoop(args, runId, "progress", iterationsConsumed, true);
-  }
-  if (args.pauseSignal?.aborted) {
-    store.setRunStatus(runId, "paused");
-    return finishLoop(args, runId, "paused", iterationsConsumed, true);
   }
   return undefined;
 }

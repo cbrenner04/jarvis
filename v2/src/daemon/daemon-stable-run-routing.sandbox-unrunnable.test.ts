@@ -29,14 +29,14 @@ function deferred<T>() {
 
 const unused: RpcHandler = () => ({ kind: "error", code: "unused", message: "unused" });
 
-async function bindForwardingPair(ownerHandlers: Record<"wait" | "pause" | "kill", RpcHandler>) {
+async function bindForwardingPair(ownerHandlers: Record<"wait" | "kill", RpcHandler>) {
   const ownerPath = socketPath("run-owner");
   const stablePath = socketPath("stable-daemon");
   const owner = await startIpcServer(ownerPath, ownerHandlers);
   servers.push(owner);
   const localRefusal: RpcHandler = () => ({ kind: "error", code: "run_not_active", message: "local refusal" });
   const stableHandlers = createStableRunHandlers(
-    { wait: localRefusal, pause: localRefusal, kill: localRefusal },
+    { wait: localRefusal, kill: localRefusal },
     {
       predecessorSocketPath: ownerPath,
       ownsRunLocally: () => false,
@@ -57,7 +57,7 @@ test("stable-address wait remains pending until the direct predecessor settles i
     ownerWaitStarted = true;
     return { kind: "response", result: await ownerSettlement.promise };
   };
-  const { transport } = await bindForwardingPair({ wait, pause: unused, kill: unused });
+  const { transport } = await bindForwardingPair({ wait, kill: unused });
   let settled = false;
   const pending = transport.request("wait", { runId: "draining-run" }).finally(() => {
     settled = true;
@@ -82,7 +82,7 @@ test("stable-address kill preserves force and aborts the direct predecessor invo
       result: { ok: true, outcome: "force-settled", runId: "draining-run", status: "killed", survivors: [] },
     };
   };
-  const { transport } = await bindForwardingPair({ wait: unused, pause: unused, kill });
+  const { transport } = await bindForwardingPair({ wait: unused, kill });
 
   expect(await transport.request("kill", { runId: "draining-run", force: true })).toEqual({
     ok: true,

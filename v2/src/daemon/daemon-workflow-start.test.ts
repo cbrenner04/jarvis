@@ -654,16 +654,6 @@ test("kill accepts a workflow-started run's step-0 runId when held live", async 
   await flushBackgroundRuns(10);
 });
 
-test("pause rejects a workflow-started run's step-0 runId with run_not_active", async () => {
-  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
-  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-  expect(runId).toBeTruthy();
-
-  const pauseResponse = await handlers.pause(requestFrame("p1", "pause", { runId }), new AbortController().signal);
-  expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
-});
-
 test("workflow claim and step activeRuns rows share one AbortController", async () => {
   const branch = "shared-abort-branch";
   const steps: AnyWorkflowStep[] = [
@@ -810,7 +800,7 @@ test("kill authorization accepts a live workflow row and rejects a mismatched or
 // Dropping the workflow arm of `activeRunAcceptsKill` turns the held-live kill tests above RED,
 // which is the same proof without the production debt.
 
-test("kill accepts a later step's runId once onStepRunCreated has tracked it; pause still rejects", async () => {
+test("kill accepts a later step's runId once onStepRunCreated has tracked it", async () => {
   const steps: AnyWorkflowStep[] = [
     createWriteStep("step-1", "workflow-branch", doneWithArtifactBindingFactory, { suppressShrink: true }),
     createWriteStep("step-2", "workflow-branch", heldLiveBindingFactory()),
@@ -825,12 +815,6 @@ test("kill accepts a later step's runId once onStepRunCreated has tracked it; pa
     new AbortController().signal,
   );
   expect(killResponse).toMatchObject({ kind: "response", result: { ok: true, outcome: "settled", status: "killed" } });
-
-  const pauseResponse = await handlers.pause(
-    requestFrame("p2", "pause", { runId: step2RunId }),
-    new AbortController().signal,
-  );
-  expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
 });
 
 test("start with steps is rejected worktree_claimed when a live workflow run holds the (project, branch)", async () => {

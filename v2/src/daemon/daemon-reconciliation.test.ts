@@ -507,11 +507,11 @@ test("owner route loss mid-drain drops routed list liveness and routed control f
 
     // A routed control falls back to local handling instead of throwing — fails against pre-fix
     // code, where a rejected ownership lookup propagated out of the routed handler.
-    const paused = await stableHandlers.pause?.(
-      { kind: "request", id: "pause", method: "pause", params: { runId: ownedRunId } },
+    const killed = await stableHandlers.kill?.(
+      { kind: "request", id: "kill", method: "kill", params: { runId: ownedRunId } },
       signal,
     );
-    expect(paused).toMatchObject({ kind: "error", code: "run_not_active" });
+    expect(killed).toMatchObject({ kind: "error", code: "run_not_active" });
 
     // Route loss alone is not orphanhood: the owner process is still alive, so the row is
     // untouched by reconciliation — never a silent local claim.

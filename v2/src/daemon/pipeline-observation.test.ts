@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
-import type { Pipeline, PipelineStageRecord } from "../persistence/state-store.ts";
-import { resolvePipelineOwnership } from "./pipeline-observation.ts";
+import type { AdmittedPipelineSelection, Pipeline, PipelineStageRecord } from "../persistence/state-store.ts";
+import { projectPipelineSnapshot, resolvePipelineOwnership } from "./pipeline-observation.ts";
+
+const SAMPLE_ADMITTED_SELECTION: AdmittedPipelineSelection = {
+  effective: { risk: "high", effort: "low" },
+  sources: { risk: "flag", effort: "seed" },
+  registryName: "demo",
+};
 
 function activePipeline(ownerIdentity: string): Pipeline & { stages: PipelineStageRecord[] } {
   return {
@@ -41,4 +47,18 @@ function activePipeline(ownerIdentity: string): Pipeline & { stages: PipelineSta
 test("resolvePipelineOwnership recognizes only the current daemon identity as owner", () => {
   expect(resolvePipelineOwnership(activePipeline("daemon-a"), "daemon-a")).toEqual({ kind: "owner" });
   expect(resolvePipelineOwnership(activePipeline("daemon-b"), "daemon-a")).toEqual({ kind: "not_owner" });
+});
+
+test("projectPipelineSnapshot omits admittedSelection when null and projects it when set", () => {
+  const withoutAdmission = projectPipelineSnapshot(activePipeline("daemon-a"));
+  expect(withoutAdmission).not.toHaveProperty("admittedSelection");
+  expect(JSON.parse(JSON.stringify(withoutAdmission)) as Record<string, unknown>).not.toHaveProperty(
+    "admittedSelection",
+  );
+
+  const withAdmission = projectPipelineSnapshot({
+    ...activePipeline("daemon-a"),
+    admittedSelection: SAMPLE_ADMITTED_SELECTION,
+  });
+  expect(withAdmission.admittedSelection).toEqual(SAMPLE_ADMITTED_SELECTION);
 });

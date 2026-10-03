@@ -43,7 +43,7 @@ Inner rung detail (consumption modes, flattening, terminal outcomes): [`agent-mo
 | `advocate` | `review-debate` | Read-only; second reviewer. |
 | `adjudicator` | `review-debate` | Read-only; emits verdict. |
 | `actuator` | `review`, `review-debate` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |
-| `routing` | — | Not a workflow step: invoked by the free-text router through `createRoutingAgentBinding`; `cursor`/`opencode` refuse it by name. |
+| `routing` | — | Not a workflow step (a source declaring it fails load validation by name): resolved by `resolveRoutingBindings` and invoked through `createRoutingAgentBinding`; `cursor`/`opencode` refuse it by name and need no rung. |
 | `operator` | — | Behavior binding deferred to Phase 9. |
 
 ## Decisions

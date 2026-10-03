@@ -3327,7 +3327,7 @@ describe("createRoutingAgentBinding", () => {
     const call = fake.calls[0];
     expect(call?.binary).toBe("claude");
     const argv = [...(call?.argv ?? [])];
-    expect(argv.slice(0, 3)).toEqual(["-p", "--tools", ""]);
+    expect(argv.slice(0, 4)).toEqual(["-p", "--tools", "", "--restricted"]);
     expect(argv).toContain("--strict-mcp-config");
     expect(argv.slice(argv.indexOf("--permission-prompts"), argv.indexOf("--permission-prompts") + 2)).toEqual([
       "--permission-prompts",
@@ -3419,6 +3419,35 @@ describe("createRoutingAgentBinding", () => {
     expect(result).toMatchObject({ stderr: expect.stringContaining("'command_execution'"), usage_source: "agent" });
   });
 
+  test("a codex non-ok result keeps usage and cost from its event stream", async () => {
+    const stream = codexStream([{ type: "agent_message", text: "partial" }]);
+    const fake = fakeSpawn([{ kind: "settle", code: 2, stdout: stream, stderr: "boom\n" }]);
+    const result = await createRoutingAgentBinding(CODEX_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(result).toMatchObject({
+      kind: "error",
+      exitCode: 2,
+      usage: { input_tokens: 40, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: null },
+      usage_source: "agent",
+    });
+    expect(routingFailureOf(result)).toBeNull();
+  });
+
+  test("a codex turn.failed event is surfaced as the failure text", async () => {
+    const stdout = JSON.stringify({ type: "turn.failed", error: { message: "model overloaded" } });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout }]);
+    const result = await createRoutingAgentBinding(CODEX_ROUTING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
+
+    expect(result).toMatchObject({ kind: "error", stderr: "codex: model overloaded" });
+    expect(routingFailureOf(result)).toBeNull();
+  });
+
   test("non-JSON output is a named failure, not a retry", async () => {
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: claudeStream([], "Sure! Run `jarvis run log r1`.") }]);
     const result = await createRoutingAgentBinding(CLAUDE_ROUTING, { spawn: fake.spawn }).invoke({
@@ -3441,7 +3470,7 @@ describe("createRoutingAgentBinding", () => {
     expect(fake.calls).toHaveLength(1);
   });
 
-  test("overrunning the routing clock aborts the child and names the timeout", async () => {
+  test("overrunning the routing clock aborts the child, names the timeout, and keeps partial output", async () => {
     const fake = fakeSpawn([{ kind: "hang" }]);
     const timers: (() => void)[] = [];
     const promise = createRoutingAgentBinding(CLAUDE_ROUTING, {
@@ -3454,11 +3483,17 @@ describe("createRoutingAgentBinding", () => {
       clearTimeout: (() => {}) as typeof clearTimeout,
     }).invoke({ prompt: "p", cwd: "/repo" });
 
+    fake.calls[0]?.child?.stdout.write('{"type":"system","subtype":"init"}\n');
     timers[0]?.();
     const result = await settlesWithin(promise);
 
     expect(routingFailureOf(result)).toBe("timeout");
-    expect(result).toMatchObject({ kind: "error", exitCode: -1, stderr: "routing: no result within 1234ms" });
+    expect(result).toMatchObject({
+      kind: "error",
+      exitCode: -1,
+      stderr: "routing: no result within 1234ms",
+      diagnostics: '{"type":"system","subtype":"init"}\n',
+    });
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
   });
 

@@ -4,6 +4,7 @@ import {
   parseCodexExecJsonOutput,
   parseRoutingOutput,
   ROUTING_MAX_OUTPUT_CHARS,
+  resolveToolFreeVendor,
   routingFailure,
   routingFailureOf,
   routingRefusalReason,
@@ -11,13 +12,16 @@ import {
 
 const line = (frame: unknown) => JSON.stringify(frame);
 
-describe("routingRefusalReason", () => {
-  test.each(["claude", "codex"])("%s has a tool-free form", (agent) => {
+describe("resolveToolFreeVendor", () => {
+  test.each(["claude", "codex"] as const)("%s narrows to a tool-free vendor", (agent) => {
+    expect(resolveToolFreeVendor(agent)).toEqual({ vendor: agent });
     expect(routingRefusalReason(agent)).toBeNull();
   });
 
   test.each(["cursor", "opencode", "unknown-agent"])("%s is refused by name", (agent) => {
-    expect(routingRefusalReason(agent)).toEqual(expect.any(String));
+    const resolved = resolveToolFreeVendor(agent);
+    expect(resolved).toEqual({ refusal: expect.any(String) });
+    expect(routingRefusalReason(agent)).toBe("refusal" in resolved ? resolved.refusal : null);
   });
 });
 
@@ -57,6 +61,7 @@ describe("parseCodexExecJsonOutput", () => {
     expect(parseCodexExecJsonOutput(stdout)).toEqual({
       toolCall: null,
       message: '{"action":"run.log"}',
+      error: null,
       usage: { input_tokens: 100, output_tokens: 7, cache_read_input_tokens: 20, cache_creation_input_tokens: null },
     });
   });
@@ -69,8 +74,25 @@ describe("parseCodexExecJsonOutput", () => {
     expect(parseCodexExecJsonOutput(stdout)).toMatchObject({ toolCall: "command_execution", message: "{}" });
   });
 
-  test("empty transcript yields no message and no usage", () => {
-    expect(parseCodexExecJsonOutput("")).toEqual({ toolCall: null, message: null, usage: null });
+  test.each(["file_change", "mcp_tool_call", "web_search"])("%s items are tool calls", (type) => {
+    expect(parseCodexExecJsonOutput(line({ type: "item.started", item: { type } })).toolCall).toBe(type);
+  });
+
+  test("todo_list and reasoning items are not tool calls", () => {
+    const stdout = [
+      line({ type: "item.completed", item: { type: "todo_list", items: [] } }),
+      line({ type: "item.completed", item: { type: "reasoning", text: "plan" } }),
+    ].join("\n");
+    expect(parseCodexExecJsonOutput(stdout).toolCall).toBeNull();
+  });
+
+  test("turn.failed surfaces its error text", () => {
+    const stdout = line({ type: "turn.failed", error: { message: "model overloaded" } });
+    expect(parseCodexExecJsonOutput(stdout).error).toBe("model overloaded");
+  });
+
+  test("empty transcript yields no message, error, or usage", () => {
+    expect(parseCodexExecJsonOutput("")).toEqual({ toolCall: null, message: null, error: null, usage: null });
   });
 });
 

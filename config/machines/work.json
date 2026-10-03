@@ -24,9 +24,6 @@
       },
       "actuator": {
         "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
-      },
-      "routing": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       }
     }
   }

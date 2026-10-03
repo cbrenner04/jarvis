@@ -3,6 +3,7 @@ import {
   type LoadError,
   resolveExecutableRole,
   resolveInvocationBindings,
+  resolveRoutingBindings,
   validateAgentModelConfig,
 } from "./agent-model-config.ts";
 
@@ -154,6 +155,13 @@ describe("validateAgentModelConfig", () => {
     }
   });
 
+  test("routing is not required for a vendor that refuses the role", () => {
+    const { routing: _routing, ...cursorEntry } = VALID_CLAUDE;
+    const result = validateAgentModelConfig({ cursor: cursorEntry }, ["cursor"]);
+
+    expect(isError(result)).toBe(false);
+  });
+
   test("operator role is optional but accepted when present", () => {
     const absent = validateAgentModelConfig({ claude: VALID_CLAUDE }, ["claude"]);
     expect(isError(absent)).toBe(false);
@@ -230,8 +238,7 @@ describe("resolveInvocationBindings", () => {
   });
 
   test("routing resolves a binding from the machine profile like other roles", () => {
-    const bindings = resolveInvocationBindings(
-      resolveExecutableRole("routing"),
+    const resolution = resolveRoutingBindings(
       ["claude", "codex"],
       {
         claude: { routing: { rungs: [{ adapterModel: "claude-cheap", priceKey: "claude-cheap-price" }] } },
@@ -240,10 +247,42 @@ describe("resolveInvocationBindings", () => {
       (binding) => binding,
     );
 
-    expect(bindings).toEqual([
-      { agentId: "claude", adapterModel: "claude-cheap", priceKey: "claude-cheap-price" },
-      { agentId: "codex", adapterModel: "codex-cheap", priceKey: "codex-cheap-price" },
-    ]);
+    expect(resolution).toEqual({
+      bindings: [
+        { agentId: "claude", adapterModel: "claude-cheap", priceKey: "claude-cheap-price" },
+        { agentId: "codex", adapterModel: "codex-cheap", priceKey: "codex-cheap-price" },
+      ],
+      refused: [],
+    });
+  });
+
+  test("routing skips refusing vendors by name and keeps the rest of the order", () => {
+    const resolution = resolveRoutingBindings(
+      ["cursor", "claude"],
+      { cursor: {}, claude: { routing: { rungs: [{ adapterModel: "claude-cheap", priceKey: "p" }] } } },
+      (binding) => binding.agentId,
+    );
+
+    expect(resolution.bindings).toEqual(["claude"]);
+    expect(resolution.refused).toEqual([{ agentId: "cursor", reason: expect.stringContaining("cursor-agent") }]);
+  });
+
+  test("routing throws naming every refusal when no vendor in the order can route", () => {
+    expect(() => resolveRoutingBindings(["cursor", "opencode"], { cursor: {}, opencode: {} }, (b) => b)).toThrow(
+      /no agent in the order can run the routing role: cursor \(.*\); opencode \(.*\)/,
+    );
+  });
+
+  test("routing is refused by the workflow-step boundary and the full-tool resolver", () => {
+    expect(() => resolveExecutableRole("routing")).toThrow(/routing.*reserved for the free-text router/);
+    expect(() =>
+      resolveInvocationBindings(
+        "routing" as unknown as ReturnType<typeof resolveExecutableRole>,
+        ["claude"],
+        { claude: { routing: { rungs: [{ adapterModel: "m", priceKey: "p" }] } } },
+        (b) => b,
+      ),
+    ).toThrow(/routing.*resolveRoutingBindings only/);
   });
 
   test("actuator resolves head-only bindings", () => {

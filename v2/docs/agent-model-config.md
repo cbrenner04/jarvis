@@ -183,20 +183,22 @@ Head-only `actuator` matches v1 `reviewActuator` verdict-tier semantics: inner r
 
 ## Routing role
 
-`routing` is the cheap, tool-free translation call behind free-text routing: it turns an operator sentence into one JSON object the [routing action catalog](../src/cli/free-text-routing-actions.ts) validates. It is an executable role like any other — required for every agent in the effective order at load, resolved through the same machine-profile rungs (`resolveInvocationBindings("routing", …)`), no separate model ranking. Both shipped profiles bind it to the cheapest model already listed for each agent.
+`routing` is the cheap, tool-free translation call behind free-text routing: it turns an operator sentence into one JSON object the [routing action catalog](../src/cli/free-text-routing-actions.ts) validates. It resolves through the same machine-profile rungs as every other role (no separate model ranking) but is **not a workflow-step role**: a workflow source declaring `role: routing` fails `loadWorkflowSteps` role validation by name, `resolveExecutableRole("routing")` throws, and `resolveInvocationBindings` (the full-tool path) refuses it. Routing bindings resolve only through `resolveRoutingBindings(agents, config, createBinding)`, which walks the agent order, skips vendors that refuse the role (recorded in `refused` with the reason), and throws naming every refusal only when no vendor in the order can route — so `claude → codex → cursor` resolves to the claude and codex rungs with cursor listed as refused.
 
-Bindings come from `createRoutingAgentBinding` in [`shared/invocation/agents.ts`](../../shared/invocation/agents.ts), not `createResolvedAgentBinding`. The routing invocation receives only the prompt and its `cwd`; the caller chooses a neutral `cwd` because vendor CLIs still read project settings from it.
+At load, `routing` rungs are required only for agents that can run tool-free (`routingRefusalReason(agent) === null`); refusing vendors carry no routing rung. Both shipped profiles bind it to the cheapest model already listed for claude and codex.
+
+Bindings come from `createRoutingAgentBinding` in [`shared/invocation/agents.ts`](../../shared/invocation/agents.ts), not `createResolvedAgentBinding`. The routing invocation receives only the prompt and its `cwd`.
 
 ### Tool-free invocation contract
 
 | Vendor | Form | Notes |
 | --- | --- | --- |
-| `claude` | `claude -p --tools "" --strict-mcp-config --permission-prompts none --model <m> --output-format stream-json --verbose` | `--tools ""` disables every built-in tool; `--strict-mcp-config` drops settings-sourced MCP servers; anything that would still prompt is auto-denied. No `--permission-mode`, no `--add-dir`. |
+| `claude` | `claude -p --tools "" --restricted --strict-mcp-config --permission-prompts none --model <m> --output-format stream-json --verbose` | `--tools ""` disables every built-in tool; `--restricted` ignores user/project/local settings files (repo hooks and permission grants never load); `--strict-mcp-config` drops settings-sourced MCP servers; anything that would still prompt is auto-denied. No `--permission-mode`, no `--add-dir`. |
 | `codex` | `codex exec --skip-git-repo-check --color never --sandbox read-only -c approval_policy="never" --json --model <m>` | codex has no tool-disabling flag; the read-only OS sandbox plus auto-denied escalation is its strongest honest form (read-only shell remains possible, which the transcript check below turns into a named failure). No `--add-dir`; `codexSandboxMode` does not apply. Usage comes from the `turn.completed` event, not the session rollout. |
 | `cursor` | **refused** | `cursor-agent` has no tool-disabling flag; `--mode ask` keeps read tools and requires a workspace grant. |
 | `opencode` | **refused** | No tool-disabling flag; tool sets live only in project agent config. |
 
-Refusal is `RoutingRefusalError` (names the agent) thrown by `createRoutingAgentBinding` before any process starts — a vendor that cannot run tool-free never runs degraded. `routingRefusalReason(agentId)` ([`shared/invocation/routing.ts`](../../shared/invocation/routing.ts)) answers the same question without constructing a binding.
+The tool-free vendor set has one source of truth: `resolveToolFreeVendor(agentId)` in [`shared/invocation/routing.ts`](../../shared/invocation/routing.ts) returns the narrowed vendor or a refusal reason; `routingRefusalReason` derives from it, `resolveRoutingBindings` filters with it, and `createRoutingAgentBinding` throws `RoutingRefusalError` (naming the agent) from it before any process starts — a vendor that cannot run tool-free never runs degraded.
 
 ### Bounds and named failures
 
@@ -205,10 +207,10 @@ One spawn per call: no transient retry, no re-prompt. The call is bounded by a w
 | `routingFailure` | Meaning |
 | --- | --- |
 | `timeout` | The wall clock fired; the child was aborted and killed. |
-| `tool_call` | The transcript shows a tool attempt (`tool_use` block for claude, any non-text item for codex); `stderr` names the tool. |
-| `malformed_output` | The final text is not one JSON object (a single surrounding code fence is tolerated), exceeds the output bound, or codex emitted no agent message. |
+| `tool_call` | The transcript shows a tool attempt (`tool_use` block for claude; a `command_execution`, `file_change`, `mcp_tool_call`, or `web_search` item for codex — `todo_list`/reasoning items are not tool calls); `stderr` names the tool. |
+| `malformed_output` | The final text is not one JSON object (a single surrounding code fence of any tag/case is tolerated), exceeds the output bound, or codex emitted no agent message. |
 
-On `ok`, `stdout` is the JSON object text (fence stripped); catalog validation (`validateRoutingRequest`) is the v2 consumer's job. A caller abort settles as the usual `aborted: <reason>` error, not a routing failure. Usage and cost are attached to named failures when the vendor reported them.
+On `ok`, `stdout` is the JSON object text (fence stripped); catalog validation (`validateRoutingRequest`) is the v2 consumer's job. A caller abort settles as the usual `aborted: <reason>` error, not a routing failure; a codex `turn.failed` event settles as an ordinary `error` carrying its message. Usage and cost ride every settlement the vendor reported them for, including named failures and non-ok exits (codex reads them from the `--json` `turn.completed` event); the `timeout` failure keeps the partial transcript as `diagnostics`.
 
 ## Terminal outcomes
 
@@ -236,7 +238,7 @@ One machine-wide `idleOutputTimeoutMs` policy governs workflow write invocations
 | --- | --- |
 | Every `agent` in project `agents` has a `ModelsByRole` entry in the data file | hard error |
 | For each such agent, every required role has a `ModelEscalation` entry | hard error |
-| Required roles = closed `Role` union minus optional `operator`; includes `critic`, `shrink`, and `routing` | — |
+| Required roles = closed `Role` union minus optional `operator`; includes `critic` and `shrink`; `routing` only for agents that can run tool-free | — |
 | `operator` entry absent | load succeeds; resolving `operator` before Phase 9 is a **runtime** error |
 | `rungs` missing or empty for any present `(agent, role)` | hard error |
 | Duplicate names in project `agents` | hard error |

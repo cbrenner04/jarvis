@@ -273,6 +273,15 @@ describe("loadWorkflowSteps", () => {
     }
   });
 
+  test("rejects a step naming role 'routing' by name", () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+
+    expect(() =>
+      loadWorkflowSteps([sourceStep({ role: "routing" })], { machineConfigPath, machineProfile, machinesDir }),
+    ).toThrow(/non-executable role.*\(step-1, routing\)/);
+  });
+
   test("rejects a step naming role 'operator'", () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();

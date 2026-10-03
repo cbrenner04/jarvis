@@ -125,7 +125,7 @@ export function createHeldWorkflowBindings() {
       }),
   );
   const drain = (mode: "settle" | "abort"): void => {
-    while (pending.length > 0) pending.shift()?.release(mode);
+    for (const run of pending.splice(0)) run.release(mode);
   };
   return {
     createBinding,

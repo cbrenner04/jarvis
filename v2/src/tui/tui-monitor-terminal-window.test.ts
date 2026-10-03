@@ -296,7 +296,11 @@ describe("runTuiEntry unified work-tree selectability", () => {
     const pending = runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
-      admitDetachedPipelineStart: async () => ({ kind: "admitted", pipelineId: "test-pipeline" }),
+      admitDetachedPipelineStart: async () => ({
+        kind: "admitted",
+        pipelineId: "test-pipeline",
+        admittedSelection: null,
+      }),
       nowMs: () => FIXED_NOW,
       viewHost: view.host,
       connectTuiDaemon: async () => fakeClient([{ runs }]),

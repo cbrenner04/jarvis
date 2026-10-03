@@ -102,7 +102,7 @@ describe("pipeline start admission", () => {
     const harness = makeHarness();
     const result = await admitPipelineStart({ projectKey: "demo", seedText: "Ship feature" }, harness.deps);
 
-    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
     expect(harness.connectCalls.value).toBe(1);
     expect(harness.closeCalls.value).toBe(1);
     expect(harness.requests).toHaveLength(1);
@@ -129,7 +129,7 @@ describe("pipeline start admission", () => {
     const harness = makeHarness();
     const result = await admitPipelineStart({ projectKey: "demo", seedPath: "../seeds/intent.md" }, harness.deps);
 
-    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
     expect(harness.connectCalls.value).toBe(1);
     expect(harness.requests).toHaveLength(1);
     expect(harness.requests[0]).toMatchObject({
@@ -269,7 +269,7 @@ describe("pipeline start admission", () => {
       { projectKey: "demo", seedText: "Body", risk: "extreme", effort: "extreme" },
       harness.deps,
     );
-    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
     expect(resolutions[0]?.ok).toBe(true);
     expect(resolutions[0]).not.toHaveProperty("admissionRatings");
     // @mutate v2/src/commands/pipeline-start-admission.ts "if (!explicitName) {" -> "if (explicitName) {"
@@ -285,7 +285,15 @@ describe("pipeline start admission", () => {
           { projectKey: "demo", seedText: `---\nrisk: ${risk}\neffort: ${effort}\n---\nBody` },
           harness.deps,
         );
-        expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+        expect(result).toEqual({
+          kind: "admitted",
+          pipelineId: "pipeline-123",
+          admittedSelection: {
+            effective: { risk, effort },
+            sources: { risk: "seed", effort: "seed" },
+            registryName: expectedName,
+          },
+        });
         expect(harness.requests[0]?.params).toMatchObject({ definition: { name: expectedName } });
       }
     }
@@ -302,7 +310,15 @@ describe("pipeline start admission", () => {
       { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody" },
       fromText.deps,
     );
-    expect(textResult).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(textResult).toEqual({
+      kind: "admitted",
+      pipelineId: "pipeline-123",
+      admittedSelection: {
+        effective: { risk: "low", effort: "medium" },
+        sources: { risk: "seed", effort: "minimum" },
+        registryName: "full-light-review",
+      },
+    });
     expect(fromText.requests[0]?.params).toMatchObject({ definition: { name: "full-light-review" } });
 
     const fromPath = makeHarness({ readProjectConfigRecord: ratedProject });
@@ -310,7 +326,15 @@ describe("pipeline start admission", () => {
       { projectKey: "demo", seedPath: "../rated-seeds/risky.md" },
       fromPath.deps,
     );
-    expect(pathResult).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(pathResult).toEqual({
+      kind: "admitted",
+      pipelineId: "pipeline-123",
+      admittedSelection: {
+        effective: { risk: "high", effort: "medium" },
+        sources: { risk: "seed", effort: "minimum" },
+        registryName: "full-review",
+      },
+    });
     expect(fromPath.requests[0]?.params).toMatchObject({
       definition: { name: "full-review" },
       context: { seedPath: "../rated-seeds/risky.md" },
@@ -612,7 +636,10 @@ describe("pipeline start admission", () => {
 
   test("preserves admission results when connection cleanup throws", async () => {
     for (const [request, expected] of [
-      [async () => ({ pipelineId: "pipeline-123" }), { kind: "admitted", pipelineId: "pipeline-123" }],
+      [
+        async () => ({ pipelineId: "pipeline-123" }),
+        { kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null },
+      ],
       [
         async () => {
           throw new RpcError("admission_failed", "refused");

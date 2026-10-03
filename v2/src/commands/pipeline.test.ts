@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,10 +16,23 @@ import {
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { createPipelineHandlers } from "../daemon/daemon-pipeline-handlers.ts";
+import { createRunControlHandlerContext } from "../daemon/daemon-run-control-context.ts";
+import { createRunLifecycleHandlers } from "../daemon/daemon-run-lifecycle-handlers.ts";
+import { createWorkflowStartAdmission } from "../daemon/daemon-workflow-admission-handlers.ts";
+import { recoverContinuablePipelines } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { projectPipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { withValidStageFailureRecords } from "../daemon/wire-failure-record.ts";
+import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
+import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
+import { type AdmittedPipelineSelection, openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { formatAdmittedPipelineSelectionSummary } from "./pipeline.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 import {
   type CliRepoFixture,
   captureIo,
@@ -211,6 +224,71 @@ function singleRequestClient(reply: (id: string) => IpcFrame, sent: unknown[] = 
 function pipelineListClient(result: unknown, sent: unknown[] = []): IpcClient {
   return singleRequestClient((id) => ({ kind: "response", id, result }), sent);
 }
+
+type HandlerRpcResponse = { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string };
+
+type HandlerRpcFrame = { kind: "request"; id: string; method: string; params?: unknown };
+
+function makeHandlerDispatchClient(
+  handlers: Record<string, (frame: HandlerRpcFrame, signal: AbortSignal) => Promise<HandlerRpcResponse>>,
+): IpcClient {
+  const inner = makeDeferredIpcClient([], { deferred: true, gated: true });
+  const signal = new AbortController().signal;
+  return {
+    send(frame: unknown): void {
+      inner.send(frame);
+      void (async () => {
+        const request = frame as { id: string; method: string; params?: unknown };
+        const handler = handlers[request.method];
+        if (handler === undefined) {
+          inner.push({ kind: "error", id: request.id, code: "unknown_method", message: request.method });
+          return;
+        }
+        const response = await handler(
+          { kind: "request", id: request.id, method: request.method, params: request.params },
+          signal,
+        );
+        if (response.kind === "response") {
+          inner.push({ kind: "response", id: request.id, result: response.result });
+          return;
+        }
+        inner.push({ kind: "error", id: request.id, code: response.code, message: response.message });
+      })();
+    },
+    nextFrame: () => inner.nextFrame(),
+    close: () => inner.close(),
+  };
+}
+
+function makePipelineHandlerHarness(store: StateStore) {
+  const fakeExecutor = createFakeWriteLoopExecutor();
+  const resolveStage = async () => ({ ok: true as const, steps: [] });
+  const ctx = createRunControlHandlerContext({
+    stateStore: store,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage,
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
+  });
+  const handlers = createPipelineHandlers(ctx, {
+    pipelineDispatch: lifecycle.pipelineDispatch,
+    pipelineWait: lifecycle.pipelineWait,
+    admitWorkflowStart: workflowStart.admitWorkflowStart,
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
+    resolveStage,
+  });
+  return { handlers, fakeExecutor };
+}
+
+const RATING_ADMITTED_SELECTION: AdmittedPipelineSelection = {
+  effective: { risk: "high", effort: "low" },
+  sources: { risk: "flag", effort: "seed" },
+  registryName: "full-review",
+};
 
 /** Single-request client answering with an RPC error. */
 function pipelineErrorRpcClient(code: string, message: string, sent: unknown[] = []): IpcClient {
@@ -488,6 +566,9 @@ describe("pipeline start", () => {
         },
       },
     });
+    expect(cap.read().stderr).toBe(
+      `pipeline: admitted ${formatAdmittedPipelineSelectionSummary(RATING_ADMITTED_SELECTION)}\n`,
+    );
     // Mutation checkpoint: inverting `typeof values.risk === "string"` in parsePipelineStartArgs turns this test RED.
   });
 
@@ -818,6 +899,36 @@ describe("pipeline list", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
+
+  test("list --json and human output surface admittedSelection from pipeline_list", async () => {
+    const cap = captureIo();
+    const rated = {
+      ...SAMPLE_PIPELINE_SNAPSHOT,
+      pipelineId: "rated-pipe",
+      name: "full-review",
+      admittedSelection: RATING_ADMITTED_SELECTION,
+    };
+    const summary = formatAdmittedPipelineSelectionSummary(RATING_ADMITTED_SELECTION);
+
+    const jsonCode = await withFixedUuid([SESSION_UUID, "pipe-list-rated-json"], () =>
+      main(["pipeline", "list", "--json"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-rated-json", [rated])]),
+      }),
+    );
+    expect(jsonCode).toBe(0);
+    const json = JSON.parse(cap.read().stdout.trim()) as { pipelines: PipelineSnapshot[] };
+    expect(json.pipelines[0]?.admittedSelection).toEqual(RATING_ADMITTED_SELECTION);
+
+    const humanCap = captureIo();
+    const humanCode = await main(["pipeline", "list"], humanCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => pipelineListClient({ pipelines: [rated] }),
+    });
+    expect(humanCode).toBe(0);
+    expect(humanCap.read().stdout).toContain(summary);
+    // Mutation checkpoint: omitting admittedSelection from renderPipelineListRows must turn this test RED.
   });
 
   test("list --json prints the empty pipelines array unmodified", async () => {
@@ -2976,5 +3087,161 @@ describe("pipeline help", () => {
     expect(output).toContain("--detach");
     expect(output).toContain("--seed");
     expect(output).toContain("--seed-text");
+  });
+});
+
+describe("admitted pipeline selection exposure and resume pin", () => {
+  let store: StateStore;
+  let fakeExecutor: ReturnType<typeof createFakeWriteLoopExecutor>;
+  let handlerClient: () => IpcClient;
+
+  beforeEach(() => {
+    store = openStateStore(":memory:");
+    const harness = makePipelineHandlerHarness(store);
+    fakeExecutor = harness.fakeExecutor;
+    const handlerEntries = harness.handlers as unknown as Record<
+      string,
+      (frame: HandlerRpcFrame, signal: AbortSignal) => Promise<HandlerRpcResponse>
+    >;
+    handlerClient = () => makeHandlerDispatchClient(handlerEntries);
+  });
+
+  afterEach(async () => {
+    fakeExecutor.abortAll();
+    await flushBackgroundRuns();
+    store.close();
+  });
+
+  test("pipeline start persists admitted definition and selection for handler-backed list projection", async () => {
+    const cap = captureIo();
+    const seedDir = join(fx.repoRoot, "seeds");
+    mkdirSync(seedDir, { recursive: true });
+    const seedPath = join(seedDir, "rated-intent.md");
+    writeFileSync(seedPath, "---\neffort: low\n---\nBody", "utf8");
+    const configPath = pipelineMachineConfig(
+      "demo",
+      { terminalAction: "leave-draft", minimumRisk: "medium" },
+      fx.repoRoot,
+    );
+
+    const code = await main(
+      ["pipeline", "start", "demo", "--risk", "high", "--seed", "seeds/rated-intent.md", "--detach"],
+      cap.io,
+      {
+        ...pipelineDeps(configPath),
+        connectIpcClient: async () => handlerClient(),
+      },
+    );
+
+    expect(code).toBe(0);
+    const pipelineId = cap.read().stdout.trim();
+    const row = store.loadPipeline(pipelineId);
+    if (!row) throw new Error("expected durable pipeline row");
+    expect(row.definition.name).toBe("full-review");
+    expect(row.admittedSelection).toEqual(RATING_ADMITTED_SELECTION);
+
+    const listCap = captureIo();
+    const listCode = await main(["pipeline", "list", "--json"], listCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => handlerClient(),
+    });
+    expect(listCode).toBe(0);
+    const listed = JSON.parse(listCap.read().stdout.trim()) as { pipelines: PipelineSnapshot[] };
+    const snapshot = listed.pipelines.find((pipeline) => pipeline.pipelineId === pipelineId);
+    expect(snapshot?.admittedSelection).toEqual(RATING_ADMITTED_SELECTION);
+    expect(projectPipelineSnapshot(row).admittedSelection).toEqual(RATING_ADMITTED_SELECTION);
+  });
+
+  test("pipeline resume keeps admitted definition after config and seed mutations", async () => {
+    const seedDir = join(fx.repoRoot, "seeds");
+    mkdirSync(seedDir, { recursive: true });
+    const seedPath = join(seedDir, "resume-rated.md");
+    writeFileSync(seedPath, "---\neffort: low\n---\nBody", "utf8");
+    let configPath = pipelineMachineConfig(
+      "demo",
+      { terminalAction: "leave-draft", minimumRisk: "medium" },
+      fx.repoRoot,
+    );
+
+    const startCap = captureIo();
+    const startCode = await main(
+      ["pipeline", "start", "demo", "--risk", "high", "--seed", "seeds/resume-rated.md", "--detach"],
+      startCap.io,
+      {
+        ...pipelineDeps(configPath),
+        connectIpcClient: async () => handlerClient(),
+      },
+    );
+    expect(startCode).toBe(0);
+    const pipelineId = startCap.read().stdout.trim();
+    const before = store.loadPipeline(pipelineId);
+    if (!before) throw new Error("expected pipeline row");
+
+    writeFileSync(seedPath, "---\nrisk: low\neffort: low\n---\nMutated", "utf8");
+    configPath = writeMachineConfig({
+      machineProfile: "home",
+      agents: ["claude"],
+      projects: { demo: { root: fx.repoRoot, pipeline: { name: "fast", terminalAction: "leave-draft" } } },
+    });
+    const liveResolution = resolveProjectPipeline(
+      { projectKey: "demo", pipeline: { name: "fast", terminalAction: "leave-draft" } },
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    expect(liveResolution.ok).toBe(true);
+    if (liveResolution.ok) expect(liveResolution.definition.name).toBe("fast");
+    expect(before.definition.name).toBe("full-review");
+
+    const resumeCap = captureIo();
+    await main(["pipeline", "resume", pipelineId], resumeCap.io, {
+      ...pipelineDeps(configPath),
+      connectIpcClient: stableVerbConnectIpcClient(() => handlerClient()),
+    });
+
+    const after = store.loadPipeline(pipelineId);
+    if (!after) throw new Error("expected pipeline row after resume");
+    expect(after.definition.name).toBe(before.definition.name);
+    expect(after.admittedSelection).toEqual(before.admittedSelection);
+  });
+
+  test("recoverContinuablePipelines keeps admitted definition after live resolution would differ", async () => {
+    const resolved = getPipelineDefinition("full-review");
+    if (!resolved.ok) throw new Error("expected full-review definition");
+    const pipelineId = store.createPipeline({
+      definition: resolved.definition,
+      context: {
+        cwd: fx.repoRoot,
+        seedPath: "seeds/resume-rated.md",
+        configPath: "/fixture/config.json",
+        projectRegistry: { demo: { root: fx.repoRoot } },
+      },
+      admittedSelection: RATING_ADMITTED_SELECTION,
+    });
+    const before = store.loadPipeline(pipelineId);
+    if (!before) throw new Error("expected pipeline row");
+
+    const liveResolution = resolveProjectPipeline(
+      { projectKey: "demo", pipeline: { name: "fast", terminalAction: "leave-draft" } },
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+    );
+    expect(liveResolution.ok).toBe(true);
+    if (liveResolution.ok) expect(liveResolution.definition.name).not.toBe(before.definition.name);
+
+    await recoverContinuablePipelines(
+      store,
+      {
+        store,
+        dispatch: async () => ({ ok: true, entryRunId: "run-recover-pin", invocationId: "inv-recover-pin" }),
+        wait: async () => "completed",
+        resolveStage: async () => ({ ok: true, steps: [] }),
+      },
+      async () => false,
+    );
+
+    const after = store.loadPipeline(pipelineId);
+    if (!after) throw new Error("expected pipeline row after recoverContinuablePipelines");
+    expect(after.definition.name).toBe(before.definition.name);
+    expect(after.admittedSelection).toEqual(before.admittedSelection);
   });
 });

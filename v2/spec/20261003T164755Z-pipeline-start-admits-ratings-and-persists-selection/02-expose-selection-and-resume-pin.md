@@ -19,11 +19,11 @@ Continuation already runs from the stored `definition` snapshot; operators still
 
 ## Acceptance criteria
 
-- [ ] `pipeline.test.ts` proves the durable pipeline row after `pipeline start` includes the admitted definition, effective ratings, and sources, and that human or JSON `pipeline list` surfaces them; fails pre-fix.
-- [ ] `pipeline.test.ts` proves rating-selected `pipeline start` prints one stderr line with effective `risk`/`effort`, per-dimension sources, and selected registry name; fails pre-fix (no summary).
-- [ ] `pipeline.test.ts` proves `pipeline resume` after mutating `projects.<key>.pipeline` and the admitted seed file so live `resolveProjectPipeline` would pick a different registry name still continues from the row's `definition.name` and `admittedSelection`; fails pre-fix if continuation reintroduces resolution (definition-only equality would not catch a swapped definition with stale selection).
-- [ ] `pipeline.test.ts` proves `pipeline recover` or daemon `recoverContinuablePipelines` (named path in the test) after the same post-admit mutations keeps `definition.name` and `admittedSelection` unchanged; fails pre-fix if recovery reintroduces resolution.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `pipeline.test.ts` proves the durable pipeline row after `pipeline start` includes the admitted definition, effective ratings, and sources, and that human or JSON `pipeline list` surfaces them; fails pre-fix.
+- [x] `pipeline.test.ts` proves rating-selected `pipeline start` prints one stderr line with effective `risk`/`effort`, per-dimension sources, and selected registry name; fails pre-fix (no summary).
+- [x] `pipeline.test.ts` proves `pipeline resume` after mutating `projects.<key>.pipeline` and the admitted seed file so live `resolveProjectPipeline` would pick a different registry name still continues from the row's `definition.name` and `admittedSelection`; fails pre-fix if continuation reintroduces resolution (definition-only equality would not catch a swapped definition with stale selection).
+- [x] `pipeline.test.ts` proves `pipeline recover` or daemon `recoverContinuablePipelines` (named path in the test) after the same post-admit mutations keeps `definition.name` and `admittedSelection` unchanged; fails pre-fix if recovery reintroduces resolution.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

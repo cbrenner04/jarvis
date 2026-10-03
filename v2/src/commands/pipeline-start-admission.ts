@@ -47,7 +47,7 @@ type PipelineStartAdmissionFailure =
   | "connection-lifecycle-failure";
 
 export type PipelineStartAdmissionResult =
-  | { kind: "admitted"; pipelineId: string }
+  | { kind: "admitted"; pipelineId: string; admittedSelection: AdmittedPipelineSelection | null }
   | {
       kind: "pre-admission-failure";
       failure: PipelineStartPreAdmissionFailure;
@@ -391,7 +391,7 @@ export async function admitPipelineStart(
     } catch {
       retained = false;
     }
-    return { kind: "admitted", pipelineId };
+    return { kind: "admitted", pipelineId, admittedSelection };
   } finally {
     if (!retained) closeConnection(connection);
   }

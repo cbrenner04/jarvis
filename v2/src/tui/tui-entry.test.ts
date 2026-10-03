@@ -63,6 +63,7 @@ const ATTENTION_RECENT_FINISH_MS = 1_700_000_000_000 - 5_000;
 const noopDetachedAdmission: DetachedPipelineStartAdmission = async () => ({
   kind: "admitted",
   pipelineId: "test-pipeline",
+  admittedSelection: null,
 });
 
 const RUN_ALPHA: DaemonListRunRow = {
@@ -1583,7 +1584,7 @@ describe("runTuiEntry", () => {
       expect(parseSpy).toHaveBeenCalledTimes(1);
       expect(admissionCalls).toBe(1);
 
-      admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-admitted" });
+      admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-admitted" });
       await flush();
       expect(view.monitorStates.at(-1)).toMatchObject({
         lastCommandResult: "pipe-admitted",
@@ -1626,7 +1627,7 @@ describe("runTuiEntry", () => {
       textView.submitCommand(textBuffer);
       expect(textAdmissionCalls).toBe(1);
       expect(textView.monitorStates.length).toBeGreaterThanOrEqual(statesBeforeResolve);
-      textAdmissionGate.resolve({ kind: "admitted", pipelineId: "pipe-text" });
+      textAdmissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-text" });
       await flush();
       expect(textView.monitorStates.at(-1)?.lastCommandResult).toBe("pipe-text");
       textView.quit();
@@ -1668,7 +1669,7 @@ describe("runTuiEntry", () => {
       const edited = view.monitorStates.at(-1);
       expect(edited).toMatchObject({ commandBuffer: `${bufferBeforeEdit}!`, focus: "command" });
 
-      admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-stale" });
+      admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-stale" });
       await flush();
       expect(view.monitorStates.at(-1)).toMatchObject({
         commandBuffer: `${bufferBeforeEdit}!`,
@@ -1704,7 +1705,7 @@ describe("runTuiEntry", () => {
     expect(closeAdmissionCalls).toBe(1);
     const statesBeforeClose = closeView.monitorStates.length;
     closeView.quit();
-    closeGate.resolve({ kind: "admitted", pipelineId: "pipe-after-close" });
+    closeGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-after-close" });
     await flush();
     expect(closeView.monitorStates).toHaveLength(statesBeforeClose);
     expect(await closePending).toBe(0);
@@ -1857,7 +1858,7 @@ describe("runTuiEntry", () => {
     let admissionCalls = 0;
     deps.admitDetachedPipelineStart = async () => {
       admissionCalls += 1;
-      return { kind: "admitted", pipelineId: "unused" };
+      return { kind: "admitted", admittedSelection: null, pipelineId: "unused" };
     };
     const pending = runTuiEntry(deps);
 
@@ -4529,7 +4530,7 @@ describe("runTuiEntry", () => {
       view.submitCommand(startBuffer);
       expect(admissionCalls).toBe(1);
 
-      admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-admitted" });
+      admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-admitted" });
       await flush();
     } finally {
       view.quit();
@@ -5605,7 +5606,7 @@ describe("runTuiEntry", () => {
         await flush();
         expect(reexecCalls).toHaveLength(0);
 
-        admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-revision-follow" });
+        admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-revision-follow" });
         await flush();
         await flush();
 

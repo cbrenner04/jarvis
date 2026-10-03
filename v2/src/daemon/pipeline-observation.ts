@@ -1,5 +1,10 @@
 import { FOLLOW_POLL_MS } from "../persistence/log-stream.ts";
-import type { Pipeline, PipelineStageRecord, StateStore } from "../persistence/state-store.ts";
+import type {
+  AdmittedPipelineSelection,
+  Pipeline,
+  PipelineStageRecord,
+  StateStore,
+} from "../persistence/state-store.ts";
 import {
   branchSuffixPredecessorsSatisfied,
   derivePipelineState,
@@ -180,6 +185,7 @@ export type PipelineSnapshot = {
   createdAt: number;
   finishedAtMs: number | null;
   dismissedAt: number | null;
+  admittedSelection?: AdmittedPipelineSelection;
   stages: Array<{
     id: string;
     stageId: string;
@@ -254,6 +260,7 @@ function projectObservedPipelineStage(stage: PipelineStageRecord): PipelineSnaps
 
 export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineSnapshot {
   const state = derivePipelineState(pipeline);
+  const admittedSelection = pipeline.admittedSelection;
   return {
     pipelineId: pipeline.id,
     name: pipeline.name,
@@ -265,6 +272,7 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
     createdAt: pipeline.createdAt,
     finishedAtMs: derivePipelineFinishedAtMs(pipeline, state),
     dismissedAt: pipeline.dismissedAt,
+    ...(admittedSelection !== null ? { admittedSelection } : {}),
     stages: pipeline.stages.map(projectObservedPipelineStage),
   };
 }

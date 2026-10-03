@@ -38,6 +38,7 @@ import type {
   PipelineSnapshot,
   PipelineTerminalState,
 } from "../daemon/pipeline-observation.ts";
+import type { AdmittedPipelineSelection } from "../persistence/state-store.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
@@ -399,6 +400,9 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
   }
 
   io.stdout(`${admission.pipelineId}\n`);
+  if (admission.admittedSelection !== null) {
+    io.stderr(formatPipelineStartAdmittedSelectionLine(admission.admittedSelection));
+  }
   if (parsed.detach) return 0;
   if (attachedClient === undefined) {
     io.stderr("pipeline: admitted connection unavailable\n");
@@ -560,6 +564,15 @@ function seedBasename(seedPath: string | undefined): string {
   return seedPath === undefined ? "-" : basename(seedPath);
 }
 
+export function formatAdmittedPipelineSelectionSummary(selection: AdmittedPipelineSelection): string {
+  const { effective, sources, registryName } = selection;
+  return `risk=${effective.risk}(${sources.risk}) effort=${effective.effort}(${sources.effort}) ${registryName}`;
+}
+
+function formatPipelineStartAdmittedSelectionLine(selection: AdmittedPipelineSelection): string {
+  return `pipeline: admitted ${formatAdmittedPipelineSelectionSummary(selection)}\n`;
+}
+
 function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: number, showDismissal: boolean): string {
   // Every printed prefix resolves through the daemon's `resolvePipelineIdArgument`; a shared
   // eight-character prefix lengthens until unique within this listing.
@@ -573,6 +586,9 @@ function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: n
         seedBasename(pipeline.seedPath),
         formatPipelineCreatedAge(pipeline.createdAt, nowMs),
         renderStageSummary(pipeline.stages),
+        ...(pipeline.admittedSelection !== undefined
+          ? [formatAdmittedPipelineSelectionSummary(pipeline.admittedSelection)]
+          : []),
         // Mutation checkpoint: replacing this conditional spread with `...[]` must turn the
         // --all dismissal-marker test RED; replacing it with an unconditional spread must
         // turn the without-`--all` no-marker test RED.

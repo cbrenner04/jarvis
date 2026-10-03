@@ -4,6 +4,7 @@ import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
 import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pipeline-id-resolution.ts";
+import { loadAdmittedPipelineSelection } from "../persistence/state-store.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
 import { withValidStageFailureRecords } from "./wire-failure-record.ts";
 
@@ -123,6 +124,12 @@ function isPipelineStageSnapshot(value: unknown): boolean {
   );
 }
 
+function isAdmittedSelectionSnapshot(value: unknown): boolean {
+  if (value === undefined) return true;
+  const parsed = loadAdmittedPipelineSelection(value);
+  return parsed.ok && parsed.selection !== null;
+}
+
 function isPipelineSnapshot(value: unknown): value is PipelineSnapshot {
   if (!isRecord(value)) return false;
   return (
@@ -130,6 +137,7 @@ function isPipelineSnapshot(value: unknown): value is PipelineSnapshot {
     typeof value.name === "string" &&
     typeof value.state === "string" &&
     PIPELINE_STATES.has(value.state) &&
+    isAdmittedSelectionSnapshot(value.admittedSelection) &&
     (value.terminalAction === undefined ||
       (typeof value.terminalAction === "string" && PIPELINE_TERMINAL_ACTIONS.has(value.terminalAction))) &&
     isOptionalString(value.seedPath) &&

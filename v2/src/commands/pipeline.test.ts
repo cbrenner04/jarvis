@@ -3205,28 +3205,44 @@ describe("admitted pipeline selection exposure and resume pin", () => {
   });
 
   test("recoverContinuablePipelines keeps admitted definition after live resolution would differ", async () => {
-    const resolved = getPipelineDefinition("full-review");
-    if (!resolved.ok) throw new Error("expected full-review definition");
-    const pipelineId = store.createPipeline({
-      definition: resolved.definition,
-      context: {
-        cwd: fx.repoRoot,
-        seedPath: "seeds/resume-rated.md",
-        configPath: "/fixture/config.json",
-        projectRegistry: { demo: { root: fx.repoRoot } },
+    const seedDir = join(fx.repoRoot, "seeds");
+    mkdirSync(seedDir, { recursive: true });
+    const seedPath = join(seedDir, "recover-rated.md");
+    writeFileSync(seedPath, "---\neffort: low\n---\nBody", "utf8");
+    let configPath = pipelineMachineConfig(
+      "demo",
+      { terminalAction: "leave-draft", minimumRisk: "medium" },
+      fx.repoRoot,
+    );
+
+    const startCap = captureIo();
+    const startCode = await main(
+      ["pipeline", "start", "demo", "--risk", "high", "--seed", "seeds/recover-rated.md", "--detach"],
+      startCap.io,
+      {
+        ...pipelineDeps(configPath),
+        connectIpcClient: async () => handlerClient(),
       },
-      admittedSelection: RATING_ADMITTED_SELECTION,
-    });
+    );
+    expect(startCode).toBe(0);
+    const pipelineId = startCap.read().stdout.trim();
     const before = store.loadPipeline(pipelineId);
     if (!before) throw new Error("expected pipeline row");
 
+    writeFileSync(seedPath, "---\nrisk: low\neffort: low\n---\nMutated", "utf8");
+    configPath = writeMachineConfig({
+      machineProfile: "home",
+      agents: ["claude"],
+      projects: { demo: { root: fx.repoRoot, pipeline: { name: "fast", terminalAction: "leave-draft" } } },
+    });
     const liveResolution = resolveProjectPipeline(
       { projectKey: "demo", pipeline: { name: "fast", terminalAction: "leave-draft" } },
       getPipelineDefinition,
       ALL_REVIEW_ROLES_CONFIG,
     );
     expect(liveResolution.ok).toBe(true);
-    if (liveResolution.ok) expect(liveResolution.definition.name).not.toBe(before.definition.name);
+    if (liveResolution.ok) expect(liveResolution.definition.name).toBe("fast");
+    expect(before.definition.name).toBe("full-review");
 
     await recoverContinuablePipelines(
       store,

@@ -22,11 +22,11 @@ GitHub PR operations are constructed directly in multiple callers: `v2/src/execu
 
 ## Acceptance criteria
 
-- [ ] A GitHub operations boundary exports typed PR operations with structured return types; duplicated inline calls in cleanup, pr-review-input-capture, terminal-publication, and init-readiness all fail against current code.
-- [ ] Operations distinguish GitHub service errors, authentication errors, and not-found states with documented error types.
-- [ ] Test file for GitHub operations covers parsing, error cases, and policy (e.g., merged PR detection, ready vs. draft creation).
-- [ ] `completion-publisher.ts` tests stay green (no public behavior change to lane completion).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A GitHub operations boundary exports typed PR operations with structured return types; duplicated inline calls in cleanup, pr-review-input-capture, terminal-publication, and init-readiness all fail against current code.
+- [x] Operations distinguish GitHub service errors, authentication errors, and not-found states with documented error types.
+- [x] Test file for GitHub operations covers parsing, error cases, and policy (e.g., merged PR detection, ready vs. draft creation).
+- [x] `completion-publisher.ts` tests stay green (no public behavior change to lane completion).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

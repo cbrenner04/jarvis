@@ -173,10 +173,10 @@ describe("v2 cli dispatch", () => {
     expect(output).toContain("review-feedback\tAddress PR review feedback on a completed lane.");
   });
 
-  test("help run pause prints ancestor usage (no subcommands)", async () => {
+  test("help run wait prints ancestor usage (no own usage line)", async () => {
     const cap = captureIo();
 
-    const code = await main(["help", "run", "pause"], cap.io);
+    const code = await main(["help", "run", "wait"], cap.io);
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toBe(RUN_USAGE);
@@ -635,12 +635,11 @@ describe("v2 cli dispatch", () => {
 
   describe("dispatch-coverage: every tree path is dispatchable", () => {
     /** Extra operands that give a path a minimally valid argument shape, so an argument-shape
-     * rejection cannot masquerade as the parent's unknown-subcommand output (`run pause` with no
+     * rejection cannot masquerade as the parent's unknown-subcommand output (`run undismiss` with no
      * run id prints `RUN_USAGE`, exactly what an unrecognized subcommand prints). Paths absent
      * from this map are driven bare. */
     const operands: Record<string, readonly string[]> = {
       "run log": ["run-1"],
-      "run pause": ["run-1"],
       "run resume": ["run-1"],
       "run kill": ["run-1"],
       "run wait": ["run-1"],

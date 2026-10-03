@@ -200,7 +200,7 @@ export function countParityPreservationViolation(
  * revision. Replacement coverage lives in the `getDaemonStatus` tests in the same file.
  *
  * `failed ownership refresh returns an error without local handling`: a route-loss ownership
- * lookup for routed `wait`/`pause`/`kill` now falls back to local handling instead of erroring
+ * lookup for routed `wait`/`kill` now falls back to local handling instead of erroring
  * (see 02-owner-route-loss-recovery.md). Replacement coverage: `a route-loss ownership refresh
  * falls back to local handling instead of erroring` in the same file.
  */
@@ -262,6 +262,15 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "resumed linked row that settles completed with a publication failure notifies again",
   // Route-loss ownership lookups now fall back to local handling instead of erroring.
   "failed ownership refresh returns an error without local handling",
+  // The operator `pause` verb and its daemon RPC / `pauseController` plumbing are retired
+  // (retire-run-pause); `paused` rows remain harness-managed and resume as before.
+  "pause signals graceful stop for an active run",
+  "pause rejects unknown run ID",
+  "spawnWriteLoop keeps paused runs settled when the executor unwinds on pause",
+  "pause and kill release write-loop ownership",
+  "pause rejects a workflow-started run's step-0 runId with run_not_active",
+  "kill accepts a later step's runId once onStepRunCreated has tracked it; pause still rejects",
+  "pause preserves complete params and owner application errors unchanged",
   // Cross-socket owner resolution (`resolvePipelineDaemon`/`resolvePipelineDaemonFromSocketPaths`)
   // is retired: every pipeline verb connects to the stable address only, and its own ownership
   // refusal comes back as the verb RPC's `RpcError` instead.

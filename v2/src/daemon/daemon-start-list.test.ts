@@ -31,10 +31,6 @@ import {
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
-async function pauseDirect(h: Handlers, runId: string) {
-  return h.pause({ kind: "request", id: "p1", method: "pause", params: { runId } }, new AbortController().signal);
-}
-
 async function killDirect(h: Handlers, runId: string, force?: boolean) {
   return h.kill(
     { kind: "request", id: "k1", method: "kill", params: { runId, ...(force !== undefined ? { force } : {}) } },
@@ -881,26 +877,6 @@ test("list projects an in-flight durable review step from its live progress, not
     status: "in_progress",
     attemptCount: 0,
   });
-});
-
-test("pause signals graceful stop for an active run", async () => {
-  const runId = await startRunDirect(handlers);
-  if (!runId) return;
-
-  const pauseResponse = await pauseDirect(handlers, runId);
-  expect(pauseResponse.kind).toBe("response");
-  if (pauseResponse.kind === "response") {
-    expect((pauseResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
-  }
-  expect(fakeExecutor.isPauseSignalTriggered()).toBe(true);
-});
-
-test("pause rejects unknown run ID", async () => {
-  const pauseResponse = await pauseDirect(handlers, "unknown-id");
-  expect(pauseResponse.kind).toBe("error");
-  if (pauseResponse.kind === "error") {
-    expect(pauseResponse.code).toBe("unknown_run");
-  }
 });
 
 const RECONCILED_AT = 1_700_000_100_000;

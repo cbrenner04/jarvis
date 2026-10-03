@@ -292,7 +292,6 @@ function noopControls(): TuiMonitorControls {
     selectPreviousRun() {},
     toggleSelectedWorkflowExpansion() {},
     toggleShowDismissed() {},
-    pauseSelected() {},
     resumeSelected() {},
     killSelected() {},
     quit() {},

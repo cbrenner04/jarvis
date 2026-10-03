@@ -486,7 +486,6 @@ export async function runLoop(args: {
   externalPlanSpec?: WriteLoopInput["externalPlanSpec"];
   specReadRoot?: WriteLoopInput["specReadRoot"];
   completionValidator?: WriteLoopInput["completionValidator"];
-  pauseSignal?: AbortSignal;
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -541,7 +540,6 @@ export async function runLoop(args: {
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
     ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
     ...(args.completionValidator !== undefined ? { completionValidator: args.completionValidator } : {}),
-    ...(args.pauseSignal !== undefined ? { pauseSignal: args.pauseSignal } : {}),
   };
   try {
     return await executeWriteLoop({ ...loopInput, stagedMarkdownLintRunner: CLEAN_MARKDOWNLINT_RUNNER });
@@ -698,60 +696,6 @@ export function writeSpecIndex(jarvisRoot: string, branchName: string, content: 
   const specDir = join(jarvisRoot, "worktrees", "demo", branchName, "spec");
   mkdirSync(specDir, { recursive: true });
   writeFileSync(join(specDir, "index.md"), content, "utf8");
-}
-
-export async function runLoopWithPause(args: {
-  jarvisRoot: string;
-  stateDbPath: string;
-  bindings: readonly InvocationBinding[];
-  maxIterations?: number;
-  pauseAfterAttempts?: number;
-  logSink?: LogSink;
-}) {
-  // Track the parent directory for cleanup
-  roots.push(join(args.jarvisRoot, ".."));
-  const store = openStateStore(args.stateDbPath);
-  const pauseController = new AbortController();
-  let attempts = 0;
-  const pausingBindings = args.bindings.map((binding) => ({
-    id: binding.id,
-    invoke: async (input: Parameters<typeof binding.invoke>[0]) => {
-      attempts += 1;
-      if (args.pauseAfterAttempts && attempts > args.pauseAfterAttempts) {
-        pauseController.abort();
-      }
-      return binding.invoke(input);
-    },
-  }));
-
-  const loopInput: WriteLoopInput = {
-    worktree: {
-      projectRoot: "/fake",
-      projectName: "demo",
-      branchName: "pause-run",
-      baseRef: "HEAD",
-      jarvisRoot: args.jarvisRoot,
-    },
-    specPath: "spec.md",
-    stepRules: "Return exactly one terminal token.",
-    expectedArtifactPath: "proof.txt",
-    bindings: pausingBindings,
-    stateStore: store,
-    pauseSignal: pauseController.signal,
-    withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
-    sessionsDir: join(args.jarvisRoot, "sessions"),
-  };
-  if (args.maxIterations !== undefined) {
-    loopInput.maxIterations = args.maxIterations;
-  }
-  if (args.logSink !== undefined) {
-    loopInput.logSink = args.logSink;
-  }
-  try {
-    return await executeWriteLoop({ ...loopInput, stagedMarkdownLintRunner: CLEAN_MARKDOWNLINT_RUNNER });
-  } finally {
-    store.close();
-  }
 }
 
 export function loadRunOnce(stateDbPath: string, runId: string) {

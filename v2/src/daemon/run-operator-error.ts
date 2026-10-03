@@ -1,4 +1,5 @@
 import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
+import { isConfinementRefusalMessage } from "../../../shared/invocation/confinement-policy.ts";
 import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import { harnessGateSlotWaitListMessage } from "../execution/gate-invocation-lease.ts";
@@ -236,10 +237,11 @@ function mapInvocationFailureDetail(
   if (detail.failureKind === "error" && detail.echoedInput === true) {
     return { ...error, message: composeEchoedInvocationErrorMessage(detail.bindingAttempts) };
   }
-  return (detail.failureKind === "error" || (projectModelConfigMessage && detail.failureKind === "model_config")) &&
-    detail.message !== undefined
-    ? { ...error, message: detail.message }
-    : error;
+  const projectMessage =
+    detail.failureKind === "error" ||
+    (detail.failureKind === "model_config" &&
+      (projectModelConfigMessage || isConfinementRefusalMessage(detail.message)));
+  return projectMessage && detail.message !== undefined ? { ...error, message: detail.message } : error;
 }
 
 function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefined {

@@ -1600,9 +1600,9 @@ test("pipeline_resume resumes a gate-refused implement shrink sibling in place w
     stateStore,
     logsPath,
     writeLoopBindingSourceDeps: bindingDeps,
-    writeLoopExecutor: async (input, signal, pauseSignal) => {
+    writeLoopExecutor: async (input, signal) => {
       executorCalls += 1;
-      await fakeExecutor.executor(input, signal, pauseSignal);
+      await fakeExecutor.executor(input, signal);
     },
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
@@ -1659,9 +1659,9 @@ test("pipeline_resume branchKey resumes only the target implement lane in place"
     stateStore,
     logsPath,
     writeLoopBindingSourceDeps: bindingDeps,
-    writeLoopExecutor: async (input, signal, pauseSignal) => {
+    writeLoopExecutor: async (input, signal) => {
       executorCalls += 1;
-      await fakeExecutor.executor(input, signal, pauseSignal);
+      await fakeExecutor.executor(input, signal);
     },
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,

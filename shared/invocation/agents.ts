@@ -9,6 +9,12 @@ import { loadPrices } from "../prices/load.ts";
 import { isForeignProcessGroup, ownProcessGroupIds } from "../process-group-predicate.ts";
 import { probeAgentDescendantProcessGroups } from "./agent-descendant-process-groups.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
+import {
+  type ConfinementMechanism,
+  type ConfinementPolicy,
+  ConfinementRefusalError,
+  DEFAULT_CONFINEMENT_POLICY,
+} from "./confinement-policy.ts";
 import { cursorClassifierStdoutText, parseCursorJsonOutput } from "./cursor-json.ts";
 import type {
   InvocationBinding,
@@ -43,6 +49,8 @@ export type SignalProcessGroup = (pgid: number, signal: NodeJS.Signals) => void;
 export type ResolvedAgentBindingOptions = {
   spawn?: SpawnFn;
   codexSandboxMode?: CodexSandboxMode;
+  /** Resolved confinement policy; defaults to `unrestricted`, which reproduces each adapter's standing flags. */
+  confinementPolicy?: ConfinementPolicy;
   codexSessionsDir?: string;
   randomUUID?: () => string;
   setTimeout?: typeof setTimeout;
@@ -87,6 +95,92 @@ export function signalProcessGroupOrLeader(
   }
 }
 
+/**
+ * One adapter's pure policy→argv translation. `argv` is the confinement fragment the adapter splices
+ * into its command line; `refused` means the vendor has no flag honoring the policy, so the binding
+ * refuses rather than running degraded. Adding a vendor flag later is an edit to that vendor's
+ * translator only.
+ */
+type ConfinementTranslation =
+  | { kind: "translated"; argv: readonly string[]; mechanism: ConfinementMechanism }
+  | { kind: "refused" };
+
+const REFUSED: ConfinementTranslation = { kind: "refused" };
+
+/** `--permission-mode` governs approval, not reach; `--restricted` confines file tools but removes Bash. */
+function translateClaudeConfinement(policy: ConfinementPolicy): ConfinementTranslation {
+  if (policy !== "unrestricted") return REFUSED;
+  return { kind: "translated", argv: ["--permission-mode", "acceptEdits"], mechanism: "none" };
+}
+
+/**
+ * `unrestricted` keeps the configured `codexSandboxMode` (today's argv). `sandbox` never loosens a
+ * tighter setting: a configured `read-only` stays, anything else pins `workspace-write`.
+ */
+function translateCodexConfinement(
+  policy: ConfinementPolicy,
+  configured: CodexSandboxMode | undefined,
+): ConfinementTranslation {
+  const sandboxMode: CodexSandboxMode =
+    policy === "sandbox"
+      ? configured === "read-only"
+        ? "read-only"
+        : "workspace-write"
+      : (configured ?? "workspace-write");
+  const mechanism: ConfinementMechanism =
+    policy === "sandbox" ? (sandboxMode === "read-only" ? "codex-read-only" : "codex-workspace-write") : "none";
+  return {
+    kind: "translated",
+    argv: [
+      "--sandbox",
+      sandboxMode,
+      ...(sandboxMode !== "danger-full-access" ? ["-c", 'approval_policy="on-request"'] : []),
+    ],
+    mechanism,
+  };
+}
+
+/** `--force` governs approval, not reach; the binding passes no cursor confinement flag. */
+function translateCursorConfinement(policy: ConfinementPolicy): ConfinementTranslation {
+  if (policy !== "unrestricted") return REFUSED;
+  return { kind: "translated", argv: ["--force"], mechanism: "none" };
+}
+
+/** opencode's binding passes no confinement flag. */
+function translateOpencodeConfinement(policy: ConfinementPolicy): ConfinementTranslation {
+  if (policy !== "unrestricted") return REFUSED;
+  return { kind: "translated", argv: [], mechanism: "none" };
+}
+
+/** A binding that throws its refusal on `invoke` before any spawn and always yields the rung to the next agent. */
+function createRefusingBinding(
+  id: string,
+  metadata: { agent: string; model: string },
+  policy: ConfinementPolicy,
+): InvocationBinding {
+  return {
+    id,
+    metadata,
+    confinementMechanism: "refused",
+    invoke: async () => {
+      throw new ConfinementRefusalError(metadata.agent, policy);
+    },
+    shouldAdvance: () => true,
+  };
+}
+
+/** Binds a wired adapter under its confinement translation, or returns the refusing binding. */
+function bindConfined(
+  id: string,
+  metadata: { agent: string; model: string },
+  policy: ConfinementPolicy,
+  translation: ConfinementTranslation,
+  invokeWith: (confinementArgv: readonly string[]) => InvocationBinding["invoke"],
+): InvocationBinding {
+  if (translation.kind === "refused") return createRefusingBinding(id, metadata, policy);
+  return { id, metadata, confinementMechanism: translation.mechanism, invoke: invokeWith(translation.argv) };
+}
+
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
   return {
     id,
@@ -98,6 +192,35 @@ function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
   };
 }
 
+function cursorInvoke(args: {
+  adapterModel: string;
+  priceKey: string;
+  opts: ResolvedAgentBindingOptions;
+  confinementArgv: readonly string[];
+}): InvocationBinding["invoke"] {
+  const { adapterModel, priceKey, opts, confinementArgv } = args;
+  return async ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress, ...invokeArgs }) =>
+    finalizeCursorInvocationResult(
+      await runCursorBinding({
+        prompt,
+        cwd,
+        adapterModel,
+        confinementArgv,
+        ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+        ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+        ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+        ...pickAgentRunOptions(invokeArgs),
+        ...bindingAgentRunOptions(opts),
+        ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+        ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+        ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+        ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
+        ...(signal !== undefined ? { signal } : {}),
+      }),
+      priceKey,
+    );
+}
+
 /** Build one unresolved production binding from one resolved agent/model rung. */
 export function createResolvedAgentBinding(
   args: ResolvedAgentBinding,
@@ -106,15 +229,19 @@ export function createResolvedAgentBinding(
   const { agentId, adapterModel, priceKey } = args;
   const id = `${agentId}/${adapterModel}/${priceKey}`;
   const metadata = { agent: agentId, model: adapterModel };
+  const policy = opts.confinementPolicy ?? DEFAULT_CONFINEMENT_POLICY;
   if (agentId === "claude") {
-    return {
+    return bindConfined(
       id,
       metadata,
-      invoke: (invokeArgs) =>
+      policy,
+      translateClaudeConfinement(policy),
+      (confinementArgv) => (invokeArgs) =>
         runClaudeBinding({
           prompt: invokeArgs.prompt,
           cwd: invokeArgs.cwd,
           adapterModel,
+          confinementArgv,
           ...pickAgentRunOptions(invokeArgs),
           ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
@@ -122,20 +249,23 @@ export function createResolvedAgentBinding(
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
         }),
-    };
+    );
   }
 
   if (agentId === "codex") {
-    return {
+    const translation = translateCodexConfinement(policy, opts.codexSandboxMode);
+    return bindConfined(
       id,
       metadata,
-      invoke: (invokeArgs) =>
+      policy,
+      translation,
+      (confinementArgv) => (invokeArgs) =>
         runCodexBinding({
           prompt: invokeArgs.prompt,
           cwd: invokeArgs.cwd,
           adapterModel,
           priceKey,
-          sandboxMode: opts.codexSandboxMode ?? "workspace-write",
+          confinementArgv,
           ...pickAgentRunOptions(invokeArgs),
           ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
@@ -145,44 +275,27 @@ export function createResolvedAgentBinding(
           ...(opts.codexSessionsDir !== undefined ? { sessionsDir: opts.codexSessionsDir } : {}),
           ...(opts.randomUUID !== undefined ? { randomUUID: opts.randomUUID } : {}),
         }),
-    };
+    );
   }
 
   if (agentId === "cursor") {
-    return {
-      id,
-      metadata,
-      invoke: async ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress, ...invokeArgs }) =>
-        finalizeCursorInvocationResult(
-          await runCursorBinding({
-            prompt,
-            cwd,
-            adapterModel,
-            ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
-            ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-            ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
-            ...pickAgentRunOptions(invokeArgs),
-            ...bindingAgentRunOptions(opts),
-            ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
-            ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
-            ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
-            ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
-            ...(signal !== undefined ? { signal } : {}),
-          }),
-          priceKey,
-        ),
-    };
+    return bindConfined(id, metadata, policy, translateCursorConfinement(policy), (confinementArgv) =>
+      cursorInvoke({ adapterModel, priceKey, opts, confinementArgv }),
+    );
   }
 
   if (agentId === "opencode") {
-    return {
+    return bindConfined(
       id,
       metadata,
-      invoke: (invokeArgs) =>
+      policy,
+      translateOpencodeConfinement(policy),
+      (confinementArgv) => (invokeArgs) =>
         runOpencodeBinding({
           prompt: invokeArgs.prompt,
           cwd: invokeArgs.cwd,
           adapterModel,
+          confinementArgv,
           ...pickAgentRunOptions(invokeArgs),
           ...bindingAgentRunOptions(opts),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
@@ -190,7 +303,7 @@ export function createResolvedAgentBinding(
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
         }),
-    };
+    );
   }
 
   return {
@@ -1171,6 +1284,7 @@ async function runClaudeBinding(args: {
   prompt: string;
   cwd: string;
   adapterModel: string;
+  confinementArgv: readonly string[];
   signal?: AbortSignal;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
@@ -1187,7 +1301,7 @@ async function runClaudeBinding(args: {
       binary: "claude",
       cwd: args.cwd,
       buildArgv: () => {
-        const argv = ["-p", "--permission-mode", "acceptEdits"];
+        const argv = ["-p", ...args.confinementArgv];
         appendAdditionalReadDirFlags(argv, args.additionalReadDirs);
         argv.push(
           "--model",
@@ -1219,7 +1333,7 @@ async function runCodexBinding(args: {
   cwd: string;
   adapterModel: string;
   priceKey: string;
-  sandboxMode: CodexSandboxMode;
+  confinementArgv: readonly string[];
   signal?: AbortSignal;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
@@ -1242,15 +1356,7 @@ async function runCodexBinding(args: {
       binary: "codex",
       cwd: args.cwd,
       buildArgv: () => {
-        const argv = [
-          "exec",
-          "--skip-git-repo-check",
-          "--color",
-          "never",
-          "--sandbox",
-          args.sandboxMode,
-          ...(args.sandboxMode !== "danger-full-access" ? ["-c", 'approval_policy="on-request"'] : []),
-        ];
+        const argv = ["exec", "--skip-git-repo-check", "--color", "never", ...args.confinementArgv];
         appendAdditionalReadDirFlags(argv, args.additionalReadDirs);
         argv.push("--model", args.adapterModel);
         return argv;
@@ -1457,6 +1563,7 @@ async function runCursorBinding(args: {
   prompt: string;
   cwd: string;
   adapterModel: string;
+  confinementArgv: readonly string[];
   signal?: AbortSignal;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
@@ -1479,7 +1586,7 @@ async function runCursorBinding(args: {
         "--stream-partial-output",
         "--model",
         resolveCursorCliModel(args.adapterModel),
-        "--force",
+        ...args.confinementArgv,
         "--workspace",
         args.cwd,
         promptText,
@@ -1499,6 +1606,7 @@ async function runOpencodeBinding(args: {
   prompt: string;
   cwd: string;
   adapterModel: string;
+  confinementArgv: readonly string[];
   signal?: AbortSignal;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
@@ -1519,6 +1627,7 @@ async function runOpencodeBinding(args: {
         args.cwd,
         "--model",
         args.adapterModel,
+        ...args.confinementArgv,
         "--format",
         "json",
         promptText,

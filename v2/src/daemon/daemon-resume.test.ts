@@ -204,14 +204,13 @@ function initResumeWorktree(jarvisRoot: string, branchName: string): string {
 function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarvisRoot: string): Handlers {
   return logBackedHandlers(logsPath, {
     stateStore: store,
-    writeLoopExecutor: async (input, signal, pauseSignal) => {
+    writeLoopExecutor: async (input, signal) => {
       const resumeLogSink = openLogSink(logsPath);
       try {
         await executeWriteLoop({
           ...input,
           worktree: { ...input.worktree, jarvisRoot },
           signal,
-          pauseSignal,
           stateStore: store,
           logSink: resumeLogSink,
           withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
@@ -527,7 +526,7 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
     let backgroundResume: Promise<void> | undefined;
     const localHandlers = logBackedHandlers(logsPath, {
       stateStore: store,
-      writeLoopExecutor: async (input, signal, pauseSignal) => {
+      writeLoopExecutor: async (input, signal) => {
         resumedInput = input;
         const resumeLogSink = openLogSink(logsPath);
         backgroundResume = (async () => {
@@ -536,7 +535,6 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
               ...input,
               worktree: { ...input.worktree, jarvisRoot },
               signal,
-              pauseSignal,
               stateStore: store,
               logSink: resumeLogSink,
               withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
@@ -3992,7 +3990,7 @@ test("resume after idle_output_timeout retains worktree commits without stale re
     let backgroundResume: Promise<void> | undefined;
     const localHandlers = logBackedHandlers(logsPath, {
       stateStore: store,
-      writeLoopExecutor: (input, signal, pauseSignal) => {
+      writeLoopExecutor: (input, signal) => {
         const resumeLogSink = openLogSink(logsPath);
         backgroundResume = (async () => {
           try {
@@ -4000,7 +3998,6 @@ test("resume after idle_output_timeout retains worktree commits without stale re
               ...input,
               worktree: { ...input.worktree, jarvisRoot },
               signal,
-              pauseSignal,
               stateStore: store,
               logSink: resumeLogSink,
               withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),

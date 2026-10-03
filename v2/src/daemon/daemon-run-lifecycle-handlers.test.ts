@@ -218,55 +218,6 @@ test("list projects live in-progress runs", async () => {
   expect(row).toMatchObject({ status: "in-progress", isLive: true });
 });
 
-test("spawnWriteLoop keeps paused runs settled when the executor unwinds on pause", async () => {
-  const runRef: { runId?: string } = {};
-  const pauseThrowExecutor = async (
-    _input: import("../execution/write-loop.ts").WriteLoopInput,
-    signal: AbortSignal,
-    pauseSignal: AbortSignal,
-  ): Promise<void> => {
-    await new Promise<void>((_resolve, reject) => {
-      pauseSignal.addEventListener(
-        "abort",
-        () => {
-          if (runRef.runId !== undefined) stateStore.setRunStatus(runRef.runId, "paused");
-          reject(new Error("pause unwind"));
-        },
-        { once: true },
-      );
-      signal.addEventListener("abort", () => reject(new Error("kill unwind")), { once: true });
-    });
-  };
-
-  const ctx = createRunControlHandlerContext({
-    stateStore,
-    logReader: { tail: () => [], async *follow() {} },
-    writeLoopExecutor: pauseThrowExecutor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => memoryHeadroom,
-    settleDelayMs: 0,
-  });
-  const handlers = createRunLifecycleHandlers(ctx, {
-    handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
-  });
-
-  const signal = new AbortController().signal;
-  const input = mockWriteLoopInput({ projectName: "pause-settled", branchName: "pause-settled" });
-  const started = await handlers.start({ kind: "request", id: "s1", method: "start", params: { input } }, signal);
-  expect(started.kind).toBe("response");
-  if (started.kind !== "response") return;
-  runRef.runId = (started.result as { runId: string }).runId;
-
-  const paused = await handlers.pause(
-    { kind: "request", id: "p1", method: "pause", params: { runId: runRef.runId } },
-    signal,
-  );
-  expect(paused).toEqual({ kind: "response", result: { ok: true } });
-  await flushBackgroundRuns();
-
-  expect(loadRunOrThrow(stateStore, runRef.runId).status).toBe("paused");
-});
-
 test("resume admits a paused direct write run with durable queuedInput", async () => {
   const { handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;
@@ -1258,7 +1209,7 @@ test("workflow entry wait ignores a same-lane invocation created after the entry
   expect(await waitedEntryRunStatus(entryRunId)).toBe("killed");
 });
 
-test("pause and kill release write-loop ownership", async () => {
+test("kill releases write-loop ownership", async () => {
   const { ctx, handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;
   const input = mockWriteLoopInput({ projectName: "pause-kill", branchName: "pause-kill" });
@@ -1266,10 +1217,6 @@ test("pause and kill release write-loop ownership", async () => {
   expect(started.kind).toBe("response");
   if (started.kind !== "response") return;
   const runId = (started.result as { runId: string }).runId;
-
-  const paused = await handlers.pause({ kind: "request", id: "p1", method: "pause", params: { runId } }, signal);
-  expect(paused).toEqual({ kind: "response", result: { ok: true } });
-  expect(fakeExecutor.isPauseSignalTriggered()).toBe(true);
 
   const killed = await handlers.kill({ kind: "request", id: "k1", method: "kill", params: { runId } }, signal);
   expect(killed).toMatchObject({ kind: "response", result: { ok: true, status: "killed" } });

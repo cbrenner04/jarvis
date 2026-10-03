@@ -14,6 +14,7 @@ import {
   parseShellToolFrameLine,
   signalProcessGroupOrLeader,
 } from "./agents.ts";
+import { ConfinementRefusalError } from "./confinement-policy.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
 
@@ -3287,5 +3288,142 @@ describe("signalProcessGroupOrLeader", () => {
     const target = leader();
     signalProcessGroupOrLeader(LEADER_PID + 1, "SIGTERM", target, throwingKill);
     expect(target.signals).toEqual([]);
+  });
+});
+
+describe("confinement policy translation", () => {
+  // Today's argv per adapter, snapshotted literally so any drift in the default translation fails here.
+  const CLAUDE_DEFAULT_ARGV = [
+    "-p",
+    "--permission-mode",
+    "acceptEdits",
+    "--model",
+    "claude-sonnet-4-6",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+  ];
+  const CODEX_DEFAULT_ARGV = [
+    "exec",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--sandbox",
+    "workspace-write",
+    "-c",
+    'approval_policy="on-request"',
+    "--model",
+    "gpt-5.4",
+  ];
+  const CURSOR_DEFAULT_ARGV = [
+    "agent",
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--stream-partial-output",
+    "--model",
+    "composer-2.5",
+    "--force",
+    "--workspace",
+    "/repo",
+    "p",
+  ];
+  const CLAUDE = { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" };
+  const CODEX = { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" };
+
+  async function argvFor(
+    spec: Parameters<typeof createResolvedAgentBinding>[0],
+    opts: Parameters<typeof createResolvedAgentBinding>[1],
+  ) {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: cursorResultLine("done", true), stderr: "" }]);
+    const binding = createResolvedAgentBinding(spec, {
+      ...opts,
+      spawn: fake.spawn,
+      codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+    });
+    await binding.invoke({ prompt: "p", cwd: "/repo" });
+    return { argv: fake.calls[0]?.argv, mechanism: binding.confinementMechanism };
+  }
+
+  test("default and explicit unrestricted policy yield today's argv for claude, codex, and cursor", async () => {
+    for (const opts of [{}, { confinementPolicy: "unrestricted" as const }]) {
+      expect(await argvFor(CLAUDE, opts)).toEqual({ argv: CLAUDE_DEFAULT_ARGV, mechanism: "none" });
+      expect(await argvFor(CODEX, opts)).toEqual({ argv: CODEX_DEFAULT_ARGV, mechanism: "none" });
+      expect(await argvFor(COMPOSER_CURSOR_BINDING, opts)).toEqual({ argv: CURSOR_DEFAULT_ARGV, mechanism: "none" });
+    }
+  });
+
+  test("unrestricted policy keeps composing with codexSandboxMode", async () => {
+    const { argv } = await argvFor(CODEX, { codexSandboxMode: "danger-full-access" });
+    expect(argv).toEqual([
+      "exec",
+      "--skip-git-repo-check",
+      "--color",
+      "never",
+      "--sandbox",
+      "danger-full-access",
+      "--model",
+      "gpt-5.4",
+    ]);
+  });
+
+  test("sandbox policy pins codex to --sandbox workspace-write over a looser codexSandboxMode", async () => {
+    const translated = await argvFor(CODEX, { confinementPolicy: "sandbox", codexSandboxMode: "danger-full-access" });
+    expect(translated).toEqual({ argv: CODEX_DEFAULT_ARGV, mechanism: "codex-workspace-write" });
+  });
+
+  test("sandbox policy never loosens a configured codex read-only sandbox", async () => {
+    const translated = await argvFor(CODEX, { confinementPolicy: "sandbox", codexSandboxMode: "read-only" });
+    expect(translated).toEqual({
+      argv: CODEX_DEFAULT_ARGV.map((flag) => (flag === "workspace-write" ? "read-only" : flag)),
+      mechanism: "codex-read-only",
+    });
+  });
+
+  test("an unwired agent under sandbox stays unwired rather than reporting a confinement refusal", async () => {
+    const binding = createResolvedAgentBinding(
+      { agentId: "mystery", adapterModel: "m", priceKey: "m" },
+      { confinementPolicy: "sandbox" },
+    );
+    expect(binding.confinementMechanism).toBeUndefined();
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+    expect(result.kind).toBe("error");
+    expect(result.stderr).toContain("is not wired yet");
+  });
+
+  test("sandbox policy refuses claude and cursor by throwing before any spawn", async () => {
+    for (const spec of [CLAUDE, COMPOSER_CURSOR_BINDING]) {
+      const fake = fakeSpawn([]);
+      const binding = createResolvedAgentBinding(spec, { spawn: fake.spawn, confinementPolicy: "sandbox" });
+      expect(binding.confinementMechanism).toBe("refused");
+      const invocation = binding.invoke({ prompt: "p", cwd: "/repo" });
+      await expect(invocation).rejects.toBeInstanceOf(ConfinementRefusalError);
+      await expect(invocation).rejects.toMatchObject({
+        name: "ConfinementRefusalError",
+        vendor: spec.agentId,
+        policy: "sandbox",
+      });
+      expect(fake.calls).toHaveLength(0);
+    }
+  });
+
+  test("a refusal settles as model_config and advances fallback to the next binding", async () => {
+    const fake = fakeSpawn([]);
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(CLAUDE, { spawn: fake.spawn, confinementPolicy: "sandbox" }),
+        { id: "next", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) },
+      ],
+    });
+
+    expect(fake.calls).toHaveLength(0);
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts[0]?.result).toMatchObject({ kind: "model_config" });
+    expect(result.attempts[0]?.result.stderr).toContain("confinement refusal: agent 'claude'");
+    expect(result.attempts[0]?.result.stderr).toContain("confinementPolicy 'sandbox'");
+    expect(result.final?.binding.id).toBe("next");
   });
 });

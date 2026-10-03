@@ -109,17 +109,18 @@ describe("parseTuiCommand", () => {
     expect(parseTuiCommand("resume-run")).toEqual({ kind: "resume-run" });
   });
 
-  test("parses kill and pause as run-steering verbs", () => {
+  test("parses kill as a run-steering verb", () => {
     expect(parseTuiCommand("kill")).toEqual({ kind: "kill" });
-    expect(parseTuiCommand("pause")).toEqual({ kind: "pause" });
+  });
+
+  test("pause is no longer a dock verb", () => {
+    expectCode("pause", "unknown_verb");
   });
 
   test.each([
     "kill foo",
-    "pause foo",
     "resume-run foo",
     "kill ignored --tokens",
-    "pause ignored --tokens",
     "resume-run ignored --tokens",
   ])("rejects trailing run-steering tokens: %s", (input) => {
     expectCode(input, "unexpected_arguments");

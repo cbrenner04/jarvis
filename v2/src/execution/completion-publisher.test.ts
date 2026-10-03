@@ -1516,12 +1516,12 @@ describe("createCompletionPublisher", () => {
     expect(
       ghCalls
         .find((c) => c.startsWith("pr list") && c.includes("--state all"))
-        ?.includes("number,baseRefName,state,headRefOid"),
+        ?.includes("--json number,url,baseRefName,isDraft,state,headRefOid"),
     ).toBe(true);
     expect(writeBodyCalls).toBe(0);
   });
 
-  it("requests isDraft on the open probe and state on the all-state history probe", async () => {
+  it("requests the boundary's one field set (isDraft, state, headRefOid) on both the open and history probes", async () => {
     const { gh, ghCalls } = ghOpenEmptyThenAllHistory({ number: 88, state: "CLOSED" });
     const publisher = createCompletionPublisher({ git: republicationGit, gh, delay: noopDelay, ...noopRefreshSeams });
 
@@ -1529,8 +1529,8 @@ describe("createCompletionPublisher", () => {
 
     const listJson = (state: string) =>
       ghCalls.find((c) => c.startsWith("pr list") && c.includes(`--state ${state}`))?.split("--json ")[1];
-    expect(listJson("open")).toBe("number,baseRefName,isDraft");
-    expect(listJson("all")).toBe("number,baseRefName,state,headRefOid");
+    expect(listJson("open")).toBe("number,url,baseRefName,isDraft,state,headRefOid");
+    expect(listJson("all")).toBe("number,url,baseRefName,isDraft,state,headRefOid");
   });
 
   it.each([

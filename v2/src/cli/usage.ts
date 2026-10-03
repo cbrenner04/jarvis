@@ -26,7 +26,7 @@ export const WORKFLOW_USAGE = "usage: jarvis run workflow <intent|plan|implement
 export const CLEANUP_USAGE =
   "usage: jarvis cleanup [<project>] [--dry-run] [--yes|-y] [--abandon <name> [--discard-unlanded]]\n<project> and --abandon <name> are mutually exclusive.\n";
 export const PIPELINE_START_USAGE =
-  "usage: jarvis pipeline start <project> (--seed <path> | --seed-text <text>) [--detach]\n";
+  "usage: jarvis pipeline start <project> (--seed <path> | --seed-text <text>) [--risk <level>] [--effort <level>] [--detach]\n";
 export const PIPELINE_LIST_USAGE =
   "usage: jarvis pipeline list [--json] [--all] [--since <duration|timestamp>] [--state <pipeline-state>]\n";
 export const PIPELINE_WAIT_USAGE = "usage: jarvis pipeline wait <pipeline-id>\n";

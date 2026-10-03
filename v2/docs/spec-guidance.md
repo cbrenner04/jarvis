@@ -61,7 +61,7 @@ For an independent intent with no prerequisites, leave the `## Prerequisites` bo
 
 ### Seed ratings
 
-A seed's frontmatter carries `name:` plus optional `risk:` and `effort:` ratings. Each is a separate judgment; neither substitutes for the other. One closed scale serves both dimensions, and the same vocabulary is what project minimums and pipeline-selection flags will speak (`shared/seed-metadata.ts`: `RATING_LEVELS`, `parseSeedMetadata`).
+A seed's frontmatter carries `name:` plus `risk:` and `effort:` ratings. New seeds should include both; each is a separate judgment and neither substitutes for the other. One closed scale serves both dimensions (`shared/seed-metadata.ts`: `RATING_LEVELS`, `parseSeedMetadata`). The same vocabulary is what project minimums and `jarvis pipeline start --risk` / `--effort` use.
 
 ```markdown
 ---
@@ -83,7 +83,7 @@ effort: low
 - `medium` — one surface with several linked edits and tests across a seam (a new subcommand with persistence).
 - `high` — multiple surfaces or a cross-stage protocol change; expect several subspecs (a new pipeline stage).
 
-Values are exact lowercase; `intent` refuses a seed whose supplied rating is off the scale, naming the field (`effort:` must be one of low, medium, high; got "extreme"). A missing rating is not an error — seeds without ratings keep parsing; whether admission requires one is pipeline policy, not parsing.
+Values are exact lowercase; `intent` refuses a seed whose supplied rating is off the scale, naming the field (`effort:` must be one of low, medium, high; got "extreme"). Parsing alone does not satisfy pipeline admission: `parseSeedMetadata` accepts omitted ratings, but rating-based `pipeline start` (no explicit `projects.<key>.pipeline.name`) refuses with `unresolved-rating` when neither frontmatter nor `--risk` / `--effort` supplies a dimension — project `minimumRisk` / `minimumEffort` are floors at admission, not defaults. Legacy seeds without ratings must pass `--risk` and/or `--effort` at `pipeline start` until frontmatter is migrated (or set `pipeline.name` to bypass rating selection). Inline `--seed-text` is parsed the same way as a file seed; each CLI flag overrides only its dimension's seed value when present.
 
 The `## Decisions` section is authored as a Markdown bullet list (`- entry`), one entry per bullet — bare consecutive lines soft-wrap into a single paragraph and fail the `no-hard-wrap` lint.
 

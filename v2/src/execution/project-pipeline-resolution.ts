@@ -34,8 +34,19 @@ type InvalidProjectPipelineConfigError = {
 type InvalidRatingError = { code: "invalid-rating"; dimension: RatingDimension; value: string; message: string };
 type UnresolvedRatingError = { code: "unresolved-rating"; dimension: RatingDimension; message: string };
 
+export type RatingAdmissionSource = "seed" | "flag" | "minimum";
+
+type AdmissionRatingMetadata = {
+  effective: Record<RatingDimension, RatingLevel>;
+  sources: Record<RatingDimension, RatingAdmissionSource>;
+};
+
+type ProjectPipelineResolutionOptions = {
+  ratingFlagPresence?: Partial<Record<RatingDimension, true>>;
+};
+
 type ProjectPipelineResolutionResult =
-  | { ok: true; definition: PipelineDefinition }
+  | { ok: true; definition: PipelineDefinition; admissionRatings?: AdmissionRatingMetadata }
   | {
       ok: false;
       error:
@@ -203,10 +214,16 @@ function ratingRank(level: RatingLevel): number {
 function resolveEffectiveRatings(
   minimums: ParsedProjectPipeline["minimums"],
   supplied: SuppliedRatings,
+  ratingFlagPresence: Partial<Record<RatingDimension, true>>,
 ):
-  | { ok: true; ratings: Record<RatingDimension, RatingLevel> }
+  | {
+      ok: true;
+      ratings: Record<RatingDimension, RatingLevel>;
+      sources: Record<RatingDimension, RatingAdmissionSource>;
+    }
   | { ok: false; error: InvalidRatingError | UnresolvedRatingError } {
   const ratings: Partial<Record<RatingDimension, RatingLevel>> = {};
+  const sources: Partial<Record<RatingDimension, RatingAdmissionSource>> = {};
   for (const dimension of RATING_DIMENSIONS) {
     const raw = supplied[dimension];
     if (raw === undefined) {
@@ -231,9 +248,23 @@ function resolveEffectiveRatings(
         },
       };
     }
-    ratings[dimension] = maxRating(suppliedLevel, minimums[dimension]);
+    const minimum = minimums[dimension];
+    const effective = maxRating(suppliedLevel, minimum);
+    ratings[dimension] = effective;
+    // Mutation checkpoint: negating the minimum floor guard must turn admission source tests RED.
+    if (minimum !== undefined && ratingRank(minimum) > ratingRank(suppliedLevel)) {
+      sources[dimension] = "minimum";
+    } else if (ratingFlagPresence[dimension]) {
+      sources[dimension] = "flag";
+    } else {
+      sources[dimension] = "seed";
+    }
   }
-  return { ok: true, ratings: ratings as Record<RatingDimension, RatingLevel> };
+  return {
+    ok: true,
+    ratings: ratings as Record<RatingDimension, RatingLevel>,
+    sources: sources as Record<RatingDimension, RatingAdmissionSource>,
+  };
 }
 
 function maxRating(supplied: RatingLevel, minimum: RatingLevel | undefined): RatingLevel {
@@ -258,11 +289,14 @@ function selectPipeline(
   parsed: ParsedProjectPipeline,
   supplied: SuppliedRatings,
   pipelineKey: string,
-): { ok: true; selection: Selection } | { ok: false; error: InvalidRatingError | UnresolvedRatingError } {
+  ratingFlagPresence: Partial<Record<RatingDimension, true>>,
+):
+  | { ok: true; selection: Selection; admissionRatings?: AdmissionRatingMetadata }
+  | { ok: false; error: InvalidRatingError | UnresolvedRatingError } {
   if (parsed.name !== undefined) {
     return { ok: true, selection: { name: parsed.name, label: `${pipelineKey}.name`, ratingSelected: false } };
   }
-  const effective = resolveEffectiveRatings(parsed.minimums, supplied);
+  const effective = resolveEffectiveRatings(parsed.minimums, supplied, ratingFlagPresence);
   if (!effective.ok) return effective;
   const name = selectPipelineForRatings(effective.ratings);
   return {
@@ -272,6 +306,7 @@ function selectPipeline(
       label: `the rating-selected pipeline "${name}" (risk ${effective.ratings.risk}, effort ${effective.ratings.effort})`,
       ratingSelected: true,
     },
+    admissionRatings: { effective: effective.ratings, sources: effective.sources },
   };
 }
 
@@ -312,12 +347,14 @@ export function resolveProjectPipeline(
   lookup: PipelineLookup,
   agentModelConfig: AgentModelConfig,
   supplied: SuppliedRatings = {},
+  options: ProjectPipelineResolutionOptions = {},
 ): ProjectPipelineResolutionResult {
   const parsed = parseProjectPipeline(config);
   if (!parsed.ok) return parsed;
 
   const pipelineKey = `projects.${config.projectKey}.pipeline`;
-  const selection = selectPipeline(parsed.pipeline, supplied, pipelineKey);
+  const ratingFlagPresence = options.ratingFlagPresence ?? {};
+  const selection = selectPipeline(parsed.pipeline, supplied, pipelineKey, ratingFlagPresence);
   if (!selection.ok) return selection;
 
   const selected = lookup(selection.selection.name);
@@ -351,7 +388,11 @@ export function resolveProjectPipeline(
     };
   }
 
-  return { ok: true, definition };
+  return {
+    ok: true,
+    definition,
+    ...(selection.admissionRatings === undefined ? {} : { admissionRatings: selection.admissionRatings }),
+  };
 }
 
 export function formatProjectPipelineResolutionError(

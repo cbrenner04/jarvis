@@ -42,6 +42,7 @@ import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import type { AdmittedPipelineSelection } from "../persistence/state-store.ts";
 import { type DismissalMode, type DismissalRow, parseDismissalArgs, reportDismissalOutcome } from "./dismissal.ts";
 import { admitPipelineStart, type PipelineStartAdmissionInput } from "./pipeline-start-admission.ts";
 
@@ -323,13 +324,11 @@ function parsePipelineStartArgs(argv: readonly string[]): PipelineStartCliInput 
   const seedText = typeof values["seed-text"] === "string" ? values["seed-text"] : undefined;
   if ((seedPath === undefined) === (seedText === undefined)) return { ok: false };
 
-  if (seedText !== undefined) {
-    return { ok: true, input: { projectKey, seedText }, detach };
-  }
-  if (seedPath !== undefined) {
-    return { ok: true, input: { projectKey, seedPath }, detach };
-  }
-  return { ok: false };
+  const input: PipelineStartAdmissionInput =
+    seedText !== undefined ? { projectKey, seedText } : { projectKey, seedPath: seedPath! };
+  if (typeof values.risk === "string") input.risk = values.risk;
+  if (typeof values.effort === "string") input.effort = values.effort;
+  return { ok: true, input, detach };
 }
 
 async function waitForPipelineTerminal(client: IpcClient, pipelineId: string, io: Io, deps: CliDeps): Promise<number> {
@@ -395,6 +394,9 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
   }
 
   io.stdout(`${admission.pipelineId}\n`);
+  if (admission.admittedSelection !== null) {
+    io.stderr(`pipeline: admitted ${formatAdmittedPipelineSelectionSummary(admission.admittedSelection)}\n`);
+  }
   if (parsed.detach) return 0;
   if (attachedClient === undefined) {
     io.stderr("pipeline: admitted connection unavailable\n");
@@ -556,6 +558,11 @@ function seedBasename(seedPath: string | undefined): string {
   return seedPath === undefined ? "-" : basename(seedPath);
 }
 
+export function formatAdmittedPipelineSelectionSummary(selection: AdmittedPipelineSelection): string {
+  const { effective, sources, registryName } = selection;
+  return `risk=${effective.risk}(${sources.risk}) effort=${effective.effort}(${sources.effort}) ${registryName}`;
+}
+
 function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: number, showDismissal: boolean): string {
   // Every printed prefix resolves through the daemon's `resolvePipelineIdArgument`; a shared
   // eight-character prefix lengthens until unique within this listing.
@@ -569,6 +576,9 @@ function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: n
         seedBasename(pipeline.seedPath),
         formatPipelineCreatedAge(pipeline.createdAt, nowMs),
         renderStageSummary(pipeline.stages),
+        ...(pipeline.admittedSelection !== undefined
+          ? [formatAdmittedPipelineSelectionSummary(pipeline.admittedSelection)]
+          : []),
         // Mutation checkpoint: replacing this conditional spread with `...[]` must turn the
         // --all dismissal-marker test RED; replacing it with an unconditional spread must
         // turn the without-`--all` no-marker test RED.

@@ -239,12 +239,20 @@ export const WORKFLOW_PLAN_HELP_FLAGS: readonly CommandFlag[] = [
 export const PIPELINE_START_PARSE_ARG_OPTIONS = {
   seed: { type: "string" },
   "seed-text": { type: "string" },
+  risk: { type: "string" },
+  effort: { type: "string" },
   detach: { type: "boolean" },
 } as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 export const PIPELINE_START_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--seed", argumentShape: "<path>", description: "Path to a seed file." },
   { name: "--seed-text", argumentShape: "<text>", description: "Seed prose inline." },
+  { name: "--risk", argumentShape: "<level>", description: "Override the seed risk rating (low, medium, or high)." },
+  {
+    name: "--effort",
+    argumentShape: "<level>",
+    description: "Override the seed effort rating (low, medium, or high).",
+  },
   {
     name: "--detach",
     argumentShape: "",

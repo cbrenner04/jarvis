@@ -1579,6 +1579,7 @@ describe("pipelines", () => {
             ...pipeline,
             definition: JSON.parse(pipeline.definition) as PipelineDefinition,
             context: pipeline.context === null ? null : (JSON.parse(pipeline.context) as PipelineContext),
+            admittedSelection: null,
             terminalPublicationFailure: null,
             terminalPublicationSucceededAt: null,
             supersedeFailures: null,
@@ -1696,6 +1697,42 @@ describe("pipelines", () => {
     if (loaded.ok) throw new Error("expected loader failure");
     expect(loaded.error.kind).toBe("pipeline-context-loader");
     expect(loaded.error.errors).toContain(`missing required field: ${missing}`);
+  });
+
+  test("createPipeline persists admittedSelection for rating-driven admission and null for explicit-name admission", () => {
+    const ratingDefinition: PipelineDefinition = {
+      name: "full-light-review",
+      stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
+    };
+    const ratingSelection = {
+      effective: { risk: "medium" as const, effort: "low" as const },
+      sources: { risk: "minimum" as const, effort: "seed" as const },
+      registryName: "full-light-review",
+    };
+    const ratedId = store.createPipeline({
+      definition: ratingDefinition,
+      context: SAMPLE_PIPELINE_CONTEXT,
+      admittedSelection: ratingSelection,
+    });
+    const rated = store.loadPipeline(ratedId);
+    if (!rated) throw new Error("Pipeline should exist");
+    expect(rated.admittedSelection).toEqual(ratingSelection);
+    expect(rated.admittedSelection?.registryName).toBe(rated.definition.name);
+
+    const nameSelectedId = store.createPipeline({
+      definition: SAMPLE_PIPELINE_DEFINITION,
+      context: SAMPLE_PIPELINE_CONTEXT,
+      admittedSelection: null,
+    });
+    const nameSelected = store.loadPipeline(nameSelectedId);
+    if (!nameSelected) throw new Error("Pipeline should exist");
+    expect(nameSelected.admittedSelection).toBeNull();
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    const reloadedRated = store.loadPipeline(ratedId);
+    if (!reloadedRated) throw new Error("Pipeline should exist");
+    expect(reloadedRated.admittedSelection).toEqual(ratingSelection);
   });
 
   test("complete admitted context round-trips through createPipeline and store reload and passes loadPipelineContext", () => {

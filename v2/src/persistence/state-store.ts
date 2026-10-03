@@ -12,10 +12,12 @@ import {
   operatorFailureRecordFromUnknown,
   parseOperatorFailureRecord,
 } from "../../../shared/operator-failure-record.ts";
+import { parseRatingLevel, RATING_DIMENSIONS, type RatingLevel } from "../../../shared/seed-metadata.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import type { RatingAdmissionSource } from "../execution/project-pipeline-resolution.ts";
 import type { PublicationInputs } from "../execution/publication-landing.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
@@ -293,6 +295,81 @@ export function loadPipelineContext(value: unknown): LoadPipelineContextResult {
   return { ok: true, context };
 }
 
+/** Durable rating-driven admission metadata; `null` when the pipeline was selected by explicit `pipeline.name`. */
+export type AdmittedPipelineSelection = {
+  effective: Record<"risk" | "effort", RatingLevel>;
+  sources: Record<"risk" | "effort", RatingAdmissionSource>;
+  registryName: string;
+};
+
+type AdmittedPipelineSelectionLoaderError = {
+  kind: "admitted-selection-loader";
+  errors: readonly string[];
+};
+
+type LoadAdmittedPipelineSelectionResult =
+  | { ok: true; selection: AdmittedPipelineSelection | null }
+  | { ok: false; error: AdmittedPipelineSelectionLoaderError };
+
+const ADMITTED_PIPELINE_SELECTION_SOURCES = new Set<RatingAdmissionSource>(["seed", "flag", "minimum"]);
+
+/** Validate `pipeline_start` admitted-selection metadata before row insert. */
+export function loadAdmittedPipelineSelection(value: unknown): LoadAdmittedPipelineSelectionResult {
+  if (value === null || value === undefined) {
+    return { ok: true, selection: null };
+  }
+  if (!isRecord(value)) {
+    return { ok: false, error: { kind: "admitted-selection-loader", errors: ["expected object or null"] } };
+  }
+
+  const effectiveRaw = value.effective;
+  const sourcesRaw = value.sources;
+  const registryName = value.registryName;
+  if (!isRecord(effectiveRaw)) {
+    return { ok: false, error: { kind: "admitted-selection-loader", errors: ["effective must be an object"] } };
+  }
+  if (!isRecord(sourcesRaw)) {
+    return { ok: false, error: { kind: "admitted-selection-loader", errors: ["sources must be an object"] } };
+  }
+  if (typeof registryName !== "string" || registryName === "") {
+    return {
+      ok: false,
+      error: { kind: "admitted-selection-loader", errors: ["registryName must be a non-empty string"] },
+    };
+  }
+
+  const errors: string[] = [];
+  const effective: Partial<Record<"risk" | "effort", RatingLevel>> = {};
+  const sources: Partial<Record<"risk" | "effort", RatingAdmissionSource>> = {};
+  for (const dimension of RATING_DIMENSIONS) {
+    const rawLevel = effectiveRaw[dimension];
+    const level = typeof rawLevel === "string" ? parseRatingLevel(rawLevel) : undefined;
+    if (level === undefined) {
+      errors.push(`effective.${dimension} must be a valid rating level`);
+    } else {
+      effective[dimension] = level;
+    }
+    const source = sourcesRaw[dimension];
+    if (typeof source !== "string" || !ADMITTED_PIPELINE_SELECTION_SOURCES.has(source as RatingAdmissionSource)) {
+      errors.push(`sources.${dimension} must be seed, flag, or minimum`);
+    } else {
+      sources[dimension] = source as RatingAdmissionSource;
+    }
+  }
+  if (errors.length > 0) {
+    return { ok: false, error: { kind: "admitted-selection-loader", errors } };
+  }
+
+  return {
+    ok: true,
+    selection: {
+      effective: effective as Record<"risk" | "effort", RatingLevel>,
+      sources: sources as Record<"risk" | "effort", RatingAdmissionSource>,
+      registryName: registryName as string,
+    },
+  };
+}
+
 type StageTerminalPublication = { succeededAt: number } | { failure: PublicationFailure };
 
 /** Durable terminal-publication failure recorded on the pipeline row after stage success. */
@@ -384,6 +461,8 @@ export type Pipeline = {
   definition: PipelineDefinition;
   /** Immutable admission context; `null` for pre-migration rows and admissions that omitted context. */
   context: PipelineContext | null;
+  /** Rating-driven admission metadata; `null` for explicit-name selection and pre-migration rows. */
+  admittedSelection: AdmittedPipelineSelection | null;
   /** Nullable durable terminal-publication failure; `null` when unset or pre-migration. */
   terminalPublicationFailure: PipelineTerminalPublicationFailure | null;
   /** Unix epoch ms when terminal publication succeeded; `null` until settled. */
@@ -949,6 +1028,7 @@ export interface StateStore {
   createPipeline(args: {
     definition: PipelineDefinition;
     context?: PipelineContext;
+    admittedSelection?: AdmittedPipelineSelection | null;
     beforeStageInsert?: (stageIndex: number) => void;
   }): string;
 
@@ -1477,7 +1557,7 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent, completion_review_pass AS completionReviewPass`;
 
-const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt, supersede_failures AS supersedeFailuresJson, dismissed_at AS dismissedAt`;
+const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, admitted_selection AS admittedSelectionJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt, supersede_failures AS supersedeFailuresJson, dismissed_at AS dismissedAt`;
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
   skip_provenance AS skipProvenance,
@@ -1600,6 +1680,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "pipelines", "terminal_publication_succeeded_at", "INTEGER");
   addColumnIfMissing(db, "pipelines", "supersede_failures", "TEXT");
   addColumnIfMissing(db, "pipelines", "dismissed_at", "INTEGER");
+  addColumnIfMissing(db, "pipelines", "admitted_selection", "TEXT");
   upgradePipelineStagesBranchKey(db);
   addColumnIfMissing(db, "pipeline_stages", "decided_at", "INTEGER");
   if (!tableExists(db, "pipeline_stage_admission")) {
@@ -2121,19 +2202,36 @@ function mapRunRow(row: RunRow): Run {
   };
 }
 
-type PipelineRow = Omit<Pipeline, "definition" | "context" | "terminalPublicationFailure" | "supersedeFailures"> & {
+type PipelineRow = Omit<
+  Pipeline,
+  "definition" | "context" | "admittedSelection" | "terminalPublicationFailure" | "supersedeFailures"
+> & {
   definitionJson: string;
   contextJson: string | null;
+  admittedSelectionJson: string | null;
   terminalPublicationFailureJson: string | null;
   supersedeFailuresJson: string | null;
 };
 
 function mapPipelineRow(row: PipelineRow): Pipeline {
-  const { definitionJson, contextJson, terminalPublicationFailureJson, supersedeFailuresJson, ...pipeline } = row;
+  const {
+    definitionJson,
+    contextJson,
+    admittedSelectionJson,
+    terminalPublicationFailureJson,
+    supersedeFailuresJson,
+    ...pipeline
+  } = row;
+  let admittedSelection: AdmittedPipelineSelection | null = null;
+  if (admittedSelectionJson !== null) {
+    const parsed = loadAdmittedPipelineSelection(JSON.parse(admittedSelectionJson));
+    admittedSelection = parsed.ok ? parsed.selection : null;
+  }
   return {
     ...pipeline,
     definition: JSON.parse(definitionJson) as PipelineDefinition,
     context: contextJson === null ? null : (JSON.parse(contextJson) as PipelineContext),
+    admittedSelection,
     terminalPublicationFailure:
       terminalPublicationFailureJson === null
         ? null
@@ -2193,6 +2291,7 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "harness_ready_flip_evidence", "TEXT");
     addColumnIfMissing(this.db, "runs", "mutation_repair_attempts", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(this.db, "pipelines", "supersede_failures", "TEXT");
+    addColumnIfMissing(this.db, "pipelines", "admitted_selection", "TEXT");
     // Guarded: fixture and pre-migration stores can open without a `workflow_snapshot` column.
     if (tableHasColumn(this.db, "runs", "workflow_snapshot")) {
       this.db.exec(`
@@ -2565,18 +2664,31 @@ class StateStoreImpl implements StateStore {
   createPipeline(args: {
     definition: PipelineDefinition;
     context?: PipelineContext;
+    admittedSelection?: AdmittedPipelineSelection | null;
     beforeStageInsert?: (stageIndex: number) => void;
   }): string {
     const pipelineId = crypto.randomUUID();
     const definitionJson = JSON.stringify(args.definition);
     const contextJson = args.context === undefined ? null : JSON.stringify(args.context);
+    const admittedSelectionJson =
+      args.admittedSelection === undefined || args.admittedSelection === null
+        ? null
+        : JSON.stringify(args.admittedSelection);
 
     this.db.transaction(() => {
       this.db
         .prepare(
-          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition, context) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition, context, admitted_selection) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)",
         )
-        .run(pipelineId, args.definition.name, Date.now(), this.currentIdentity, definitionJson, contextJson);
+        .run(
+          pipelineId,
+          args.definition.name,
+          Date.now(),
+          this.currentIdentity,
+          definitionJson,
+          contextJson,
+          admittedSelectionJson,
+        );
 
       args.definition.stages.forEach((stage, index) => {
         args.beforeStageInsert?.(index);

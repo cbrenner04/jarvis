@@ -24,10 +24,10 @@
 
 ## Acceptance criteria
 
-- [ ] `pipeline-start-admission.test.ts` adds flag parsing and merge cases (each flag alone with the other dimension from seed, both flags, overrides below and above the project floor, malformed flag values) and asserts per-dimension effective ratings and `source` (`seed` | `flag` | `minimum`, including floor raises); fails against the pre-fix CLI (unknown `--risk`/`--effort`, no merge, or missing resolution metadata).
-- [ ] `pipeline-start-admission.test.ts` covers seed-only admission, missing ratings (`unresolved-rating`), and distinct `(risk, effort)` pairs that admit or refuse per `RATING_PAIR_PIPELINES` (extends existing green paths; not required to fail on baseline).
-- [ ] `project-pipeline-resolution.test.ts` stays green for existing name precedence, minimum floors, and pair mapping (`rating selection` describe).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `pipeline-start-admission.test.ts` adds flag parsing and merge cases (each flag alone with the other dimension from seed, both flags, overrides below and above the project floor, malformed flag values) and asserts per-dimension effective ratings and `source` (`seed` | `flag` | `minimum`, including floor raises); fails against the pre-fix CLI (unknown `--risk`/`--effort`, no merge, or missing resolution metadata).
+- [x] `pipeline-start-admission.test.ts` covers seed-only admission, missing ratings (`unresolved-rating`), and distinct `(risk, effort)` pairs that admit or refuse per `RATING_PAIR_PIPELINES` (extends existing green paths; not required to fail on baseline).
+- [x] `project-pipeline-resolution.test.ts` stays green for existing name precedence, minimum floors, and pair mapping (`rating selection` describe).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

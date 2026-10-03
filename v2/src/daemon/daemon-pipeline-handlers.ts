@@ -10,7 +10,12 @@ import { connectIpcClient, type IpcClient } from "../ipc/client";
 import type { RpcHandler } from "../ipc/server.ts";
 import { jarvisHome, MACHINE_CONFIG_PATH } from "../paths.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
-import { loadPipelineContext, type Pipeline, type PipelineStageRecord } from "../persistence/state-store.ts";
+import {
+  loadAdmittedPipelineSelection,
+  loadPipelineContext,
+  type Pipeline,
+  type PipelineStageRecord,
+} from "../persistence/state-store.ts";
 import type { ActiveRun, OwnershipKey } from "./daemon.ts";
 import { ownershipKeyString, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
 import type { WorkflowStartAdmission, WorkflowStartResult } from "./daemon-workflow-admission-handlers.ts";
@@ -211,7 +216,17 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     if (!admittedContext.ok) {
       return { kind: "error", code: "invalid_params", message: admittedContext.error.errors.join("; ") };
     }
-    const pipelineId = store.createPipeline({ definition, context: admittedContext.context });
+    const admittedSelection = loadAdmittedPipelineSelection(
+      (params as { admittedSelection?: unknown }).admittedSelection,
+    );
+    if (!admittedSelection.ok) {
+      return { kind: "error", code: "invalid_params", message: admittedSelection.error.errors.join("; ") };
+    }
+    const pipelineId = store.createPipeline({
+      definition,
+      context: admittedContext.context,
+      admittedSelection: admittedSelection.selection,
+    });
     const admitted = store.loadPipeline(pipelineId);
     if (!admitted?.context) {
       return {

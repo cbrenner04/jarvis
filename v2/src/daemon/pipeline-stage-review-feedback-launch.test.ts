@@ -131,6 +131,7 @@ function succeededIntentPipelineStage(branchKeys: string[] = [DEFAULT_PIPELINE_S
     status: "active",
     definition,
     context: null,
+    admittedSelection: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
     supersedeFailures: null,

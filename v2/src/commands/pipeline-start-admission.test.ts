@@ -1,13 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { RATING_LEVELS } from "../../../shared/seed-metadata.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
-import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
+import { RATING_PAIR_PIPELINES, resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import {
   admitPipelineStart,
+  mergePipelineStartSuppliedRatings,
   type PipelineStartAdmissionDeps,
   type PipelineStartAdmissionInput,
 } from "./pipeline-start-admission.ts";
@@ -100,7 +102,7 @@ describe("pipeline start admission", () => {
     const harness = makeHarness();
     const result = await admitPipelineStart({ projectKey: "demo", seedText: "Ship feature" }, harness.deps);
 
-    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
     expect(harness.connectCalls.value).toBe(1);
     expect(harness.closeCalls.value).toBe(1);
     expect(harness.requests).toHaveLength(1);
@@ -114,6 +116,7 @@ describe("pipeline start admission", () => {
           configPath: "/fixture/machines/home.json",
           projectRegistry: { demo: { root: fixtureRoot, origin: "git@example.test/demo.git" } },
         },
+        admittedSelection: null,
       },
     });
     expect(harness.requests.some((request) => request.method === "pipeline_wait")).toBe(false);
@@ -126,7 +129,7 @@ describe("pipeline start admission", () => {
     const harness = makeHarness();
     const result = await admitPipelineStart({ projectKey: "demo", seedPath: "../seeds/intent.md" }, harness.deps);
 
-    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
     expect(harness.connectCalls.value).toBe(1);
     expect(harness.requests).toHaveLength(1);
     expect(harness.requests[0]).toMatchObject({
@@ -145,6 +148,157 @@ describe("pipeline start admission", () => {
     expect(harness.requests.some((request) => request.method === "pipeline_wait")).toBe(false);
   });
 
+  test("merges seed and flag ratings with per-dimension sources through resolution", async () => {
+    const ratedProject = () => ({ pipeline: { terminalAction: "leave-draft", minimumRisk: "medium" } });
+    const captureResolution = () => {
+      const resolutions: ReturnType<typeof resolveProjectPipeline>[] = [];
+      const harness = makeHarness({
+        readProjectConfigRecord: ratedProject,
+        resolveProjectPipeline: (...args) => {
+          const result = resolveProjectPipeline(...args);
+          resolutions.push(result);
+          return result;
+        },
+      });
+      return { harness, resolutions };
+    };
+
+    const seedOnly = captureResolution();
+    await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody" },
+      seedOnly.harness.deps,
+    );
+    expect(seedOnly.resolutions[0]).toMatchObject({
+      ok: true,
+      admissionRatings: {
+        effective: { risk: "medium", effort: "low" },
+        sources: { risk: "minimum", effort: "seed" },
+      },
+    });
+    expect(seedOnly.harness.requests[0]?.params).toMatchObject({
+      definition: { name: "full-light-review" },
+      admittedSelection: {
+        effective: { risk: "medium", effort: "low" },
+        sources: { risk: "minimum", effort: "seed" },
+        registryName: "full-light-review",
+      },
+    });
+
+    const riskFlag = captureResolution();
+    await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\neffort: low\n---\nBody", risk: "high" },
+      riskFlag.harness.deps,
+    );
+    expect(riskFlag.resolutions[0]).toMatchObject({
+      ok: true,
+      admissionRatings: {
+        effective: { risk: "high", effort: "low" },
+        sources: { risk: "flag", effort: "seed" },
+      },
+    });
+    expect(riskFlag.harness.requests[0]?.params).toMatchObject({ definition: { name: "full-review" } });
+
+    const effortFlag = captureResolution();
+    await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\nrisk: low\n---\nBody", effort: "high" },
+      effortFlag.harness.deps,
+    );
+    expect(effortFlag.resolutions[0]).toMatchObject({
+      ok: true,
+      admissionRatings: {
+        effective: { risk: "medium", effort: "high" },
+        sources: { risk: "minimum", effort: "flag" },
+      },
+    });
+
+    const bothFlags = captureResolution();
+    await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody", risk: "low", effort: "high" },
+      bothFlags.harness.deps,
+    );
+    expect(bothFlags.resolutions[0]).toMatchObject({
+      ok: true,
+      admissionRatings: {
+        effective: { risk: "medium", effort: "high" },
+        sources: { risk: "minimum", effort: "flag" },
+      },
+    });
+
+    const aboveFloor = captureResolution();
+    await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody", risk: "high", effort: "high" },
+      aboveFloor.harness.deps,
+    );
+    expect(aboveFloor.resolutions[0]).toMatchObject({
+      ok: true,
+      admissionRatings: {
+        effective: { risk: "high", effort: "high" },
+        sources: { risk: "flag", effort: "flag" },
+      },
+    });
+    expect(aboveFloor.harness.requests[0]?.params).toMatchObject({ definition: { name: "full-review" } });
+
+    const malformed = makeHarness({ readProjectConfigRecord: ratedProject });
+    const malformedResult = await admitPipelineStart(
+      { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody", risk: "extreme" },
+      malformed.deps,
+    );
+    expect(malformedResult).toMatchObject({
+      kind: "pre-admission-failure",
+      failure: "invalid-project-pipeline",
+      detail: 'invalid-rating: risk rating must be one of low, medium, high; got "extreme"',
+    });
+    expectNoDaemonContact(malformed);
+
+    // @mutate v2/src/commands/pipeline-start-admission.ts "if (presence[dimension]) {" -> "if (!presence[dimension]) {"
+    expect(
+      mergePipelineStartSuppliedRatings({ risk: "low", effort: "low", name: null }, { risk: "high" }, { risk: true }),
+    ).toEqual({ risk: "high", effort: "low" });
+  });
+
+  test("ignores rating flags when pipeline.name is configured", async () => {
+    const resolutions: ReturnType<typeof resolveProjectPipeline>[] = [];
+    const harness = makeHarness({
+      resolveProjectPipeline: (...args) => {
+        const result = resolveProjectPipeline(...args);
+        resolutions.push(result);
+        return result;
+      },
+    });
+    const result = await admitPipelineStart(
+      { projectKey: "demo", seedText: "Body", risk: "extreme", effort: "extreme" },
+      harness.deps,
+    );
+    expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
+    expect(resolutions[0]?.ok).toBe(true);
+    expect(resolutions[0]).not.toHaveProperty("admissionRatings");
+    // @mutate v2/src/commands/pipeline-start-admission.ts "if (!explicitName) {" -> "if (explicitName) {"
+  });
+
+  test("maps distinct rating pairs to admit or refuse per RATING_PAIR_PIPELINES", async () => {
+    const ratedProject = () => ({ pipeline: { terminalAction: "leave-draft" } });
+    for (const risk of RATING_LEVELS) {
+      for (const effort of RATING_LEVELS) {
+        const expectedName = RATING_PAIR_PIPELINES[risk][effort];
+        const harness = makeHarness({ readProjectConfigRecord: ratedProject });
+        const result = await admitPipelineStart(
+          { projectKey: "demo", seedText: `---\nrisk: ${risk}\neffort: ${effort}\n---\nBody` },
+          harness.deps,
+        );
+        expect(result).toEqual({
+          kind: "admitted",
+          pipelineId: "pipeline-123",
+          admittedSelection: {
+            effective: { risk, effort },
+            sources: { risk: "seed", effort: "seed" },
+            registryName: expectedName,
+          },
+        });
+        expect(harness.requests[0]?.params).toMatchObject({ definition: { name: expectedName } });
+      }
+    }
+  });
+
   test("seed frontmatter ratings reach resolution and select the mapped definition for a name-less pipeline", async () => {
     const seedDir = join(fixtureRoot, "rated-seeds");
     mkdirSync(seedDir, { recursive: true });
@@ -156,7 +310,15 @@ describe("pipeline start admission", () => {
       { projectKey: "demo", seedText: "---\nrisk: low\neffort: low\n---\nBody" },
       fromText.deps,
     );
-    expect(textResult).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(textResult).toEqual({
+      kind: "admitted",
+      pipelineId: "pipeline-123",
+      admittedSelection: {
+        effective: { risk: "low", effort: "medium" },
+        sources: { risk: "seed", effort: "minimum" },
+        registryName: "full-light-review",
+      },
+    });
     expect(fromText.requests[0]?.params).toMatchObject({ definition: { name: "full-light-review" } });
 
     const fromPath = makeHarness({ readProjectConfigRecord: ratedProject });
@@ -164,7 +326,15 @@ describe("pipeline start admission", () => {
       { projectKey: "demo", seedPath: "../rated-seeds/risky.md" },
       fromPath.deps,
     );
-    expect(pathResult).toEqual({ kind: "admitted", pipelineId: "pipeline-123" });
+    expect(pathResult).toEqual({
+      kind: "admitted",
+      pipelineId: "pipeline-123",
+      admittedSelection: {
+        effective: { risk: "high", effort: "medium" },
+        sources: { risk: "seed", effort: "minimum" },
+        registryName: "full-review",
+      },
+    });
     expect(fromPath.requests[0]?.params).toMatchObject({
       definition: { name: "full-review" },
       context: { seedPath: "../rated-seeds/risky.md" },
@@ -466,7 +636,10 @@ describe("pipeline start admission", () => {
 
   test("preserves admission results when connection cleanup throws", async () => {
     for (const [request, expected] of [
-      [async () => ({ pipelineId: "pipeline-123" }), { kind: "admitted", pipelineId: "pipeline-123" }],
+      [
+        async () => ({ pipelineId: "pipeline-123" }),
+        { kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null },
+      ],
       [
         async () => {
           throw new RpcError("admission_failed", "refused");

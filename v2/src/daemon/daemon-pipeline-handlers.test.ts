@@ -99,6 +99,26 @@ function seedPipeline(store: StateStore, overrides: { createdAt?: number; termin
   return pipelineId;
 }
 
+test("pipeline_start refuses malformed admittedSelection without creating pipeline rows", async () => {
+  const handlers = pipelineHandlers();
+
+  const response = await handlers.pipeline_start(
+    requestFrame("bad-selection", "pipeline_start", {
+      definition: SINGLE_STAGE_DEFINITION,
+      context: ADMISSION_CONTEXT,
+      admittedSelection: { effective: { risk: "low" }, sources: { risk: "seed" }, registryName: "fast" },
+    }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: expect.stringContaining("effective.effort"),
+  });
+  expect(stateStore.listPipelines()).toEqual([]);
+});
+
 test("pipeline_start refuses context missing configPath without creating pipeline rows", async () => {
   const handlers = pipelineHandlers();
 

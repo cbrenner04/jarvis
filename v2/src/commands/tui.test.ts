@@ -317,7 +317,7 @@ describe("tui command", () => {
     const tuiResult = await withFixedUuid("pipe-admit", () =>
       controls.admitDetachedPipelineStart({ projectKey: "demo", seedText: "Ship feature" }),
     );
-    expect(tuiResult).toEqual({ kind: "admitted", pipelineId: "pipe-tui" });
+    expect(tuiResult).toEqual({ kind: "admitted", pipelineId: "pipe-tui", admittedSelection: null });
     expect(ipcFramesWithMethod(tuiSent, "pipeline_start")).toHaveLength(1);
     expect(ipcFramesWithMethod(tuiSent, "pipeline_wait")).toHaveLength(0);
     expect(ipcFramesWithMethod(tuiSent, "pipeline_start")[0]).toMatchObject({

@@ -1,6 +1,15 @@
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import { parseSeedMetadata } from "../../../shared/seed-metadata.ts";
+import { isRecord } from "../../../shared/is-record.ts";
+import {
+  parseRatingLevel,
+  parseSeedMetadata,
+  RATING_DIMENSIONS,
+  RATING_LEVELS,
+  type RatingDimension,
+  type RatingLevel,
+  type SeedMetadata,
+} from "../../../shared/seed-metadata.ts";
 import { formatConnectionError, formatLifecycleError, formatRpcError } from "../cli/ipc.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { isLoadError } from "../config/agent-model-config.ts";
@@ -12,12 +21,13 @@ import {
   type resolveProjectPipeline,
 } from "../execution/project-pipeline-resolution.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import type { PipelineContext } from "../persistence/state-store.ts";
+import type { AdmittedPipelineSelection, PipelineContext } from "../persistence/state-store.ts";
 
-export type PipelineStartAdmissionInput = { projectKey: string } & (
-  | { seedPath: string; seedText?: never }
-  | { seedText: string; seedPath?: never }
-);
+export type PipelineStartAdmissionInput = {
+  projectKey: string;
+  risk?: string;
+  effort?: string;
+} & ({ seedPath: string; seedText?: never } | { seedText: string; seedPath?: never });
 
 type PipelineStartPreAdmissionFailure =
   | "invalid-seed-input"
@@ -37,7 +47,7 @@ type PipelineStartAdmissionFailure =
   | "connection-lifecycle-failure";
 
 export type PipelineStartAdmissionResult =
-  | { kind: "admitted"; pipelineId: string }
+  | { kind: "admitted"; pipelineId: string; admittedSelection: AdmittedPipelineSelection | null }
   | {
       kind: "pre-admission-failure";
       failure: PipelineStartPreAdmissionFailure;
@@ -68,7 +78,11 @@ export type PipelineStartAdmissionDeps = {
   request: (
     connection: PipelineStartAdmissionConnection,
     method: "pipeline_start",
-    params: { definition: PipelineDefinition; context: PipelineContext },
+    params: {
+      definition: PipelineDefinition;
+      context: PipelineContext;
+      admittedSelection: AdmittedPipelineSelection | null;
+    },
   ) => Promise<unknown>;
 };
 
@@ -204,6 +218,53 @@ function isAdmissionResult(value: object): value is PipelineStartAdmissionResult
   return "kind" in value;
 }
 
+function pipelineHasExplicitName(pipeline: unknown): boolean {
+  return isRecord(pipeline) && typeof pipeline.name === "string" && pipeline.name.length > 0;
+}
+
+type ParsedFlagRatings =
+  | {
+      ok: true;
+      levels: Partial<Record<RatingDimension, RatingLevel>>;
+      presence: Partial<Record<RatingDimension, true>>;
+    }
+  | { ok: false; dimension: RatingDimension; value: string };
+
+function parsePipelineStartFlagRatings(input: PipelineStartAdmissionInput): ParsedFlagRatings {
+  const levels: Partial<Record<RatingDimension, RatingLevel>> = {};
+  const presence: Partial<Record<RatingDimension, true>> = {};
+  for (const dimension of RATING_DIMENSIONS) {
+    const raw = input[dimension];
+    if (raw === undefined) continue;
+    const level = parseRatingLevel(raw);
+    if (level === undefined) {
+      return { ok: false, dimension, value: raw };
+    }
+    levels[dimension] = level;
+    presence[dimension] = true;
+  }
+  return { ok: true, levels, presence };
+}
+
+/** Merges seed frontmatter ratings with CLI flag overrides before `resolveProjectPipeline`. */
+export function mergePipelineStartSuppliedRatings(
+  metadata: SeedMetadata,
+  levels: Partial<Record<RatingDimension, RatingLevel>>,
+  presence: Partial<Record<RatingDimension, true>>,
+): Partial<Record<RatingDimension, string>> {
+  const supplied: Partial<Record<RatingDimension, string>> = {};
+  for (const dimension of RATING_DIMENSIONS) {
+    // Mutation checkpoint: preferring seed when a flag is present must turn flag override tests RED.
+    if (presence[dimension]) {
+      const level = levels[dimension];
+      if (level !== undefined) supplied[dimension] = level;
+    } else if (metadata[dimension] !== undefined) {
+      supplied[dimension] = metadata[dimension];
+    }
+  }
+  return supplied;
+}
+
 export async function admitPipelineStart(
   input: PipelineStartAdmissionInput,
   deps: PipelineStartAdmissionDeps,
@@ -231,11 +292,34 @@ export async function admitPipelineStart(
     return preAdmissionFailure("invalid-seed-rating", `pipeline: ${metadata.message}\n`);
   }
 
+  let supplied: Partial<Record<RatingDimension, string>> = {};
+  let ratingFlagPresence: Partial<Record<RatingDimension, true>> = {};
+  if (!pipelineHasExplicitName(config.pipeline)) {
+    const flags = parsePipelineStartFlagRatings(input);
+    if (!flags.ok) {
+      return preAdmissionFailure(
+        "invalid-project-pipeline",
+        formatProjectPipelineResolutionError({
+          ok: false,
+          error: {
+            code: "invalid-rating",
+            dimension: flags.dimension,
+            value: flags.value,
+            message: `${flags.dimension} rating must be one of ${RATING_LEVELS.join(", ")}; got ${JSON.stringify(flags.value)}`,
+          },
+        }),
+      );
+    }
+    ratingFlagPresence = flags.presence;
+    supplied = mergePipelineStartSuppliedRatings(metadata.metadata, flags.levels, flags.presence);
+  }
+
   const pipelineResolution = deps.resolveProjectPipeline(
     { projectKey, pipeline: config.pipeline },
     deps.getPipelineDefinition,
     agentModelConfig,
-    metadata.metadata,
+    supplied,
+    { ratingFlagPresence },
   );
   if (!pipelineResolution.ok) {
     return preAdmissionFailure("invalid-project-pipeline", formatProjectPipelineResolutionError(pipelineResolution));
@@ -247,6 +331,11 @@ export async function admitPipelineStart(
     configPath: deps.configPath,
     projectRegistry: registry,
   };
+
+  const admittedSelection: AdmittedPipelineSelection | null =
+    pipelineResolution.admissionRatings === undefined
+      ? null
+      : { ...pipelineResolution.admissionRatings, registryName: pipelineResolution.definition.name };
 
   let connection: PipelineStartAdmissionConnection;
   let retained = false;
@@ -266,6 +355,7 @@ export async function admitPipelineStart(
       response = await deps.request(connection, "pipeline_start", {
         definition: pipelineResolution.definition,
         context,
+        admittedSelection,
       });
     } catch (error) {
       if (error instanceof RpcError) {
@@ -296,7 +386,7 @@ export async function admitPipelineStart(
     } catch {
       retained = false;
     }
-    return { kind: "admitted", pipelineId };
+    return { kind: "admitted", pipelineId, admittedSelection };
   } finally {
     if (!retained) closeConnection(connection);
   }

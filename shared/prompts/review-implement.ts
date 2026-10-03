@@ -1,5 +1,6 @@
 import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { branchDiff as gitBranchDiff } from "../git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../subprocess.ts";
 import { renderPromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
@@ -43,19 +44,15 @@ function visit(dir: string, labelRoot: string, out: string[]): void {
   }
 }
 
+/** Review-context diff via the shared Git boundary; a thrown `GitOperationError` renders as a placeholder, never aborts the review. */
 async function branchDiff(cwd: string, baseBranch: string, runner: AsyncSubprocessRunner): Promise<string> {
   try {
-    const mergeBase = (await runner.runAsync("git", ["merge-base", baseBranch, "HEAD"], cwd)).trim();
-    const stat = (await runner.runAsync("git", ["diff", "--stat", mergeBase, "HEAD"], cwd)).trim();
-    const paths = (await runner.runAsync("git", ["diff", "--name-only", mergeBase, "HEAD"], cwd))
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const { stat, changedPaths, unified } = await gitBranchDiff(cwd, baseBranch, "HEAD", runner);
     const summary = stat || "(no changes)";
-    const orientation = paths.length === 0 ? summary : `${summary}\n\nChanged paths:\n${paths.join("\n")}`;
-    const unified = (await runner.runAsync("git", ["diff", mergeBase, "HEAD"], cwd)).trim();
-    return unified ? `${orientation}\n\n${unified}` : orientation;
+    const orientation =
+      changedPaths.length === 0 ? summary : `${summary}\n\nChanged paths:\n${changedPaths.join("\n")}`;
+    const patch = unified.trim();
+    return patch ? `${orientation}\n\n${patch}` : orientation;
   } catch (error) {
     return `(failed to generate diff: ${error instanceof Error ? error.message : String(error)})`;
   }

@@ -22,9 +22,9 @@ name: project-minimums-and-rating-pair-select-pipeline
 
 ## Acceptance criteria
 
-- [ ] `project-pipeline-resolution.test.ts`: minimums parse and validate; a seed rating below the floor resolves to the floor and one above it keeps its value, per dimension; an invalid minimum is a named config error; fails against current code.
-- [ ] Same file: each defined pair maps to one definition and an undefined pair fails before execution; the `pipeline.name` precedence rule is pinned.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `project-pipeline-resolution.test.ts`: minimums parse and validate; a seed rating below the floor resolves to the floor and one above it keeps its value, per dimension; an invalid minimum is a named config error; fails against current code.
+- [x] Same file: each defined pair maps to one definition and an undefined pair fails before execution; the `pipeline.name` precedence rule is pinned.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

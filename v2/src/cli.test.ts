@@ -15,7 +15,6 @@ import type { CommandNode } from "./cli/command-tree.ts";
 import { commandTree, formatCommandFlagHelpLine, renderHelpNode, resolveHelpPath } from "./cli/command-tree.ts";
 import {
   CLEANUP_USAGE,
-  CONFIG_USAGE,
   DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
@@ -37,7 +36,7 @@ import { enumerateCommands, findCommand, resolveHelpFlagAlias, main as runtimeMa
 import { DAEMON_SOCKET_PATH } from "./paths.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
-const commandNames = "init, daemon, config, run, tui, pipeline, notifications, cleanup, help";
+const commandNames = "init, daemon, run, tui, pipeline, notifications, cleanup, help";
 
 function helpStdoutWithFlags(
   usage: string,
@@ -125,7 +124,6 @@ describe("v2 cli dispatch", () => {
       stdout:
         "init\tConfigure this machine and register the current repository.\n" +
         "daemon\tManage the background daemon.\n" +
-        "config\tShow or update machine configuration.\n" +
         "run\tManage daemon-backed runs.\n" +
         "tui\tOpen the interactive run monitor.\n" +
         "pipeline\tManage daemon-backed pipelines.\n" +
@@ -275,17 +273,18 @@ describe("v2 cli dispatch", () => {
     expect(cap.read().stdout).toBe(DAEMON_USAGE);
   });
 
-  test("help config lists subcommands", async () => {
-    const cap = captureIo();
+  test("the retired config command is unknown to dispatch and to help", async () => {
+    const dispatch = captureIo();
+    const dispatchCode = await main(["config", "show"], dispatch.io);
+    const help = captureIo();
+    const helpCode = await main(["help", "config"], help.io);
 
-    const code = await main(["help", "config"], cap.io);
-
-    expect(code).toBe(0);
-    const output = cap.read().stdout;
-    expect(output).toContain("usage: jarvis config");
-    expect(output).toContain("show\tShow current machine configuration.");
-    expect(output).toContain("path\tShow configuration file path.");
-    expect(output).toContain("set-agents\tSet agent fallback order.");
+    expect(dispatchCode).toBe(1);
+    expect(dispatch.read()).toEqual({ stdout: "", stderr: unknownCommandError("config") });
+    expect(helpCode).toBe(1);
+    expect(help.read()).toEqual({ stdout: "", stderr: unknownCommandError("config", undefined, []) });
+    expect(findCommand("config")).toBeUndefined();
+    expect(commandTree.subcommands?.map(({ name }) => name)).not.toContain("config");
   });
 
   test("help tui lists log subcommand", async () => {
@@ -413,7 +412,6 @@ describe("v2 cli dispatch", () => {
     expect(entries.map(({ usage }) => usage)).toEqual([
       INIT_USAGE,
       DAEMON_USAGE,
-      CONFIG_USAGE,
       RUN_USAGE,
       TUI_USAGE,
       PIPELINE_USAGE,
@@ -641,7 +639,6 @@ describe("v2 cli dispatch", () => {
      * run id prints `RUN_USAGE`, exactly what an unrecognized subcommand prints). Paths absent
      * from this map are driven bare. */
     const operands: Record<string, readonly string[]> = {
-      "config set-agents": ["claude"],
       "run log": ["run-1"],
       "run pause": ["run-1"],
       "run resume": ["run-1"],
@@ -661,7 +658,6 @@ describe("v2 cli dispatch", () => {
       const parent = path.slice(0, -1).join(" ");
       if (parent === "") return `unknown command: ${path[0]}\n`;
       if (parent === "daemon") return DAEMON_USAGE;
-      if (parent === "config") return CONFIG_USAGE;
       if (parent === "run") return RUN_USAGE;
       if (parent === "run workflow") return WORKFLOW_USAGE;
       if (parent === "tui") return TUI_USAGE;

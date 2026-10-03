@@ -12,6 +12,7 @@ import {
   intentReviewPromptProfile,
 } from "../../../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import { parseSeedMetadata } from "../../../shared/seed-metadata.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import { resolveSpecsHome } from "../config/specs-home.ts";
@@ -326,6 +327,9 @@ function resolveIntentInput(
   const publishGit = specsHomeResolution.specsHome === "repo";
   const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")), !publishGit);
   if ("error" in seed) return seed;
+  // Ratings are validated here, not consumed: admission owns missing-rating policy.
+  const metadata = parseSeedMetadata(seed.content);
+  if (!metadata.ok) return { error: `intent: ${metadata.message}` };
   if (!seed.slug) return { error: "intent: seed does not produce a slug" };
   if (RESERVED_SLUGS.has(seed.slug)) return { error: `intent: reserved slug: ${seed.slug}` };
   return { project, seed, publishGit };

@@ -42,6 +42,7 @@ import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import { type DismissalMode, type DismissalRow, parseDismissalArgs, reportDismissalOutcome } from "./dismissal.ts";
 import { admitPipelineStart, type PipelineStartAdmissionInput } from "./pipeline-start-admission.ts";
 
 type PipelineStartCliInput =
@@ -844,72 +845,26 @@ async function runPipelineRecoverCommand(
   });
 }
 
-type PipelineDismissalOutcome =
-  | { kind: "applied"; pipelineId: string; state: PipelineDerivedState }
-  | { kind: "refused"; pipelineId: string; reason: string; candidates?: string[] };
-
-function parsePipelineDismissalArgs(argv: readonly string[]): { ok: true; pipelineId: string } | { ok: false } {
-  if (argv.length !== 1) return { ok: false };
-  const pipelineId = argv[0];
-  if (pipelineId === undefined || pipelineId.trim().length === 0) return { ok: false };
-  return { ok: true, pipelineId };
-}
-
-function parsePipelineDismissalOutcome(value: unknown): PipelineDismissalOutcome | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const record = value as {
-    kind?: unknown;
-    pipelineId?: unknown;
-    state?: unknown;
-    reason?: unknown;
-    candidates?: unknown;
-  };
-  if (!isNonEmptyString(record.pipelineId)) return undefined;
-  if (record.kind === "applied") {
-    if (typeof record.state !== "string") return undefined;
-    const state = parsePipelineListStateValue(record.state);
-    if (state === undefined) return undefined;
-    return { kind: "applied", pipelineId: record.pipelineId, state };
-  }
-  if (record.kind === "refused" && typeof record.reason === "string") {
-    const candidates = stringCandidates(record.reason, record.candidates);
-    return {
-      kind: "refused",
-      pipelineId: record.pipelineId,
-      reason: record.reason,
-      ...(candidates.length > 0 ? { candidates } : {}),
-    };
-  }
-  return undefined;
-}
+const PIPELINE_DISMISSAL_ROW: DismissalRow<PipelineDerivedState> = {
+  kind: "pipeline",
+  idField: "pipelineId",
+  stateField: "state",
+  parseState: parsePipelineListStateValue,
+  isTerminal: isPipelineTerminal,
+  refusalCandidates: stringCandidates,
+  confirmation: (mode, pipelineId) => `pipeline ${mode}: ${pipelineId}`,
+};
 
 async function runPipelineDismissalCommand(
-  mode: "dismiss" | "undismiss",
+  mode: DismissalMode,
   pipelineId: string,
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
   return withStablePipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
-    const method = mode === "dismiss" ? "pipeline_dismiss" : "pipeline_undismiss";
-    const result = await requestPipelineRpc(client, method, { pipelineId }, io);
+    const result = await requestPipelineRpc(client, `pipeline_${mode}`, { pipelineId }, io);
     if (!result.ok) return 1;
-    const outcome = parsePipelineDismissalOutcome(result.response);
-    if (outcome === undefined) {
-      io.stderr("invalid daemon response\n");
-      return 1;
-    }
-    if (outcome.kind !== "applied") {
-      io.stderr(`${outcome.reason}\n`);
-      if (outcome.candidates !== undefined) io.stderr(`${outcome.candidates.join("\n")}\n`);
-      return 1;
-    }
-    // Mutation checkpoint: neutering this guard to `if (false)` must drop the live-state
-    // warning, turning the live-pipeline-dismissal test RED.
-    if (mode === "dismiss" && !isPipelineTerminal(outcome.state)) {
-      io.stderr(`pipeline dismiss: ${outcome.pipelineId} is ${outcome.state} and now hidden from listings\n`);
-    }
-    io.stdout(`pipeline ${mode}: ${outcome.pipelineId}\n`);
-    return 0;
+    return reportDismissalOutcome(PIPELINE_DISMISSAL_ROW, mode, result.response, io);
   });
 }
 
@@ -1003,12 +958,12 @@ async function runPipelineControlSubcommand(
     return runPipelineRecoverCommand(parsed, io, deps);
   }
   if (subcommand === "dismiss" || subcommand === "undismiss") {
-    const parsed = parsePipelineDismissalArgs(argv.slice(1));
+    const parsed = parseDismissalArgs(argv.slice(1));
     if (!parsed.ok) {
       io.stderr(subcommand === "dismiss" ? PIPELINE_DISMISS_USAGE : PIPELINE_UNDISMISS_USAGE);
       return 1;
     }
-    return runPipelineDismissalCommand(subcommand, parsed.pipelineId, io, deps);
+    return runPipelineDismissalCommand(subcommand, parsed.id, io, deps);
   }
   io.stderr(PIPELINE_USAGE);
   return 1;

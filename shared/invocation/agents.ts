@@ -179,6 +179,7 @@ function createRefusingBinding(
   return {
     id,
     metadata,
+    confinementPolicy: policy,
     confinementMechanism: "refused",
     invoke: async () => {
       throw new ConfinementRefusalError(metadata.agent, policy);

@@ -2254,7 +2254,8 @@ async function recordPredecessorForkSha(
       message: `predecessor lane "${predecessor}" is unmerged and its tip ${tip.run.branch} cannot be resolved in ${cwd}: ${errorText(error)}`,
     };
   }
-  git.store.updateStage({
+  const { store } = git;
+  store.updateStage({
     pipelineId,
     stageId: tip.record.stageId,
     branchKey: predecessor,

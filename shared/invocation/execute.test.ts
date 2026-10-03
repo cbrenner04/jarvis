@@ -3,6 +3,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedMkdtempSync } from "../tracked-temp-dir.test-support.ts";
+import { ConfinementRefusalError } from "./confinement-policy.ts";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,
@@ -250,6 +251,43 @@ describe("shared invocation fallback", () => {
     expect(result.final?.result.kind).toBe("quota");
     expect(rows.map((row) => row.binding_id)).toEqual(["first", "second"]);
     expect(rows.map((row) => row.invocation_id)).toEqual(["inv-1", "inv-2"]);
+  });
+
+  test("a binding refused at construction skips prompt logging and telemetry but still advances", async () => {
+    const { log, lines } = fakeSessionLog();
+    const rows: InvocationCompletedRecord[] = [];
+    const refused: InvocationBinding = {
+      id: "refused",
+      metadata: { agent: "claude", model: "sonnet" },
+      confinementMechanism: "refused",
+      invoke: async () => {
+        throw new ConfinementRefusalError("claude", "sandbox");
+      },
+      shouldAdvance: () => true,
+    };
+
+    const result = await executeWithQuotaFallback({
+      prompt: "the prompt",
+      cwd: "/tmp",
+      sessionLog: log,
+      bindings: [refused, binding("second", { kind: "ok", stdout: "out", stderr: "" })],
+      telemetry: telemetryArgs({
+        append: (row) => {
+          rows.push(row);
+        },
+      }),
+    });
+
+    expect(result.attempts.map((attempt) => [attempt.binding.id, attempt.result.kind])).toEqual([
+      ["refused", "model_config"],
+      ["second", "ok"],
+    ]);
+    expect(result.final?.binding.id).toBe("second");
+    expect(lines.filter((line) => line.tag === "outbound")).toHaveLength(1);
+    expect(lines.filter((line) => line.tag === "harness").map((line) => line.text)[0]).toContain(
+      "binding=refused confinement refusal: agent 'claude'",
+    );
+    expect(rows.map((row) => row.binding_id)).toEqual(["second"]);
   });
 
   test("writes harness and outbound before invoke, then inbound_stdout/inbound_stderr on ok", async () => {

@@ -296,6 +296,22 @@ async function invokeBinding<T extends InvocationResult>(
   }
 }
 
+type FallbackArgs = Omit<Parameters<typeof executeWithQuotaFallback>[0], "bindings" | "telemetry" | "sessionLog">;
+
+function fallbackInvokeArgs(args: FallbackArgs): Parameters<InvocationBinding["invoke"]>[0] {
+  return {
+    prompt: args.prompt,
+    cwd: args.cwd,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+    ...(args.processGroupRecorder !== undefined ? { processGroupRecorder: args.processGroupRecorder } : {}),
+    ...pickShellCommandCallbacks(args),
+    ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
+  };
+}
+
 /**
  * Run bindings in order, advancing when the binding's `shouldAdvance` predicate
  * returns true (default: `result.kind === "quota"`).
@@ -318,20 +334,20 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   const attempts: InvocationAttempt<T>[] = [];
   const telemetryFailures: InvocationTelemetryFailure[] = [];
 
+  const invokeArgs = fallbackInvokeArgs(args);
+
   for (const [bindingIndex, binding] of args.bindings.entries()) {
     const startedAt = Date.now();
+    if (binding.confinementMechanism === "refused") {
+      // Refused at construction: never spawns, so no prompt echo, inbound log, or telemetry row —
+      // one harness line explains the skipped rung, and the attempt still records the refusal.
+      const result = await invokeBinding(binding, invokeArgs);
+      appendSessionLog(args.sessionLog, "harness", `binding=${binding.id} ${result.stderr}`);
+      attempts.push({ binding, result });
+      continue;
+    }
     logBindingStart(args.sessionLog, binding, args.prompt);
-    const result = await invokeBinding(binding, {
-      prompt: args.prompt,
-      cwd: args.cwd,
-      ...(args.signal !== undefined ? { signal: args.signal } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-      ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
-      ...(args.processGroupRecorder !== undefined ? { processGroupRecorder: args.processGroupRecorder } : {}),
-      ...pickShellCommandCallbacks(args),
-      ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
-    });
+    const result = await invokeBinding(binding, invokeArgs);
     logBindingInbound(args.sessionLog, result);
     const invocationId = args.telemetry?.invocationIds[bindingIndex];
     const attempt = { binding, result, ...(invocationId !== undefined ? { invocationId } : {}) };

@@ -17,6 +17,7 @@ import {
 } from "../config/agent-model-config.ts";
 import {
   readCodexSandboxMode,
+  readConfinementPolicy,
   readNotificationSinkCommand,
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
@@ -483,14 +484,17 @@ export type WriteLoopBindingSourceDeps = {
 };
 
 /**
- * Production binding factory. Stamps the configured Codex sandbox mode onto every write/implement
- * binding so both fresh and rehydrated resolution paths select the operator-trusted sandbox.
+ * Production binding factory. Stamps the configured Codex sandbox mode and the project's resolved
+ * confinement policy onto every write/implement binding so both fresh and rehydrated resolution
+ * paths select the operator-trusted confinement.
  */
 export function productionAgentBindingFactory(
   deps: WriteLoopBindingSourceDeps = {},
+  projectKey?: string,
 ): (binding: ResolvedAgentBinding) => InvocationBinding {
   const opts: ResolvedAgentBindingOptions = {
     codexSandboxMode: readCodexSandboxMode(deps.machineConfigPath),
+    confinementPolicy: readConfinementPolicy(deps.machineConfigPath, projectKey),
   };
   if (deps.bindingSpawn !== undefined) opts.spawn = deps.bindingSpawn;
   if (deps.codexSessionsDir !== undefined) {
@@ -555,7 +559,7 @@ export function resolveWriteLoopBindings(
             resolveExecutableRole(context.role),
             context.agents,
             agentModelConfig,
-            productionAgentBindingFactory(deps),
+            productionAgentBindingFactory(deps, input.worktree.projectName),
           ),
         },
       };

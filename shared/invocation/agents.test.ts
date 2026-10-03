@@ -3368,9 +3368,28 @@ describe("confinement policy translation", () => {
     ]);
   });
 
-  test("sandbox policy pins codex to --sandbox workspace-write over codexSandboxMode", async () => {
+  test("sandbox policy pins codex to --sandbox workspace-write over a looser codexSandboxMode", async () => {
     const translated = await argvFor(CODEX, { confinementPolicy: "sandbox", codexSandboxMode: "danger-full-access" });
     expect(translated).toEqual({ argv: CODEX_DEFAULT_ARGV, mechanism: "codex-workspace-write" });
+  });
+
+  test("sandbox policy never loosens a configured codex read-only sandbox", async () => {
+    const translated = await argvFor(CODEX, { confinementPolicy: "sandbox", codexSandboxMode: "read-only" });
+    expect(translated).toEqual({
+      argv: CODEX_DEFAULT_ARGV.map((flag) => (flag === "workspace-write" ? "read-only" : flag)),
+      mechanism: "codex-read-only",
+    });
+  });
+
+  test("an unwired agent under sandbox stays unwired rather than reporting a confinement refusal", async () => {
+    const binding = createResolvedAgentBinding(
+      { agentId: "mystery", adapterModel: "m", priceKey: "m" },
+      { confinementPolicy: "sandbox" },
+    );
+    expect(binding.confinementMechanism).toBeUndefined();
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+    expect(result.kind).toBe("error");
+    expect(result.stderr).toContain("is not wired yet");
   });
 
   test("sandbox policy refuses claude and cursor by throwing before any spawn", async () => {
@@ -3402,10 +3421,9 @@ describe("confinement policy translation", () => {
 
     expect(fake.calls).toHaveLength(0);
     expect(result.attempts).toHaveLength(2);
-    expect(result.attempts[0]?.result).toEqual({
-      kind: "model_config",
-      stderr: "agent 'claude' has no confinement flag honoring policy 'sandbox'; binding refused",
-    });
+    expect(result.attempts[0]?.result).toMatchObject({ kind: "model_config" });
+    expect(result.attempts[0]?.result.stderr).toContain("confinement refusal: agent 'claude'");
+    expect(result.attempts[0]?.result.stderr).toContain("confinementPolicy 'sandbox'");
     expect(result.final?.binding.id).toBe("next");
   });
 });

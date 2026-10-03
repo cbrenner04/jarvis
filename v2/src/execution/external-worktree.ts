@@ -15,6 +15,7 @@ import {
   addWorktree,
   branchExistsOnOriginAsync,
   createBranch,
+  GitOperationError,
   getCurrentBranchAsync,
   gitCommonDir,
   isInsideWorkTree,
@@ -26,8 +27,6 @@ import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome, managedWorktreePath } from "../paths.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
-
-export { isNotGitRepositoryDiagnostic } from "../../../shared/git.ts";
 
 export const MATERIALIZED_NODE_MODULES_PATH = "node_modules";
 
@@ -256,20 +255,39 @@ async function ensureExternalWorktree(
 }
 
 /**
- * Make `branchName` exist locally with explicit start-point precedence: an origin head wins
- * (`origin/<branch>`), else `forkRef`, else `baseRef`. The branch is not pre-checked locally:
- * `createBranch` resolves `exists` when it already does, and the start point only matters for a
- * fresh branch. An inconclusive origin probe (timeout) rejects rather than branching from base.
+ * Make `branchName` exist locally with explicit start-point precedence. An existing local branch
+ * is kept as-is (no network probe). Otherwise an origin head wins (`origin/<branch>`, which must
+ * already be fetched: an unfetched tracking ref is a named failure, not a silent fall-through to
+ * base), else `forkRef`, else `baseRef`. An inconclusive origin probe (timeout) rejects rather
+ * than branching from base.
  */
 async function ensureBranch(
   args: ExternalWorktreeInput,
   runner: AsyncSubprocessRunner,
   signal: AbortSignal | undefined,
 ): Promise<void> {
+  const local = await resolveRef(args.projectRoot, `refs/heads/${args.branchName}`, runner, { signal });
+  if (local.status === "resolved") return;
+  throwIfAborted(signal);
   const onOrigin = await branchExistsOnOriginAsync(args.projectRoot, args.branchName, runner, { signal });
   throwIfAborted(signal);
-  const startPoint = onOrigin ? `origin/${args.branchName}` : (args.forkRef ?? args.baseRef);
+  const startPoint = onOrigin ? await originStartPoint(args, runner, signal) : (args.forkRef ?? args.baseRef);
   await createBranch(args.projectRoot, args.branchName, startPoint, runner, { signal });
+}
+
+/** `origin/<branch>` once `refs/remotes/origin/<branch>` resolves locally; absent is a named failure. */
+async function originStartPoint(
+  args: ExternalWorktreeInput,
+  runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
+): Promise<string> {
+  const tracking = await resolveRef(args.projectRoot, `refs/remotes/origin/${args.branchName}`, runner, { signal });
+  if (tracking.status === "absent") {
+    throw new Error(
+      `origin has branch ${args.branchName} but refs/remotes/origin/${args.branchName} is not fetched locally; run git fetch origin ${args.branchName}`,
+    );
+  }
+  return `origin/${args.branchName}`;
 }
 
 function fsEntryType(stat: Stats): string {
@@ -318,7 +336,10 @@ function reconcileNodeModulesLink(projectRoot: string, worktreePath: string): vo
 
 type GitWorktreeState = "not-worktree" | "worktree" | "unknown";
 
-/** `unknown` is an inconclusive probe (anything but git's not-a-repository diagnostic): never reclaim on it. */
+/**
+ * `unknown` is an inconclusive probe (anything but git's not-a-repository diagnostic): never
+ * reclaim on it. The caller's own abort is not a verdict on the path and propagates.
+ */
 async function classifyGitWorktree(
   worktreePath: string,
   runner: AsyncSubprocessRunner,
@@ -327,7 +348,8 @@ async function classifyGitWorktree(
   if (!existsSync(worktreePath)) return "not-worktree";
   try {
     return (await isInsideWorkTree(worktreePath, runner, { signal })) ? "worktree" : "not-worktree";
-  } catch {
+  } catch (error) {
+    if (error instanceof GitOperationError && error.reason === "aborted") throw error;
     return "unknown";
   }
 }

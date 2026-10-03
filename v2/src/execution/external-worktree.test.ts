@@ -22,7 +22,6 @@ import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
-  isNotGitRepositoryDiagnostic,
   WorktreeBusyError,
   WorktreeMaterializationError,
   withExternalWorktree,
@@ -79,6 +78,16 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
 
       if (subcmd === "rev-parse") {
         const key = rest.join(" ");
+        if (key.startsWith("--verify --quiet refs/heads/")) {
+          const branch = key.slice("--verify --quiet refs/heads/".length);
+          if (!state.repos.get(cwd)?.localBranches.has(branch)) throw gitFailure("", 1);
+          return "local-sha\n";
+        }
+        if (key.startsWith("--verify --quiet refs/remotes/origin/")) {
+          const branch = key.slice("--verify --quiet refs/remotes/origin/".length);
+          if (!state.repos.get(cwd)?.originTrackingRefs.has(branch)) throw gitFailure("", 1);
+          return "remote-sha\n";
+        }
         if (key.startsWith("--verify origin/")) {
           const branch = key.slice("--verify origin/".length);
           const repo = state.repos.get(cwd);
@@ -131,10 +140,7 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
       }
 
       if (subcmd === "worktree" && rest[0] === "add") {
-        const addArgs = rest.slice(1);
-        const checkout = addArgs[0] === "--checkout";
-        const path = checkout ? addArgs[1] : addArgs[0];
-        const branch = checkout ? addArgs[2] : addArgs[1];
+        const [path, branch] = rest.slice(1);
         const repo = state.repos.get(cwd);
         if (!repo || !path || !branch) throw new Error("worktree add failed");
         mkdirSync(path, { recursive: true });
@@ -224,10 +230,7 @@ function withCheckoutEntry(
   return {
     async runAsync(cmd, args, cwd, options) {
       const out = await runner.runAsync(cmd, args, cwd, options);
-      if (args[0] === "worktree" && args[1] === "add") {
-        const path = args[2] === "--checkout" ? args[3] : args[2];
-        if (path) seed(join(path, "node_modules"));
-      }
+      if (args[0] === "worktree" && args[1] === "add" && args[2]) seed(join(args[2], "node_modules"));
       return out;
     },
   };
@@ -467,6 +470,7 @@ describe("external worktree helper", () => {
     const repo = fakeState.repos.get(repoRoot2);
     if (!repo) throw new Error("repo missing");
     repo.remoteBranches.add("write-run");
+    repo.originTrackingRefs.add("write-run");
     const calls: string[] = [];
     const runner: AsyncSubprocessRunner = {
       async runAsync(cmd, args, cwd, options) {
@@ -486,6 +490,31 @@ describe("external worktree helper", () => {
     expect(add).toBeGreaterThan(branch);
     expect(calls[add]).toBe(`worktree add ${getExternalWorktreePath(makeInput(jarvisRoot2, repoRoot2))} write-run`);
     expect(calls.filter((c) => c.startsWith("branch "))).toHaveLength(1);
+  });
+
+  test("an origin head without a fetched tracking ref is a named failure, not a branch from base", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-unfetched-origin-"));
+    roots.push(root);
+    const repoRoot = join(root, "repo");
+    const jarvisRoot = join(root, "jarvis-home");
+    mkdirSync(repoRoot, { recursive: true });
+    const state = createFakeGitState();
+    registerRepo(state, repoRoot);
+    state.repos.get(repoRoot)?.remoteBranches.add("write-run");
+    const calls: string[] = [];
+    const inner = createWorktreeRunner(state);
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git") calls.push(args.join(" "));
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
+      "refs/remotes/origin/write-run is not fetched locally; run git fetch origin write-run",
+    );
+    expect(calls.some((c) => c.startsWith("branch "))).toBe(false);
+    expect(calls.some((c) => c.startsWith("worktree add"))).toBe(false);
   });
 
   test("a branch that already exists locally is reused, not a failure", async () => {
@@ -508,11 +537,69 @@ describe("external worktree helper", () => {
 
     const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
 
-    // `createBranch` reports `exists` on git's "already exists" refusal; materialization proceeds to `addWorktree`.
+    // The local ref resolves first: no branch creation, no origin probe, straight to `addWorktree`.
     expect(result.value).toBe("ok");
     expect(result.worktree.reused).toBe(false);
-    expect(calls).toContain("branch write-run HEAD");
-    expect(callIndex(calls, "worktree add ")).toBeGreaterThan(callIndex(calls, "branch write-run HEAD"));
+    expect(calls).toContain("rev-parse --verify --quiet refs/heads/write-run");
+    expect(calls.some((c) => c.startsWith("branch "))).toBe(false);
+    expect(calls.some((c) => c.startsWith("ls-remote"))).toBe(false);
+    expect(callIndex(calls, "worktree add ")).toBeGreaterThan(
+      callIndex(calls, "rev-parse --verify --quiet refs/heads/"),
+    );
+  });
+
+  test("an existing local branch materializes without reaching an unreachable origin", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-v2-worktree-offline-"));
+    roots.push(root);
+    const repoRoot = join(root, "repo");
+    const jarvisRoot = join(root, "jarvis-home");
+    mkdirSync(repoRoot, { recursive: true });
+    const state = createFakeGitState();
+    registerRepo(state, repoRoot);
+    state.repos.get(repoRoot)?.localBranches.add("write-run");
+    const inner = createWorktreeRunner(state);
+    let probed = false;
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args[0] === "ls-remote") {
+          probed = true;
+          throw gitFailure("fatal: unable to access 'https://example.invalid/': Could not resolve host\n");
+        }
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
+
+    expect(result.value).toBe("ok");
+    expect(probed).toBe(false);
+  });
+
+  test("an abort during the worktree probe propagates instead of reading as a broken worktree", async () => {
+    const { repoRoot, jarvisRoot, runner: inner } = setupMockRepo();
+    const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, "keep"), "intact");
+    const controller = new AbortController();
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args.join(" ") === "rev-parse --is-inside-work-tree") {
+          controller.abort();
+          throw new AsyncSubprocessError("Command failed: git rev-parse", undefined, "", "", "SIGTERM");
+        }
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    const attempt = withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner, controller.signal);
+    await expect(attempt).rejects.toMatchObject({ operation: "work-tree-query", reason: "aborted" });
+    const message = await attempt.then(
+      () => "",
+      (e: Error) => e.message,
+    );
+    expect(message).not.toContain("could not validate existing path");
+    expect(existsSync(join(path, "keep"))).toBe(true);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
   });
 
   for (const [stderr, reason] of [
@@ -562,6 +649,7 @@ describe("external worktree helper", () => {
     const calls = seen.map((entry) => entry.call);
     for (const prefix of [
       "worktree prune",
+      "rev-parse --verify --quiet refs/heads/write-run",
       "ls-remote --heads origin write-run",
       "branch write-run HEAD",
       "worktree add ",
@@ -960,18 +1048,6 @@ describe("external worktree helper", () => {
       // Extraction still runs against the local HEAD tree rather than surfacing a git archive error.
       expect(readFileSync(join(stageDir, "tracked.txt"), "utf8")).toBe(committed);
     });
-  });
-});
-
-describe("isNotGitRepositoryDiagnostic", () => {
-  test("recognizes pre-2.56 and 2.56+ git broken-repo diagnostics", () => {
-    expect(isNotGitRepositoryDiagnostic("fatal: not a git repository: /nonexistent")).toBe(true);
-    expect(isNotGitRepositoryDiagnostic("fatal: gitfile does not point to a valid repository: /x/.git")).toBe(true);
-  });
-
-  test("rejects unrelated git failures", () => {
-    expect(isNotGitRepositoryDiagnostic("fatal: ambiguous argument 'HEAD'")).toBe(false);
-    expect(isNotGitRepositoryDiagnostic("")).toBe(false);
   });
 });
 

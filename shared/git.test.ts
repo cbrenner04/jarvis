@@ -925,15 +925,23 @@ describe("isInsideWorkTree", () => {
   test("a failure after the caller aborted is aborted, never a plain directory", async () => {
     const controller = new AbortController();
     controller.abort();
-    const runner = fakeAsync({
-      "git rev-parse --is-inside-work-tree": new AsyncSubprocessError("Command failed", undefined, "", "", "SIGTERM"),
-    });
-    expectFailure(
-      await rejection(isInsideWorkTree("/wt", runner, { signal: controller.signal })),
-      "work-tree-query",
-      "aborted",
-      false,
-    );
+    for (const stderr of ["", "fatal: not a git repository (or any of the parent directories): .git\n"]) {
+      const runner = fakeAsync({
+        "git rev-parse --is-inside-work-tree": new AsyncSubprocessError(
+          "Command failed",
+          undefined,
+          "",
+          stderr,
+          "SIGTERM",
+        ),
+      });
+      expectFailure(
+        await rejection(isInsideWorkTree("/wt", runner, { signal: controller.signal })),
+        "work-tree-query",
+        "aborted",
+        false,
+      );
+    }
   });
 
   test("isNotGitRepositoryDiagnostic recognizes pre-2.56 and 2.56+ diagnostics only", () => {

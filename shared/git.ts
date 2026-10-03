@@ -880,7 +880,8 @@ export function isNotGitRepositoryDiagnostic(text: string): boolean {
 /**
  * `git rev-parse --is-inside-work-tree` at `cwd`: `true` inside a working tree, `false` when git
  * reports no repository there (including a broken gitfile) or answers `false` (inside `.git`).
- * Any other failure is inconclusive and rejects with operation `work-tree-query`, unlike the soft
+ * A timeout or the caller's abort is inconclusive even when stderr carries that diagnostic. Any
+ * other failure is inconclusive and rejects with operation `work-tree-query`, unlike the soft
  * `isGitRepoAsync`, so callers never mistake a broken probe for a plain directory.
  */
 export async function isInsideWorkTree(
@@ -893,7 +894,8 @@ export async function isInsideWorkTree(
     return output.trim() === "true";
   } catch (error) {
     const failure = failureOf(error);
-    if (!failure.timeout && isNotGitRepositoryDiagnostic(`${failure.message}\n${failure.stderr}`)) return false;
+    const conclusive = !failure.timeout && options.signal?.aborted !== true;
+    if (conclusive && isNotGitRepositoryDiagnostic(`${failure.message}\n${failure.stderr}`)) return false;
     throw gitError("work-tree-query", error, [], options);
   }
 }

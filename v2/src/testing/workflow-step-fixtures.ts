@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import { unrestrictedBindingConfinement } from "./bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "./write-fixtures.ts";
 
 export const DEFAULT_AGENT_MODEL_CONFIG = {
@@ -57,6 +58,7 @@ export function createBindingFactory(
       invoke: ({ cwd, signal }: Parameters<InvocationBinding["invoke"]>[0]) =>
         invoke({ agentId, adapterModel, cwd, signal }),
       metadata: { agent: agentId, model: adapterModel },
+      ...unrestrictedBindingConfinement,
     } satisfies InvocationBinding;
   };
 }

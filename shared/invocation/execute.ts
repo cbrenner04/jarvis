@@ -1,4 +1,4 @@
-import { type ConfinementMechanism, ConfinementRefusalError } from "./confinement-policy.ts";
+import { type ConfinementMechanism, type ConfinementPolicy, ConfinementRefusalError } from "./confinement-policy.ts";
 import type { SessionLog } from "./session-log.ts";
 
 export type InvocationSettlement = {
@@ -79,7 +79,7 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   }) => Promise<T>;
   shouldAdvance?: (result: T | InvocationError) => boolean;
   metadata?: { agent: string; model: string };
-  /** Vendor mechanism the binding applies for its confinement policy (see `confinement-policy.ts`). */
+  confinementPolicy?: ConfinementPolicy;
   confinementMechanism?: ConfinementMechanism;
 };
 
@@ -109,6 +109,8 @@ export type InvocationCompletedRecord = {
   role: string;
   agent: string;
   model: string;
+  confinement_policy: ConfinementPolicy;
+  confinement_mechanism: ConfinementMechanism;
   binding_id: string;
   binding_index: number;
   duration_ms: number;
@@ -237,7 +239,7 @@ async function appendInvocationTelemetry<T extends InvocationResult>(
     telemetry,
     invocationId,
     metadata,
-    bindingId: binding.id,
+    binding,
     bindingIndex,
     result,
     durationMs: Date.now() - startedAt,
@@ -425,11 +427,15 @@ function createInvocationCompletedRecord(args: {
   telemetry: InvocationTelemetryContext;
   invocationId: string;
   metadata: { agent: string; model: string };
-  bindingId: string;
+  binding: Pick<InvocationBinding, "id" | "confinementPolicy" | "confinementMechanism">;
   bindingIndex: number;
   result: InvocationResult;
   durationMs: number;
 }): InvocationCompletedRecord {
+  const { id: bindingId, confinementPolicy, confinementMechanism } = args.binding;
+  if (confinementPolicy === undefined || confinementMechanism === undefined) {
+    throw new Error(`invocation_completed requires binding confinement fields (binding_id=${bindingId})`);
+  }
   const settlement = settlementFromResult(args.result);
 
   return {
@@ -446,7 +452,9 @@ function createInvocationCompletedRecord(args: {
     role: args.telemetry.role,
     agent: args.metadata.agent,
     model: args.metadata.model,
-    binding_id: args.bindingId,
+    confinement_policy: confinementPolicy,
+    confinement_mechanism: confinementMechanism,
+    binding_id: bindingId,
     binding_index: args.bindingIndex,
     duration_ms: args.durationMs,
     worktree_path: args.telemetry.worktreePath,

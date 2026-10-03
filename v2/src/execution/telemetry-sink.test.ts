@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import type { InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
+import { unrestrictedInvocationConfinement } from "../testing/bindings.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
 import { appendTelemetryJsonlLine, buildJsonlSink } from "./telemetry-sink.ts";
 import { emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
@@ -45,6 +46,7 @@ function stubInvocationRow(ts: string): InvocationCompletedRecord {
     role: "implement",
     agent: "claude",
     model: "m",
+    ...unrestrictedInvocationConfinement,
     binding_id: "binding",
     binding_index: 0,
     duration_ms: 1,

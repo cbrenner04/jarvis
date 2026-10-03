@@ -9,6 +9,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { resolveRunResumeAdmission } from "../daemon/daemon-run-resume-admission.ts";
 import { findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
@@ -889,6 +890,7 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        ...unrestrictedBindingConfinement,
       }),
     });
 
@@ -1054,6 +1056,7 @@ describe("executeWorkflow", () => {
           return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" } as const);
         },
         metadata: { agent: agentId, model: adapterModel },
+        ...unrestrictedBindingConfinement,
       }),
     });
     step.worktree = {
@@ -1153,6 +1156,7 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        ...unrestrictedBindingConfinement,
       }),
     };
     const steps = resolveWorkflowPreset("implement", [
@@ -1238,6 +1242,7 @@ describe("executeWorkflow", () => {
             return { kind: "ok", stdout: "done", stderr: "" } as const;
           },
           metadata: { agent: agentId, model: adapterModel },
+          ...unrestrictedBindingConfinement,
         };
       },
     });
@@ -1272,6 +1277,7 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        ...unrestrictedBindingConfinement,
       }),
     });
 
@@ -1330,6 +1336,7 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "apply verdict", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        ...unrestrictedBindingConfinement,
       }),
     };
 
@@ -1632,6 +1639,7 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
+        ...unrestrictedBindingConfinement,
       }),
     });
     const step2 = createStep({ stepId: "later", role: "implement", branchName: "shrink-stops-workflow" });

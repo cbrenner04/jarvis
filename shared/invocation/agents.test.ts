@@ -3570,6 +3570,16 @@ describe("confinement policy translation", () => {
     return { argv: fake.calls[0]?.argv, mechanism: binding.confinementMechanism };
   }
 
+  test("createResolvedAgentBinding stamps confinementPolicy with confinementMechanism for codex sandbox and claude unrestricted", () => {
+    const codexBinding = createResolvedAgentBinding(CODEX, { confinementPolicy: "sandbox" });
+    expect(codexBinding.confinementPolicy).toBe("sandbox");
+    expect(codexBinding.confinementMechanism).toBe("codex-workspace-write");
+
+    const claudeBinding = createResolvedAgentBinding(CLAUDE, { confinementPolicy: "unrestricted" });
+    expect(claudeBinding.confinementPolicy).toBe("unrestricted");
+    expect(claudeBinding.confinementMechanism).toBe("none");
+  });
+
   test("default and explicit unrestricted policy yield today's argv for claude, codex, and cursor", async () => {
     for (const opts of [{}, { confinementPolicy: "unrestricted" as const }]) {
       expect(await argvFor(CLAUDE, opts)).toEqual({ argv: CLAUDE_DEFAULT_ARGV, mechanism: "none" });
@@ -3610,7 +3620,8 @@ describe("confinement policy translation", () => {
       { agentId: "mystery", adapterModel: "m", priceKey: "m" },
       { confinementPolicy: "sandbox" },
     );
-    expect(binding.confinementMechanism).toBeUndefined();
+    expect(binding.confinementMechanism).toBe("none");
+    expect(binding.confinementPolicy).toBe("unrestricted");
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
     expect(result.kind).toBe("error");
     expect(result.stderr).toContain("is not wired yet");
@@ -3649,5 +3660,16 @@ describe("confinement policy translation", () => {
     expect(result.attempts[0]?.result.stderr).toContain("confinement refusal: agent 'claude'");
     expect(result.attempts[0]?.result.stderr).toContain("confinementPolicy 'sandbox'");
     expect(result.final?.binding.id).toBe("next");
+  });
+});
+
+describe("confinement fields on non-spawning bindings", () => {
+  test("an unwired agent binding and a routing binding both carry confinement fields for telemetry", () => {
+    const unwired = createResolvedAgentBinding({ agentId: "claud", adapterModel: "m", priceKey: "m" });
+    expect(unwired.confinementPolicy).toBe("unrestricted");
+    expect(unwired.confinementMechanism).toBe("none");
+    const routing = createRoutingAgentBinding({ agentId: "claude", adapterModel: "m", priceKey: "m" });
+    expect(routing.confinementPolicy).toBe("unrestricted");
+    expect(routing.confinementMechanism).toBe("none");
   });
 });

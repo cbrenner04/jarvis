@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import { simulatedBindings } from "../testing/bindings.ts";
+import { simulatedBindings, unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import {
@@ -390,6 +390,7 @@ describe("write loop", () => {
         {
           id: "claude-with-cost",
           metadata: { agent: "claude", model: "sonnet" },
+          ...unrestrictedBindingConfinement,
           invoke: async ({ cwd }) => {
             writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
             return {

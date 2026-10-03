@@ -179,6 +179,7 @@ function createRefusingBinding(
   return {
     id,
     metadata,
+    confinementPolicy: policy,
     confinementMechanism: "refused",
     invoke: async () => {
       throw new ConfinementRefusalError(metadata.agent, policy);
@@ -196,12 +197,21 @@ function bindConfined(
   invokeWith: (confinementArgv: readonly string[]) => InvocationBinding["invoke"],
 ): InvocationBinding {
   if (translation.kind === "refused") return createRefusingBinding(id, metadata, policy);
-  return { id, metadata, confinementMechanism: translation.mechanism, invoke: invokeWith(translation.argv) };
+  return {
+    id,
+    metadata,
+    confinementPolicy: policy,
+    confinementMechanism: translation.mechanism,
+    invoke: invokeWith(translation.argv),
+  };
 }
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
+  // Never spawns, but its exit-127 result still reaches the telemetry row, which requires both fields.
   return {
     id,
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async () => ({
       kind: "error",
       exitCode: 127,
@@ -497,6 +507,9 @@ export function createRoutingAgentBinding(
   return {
     id: `${agentId}/${adapterModel}/${priceKey}`,
     metadata: { agent: agentId, model: adapterModel },
+    // Tool-free, not filesystem-confined: the telemetry row records the honest mechanism.
+    confinementPolicy: "unrestricted",
+    confinementMechanism: "none",
     invoke: async ({ prompt, cwd, signal, processGroupRecorder }) => {
       const controller = new AbortController();
       const forwardAbort = () => controller.abort(signal?.reason ?? "aborted");

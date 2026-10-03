@@ -16,6 +16,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { openStateStore } from "../persistence/state-store.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { createCommittedGitFixtureTemplate } from "../testing/git-fixture-template.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
@@ -122,6 +123,7 @@ export function createBindingFactory(
       id: `${agentId}/${adapterModel}`,
       invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
       metadata: { agent: agentId, model: adapterModel },
+      ...unrestrictedBindingConfinement,
     } satisfies InvocationBinding;
   };
 }
@@ -399,6 +401,7 @@ export function createDebateBindingFactory(
       id: `${agentId}/${adapterModel}`,
       invoke: () => invoke({ agentId, adapterModel }),
       metadata: { agent: agentId, model: adapterModel },
+      ...unrestrictedBindingConfinement,
     } satisfies InvocationBinding;
   };
 }
@@ -409,6 +412,7 @@ export function createReviewDebateActuatorFailureBindingFactory(
   return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
     id: `${agentId}/${adapterModel}`,
     metadata: { agent: agentId, model: adapterModel },
+    ...unrestrictedBindingConfinement,
     invoke: ({ signal }) => {
       if (adapterModel !== "ACT") {
         return Promise.resolve(

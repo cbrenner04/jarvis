@@ -14,6 +14,16 @@ import {
 } from "./execute.ts";
 import { openSessionLog, type SessionLog, type SessionLogTag } from "./session-log.ts";
 
+const unrestrictedConfinement = {
+  confinementPolicy: "unrestricted",
+  confinementMechanism: "none",
+} as const satisfies Pick<InvocationBinding, "confinementPolicy" | "confinementMechanism">;
+
+const codexSandboxConfinement = {
+  confinementPolicy: "sandbox",
+  confinementMechanism: "codex-workspace-write",
+} as const satisfies Pick<InvocationBinding, "confinementPolicy" | "confinementMechanism">;
+
 let scratchDir: string;
 
 beforeEach(() => {
@@ -45,6 +55,7 @@ function binding(id: string, result: InvocationResult): InvocationBinding {
       agent: `${id}-agent`,
       model: `${id}-model`,
     },
+    ...unrestrictedConfinement,
     invoke: async () => result,
   };
 }
@@ -232,6 +243,45 @@ describe("shared invocation fallback", () => {
     ]);
   });
 
+  test("invocation_completed rows carry confinement_policy and confinement_mechanism from each binding", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "codex",
+          metadata: { agent: "codex", model: "gpt" },
+          ...codexSandboxConfinement,
+          invoke: async () => ({ kind: "quota", stderr: "quota" }),
+        },
+        {
+          id: "claude",
+          metadata: { agent: "claude", model: "sonnet" },
+          ...unrestrictedConfinement,
+          invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }),
+        },
+      ] as InvocationBinding[],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      binding_id: "codex",
+      confinement_policy: "sandbox",
+      confinement_mechanism: "codex-workspace-write",
+    });
+    expect(rows[1]).toMatchObject({
+      binding_id: "claude",
+      confinement_policy: "unrestricted",
+      confinement_mechanism: "none",
+    });
+  });
+
   test("quota exhaustion still appends one row per attempted binding", async () => {
     const rows: InvocationCompletedRecord[] = [];
     const result = await executeWithQuotaFallback({
@@ -399,6 +449,7 @@ describe("shared invocation fallback", () => {
         {
           id: "codex-binding",
           metadata: { agent: "codex", model: "gpt-5" },
+          ...codexSandboxConfinement,
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",
@@ -605,6 +656,7 @@ describe("shared invocation fallback", () => {
         {
           id: "claude-binding",
           metadata: { agent: "claude", model: "sonnet" },
+          ...unrestrictedConfinement,
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",
@@ -650,6 +702,7 @@ describe("shared invocation fallback", () => {
         {
           id: "spawner",
           metadata: { agent: "claude", model: "sonnet" },
+          ...unrestrictedConfinement,
           invoke: async () => {
             throw new Error("spawn ENOENT");
           },
@@ -780,6 +833,7 @@ describe("shared invocation fallback", () => {
         {
           id: "normalized",
           metadata: { agent: "claude", model: "sonnet" },
+          ...unrestrictedConfinement,
           shouldAdvance: (r) => r.kind === "error",
           invoke: async () => {
             throw new Error("spawn failed");
@@ -809,6 +863,7 @@ describe("shared invocation fallback", () => {
         {
           id: "spawner",
           metadata: { agent: "claude", model: "sonnet" },
+          ...unrestrictedConfinement,
           invoke: async () => {
             throw new Error("spawn ENOENT: no such file or directory");
           },
@@ -913,6 +968,7 @@ describe("telemetry text field cap", () => {
         {
           id: "codex-binding",
           metadata: { agent: "codex", model: "gpt-5" },
+          ...codexSandboxConfinement,
           invoke: async () => ({
             kind: "ok" as const,
             stdout: "response",

@@ -2,4 +2,4 @@
 
 Adds `confinement_policy` and `confinement_mechanism` to every `invocation_completed` row, sourced from the binding stamped at resolution time.
 
-- [ ] [00 - Confinement policy and mechanism on invocation_completed rows](./00-confinement-on-invocation-completed-rows.md)
+- [x] [00 - Confinement policy and mechanism on invocation_completed rows](./00-confinement-on-invocation-completed-rows.md)

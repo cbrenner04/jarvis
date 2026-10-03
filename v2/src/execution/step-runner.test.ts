@@ -6,6 +6,7 @@ import type { InvocationBinding, InvocationCompletedRecord } from "../../../shar
 import type { SessionLog, SessionLogTag } from "../../../shared/invocation/session-log.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { resolveInvocationBindings } from "../config/agent-model-config.ts";
+import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { parseStepOutcomeToken, parseStepOutcomeTokenDetail, runStep, type StepContract } from "./step-runner.ts";
 
 function fakeSessionLog(): { log: SessionLog; lines: { tag: SessionLogTag; text: string }[] } {
@@ -26,6 +27,7 @@ function okBinding(stdout: string): InvocationBinding {
   return {
     id: "agent",
     metadata: { agent: "claude", model: "m1" },
+    ...unrestrictedBindingConfinement,
     invoke: async () => ({ kind: "ok", stdout, stderr: "" }),
   };
 }
@@ -76,6 +78,7 @@ function createImplementBindings(
       agent: binding.agentId,
       model: binding.adapterModel,
     },
+    ...unrestrictedBindingConfinement,
     invoke: invoke(binding),
   }));
 }
@@ -401,6 +404,7 @@ describe("step runner token re-prompt", () => {
     return {
       id: "agent",
       metadata: { agent: "claude", model: "m1" },
+      ...unrestrictedBindingConfinement,
       invoke: async () => {
         const reply = replies[call] ?? replies[replies.length - 1] ?? "";
         call += 1;
@@ -722,6 +726,7 @@ describe("step runner token re-prompt", () => {
     return {
       id: "agent",
       metadata: { agent: "claude", model: "opus" },
+      ...unrestrictedBindingConfinement,
       invoke: async ({ idleOutputMs }) => {
         call += 1;
         if (call === 1) return { kind: "ok", stdout: "no token here", stderr: "" };

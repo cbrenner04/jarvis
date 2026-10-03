@@ -116,6 +116,7 @@ describe("pipeline start admission", () => {
           configPath: "/fixture/machines/home.json",
           projectRegistry: { demo: { root: fixtureRoot, origin: "git@example.test/demo.git" } },
         },
+        admittedSelection: null,
       },
     });
     expect(harness.requests.some((request) => request.method === "pipeline_wait")).toBe(false);
@@ -174,7 +175,14 @@ describe("pipeline start admission", () => {
         sources: { risk: "minimum", effort: "seed" },
       },
     });
-    expect(seedOnly.harness.requests[0]?.params).toMatchObject({ definition: { name: "full-light-review" } });
+    expect(seedOnly.harness.requests[0]?.params).toMatchObject({
+      definition: { name: "full-light-review" },
+      admittedSelection: {
+        effective: { risk: "medium", effort: "low" },
+        sources: { risk: "minimum", effort: "seed" },
+        registryName: "full-light-review",
+      },
+    });
 
     const riskFlag = captureResolution();
     await admitPipelineStart(

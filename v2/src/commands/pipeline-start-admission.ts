@@ -21,7 +21,7 @@ import {
   type resolveProjectPipeline,
 } from "../execution/project-pipeline-resolution.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import type { PipelineContext } from "../persistence/state-store.ts";
+import type { AdmittedPipelineSelection, PipelineContext } from "../persistence/state-store.ts";
 
 export type PipelineStartAdmissionInput = {
   projectKey: string;
@@ -78,7 +78,11 @@ export type PipelineStartAdmissionDeps = {
   request: (
     connection: PipelineStartAdmissionConnection,
     method: "pipeline_start",
-    params: { definition: PipelineDefinition; context: PipelineContext },
+    params: {
+      definition: PipelineDefinition;
+      context: PipelineContext;
+      admittedSelection: AdmittedPipelineSelection | null;
+    },
   ) => Promise<unknown>;
 };
 
@@ -329,6 +333,15 @@ export async function admitPipelineStart(
     projectRegistry: registry,
   };
 
+  const admittedSelection: AdmittedPipelineSelection | null =
+    pipelineResolution.admissionRatings === undefined
+      ? null
+      : {
+          effective: pipelineResolution.admissionRatings.effective,
+          sources: pipelineResolution.admissionRatings.sources,
+          registryName: pipelineResolution.definition.name,
+        };
+
   let connection: PipelineStartAdmissionConnection;
   let retained = false;
   try {
@@ -347,6 +360,7 @@ export async function admitPipelineStart(
       response = await deps.request(connection, "pipeline_start", {
         definition: pipelineResolution.definition,
         context,
+        admittedSelection,
       });
     } catch (error) {
       if (error instanceof RpcError) {

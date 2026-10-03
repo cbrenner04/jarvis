@@ -272,6 +272,7 @@ function snapshotHasReachableUndecidedGate(snapshot: PipelineSnapshot): boolean 
       status: snapshot.state === "interrupted" ? "interrupted" : "active",
       definition: resolved.definition,
       context: null,
+      admittedSelection: null,
       terminalPublicationFailure: snapshot.terminalPublicationFailure,
       terminalPublicationSucceededAt: snapshot.terminalPublicationSucceededAt,
       supersedeFailures: null,

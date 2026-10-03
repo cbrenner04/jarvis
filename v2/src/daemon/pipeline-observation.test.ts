@@ -14,6 +14,7 @@ function activePipeline(ownerIdentity: string): Pipeline & { stages: PipelineSta
       stages: [{ stageId: "write", kind: "workflow", workflow: "intent", review: "none" }],
     },
     context: null,
+    admittedSelection: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
     supersedeFailures: null,

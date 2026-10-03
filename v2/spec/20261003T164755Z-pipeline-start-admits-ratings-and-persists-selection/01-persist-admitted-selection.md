@@ -20,9 +20,9 @@ Daemon `pipeline_start` persists `definition` and `context` but not effective ra
 
 ## Acceptance criteria
 
-- [ ] `state-store.test.ts` proves `createPipeline` persists and `loadPipeline` returns `admittedSelection` with effective ratings, per-dimension sources, and `registryName` equal to the admitted `definition.name` for a rating-selected fixture, and `null` for a name-selected fixture; fails against the pre-fix schema (column absent).
-- [ ] `pipeline-start-admission.test.ts` asserts the admitted `pipeline_start` params include `admittedSelection` matching resolution output (including `registryName` === `definition.name`) for at least one rating-selected start; fails pre-fix.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `state-store.test.ts` proves `createPipeline` persists and `loadPipeline` returns `admittedSelection` with effective ratings, per-dimension sources, and `registryName` equal to the admitted `definition.name` for a rating-selected fixture, and `null` for a name-selected fixture; fails against the pre-fix schema (column absent).
+- [x] `pipeline-start-admission.test.ts` asserts the admitted `pipeline_start` params include `admittedSelection` matching resolution output (including `registryName` === `definition.name`) for at least one rating-selected start; fails pre-fix.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

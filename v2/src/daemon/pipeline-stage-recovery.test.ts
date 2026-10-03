@@ -100,6 +100,7 @@ function makePipeline(
     status: "active",
     definition,
     context,
+    admittedSelection: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
     supersedeFailures: null,

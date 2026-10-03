@@ -323,11 +323,15 @@ function parsePipelineStartArgs(argv: readonly string[]): PipelineStartCliInput 
   const seedText = typeof values["seed-text"] === "string" ? values["seed-text"] : undefined;
   if ((seedPath === undefined) === (seedText === undefined)) return { ok: false };
 
+  const risk = typeof values.risk === "string" ? values.risk : undefined;
+  const effort = typeof values.effort === "string" ? values.effort : undefined;
+  const ratingFlags = { ...(risk === undefined ? {} : { risk }), ...(effort === undefined ? {} : { effort }) };
+
   if (seedText !== undefined) {
-    return { ok: true, input: { projectKey, seedText }, detach };
+    return { ok: true, input: { projectKey, seedText, ...ratingFlags }, detach };
   }
   if (seedPath !== undefined) {
-    return { ok: true, input: { projectKey, seedPath }, detach };
+    return { ok: true, input: { projectKey, seedPath, ...ratingFlags }, detach };
   }
   return { ok: false };
 }

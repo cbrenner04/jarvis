@@ -491,6 +491,41 @@ describe("pipeline start", () => {
     // Mutation checkpoint: inverting `typeof values.risk === "string"` in parsePipelineStartArgs turns this test RED.
   });
 
+  test("forwards --effort from argv into rating admission", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = pipelineMachineConfig(
+      "demo",
+      { terminalAction: "leave-draft", minimumRisk: "medium" },
+      fx.repoRoot,
+    );
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-effort-flag", "pipe-effort-w"], () =>
+      main(["pipeline", "start", "demo", "--effort", "high", "--seed-text=---\nrisk: low\n---\nBody"], cap.io, {
+        ...pipelineDeps(configPath),
+        connectIpcClient: pipelineStartClients(
+          pipelineFrames("pipe-effort-flag", ["pipe-effort-w"], "pipe-effort-1", [
+            { kind: "terminal", state: "succeeded" },
+          ]),
+          sent,
+        ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, "pipeline_start")[0]).toMatchObject({
+      params: {
+        definition: { name: "full-light-review" },
+        admittedSelection: {
+          effective: { risk: "medium", effort: "high" },
+          sources: { risk: "minimum", effort: "flag" },
+          registryName: "full-light-review",
+        },
+      },
+    });
+    // Mutation checkpoint: inverting `typeof values.effort === "string"` in parsePipelineStartArgs turns this test RED.
+  });
+
   test("--detach exits 0 after admission without pipeline_wait", async () => {
     // Inversion target: runPipelineStartCommand detach branch in pipeline.ts — blocking on pipeline_wait when detach is true turns this test RED.
     const cap = captureIo();

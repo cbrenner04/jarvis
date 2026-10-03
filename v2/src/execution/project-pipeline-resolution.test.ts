@@ -650,6 +650,21 @@ describe("rating selection", () => {
     );
   });
 
+  test("labels a dimension minimum when a configured floor lifts the supplied rating", () => {
+    const result = resolveProjectPipeline(
+      config("demo", { ...RATED, minimumRisk: "medium" }),
+      getPipelineDefinition,
+      ALL_REVIEW_ROLES_CONFIG,
+      { risk: "low", effort: "low" },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected resolution");
+    expect(result.admissionRatings).toEqual({
+      effective: { risk: "medium", effort: "low" },
+      sources: { risk: "minimum", effort: "seed" },
+    });
+  });
+
   test("a minimum is a floor, not a default: nothing supplied is unresolved with or without minimums", () => {
     for (const pipeline of [RATED, { ...RATED, minimumRisk: "high", minimumEffort: "high" }]) {
       let lookupCalls = 0;

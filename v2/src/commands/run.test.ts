@@ -1,22 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { RUN_DISMISS_USAGE, RUN_RESUME_USAGE, RUN_START_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
+import { RUN_DISMISS_USAGE, RUN_RESUME_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import { acquireGateInvocationLease } from "../execution/gate-invocation-lease.ts";
 import { createReadyFinalizer } from "../execution/ready-finalize.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
-  absentMachineConfigPath,
   type CliRepoFixture,
   captureIo,
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
-  stubAgentModelConfig,
-  writeHomeMachineConfig,
-  writeMachineConfig,
-  writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { formatSlotRedriveCell } from "./run.ts";
@@ -108,306 +102,7 @@ function logRecord(seq: number, eventKind: PersistedRecord["event"]["kind"]): Pe
   };
 }
 
-describe("run start", () => {
-  test("run start sends one IPC start request carrying write-loop input and prints run ID", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000001";
-
-    const code = await withFixedUuid(requestId, () =>
-      main([...fx.runStartArgs, "--max-iterations", "4"], cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        machineConfigPath: absentMachineConfigPath(),
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-999" } }], { sent }),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "run-999\n", stderr: "" });
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({
-      kind: "request",
-      method: "start",
-      params: {
-        input: {
-          worktree: {
-            projectRoot: fx.repoRoot,
-            projectName: "demo",
-            branchName: "write-run",
-            baseRef: "HEAD",
-          },
-          specPath: "spec.md",
-          expectedArtifactPath: "proof.txt",
-          maxIterations: 4,
-          bindings: [],
-          bindingResolution: { role: "implement", agents: ["claude"] },
-        },
-      },
-    });
-  });
-
-  test("run start forwards machine-config agents into IPC start payload", async () => {
-    const cap = captureIo();
-    const configPath = writeMachineConfig({ agents: ["codex", "cursor"] });
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000022";
-
-    const code = await withFixedUuid(requestId, () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        machineConfigPath: configPath,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-machine-config" } }], { sent }),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "run-machine-config\n", stderr: "" });
-    expect(sent[0]).toMatchObject({
-      params: {
-        input: {
-          bindings: [],
-          bindingResolution: { role: "implement", agents: ["codex", "cursor"] },
-        },
-      },
-    });
-  });
-
-  test("run start passes through daemon guard errors without local write-loop logic", async () => {
-    const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000002";
-
-    const code = await withFixedUuid(requestId, () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () =>
-          makeIpcClient([
-            {
-              kind: "error",
-              id: requestId,
-              code: "run_in_progress",
-              message: "A run is already in progress; at most one in-flight run globally",
-            },
-          ]),
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
-    });
-  });
-
-  test("missing required write args prints usage and exits 1", async () => {
-    const cap = captureIo();
-
-    const code = await main(["run", "start", "--project", "demo"], cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read().stdout).toBe("");
-    expect(cap.read().stderr).toContain("usage: jarvis run start");
-  });
-
-  test("invalid --max-iterations prints usage and exits 1", async () => {
-    const cap = captureIo();
-
-    const code = await main([...fx.runStartArgs, "--max-iterations", "0"], cap.io, {
-      loadAgentModelConfig: stubAgentModelConfig,
-    });
-
-    expect(code).toBe(1);
-    expect(cap.read().stdout).toBe("");
-    expect(cap.read().stderr).toBe(RUN_START_USAGE);
-  });
-
-  test("unknown write args print usage and exit 1", async () => {
-    const cap = captureIo();
-
-    const code = await main([...fx.runStartArgs, "--unknown", "x"], cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read().stdout).toBe("");
-    expect(cap.read().stderr).toContain("usage: jarvis run start");
-  });
-
-  test("run start resolves iterationTimeoutMs and iterationCeilingMs from machine config", async () => {
-    const cap = captureIo();
-    const configPath = writeHomeMachineConfig({
-      iterationTimeoutMs: 600_000,
-      iterationCeilingMs: 1_800_000,
-      idleOutputTimeoutMs: 0,
-    });
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000050";
-
-    const code = await withFixedUuid(requestId, () =>
-      main(fx.runStartArgs, cap.io, {
-        machineConfigPath: configPath,
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-bounds" } }], { sent }),
-      }),
-    );
-
-    expect(code).toBe(0);
-    const input = (sent[0] as { params?: { input?: WriteLoopInput } }).params?.input;
-    expect(input?.iterationTimeoutMs).toBe(600_000);
-    expect(input?.iterationCeilingMs).toBe(1_800_000);
-  });
-
-  test("run start rejects inverted write-path iteration bounds before IPC dispatch", async () => {
-    const cap = captureIo();
-    const configPath = writeHomeMachineConfig({
-      iterationTimeoutMs: 60_000,
-      idleOutputTimeoutMs: 120_000,
-      iterationCeilingMs: 1_800_000,
-    });
-    const sent: unknown[] = [];
-
-    const code = await main(fx.runStartArgs, cap.io, {
-      machineConfigPath: configPath,
-      loadAgentModelConfig: stubAgentModelConfig,
-      connectIpcClient: async () => {
-        throw new Error("must not connect");
-      },
-    });
-
-    expect(code).toBe(1);
-    expect(sent).toHaveLength(0);
-    expect(cap.read().stderr).toContain("idleOutputTimeoutMs' (120000)");
-    expect(cap.read().stderr).toContain("iterationTimeoutMs' (60000)");
-  });
-
-  test("run start omits operatorSessionId from IPC payload when no caller telemetry is present", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000051";
-
-    await withFixedUuid(requestId, () =>
-      main(fx.runStartArgs, cap.io, {
-        machineConfigPath: writeHomeMachineConfig({ agents: ["claude"] }),
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-telemetry" } }], { sent }),
-      }),
-    );
-
-    const input = (sent[0] as { params?: { input?: WriteLoopInput } }).params?.input;
-    expect(input?.telemetry?.operatorSessionId).toBeUndefined();
-  });
-
-  test("defaults to the claude agent when machine config has no override", async () => {
-    const cap = captureIo();
-    let capturedAgents: readonly string[] | undefined;
-    const requestId = "00000000-0000-4000-8000-000000000052";
-
-    await withFixedUuid(requestId, () =>
-      main(fx.runStartArgs, cap.io, {
-        machineConfigPath: absentMachineConfigPath(),
-        loadAgentModelConfig: (agents) => {
-          capturedAgents = agents;
-          return stubAgentModelConfig(agents);
-        },
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-default-agent" } }]),
-      }),
-    );
-
-    expect(capturedAgents).toEqual(["claude"]);
-  });
-
-  test("valid machine config supplies fallback agents", async () => {
-    const cap = captureIo();
-    const configPath = writeHomeMachineConfig({ agents: ["codex", "cursor"] });
-    let capturedAgents: readonly string[] | undefined;
-    const requestId = "00000000-0000-4000-8000-000000000053";
-
-    const code = await withFixedUuid(requestId, () =>
-      main(fx.runStartArgs, cap.io, {
-        machineConfigPath: configPath,
-        loadAgentModelConfig: (agents) => {
-          capturedAgents = agents;
-          return stubAgentModelConfig(agents);
-        },
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-agents" } }]),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(capturedAgents).toEqual(["codex", "cursor"]);
-  });
-
-  test("invalid machine config exits nonzero without contacting the daemon", async () => {
-    const cap = captureIo();
-    const configPath = writeRawMachineConfig("{ invalid json");
-    let loadAgentModelConfigCalled = false;
-
-    const code = await main(fx.runStartArgs, cap.io, {
-      machineConfigPath: configPath,
-      loadAgentModelConfig: (agents) => {
-        loadAgentModelConfigCalled = true;
-        return stubAgentModelConfig(agents);
-      },
-      connectIpcClient: async () => {
-        throw new Error("must not connect");
-      },
-    });
-
-    expect(code).toBe(1);
-    expect(loadAgentModelConfigCalled).toBe(false);
-    expect(cap.read().stderr).toContain("Failed to parse machine config");
-  });
-
-  test("run start carries bindingResolution from the agent model config in IPC payload", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000054";
-
-    await withFixedUuid(requestId, () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        machineConfigPath: writeHomeMachineConfig({ agents: ["claude"] }),
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-bindings" } }], { sent }),
-      }),
-    );
-
-    const input = (sent[0] as { params?: { input?: WriteLoopInput } }).params?.input;
-    expect(input?.bindings).toEqual([]);
-    expect(input?.bindingResolution).toEqual({
-      role: "implement",
-      agents: ["claude"],
-      agentModelConfig: stubAgentModelConfig(["claude"]),
-    });
-  });
-});
-
 describe("dispatch to keyed daemons", () => {
-  test("run start dispatches without a preceding status request", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000001";
-
-    const code = await withFixedUuid(requestId, () =>
-      main([...fx.runStartArgs], cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-999" } }], { sent }),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({
-      kind: "request",
-      method: "start",
-    });
-    expect(cap.read()).toEqual({ stdout: "run-999\n", stderr: "" });
-  });
-
   test("run resume dispatches without listing runs, so live runs cannot refuse it", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -461,147 +156,10 @@ describe("dispatch to keyed daemons", () => {
     expect(frame.params).not.toHaveProperty("allowLanePrRepublish", false);
     expect(cap.read()).toEqual({ stdout: "resumed run-123\n", stderr: "" });
   });
-
-  test("--no-auto-bounce flag is rejected as unknown", async () => {
-    const cap = captureIo();
-    const code = await main([...fx.runStartArgs, "--no-auto-bounce"], cap.io, {
-      loadAgentModelConfig: stubAgentModelConfig,
-    });
-
-    expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("usage:");
-  });
 });
 
 describe("keyed daemon auto-start on dispatch", () => {
   const KEYED_SOCKET = "/keyed/digest-a.sock";
-  const OTHER_SOCKET = "/keyed/digest-b.sock";
-
-  test("run start auto-starts the keyed daemon when absent, then dispatches", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const connectPaths: string[] = [];
-    const startCalls: Array<{ socketPath: string; pidPath: string | undefined; logPath: string | undefined }> = [];
-    const code = await withFixedUuid(["operator", "start"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        socketPath: KEYED_SOCKET,
-        pidPath: "/keyed/digest-a.pid",
-        logPath: "/keyed/digest-a.log",
-        connectIpcClient: async (socketPath) => {
-          connectPaths.push(socketPath);
-          if (connectPaths.length === 1) throw new Error("ECONNREFUSED");
-          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-autostart" } }], { sent });
-        },
-        startDaemon: async (socketPath, options) => {
-          startCalls.push({ socketPath, pidPath: options?.pidPath, logPath: options?.logPath });
-          return { pid: 7, socketPath };
-        },
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "run-autostart\n", stderr: "" });
-    expect(startCalls).toEqual([
-      { socketPath: KEYED_SOCKET, pidPath: "/keyed/digest-a.pid", logPath: "/keyed/digest-a.log" },
-    ]);
-    expect(connectPaths).toEqual([KEYED_SOCKET, KEYED_SOCKET]);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-  });
-
-  test("run start reuses a running keyed daemon without starting one", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const code = await withFixedUuid(["operator", "start"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        socketPath: KEYED_SOCKET,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-reused" } }], { sent }),
-        startDaemon: async () => {
-          throw new Error("should not start");
-        },
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "run-reused\n", stderr: "" });
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-  });
-
-  test("a live daemon on another digest's socket receives no request", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const otherSent: unknown[] = [];
-    const startCalls: string[] = [];
-    const code = await withFixedUuid(["operator", "start"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        socketPath: KEYED_SOCKET,
-        connectIpcClient: async (socketPath) => {
-          if (socketPath === OTHER_SOCKET) {
-            const otherRuns = { runs: [{ runId: "other", isLive: true }] };
-            return makeIpcClient([{ kind: "response", id: "list", result: otherRuns }], { sent: otherSent });
-          }
-          if (sent.length === 0 && startCalls.length === 0) throw new Error("ECONNREFUSED");
-          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-keyed" } }], { sent });
-        },
-        startDaemon: async (socketPath) => {
-          startCalls.push(socketPath);
-          return { pid: 7, socketPath };
-        },
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(startCalls).toEqual([KEYED_SOCKET]);
-    expect(otherSent).toEqual([]);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-  });
-
-  test("a non-race start failure reports a lifecycle error with exit 1 and no dispatch", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const code = await main(fx.runStartArgs, cap.io, {
-      loadAgentModelConfig: stubAgentModelConfig,
-      socketPath: KEYED_SOCKET,
-      connectIpcClient: async () => {
-        throw new Error("ECONNREFUSED");
-      },
-      startDaemon: async () => {
-        throw new Error("daemon start failed: log directory missing");
-      },
-    });
-
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    expect(cap.read().stderr).toContain("daemon start failed: log directory missing");
-  });
-
-  test("an exhausted connect deadline exits 1 with a connection error and no dispatch", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    let time = 0;
-    const code = await main(fx.runStartArgs, cap.io, {
-      loadAgentModelConfig: stubAgentModelConfig,
-      socketPath: KEYED_SOCKET,
-      connectIpcClient: async () => {
-        throw new Error("ECONNREFUSED");
-      },
-      startDaemon: async (socketPath) => ({ pid: 7, socketPath }),
-      now: () => time,
-      sleep: async (ms) => {
-        time += ms;
-      },
-    });
-
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    expect(cap.read().stderr).toBe(
-      `Failed to connect to daemon on socket ${KEYED_SOCKET} after starting it (5000ms deadline exceeded)\n`,
-    );
-    expect(time).toBe(5000);
-  });
 
   test("read-only run list reports the missing daemon instead of starting one", async () => {
     const cap = captureIo();
@@ -792,6 +350,20 @@ describe("run control", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: RUN_USAGE });
     expect(RUN_USAGE).not.toContain("pause");
+  });
+
+  test("run start is an unknown subcommand", async () => {
+    const cap = captureIo();
+
+    const code = await main(fx.runStartArgs, cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("must not connect: retired verb");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: RUN_USAGE });
+    expect(RUN_USAGE).not.toContain("start");
   });
 
   test("run resume passes through terminal_run errors", async () => {

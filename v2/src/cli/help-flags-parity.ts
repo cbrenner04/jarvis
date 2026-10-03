@@ -19,7 +19,6 @@ import {
   RUN_LIST_PARSE_ARG_OPTIONS,
   RUN_LOG_PARSE_ARG_OPTIONS,
   RUN_RESUME_PARSE_ARG_OPTIONS,
-  WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
 import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
 
@@ -32,8 +31,6 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
   switch (key) {
     case "init":
       return parityFlagsFromParseOptions(INIT_PARSE_ARG_OPTIONS);
-    case "run start":
-      return parseOptionKeysToLongFlags(Object.keys(WRITE_PARSE_ARG_OPTIONS));
     case "cleanup":
       return parityFlagsFromParseOptions(CLEANUP_PARSE_ARG_OPTIONS);
     case "run list":

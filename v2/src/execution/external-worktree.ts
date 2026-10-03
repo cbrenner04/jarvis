@@ -11,7 +11,18 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
-import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
+import {
+  addWorktree,
+  branchExistsOnOriginAsync,
+  createBranch,
+  GitOperationError,
+  getCurrentBranchAsync,
+  gitCommonDir,
+  isInsideWorkTree,
+  listWorktrees,
+  pruneWorktrees,
+  resolveRef,
+} from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome, managedWorktreePath } from "../paths.ts";
@@ -159,7 +170,8 @@ async function materializeReadCheckout(
 /**
  * Resolve `baseRef` to a tree-ish that exists in the local `projectRoot`. GitHub's default-branch
  * name (or the `"main"` fallback) is not guaranteed to exist as a local ref; when it does not,
- * fall back to the local `HEAD` so extraction always runs against a present tree-ish.
+ * fall back to the local `HEAD` so extraction always runs against a present tree-ish. An
+ * inconclusive probe (not a repository, abort) rejects rather than degrading.
  */
 async function resolveLocalArchiveRef(
   projectRoot: string,
@@ -167,13 +179,8 @@ async function resolveLocalArchiveRef(
   runner: AsyncSubprocessRunner,
   signal: AbortSignal | undefined,
 ): Promise<string> {
-  try {
-    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{tree}`], projectRoot, { signal });
-    return baseRef;
-  } catch {
-    throwIfAborted(signal);
-    return "HEAD";
-  }
+  const resolution = await resolveRef(projectRoot, `${baseRef}^{tree}`, runner, { signal });
+  return resolution.status === "resolved" ? baseRef : "HEAD";
 }
 
 /** Single-quote a path for safe interpolation into a `sh -c` pipeline. */
@@ -208,10 +215,10 @@ async function ensureExternalWorktree(
   signal?: AbortSignal,
 ): Promise<ExternalWorktree> {
   const worktreePath = getExternalWorktreePath(args);
-  const worktreeState = await classifyGitWorktree(worktreePath, runner);
+  const worktreeState = await classifyGitWorktree(worktreePath, runner, signal);
   if (worktreeState === "worktree") {
     throwIfAborted(signal);
-    await assertReusableWorktreeMatches(args, worktreePath, runner);
+    await assertReusableWorktreeMatches(args, worktreePath, runner, signal);
     throwIfAborted(signal);
     reconcileNodeModulesLink(args.projectRoot, worktreePath);
     return { path: worktreePath, reused: true };
@@ -221,7 +228,7 @@ async function ensureExternalWorktree(
     throw new Error(`could not validate existing path as a git worktree: ${worktreePath}`);
   }
   if (existsSync(worktreePath)) {
-    if (await isRegisteredWorktreePath(args.projectRoot, worktreePath, runner)) {
+    if (await isRegisteredWorktreePath(args.projectRoot, worktreePath, runner, signal)) {
       throw new Error(`existing path is registered as a git worktree: ${worktreePath}`);
     }
     rmSync(worktreePath, { recursive: true, force: true });
@@ -229,42 +236,58 @@ async function ensureExternalWorktree(
 
   try {
     mkdirSync(dirname(worktreePath), { recursive: true });
-    await pruneMissingWorktrees(args.projectRoot, runner, signal);
+    await pruneWorktrees(args.projectRoot, runner, { signal });
     throwIfAborted(signal);
-
-    const branchExists = await branchExistsLocalAsync(args.projectRoot, args.branchName, runner);
+    await ensureBranch(args, runner, signal);
     throwIfAborted(signal);
-    const branchExistsRemote = await branchExistsOnOriginAsync(args.projectRoot, args.branchName, runner);
+    await addWorktree(args.projectRoot, { path: worktreePath, branch: args.branchName }, runner, { signal });
     throwIfAborted(signal);
-
-    if (branchExists || branchExistsRemote) {
-      if (!branchExists && branchExistsRemote) {
-        await runner.runAsync("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot, {
-          signal,
-        });
-        throwIfAborted(signal);
-      }
-      await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot, {
-        signal,
-      });
-    } else {
-      await runner.runAsync("git", ["branch", args.branchName, args.forkRef ?? args.baseRef], args.projectRoot, {
-        signal,
-      });
-      throwIfAborted(signal);
-      await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot, { signal });
-    }
-    throwIfAborted(signal);
-    if ((await classifyGitWorktree(worktreePath, runner)) !== "worktree") {
+    if ((await classifyGitWorktree(worktreePath, runner, signal)) !== "worktree") {
       throw new Error(`created path is not a git worktree: ${worktreePath}`);
     }
-    await assertReusableWorktreeMatches(args, worktreePath, runner);
+    await assertReusableWorktreeMatches(args, worktreePath, runner, signal);
     throwIfAborted(signal);
     reconcileNodeModulesLink(args.projectRoot, worktreePath);
     return { path: worktreePath, reused: false };
   } catch (error) {
     throw error instanceof WorktreeMaterializationError ? error : new WorktreeMaterializationError(worktreePath, error);
   }
+}
+
+/**
+ * Make `branchName` exist locally with explicit start-point precedence. An existing local branch
+ * is kept as-is (no network probe). Otherwise an origin head wins (`origin/<branch>`, which must
+ * already be fetched: an unfetched tracking ref is a named failure, not a silent fall-through to
+ * base), else `forkRef`, else `baseRef`. An inconclusive origin probe (timeout) rejects rather
+ * than branching from base.
+ */
+async function ensureBranch(
+  args: ExternalWorktreeInput,
+  runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const local = await resolveRef(args.projectRoot, `refs/heads/${args.branchName}`, runner, { signal });
+  if (local.status === "resolved") return;
+  throwIfAborted(signal);
+  const onOrigin = await branchExistsOnOriginAsync(args.projectRoot, args.branchName, runner, { signal });
+  throwIfAborted(signal);
+  const startPoint = onOrigin ? await originStartPoint(args, runner, signal) : (args.forkRef ?? args.baseRef);
+  await createBranch(args.projectRoot, args.branchName, startPoint, runner, { signal });
+}
+
+/** `origin/<branch>` once `refs/remotes/origin/<branch>` resolves locally; absent is a named failure. */
+async function originStartPoint(
+  args: ExternalWorktreeInput,
+  runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
+): Promise<string> {
+  const tracking = await resolveRef(args.projectRoot, `refs/remotes/origin/${args.branchName}`, runner, { signal });
+  if (tracking.status === "absent") {
+    throw new Error(
+      `origin has branch ${args.branchName} but refs/remotes/origin/${args.branchName} is not fetched locally; run git fetch origin ${args.branchName}`,
+    );
+  }
+  return `origin/${args.branchName}`;
 }
 
 function fsEntryType(stat: Stats): string {
@@ -311,21 +334,23 @@ function reconcileNodeModulesLink(projectRoot: string, worktreePath: string): vo
   }
 }
 
-/** True when git's diagnostic says the path is not a usable repo; git >=2.56 reports broken gitfiles differently. */
-export function isNotGitRepositoryDiagnostic(text: string): boolean {
-  return text.includes("not a git repository") || text.includes("gitfile does not point to a valid repository");
-}
-
 type GitWorktreeState = "not-worktree" | "worktree" | "unknown";
 
-async function classifyGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<GitWorktreeState> {
+/**
+ * `unknown` is an inconclusive probe (anything but git's not-a-repository diagnostic): never
+ * reclaim on it. The caller's own abort is not a verdict on the path and propagates.
+ */
+async function classifyGitWorktree(
+  worktreePath: string,
+  runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
+): Promise<GitWorktreeState> {
   if (!existsSync(worktreePath)) return "not-worktree";
   try {
-    return (await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], worktreePath)).trim() === "true"
-      ? "worktree"
-      : "not-worktree";
+    return (await isInsideWorkTree(worktreePath, runner, { signal })) ? "worktree" : "not-worktree";
   } catch (error) {
-    return error instanceof Error && isNotGitRepositoryDiagnostic(error.message) ? "not-worktree" : "unknown";
+    if (error instanceof GitOperationError && error.reason === "aborted") throw error;
+    return "unknown";
   }
 }
 
@@ -333,40 +358,26 @@ async function isRegisteredWorktreePath(
   projectRoot: string,
   worktreePath: string,
   runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
 ): Promise<boolean> {
-  const output = await runner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot);
-  return output
-    .split("\n")
-    .some((line) => line.startsWith("worktree ") && resolve(line.slice("worktree ".length)) === resolve(worktreePath));
+  const entries = await listWorktrees(projectRoot, runner, { signal });
+  return entries.some((entry) => resolve(entry.path) === resolve(worktreePath));
 }
 
 async function assertReusableWorktreeMatches(
   args: ExternalWorktreeInput,
   worktreePath: string,
   runner: AsyncSubprocessRunner,
+  signal: AbortSignal | undefined,
 ): Promise<void> {
-  const expectedRepo = await gitCommonDir(args.projectRoot, runner);
-  const actualRepo = await gitCommonDir(worktreePath, runner);
+  const expectedRepo = await gitCommonDir(args.projectRoot, runner, { signal });
+  const actualRepo = await gitCommonDir(worktreePath, runner, { signal });
   if (expectedRepo !== actualRepo) {
     throw new Error(`existing worktree ${worktreePath} belongs to a different repository`);
   }
 
-  const currentBranch = await getCurrentBranchAsync(worktreePath, runner);
+  const currentBranch = await getCurrentBranchAsync(worktreePath, runner, { signal });
   if (currentBranch !== args.branchName) {
     throw new Error(`existing worktree ${worktreePath} is on branch ${currentBranch}, expected ${args.branchName}`);
   }
-}
-
-async function gitCommonDir(cwd: string, runner: AsyncSubprocessRunner): Promise<string> {
-  return resolve(
-    (await runner.runAsync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd)).trim(),
-  );
-}
-
-async function pruneMissingWorktrees(
-  projectRoot: string,
-  runner: AsyncSubprocessRunner,
-  signal: AbortSignal | undefined,
-): Promise<void> {
-  await runner.runAsync("git", ["worktree", "prune"], projectRoot, { signal });
 }

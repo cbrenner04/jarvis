@@ -237,6 +237,36 @@ describe("createCompletionPublisher", () => {
     expect(refreshBase).toBe(resolvedBase);
   });
 
+  it("confirms a freshly created PR by the number gh printed, never by branch", async () => {
+    const ghCalls: string[] = [];
+    const publisher = createCompletionPublisher({
+      subprocessRunner: originPresenceRunner(new Set(["main"])),
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        if (args[0] === "pr" && args[1] === "view") {
+          if (args[2] !== "42") throw new Error(`confirmed by ${String(args[2])}, expected number 42`);
+          return viewPr(42, "https://github.com/user/repo/pull/42");
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(42);
+    expect(ghCalls).toContain("pr view 42 --json number,url,baseRefName");
+    expect(ghCalls.some((call) => call.startsWith(`pr view ${baseInput.branch}`))).toBe(false);
+  });
+
   it("preserves requested base when branch exists on origin", async () => {
     const requestedBase = "develop";
     const ghCalls: string[] = [];

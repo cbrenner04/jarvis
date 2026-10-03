@@ -1581,7 +1581,8 @@ describe("runTuiEntry", () => {
       expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
 
       view.submitCommand(pathSeedBuffer);
-      expect(parseSpy).toHaveBeenCalledTimes(1);
+      // A pending admission parses the second Enter (the one grammar decides whether it is run steering) but never re-admits.
+      expect(parseSpy).toHaveBeenCalledTimes(2);
       expect(admissionCalls).toBe(1);
 
       admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-admitted" });

@@ -10,6 +10,7 @@ import type { StateStore } from "../persistence/state-store.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import {
   createPr,
+  type GhCommandSeam,
   GitHubOperationError,
   type GitHubOperationOptions,
   ghCommandRunner,
@@ -92,14 +93,13 @@ type ArchiveReadyPublicationResult = {
 
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 /** Raw `gh` seam kept for fixtures; production routes through the `github-operations` boundary on the real runner. */
-type GhCommand = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+type GhCommand = GhCommandSeam;
 /** Boundary runner plus per-call options (abort signal) for every PR operation in one publication. */
 export type GhSession = { runner: AsyncSubprocessRunner; options: GitHubOperationOptions };
 
+/** Both paths carry the signal: a seam receives the same bounded options the real runner would. */
 export function ghSession(gh: GhCommand | undefined, signal: AbortSignal | undefined): GhSession {
-  return gh !== undefined
-    ? { runner: ghCommandRunner(gh), options: {} }
-    : { runner: realAsyncSubprocessRunner, options: { signal } };
+  return { runner: gh !== undefined ? ghCommandRunner(gh) : realAsyncSubprocessRunner, options: { signal } };
 }
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
@@ -537,14 +537,15 @@ async function createDraftPr(
   branch: string,
   specPath: string,
   creationTitle: string,
-): Promise<void> {
+): Promise<number | undefined> {
   try {
-    await createPr(
+    const created = await createPr(
       gh.runner,
       cwd,
       { base: baseRef, title: creationTitle, body: `Spec: ${specPath}`, draft: true },
       gh.options,
     );
+    return created.number;
   } catch (error) {
     mapNoPublishableCommits(error, branch, baseRef);
   }
@@ -574,12 +575,13 @@ async function findOrOpenReuseArchivePr(
     return confirmPr(gh, cwd, branch, baseRef, sole.number);
   }
 
+  let created: number | undefined;
   try {
-    await createPr(gh.runner, cwd, { base: baseRef, title, body, draft: false }, gh.options);
+    created = (await createPr(gh.runner, cwd, { base: baseRef, title, body, draft: false }, gh.options)).number;
   } catch (error) {
     mapNoPublishableCommits(error, branch, baseRef);
   }
-  return confirmPr(gh, cwd, branch, baseRef);
+  return confirmPr(gh, cwd, branch, baseRef, created);
 }
 
 async function findOrCreatePr(
@@ -618,9 +620,9 @@ async function findOrCreatePr(
     }
   }
 
-  await createDraftPr(gh, cwd, baseRef, branch, specPath, creationTitle);
+  const created = await createDraftPr(gh, cwd, baseRef, branch, specPath, creationTitle);
 
-  const evidence = await confirmPr(gh, cwd, branch, baseRef);
+  const evidence = await confirmPr(gh, cwd, branch, baseRef, created);
   return { kind: "evidence", evidence };
 }
 
@@ -631,12 +633,13 @@ async function confirmPr(
   baseRef: string,
   expectedNumber?: number,
 ): Promise<PrEvidence> {
-  // Confirm by number once `resolveOpenDraftPr` has selected one. `gh pr view <branch>` resolves
+  // Confirm by number once `resolveOpenDraftPr` or `createPr` has yielded one. `gh pr view <branch>` resolves
   // its own notion of "the" PR for a branch and honors no state filter, so on a branch carrying
   // more than one PR it can return a different PR than the open/base-filtered list selected — an
   // open PR on another base, for instance. Comparing one lookup against a differently-scoped
   // lookup then fails on branches whose PR history is longer than one, which is every branch a
-  // pipeline has been re-run on. Addressing the PR by number has no such disagreement to resolve.
+  // pipeline has been re-run on. Addressing the PR by number has no such disagreement to resolve;
+  // the branch selector remains only for a create whose output carried no URL.
   const selector = expectedNumber === undefined ? branch : expectedNumber;
   const pr = await viewPr(gh.runner, cwd, selector, gh.options);
 

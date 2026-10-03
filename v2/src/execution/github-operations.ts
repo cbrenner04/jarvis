@@ -5,7 +5,6 @@ import {
   type AsyncSubprocessRunner,
   isSubprocessTimeout,
   networkSubprocessOptions,
-  realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 
 // ---------------------------------------------------------------------------
@@ -31,27 +30,29 @@ export type GitHubOperation =
   | "auth-status";
 
 /**
- * Why an operation failed. `timeout`, `network` (transport: DNS, connect, reset, TLS), and
- * `service` (GitHub 5xx / "Something went wrong") are retryable; the rest are fatal for the
- * attempt: `aborted` is the caller's own cancellation, `auth` a 401/403 or missing login,
- * `not-found` a 404 or "no pull requests found", `no-commits` a PR create with nothing between
- * base and head, `failed` any other non-zero exit or malformed output.
+ * Why an operation failed. `timeout`, `network` (transport: DNS, connect, reset, TLS),
+ * `service` (GitHub 5xx / "Something went wrong"), and `rate-limited` (429 / "rate limit") are
+ * retryable; the rest are fatal for the attempt: `aborted` is the caller's own cancellation,
+ * `auth` a 401/403 or missing login, `not-found` a 404 or "no pull requests found", `no-commits`
+ * a PR create with nothing between base and head, `failed` any other non-zero exit or malformed
+ * output (no classification: `publication-retry` falls back to its text heuristics).
  */
 export type GitHubFailureReason =
   | "timeout"
   | "aborted"
   | "network"
   | "service"
+  | "rate-limited"
   | "auth"
   | "not-found"
   | "no-commits"
   | "failed";
 
-const RETRYABLE_REASONS: ReadonlySet<GitHubFailureReason> = new Set(["timeout", "network", "service"]);
+const RETRYABLE_REASONS: ReadonlySet<GitHubFailureReason> = new Set(["timeout", "network", "service", "rate-limited"]);
 
 /**
- * `message` is the underlying `gh` message verbatim (callers already surface it to operators and
- * retry policy keys off its text); classification lives in `operation` / `reason`.
+ * `message` is the underlying `gh` message verbatim (callers surface it to operators);
+ * classification lives in `operation` / `reason`, and retry policy keys off `retryable`.
  */
 export class GitHubOperationError extends Error {
   readonly retryable: boolean;
@@ -70,7 +71,7 @@ export class GitHubOperationError extends Error {
   }
 }
 
-/** True when `error` is a `GitHubOperationError` worth retrying (timeout, network, or 5xx). */
+/** True when `error` is a `GitHubOperationError` worth retrying (timeout, network, 5xx, or rate limit). */
 export function isRetryableGitHubError(error: unknown): boolean {
   return error instanceof GitHubOperationError && error.retryable;
 }
@@ -106,13 +107,18 @@ function failureOf(error: unknown): Failure {
 
 type ReasonRule = readonly [RegExp, GitHubFailureReason];
 
-/** Ordered: auth first (a 403 also mentions the resource), then not-found, precondition, 5xx, transport. */
+/**
+ * Ordered: rate limit first (gh reports it as a 403/"forbidden", which would read as auth), then
+ * auth (a 403 also mentions the resource), not-found (gh's own phrasings only: a bare "not found"
+ * appears in unrelated messages), precondition, 5xx, transport.
+ */
 const REASON_RULES: readonly ReasonRule[] = [
+  [/rate limit|HTTP 429|\b429\b/i, "rate-limited"],
   [
     /HTTP 401|HTTP 403|not logged in|gh auth login|bad credentials|authentication (?:failed|required)|permission denied|resource not accessible|forbidden/i,
     "auth",
   ],
-  [/HTTP 404|not found|could not resolve to a|no pull requests found/i, "not-found"],
+  [/HTTP 404|no pull requests found|could not resolve to a/i, "not-found"],
   [/no commits between/i, "no-commits"],
   [/HTTP 5\d\d|something went wrong|server error|bad gateway|service unavailable|gateway time-?out/i, "service"],
   [
@@ -138,7 +144,7 @@ function ghError(operation: GitHubOperation, error: unknown, options: GitHubOper
 }
 
 function malformed(operation: GitHubOperation, message: string, stdout: string): GitHubOperationError {
-  return new GitHubOperationError(operation, "failed", message, stdout, "", 0);
+  return new GitHubOperationError(operation, "failed", message, stdout, "", undefined);
 }
 
 function runOptions(options: GitHubOperationOptions): AsyncSubprocessOptions {
@@ -168,11 +174,12 @@ function parseJson(operation: GitHubOperation, stdout: string): unknown {
   }
 }
 
-/** Adapts a raw `(cwd, args) => stdout` gh seam (the shape existing publication tests inject) to the runner interface. */
-export function ghCommandRunner(
-  command: (cwd: string, args: readonly string[]) => Promise<string>,
-): AsyncSubprocessRunner {
-  return { runAsync: (_cmd, args, cwd) => command(cwd, args) };
+/** The raw gh seam publication fixtures inject: `(cwd, args, options)`, with `options` the bounded run options the boundary resolved. */
+export type GhCommandSeam = (cwd: string, args: readonly string[], options: AsyncSubprocessOptions) => Promise<string>;
+
+/** Adapts a raw gh seam to the runner interface; the bounded options (network timeout, non-interactive env, abort signal) reach the seam. */
+export function ghCommandRunner(command: GhCommandSeam): AsyncSubprocessRunner {
+  return { runAsync: (_cmd, args, cwd, options = {}) => command(cwd, args, options) };
 }
 
 // --- PR queries ----------------------------------------------------------------
@@ -320,7 +327,8 @@ export async function viewPrReviewActivity(
 // --- PR mutations --------------------------------------------------------------
 
 type CreatePrInput = { base: string; title: string; body: string; draft: boolean };
-type CreatePrResult = { url: string | undefined };
+/** `url` is gh's printed PR URL when it printed one; `number` is parsed from it so callers confirm by number, never by branch. */
+type CreatePrResult = { url: string | undefined; number: number | undefined };
 
 /**
  * Opens a PR from the current branch. Not idempotent: a second create on the same head fails
@@ -336,7 +344,9 @@ export async function createPr(
   if (input.draft) args.push("--draft");
   args.push("--base", input.base, "--title", input.title, "--body", input.body);
   const stdout = (await gh(runner, cwd, "pr-create", args, options)).trim();
-  return { url: /^https?:\/\//.test(stdout) ? stdout : undefined };
+  const url = /^https?:\/\//.test(stdout) ? stdout : undefined;
+  const number = url === undefined ? undefined : /\/pull\/(\d+)\/?$/.exec(url)?.[1];
+  return { url, number: number === undefined ? undefined : Number(number) };
 }
 
 /** Flips a draft to ready for review. Idempotent: gh exits 0 on an already-ready PR. */
@@ -442,10 +452,10 @@ export async function graphql(
   return parseJson("graphql", await gh(runner, cwd, "graphql", args, options));
 }
 
-/** Resolves when `gh` has a usable login; rejects with reason `auth` ("not logged in") or `timeout` under `timeoutMs`. */
+/** Resolves when `gh` has a usable login; rejects with reason `auth` ("not logged in") or `timeout` under `timeoutMs`. Runner and cwd are injected, never ambient. */
 export async function checkAuthStatus(
-  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
-  cwd: string = process.cwd(),
+  runner: AsyncSubprocessRunner,
+  cwd: string,
   options: GitHubOperationOptions = {},
 ): Promise<void> {
   await gh(runner, cwd, "auth-status", ["auth", "status"], options);

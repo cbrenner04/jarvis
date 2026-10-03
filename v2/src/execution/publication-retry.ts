@@ -1,3 +1,5 @@
+import { GitHubOperationError } from "./github-operations.ts";
+
 const OUTPUT_TAIL_MAX_CHARS = 4096;
 
 export type PublicationFailure = {
@@ -51,13 +53,18 @@ export function completionCommitFailureResumable(error?: Error): boolean {
   if (error === undefined) return true;
   const publicationFailure = publicationFailureFor(error);
   if (publicationFailure?.operation === "pr") {
-    return isTransientPublicationFailure(publicationFailure);
+    return isTransientPublicationFailure(publicationFailure, error);
   }
   return true;
 }
 
-/** Only known transport failures retry; explicit permanent diagnostics always win. */
-export function isTransientPublicationFailure(failure: PublicationFailure): boolean {
+/**
+ * Only known transport failures retry; explicit permanent diagnostics always win. A
+ * `GitHubOperationError` the boundary classified (`reason` other than `failed`) decides by its
+ * own `retryable`; everything else (git, unclassified gh) falls back to the text heuristics.
+ */
+export function isTransientPublicationFailure(failure: PublicationFailure, cause?: unknown): boolean {
+  if (cause instanceof GitHubOperationError && cause.reason !== "failed") return cause.retryable;
   const text = `${failure.message}\n${failure.stdoutTail ?? ""}\n${failure.stderrTail ?? ""}`.toLowerCase();
   if (
     /auth|permission|forbidden|not found|invalid|rate.?limit|\b429\b|non-fast-forward|failed to push some refs/.test(
@@ -105,7 +112,7 @@ export async function runPublicationWithRetry<T>(
       if (existingFailure?.operation === "gh pr ready --undo") throw original;
       const failure = normalizePublicationFailure(operation, original);
       details.set(original, failure);
-      if (!isTransientPublicationFailure(failure) || attempt === 3) throw original;
+      if (!isTransientPublicationFailure(failure, original) || attempt === 3) throw original;
       options.retryNotice(`${operation}: ${formatPublicationFailure(failure)}; retrying (attempt ${attempt + 1}/3)`);
       await options.delay(1000);
     }

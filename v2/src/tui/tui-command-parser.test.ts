@@ -32,7 +32,7 @@ describe("parseTuiCommand", () => {
     expectCode("start jarvis --seed v2/spec/seeds/foo.md", "unknown_verb");
   });
 
-  test("pipeline start accepts and ignores --detach", () => {
+  test("pipeline start accepts and ignores --detach anywhere, like the CLI", () => {
     const expected = {
       kind: "start" as const,
       project: "jarvis",
@@ -40,6 +40,21 @@ describe("parseTuiCommand", () => {
     };
     expect(parseTuiCommand("pipeline start jarvis --detach --seed path")).toEqual(expected);
     expect(parseTuiCommand("pipeline start jarvis --seed path --detach")).toEqual(expected);
+    expect(parseTuiCommand("pipeline start --detach jarvis --seed path")).toEqual(expected);
+    expect(parseTuiCommand("pipeline start --seed path jarvis")).toEqual(expected);
+    expect(parseTuiCommand("pipeline start jarvis --seed=path")).toEqual(expected);
+  });
+
+  test("pipeline start carries --risk / --effort through like the CLI", () => {
+    expect(parseTuiCommand("pipeline start jarvis --seed path --risk low --effort=high")).toEqual({
+      kind: "start",
+      project: "jarvis",
+      seed: { mode: "path", value: "path" },
+      risk: "low",
+      effort: "high",
+    });
+    expectCode("pipeline start jarvis --seed path --risk", "missing_option_value");
+    expectCode("pipeline start jarvis --seed path --detach=yes", "unknown_option");
   });
 
   test("selection-scoped steering rejects trailing positionals", () => {
@@ -64,16 +79,15 @@ describe("parseTuiCommand", () => {
   });
 
   test.each([
-    ["pipeline start jarvis --seed=value", "unknown_option"],
     ["pipeline start jarvis --seed a --seed b", "duplicate_seed_flag"],
     ["pipeline start jarvis --seed-text a --seed-text b", "duplicate_seed_flag"],
     ["pipeline start jarvis --seed a --seed-text b", "both_seed_flags"],
-    ["pipeline start jarvis --", "unknown_option"],
+    ["pipeline start jarvis --", "missing_seed_choice"],
     ["pipeline start jarvis --wat value", "unknown_option"],
     ["pipeline start jarvis -x", "unknown_option"],
     ["pipeline start jarvis --seed --seed-text", "missing_seed_value"],
     ["pipeline start jarvis --seed -x", "missing_seed_value"],
-    ["pipeline start --seed value", "extra_positional"],
+    ["pipeline start --seed value", "missing_project"],
   ] as const)("enforces canonical start grammar: %s", (input, code) => {
     expectCode(input, code);
   });
@@ -121,7 +135,8 @@ describe("parseTuiCommand", () => {
 
   test.each([
     ['pipeline approve "', "unterminated_quote"],
-    ["pipeline start jarvis stray --unknown", "extra_positional"],
+    ["pipeline start jarvis stray --unknown", "unknown_option"],
+    ["pipeline start jarvis stray --seed a", "extra_positional"],
     ["pipeline start jarvis --unknown stray", "unknown_option"],
     ["pipeline start jarvis --seed --unknown stray", "missing_seed_value"],
     ["pipeline start jarvis --seed a --seed b --seed-text c", "duplicate_seed_flag"],

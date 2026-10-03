@@ -1,7 +1,10 @@
+import { parseArgs } from "node:util";
+import { PIPELINE_START_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
+
 export type TuiSeed = { mode: "path"; value: string } | { mode: "text"; value: string };
 
 export type TuiCommand =
-  | { kind: "start"; project: string; seed: TuiSeed }
+  | { kind: "start"; project: string; seed: TuiSeed; risk?: string; effort?: string }
   | { kind: "expand" }
   | { kind: "collapse" }
   | { kind: "approve" }
@@ -15,21 +18,17 @@ export type TuiCommandErrorCode =
   | "malformed_input"
   | "unterminated_quote"
   | "unknown_verb"
-  | "recognized_unavailable"
   | "missing_project"
   | "missing_seed_choice"
   | "missing_seed_value"
   | "both_seed_flags"
   | "duplicate_seed_flag"
+  | "missing_option_value"
   | "unknown_option"
   | "extra_positional"
   | "unexpected_arguments";
 
-type PlainTuiCommandErrorCode = Exclude<TuiCommandErrorCode, "recognized_unavailable">;
-
-export type TuiCommandError =
-  | { kind: "error"; code: PlainTuiCommandErrorCode }
-  | { kind: "error"; code: "recognized_unavailable"; command: string };
+export type TuiCommandError = { kind: "error"; code: TuiCommandErrorCode };
 
 export type TuiCommandParseResult = TuiCommand | TuiCommandError;
 
@@ -83,63 +82,77 @@ export function tokenizeTuiCommand(input: string): TuiTokenizeResult {
   return { kind: "tokens", tokens };
 }
 
-function error(code: PlainTuiCommandErrorCode): TuiCommandError {
+function error(code: TuiCommandErrorCode): TuiCommandError {
   return { kind: "error", code };
 }
 
-function parsePipelineStartBody(tokens: readonly string[]): TuiCommandParseResult {
-  const pathSeeds: string[] = [];
-  const textSeeds: string[] = [];
-  for (let index = 1; index < tokens.length; index += 1) {
-    const token = tokens[index] as string;
-    switch (token) {
-      case "--detach":
-        break;
-      case "--seed":
-      case "--seed-text": {
-        const value = tokens[index + 1];
-        if (value === undefined || value.startsWith("-")) return error("missing_seed_value");
-        (token === "--seed" ? pathSeeds : textSeeds).push(value);
-        index += 1;
-        break;
-      }
-      default:
-        if (token.startsWith("-")) return error("unknown_option");
-        return error("extra_positional");
-    }
-  }
+/** `parseArgs` options for the dock's `pipeline start`: the CLI's, with the seed flags collected so a repeat is an error rather than last-wins. */
+const START_PARSE_ARG_OPTIONS = {
+  ...PIPELINE_START_PARSE_ARG_OPTIONS,
+  seed: { type: "string", multiple: true },
+  "seed-text": { type: "string", multiple: true },
+} as const;
 
+type StartParse = ReturnType<typeof parseArgs<{ options: typeof START_PARSE_ARG_OPTIONS; allowPositionals: true }>>;
+
+/** Maps a strict `parseArgs` rejection to a dock code: unknown flag, or a string flag without a value (seed flags keep their named code). */
+function startParseErrorCode(thrown: unknown): TuiCommandErrorCode {
+  const { code, message } = (thrown ?? {}) as { code?: unknown; message?: unknown };
+  if (code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") return "unknown_option";
+  if (code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE" && typeof message === "string") {
+    if (/'--seed(?:-text)?/.test(message)) return "missing_seed_value";
+    if (/does not take an argument/.test(message)) return "unknown_option";
+    return "missing_option_value";
+  }
+  return "malformed_input";
+}
+
+/** Parses the tokens after `pipeline start` with the CLI's own `parseArgs` options, so flag placement and `--flag=value` match `jarvis pipeline start`. */
+function parsePipelineStartBody(tokens: readonly string[]): TuiCommandParseResult {
+  let parsed: StartParse;
+  try {
+    parsed = parseArgs({ args: [...tokens], allowPositionals: true, strict: true, options: START_PARSE_ARG_OPTIONS });
+  } catch (thrown) {
+    return error(startParseErrorCode(thrown));
+  }
+  const { positionals, values } = parsed;
+  const project = positionals[0];
+  if (project === undefined) return error("missing_project");
+  if (positionals.length > 1) return error("extra_positional");
+
+  const pathSeeds = values.seed ?? [];
+  const textSeeds = values["seed-text"] ?? [];
   if (pathSeeds.length > 1 || textSeeds.length > 1) return error("duplicate_seed_flag");
   if (pathSeeds.length === 1 && textSeeds.length === 1) return error("both_seed_flags");
-  if (pathSeeds.length === 0 && textSeeds.length === 0) return error("missing_seed_choice");
-  if (pathSeeds[0] !== undefined) {
-    return { kind: "start", project: tokens[0] as string, seed: { mode: "path", value: pathSeeds[0] } };
-  }
+  const seed: TuiSeed | undefined =
+    pathSeeds[0] !== undefined
+      ? { mode: "path", value: pathSeeds[0] }
+      : textSeeds[0] !== undefined
+        ? { mode: "text", value: textSeeds[0] }
+        : undefined;
+  if (seed === undefined) return error("missing_seed_choice");
   return {
     kind: "start",
-    project: tokens[0] as string,
-    seed: { mode: "text", value: textSeeds[0] as string },
+    project,
+    seed,
+    ...(values.risk !== undefined ? { risk: values.risk } : {}),
+    ...(values.effort !== undefined ? { effort: values.effort } : {}),
   };
 }
 
-function parsePipelineCommand(tokens: readonly string[]): TuiCommandParseResult {
-  const sub = tokens[1];
-  if (sub === undefined) return error("unknown_verb");
-  if (sub === "start") {
-    if (tokens.length === 2) return error("missing_project");
-    return parsePipelineStartBody(tokens.slice(2));
-  }
-  if (sub === "approve" || sub === "reject" || sub === "resume") {
-    if (tokens.length > 2) return error("unexpected_arguments");
-    return { kind: sub };
-  }
-  return error("unknown_verb");
-}
+type SelectionKind = Exclude<TuiCommand["kind"], "start" | "expand" | "collapse">;
 
-function parseRunCommand(tokens: readonly string[]): TuiCommandParseResult {
+/** `<verb> <sub>` → selection-scoped command kind; `pipeline start` is the one sub that takes a body. */
+const SUBCOMMANDS: Readonly<Record<"pipeline" | "run", Readonly<Record<string, SelectionKind>>>> = {
+  pipeline: { approve: "approve", reject: "reject", resume: "resume" },
+  run: { kill: "kill", resume: "resume-run", log: "log" },
+};
+
+function parseSubcommand(verb: keyof typeof SUBCOMMANDS, tokens: readonly string[]): TuiCommandParseResult {
   const sub = tokens[1];
   if (sub === undefined) return error("unknown_verb");
-  const kind = sub === "kill" ? "kill" : sub === "resume" ? "resume-run" : sub === "log" ? "log" : undefined;
+  if (verb === "pipeline" && sub === "start") return parsePipelineStartBody(tokens.slice(2));
+  const kind = Object.hasOwn(SUBCOMMANDS[verb], sub) ? SUBCOMMANDS[verb][sub] : undefined;
   if (kind === undefined) return error("unknown_verb");
   if (tokens.length > 2) return error("unexpected_arguments");
   return { kind };
@@ -156,7 +169,6 @@ export function parseTuiCommand(input: string): TuiCommandParseResult {
     if (tokens.length > 1) return error("unexpected_arguments");
     return { kind: verb as "expand" | "collapse" };
   }
-  if (verb === "pipeline") return parsePipelineCommand(tokens);
-  if (verb === "run") return parseRunCommand(tokens);
+  if (verb === "pipeline" || verb === "run") return parseSubcommand(verb, tokens);
   return error("unknown_verb");
 }

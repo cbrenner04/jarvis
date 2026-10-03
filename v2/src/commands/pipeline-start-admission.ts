@@ -1,5 +1,6 @@
-import { accessSync, constants, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
+import { parseSeedMetadata } from "../../../shared/seed-metadata.ts";
 import { formatConnectionError, formatLifecycleError, formatRpcError } from "../cli/ipc.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { isLoadError } from "../config/agent-model-config.ts";
@@ -26,6 +27,7 @@ type PipelineStartPreAdmissionFailure =
   | "missing-machine-model-configuration"
   | "invalid-machine-model-configuration"
   | "invalid-seed-path"
+  | "invalid-seed-rating"
   | "invalid-project-pipeline";
 
 type PipelineStartAdmissionFailure =
@@ -83,7 +85,7 @@ function resolvePipelineSeed(
   cwd: string,
   seedPath: string,
   projectRoot: string,
-): { ok: true } | { ok: false; detail: string } {
+): { ok: true; text: string } | { ok: false; detail: string } {
   if (isAbsolute(seedPath)) return { ok: false, detail: "pipeline: --seed must be a relative path\n" };
   const path = join(cwd, seedPath);
   try {
@@ -98,7 +100,7 @@ function resolvePipelineSeed(
       };
     }
     accessSync(canonical, constants.R_OK);
-    return { ok: true };
+    return { ok: true, text: readFileSync(canonical, "utf8") };
   } catch (error) {
     return {
       ok: false,
@@ -215,17 +217,25 @@ export async function admitPipelineStart(
   const { registry, projectEntry, agentModelConfig } = config;
 
   const { seedPath } = seed;
+  let seedText = seed.seedText as string;
   if (seedPath !== undefined) {
     const seedResolution = resolvePipelineSeed(deps.cwd, seedPath, projectEntry.root);
     if (!seedResolution.ok) {
       return preAdmissionFailure("invalid-seed-path", seedResolution.detail);
     }
+    seedText = seedResolution.text;
+  }
+
+  const metadata = parseSeedMetadata(seedText);
+  if (!metadata.ok) {
+    return preAdmissionFailure("invalid-seed-rating", `pipeline: ${metadata.message}\n`);
   }
 
   const pipelineResolution = deps.resolveProjectPipeline(
     { projectKey, pipeline: config.pipeline },
     deps.getPipelineDefinition,
     agentModelConfig,
+    metadata.metadata,
   );
   if (!pipelineResolution.ok) {
     return preAdmissionFailure("invalid-project-pipeline", formatProjectPipelineResolutionError(pipelineResolution));

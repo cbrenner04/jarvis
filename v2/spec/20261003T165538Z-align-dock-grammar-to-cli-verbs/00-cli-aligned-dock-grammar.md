@@ -33,17 +33,17 @@ The TUI dock parses bespoke one-word verbs (`start`, `approve`, `kill`, `resume-
 
 ## Acceptance criteria
 
-- [ ] `tui-command-parser.test.ts` test `parses CLI-aligned pipeline steering verbs` (new): `pipeline approve`, `pipeline reject`, and `pipeline resume` each parse to the same `kind` as today's bare `approve` / `reject` / `resume`; fails against the pre-fix parser (`unknown_verb` on `pipeline approve`).
-- [ ] `tui-command-parser.test.ts` test `parses CLI-aligned run steering verbs` (new): `run kill`, `run resume`, and `run log` parse to `{ kind: "kill" }`, `{ kind: "resume-run" }`, and `{ kind: "log" }` respectively; fails against the pre-fix parser.
-- [ ] `tui-command-parser.test.ts` test `parses pipeline start with CLI prefix` (new): `pipeline start jarvis --seed v2/spec/seeds/foo.md` and `pipeline start jarvis --seed-text "ship it"` match today's bare `start …` results; bare `start jarvis --seed …` yields `unknown_verb` after the change.
-- [ ] `tui-command-parser.test.ts` test `pipeline start accepts and ignores --detach` (new): `pipeline start jarvis --detach --seed path` and `pipeline start jarvis --seed path --detach` parse like the same command without `--detach`; fails against the pre-fix parser (`unknown_verb` on leading token `pipeline`; pre-fix never reaches start-flag parsing).
-- [ ] `tui-command-parser.test.ts` test `selection-scoped steering rejects trailing positionals` (new): `pipeline approve foo` and `run kill run-1` yield `unexpected_arguments`, pinning the no-explicit-id-on-dock rule for one pipeline verb and one run verb; fails against the pre-fix parser (`unknown_verb`).
-- [ ] `tui-command-parser.test.ts` test `legacy bare verbs are hard-cut` (new): bare `approve`, `kill`, `resume-run`, and `start jarvis --seed x` yield `unknown_verb`; fails against the pre-fix parser (those bare forms parse today).
-- [ ] `tui-command-parser.test.ts` test `pause is no longer a dock verb` stays green and asserts `run pause` → `unknown_verb` (extend test or adjacent case); post-fix pins the same code as bare `pause`.
-- [ ] `tui-command-parser.test.ts` test `expand` / `collapse` bare forms stay green (still parse with no arguments; trailing tokens still `unexpected_arguments`).
-- [ ] `tui-entry.test.ts` test `reports parser and admission failures without losing repairable command input` stays green after its sample buffers use CLI-aligned forms (parse-error and buffer retention unchanged).
-- [ ] `tui-entry.test.ts` run-steering and pipeline-steering dispatch tests stay green after their typed buffers use CLI-aligned forms (`run kill` / `run resume` instead of `kill` / `resume-run`; `pipeline approve` / `pipeline reject` / `pipeline resume` instead of bare names).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-command-parser.test.ts` test `parses CLI-aligned pipeline steering verbs` (new): `pipeline approve`, `pipeline reject`, and `pipeline resume` each parse to the same `kind` as today's bare `approve` / `reject` / `resume`; fails against the pre-fix parser (`unknown_verb` on `pipeline approve`).
+- [x] `tui-command-parser.test.ts` test `parses CLI-aligned run steering verbs` (new): `run kill`, `run resume`, and `run log` parse to `{ kind: "kill" }`, `{ kind: "resume-run" }`, and `{ kind: "log" }` respectively; fails against the pre-fix parser.
+- [x] `tui-command-parser.test.ts` test `parses pipeline start with CLI prefix` (new): `pipeline start jarvis --seed v2/spec/seeds/foo.md` and `pipeline start jarvis --seed-text "ship it"` match today's bare `start …` results; bare `start jarvis --seed …` yields `unknown_verb` after the change.
+- [x] `tui-command-parser.test.ts` test `pipeline start accepts and ignores --detach` (new): `pipeline start jarvis --detach --seed path` and `pipeline start jarvis --seed path --detach` parse like the same command without `--detach`; fails against the pre-fix parser (`unknown_verb` on leading token `pipeline`; pre-fix never reaches start-flag parsing).
+- [x] `tui-command-parser.test.ts` test `selection-scoped steering rejects trailing positionals` (new): `pipeline approve foo` and `run kill run-1` yield `unexpected_arguments`, pinning the no-explicit-id-on-dock rule for one pipeline verb and one run verb; fails against the pre-fix parser (`unknown_verb`).
+- [x] `tui-command-parser.test.ts` test `legacy bare verbs are hard-cut` (new): bare `approve`, `kill`, `resume-run`, and `start jarvis --seed x` yield `unknown_verb`; fails against the pre-fix parser (those bare forms parse today).
+- [x] `tui-command-parser.test.ts` test `pause is no longer a dock verb` stays green and asserts `run pause` → `unknown_verb` (extend test or adjacent case); post-fix pins the same code as bare `pause`.
+- [x] `tui-command-parser.test.ts` test `expand` / `collapse` bare forms stay green (still parse with no arguments; trailing tokens still `unexpected_arguments`).
+- [x] `tui-entry.test.ts` test `reports parser and admission failures without losing repairable command input` stays green after its sample buffers use CLI-aligned forms (parse-error and buffer retention unchanged).
+- [x] `tui-entry.test.ts` run-steering and pipeline-steering dispatch tests stay green after their typed buffers use CLI-aligned forms (`run kill` / `run resume` instead of `kill` / `resume-run`; `pipeline approve` / `pipeline reject` / `pipeline resume` instead of bare names).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

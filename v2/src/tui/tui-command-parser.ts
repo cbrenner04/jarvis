@@ -35,7 +35,7 @@ export type TuiCommandParseResult = TuiCommand | TuiCommandError;
 
 export type TuiTokenizeResult = { kind: "tokens"; tokens: string[] } | { kind: "error"; code: "unterminated_quote" };
 
-const ZERO_ARG_VERBS = new Set(["expand", "collapse", "approve", "reject", "resume", "kill", "resume-run", "log"]);
+const BARE_VERBS = new Set(["expand", "collapse"]);
 
 export function tokenizeTuiCommand(input: string): TuiTokenizeResult {
   const tokens: string[] = [];
@@ -87,14 +87,16 @@ function error(code: PlainTuiCommandErrorCode): TuiCommandError {
   return { kind: "error", code };
 }
 
-function parseStart(tokens: readonly string[]): TuiCommandParseResult {
-  if (tokens.length < 2) return error("missing_project");
+function parsePipelineStartBody(tokens: readonly string[]): TuiCommandParseResult {
+  if (tokens.length < 1) return error("missing_project");
 
   const pathSeeds: string[] = [];
   const textSeeds: string[] = [];
-  for (let index = 2; index < tokens.length; index += 1) {
+  for (let index = 1; index < tokens.length; index += 1) {
     const token = tokens[index] as string;
     switch (token) {
+      case "--detach":
+        break;
       case "--seed":
       case "--seed-text": {
         const value = tokens[index + 1];
@@ -113,13 +115,45 @@ function parseStart(tokens: readonly string[]): TuiCommandParseResult {
   if (pathSeeds.length === 1 && textSeeds.length === 1) return error("both_seed_flags");
   if (pathSeeds.length === 0 && textSeeds.length === 0) return error("missing_seed_choice");
   if (pathSeeds[0] !== undefined) {
-    return { kind: "start", project: tokens[1] as string, seed: { mode: "path", value: pathSeeds[0] } };
+    return { kind: "start", project: tokens[0] as string, seed: { mode: "path", value: pathSeeds[0] } };
   }
   return {
     kind: "start",
-    project: tokens[1] as string,
+    project: tokens[0] as string,
     seed: { mode: "text", value: textSeeds[0] as string },
   };
+}
+
+function parsePipelineCommand(tokens: readonly string[]): TuiCommandParseResult {
+  const sub = tokens[1];
+  if (sub === undefined) return error("unknown_verb");
+  if (sub === "start") {
+    if (tokens.length === 2) return error("missing_project");
+    return parsePipelineStartBody(tokens.slice(2));
+  }
+  if (sub === "approve" || sub === "reject" || sub === "resume") {
+    if (tokens.length > 2) return error("unexpected_arguments");
+    return { kind: sub };
+  }
+  return error("unknown_verb");
+}
+
+function parseRunCommand(tokens: readonly string[]): TuiCommandParseResult {
+  const sub = tokens[1];
+  if (sub === undefined) return error("unknown_verb");
+  if (sub === "kill") {
+    if (tokens.length > 2) return error("unexpected_arguments");
+    return { kind: "kill" };
+  }
+  if (sub === "resume") {
+    if (tokens.length > 2) return error("unexpected_arguments");
+    return { kind: "resume-run" };
+  }
+  if (sub === "log") {
+    if (tokens.length > 2) return error("unexpected_arguments");
+    return { kind: "log" };
+  }
+  return error("unknown_verb");
 }
 
 export function parseTuiCommand(input: string): TuiCommandParseResult {
@@ -129,10 +163,11 @@ export function parseTuiCommand(input: string): TuiCommandParseResult {
   if (tokens.length === 0) return error("malformed_input");
 
   const verb = tokens[0] as string;
-  if (verb === "start") return parseStart(tokens);
-  if (!ZERO_ARG_VERBS.has(verb)) return error("unknown_verb");
-  if (tokens.length > 1) return error("unexpected_arguments");
-  return {
-    kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" | "kill" | "resume-run" | "log",
-  };
+  if (BARE_VERBS.has(verb)) {
+    if (tokens.length > 1) return error("unexpected_arguments");
+    return { kind: verb as "expand" | "collapse" };
+  }
+  if (verb === "pipeline") return parsePipelineCommand(tokens);
+  if (verb === "run") return parseRunCommand(tokens);
+  return error("unknown_verb");
 }

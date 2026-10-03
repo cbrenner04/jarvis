@@ -506,34 +506,9 @@ export function createRunLifecycleHandlers(
   const runTimeoutRefusal = (run: { id: string; project: string; workflowSnapshot?: WorkflowSnapshot | null }) =>
     runTimeoutExhaustedRefusal(store, runBudgetKey(run), ctx.runTimeout?.budgetMs?.(run.project));
 
-  const reconstructDirectWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
-    if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
-    const input = run.queuedInput;
-    if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
-    const {
-      initialIterationsConsumed: _initialIterationsConsumed,
-      mutationDirectiveReprompt: _mutationDirectiveReprompt,
-      guardCheckpointReprompt: _guardCheckpointReprompt,
-      keystoneDirectiveReprompt: _keystoneDirectiveReprompt,
-      ...baseInput
-    } = input as WriteLoopInput & Record<string, unknown>;
-    const draftContractReprompt = findDraftContractRepromptStateFromLog(logRecords);
-    return resolveWriteLoopBindings(
-      {
-        ...baseInput,
-        ...(draftContractReprompt.pending !== undefined
-          ? { draftContractReprompt: draftContractReprompt.pending }
-          : {}),
-        ...(draftContractReprompt.spent ? { draftContractRepromptSpent: true as const } : {}),
-      },
-      writeLoopBindingSourceDeps,
-    );
-  };
-
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat snapshot-step guard chain plus one conditional-spread write-loop input literal; nesting inside the binding-source factory adds the increments
   const reconstructWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
     const snapshot = run.workflowSnapshot;
-    if (!snapshot) return reconstructDirectWriteResume(run, logRecords);
+    if (!snapshot) return { ok: false, message: "run has no matching workflow snapshot step" };
     const stepId = run.stepId;
     const step = stepId ? findSnapshotStepForRunStepId(snapshot.steps, stepId) : undefined;
 
@@ -760,7 +735,7 @@ export function createRunLifecycleHandlers(
   ): void => {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
-    activeRuns.set(ks, { kind: "write-loop", runId, key, abortController });
+    activeRuns.set(ks, { kind: "workflow", runId, abortController });
 
     registry.claim(key, { runId, worktreePath });
     const runTimeout = armDispatchRunTimeout(
@@ -827,84 +802,22 @@ export function createRunLifecycleHandlers(
     );
   };
 
-  const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
-    const resolved = resolveWriteLoopBindings(rawInput, writeLoopBindingSourceDeps);
-    if (!resolved.ok) {
-      return { kind: "error", code: "invalid_params", message: resolved.message };
-    }
-    const input = resolved.input;
-    const key: OwnershipKey = {
-      project: input.worktree.projectName,
-      branch: input.worktree.branchName,
-    };
-
-    // Already queued for this (project, branch)? Never queue a second entry behind it.
-    if (store.hasQueuedRun(key)) {
-      return {
-        kind: "error",
-        code: "worktree_claimed",
-        message: worktreeClaimedMessage(key),
-      };
-    }
-
-    // Claimed by a live run? Reject rather than queue behind or admit a second live run.
-    const claimError = checkWorktreeClaimed(registry, key);
-    if (claimError) {
-      return claimError;
-    }
-
-    const worktreePath = getExternalWorktreePath(input.worktree);
-
-    if (!checkMemoryHeadroom()) {
-      const runId = store.createRun({
-        project: key.project,
-        specRef: input.worktree.baseRef,
-        worktreePath,
-        branch: key.branch,
-        specPath: input.specPath,
-        status: "queued",
-        queuedInput: input,
-        ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
-        ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
-      });
-      // Memory may have recovered between the check above and this row being
-      // persisted; recheck once immediately rather than waiting for a later exit.
-      promoteQueuedRun(true);
-      return { kind: "response", result: { runId } };
-    }
-
-    const runId = store.createRun({
-      project: key.project,
-      specRef: input.worktree.baseRef,
-      worktreePath,
-      branch: key.branch,
-      specPath: input.specPath,
-      queuedInput: input,
-      ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
-      ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
-    });
-
-    spawnWriteLoop(key, runId, worktreePath, input);
-    promoteQueuedRun();
-
-    return { kind: "response", result: { runId } };
-  };
-
   const startHandler: RpcHandler = (frame) => {
     if (ctx.retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
     const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
-    const hasInput = params?.input !== undefined;
-    const hasSteps = params?.steps !== undefined;
-
-    if (hasInput === hasSteps) {
-      return { kind: "error", code: "invalid_params", message: "Provide exactly one of input or steps" };
+    if (params?.input !== undefined) {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: "Direct write start via input is not supported; provide workflow steps",
+      };
     }
-
-    return hasSteps
-      ? deps.handleWorkflowStart(params?.steps as AnyWorkflowStep[])
-      : handleWriteLoopStart(params?.input as WriteLoopInput);
+    if (params?.steps === undefined) {
+      return { kind: "error", code: "invalid_params", message: "steps required" };
+    }
+    return deps.handleWorkflowStart(params.steps);
   };
 
   /** Index every durable run's full row, grouping workflow step rows by invocation. */

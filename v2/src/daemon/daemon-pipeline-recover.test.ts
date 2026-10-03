@@ -636,14 +636,15 @@ test("live workflow starts and recovery share ownership and memory refusal prece
 
   const queued = await runPair(
     "queued",
-    async ({ branch, handlers: queuedHandlers }) => {
-      const queued = await queuedHandlers.start(
-        requestFrame("queue-owner", "start", {
-          input: mockWriteLoopInput({ projectName: "demo", branchName: branch }),
-        }),
-        new AbortController().signal,
-      );
-      expect(queued.kind).toBe("response");
+    async ({ branch }) => {
+      stateStore.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath: `/fake/wt-${branch}`,
+        branch,
+        specPath: "spec.md",
+        status: "queued",
+      });
     },
     "worktree_claimed",
   );

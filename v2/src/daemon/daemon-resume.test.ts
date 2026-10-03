@@ -3574,38 +3574,6 @@ const PAUSED_LOOP_FINISHED = {
   resumable: true,
 } as const satisfies LogEvent;
 
-function createPausedDirectWriteRun(branchName = "direct-replay", queuedExtra?: Record<string, unknown>): string {
-  const { jarvisRoot } = createJarvisHome();
-  roots.push(join(jarvisRoot, ".."));
-  const queuedInput = {
-    ...mockWriteLoopInput({
-      projectRoot: "/fake",
-      projectName: branchName,
-      branchName,
-      baseRef: "HEAD",
-      jarvisRoot,
-    }),
-    promptId: "implement.prompt.body",
-    maxIterations: 3,
-    bindings: [],
-    bindingResolution: {
-      role: "implement",
-      agents: ["codex"],
-      agentModelConfig: AGENT_MODEL_CONFIG,
-    },
-    ...queuedExtra,
-  } as WriteLoopInput;
-  return stateStore.createRun({
-    project: branchName,
-    specRef: "HEAD",
-    worktreePath: "/fake",
-    branch: branchName,
-    specPath: "spec.md",
-    status: "paused",
-    queuedInput,
-  });
-}
-
 function expectNoCheckpointRepromptReplay(input: WriteLoopInput | undefined): void {
   expect(input).not.toHaveProperty("mutationDirectiveReprompt");
   expect(input).not.toHaveProperty("guardCheckpointReprompt");
@@ -3729,8 +3697,8 @@ test("paused implement resume restores landing-contract but ignores checkpoint r
   });
 });
 
-test("paused direct implement resume ignores historical checkpoint reprompt log events", async () => {
-  const runId = createPausedDirectWriteRun();
+test("paused workflow implement resume ignores historical checkpoint reprompt log events", async () => {
+  const runId = createPausedImplementRepromptRun("direct-replay");
   const response = await resumeDirect(
     createHandlers(
       logReader(runId, [
@@ -3744,40 +3712,21 @@ test("paused direct implement resume ignores historical checkpoint reprompt log 
   expect(response.kind).toBe("response");
   expect(starts).toHaveLength(1);
   expectNoCheckpointRepromptReplay(starts[0]);
-  expect(starts[0]?.maxIterations).toBe(3);
+  expect(starts[0]?.maxIterations).toBeUndefined();
 });
 
-test("paused direct write resume strips stale checkpoint queuedInput without seeding iteration budget", async () => {
-  const runId = createPausedDirectWriteRun("direct-stale-queued", {
-    mutationDirectiveReprompt: {
-      directives: [
-        {
-          pinningFile: "pin-a.test.ts",
-          line: 2,
-          raw: '// @mutate target.ts "missing-a" -> "x"',
-          reason: "target_absent",
-        },
-      ],
-      display: "truncated…",
-    },
-    guardCheckpointReprompt: { repairs: GUARD_REPAIRS },
-    keystoneDirectiveReprompt: {
-      criterionText: "- [x] `keystone.test.ts` — `keystone pin`",
-      pinPath: "keystone.test.ts",
-    },
-    initialIterationsConsumed: 5,
-  });
+test("paused workflow implement resume ignores stale checkpoint fields without seeding iteration budget", async () => {
+  const runId = createPausedImplementRepromptRun("direct-stale-snapshot");
 
   const response = await resumeDirect(createHandlers(), runId);
 
   expect(response.kind).toBe("response");
   expect(starts).toHaveLength(1);
   expectNoCheckpointRepromptReplay(starts[0]);
-  expect(starts[0]?.maxIterations).toBe(3);
 });
 
-test("a direct write resume replays an interrupted plan-draft repair from log", async () => {
-  const runId = createPausedDirectWriteRun("direct-plan-draft-interrupted-repair");
+test("a workflow implement resume replays an interrupted plan-draft repair from log", async () => {
+  const runId = createPausedImplementRepromptRun("direct-plan-draft-interrupted-repair");
 
   const response = await resumeDirect(
     createHandlers(

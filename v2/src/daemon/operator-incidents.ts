@@ -274,7 +274,7 @@ function previewPipelineIncidentKeys(
   return keys;
 }
 
-/** A `run_timeout` settlement not owned by a pipeline stage: workflow and direct write-loop rows alike. */
+/** A `run_timeout` settlement not owned by a pipeline stage: workflow rows without stage attribution. */
 function isUnattributedRunTimeout(run: Run, pipelineAttributedRunIds: ReadonlySet<string>): boolean {
   return run.terminalCause === "run_timeout" && run.status === "killed" && !pipelineAttributedRunIds.has(run.id);
 }

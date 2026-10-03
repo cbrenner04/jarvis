@@ -120,14 +120,28 @@ async function resumeDirect(handlers: ReturnType<typeof createRunControlHandlers
 
 function createPausedRun(dbPath: string, worktreeSuffix: string): string {
   const storeA = openStateStore(dbPath, { currentIdentity: IDENTITY_A });
+  const branch = `resume-owner-branch-${worktreeSuffix}`;
   const runId = storeA.createRun({
     project: "project",
     specRef: "main",
     worktreePath: `/tmp/resume-owner-worktree-${worktreeSuffix}`,
-    branch: `resume-owner-branch-${worktreeSuffix}`,
+    branch,
     specPath: `/tmp/resume-owner-spec-${worktreeSuffix}.md`,
+    stepId: "implement",
     status: "paused",
-    queuedInput: mockWriteLoopInput(),
+    workflowSnapshot: {
+      invocationId: `inv-${worktreeSuffix}`,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "rules",
+          expectedArtifactPath: "out.md",
+          agents: ["codex"],
+          agentModelConfig: WORKFLOW_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
   });
   storeA.close();
   return runId;

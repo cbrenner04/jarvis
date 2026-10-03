@@ -6,13 +6,11 @@ import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogEvent } from "../persistence/log-stream.ts";
-import type { StateStore } from "../persistence/state-store.ts";
-import { mockWriteLoopInput } from "../testing/run-control.ts";
+import type { StateStore, WorkflowSnapshotStep } from "../persistence/state-store.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { landReviewedOutputOrFail } from "./workflow-runner-debate-landing.ts";
 import { DEFAULT_STAGED_MARKDOWN_LINT_RUNNER } from "./workflow-runner-resume.test-support.ts";
 import { resolveIntentFinalizationResumeContext, resumePopulatedIntentPublication } from "./workflow-runner-resume.ts";
-import type { WriteLoopInput } from "./write-loop.ts";
 
 const PROSE_PREREQUISITES_INTENT = [
   "---",
@@ -45,7 +43,7 @@ function seedReviewRow(
   workspace: string,
   branch: string,
   invocationId: string,
-  intentQueuedInput?: WriteLoopInput,
+  intentStepExtras?: Partial<WorkflowSnapshotStep>,
 ): string {
   const base = {
     project: "demo",
@@ -62,7 +60,11 @@ function seedReviewRow(
           durable: true,
           expectedArtifactPath: ".jarvis-intent-stage",
           agents: ["claude"],
+          agentModelConfig: {
+            claude: { plan: { rungs: [{ adapterModel: "claude-model", priceKey: "claude" }] } },
+          },
           landingInputs: { sourceRoot: workspace, paths: [], consumeFrom: "worktree" as const },
+          ...intentStepExtras,
         },
         { stepId: "review", role: "", durable: true, behavior: "review" as const },
       ],
@@ -72,7 +74,6 @@ function seedReviewRow(
     ...base,
     specPath: "ready-intents",
     stepId: "intent",
-    ...(intentQueuedInput !== undefined ? { queuedInput: intentQueuedInput } : {}),
   });
   const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
   store.setRunStatus(reviewRunId, "failed");
@@ -95,16 +96,7 @@ describe("intent finalization resume landing-contract reprompt", () => {
 
     await withStateStore(async (store) => {
       const branch = "intent/landing-reprompt";
-      const queuedInput: WriteLoopInput = {
-        ...mockWriteLoopInput({ projectRoot: workspace, projectName: "demo", branchName: branch, baseRef: "none" }),
-        maxIterations: 2,
-        bindingResolution: {
-          role: "plan",
-          agents: ["claude"],
-          agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "claude-model", priceKey: "claude" }] } } },
-        },
-      };
-      const reviewRunId = seedReviewRow(store, workspace, branch, "intent-landing-reprompt", queuedInput);
+      const reviewRunId = seedReviewRow(store, workspace, branch, "intent-landing-reprompt", { maxIterations: 2 });
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
       expect(resolveIntentFinalizationResumeContext(run, store)).toMatchObject({ ok: true });
@@ -144,16 +136,9 @@ describe("intent finalization resume landing-contract reprompt", () => {
 
     await withStateStore(async (store) => {
       const branch = "intent/landing-runner-injection";
-      const queuedInput: WriteLoopInput = {
-        ...mockWriteLoopInput({ projectRoot: workspace, projectName: "demo", branchName: branch, baseRef: "none" }),
+      const reviewRunId = seedReviewRow(store, workspace, branch, "intent-landing-runner-injection", {
         maxIterations: 2,
-        bindingResolution: {
-          role: "plan",
-          agents: ["claude"],
-          agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "claude-model", priceKey: "claude" }] } } },
-        },
-      };
-      const reviewRunId = seedReviewRow(store, workspace, branch, "intent-landing-runner-injection", queuedInput);
+      });
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
 
@@ -233,16 +218,7 @@ describe("intent finalization resume landing-contract reprompt", () => {
 
     await withStateStore(async (store) => {
       const branch = "intent/landing-exhaust";
-      const queuedInput: WriteLoopInput = {
-        ...mockWriteLoopInput({ projectRoot: workspace, projectName: "demo", branchName: branch, baseRef: "none" }),
-        maxIterations: 2,
-        bindingResolution: {
-          role: "plan",
-          agents: ["claude"],
-          agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "claude-model", priceKey: "claude" }] } } },
-        },
-      };
-      const reviewRunId = seedReviewRow(store, workspace, branch, "intent-landing-exhaust", queuedInput);
+      const reviewRunId = seedReviewRow(store, workspace, branch, "intent-landing-exhaust", { maxIterations: 2 });
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
 

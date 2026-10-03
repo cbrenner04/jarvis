@@ -459,6 +459,13 @@ type WriteSiblingCommandSource = {
   snapshotStep?: WorkflowSnapshotStep;
 };
 
+type LegacyQueuedInputCarrier = { queuedInput?: WriteLoopInput | null };
+
+function legacyQueuedInput(run: unknown): WriteLoopInput | null | undefined {
+  if (typeof run !== "object" || run === null) return undefined;
+  return (run as LegacyQueuedInputCarrier).queuedInput;
+}
+
 function snapshotStepHasGateCommands(step: WorkflowSnapshotStep | undefined): boolean {
   return step?.fixCommand !== undefined || step?.readyCommand !== undefined;
 }
@@ -472,7 +479,7 @@ export function resolveWriteSiblingCommandSource(
   const ownStep = snapshot?.steps.find((candidate) => candidate.stepId === run.stepId);
   if (ownStep && ownStep.behavior !== "review" && ownStep.behavior !== "review-debate") {
     return {
-      ...(run.queuedInput != null ? { queuedInput: run.queuedInput } : {}),
+      ...(legacyQueuedInput(run) != null ? { queuedInput: legacyQueuedInput(run) as WriteLoopInput } : {}),
       snapshotStep: ownStep,
     };
   }
@@ -482,7 +489,7 @@ export function resolveWriteSiblingCommandSource(
     snapshotStepHasGateCommands(ownStep)
   ) {
     return {
-      ...(run.queuedInput != null ? { queuedInput: run.queuedInput } : {}),
+      ...(legacyQueuedInput(run) != null ? { queuedInput: legacyQueuedInput(run) as WriteLoopInput } : {}),
       snapshotStep: ownStep,
     };
   }
@@ -493,7 +500,7 @@ export function resolveWriteSiblingCommandSource(
   if (!writeRun) return undefined;
   const snapshotStep = snapshot?.steps.find((candidate) => candidate.stepId === writeStepId);
   return {
-    ...(writeRun.queuedInput != null ? { queuedInput: writeRun.queuedInput } : {}),
+    ...(legacyQueuedInput(writeRun) != null ? { queuedInput: legacyQueuedInput(writeRun) as WriteLoopInput } : {}),
     ...(snapshotStep !== undefined ? { snapshotStep } : {}),
   };
 }
@@ -1130,8 +1137,16 @@ async function repromptIntentLandingContractOnResume(
   store: StateStore,
   deps: IntentFinalizationResumeDeps,
 ): Promise<IntentFinalizationResumeOutcome | undefined> {
-  const bindingResolution = writeSibling?.queuedInput?.bindingResolution;
-  let repromptsRemaining = writeSibling?.queuedInput?.maxIterations ?? REVIEW_LANDING_CONTRACT_RESUME_MAX_REPROMPTS;
+  const snapshotStep = writeSibling?.snapshotStep;
+  const bindingResolution =
+    snapshotStep?.agents !== undefined && snapshotStep.agents.length > 0 && snapshotStep.agentModelConfig !== undefined
+      ? {
+          role: snapshotStep.role,
+          agents: snapshotStep.agents,
+          agentModelConfig: snapshotStep.agentModelConfig,
+        }
+      : undefined;
+  let repromptsRemaining = snapshotStep?.maxIterations ?? REVIEW_LANDING_CONTRACT_RESUME_MAX_REPROMPTS;
 
   for (;;) {
     const gate = await evaluateIntentSplitLandingGate({
@@ -1296,8 +1311,8 @@ function inertResumeWriteLoopInput(
   landing?: PublicationLanding,
   writeSibling?: WriteSiblingCommandSource,
 ): WriteLoopInput {
-  const fixCommand = writeSibling?.queuedInput?.fixCommand ?? writeSibling?.snapshotStep?.fixCommand;
-  const readyCommand = writeSibling?.queuedInput?.readyCommand ?? writeSibling?.snapshotStep?.readyCommand;
+  const fixCommand = writeSibling?.snapshotStep?.fixCommand;
+  const readyCommand = writeSibling?.snapshotStep?.readyCommand;
   return {
     worktree: {
       projectRoot: context.worktreePath,
@@ -1672,13 +1687,9 @@ type ReviewMutationResumeResolution =
   | { ok: true; context: ReviewMutationResumeContext }
   | { ok: false; message: string };
 
-function persistedExternalSpecGitScope(
-  writeRun: Pick<Run, "queuedInput">,
-  writeStep: WorkflowSnapshotStep | undefined,
-): ExternalSpecGitScope {
-  const persisted = writeStep?.externalPlanSpec === true ? writeStep : writeRun.queuedInput;
-  return persisted?.externalPlanSpec === true && persisted.specReadRoot !== undefined
-    ? { externalPlanSpec: true, specReadRoot: persisted.specReadRoot }
+function persistedExternalSpecGitScope(writeStep: WorkflowSnapshotStep | undefined): ExternalSpecGitScope {
+  return writeStep?.externalPlanSpec === true && writeStep.specReadRoot !== undefined
+    ? { externalPlanSpec: true, specReadRoot: writeStep.specReadRoot }
     : {};
 }
 
@@ -1760,7 +1771,7 @@ export function reconstructPausedWriteResumeInput(
   }
 
   const expectedArtifactPath = linkedResumeExpectedArtifactPath(routing.active.path, snapshotStep, run.worktreePath);
-  const externalScope = persistedExternalSpecGitScope(run, snapshotStep);
+  const externalScope = persistedExternalSpecGitScope(snapshotStep);
 
   return {
     ok: true,
@@ -1959,7 +1970,7 @@ export function resolveReviewMutationLineageContext(run: Run, store: StateStore)
       ...(writeStep?.role !== undefined ? { writeRole: writeStep.role } : {}),
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
-      ...persistedExternalSpecGitScope(writeRun, writeStep),
+      ...persistedExternalSpecGitScope(writeStep),
       ...leaseFromShaField(writeStep ?? {}),
     },
   };
@@ -2035,7 +2046,7 @@ function resolveOrdinaryWriteResumeContext(
       ...(step?.role !== undefined ? { writeRole: step.role } : {}),
       completionAgent,
       creationTitleHint: snapshot?.creationTitle,
-      ...persistedExternalSpecGitScope(run, step),
+      ...persistedExternalSpecGitScope(step),
       ...leaseFromShaField(step ?? {}),
     },
   };
@@ -2721,7 +2732,7 @@ function buildAutoDerivedMutationRepairDeps(
   const agentModelConfig = snapshotWriteStep.agentModelConfig;
   if (!Array.isArray(agents) || agents.length === 0 || agentModelConfig === undefined) return undefined;
 
-  const stepRules = writeSibling?.queuedInput?.stepRules ?? writeRun.queuedInput?.stepRules ?? DEFAULT_WRITE_STEP_RULES;
+  const stepRules = snapshotWriteStep.stepRules ?? DEFAULT_WRITE_STEP_RULES;
   const createBinding = deps.mutationRepairBindingFactory ?? createResolvedAgentBinding;
   try {
     const bindings = resolveInvocationBindings(

@@ -161,7 +161,6 @@ function seedRefusedRun(
     specPath: "/tmp/redrive-spec.md",
     stepId: "implement",
     workflowSnapshot: options.snapshot ?? snapshotFor(`inv-${branch}`),
-    queuedInput: bareInput(branch),
   });
   const attemptId = target.recordAttemptStart(runId);
   target.commitCompletionBoundary({

@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput } from "../testing/run-control.ts";
+import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import type { WriteLoopBindingSourceDeps } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { deriveOperatorIncidents } from "./operator-incidents.ts";
@@ -59,8 +62,51 @@ const liveTimeouts = (timers: { timers: FakeTimer[] }) => timers.timers.filter((
 const dbPath = join(tmpdir(), `jarvis-run-time-budget-${process.pid}.sqlite`);
 const logsPath = join(tmpdir(), `jarvis-run-time-budget-${process.pid}.jsonl`);
 let store: StateStore;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
+let profileHome: string;
+let previousJarvisHome: string | undefined;
 
 beforeEach(() => {
+  profileHome = trackedMkdtempSync(join(tmpdir(), `jarvis-run-budget-profile-${process.pid}-`));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, "budget-test.json"),
+    JSON.stringify({
+      models: {
+        codex: {
+          implement: rung("codex-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+        cursor: {
+          implement: rung("cursor-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: "budget-test", agents: ["codex", "cursor"] }),
+  );
+  previousJarvisHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+  writeLoopBindingSourceDeps = { machineConfigPath: join(profileHome, "config.json"), machinesDir };
   removeOrchestrationStore(dbPath);
   rmSync(logsPath, { force: true });
   store = openStateStore(dbPath);
@@ -70,6 +116,9 @@ afterEach(() => {
   store.close();
   removeOrchestrationStore(dbPath);
   rmSync(logsPath, { force: true });
+  if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+  else process.env.JARVIS_HOME = previousJarvisHome;
+  rmSync(profileHome, { recursive: true, force: true });
 });
 
 test("remaining budget: fresh, resumed, exhausted", () => {
@@ -168,7 +217,32 @@ test("host sleep (wall clock jumps, monotonic clock does not) consumes no budget
   expect(store.readRunBudgetConsumedMs("inv-sleep")).toBe(200);
 });
 
-test("timer fire aborts a write-loop dispatch, settles killed/run_timeout resumable, and logs run_timeout", async () => {
+function pausedWorkflowRun(branch = "test-branch", project = "test-project"): string {
+  return store.createRun({
+    project,
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch,
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    status: "paused",
+    workflowSnapshot: {
+      invocationId: `inv-${branch}`,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "rules",
+          expectedArtifactPath: "out.md",
+          agents: ["codex"],
+          agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+}
+
+test("timer fire aborts a resumed workflow dispatch, settles killed/run_timeout resumable, and logs run_timeout", async () => {
   const timers = fakeTimers();
   const executor = createFakeWriteLoopExecutor();
   const ctx = createRunControlHandlerContext({
@@ -180,15 +254,17 @@ test("timer fire aborts a write-loop dispatch, settles killed/run_timeout resuma
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
     runTimeout: { budgetMs: () => 1_000, timers },
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "unsupported" }),
   });
-  const started = await handlers.start(
-    { kind: "request", id: "s", method: "start", params: { input: mockWriteLoopInput() } },
+  const runId = pausedWorkflowRun();
+  const resumed = await handlers.resume(
+    { kind: "request", id: "r", method: "resume", params: { runId } },
     new AbortController().signal,
   );
-  const runId = (started as { result: { runId: string } }).result.runId;
+  expect(resumed.kind).toBe("response");
   expect(executor.isAbortSignalTriggered()).toBe(false);
 
   timers.clock.now += 1_000;
@@ -210,15 +286,7 @@ test("timer fire aborts a write-loop dispatch, settles killed/run_timeout resuma
 });
 
 function pausedRun(): string {
-  return store.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-    status: "paused",
-    queuedInput: mockWriteLoopInput(),
-  });
+  return pausedWorkflowRun();
 }
 
 function resumeHandlers(budgetMs: number) {
@@ -232,6 +300,7 @@ function resumeHandlers(budgetMs: number) {
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
     runTimeout: { budgetMs: () => budgetMs, timers },
+    writeLoopBindingSourceDeps,
   });
   return {
     timers,
@@ -372,15 +441,17 @@ test("a dispatch that ignores abort is force-settled run_timeout after the settl
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
     runTimeout: { budgetMs: () => 1_000, timers, settlementBoundMs: 5 },
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "unsupported" }),
   });
-  const started = await handlers.start(
-    { kind: "request", id: "s", method: "start", params: { input: mockWriteLoopInput() } },
+  const runId = pausedWorkflowRun();
+  const resumed = await handlers.resume(
+    { kind: "request", id: "r", method: "resume", params: { runId } },
     new AbortController().signal,
   );
-  const runId = (started as { result: { runId: string } }).result.runId;
+  expect(resumed.kind).toBe("response");
   timers.clock.now += 1_000;
   timers.runDue();
   expect(loadRunOrThrow(store, runId).status).toBe("in-progress");

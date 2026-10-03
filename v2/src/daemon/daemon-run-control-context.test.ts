@@ -102,7 +102,20 @@ async function redrivenRunIds(resolvePredecessorOwner?: (runId: string) => Promi
       worktreePath: "/tmp/ctx-redrive",
       branch: "ctx-redrive",
       specPath: "/tmp/ctx-redrive-spec.md",
-      queuedInput: mockWriteLoopInput({ branchName: "ctx-redrive", projectName: "ctx" }),
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "ctx-redrive",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "r",
+            expectedArtifactPath: "o",
+            agents: ["codex"],
+            agentModelConfig: { codex: { implement: { rungs: [{ adapterModel: "m", priceKey: "m" }] } } },
+          },
+        ],
+      },
     });
     stateStore.commitCompletionBoundary({
       attemptId: stateStore.recordAttemptStart(runId),

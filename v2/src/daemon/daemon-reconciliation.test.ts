@@ -49,17 +49,6 @@ function createRun(store: StateStore, status: RunStatus): string {
     specPath: `/tmp/spec-${status}.md`,
     status,
     workflowSnapshot: { invocationId: `workflow-${status}`, steps: [{ stepId: "step", role: "implement" }] },
-    ...(status === "queued"
-      ? {
-          queuedInput: {
-            worktree: { projectRoot: "/tmp/queued", projectName: "project", branchName: "queued", baseRef: "main" },
-            specPath: "spec.md",
-            stepRules: "",
-            expectedArtifactPath: "",
-            bindings: [],
-          },
-        }
-      : {}),
   });
 }
 
@@ -107,7 +96,7 @@ test("reconciles every orphaned status after a forced daemon stop, retaining dur
       }))
       .sort((a, b) => a.runId.localeCompare(b.runId)),
   );
-  expect(sweepStore.loadRun(runIds[0] as string)?.queuedInput?.worktree.projectRoot).toBe("/tmp/queued");
+  expect(sweepStore.loadRun(runIds[0] as string)?.status).toBe("killed");
   sweepStore.close();
 });
 

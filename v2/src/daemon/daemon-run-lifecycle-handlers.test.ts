@@ -21,8 +21,51 @@ import { deriveOperatorIncidents } from "./operator-incidents.ts";
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
+let profileHome: string;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
+let previousJarvisHome: string | undefined;
 
 beforeEach(() => {
+  profileHome = trackedMkdtempSync(join(tmpdir(), `jarvis-lifecycle-profile-${process.pid}-`));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, "lifecycle-test.json"),
+    JSON.stringify({
+      models: {
+        codex: {
+          plan: rung("plan"),
+          implement: rung("codex-fast"),
+          shrink: rung("shrink"),
+          adversary: rung("adv"),
+          critic: rung("crit"),
+          advocate: rung("advoc"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+        cursor: {
+          plan: rung("plan"),
+          implement: rung("cursor-fast"),
+          shrink: rung("shrink"),
+          adversary: rung("adv"),
+          critic: rung("crit"),
+          advocate: rung("advoc"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: "lifecycle-test", agents: ["codex", "cursor"] }),
+  );
+  previousJarvisHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+  writeLoopBindingSourceDeps = { machineConfigPath: join(profileHome, "config.json"), machinesDir };
   stateStore = openStateStore(join(tmpdir(), `jarvis-lifecycle-${process.pid}-${Date.now()}.db`));
   fakeExecutor = createFakeWriteLoopExecutor();
   memoryHeadroom = true;
@@ -31,12 +74,44 @@ beforeEach(() => {
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
+  if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+  else process.env.JARVIS_HOME = previousJarvisHome;
+  rmSync(profileHome, { recursive: true, force: true });
   try {
     stateStore.close();
   } catch {
     // store may be closed
   }
 });
+
+function pausedImplementRun(
+  overrides: Partial<{ project: string; branch: string; worktreePath: string; specPath: string }> = {},
+): string {
+  const branch = overrides.branch ?? "test-branch";
+  const project = overrides.project ?? branch;
+  return stateStore.createRun({
+    project,
+    specRef: "main",
+    worktreePath: overrides.worktreePath ?? "/tmp/wt",
+    branch,
+    specPath: overrides.specPath ?? "/tmp/spec.md",
+    stepId: "implement",
+    status: "paused",
+    workflowSnapshot: {
+      invocationId: `inv-${branch}`,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "test rules",
+          expectedArtifactPath: "/tmp/artifact",
+          agents: ["codex"],
+          agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+}
 
 function lifecycleHandlers() {
   const ctx = createRunControlHandlerContext({
@@ -46,6 +121,7 @@ function lifecycleHandlers() {
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
@@ -53,21 +129,33 @@ function lifecycleHandlers() {
   return { ctx, handlers };
 }
 
-test("start admits a second project while another run is active", async () => {
+test("start rejects direct write input without workflow steps", async () => {
   const { handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;
-  const input = mockWriteLoopInput();
+  const refused = await handlers.start(
+    { kind: "request", id: "s1", method: "start", params: { input: mockWriteLoopInput() } },
+    signal,
+  );
+  expect(refused).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "Direct write start via input is not supported; provide workflow steps",
+  });
+});
 
-  const first = await handlers.start({ kind: "request", id: "s1", method: "start", params: { input } }, signal);
+test("resume admits a second project while another run is active", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  const firstRunId = pausedImplementRun({ branch: "branch-a", project: "project-a" });
+  const first = await handlers.resume(
+    { kind: "request", id: "r1", method: "resume", params: { runId: firstRunId } },
+    signal,
+  );
   expect(first.kind).toBe("response");
 
-  const second = await handlers.start(
-    {
-      kind: "request",
-      id: "s2",
-      method: "start",
-      params: { input: mockWriteLoopInput({ projectName: "other-project", branchName: "other-branch" }) },
-    },
+  const secondRunId = pausedImplementRun({ branch: "branch-b", project: "project-b" });
+  const second = await handlers.resume(
+    { kind: "request", id: "r2", method: "resume", params: { runId: secondRunId } },
     signal,
   );
   expect(second.kind).toBe("response");
@@ -202,35 +290,25 @@ test("list retains aged-out terminal workflow steps when a kept terminal sibling
 test("list projects live in-progress runs", async () => {
   const { handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;
-  const started = await handlers.start(
-    { kind: "request", id: "s1", method: "start", params: { input: mockWriteLoopInput() } },
-    signal,
-  );
-  expect(started.kind).toBe("response");
-  if (started.kind !== "response") return;
+  const runId = pausedImplementRun({ branch: "list-live", project: "list-live" });
+  const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
+  expect(resumed.kind).toBe("response");
+  await flushBackgroundRuns();
 
   const listed = await handlers.list({ kind: "request", id: "l1", method: "list" }, signal);
   expect(listed.kind).toBe("response");
   if (listed.kind !== "response") return;
 
   const runs = (listed.result as { runs: Array<{ runId: string; isLive: boolean; status: string }> }).runs;
-  const row = runs.find((candidate) => candidate.runId === (started.result as { runId: string }).runId);
+  const row = runs.find((candidate) => candidate.runId === runId);
   expect(row).toMatchObject({ status: "in-progress", isLive: true });
 });
 
-test("resume admits a paused direct write run with durable queuedInput", async () => {
+test("resume admits a paused workflow implement run", async () => {
   const { handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;
-  const branchName = "direct-resume-guard";
-  const runId = stateStore.createRun({
-    project: branchName,
-    specRef: "main",
-    worktreePath: "/tmp/wt",
-    branch: branchName,
-    specPath: "/tmp/spec.md",
-    status: "paused",
-    queuedInput: mockWriteLoopInput({ projectName: branchName, branchName }),
-  });
+  const branchName = "workflow-resume-guard";
+  const runId = pausedImplementRun({ branch: branchName, project: branchName });
 
   const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
   expect(resumed).toEqual({ kind: "response", result: { ok: true } });
@@ -239,15 +317,7 @@ test("resume admits a paused direct write run with durable queuedInput", async (
 test("resume rejects allowLanePrRepublish false without changing the run row", async () => {
   const { handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;
-  const runId = stateStore.createRun({
-    project: "republish-guard",
-    specRef: "main",
-    worktreePath: "/tmp/wt",
-    branch: "republish-guard",
-    specPath: "/tmp/spec.md",
-    status: "paused",
-    queuedInput: mockWriteLoopInput({ projectName: "republish-guard", branchName: "republish-guard" }),
-  });
+  const runId = pausedImplementRun({ branch: "republish-guard", project: "republish-guard" });
   const before = loadRunOrThrow(stateStore, runId);
 
   const refused = await handlers.resume(
@@ -279,21 +349,14 @@ test.each([
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
   });
   const signal = new AbortController().signal;
   const branchName = `paused-republish-${String(rpcAllowLanePrRepublish)}`;
-  const runId = stateStore.createRun({
-    project: branchName,
-    specRef: "main",
-    worktreePath: "/tmp/wt",
-    branch: branchName,
-    specPath: "/tmp/spec.md",
-    status: "paused",
-    queuedInput: mockWriteLoopInput({ projectName: branchName, branchName }),
-  });
+  const runId = pausedImplementRun({ branch: branchName, project: branchName });
 
   const resumed = await handlers.resume(
     {
@@ -1213,14 +1276,12 @@ test("workflow entry wait ignores a same-lane invocation created after the entry
   expect(await waitedEntryRunStatus(entryRunId)).toBe("killed");
 });
 
-test("kill releases write-loop ownership", async () => {
+test("kill releases workflow write ownership", async () => {
   const { ctx, handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;
-  const input = mockWriteLoopInput({ projectName: "pause-kill", branchName: "pause-kill" });
-  const started = await handlers.start({ kind: "request", id: "s1", method: "start", params: { input } }, signal);
-  expect(started.kind).toBe("response");
-  if (started.kind !== "response") return;
-  const runId = (started.result as { runId: string }).runId;
+  const runId = pausedImplementRun({ branch: "pause-kill", project: "pause-kill" });
+  const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
+  expect(resumed.kind).toBe("response");
 
   const killed = await handlers.kill({ kind: "request", id: "k1", method: "kill", params: { runId } }, signal);
   expect(killed).toMatchObject({ kind: "response", result: { ok: true, status: "killed" } });
@@ -1604,15 +1665,7 @@ test("wait projects a completed row's stale publication cause as complete unless
 
 test("run resume admitted while a pipeline-scoped resume awaits admission reopens without the pipeline scope", async () => {
   const pausedRun = (branch: string): string =>
-    stateStore.createRun({
-      project: branch,
-      specRef: "main",
-      worktreePath: `/tmp/${branch}`,
-      branch,
-      specPath: "/tmp/spec.md",
-      status: "paused",
-      queuedInput: mockWriteLoopInput({ projectName: branch, branchName: branch }),
-    });
+    pausedImplementRun({ branch, project: branch, worktreePath: `/tmp/${branch}` });
   const pipelineRunId = pausedRun("pipeline-scoped-resume");
   const plainRunId = pausedRun("plain-run-resume");
   let releasePipelineAdmission = (): void => {};
@@ -1653,6 +1706,7 @@ test("run resume admitted while a pipeline-scoped resume awaits admission reopen
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
@@ -1702,7 +1756,20 @@ test("resumeRunForPipeline resolves terminal log records from logReader for run-
       branch,
       specPath: join(worktreePath, "spec.md"),
       status: "failed",
-      queuedInput: mockWriteLoopInput({ projectName: "demo", branchName: branch, localPath: worktreePath }),
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "pipeline-resume-admission-log",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "rules",
+            expectedArtifactPath: "out.md",
+            agents: ["codex"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      },
     });
     const attemptId = stateStore.recordAttemptStart(runId);
     stateStore.commitCompletionBoundary({
@@ -1739,7 +1806,6 @@ test("resumeRunForPipeline resolves terminal log records from logReader for run-
     expect(outcome).toMatchObject({
       kind: "refused",
       reason: "resume_unsupported",
-      message: "direct write resume requires a paused run",
     });
   } finally {
     fakeExecutor.abortAll();
@@ -1852,7 +1918,20 @@ test("resumeRunForPipeline maps resumeReconstructedRun errors to refused outcome
       handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
     });
     const signal = new AbortController().signal;
-    const claimed = await handlers.start({ kind: "request", id: "claim", method: "start", params: { input } }, signal);
+    const liveRunId = stateStore.createRun({
+      project: "demo",
+      specRef: "main",
+      worktreePath,
+      branch,
+      specPath: join(worktreePath, "spec.md"),
+      stepId: "implement",
+      status: "paused",
+      workflowSnapshot: linkedWorkflowRunSnapshot(branch),
+    });
+    const claimed = await handlers.resume(
+      { kind: "request", id: "claim", method: "resume", params: { runId: liveRunId } },
+      signal,
+    );
     expect(claimed.kind).toBe("response");
 
     const runId = stateStore.createRun({
@@ -1861,8 +1940,9 @@ test("resumeRunForPipeline maps resumeReconstructedRun errors to refused outcome
       worktreePath,
       branch,
       specPath: join(worktreePath, "spec.md"),
+      stepId: "implement",
       status: "paused",
-      queuedInput: input,
+      workflowSnapshot: linkedWorkflowRunSnapshot(`${branch}-sibling`),
     });
 
     const outcome = await handlers.resumeRunForPipeline(runId, {
@@ -1954,6 +2034,7 @@ test("attemptFailedImplementPipelineResume does not tail logs when logReader is 
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
@@ -1985,6 +2066,7 @@ test("attemptFailedImplementPipelineResume tails cause-run logs through logReade
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
   const handlers = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),

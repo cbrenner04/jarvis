@@ -1,18 +1,64 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listOwnedRunsDirect, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { flushBackgroundRuns, listOwnedRunsDirect, listRunsDirect } from "../testing/run-control.ts";
+import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 let handlers: Handlers;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
+let profileHome: string;
+let previousJarvisHome: string | undefined;
 
 beforeEach(() => {
+  profileHome = trackedMkdtempSync(join(tmpdir(), `jarvis-list-owned-profile-${process.pid}-`));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, "list-owned.json"),
+    JSON.stringify({
+      models: {
+        codex: {
+          implement: rung("codex-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+        cursor: {
+          implement: rung("cursor-fast"),
+          plan: rung("plan"),
+          shrink: rung("shrink"),
+          adversary: rung("a"),
+          critic: rung("c"),
+          advocate: rung("adv"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+          routing: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: "list-owned", agents: ["codex", "cursor"] }),
+  );
+  previousJarvisHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+  writeLoopBindingSourceDeps = { machineConfigPath: join(profileHome, "config.json"), machinesDir };
   const stateStorePath = join(tmpdir(), `jarvis-list-owned-${process.pid}-${Date.now()}.db`);
   stateStore = openStateStore(stateStorePath);
   fakeExecutor = createFakeWriteLoopExecutor();
@@ -22,11 +68,16 @@ beforeEach(() => {
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   fakeExecutor.abortAll();
+  await flushBackgroundRuns();
+  if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+  else process.env.JARVIS_HOME = previousJarvisHome;
+  rmSync(profileHome, { recursive: true, force: true });
   try {
     stateStore.close();
   } catch {
@@ -34,13 +85,45 @@ afterEach(() => {
   }
 });
 
+async function startLiveRun(h: Handlers, projectName: string): Promise<string> {
+  const branch = `${projectName}-branch`;
+  const runId = stateStore.createRun({
+    project: projectName,
+    specRef: "main",
+    worktreePath: `/tmp/${projectName}`,
+    branch,
+    specPath: "/tmp/spec.md",
+    stepId: "implement",
+    status: "paused",
+    workflowSnapshot: {
+      invocationId: `inv-${projectName}`,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "rules",
+          expectedArtifactPath: "out.md",
+          agents: ["codex"],
+          agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  const resumed = await h.resume(
+    { kind: "request", id: "r", method: "resume", params: { runId } },
+    new AbortController().signal,
+  );
+  if (resumed.kind !== "response") throw new Error("resume failed");
+  await flushBackgroundRuns();
+  return runId;
+}
+
 async function dismissDirect(h: Handlers, runId: string) {
   return h.dismiss({ kind: "request", id: "d1", method: "dismiss", params: { runId } }, new AbortController().signal);
 }
 
 test("list_owned returns every currently-live row, unfiltered by dismissal, unlike the default public list", async () => {
-  const runId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "p1" }));
-  if (runId === undefined) throw new Error("run did not start");
+  const runId = await startLiveRun(handlers, "p1");
   await dismissDirect(handlers, runId);
 
   const publicRows = await listRunsDirect(handlers);
@@ -52,9 +135,8 @@ test("list_owned returns every currently-live row, unfiltered by dismissal, unli
 });
 
 test("list_owned ignores request-shaped selection: no project filter and no limit, unlike the public filtered/limited list path", async () => {
-  const runA = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "p1" }));
-  const runB = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "p2" }));
-  if (runA === undefined || runB === undefined) throw new Error("run did not start");
+  const runA = await startLiveRun(handlers, "p1");
+  const runB = await startLiveRun(handlers, "p2");
 
   // The public handler's filtered path (any dimension filter set) caps the response to `limit`.
   const filteredPublicRows = await listRunsDirect(handlers, { project: "p1", limit: 1 });
@@ -98,8 +180,7 @@ test("list_owned excludes a durably in-progress row this daemon never admitted i
 });
 
 test("live_run_ids reports only currently-live run ids, without the list projection", async () => {
-  const liveRunId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "p1" }));
-  if (liveRunId === undefined) throw new Error("run did not start");
+  const liveRunId = await startLiveRun(handlers, "p1");
   const terminalRunId = stateStore.createRun({
     project: "proj",
     specRef: "main",

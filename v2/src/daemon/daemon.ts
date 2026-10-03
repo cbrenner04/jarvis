@@ -114,12 +114,6 @@ export type OwnershipKey = {
 
 export type ActiveRun =
   | {
-      kind: "write-loop";
-      runId: string;
-      key: OwnershipKey;
-      abortController: AbortController;
-    }
-  | {
       kind: "workflow";
       runId: string;
       abortController: AbortController;
@@ -136,7 +130,7 @@ export type ActiveRun =
     };
 
 /**
- * Whether `kill` may abort the named durable run id (write-loop or live workflow row).
+ * Whether `kill` may abort the named durable run id (live workflow or finalization row).
  *
  * Authorization is liveness and identity only — deliberately no stall, idle-age, or progress
  * predicate. Four prior attempts gated kill on a stall discriminant and all failed because every
@@ -147,7 +141,7 @@ export function activeRunAcceptsKill(
   runId: string,
 ): activeRun is ActiveRun & { abortController: AbortController } {
   if (!activeRun || activeRun.runId !== runId) return false;
-  return activeRun.kind === "write-loop" || activeRun.kind === "workflow" || activeRun.kind === "finalization";
+  return activeRun.kind === "workflow" || activeRun.kind === "finalization";
 }
 
 /** Whether `kill`'s force path may settle `status`: any non-terminal status, `killed` included. */
@@ -306,8 +300,6 @@ export function workflowStartOwnershipKey(steps: AnyWorkflowStep[]): OwnershipKe
  * True when a workflow entry run's invocation is still live: its promise is tracked *and* at least
  * one tracked row is a workflow row.
  *
- * A `write-loop` row must not satisfy this — it belongs to an unrelated ad-hoc run, and counting it
- * would report a settled workflow entry as still running.
  */
 export function workflowInvocationIsLive(
   hasTrackedEntryPromise: boolean,
@@ -722,51 +714,13 @@ export type PromoteQueuedRunDeps = {
  * performs on the row it just queued).
  */
 export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDelay = false): void {
-  const {
-    store,
-    registry,
-    checkMemoryHeadroom,
-    settleDelayMs,
-    settleState,
-    spawnWriteLoop,
-    writeLoopBindingSourceDeps = {},
-  } = deps;
+  const { store, settleState } = deps;
   if (!bypassSettleDelay && Date.now() < settleState.suppressedUntil) {
     return;
   }
   // A write loop's fire-and-forget settle path can promote after shutdown (or
   // test teardown) has closed the store; skip rather than throw on a closed DB.
   if (store.isClosed()) {
-    return;
-  }
-
-  for (const run of store.listQueuedRuns()) {
-    const key: OwnershipKey = { project: run.project, branch: run.branch };
-    if (registry.isClaimed(key)) {
-      continue;
-    }
-    if (!checkMemoryHeadroom()) {
-      return;
-    }
-
-    if (!run.queuedInput) {
-      continue;
-    }
-
-    const resolved = resolveWriteLoopBindings(run.queuedInput, writeLoopBindingSourceDeps);
-    if (!resolved.ok) {
-      store.commitTerminalRunSettlement({
-        runId: run.id,
-        status: "failed",
-        terminalCause: "invocation_failure",
-        terminalFailureDetail: daemonFailureDetail("model_config", resolved.message),
-      });
-      continue;
-    }
-
-    store.setRunStatus(run.id, "in-progress");
-    spawnWriteLoop(key, run.id, run.worktreePath, resolved.input);
-    settleState.suppressedUntil = Date.now() + settleDelayMs();
     return;
   }
 }

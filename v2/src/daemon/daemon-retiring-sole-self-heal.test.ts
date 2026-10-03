@@ -6,7 +6,7 @@ import * as ipcClient from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
-import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
+import { writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { shouldShutdownNow } from "./daemon.ts";
 import { beginChangeover, startFakeDaemon, uniqueId } from "./daemon-retire-trigger-logging.test-support.ts";
@@ -17,6 +17,8 @@ mock.module("../ipc/client.ts", () => ({
   ...ipcClient,
   connectIpcClient: connectIpcClientSpy,
 }));
+
+const { createWriteStep } = writeStepFixtures();
 
 async function flushMicrotasks(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
@@ -47,21 +49,9 @@ function ensureTestMachineConfig(): void {
   );
 }
 
-function admittedStartInput() {
-  return {
-    ...mockWriteLoopInput(),
-    bindings: [{ id: "claude" }],
-    bindingResolution: {
-      role: "implement" as const,
-      agents: ["claude"],
-      agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-    },
-  };
-}
-
 async function startAdmits(handlers: Record<string, RpcHandler>): Promise<boolean> {
   const response = await handlers.start?.(
-    requestFrame("start", { input: admittedStartInput() }),
+    requestFrame("start", { steps: [createWriteStep("implement", "self-heal-admit")] }),
     new AbortController().signal,
   );
   return response?.kind === "response";

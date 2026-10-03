@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireGateInvocationLease } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 
 test("reportReviewProgress accumulates multiple steps per invocation", () => {

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import * as ipcClient from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { shouldShutdownNow } from "./daemon.ts";

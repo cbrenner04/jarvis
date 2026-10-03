@@ -11,7 +11,6 @@ import {
   runMatchesListRpcParams,
 } from "../commands/run-list-rpc.ts";
 import { readIterationCeilingMs } from "../config/machine-config-loader.ts";
-import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import {
   type IntentFinalizationResumeDeps,

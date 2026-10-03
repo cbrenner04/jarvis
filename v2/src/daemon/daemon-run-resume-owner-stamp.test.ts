@@ -8,7 +8,6 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
-import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   createRunControlHandlers,

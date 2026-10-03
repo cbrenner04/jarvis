@@ -2699,7 +2699,7 @@ export function survivingMutationErrorFromTerminalRecord(
 function buildAutoDerivedMutationRepairDeps(
   context: ReviewMutationResumeContext,
   store: StateStore,
-  writeSibling: WriteSiblingCommandSource | undefined,
+  _writeSibling: WriteSiblingCommandSource | undefined,
   deps: ReviewMutationResumeDeps,
 ): ReviewMutationResumeDeps["mutationRepair"] | undefined {
   const reviewRun = store.loadRun(context.runId);

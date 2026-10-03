@@ -23,7 +23,7 @@ ensureWorkflowRunnerResumeDepsWired();
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type PipelineContext, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, doneBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, shouldShutdownNow, WorktreeOwnershipRegistry } from "./daemon.ts";

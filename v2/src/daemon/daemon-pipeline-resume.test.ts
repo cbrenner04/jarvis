@@ -21,7 +21,7 @@ import {
 } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
-import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
   createBindingFactory,
   DEFAULT_AGENT_MODEL_CONFIG,

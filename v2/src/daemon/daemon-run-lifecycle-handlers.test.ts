@@ -1900,7 +1900,7 @@ test("resumeRunForPipeline maps resumeReconstructedRun errors to refused outcome
   const worktreePath = trackedMkdtempSync(join(tmpdir(), "lifecycle-pipeline-resume-reconstruct-error-"));
   mkdirSync(worktreePath, { recursive: true });
   const branch = "pipeline-resume/reconstruct-error";
-  const input = mockWriteLoopInput({
+  const _input = mockWriteLoopInput({
     projectName: "demo",
     branchName: branch,
     localPath: worktreePath,

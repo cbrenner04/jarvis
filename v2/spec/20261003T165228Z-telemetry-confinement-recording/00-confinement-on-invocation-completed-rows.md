@@ -25,11 +25,11 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` asserts `createResolvedAgentBinding` / `bindConfined` stamp matching `confinementPolicy` and `confinementMechanism` for at least two vendor/policy pairs (e.g. codex `sandbox` + `codex-workspace-write`, claude `unrestricted` + `none`); fails against pre-fix factories that omit `confinementPolicy`.
-- [ ] `shared/invocation/execute.test.ts` drives `executeWithQuotaFallback` with injected bindings that set `confinementPolicy` and `confinementMechanism` for at least two distinct agent/mechanism pairs (e.g. codex `sandbox` + `codex-workspace-write`, claude `unrestricted` + `none`) and asserts each `invocation_completed` row carries matching `confinement_policy` and `confinement_mechanism`; fails against the pre-fix record builder with no such fields.
-- [ ] `shared/invocation/execute.test.ts` — `a binding refused at construction skips prompt logging and telemetry but still advances` stays green (refused rungs still emit no row).
-- [ ] `v2/docs/telemetry-capture.md` `invocation_completed` field list documents `confinement_policy` and `confinement_mechanism` as required on every row.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
+- [x] `shared/invocation/agents.test.ts` asserts `createResolvedAgentBinding` / `bindConfined` stamp matching `confinementPolicy` and `confinementMechanism` for at least two vendor/policy pairs (e.g. codex `sandbox` + `codex-workspace-write`, claude `unrestricted` + `none`); fails against pre-fix factories that omit `confinementPolicy`.
+- [x] `shared/invocation/execute.test.ts` drives `executeWithQuotaFallback` with injected bindings that set `confinementPolicy` and `confinementMechanism` for at least two distinct agent/mechanism pairs (e.g. codex `sandbox` + `codex-workspace-write`, claude `unrestricted` + `none`) and asserts each `invocation_completed` row carries matching `confinement_policy` and `confinement_mechanism`; fails against the pre-fix record builder with no such fields.
+- [x] `shared/invocation/execute.test.ts` — `a binding refused at construction skips prompt logging and telemetry but still advances` stays green (refused rungs still emit no row).
+- [x] `v2/docs/telemetry-capture.md` `invocation_completed` field list documents `confinement_policy` and `confinement_mechanism` as required on every row.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` pass.
 
 ## Documentation updates
 

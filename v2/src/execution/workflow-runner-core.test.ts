@@ -1157,8 +1157,8 @@ describe("executeWorkflow", () => {
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         },
         metadata: { agent: agentId, model: adapterModel },
-        confinementPolicy: "unrestricted",
-        confinementMechanism: "none",
+        confinementPolicy: "unrestricted" as const,
+        confinementMechanism: "none" as const,
       }),
     };
     const steps = resolveWorkflowPreset("implement", [

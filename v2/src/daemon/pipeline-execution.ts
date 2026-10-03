@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { isRecord } from "../../../shared/is-record.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  type AsyncSubprocessRunner,
+  networkSubprocessOptions,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { classifyNeverLandedLane, listDirtyWorktreePathsForStaleReset } from "../commands/cleanup.ts";
@@ -112,6 +116,8 @@ export type PipelineExecutionDeps = {
   isEntryRunLive?: (entryRunId: string) => boolean;
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
   supersedeGh?: SupersedeGh;
+  /** Git runner for the chained-lane rebase after a predecessor merge; falls back to the stale-reset runner, then the real one. */
+  subprocessRunner?: AsyncSubprocessRunner;
   /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
   peerClaimTimeoutMs?: number;
   /**
@@ -1717,13 +1723,31 @@ async function settleSupersededPrecedingStagePrs(
   }
 }
 
+type TerminalSettlementDeps = Pick<
+  PipelineExecutionDeps,
+  "store" | "executeTerminalPublication" | "supersedeGh" | "subprocessRunner" | "staleResetPreflight"
+>;
+
+/** A dependent lane publishes only after its predecessor's merge is rebased out of its branches. */
+async function rebaseLaneBeforePublication(
+  deps: TerminalSettlementDeps,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  branchKey: string | undefined,
+): Promise<ChainedLaneRebase> {
+  const split = branchKey === undefined ? null : findFanOutSplit(pipeline);
+  if (split === null || branchKey === undefined) return { ok: true, merged: false };
+  const predecessor = chainPredecessorOf(persistedFanOutLaneChain(pipeline, split), branchKey);
+  if (predecessor === undefined) return { ok: true, merged: false };
+  return rebaseLaneAfterPredecessorMerge(chainedLaneGitDeps(deps), pipeline, split, branchKey, predecessor);
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal-publication settlement fans over terminalAction, PR evidence, and retarget cases
 async function settleOneLaneTerminalPublication(
   pipelineId: string,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   terminalAction: PipelineTerminalAction,
   branchKey: string | undefined,
-  deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication" | "supersedeGh">,
+  deps: TerminalSettlementDeps,
 ): Promise<void> {
   const { store } = deps;
   const resolved = resolveTerminalPublicationInput(pipeline, store, branchKey);
@@ -1734,6 +1758,19 @@ async function settleOneLaneTerminalPublication(
       failure: resolved.failure,
       ...(resolved.prNumber !== undefined ? { prNumber: resolved.prNumber } : {}),
       ...(resolved.prUrl !== undefined ? { prUrl: resolved.prUrl } : {}),
+      ...(branchKey !== undefined ? { branchKey } : {}),
+    });
+    return;
+  }
+
+  const stacked = await rebaseLaneBeforePublication(deps, pipeline, branchKey);
+  if (!stacked.ok) {
+    commitTerminalPublicationFailureSafely(store, {
+      pipelineId,
+      terminalAction,
+      failure: { operation: terminalAction, message: stacked.message },
+      ...(resolved.input.prNumber !== undefined ? { prNumber: resolved.input.prNumber } : {}),
+      ...(resolved.input.prUrl !== undefined ? { prUrl: resolved.input.prUrl } : {}),
       ...(branchKey !== undefined ? { branchKey } : {}),
     });
     return;
@@ -1796,7 +1833,7 @@ function settlementContextFailureMessage(context: Pipeline["context"]): string |
  */
 async function settlePipelineTerminalPublication(
   pipelineId: string,
-  deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication" | "supersedeGh">,
+  deps: TerminalSettlementDeps,
   scopeBranchKey?: string,
 ): Promise<void> {
   const { store } = deps;
@@ -2084,6 +2121,22 @@ function fanOutLaneGate(
   return laneChainGate(chain, branchKey, (lane) => fanOutLaneProgress(pipeline, split, lane));
 }
 
+/** The predecessor lane's final succeeded workflow stage, its entry run, and the PR it published. */
+type ChainPredecessorTip = { record: PipelineStageRecord; run: Run; prNumber?: number };
+
+function chainPredecessorTip(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  predecessor: string,
+): ChainPredecessorTip | undefined {
+  const record = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, predecessor);
+  const artifact = narrowPipelineStageArtifact(record?.artifact);
+  const run = artifact === undefined ? null : store.loadRun(artifact.entryRunId);
+  if (record === undefined || run === null || !run.branch) return undefined;
+  return { record, run, ...(artifact?.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}) };
+}
+
 /** Branch of the predecessor lane's final succeeded workflow stage — the ref a chained lane forks from. */
 function fanOutLaneForkRef(
   store: StateStore,
@@ -2091,10 +2144,136 @@ function fanOutLaneForkRef(
   split: FanOutSplit,
   predecessor: string,
 ): string | undefined {
-  const record = finalSucceededWorkflowStageForBranch(pipeline, split.splitPosition, predecessor);
-  const entryRunId = narrowPipelineStageArtifact(record?.artifact)?.entryRunId;
-  const branch = entryRunId === undefined ? undefined : store.loadRun(entryRunId)?.branch;
-  return branch === undefined || branch.length === 0 ? undefined : branch;
+  return chainPredecessorTip(store, pipeline, split, predecessor)?.run.branch;
+}
+
+/** Git and `gh` seams for the chained-lane rebase; production defaults when a dep is absent. */
+type ChainedLaneGitDeps = { store: StateStore; runner: AsyncSubprocessRunner; supersedeGh: SupersedeGh };
+
+function chainedLaneGitDeps(deps: {
+  store: StateStore;
+  subprocessRunner?: AsyncSubprocessRunner | undefined;
+  supersedeGh?: SupersedeGh | undefined;
+  staleResetPreflight?: PipelineExecutionDeps["staleResetPreflight"] | undefined;
+}): ChainedLaneGitDeps {
+  return {
+    store: deps.store,
+    runner: deps.subprocessRunner ?? deps.staleResetPreflight?.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner,
+    supersedeGh: deps.supersedeGh ?? createDefaultSupersedeGh(),
+  };
+}
+
+/** A succeeded workflow-stage branch of a lane: the worktree a predecessor merge leaves stacked. */
+type LaneBranch = { stageId: string; worktreePath: string; branch: string; baseRef: string };
+
+function openLaneBranches(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  lane: string,
+): LaneBranch[] {
+  const branches: LaneBranch[] = [];
+  for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, lane)) {
+    if (stage.kind !== "workflow" || record.status !== "succeeded") continue;
+    const entryRunId = narrowPipelineStageArtifact(record.artifact)?.entryRunId;
+    const run = entryRunId === undefined ? null : store.loadRun(entryRunId);
+    if (run === null || !run.worktreePath || !run.branch) continue;
+    branches.push({ stageId: stage.stageId, worktreePath: run.worktreePath, branch: run.branch, baseRef: run.specRef });
+  }
+  return branches;
+}
+
+/**
+ * Whether the predecessor's implement PR merged: the harness `merge` publication stamped success,
+ * lane settlement recorded the PR merged, or `gh` reports its recorded PR `MERGED`. A probe error
+ * reads as not merged.
+ */
+async function chainPredecessorMerged(
+  git: ChainedLaneGitDeps,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  tip: ChainPredecessorTip,
+  cwd: string,
+): Promise<boolean> {
+  const artifact = narrowPipelineStageArtifact(tip.record.artifact);
+  if (artifact?.lanePrOutcome?.kind === "lane_pr_merged") return true;
+  const stamp = stageTerminalPublicationFromArtifact(tip.record.artifact);
+  if (pipeline.definition.terminalAction === "merge" && stamp !== null && "succeededAt" in stamp) return true;
+  if (tip.prNumber === undefined) return false;
+  try {
+    return (await git.supersedeGh.prState(cwd, tip.prNumber)).state === "MERGED";
+  } catch {
+    return false;
+  }
+}
+
+type LaneBranchRebase = { kind: "rebased" } | { kind: "not-stacked" } | { kind: "failed"; message: string };
+
+/**
+ * `git rebase --onto origin/<base> <predecessor-tip>` in one lane worktree, then a lease push so the
+ * PR diff carries only the lane's own commits. A branch no longer stacked on the predecessor tip is
+ * left alone; a failed rebase is aborted so no partial rebase remains.
+ */
+async function rebaseLaneBranchOntoBase(
+  runner: AsyncSubprocessRunner,
+  lane: LaneBranch,
+  predecessorTip: string,
+): Promise<LaneBranchRebase> {
+  const cwd = lane.worktreePath;
+  const git = (args: string[], network = false) =>
+    runner.runAsync("git", args, cwd, network ? networkSubprocessOptions() : undefined);
+  try {
+    await git(["merge-base", "--is-ancestor", predecessorTip, "HEAD"]);
+  } catch {
+    return { kind: "not-stacked" };
+  }
+  try {
+    const oldTip = (await git(["rev-parse", "HEAD"])).trim();
+    await git(["fetch", "origin", lane.baseRef], true);
+    try {
+      await git(["rebase", "--onto", `origin/${lane.baseRef}`, predecessorTip]);
+    } catch (error) {
+      await git(["rebase", "--abort"]).catch(() => undefined);
+      throw error;
+    }
+    await git(
+      ["push", `--force-with-lease=refs/heads/${lane.branch}:${oldTip}`, "origin", `HEAD:refs/heads/${lane.branch}`],
+      true,
+    );
+    return { kind: "rebased" };
+  } catch (error) {
+    return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+type ChainedLaneRebase = { ok: true; merged: boolean } | { ok: false; message: string };
+
+/**
+ * After the predecessor lane's implement PR merges, rebase every open branch of `lane` onto the
+ * default base so its PRs stop carrying the predecessor's (now squash-merged) commits. A rebase
+ * failure refuses the lane, naming the predecessor.
+ */
+async function rebaseLaneAfterPredecessorMerge(
+  git: ChainedLaneGitDeps,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  lane: string,
+  predecessor: string,
+): Promise<ChainedLaneRebase> {
+  const tip = chainPredecessorTip(git.store, pipeline, split, predecessor);
+  if (tip === undefined) return { ok: true, merged: false };
+  const branches = openLaneBranches(git.store, pipeline, split, lane);
+  const cwd = branches[0]?.worktreePath ?? tip.run.worktreePath;
+  if (!cwd || !(await chainPredecessorMerged(git, pipeline, tip, cwd))) return { ok: true, merged: false };
+  for (const branch of branches) {
+    const result = await rebaseLaneBranchOntoBase(git.runner, branch, tip.run.branch);
+    if (result.kind !== "failed") continue;
+    const pr = tip.prNumber === undefined ? "" : ` (#${tip.prNumber})`;
+    return {
+      ok: false,
+      message: `predecessor lane "${predecessor}" merged${pr}; rebasing lane "${lane}" branch "${branch.branch}" (${branch.stageId}) in ${branch.worktreePath} onto origin/${branch.baseRef} from ${tip.run.branch} failed: ${result.message}`,
+    };
+  }
+  return { ok: true, merged: true };
 }
 
 function withLaneForkRef(steps: AnyWorkflowStep[], forkRef: string | undefined): AnyWorkflowStep[] {
@@ -2142,26 +2321,42 @@ function persistFanOutLaneChain(
   store.updateStage({ pipelineId, stageId, patch: { artifact: { ...artifact, laneChain: persistLaneChain(chain) } } });
 }
 
-type ChainedLaneAdmission = { kind: "stop" } | { kind: "dispatch"; forkRef?: string };
+type ChainedLaneAdmission =
+  | { kind: "stop" }
+  | { kind: "dispatch"; forkRef?: string }
+  | { kind: "refuse"; message: string };
 
-/** Hold a lane until its chain predecessor completes, settle it `skipped` once severed, else fork from the predecessor branch. */
-function admitChainedLane(
-  store: StateStore,
+/**
+ * Hold a lane until its chain predecessor completes, settle it `skipped` once severed, else fork from
+ * the predecessor branch — or, once the predecessor's PR merged, rebase the lane's open branches and
+ * fork from the default base instead. A failed rebase refuses the lane.
+ */
+async function admitChainedLane(
+  git: ChainedLaneGitDeps,
   pipelineId: string,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   split: FanOutSplit,
   chain: FanOutLaneChain,
   branchKey: string,
-): ChainedLaneAdmission {
+): Promise<ChainedLaneAdmission> {
+  const { store } = git;
   const gate = fanOutLaneGate(pipeline, split, chain, branchKey);
   if (gate.kind === "held") return { kind: "stop" };
   if (gate.kind === "severed") {
     settleSeveredChainLanes(store, pipelineId, split, chain);
     return { kind: "stop" };
   }
-  const forkRef =
-    gate.predecessor === undefined ? undefined : fanOutLaneForkRef(store, pipeline, split, gate.predecessor);
+  if (gate.predecessor === undefined) return { kind: "dispatch" };
+  const rebase = await rebaseLaneAfterPredecessorMerge(git, pipeline, split, branchKey, gate.predecessor);
+  if (!rebase.ok) return { kind: "refuse", message: rebase.message };
+  const forkRef = rebase.merged ? undefined : fanOutLaneForkRef(store, pipeline, split, gate.predecessor);
   return forkRef === undefined ? { kind: "dispatch" } : { kind: "dispatch", forkRef };
+}
+
+/** Chain predecessor of a dependent lane, or `undefined` for independent and head lanes. */
+function chainPredecessorOf(chain: FanOutLaneChain | undefined, branchKey: string): string | undefined {
+  const index = chain === undefined ? -1 : chain.dependent.indexOf(branchKey);
+  return index > 0 ? chain?.dependent[index - 1] : undefined;
 }
 
 /** Terminally skip every open row of a dependent lane whose chain predecessor failed or was rejected. */
@@ -2545,6 +2740,8 @@ type AdvanceWorkflowStageArgs = {
   isEntryRunLive?: PipelineExecutionDeps["isEntryRunLive"];
   staleResetPreflight?: PipelineExecutionDeps["staleResetPreflight"];
   reopenedStageReset?: PipelineExecutionDeps["reopenedStageReset"];
+  subprocessRunner?: AsyncSubprocessRunner;
+  supersedeGh?: SupersedeGh;
   /** Fan-out lane chain for this pipeline invocation; absent before the split is admitted. */
   laneChain?: FanOutLaneChain;
 };
@@ -3060,7 +3257,7 @@ async function performFanOutStageResolution(
       ? {
           laneAdmission: (lane: string) =>
             admitChainedLane(
-              store,
+              chainedLaneGitDeps(args),
               pipelineId,
               store.loadPipeline(pipelineId) ?? pipeline,
               admittedSplit,
@@ -3175,7 +3372,7 @@ async function advanceFanOutBranches(
     loadedStages: readonly PipelineStageRecord[];
     splitPosition: number;
     results: readonly FanOutPlanResultEntry[];
-    laneAdmission?: (branchKey: string) => ChainedLaneAdmission;
+    laneAdmission?: (branchKey: string) => Promise<ChainedLaneAdmission>;
   },
 ): Promise<boolean> {
   const { stage, branchKey, store, pipelineId, index } = args;
@@ -3258,7 +3455,7 @@ async function runFanOutBranchAction(
     steps: AnyWorkflowStep[] | undefined;
     runStaleResetPreflight?: StaleResetPreflight;
     preflightCapture?: { message: string };
-    laneAdmission?: (branchKey: string) => ChainedLaneAdmission;
+    laneAdmission?: (branchKey: string) => Promise<ChainedLaneAdmission>;
   },
 ): Promise<"acted" | "skip"> {
   const { pipelineId, stage, index, split, store, dispatch, wait, loadLogRecords, isEntryRunLive, dispatchClaims } =
@@ -3295,8 +3492,21 @@ async function runFanOutBranchAction(
     return "skip";
   }
   if (opts.steps === undefined) return "skip";
-  const chainAdmission = opts.laneAdmission?.(targetBranchKey) ?? { kind: "dispatch" };
+  const chainAdmission = (await opts.laneAdmission?.(targetBranchKey)) ?? { kind: "dispatch" };
   if (chainAdmission.kind === "stop") return "skip";
+  if (chainAdmission.kind === "refuse") {
+    failWorkflowStageAt(
+      store,
+      pipelineId,
+      stage.stageId,
+      targetBranchKey,
+      stageRecords,
+      index + 1,
+      chainAdmission.message,
+      false,
+    );
+    return "acted";
+  }
   const steps = withLaneForkRef(opts.steps, chainAdmission.forkRef);
   const preflightCapture = opts.preflightCapture ?? { message: "" };
   const blocker = planOperatorBlockerNeedsGitChecks(args, steps, targetBranchKey)
@@ -3510,14 +3720,14 @@ async function runFailedPlanAwareStaleResetPreflight(
  * Chained fan-out lane admission for one branch workflow stage: hold until the chain predecessor
  * completes, settle the lane `skipped` once it is severed, else fork from the predecessor branch.
  */
-function admitChainedLaneStage(
+async function admitChainedLaneStage(
   args: AdvanceWorkflowStageArgs,
   current: (Pipeline & { stages: PipelineStageRecord[] }) | null,
-): ChainedLaneAdmission {
-  const { split, branchKey, laneChain, store, pipelineId } = args;
+): Promise<ChainedLaneAdmission> {
+  const { split, branchKey, laneChain, pipelineId } = args;
   if (split === null || laneChain === undefined || current === null) return { kind: "dispatch" };
   if (branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY) return { kind: "dispatch" };
-  return admitChainedLane(store, pipelineId, current, split, laneChain, branchKey);
+  return admitChainedLane(chainedLaneGitDeps(args), pipelineId, current, split, laneChain, branchKey);
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear stage-advance orchestration; the intent-stage stale-reset preflight adds one guarded branch and extracting it would fragment the single dispatch flow
@@ -3565,8 +3775,20 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     if (record?.status === "failed") return "stop";
     if (record?.status === "skipped") return "continue";
 
-    const chainAdmission = admitChainedLaneStage(args, current);
+    const chainAdmission = await admitChainedLaneStage(args, current);
     if (chainAdmission.kind === "stop") return "stop";
+    if (chainAdmission.kind === "refuse") {
+      return failWorkflowStageAt(
+        store,
+        pipelineId,
+        stage.stageId,
+        branchKey,
+        stageRecords,
+        index + 1,
+        chainAdmission.message,
+        false,
+      );
+    }
 
     const preflightCapture = { message: "" };
     const resetFlags = reopenedStageResetFlags(args);
@@ -3826,6 +4048,8 @@ async function walkAuthoredStages(args: RunAuthoredStagesArgs): Promise<void> {
             ...(deps.isEntryRunLive !== undefined ? { isEntryRunLive: deps.isEntryRunLive } : {}),
             ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
             ...(deps.reopenedStageReset !== undefined ? { reopenedStageReset: deps.reopenedStageReset } : {}),
+            ...(deps.subprocessRunner !== undefined ? { subprocessRunner: deps.subprocessRunner } : {}),
+            ...(deps.supersedeGh !== undefined ? { supersedeGh: deps.supersedeGh } : {}),
             ...(laneChain !== undefined ? { laneChain } : {}),
           });
     if (outcome === "stop") return;

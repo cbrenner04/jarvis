@@ -11306,4 +11306,167 @@ describe("fan-out serial chained lanes", () => {
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "plan", "beta")?.failureDetail).toBeNull();
   });
+
+  type GitCall = { args: string[]; cwd: string };
+
+  /** Records every `git` argv; `onRebase` throws to simulate a conflict; `notStacked` worktrees fail the ancestry probe. */
+  function recordingGitRunner(options: { conflict?: boolean; notStacked?: string[] } = {}): {
+    runner: AsyncSubprocessRunner;
+    calls: GitCall[];
+  } {
+    const calls: GitCall[] = [];
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd) {
+        if (cmd !== "git") throw new Error(`unexpected ${cmd}`);
+        calls.push({ args: [...args], cwd });
+        if (args[0] === "merge-base" && options.notStacked?.includes(cwd)) throw new Error("exit 1");
+        if (args[0] === "rev-parse") return "oldtip\n";
+        if (args[0] === "rebase" && args[1] === "--onto" && options.conflict) {
+          throw new Error("CONFLICT (content): Merge conflict in src/x.ts");
+        }
+        return "";
+      },
+    };
+    return { runner, calls };
+  }
+
+  const ALPHA_PR = 41;
+
+  /** Serial alpha→beta runs with worktrees and PR evidence, so beta's branches can be rebased once alpha's PR merges. */
+  function stackedLaneRuns(worktreePath: string): Record<string, Partial<Run>> {
+    const runs = serialLaneRuns(["alpha", "beta"], worktreePath);
+    Object.assign(runs["run-alpha-2-2"] ?? {}, {
+      worktreePath: "/wt/alpha-implement",
+      specRef: "main",
+      prNumber: ALPHA_PR,
+      prUrl: `https://example/pr/${ALPHA_PR}`,
+    });
+    Object.assign(runs["run-beta-1-3"] ?? {}, { worktreePath: "/wt/beta-plan", specRef: "main", prNumber: 42 });
+    Object.assign(runs["run-beta-2-4"] ?? {}, {
+      worktreePath: "/wt/beta-implement",
+      specRef: "main",
+      prNumber: 43,
+      prUrl: "https://example/pr/43",
+    });
+    return runs;
+  }
+
+  /** `gh pr view` fake: alpha's PR reads MERGED once `mergedWhen()` holds; every other PR stays OPEN. */
+  function alphaMergedGh(mergedWhen: () => boolean): SupersedeGh {
+    return {
+      prState: async (_cwd, prNumber) => ({ state: prNumber === ALPHA_PR && mergedWhen() ? "MERGED" : "OPEN" }),
+      comment: async () => {},
+      close: async () => {},
+    };
+  }
+
+  const REBASE_PLAN_BETA: GitCall[] = [
+    { args: ["merge-base", "--is-ancestor", "implement/alpha", "HEAD"], cwd: "/wt/beta-plan" },
+    { args: ["rev-parse", "HEAD"], cwd: "/wt/beta-plan" },
+    { args: ["fetch", "origin", "main"], cwd: "/wt/beta-plan" },
+    { args: ["rebase", "--onto", "origin/main", "implement/alpha"], cwd: "/wt/beta-plan" },
+  ];
+
+  test("a dependent lane whose predecessor squash-merged is rebased onto main before its next dispatch, which forks from the default base", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store);
+    const { runner, calls } = recordingGitRunner();
+    // Alpha's PR merges between beta's plan success and beta's implement dispatch.
+    const gh = alphaMergedGh(() => dispatched.some((entry) => entry.branchKey === "beta" && entry.stageId === "plan"));
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(dispatched).toEqual([
+      { stageId: "plan", branchKey: "alpha", forkRef: undefined },
+      { stageId: "implement", branchKey: "alpha", forkRef: undefined },
+      { stageId: "plan", branchKey: "beta", forkRef: "implement/alpha" },
+      { stageId: "implement", branchKey: "beta", forkRef: undefined },
+    ]);
+    expect(calls).toEqual([
+      ...REBASE_PLAN_BETA,
+      {
+        args: ["push", "--force-with-lease=refs/heads/plan/beta:oldtip", "origin", "HEAD:refs/heads/plan/beta"],
+        cwd: "/wt/beta-plan",
+      },
+    ]);
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a conflicting rebase aborts cleanly and fails the dependent lane naming the predecessor", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store);
+    const { runner, calls } = recordingGitRunner({ conflict: true });
+    const gh = alphaMergedGh(() => dispatched.some((entry) => entry.branchKey === "beta" && entry.stageId === "plan"));
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(calls).toEqual([...REBASE_PLAN_BETA, { args: ["rebase", "--abort"], cwd: "/wt/beta-plan" }]);
+    expect(dispatched.filter((entry) => entry.branchKey === "beta").map((entry) => entry.stageId)).toEqual(["plan"]);
+    const row = stageRecord(stages(), "implement", "beta");
+    expect(row?.status).toBe("failed");
+    const observation = stageFailureObservation(row?.failureDetail);
+    expect(observation).toContain(`predecessor lane "alpha" merged (#${ALPHA_PR})`);
+    expect(observation).toContain('lane "beta" branch "plan/beta"');
+    expect(observation).toContain("Merge conflict in src/x.ts");
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
+  });
+
+  test("a predecessor merged during the dependent implement is rebased out of its branch before the lane's terminal publication", async () => {
+    const definition: PipelineDefinition = { ...FAN_OUT_LINEAR_DEFINITION, terminalAction: "ready" };
+    const { store, stages } = fakeStore(definition, stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)));
+    const { deps, dispatched } = capturingLaneDeps(store);
+    // Beta's plan branch was already rebased by hand; only its implement branch is still stacked.
+    const { runner, calls } = recordingGitRunner({ notStacked: ["/wt/beta-plan"] });
+    const gh = alphaMergedGh(() =>
+      dispatched.some((entry) => entry.branchKey === "beta" && entry.stageId === "implement"),
+    );
+    const published: Array<{ branch: string; rebasedCalls: number }> = [];
+
+    await runPipeline(PIPELINE_ID, {
+      ...deps,
+      context: baseContext,
+      subprocessRunner: runner,
+      supersedeGh: gh,
+      executeTerminalPublication: async (input) => {
+        published.push({ branch: input.branch, rebasedCalls: calls.filter((c) => c.args[0] === "rebase").length });
+        return { prNumber: input.prNumber ?? 0, prUrl: input.prUrl ?? "" };
+      },
+    });
+
+    expect(dispatched.map((entry) => entry.forkRef)).toEqual([
+      undefined,
+      undefined,
+      "implement/alpha",
+      "implement/alpha",
+    ]);
+    expect(calls).toEqual([
+      { args: ["merge-base", "--is-ancestor", "implement/alpha", "HEAD"], cwd: "/wt/beta-plan" },
+      { args: ["merge-base", "--is-ancestor", "implement/alpha", "HEAD"], cwd: "/wt/beta-implement" },
+      { args: ["rev-parse", "HEAD"], cwd: "/wt/beta-implement" },
+      { args: ["fetch", "origin", "main"], cwd: "/wt/beta-implement" },
+      { args: ["rebase", "--onto", "origin/main", "implement/alpha"], cwd: "/wt/beta-implement" },
+      {
+        args: [
+          "push",
+          "--force-with-lease=refs/heads/implement/beta:oldtip",
+          "origin",
+          "HEAD:refs/heads/implement/beta",
+        ],
+        cwd: "/wt/beta-implement",
+      },
+    ]);
+    // Alpha published with no rebase; beta published only after its rebase landed.
+    expect(published).toEqual([
+      { branch: "implement/alpha", rebasedCalls: 0 },
+      { branch: "implement/beta", rebasedCalls: 1 },
+    ]);
+    const artifact = stageRecord(stages(), "implement", "beta")?.artifact as Record<string, unknown> | null;
+    expect(artifact?.terminalPublication).toEqual({ succeededAt: expect.any(Number) });
+  });
 });

@@ -387,11 +387,6 @@ function workflowReviewMutationOwner(
   return owner;
 }
 
-type StartResult =
-  | { kind: "response"; result: unknown }
-  | { kind: "error"; code: string; message: string }
-  | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
-
 type ResolvedKillSettlement = {
   boundMs: number;
   sleep: (ms: number) => Promise<void>;

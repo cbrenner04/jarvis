@@ -286,8 +286,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
   const attemptSettled = new Promise<void>((resolve) => {
     settleAttempt = resolve;
   });
-  let recoverHandlers!: ReturnType<typeof createRunControlHandlers>;
-  recoverHandlers = createRunControlHandlers({
+  const recoverHandlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: createFakeWriteLoopExecutor().executor,
     failureReporter: () => {},
@@ -1352,8 +1351,7 @@ test("pipeline_recover republication omits allowLanePrRepublish and does not cre
   const attemptSettled = new Promise<void>((resolve) => {
     settleAttempt = resolve;
   });
-  let recoverHandlers!: ReturnType<typeof createRunControlHandlers>;
-  recoverHandlers = createRunControlHandlers({
+  const recoverHandlers = createRunControlHandlers({
     stateStore,
     writeLoopExecutor: createFakeWriteLoopExecutor().executor,
     failureReporter: () => {},

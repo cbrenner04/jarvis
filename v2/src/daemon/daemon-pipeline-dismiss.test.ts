@@ -112,8 +112,11 @@ test("includeDismissed returns dismissed pipelines with dismissedAt set", async 
   if (!a || !b) throw new Error("expected both pipelines in the includeDismissed listing");
   expect(a.dismissedAt).toEqual(expect.any(Number));
   expect(b.dismissedAt).toBeNull();
-  expect(a).toEqual(projectPipelineSnapshot(stateStore.loadPipeline(pipelineA)!));
-  expect(b).toEqual(projectPipelineSnapshot(stateStore.loadPipeline(pipelineB)!));
+  const loadedA = stateStore.loadPipeline(pipelineA);
+  const loadedB = stateStore.loadPipeline(pipelineB);
+  if (loadedA === null || loadedB === null) throw new Error("expected both pipelines loaded");
+  expect(a).toEqual(projectPipelineSnapshot(loadedA));
+  expect(b).toEqual(projectPipelineSnapshot(loadedB));
 });
 
 test("includeDismissed reads strict === true, a truthy non-boolean value does not opt in", async () => {

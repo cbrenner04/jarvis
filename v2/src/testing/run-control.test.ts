@@ -1,27 +1,12 @@
-import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createHeldWorkflowBindings } from "./run-control.ts";
 
-const workDirs: string[] = [];
-
-afterEach(() => {
-  while (workDirs.length > 0) {
-    const dir = workDirs.pop();
-    if (dir === undefined) continue;
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  }
-});
-
 function freshCwd(): string {
-  const dir = mkdtempSync(join(tmpdir(), `held-bindings-${process.pid}-`));
-  workDirs.push(dir);
-  return dir;
+  return trackedMkdtempSync(join(tmpdir(), `held-bindings-${process.pid}-`));
 }
 
 async function startHeldInvocation(

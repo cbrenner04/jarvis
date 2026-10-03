@@ -203,17 +203,21 @@ test("chained waits over three owed incidents return the second and third withou
   for (const [index, incident] of incidents.entries()) {
     recordDelivery(incident, DERIVATION_NOW_MS - 30 + index * 10);
   }
+  const [firstIncident, secondIncident, thirdIncident] = incidents;
+  if (firstIncident === undefined || secondIncident === undefined || thirdIncident === undefined) {
+    throw new Error("expected three incidents");
+  }
   const firstCursor = encodeNotificationDeliveryCursor({
     deliveredAt: DERIVATION_NOW_MS - 30,
-    incidentId: incidents[0]!.incidentId,
-    transition: incidents[0]!.transition,
+    incidentId: firstIncident.incidentId,
+    transition: firstIncident.transition,
   });
 
   const second = await invokeNotificationWait({ sinceCursor: firstCursor });
-  expect(second.incident).toEqual(sinkIncident(incidents[1]!));
+  expect(second.incident).toEqual(sinkIncident(secondIncident));
   const third = await invokeNotificationWait({ sinceCursor: second.deliveryCursor });
-  expect(third.incident).toEqual(sinkIncident(incidents[2]!));
-  expect([second.incident.incidentId, third.incident.incidentId]).not.toContain(incidents[0]!.incidentId);
+  expect(third.incident).toEqual(sinkIncident(thirdIncident));
+  expect([second.incident.incidentId, third.incident.incidentId]).not.toContain(firstIncident.incidentId);
 });
 
 test("notification_list with a delivery cursor excludes the incident at that cursor while sinceMs stays inclusive", async () => {

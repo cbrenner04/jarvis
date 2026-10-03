@@ -2117,8 +2117,10 @@ describe("shared workflow-start preparation", () => {
       const cap = captureIo();
       const sent: unknown[] = [];
       let builds = 0;
-      const templateStep = fx.fakeImplementSteps[0]!;
-      if (templateStep.behavior !== "write") throw new Error("expected write step fixture");
+      const templateStep = fx.fakeImplementSteps[0];
+      if (templateStep === undefined || templateStep.behavior !== "write") {
+        throw new Error("expected write step fixture");
+      }
       const builtStep = {
         ...templateStep,
         stepId: workflow,

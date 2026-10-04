@@ -63,7 +63,7 @@ Bindings:
   warning. Selection uses the terminal non-null `token_count` event (not v1
   max-total). After subprocess settle, non-`ok` codex exits run the same session correlation and terminal `token_count` selection on changed `~/.codex/sessions/*.jsonl` files before returning; recovered usage and list-price cost merge onto the classified result without changing `kind`, diagnostics, or `authFailure`, and bounded process teardown does not delay settlement. Correlation miss or unextractable counters keep `usage_source: "unavailable"` with resolver/finalize warnings only. The codex binding settles into `ok | quota | model_config | error` before fallback continues. Resolved `cursor` bindings spawn `cursor agent -p
   --output-format stream-json --stream-partial-output --model <resolved-cli-model>
-  --force --workspace <cwd> <prompt>`, ignore stdin, parse the stream-json
+  --force --workspace <cwd>` with the prompt on stdin (no prompt positional in argv), parse the stream-json
   NDJSON stream: display text from the terminal `type: "result"` event's `result`
   field (or concatenated `text_delta` frames, or raw stdout when unparseable),
   with token fields mapped from the terminal result's `usage` object when present.

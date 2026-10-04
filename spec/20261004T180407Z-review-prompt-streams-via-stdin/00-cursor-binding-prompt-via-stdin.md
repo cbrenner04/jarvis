@@ -21,12 +21,12 @@
 
 ## Acceptance criteria
 
-- [ ] `agents.test.ts` test `cursor binding spawns with bounded argv and delivers a multi-megabyte prompt on stdin` fails against pre-fix code (prompt still in argv, stdin empty) and passes after the change.
-- [ ] `agents.test.ts` test `default and explicit unrestricted policy yield today's argv for claude, codex, and cursor` reflects the bounded cursor argv (no prompt literal) while claude and codex `argv` stay byte-identical aside from any shared test harness path changes.
-- [ ] `agents.test.ts` test `claude binding invokes the CLI shape with cwd and stdin prompt` stays green.
-- [ ] `agents.test.ts` test `codex binding invokes the CLI shape with cwd, stdin prompt marker, and abort signal` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:agent` passes.
+- [x] `agents.test.ts` test `cursor binding spawns with bounded argv and delivers a multi-megabyte prompt on stdin` fails against pre-fix code (prompt still in argv, stdin empty) and passes after the change.
+- [x] `agents.test.ts` test `default and explicit unrestricted policy yield today's argv for claude, codex, and cursor` reflects the bounded cursor argv (no prompt literal) while claude and codex `argv` stay byte-identical aside from any shared test harness path changes.
+- [x] `agents.test.ts` test `claude binding invokes the CLI shape with cwd and stdin prompt` stays green.
+- [x] `agents.test.ts` test `codex binding invokes the CLI shape with cwd, stdin prompt marker, and abort signal` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:agent` passes.
 
 ## Documentation updates
 

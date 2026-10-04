@@ -12,18 +12,18 @@ After subspec 00, operators and agents still read `AGENTS.md`, install guidance,
 
 ## Tasks
 
-- [ ] Update `AGENTS.md` (and `CLAUDE.md` if it duplicates layout rules) for `src/`, `spec/`, `docs/`, and scoped scripts `test:agent` / `test:integration`.
-- [ ] Update `docs/install-and-config.md`: CLI path (`bin/jarvis` → `src/cli.ts`), planning home at `spec/`, and an operator note to re-point an existing jarvis project `plan.targetDir` from `v2/spec` to `spec`.
-- [ ] Sweep remaining committed `docs/**` and `spec/reliability-*.md` for stale `v2/` references tied to the live engine (not frozen `v1/` history); subspec 00 already rewrites mechanical path literals there.
-- [ ] Add a `docs/v1-behaviors.md` entry for the top-level engine layout and retired `*:v2` scripts.
+- [x] Update `AGENTS.md` (and `CLAUDE.md` if it duplicates layout rules) for `src/`, `spec/`, `docs/`, and scoped scripts `test:agent` / `test:integration`.
+- [x] Update `docs/install-and-config.md`: CLI path (`bin/jarvis` → `src/cli.ts`), planning home at `spec/`, and an operator note to re-point an existing jarvis project `plan.targetDir` from `v2/spec` to `spec`.
+- [x] Sweep remaining committed `docs/**` and `spec/reliability-*.md` for stale `v2/` references tied to the live engine (not frozen `v1/` history); subspec 00 already rewrites mechanical path literals there.
+- [x] Add a `docs/v1-behaviors.md` entry for the top-level engine layout and retired `*:v2` scripts.
 
 ## Acceptance criteria
 
-- [ ] `docs/install-and-config.md` contains an operator-facing re-point instruction for `plan.targetDir` (`v2/spec` → `spec`); fails against pre-fix install doc (reachable via today's `v2/src/cli.ts` install path prose without re-point guidance).
-- [ ] `AGENTS.md` describes specs under `spec/` and scoped verification via `test:agent` / `test:integration` (not `test:v2`); fails against pre-fix `AGENTS.md`.
-- [ ] `docs/v1-behaviors.md` records the move; fails against pre-fix catalog.
-- [ ] `bun run lint:md` passes.
-- [ ] `bun run test` passes.
+- [x] `docs/install-and-config.md` contains an operator-facing re-point instruction for `plan.targetDir` (`v2/spec` → `spec`); fails against pre-fix install doc (reachable via today's `v2/src/cli.ts` install path prose without re-point guidance).
+- [x] `AGENTS.md` describes specs under `spec/` and scoped verification via `test:agent` / `test:integration` (not `test:v2`); fails against pre-fix `AGENTS.md`.
+- [x] `docs/v1-behaviors.md` records the move; fails against pre-fix catalog.
+- [x] `bun run lint:md` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

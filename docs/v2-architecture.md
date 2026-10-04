@@ -42,7 +42,7 @@ Pinned at `src/` root; relocate only with every caller in the same change set. `
 ### Conventions
 
 - **Co-located tests:** `*.test.ts(x)` beside modules under `src/<domain>/`;
-  no parallel `v2/test/` mirror of `src/`.
+  no test-tree mirror of `src/` (root `test/` holds root-tooling tests).
 - **No barrel `index.ts` re-exports.**
 
 ## The layered model

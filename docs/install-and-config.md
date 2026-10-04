@@ -1,6 +1,6 @@
 # Install and config
 
-Fresh-checkout walkthrough: clone, symlink the v2 CLI, configure the machine, start the daemon, confirm it is up. Config and daemon contracts live in [`agent-model-config.md`](./agent-model-config.md), [`write-behavior.md`](./write-behavior.md#daemon-cli), and [`daemon-host.md`](./daemon-host.md); this doc stitches them into one path.
+Fresh-checkout walkthrough: clone, symlink the CLI, configure the machine, start the daemon, confirm it is up. Config and daemon contracts live in [`agent-model-config.md`](./agent-model-config.md), [`write-behavior.md`](./write-behavior.md#daemon-cli), and [`daemon-host.md`](./daemon-host.md); this doc stitches them into one path.
 
 ## Prerequisites
 
@@ -51,6 +51,8 @@ Registration is additive: it fills in `root` and, when available, `origin` on th
 ### Target-directory precedence
 
 `--target-dir`, then the project's own `plan.targetDir`, then the legacy (read-only) `modes.plan.targetDir`, then `spec`. Every candidate must be a relative, non-traversing path, and every resolved ancestor (symlinks included) must stay inside the project root. An explicit `--target-dir` that differs from the project's own stored value is written to `projects.<key>.plan.targetDir`.
+
+Re-point an existing jarvis-project registration by hand: the engine tree moved from `v2/` to the repository top level, so `projects.<jarvis-key>.plan.targetDir` in `~/.jarvis/config.json` must read `spec` (formerly `spec` under `v2/`). Jarvis never rewrites operator config; a stale `v2/`-prefixed value publishes plans and archives under a directory that no longer exists on `main`.
 
 ### Optional contained scaffolding
 

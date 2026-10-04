@@ -1912,7 +1912,7 @@ describe("createResolvedAgentBinding", () => {
     expect(rows[0]?.binding_id).toBe("codex/gpt-5.4/priced-codex");
   });
 
-  test("cursor binding invokes the CLI shape with mapped model, cwd, ignored stdin, and abort signal", async () => {
+  test("cursor binding invokes the CLI shape with mapped model, cwd, stdin prompt, and abort signal", async () => {
     const fake = fakeSpawn([{ kind: "hang" }]);
     const controller = new AbortController();
     const promise = createResolvedAgentBinding(
@@ -1940,13 +1940,25 @@ describe("createResolvedAgentBinding", () => {
       "--force",
       "--workspace",
       "/repo",
-      "implement it",
     ]);
     expect(fake.calls[0]?.opts.cwd).toBe("/repo");
     expect(fake.calls[0]?.opts.detached).toBe(true);
-    expect(fake.calls[0]?.opts.stdio).toEqual(["ignore", "pipe", "pipe"]);
-    expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("");
+    expect(fake.calls[0]?.opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
+    expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("implement it");
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("cursor binding spawns with bounded argv and delivers a multi-megabyte prompt on stdin", async () => {
+    const hugePrompt = `${"x".repeat(2 * 1024 * 1024)}tail-marker`;
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: cursorResultLine("done", true), stderr: "" }]);
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn });
+
+    const result = await binding.invoke({ prompt: hugePrompt, cwd: "/repo" });
+
+    expect(result).toEqual(cursorOkNoUsage("done"));
+    expect(fake.calls[0]?.argv).not.toContain(hugePrompt);
+    expect(fake.calls[0]?.argv?.every((token) => token.length < 512)).toBe(true);
+    expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe(hugePrompt);
   });
 
   test("cursor binding passes unmapped model strings through unchanged", async () => {
@@ -3551,7 +3563,6 @@ describe("confinement policy translation", () => {
     "--force",
     "--workspace",
     "/repo",
-    "p",
   ];
   const CLAUDE = { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" };
   const CODEX = { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" };
@@ -3567,7 +3578,11 @@ describe("confinement policy translation", () => {
       codexSessionsDir: trackedMkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
     });
     await binding.invoke({ prompt: "p", cwd: "/repo" });
-    return { argv: fake.calls[0]?.argv, mechanism: binding.confinementMechanism };
+    return {
+      argv: fake.calls[0]?.argv,
+      mechanism: binding.confinementMechanism,
+      stdin: fake.calls[0]?.child?.stdinChunks.join(""),
+    };
   }
 
   test("createResolvedAgentBinding stamps confinementPolicy with confinementMechanism for codex sandbox and claude unrestricted", () => {
@@ -3582,9 +3597,17 @@ describe("confinement policy translation", () => {
 
   test("default and explicit unrestricted policy yield today's argv for claude, codex, and cursor", async () => {
     for (const opts of [{}, { confinementPolicy: "unrestricted" as const }]) {
-      expect(await argvFor(CLAUDE, opts)).toEqual({ argv: CLAUDE_DEFAULT_ARGV, mechanism: "none" });
-      expect(await argvFor(CODEX, opts)).toEqual({ argv: CODEX_DEFAULT_ARGV, mechanism: "none" });
-      expect(await argvFor(COMPOSER_CURSOR_BINDING, opts)).toEqual({ argv: CURSOR_DEFAULT_ARGV, mechanism: "none" });
+      expect(await argvFor(CLAUDE, opts)).toEqual({ argv: CLAUDE_DEFAULT_ARGV, mechanism: "none", stdin: "p" });
+      expect(await argvFor(CODEX, opts)).toEqual({
+        argv: CODEX_DEFAULT_ARGV,
+        mechanism: "none",
+        stdin: expect.stringContaining("p\n<!-- jarvis-codex-invocation:"),
+      });
+      expect(await argvFor(COMPOSER_CURSOR_BINDING, opts)).toEqual({
+        argv: CURSOR_DEFAULT_ARGV,
+        mechanism: "none",
+        stdin: "p",
+      });
     }
   });
 
@@ -3604,12 +3627,12 @@ describe("confinement policy translation", () => {
 
   test("sandbox policy pins codex to --sandbox workspace-write over a looser codexSandboxMode", async () => {
     const translated = await argvFor(CODEX, { confinementPolicy: "sandbox", codexSandboxMode: "danger-full-access" });
-    expect(translated).toEqual({ argv: CODEX_DEFAULT_ARGV, mechanism: "codex-workspace-write" });
+    expect(translated).toMatchObject({ argv: CODEX_DEFAULT_ARGV, mechanism: "codex-workspace-write" });
   });
 
   test("sandbox policy never loosens a configured codex read-only sandbox", async () => {
     const translated = await argvFor(CODEX, { confinementPolicy: "sandbox", codexSandboxMode: "read-only" });
-    expect(translated).toEqual({
+    expect(translated).toMatchObject({
       argv: CODEX_DEFAULT_ARGV.map((flag) => (flag === "workspace-write" ? "read-only" : flag)),
       mechanism: "codex-read-only",
     });

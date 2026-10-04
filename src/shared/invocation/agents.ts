@@ -1757,7 +1757,7 @@ async function runCursorBinding(args: {
       name: "cursor",
       binary: "cursor",
       cwd: args.cwd,
-      buildArgv: (promptText) => [
+      buildArgv: () => [
         "agent",
         "-p",
         "--output-format",
@@ -1768,9 +1768,12 @@ async function runCursorBinding(args: {
         ...args.confinementArgv,
         "--workspace",
         args.cwd,
-        promptText,
       ],
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
+      writeStdin: (stdin, text) => {
+        stdin.write(text);
+        stdin.end();
+      },
       streamErrorPrefix: "cursor:",
       classifier: "cursor",
       ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),

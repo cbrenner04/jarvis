@@ -1,12 +1,13 @@
 // Reproduces the measurements in 20260831T053634Z-pipeline-wall-time.md.
-// Reads ~/.jarvis/telemetry.jsonl and a copy of ~/.jarvis/state/v2.sqlite (live DB is never opened).
+// Reads ~/.jarvis/telemetry.jsonl and a copy of the orchestration store (live DB is never opened).
 // Wall = first run created_at -> last run end (finished_at, else the run's latest attempt completed_at),
 // per workflow invocation. Agent = summed subprocess duration_ms over every telemetry row for the
 // workflow's runs, quota-fallback retries included. Minutes throughout.
 import { Database } from "bun:sqlite";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, dirname, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { orchestrationStorePath } from "../../src/paths.ts";
 
 const PROJECT = "jarvis";
 const TELEMETRY_START = Date.parse("2026-07-12T00:00:00Z");
@@ -40,11 +41,14 @@ function readTelemetry(): { durationByRun: Map<string, number>; rolesByRun: Map<
 
 function openStateDbCopy(): Database {
   const dir = mkdtempSync(join(tmpdir(), "wall-time-"));
+  const storePath = orchestrationStorePath(jarvisHome);
+  const base = basename(storePath);
+  const stateDir = dirname(storePath);
   for (const suffix of ["", "-wal", "-shm"]) {
-    const source = join(jarvisHome, "state", `v2.sqlite${suffix}`);
-    if (existsSync(source)) copyFileSync(source, join(dir, `v2.sqlite${suffix}`));
+    const source = join(stateDir, `${base}${suffix}`);
+    if (existsSync(source)) copyFileSync(source, join(dir, `${base}${suffix}`));
   }
-  return new Database(join(dir, "v2.sqlite"), { readonly: true });
+  return new Database(join(dir, base), { readonly: true });
 }
 
 function workflowKind(stepIds: string[]): string {

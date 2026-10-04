@@ -1,6 +1,6 @@
 # Start here
 
-Orientation for newcomers: what jarvis is, which binary to use, v2 vocabulary, and where to read next. Design detail lives in linked docs — not duplicated here.
+Orientation for newcomers: what jarvis is, which binary to use, harness vocabulary, and where to read next. Design detail lives in linked docs — not duplicated here.
 
 ## What jarvis is
 
@@ -10,9 +10,9 @@ Jarvis is a TypeScript/Bun harness that drives a coding-agent CLI (`claude`, `co
 
 `jarvis` is the only engine: daemon, intent/plan/implement workflows, pipelines, TUI, cleanup. The `v1/` tree is frozen — not compiled, tested, linted, or linked — and is a noop for contributors (see [`v1/README.md`](../../v1/README.md)).
 
-## v2 vocabulary
+## Harness vocabulary
 
-v2 builds the harness from composable building blocks. At a user level:
+Jarvis builds the harness from composable building blocks. At a user level:
 
 - **Workflows** — ordered sequences of steps that accomplish a task (e.g. plan a
   spec, implement a subspec).
@@ -23,8 +23,8 @@ v2 builds the harness from composable building blocks. At a user level:
 
 Definitions and the layered model live in [`docs/`](./):
 
-- [`v2-vision.md`](v2-vision.md) — guiding principles and constraints
-- [`v2-architecture.md`](v2-architecture.md) — how workflows, behaviors, and
+- [`vision.md`](vision.md) — guiding principles and constraints
+- [`architecture.md`](architecture.md) — how workflows, behaviors, and
   roles fit together
 - [`role-resolution.md`](role-resolution.md) — role taxonomy and step binding
 

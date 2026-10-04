@@ -66,10 +66,10 @@ jobs:
         if: steps.scope.outputs.scripts == 'full'
         run: bun run test
 
-      - name: Test (v2)
+      - name: Test (agent)
         if: contains(steps.scope.outputs.scripts, 'test:agent')
         run: bun run test:agent
 
-      - name: Test (v2 integration)
+      - name: Test (agent integration)
         if: contains(steps.scope.outputs.scripts, 'test:integration')
         run: bun run test:integration

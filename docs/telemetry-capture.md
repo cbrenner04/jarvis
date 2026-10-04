@@ -1,6 +1,6 @@
 # Telemetry capture
 
-Durable contract for **analysis facts** in v2: where they live, how they are emitted, which IDs join them across stores, and what stays operator judgment. This doc is the reference planners and implementers use so harness-known data is never re-keyed through v1-style CSV `notes` bindings (`plan_ns`, `patch_ns`, `git_fallback`).
+Durable contract for **analysis facts** in the harness: where they live, how they are emitted, which IDs join them across stores, and what stays operator judgment. This doc is the reference planners and implementers use so harness-known data is never re-keyed through v1-style CSV `notes` bindings (`plan_ns`, `patch_ns`, `git_fallback`).
 
 **Non-goals for this doc:** runtime code, backfill, export commands, analysis UI, v1 harness changes, or extending the orchestration SQLite schema with token/cost columns.
 
@@ -8,14 +8,14 @@ Durable contract for **analysis facts** in v2: where they live, how they are emi
 
 | Store | Default path | Role | Recovery? | Consumer |
 | --- | --- | --- | --- | --- |
-| **Orchestration** | `~/.jarvis/state/v2.sqlite` | Run lifecycle, attempt outcomes, checkpoint | **Yes** — resume derives from here + git | Write loop, workflow runner, daemon `wait` |
+| **Orchestration** | `orchestrationStorePath()` (see [state-store.md](state-store.md)) | Run lifecycle, attempt outcomes, checkpoint | **Yes** — resume derives from here + git | Write loop, workflow runner, daemon `wait` |
 | **Observability** | injectable (shared `logs.jsonl`) | Loop lifecycle for tail/follow | **No** | TUI log follow, daemon IPC tail |
 | **Telemetry** | `~/.jarvis/telemetry.jsonl` (injectable) | Append-only analysis facts; current UTC month in plain JSONL, prior months in `telemetry/<YYYY-MM>.jsonl.gz` | **No** | Future export, offline analysis |
 
 Rules:
 
 - **Recovery** reads orchestration store + git worktree only — never telemetry
-  or the observability log ([`v2-architecture.md`](v2-architecture.md)
+  or the observability log ([`architecture.md`](architecture.md)
   Recovery).
 - **Observability** events (`iteration_started`, `boundary_committed`,
   `loop_finished`, …) are for live visibility — not a substitute for per-invocation
@@ -24,7 +24,7 @@ Rules:
   checkpoint rows ([`state-store.md`](state-store.md)).
 
 ```text
-orchestration (v2.sqlite)  →  resume / checkpoint
+orchestration store  →  resume / checkpoint
 observability (logs.jsonl) →  tail / follow loop events
 telemetry (telemetry.jsonl)→  append-only facts for analysis
 telemetry/YYYY-MM.jsonl.gz →  closed UTC months (retained)
@@ -124,30 +124,30 @@ The CLI bootstrap point is implemented: `src/cli.ts` `main()` mints one id per p
 
 The daemon bootstrap point is also implemented: `src/daemon/daemon.ts` `startDaemon` mints one id per daemon process lifetime and applies it, via `writeLoopExecutor`, to every `executeWriteLoop` call the daemon makes for that process — one id shared across all runs and IPC-dispatched requests the daemon serves, not per run or per request. Unlike the CLI bootstrap, the daemon's id always wins: it overrides any `operatorSessionId` already present on caller-supplied `telemetry` (override-wins precedence), since the daemon, not the requesting client, is the operator-sitting boundary for daemon-managed runs.
 
-External operator CLI cost (Claude `/cost`, opencode SQLite) joins at **export time** by time overlap or explicit session tag until a concrete integration exists. That join is not a capture-path requirement for v2 telemetry v1.
+External operator CLI cost (Claude `/cost`, opencode SQLite) joins at **export time** by time overlap or explicit session tag until a concrete integration exists. That join is not a capture-path requirement for harness telemetry v1.
 
 ## Harness facts vs operator judgment
 
 Classification (the retired outcome-data-source audit folds into this summary):
 
-| Category | v2 stance |
+| Category | harness stance |
 | --- | --- |
 | Cost, tokens, duration, `agent_count`, `session_type`, failure hints, `files_touched` | Harness-emitted or derivable from telemetry |
 | `success_status`, `overall_success`, `completed_work_units`, free-form `notes` | Operator **annotation** layer — optional future export columns, not reconstructed from facts |
 
-v2 eliminates re-keying harness-known fields; it does not eliminate operator judgment.
+The harness eliminates re-keying harness-known fields; it does not eliminate operator judgment.
 
 ## v1 legacy
 
-| v1 | v2 |
+| v1 | jarvis |
 | --- | --- |
 | `~/.jarvis/runs.jsonl` per-invocation rows | `invocation_completed` in `telemetry.jsonl` |
 | `namespace` | `run_id` + `attempt_id` + `spec_ref` |
 | `mode` / `plan_phase` / `patch_phase` | `workflow` + `step_id` + `role` (+ optional `phase`) |
 | `record_role: run_terminal` | `record_kind: run_terminal` |
-| `reports/*.csv` + `notes` bindings | **Derived exports** keyed by stable IDs — no `plan_ns` / `patch_ns` / `git_fallback` in v2 export schema |
+| `reports/*.csv` + `notes` bindings | **Derived exports** keyed by stable IDs — no `plan_ns` / `patch_ns` / `git_fallback` in harness export schema |
 
-**No backfill.** v1 files remain historical archives; v2 emits forward from the first implementation slice.
+**No backfill.** v1 files remain historical archives; The harness emits forward from the first implementation slice.
 
 ## Placement
 
@@ -165,7 +165,7 @@ No new tests ship with this doc-only deliverable.
 
 ## Related docs
 
-- [`v2-architecture.md`](v2-architecture.md) — persistence split
+- [`architecture.md`](architecture.md) — persistence split
 - [`state-store.md`](state-store.md) — what stays out of SQLite
 - [`log-stream.ts`](../src/persistence/log-stream.ts) — observability events (contrast)
 - [`shared-invocation.md`](shared-invocation.md) — invocation seam

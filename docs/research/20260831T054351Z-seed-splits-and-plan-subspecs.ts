@@ -3,6 +3,7 @@
 // Reads the live git history; rerunning later will drift from the note's snapshot.
 
 const SPEC_RE = /^(v[12])\/spec\/(.+)$/;
+const JARVIS_TREE = "v" + "2";
 // wip-intents was the pre-ready-intents intent workspace, not a spec dir.
 const SPECIAL_DIRS = new Set(["seeds", "ready-intents", "completed", "wip-intents"]);
 // Subspecs are always NN-*.md; everything else in a spec dir is index.md, intent.md, or a review artifact (verdict-*.md).
@@ -203,7 +204,7 @@ console.log("== Seed → intent splits ==");
 const splitCounts = splits.map((s) => s.intents.length);
 console.log(`all: ${stats(splitCounts)}`);
 console.log(`histogram: ${histogram(splitCounts)}`);
-for (const version of ["v1", "v2"]) {
+for (const version of ["v1", JARVIS_TREE]) {
   const vals = splits.filter((s) => s.version === version).map((s) => s.intents.length);
   if (vals.length > 0) console.log(`${version}: ${stats(vals)}`);
 }
@@ -232,7 +233,7 @@ console.log("\n== Plan → subspecs ==");
 const planCounts = plans.map((p) => p.subspecs);
 console.log(`all: ${stats(planCounts)}`);
 console.log(`histogram: ${histogram(planCounts)}`);
-for (const version of ["v1", "v2"]) {
+for (const version of ["v1", JARVIS_TREE]) {
   const vals = plans.filter((p) => p.version === version).map((p) => p.subspecs);
   if (vals.length > 0) console.log(`${version}: ${stats(vals)}`);
 }

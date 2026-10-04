@@ -1,11 +1,12 @@
 // Reproduces the measurements in 20260831T050512Z-pipeline-agent-turns.md.
-// Reads ~/.jarvis/telemetry.jsonl and a copy of ~/.jarvis/state/v2.sqlite (live DB is never opened).
+// Reads ~/.jarvis/telemetry.jsonl and a copy of the orchestration store (live DB is never opened).
 // A turn = one `invocation_completed` row with binding_index 0; rows with binding_index > 0 are
 // quota-fallback retries of the same logical call and count only toward the overhead stat.
 import { Database } from "bun:sqlite";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, dirname, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { orchestrationStorePath } from "../../src/paths.ts";
 
 const PROJECT = "jarvis";
 const TELEMETRY_START = Date.parse("2026-07-12T00:00:00Z");
@@ -31,11 +32,14 @@ function readTelemetry(): { turns: TelemetryRow[]; rawRowsByRun: Map<string, num
 
 function openStateDbCopy(): Database {
   const dir = mkdtempSync(join(tmpdir(), "turn-stats-"));
+  const storePath = orchestrationStorePath(jarvisHome);
+  const base = basename(storePath);
+  const stateDir = dirname(storePath);
   for (const suffix of ["", "-wal", "-shm"]) {
-    const source = join(jarvisHome, "state", `v2.sqlite${suffix}`);
-    if (existsSync(source)) copyFileSync(source, join(dir, `v2.sqlite${suffix}`));
+    const source = join(stateDir, `${base}${suffix}`);
+    if (existsSync(source)) copyFileSync(source, join(dir, `${base}${suffix}`));
   }
-  return new Database(join(dir, "v2.sqlite"), { readonly: true });
+  return new Database(join(dir, base), { readonly: true });
 }
 
 function groupRunsByWorkflow(db: Database): Map<string, Run[]> {

@@ -21,9 +21,9 @@ Reviewed 2026-10-02 (late) after the intent-split session (#4489–#4498). Compa
 | [adapter-confinement-translation-and-refusal](./ready-intents/adapter-confinement-translation-and-refusal.md) | after cascade | Adapters translate or refuse; defaults byte-identical. |
 | [telemetry-confinement-recording](./ready-intents/telemetry-confinement-recording.md) | after adapters | Resolved policy and vendor mechanism on the telemetry row. |
 | [shared-runtime-lives-under-v2-src](./ready-intents/shared-runtime-lives-under-v2-src.md) | 1 of shared fold | `shared/**` moves under `src`; imports and digest pathspec rewritten. |
-| [shared-test-slices-fold-into-v2-slices](./ready-intents/shared-test-slices-fold-into-v2-slices.md) | after move | `test:shared` slices retire; root tests run in `v2` slices. |
-| [move-v2-to-top-level](./ready-intents/move-v2-to-top-level.md) | after shared fold | `v2/` moves to the top level with scripts, CI scope, globs, `plan.targetDir`. |
-| [remove-v2-language-from-docs](./ready-intents/remove-v2-language-from-docs.md) | after move | Prose and `v1-behaviors.md` tags stop saying `v2`. |
+| [shared-test-slices-fold-into-v2-slices](./ready-intents/shared-test-slices-fold-into-v2-slices.md) | after move | `test:shared` slices retire; root tests run in agent test slices. |
+| [move-v2-to-top-level](./ready-intents/move-v2-to-top-level.md) | after shared fold | the former nested engine tree moves to the top level with scripts, CI scope, globs, `plan.targetDir`. |
+| [remove-v2-language-from-docs](./ready-intents/remove-v2-language-from-docs.md) | after move | Prose and `v1-behaviors.md` tags drop generation branding. |
 | [shared-git-operations-boundary](./ready-intents/shared-git-operations-boundary.md) | 1 of centralize | Typed Git operations with one owner in `shared/git.ts`. |
 | [github-operations-boundary](./ready-intents/github-operations-boundary.md) | after git boundary | Typed `gh` PR operations with one owner. |
 | [external-worktree-delegates-to-shared](./ready-intents/external-worktree-delegates-to-shared.md) | after git boundary | External worktree stops constructing Git commands. |

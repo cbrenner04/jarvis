@@ -1,6 +1,6 @@
 # Agent model config
 
-Canonical home for the v2 `AgentModelConfig` schema, inner rung escalation, load-time validation, flat binding construction, and price derivation. Role taxonomy lives in [`role-resolution.md`](role-resolution.md); layered context in [`v2-architecture.md`](v2-architecture.md). Invocation fallback semantics live in [`shared-invocation.md`](shared-invocation.md). Price rows live in [`data/prices.json`](../../data/prices.json).
+Canonical home for the `AgentModelConfig` schema, inner rung escalation, load-time validation, flat binding construction, and price derivation. Role taxonomy lives in [`role-resolution.md`](role-resolution.md); layered context in [`architecture.md`](architecture.md). Invocation fallback semantics live in [`shared-invocation.md`](shared-invocation.md). Price rows live in [`data/prices.json`](../../data/prices.json).
 
 ## Storage split
 
@@ -17,11 +17,11 @@ The machine agent order is hand-edited: the top-level `agents` array in `~/.jarv
 
 Per-project variance is **only** the ordered agent list: `projects.<key>.overrides.agents` shadows the top-level `agents` for that project's workflow and pipeline steps, resolved once per step at admission and carried in the persisted snapshot ([install-and-config.md § Per-project overrides](install-and-config.md#per-project-overrides)). Role→model assignments are shared across machines and projects loading the same profile. Load validation applies **only** to agents listed in the project's effective order — extra agents in the loaded profile are ignored at load (see [Load-time validation](#load-time-validation)). Workflow-source validation is separate: after config load succeeds, the loaded workflow `steps` array must still resolve each step role for every machine-configured agent before the workflow is allowed to run (see [`workflow-runner.md`](workflow-runner.md)).
 
-v1's combined `{agent, model}` `agentOrder` entries are retired. v2 holds agent names in project config and model rungs in the global store.
+v1's combined `{agent, model}` `agentOrder` entries are retired. Jarvis holds agent names in project config and model rungs in the global store.
 
 ## Codex sandbox mode
 
-The top-level `codexSandboxMode` key in `~/.jarvis/config.json` selects the sandbox the shared Codex binding runs under for v2 write/implement invocations. `readCodexSandboxMode` in [`machine-config-loader.ts`](../src/config/machine-config-loader.ts) owns resolution: recognized values (`read-only`, `workspace-write`, `danger-full-access`) pass through; a missing, non-string, or unrecognized value resolves to the `workspace-write` default. The resolved mode is threaded into Codex binding creation once when the daemon assembles production write/implement bindings (`resolveWriteLoopBindings`), so both fresh and rehydrated (post daemon/JSON boundary) invocation paths select the same mode rather than reverting to the default on resume.
+The top-level `codexSandboxMode` key in `~/.jarvis/config.json` selects the sandbox the shared Codex binding runs under for write/implement invocations. `readCodexSandboxMode` in [`machine-config-loader.ts`](../src/config/machine-config-loader.ts) owns resolution: recognized values (`read-only`, `workspace-write`, `danger-full-access`) pass through; a missing, non-string, or unrecognized value resolves to the `workspace-write` default. The resolved mode is threaded into Codex binding creation once when the daemon assembles production write/implement bindings (`resolveWriteLoopBindings`), so both fresh and rehydrated (post daemon/JSON boundary) invocation paths select the same mode rather than reverting to the default on resume.
 
 `danger-full-access` grants ambient trust so trusted local toolchains (e.g. Xcode/CoreSimulator) are reachable — parity with the trust cursor already takes via `--force` and claude via `--permission-mode acceptEdits`. There is no per-project override or command flag; adding one means extending the closed `projects.<key>.overrides` key set.
 
@@ -130,7 +130,7 @@ Top-level harness-global artifact. Maps each agent name to its `ModelsByRole`.
 
 ### Outer agent loop
 
-Walks the per-machine `agents` order. Advances **only** on `quota`. Role never reorders agents. Parity baseline is v2 patch/plan + [`shared-invocation.md`](shared-invocation.md) — **not** v1 prompt mode, where `model_config` can advance agents.
+Walks the per-machine `agents` order. Advances **only** on `quota`. Role never reorders agents. Parity baseline is harness patch/plan + [`shared-invocation.md`](shared-invocation.md) — **not** v1 prompt mode, where `model_config` can advance agents.
 
 ### Inner rung loop
 
@@ -194,7 +194,7 @@ Empty `agents` resolves to `[]`. Shared invocation then returns `no_binding`; th
 
 Head-only `actuator` matches v1 `reviewActuator` verdict-tier semantics: inner rungs beyond the head are not walked on quota for the same agent.
 
-**Shrink footnote:** v2 model resolution has a dedicated `shrink` role with its own rungs. `executeWorkflow` consumes those rungs for the hidden write-loop pass after an `implement` write step returns `complete`. Rung strength is config-author guidance only; load validation does not inspect model names or prices as policy proxies.
+**Shrink footnote:** Harness model resolution has a dedicated `shrink` role with its own rungs. `executeWorkflow` consumes those rungs for the hidden write-loop pass after an `implement` write step returns `complete`. Rung strength is config-author guidance only; load validation does not inspect model names or prices as policy proxies.
 
 ## Routing role
 
@@ -225,7 +225,7 @@ One spawn per call: no transient retry, no re-prompt. The call is bounded by a w
 | `tool_call` | The transcript shows a tool attempt (`tool_use` block for claude; a `command_execution`, `file_change`, `mcp_tool_call`, or `web_search` item for codex — `todo_list`/reasoning items are not tool calls); `stderr` names the tool. |
 | `malformed_output` | The final text is not one JSON object (a single surrounding code fence of any tag/case is tolerated), exceeds the output bound, or codex emitted no agent message. |
 
-On `ok`, `stdout` is the JSON object text (fence stripped); catalog validation (`validateRoutingRequest`) is the v2 consumer's job. A caller abort settles as the usual `aborted: <reason>` error, not a routing failure; a codex `turn.failed` event settles as an ordinary `error` carrying its message. Usage and cost ride every settlement the vendor reported them for, including named failures and non-ok exits (codex reads them from the `--json` `turn.completed` event); the `timeout` failure keeps the partial transcript as `diagnostics`.
+On `ok`, `stdout` is the JSON object text (fence stripped); catalog validation (`validateRoutingRequest`) is the routing consumer's job. A caller abort settles as the usual `aborted: <reason>` error, not a routing failure; a codex `turn.failed` event settles as an ordinary `error` carrying its message. Usage and cost ride every settlement the vendor reported them for, including named failures and non-ok exits (codex reads them from the `--json` `turn.completed` event); the `timeout` failure keeps the partial transcript as `diagnostics`.
 
 ## Terminal outcomes
 

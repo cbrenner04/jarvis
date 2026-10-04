@@ -23,9 +23,9 @@ Operator-facing markdown still titles and narrates the live engine as `v2` (`v2 
 
 ## Acceptance criteria
 
-- [ ] `grep -rn '\bv2\b' docs AGENTS.md README.md` matches only lines that name retired generation history (tree move, former `v2/` layout, or explicit `jarvis` vs `jarvis1` coexistence); fails against pre-fix `docs/operator-runbook.md` line 1 (`# v2 operator runbook`, reachable on main).
-- [ ] `test-writing.md` and renamed `architecture.md` / `vision.md` contain no `\bv2\b` tokens outside retired-generation history lines.
-- [ ] `bun run lint:md` passes.
+- [x] `grep -rn '\bv2\b' docs AGENTS.md README.md` matches only lines that name retired generation history (tree move, former `v2/` layout, or explicit `jarvis` vs `jarvis1` coexistence); fails against pre-fix `docs/operator-runbook.md` line 1 (`# v2 operator runbook`, reachable on main).
+- [x] `test-writing.md` and renamed `architecture.md` / `vision.md` contain no `\bv2\b` tokens outside retired-generation history lines.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

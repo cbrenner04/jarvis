@@ -1,15 +1,15 @@
-# v2 coding standards
+# Coding standards
 
-The canonical restraint principles for v2 development are defined in the prompt artifact `write.principles` (see [prompts/registry.txt](../../prompts/registry.txt)). All v2 implementation guidance derives from these seven principles.
+The canonical restraint principles for harness development are defined in the prompt artifact `write.principles` (see [prompts/registry.txt](../../prompts/registry.txt)). All harness implementation guidance derives from these seven principles.
 
 For the full principle text and decision notes, consult the artifact source directly — it is the single authoritative copy and is injected into the write-step prompt at each iteration.
 
 ## Structural-honesty gates
 
-A Biome linter gate enforces structural honesty in v2 and shared code via two rules:
+A Biome linter gate enforces structural honesty in engine and shared code via two rules:
 
-- **`noExcessiveCognitiveComplexity`** (error, threshold 24): Functions exceeding cognitive complexity 24 are errors. The threshold is set to pass all existing non-test code in v2 and shared, enforcing structural honesty (preventing over-nested or over-conditional new logic) without rejecting working code. Test files (`*.test.ts`) are excluded from this rule. Smallness is the planner's and reviewer's job; the gate enforces structure, not size targets.
-- **Shared import boundary** (error): Code under `src/shared/**` must not import from `v1/**` or `v2/**` using relative paths (e.g., `../../v1/...`). The boundary uses relative-aware glob patterns (`**/v1/**`, `**/v2/**`) to catch real import forms. Shared is the lower-layer library consumed by both versions; enforcing its isolation prevents version-specific leakage.
+- **`noExcessiveCognitiveComplexity`** (error, threshold 24): Functions exceeding cognitive complexity 24 are errors. The threshold is set to pass all existing non-test code in `src/` and shared, enforcing structural honesty (preventing over-nested or over-conditional new logic) without rejecting working code. Test files (`*.test.ts`) are excluded from this rule. Smallness is the planner's and reviewer's job; the gate enforces structure, not size targets.
+- **Shared import boundary** (error): Code under `src/shared/**` must not import from `v1/**` using relative paths (e.g., `../../v1/...`). The boundary uses relative-aware glob patterns (`**/v1/**`) to catch real import forms. Shared is the lower-layer library consumed by both versions; enforcing its isolation prevents version-specific leakage.
 
 All rules are error-level; no warnings are introduced. The gate scope covers `src/**` and `src/shared/**` (excluding test files) via Biome `overrides`; the frozen `v1/**` tree is excluded from Biome entirely.
 
@@ -59,7 +59,7 @@ Operator-facing checks state both the expected condition and the observed condit
 
 ## Synchronous subprocesses
 
-`v2/**` and `src/shared/**` may not introduce synchronous child processes. The only allowlisted module is `src/shared/subprocess.ts`, the CLI-only synchronous runner seam; new allowlist entries need a CLI-only reason. `bun run check` enforces this, including v2 imports of synchronous runner seams and Git helpers. Small synchronous filesystem reads remain permitted.
+`src/**` and `src/shared/**` may not introduce synchronous child processes. The only allowlisted module is `src/shared/subprocess.ts`, the CLI-only synchronous runner seam; new allowlist entries need a CLI-only reason. `bun run check` enforces this, including engine imports of synchronous runner seams and Git helpers. Small synchronous filesystem reads remain permitted.
 
 ## Git status paths
 
@@ -73,13 +73,13 @@ Production code under the scan roots `src` and `shared` (the third root, frozen 
 
 ## Test-support files and the production glob
 
-`*.test-support.ts` files under `src` are test-only fixtures co-located with the module they support (today: `src/execution/workflow-runner.test-support.ts`). They are excluded from the production source glob: `v2/tsconfig.json` lists `src/**/*.test-support.ts` in `exclude` (tests that import them still pull them into the typecheck transitively), and every structural guard shares one production-file predicate, `isProductionSourceFile` in `scripts/production-files.ts` — under `v2/` or `src/shared/`, `.ts`/`.tsx`, not `*.test.ts`, not `*.test-support.ts`, not `src/testing/**`. New guards use that predicate rather than a private suffix list.
+`*.test-support.ts` files under `src` are test-only fixtures co-located with the module they support (today: `src/execution/workflow-runner.test-support.ts`). They are excluded from the production source glob: root `tsconfig.json` lists `src/**/*.test-support.ts` in `exclude` (tests that import them still pull them into the typecheck transitively), and every structural guard shares one production-file predicate, `isProductionSourceFile` in `scripts/production-files.ts` — under `src/`, `.ts`/`.tsx`, not `*.test.ts`, not `*.test-support.ts`, not `src/testing/**`. New guards use that predicate rather than a private suffix list.
 
-`bun run check` runs `scripts/guard-production-test-support-imports.ts`: a production module that imports a `*.test-support.ts` path (static, type, side-effect, dynamic, `require`, or re-export) fails the gate, and so does a `v2/tsconfig.json` that drops the exclude. Manual red-check: add `import "./workflow-runner.test-support.ts";` to any file under `src/execution/` that is not a test, run `bun run check`, delete the line.
+`bun run check` runs `scripts/guard-production-test-support-imports.ts`: a production module that imports a `*.test-support.ts` path (static, type, side-effect, dynamic, `require`, or re-export) fails the gate, and so does a root `tsconfig.json` that drops the exclude. Manual red-check: add `import "./workflow-runner.test-support.ts";` to any file under `src/execution/` that is not a test, run `bun run check`, delete the line.
 
 ## Export hygiene gate
 
-Every export of a `src` production module (the `isProductionSourceFile` predicate above, restricted to `src/`) must be imported by some other file anywhere in the repo — `v2/`, `src/shared/`, `scripts/`, and `test/`, tests and the `src/testing/` harness included. `bun run check` runs `scripts/guard-dead-exports.ts`, a static import graph over relative specifiers: named, default, namespace, and dynamic imports plus `export … from` re-exports count as references; an export referenced only inside its own file is dead and must be demoted to module-private, and one referenced nowhere is deleted. On failure each finding prints `<file>:<line>: unreferenced export <Name> (demote to module-private if used in-file, else delete; never add an import to satisfy the guard)` on stderr. The gate replaced the seven-symbol `export-surface-trim.test.ts` pin.
+Every export of a `src` production module (the `isProductionSourceFile` predicate above, restricted to `src/`) must be imported by some other file anywhere in the repo — `src/`, `src/shared/`, `scripts/`, and `test/`, tests and the `src/testing/` harness included. `bun run check` runs `scripts/guard-dead-exports.ts`, a static import graph over relative specifiers: named, default, namespace, and dynamic imports plus `export … from` re-exports count as references; an export referenced only inside its own file is dead and must be demoted to module-private, and one referenced nowhere is deleted. On failure each finding prints `<file>:<line>: unreferenced export <Name> (demote to module-private if used in-file, else delete; never add an import to satisfy the guard)` on stderr. The gate replaced the seven-symbol `export-surface-trim.test.ts` pin.
 
 `DEAD_EXPORT_ALLOWLIST` in the script names surface that is intentionally public but statically unreferenced, keyed `<file>#<symbol>` with a reason (today only `src/cli.ts#main`, the `bin/jarvis` entry point). Add an entry only for a real external consumer, never to keep an unused export. Manual red-check: add `export const probe = 1;` to any production file under `src/`, run `bun run check`, delete the line.
 
@@ -111,6 +111,6 @@ If composition requires a new runner dispatch branch, add an exact `## Blocker` 
 
 ## Referenced documents
 
-- [`Source layout`](./v2-architecture.md#source-layout) — domain map and import direction
-- [`v1-behaviors.md`](./v1-behaviors.md) — v1 behaviors that v2 does not replicate in this build window
+- [`Source layout`](./architecture.md#source-layout) — domain map and import direction
+- [`v1-behaviors.md`](./v1-behaviors.md) — v1 behaviors the harness does not replicate in this build window
 - [`test-writing.md`](./test-writing.md) — test-writing conventions for agent-runnable tests and sandbox-unrunnable exceptions

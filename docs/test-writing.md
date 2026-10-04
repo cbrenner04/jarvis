@@ -38,12 +38,12 @@ Keep a real-process test only when the OS/git/process boundary is the behavior u
 
 ### harness run-command routing
 
-- **`bun run test:agent`** — agent-runnable tests under `v2/`, root `test/`, and `scripts/` (`**/*.test.ts` except `*.sandbox-unrunnable.test.ts`). This is the sandbox-agent-facing slice.
-- **`bun run test:integration`** — v2 `*.sandbox-unrunnable.test.ts` at any depth under `v2/`; runs serially (no `--parallel`). Use outside the coding-agent sandbox. Implement agents do not run it: the harness runs it outside the sandbox at finalization (via the ready gate's test scope, or as required integration), so a criterion naming it (alone or with `typecheck` / `test:agent`) is ticked once the in-sandbox checks pass, and its `EPERM` failures are never a blocker.
-- **`bun run test`** — aggregate gate; still collects all v2 tests including sandbox-unrunnable files.
+- **`bun run test:agent`** — agent-runnable tests under `src/`, root `test/`, and `scripts/` (`**/*.test.ts` except `*.sandbox-unrunnable.test.ts`). This is the sandbox-agent-facing slice.
+- **`bun run test:integration`** — `*.sandbox-unrunnable.test.ts` under `src/`; runs serially (no `--parallel`). Use outside the coding-agent sandbox. Implement agents do not run it: the harness runs it outside the sandbox at finalization (via the ready gate's test scope, or as required integration), so a criterion naming it (alone or with `typecheck` / `test:agent`) is ticked once the in-sandbox checks pass, and its `EPERM` failures are never a blocker.
+- **`bun run test`** — aggregate gate; still collects all engine tests including sandbox-unrunnable files.
 - **`bun run test:confirm:live`** — same live aggregate roster as `bun run test` (`aggregateTestFiles()` in `scripts/run-tests.ts`: `test:agent` and `test:integration` rosters from `scripts/run-slice-tests.ts`), forced serial (`--serial`, no concurrent pool), never frozen `v1/`. Hand confirmation after a red scoped or ready test step — not a scoped-gate substitute and not harness finalization integration (implement agents still do not run `test:integration` in-sandbox; the harness runs that outside the sandbox at finalization).
 
-The v2 integration slice is derived from the filename convention: a `*.sandbox-unrunnable.test.ts` file automatically routes to the integration slice without requiring edits to the slice-boundary test.
+The integration slice is derived from the filename convention: a `*.sandbox-unrunnable.test.ts` file automatically routes to the integration slice without requiring edits to the slice-boundary test.
 
 Sources: `package.json`, `scripts/run-slice-tests.ts`, `test/test-slices.test.ts`
 
@@ -69,7 +69,7 @@ Stop semantics carry across batches: a plain (non-timeout) failure stops every m
 
 ### Declared isolation classes
 
-A v2 test file that conflicts with a specific other kind declares one exact top-level marker: `export const TEST_ISOLATION_CLASS = "poll-until-done";` or `export const TEST_ISOLATION_CLASS = "subprocess-spawning";`. The scheduler reads that one-line declaration textually; conflicting or unrecognized declarations fail the run. Poll-until-done suites cannot share a batch with subprocess-spawning suites because nested subprocess pools can starve scheduler polls until Bun's 30000 ms test timeout even when both files pass alone.
+An engine test file that conflicts with a specific other kind declares one exact top-level marker: `export const TEST_ISOLATION_CLASS = "poll-until-done";` or `export const TEST_ISOLATION_CLASS = "subprocess-spawning";`. The scheduler reads that one-line declaration textually; conflicting or unrecognized declarations fail the run. Poll-until-done suites cannot share a batch with subprocess-spawning suites because nested subprocess pools can starve scheduler polls until Bun's 30000 ms test timeout even when both files pass alone.
 
 ### Load-sensitive isolation
 
@@ -111,7 +111,7 @@ One `bun run test:cost` run over the full aggregate roster (288 files, 0 unparse
 
 These are serial per-file `test:cost` figures — each file spawned alone, summed — not production-runner timing: the pooled `bun run test` wall clock (388s mean, 2026-08-18, above) measures a concurrent scheduler run and the two numbers neither reconcile nor need to.
 
-This measurement does not reconcile with the intent's motivating datapoint (v2 slice: 84s wall vs 11.7s reported test time, "~86% is spawn"): that figure came from one `bun test` invocation batching 85 files' worth of tests into a single summary line, not from summing each file's own summary line the way `test:cost` does here. The two numbers measure different quantities and this measurement does not settle whether a shared-process runner would recover the difference.
+This measurement does not reconcile with the intent's motivating datapoint (agent slice: 84s wall vs 11.7s reported test time, "~86% is spawn"): that figure came from one `bun test` invocation batching 85 files' worth of tests into a single summary line, not from summing each file's own summary line the way `test:cost` does here. The two numbers measure different quantities and this measurement does not settle whether a shared-process runner would recover the difference.
 
 This is a separate, slower-and-more-lenient measurement pass, not a `bun run test` transcript: `test:cost` captures each file's output instead of inheriting it, and does not stop on a non-zero exit or timeout, so its 848.6s total (2026-08-28) will not exactly reproduce the current 388s (mean) `bun run test` runner-path wall clock recorded above — both figures, plus the superseded 326s figure and the 697s pre-change baseline, are kept side by side, each labeled by which command and date produced it.
 
@@ -126,9 +126,9 @@ Raw output: [`docs/test-cost-baseline.txt`](test-cost-baseline.txt). Re-run `bun
 
 ## Shared socket fixtures
 
-Socket-backed v2 tests import `canUseUnixSockets` from [`src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Register socket-dependent tests with `test.skipIf(!canUseUnixSockets(), ...)` — do not use silent-return skip wrappers that report pass. Guard hooks with `canUseUnixSockets()`. Emit file-local stderr gated on `socketProbeErrored` when the suite needs operator-visible skip context — the shared probe does not write on failure.
+Socket-backed engine tests import `canUseUnixSockets` from [`src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Register socket-dependent tests with `test.skipIf(!canUseUnixSockets(), ...)` — do not use silent-return skip wrappers that report pass. Guard hooks with `canUseUnixSockets()`. Emit file-local stderr gated on `socketProbeErrored` when the suite needs operator-visible skip context — the shared probe does not write on failure.
 
-Use for any v2 test binding or connecting to a Unix socket under `tmpdir()`, subject to the round-trip allowance defined in "Do not reimplement production logic in test doubles" below. `daemon-start-list.test.ts` predates that cap and is not a general blessed example.
+Use for any engine test binding or connecting to a Unix socket under `tmpdir()`, subject to the round-trip allowance defined in "Do not reimplement production logic in test doubles" below. `daemon-start-list.test.ts` predates that cap and is not a general blessed example.
 
 Generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `listRuns`) live in [`src/testing/run-control.ts`](../src/testing/run-control.ts). They take an `IpcClient` and optional `WriteLoopInput` overrides — request-shaping, not assertion-specific setup. They are socket-only by construction: use them within the retained round-trip allowances (the `ipc.test.ts` transport suite, the 1-2-per-handler-set smokes, `.sandbox-unrunnable` smokes) — not as the default for run-control-protocol tests generally. Default to calling the handler factory's returned handlers directly, in-process; see the worked example below.
 
@@ -385,7 +385,7 @@ Substitutes for rendered-output assertions:
 - **Injected input hook** — keybinding and focus behavior without asserting painted frames.
 - **Production monitor state** — poll/dispatch outcomes and selection state the shell wires to ink.
 
-See [operator-runbook.md § Gate trust](operator-runbook.md#gate-trust) for what the v2 gate covers.
+See [operator-runbook.md § Gate trust](operator-runbook.md#gate-trust) for what the ready gate covers.
 
 ## Out of scope
 

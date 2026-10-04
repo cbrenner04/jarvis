@@ -299,6 +299,39 @@ describe("runFreeTextRouting", () => {
     expectNoDaemonRpc(harness);
   });
 
+  test("pipeline.start without project resolves registry from cwd", async () => {
+    const routingHarness = makeAdmissionHarness();
+    const admitInputs: PipelineStartAdmissionInput[] = [];
+    const io = captureIo();
+    const cliDeps = makeCliDeps();
+    const routingJson = JSON.stringify({
+      action: "pipeline.start",
+      seedPath: seedRelativePath,
+    });
+    const routingExit = await runFreeTextRouting("start pipeline for seed", io, cliDeps, "session-1", {
+      invokeRouting: async () => routingOk(routingJson),
+      admitPipelineStart: async (input) => {
+        admitInputs.push(input);
+        return admitPipelineStart(input, routingHarness.deps);
+      },
+    });
+
+    expect(routingExit).toBe(0);
+    expect(admitInputs).toEqual([{ projectKey: "demo", seedPath: seedRelativePath }]);
+    expect(io.read().stdout).toBe("pipeline-123\n");
+  });
+
+  test("pipeline.start without project rejects when cwd matches no registry root", async () => {
+    const harness = makeAdmissionHarness();
+    const io = captureIo();
+    const exit = await runFreeTextRouting("?", io, makeCliDeps({ cwd: () => join(fixtureRoot, "..") }), "s", {
+      invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.start", seedPath: seedRelativePath })),
+    });
+    expect(exit).toBe(1);
+    expectRoutingStderr(io, "unregistered-project");
+    expectNoDaemonRpc(harness);
+  });
+
   test("rejects bad seed path with no daemon RPC", async () => {
     const harness = makeAdmissionHarness();
     const io = captureIo();

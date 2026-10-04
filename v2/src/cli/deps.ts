@@ -14,6 +14,7 @@ import { runTuiLogFollow } from "../tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "../tui/tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "../tui/tui-monitor-types.ts";
 import { getInvokingExecutableDigest } from "./dispatch-revision.ts";
+import type { Io } from "./io.ts";
 
 export type CliDeps = {
   loadAgentModelConfig: (agents: readonly string[]) => AgentModelConfig | LoadError;
@@ -51,6 +52,7 @@ export type CliDeps = {
   machineConfigPath: string;
   /** Digest-keyed private endpoint `daemon start` binds alongside the public `socketPath`. */
   privateSocketPath?: string;
+  runFreeTextRouting?: (requestText: string, io: Io, cliDeps: CliDeps, operatorSessionId: string) => Promise<number>;
 };
 
 export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {

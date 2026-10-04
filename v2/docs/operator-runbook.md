@@ -10,6 +10,20 @@ Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, wor
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path: [`install-and-config.md`](./install-and-config.md).
 
+## Free-text routing
+
+Natural-language requests use the same closed action catalog and admission paths as the explicit CLI (`v2/src/cli/free-text-routing-actions.ts`). A model translates the request; Jarvis validates the JSON action, resolves projects and paths deterministically, then dispatches — stderr failures use the `free-text-routing:` prefix with a stable reason token.
+
+**Invocation (three equivalent shapes):** `jarvis request <words…>` (body is everything after `request`, joined with single spaces); `jarvis "one shell-quoted sentence"` (one argv token is the whole body); `jarvis word1 word2 …` when the first token is not a registered top-level command (all tokens join with single spaces). Registered commands (`pipeline`, `run`, `daemon`, …) always take the explicit handler — a malformed `jarvis pipeline start` fails inside `pipeline` and never reaches the router.
+
+**Flags:** free-text argv accepts only `--help` / `-h` when they resolve through the same help-alias rules as explicit commands (for example `jarvis request --help`). Any other `-` token exits `1` with `jarvis: flags are not supported on free-text requests: <token>` before routing. An empty body (`jarvis request` with no words, or whitespace-only) exits `1` with `free-text-routing: empty-request`.
+
+**Supported actions (catalog):** `pipeline.start` (`seedPath` required, `project` optional), `pipeline.approve` / `pipeline.reject` / `pipeline.resume` (`pipelineId`), `run.kill` / `run.resume` / `run.log` (`runId`). Unsupported sentences fail validation or resolution with a named reason; there is no interactive clarification loop.
+
+**Shell quoting:** only the shell's word splitting applies — Jarvis does not re-parse quotes inside argv. Use one quoted argument when the sentence must stay one token; use `jarvis request …` when words should stay separate without shell globbing. Variable and command substitution happen before Jarvis runs.
+
+**Routing audit (`~/.jarvis/routing-audit.jsonl`):** each free-text invocation appends one JSON line (`appendFile`, create-if-missing): `at` (ISO-8601), `operatorSessionId`, `requestSha256` (SHA-256 hex of the trimmed request body — not the raw text), `requestLength`, `outcome` (`routing-rejected` | `routing-failed` | `validation-rejected` | `resolution-rejected` | `dispatched`), and when applicable `action`, `dispatchExitCode`, `reason`. Audit write failures log a stderr warning and do not change the routing exit code. There is no cross-invocation dedupe by `requestSha256`; repeating the same sentence starts a new admission attempt. Free-text dispatch performs at most one daemon RPC per invocation — no in-process retry on `rpc-transport-failure` or `connection-lifecycle-failure`. After a transport-class failure the audit records `outcome: "dispatched"` with the failure in `reason`; confirm daemon/pipeline state before re-running the same request so a succeeded first attempt is not duplicated blindly.
+
 ## Where planning artifacts live
 
 Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project that is `v2/spec` (the default).

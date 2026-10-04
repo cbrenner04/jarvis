@@ -19,6 +19,7 @@ import {
   HELP_USAGE,
   INIT_USAGE,
   NOTIFICATIONS_USAGE,
+  PIPELINE_START_USAGE,
   PIPELINE_USAGE,
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
@@ -30,7 +31,13 @@ import {
   WORKFLOW_REVIEW_FEEDBACK_USAGE,
   WORKFLOW_USAGE,
 } from "./cli/usage.ts";
-import { enumerateCommands, findCommand, resolveHelpFlagAlias, main as runtimeMain } from "./cli.ts";
+import {
+  classifyFreeTextArgv,
+  enumerateCommands,
+  findCommand,
+  resolveHelpFlagAlias,
+  main as runtimeMain,
+} from "./cli.ts";
 import { DAEMON_SOCKET_PATH } from "./paths.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
@@ -45,6 +52,19 @@ function helpStdoutWithFlags(
     output += `${formatCommandFlagHelpLine(flag)}\n`;
   }
   return output;
+}
+
+function freeTextRoutingDeps(onRoute: (body: string) => number | Promise<number>) {
+  const calls: string[] = [];
+  return {
+    deps: {
+      runFreeTextRouting: async (body: string) => {
+        calls.push(body);
+        return await onRoute(body);
+      },
+    },
+    calls: () => calls,
+  };
 }
 
 function unknownCommandError(command: string, suggestion?: string, path?: readonly string[]): string {
@@ -67,20 +87,7 @@ describe("v2 cli dispatch", () => {
   });
 
   test.each([
-    ["Unicode distance two", "run😀😀", "run"],
-  ])("a %s close match suggests the registered command", async (_kind, command, suggestion) => {
-    const cap = captureIo();
-
-    const code = await main([command], cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: unknownCommandError(command, suggestion),
-    });
-  });
-
-  test.each([
+    ["Unicode distance two", "run😀😀"],
     ["absent", "zzzz"],
     ["ambiguous", "rux"],
     ["distance three", "wr"],
@@ -88,28 +95,25 @@ describe("v2 cli dispatch", () => {
     ["insertion", "writex"],
     ["substitution", "wrote"],
     ["distance two", "wte"],
-  ])("a %s match omits a suggestion", async (_kind, command) => {
+  ])("a single non-command token %s routes as free-text", async (_kind, command) => {
     const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
 
-    const code = await main([command], cap.io);
+    const code = await main([command], cap.io, deps);
 
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: unknownCommandError(command),
-    });
+    expect(code).toBe(0);
+    expect(calls()).toEqual([command]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
   });
 
-  test("jarvis write is unknown at top-level dispatch", async () => {
+  test("jarvis write routes as free-text", async () => {
     const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
 
-    const code = await main(["write"], cap.io);
+    const code = await main(["write"], cap.io, deps);
 
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: unknownCommandError("write"),
-    });
+    expect(code).toBe(0);
+    expect(calls()).toEqual(["write"]);
   });
 
   test("help renders the complete command registry", async () => {
@@ -127,6 +131,7 @@ describe("v2 cli dispatch", () => {
         "pipeline\tManage daemon-backed pipelines.\n" +
         "notifications\tPull operator notification deliveries from the daemon ledger.\n" +
         "cleanup\tRetire completed worktrees and specs.\n" +
+        "request\tRoute a natural-language request through the action catalog.\n" +
         "help\tShow help for commands and subcommands.\n",
       stderr: "",
     });
@@ -260,14 +265,15 @@ describe("v2 cli dispatch", () => {
     expect(cap.read().stdout).toBe(DAEMON_USAGE);
   });
 
-  test("the retired config command is unknown to dispatch and to help", async () => {
+  test("the retired config command is absent from dispatch and help", async () => {
     const dispatch = captureIo();
-    const dispatchCode = await main(["config", "show"], dispatch.io);
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
+    const dispatchCode = await main(["config", "show"], dispatch.io, deps);
     const help = captureIo();
     const helpCode = await main(["help", "config"], help.io);
 
-    expect(dispatchCode).toBe(1);
-    expect(dispatch.read()).toEqual({ stdout: "", stderr: unknownCommandError("config") });
+    expect(dispatchCode).toBe(0);
+    expect(calls()).toEqual(["config show"]);
     expect(helpCode).toBe(1);
     expect(help.read()).toEqual({ stdout: "", stderr: unknownCommandError("config", undefined, []) });
     expect(findCommand("config")).toBeUndefined();
@@ -385,7 +391,7 @@ describe("v2 cli dispatch", () => {
   });
 
   test("the command registry and the command tree agree on the top-level commands", () => {
-    const treeNodes = commandTree.subcommands ?? [];
+    const treeNodes = (commandTree.subcommands ?? []).filter((node) => node.name !== "request");
 
     expect(enumerateCommands().map(({ name, summary, usage }) => `${name}|${summary}|${usage}`)).toEqual(
       treeNodes.map(({ name, summary, usage }) => `${name}|${summary}|${usage}`),
@@ -419,16 +425,14 @@ describe("v2 cli dispatch", () => {
     expect(findCommand("toString")).toBeUndefined();
   });
 
-  test.each(["constructor", "toString"])("%s remains an unknown command", async (command) => {
+  test.each(["constructor", "toString"])("%s routes as free-text", async (command) => {
     const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
 
-    const code = await main([command], cap.io);
+    const code = await main([command], cap.io, deps);
 
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: unknownCommandError(command),
-    });
+    expect(code).toBe(0);
+    expect(calls()).toEqual([command]);
   });
 
   test("--version prints package version and exits 0", async () => {
@@ -486,7 +490,7 @@ describe("v2 cli dispatch", () => {
       expect(code).toBe(1);
       expect(cap.read()).toEqual({
         stdout: "",
-        stderr: unknownCommandError("--helps"),
+        stderr: "jarvis: flags are not supported on free-text requests: --helps\n",
       });
     });
 
@@ -597,6 +601,63 @@ describe("v2 cli dispatch", () => {
       stdout: "",
       stderr: "init: expected [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]\n",
     });
+  });
+
+  test("pipeline start without seed flags does not invoke free-text routing", async () => {
+    const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
+    const configPath = writeMachineConfig({ agents: ["claude"] });
+
+    const code = await main(["pipeline", "start"], cap.io, {
+      ...deps,
+      machineConfigPath: configPath,
+      connectIpcClient: () => Promise.reject(new Error("stubbed: no daemon")),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe(PIPELINE_START_USAGE);
+    expect(calls()).toEqual([]);
+  });
+
+  test("jarvis request … invokes free-text routing with the joined body", async () => {
+    const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
+    const argv = ["request", "create", "a", "pipeline", "for", "v2/spec/seeds/x.md"];
+
+    const code = await main(argv, cap.io, deps);
+
+    expect(code).toBe(0);
+    expect(calls()).toEqual(["create a pipeline for v2/spec/seeds/x.md"]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
+  test("unregistered first token with trailing argv joins into one free-text body", async () => {
+    const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
+    const argv = ["pipelin", "start", "for", "v2/spec/seeds/x.md"];
+
+    const code = await main(argv, cap.io, deps);
+
+    expect(code).toBe(0);
+    expect(calls()).toEqual(["pipelin start for v2/spec/seeds/x.md"]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
+  test("single unregistered argv token invokes free-text routing once with that body", async () => {
+    const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
+
+    const code = await main(["pipelin"], cap.io, deps);
+
+    expect(code).toBe(0);
+    expect(calls()).toEqual(["pipelin"]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
+  test("classifyFreeTextArgv guard inversions", () => {
+    expect(classifyFreeTextArgv(["pipeline", "start"])).toBeUndefined();
+    expect(classifyFreeTextArgv(["request", "go"])).toEqual({ kind: "body", body: "go" });
+    expect(classifyFreeTextArgv(["--bogus"])).toEqual({ kind: "unknown-flag", flag: "--bogus" });
   });
 
   test("init routing guard inversions expose hidden or invalid routes", async () => {

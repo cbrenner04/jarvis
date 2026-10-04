@@ -12,6 +12,7 @@ import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
 import type { Io } from "./cli/io.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
+import { FREE_TEXT_ROUTING_STDERR_PREFIX, runFreeTextRouting } from "./commands/free-text-routing.ts";
 import { runInitCommand } from "./commands/init.ts";
 import { runNotificationsCommand } from "./commands/notifications.ts";
 import { runPipelineCommand } from "./commands/pipeline.ts";
@@ -91,6 +92,28 @@ export function findCommand(name: string): CommandEntry | undefined {
   return commandEntries.find((entry) => entry.name === name);
 }
 
+type FreeTextArgvClassification =
+  | { kind: "body"; body: string }
+  | { kind: "empty-request" }
+  | { kind: "unknown-flag"; flag: string };
+
+export function classifyFreeTextArgv(argv: readonly string[]): FreeTextArgvClassification | undefined {
+  if (argv.length === 0) return undefined;
+  const first = argv[0];
+  if (first === undefined || findCommand(first) !== undefined) return undefined;
+
+  const flagToken = argv.find((token) => token.startsWith("-"));
+  if (flagToken !== undefined) return { kind: "unknown-flag", flag: flagToken };
+
+  if (first === "request") {
+    const body = argv.slice(1).join(" ").trim();
+    return body.length === 0 ? { kind: "empty-request" } : { kind: "body", body };
+  }
+
+  const body = (argv.length === 1 ? first : argv.join(" ")).trim();
+  return body.length === 0 ? { kind: "empty-request" } : { kind: "body", body };
+}
+
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
     stdout: (s) => process.stdout.write(s),
@@ -123,6 +146,20 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   const entry = findCommand(command);
   if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
+
+  const freeText = classifyFreeTextArgv(argv);
+  if (freeText !== undefined) {
+    if (freeText.kind === "unknown-flag") {
+      out.stderr(`jarvis: flags are not supported on free-text requests: ${freeText.flag}\n`);
+      return 1;
+    }
+    if (freeText.kind === "empty-request") {
+      out.stderr(`${FREE_TEXT_ROUTING_STDERR_PREFIX} empty-request\n`);
+      return 1;
+    }
+    const routeFreeText = runtimeDeps.runFreeTextRouting ?? runFreeTextRouting;
+    return routeFreeText(freeText.body, out, runtimeDeps, operatorSessionId);
+  }
 
   const closeMatches = enumerateCommands().filter((entry) => levenshteinDistance(command, entry.name) <= 2);
   const closeCommand = closeMatches.length === 1 ? closeMatches[0] : undefined;

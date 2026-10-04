@@ -19,9 +19,9 @@ Free-text routing invokes a model and may reach daemon admission; operators need
 
 ## Acceptance criteria
 
-- [ ] `free-text-routing.test.ts`: after a validation rejection and after a mocked successful `pipeline.start` dispatch, exactly one audit line each is appended with matching `outcome` and `operatorSessionId`; fails against pre-audit code.
-- [ ] Same file: when injected admission settles `rpc-transport-failure`, exactly one `pipeline_start` RPC is attempted and the audit line records `dispatched` with a transport reason; fails against pre-audit code.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `free-text-routing.test.ts`: after a validation rejection and after a mocked successful `pipeline.start` dispatch, exactly one audit line each is appended with matching `outcome` and `operatorSessionId`; fails against pre-audit code.
+- [x] Same file: when injected admission settles `rpc-transport-failure`, exactly one `pipeline_start` RPC is attempted and the audit line records `dispatched` with a transport reason; fails against pre-audit code.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

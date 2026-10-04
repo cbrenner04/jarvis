@@ -86,7 +86,7 @@ describe("cli entrypoint flushes piped output before exit", () => {
     "delivers a stderr payload above pipe capacity intact with exit 1",
     async () => {
       const name = "u".repeat(100_000);
-      const proc = spawnCli([name], freshHome());
+      const proc = spawnCli(["help", name], freshHome());
       const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 
       expect(code).toBe(1);

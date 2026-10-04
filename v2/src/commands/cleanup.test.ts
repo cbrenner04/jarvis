@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
@@ -320,6 +320,15 @@ describe("cleanup: GitHub operations boundary", () => {
     expect(calls).toEqual([{ branch: "feat/x", state: "open" }]);
     expect(gate.status).toBe("ok");
     expect(cleanupFunctionBody("async function listOpenPrsForBranch")).not.toMatch(/runAsync\(\s*["']gh["']/);
+  });
+
+  test("delegates spec-at-ref reads to shared git tree/blob operations", () => {
+    expect(cleanupFunctionBody("async function openInRepoSpecDirNamesOnRef")).not.toMatch(
+      /runAsync\(\s*["']git["'],\s*\[["']ls-tree["']/,
+    );
+    const specTreeBody = cleanupFunctionBody("async function specTreeFsAtRef");
+    expect(specTreeBody).not.toMatch(/runAsync\(\s*["']git["'],\s*\[["']ls-tree["']/);
+    expect(specTreeBody).not.toMatch(/runAsync\(\s*["']git["'],\s*\[["']show["']/);
   });
 
   test("mergedPrHeadAuthorityMatches delegates listPrs for head authority", async () => {
@@ -3832,7 +3841,22 @@ describe("cleanup: runAbandonCommand", () => {
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
         if (cmd === "git" && probe.failGit?.(args) === true) throw new Error(`git ${args[0]} probe failed`);
-        if (cmd === "git" && args[0] === "rev-parse" && args[1] === "HEAD" && cwd === probe.worktreeHead?.path) {
+        if (
+          cmd === "git" &&
+          args[0] === "rev-parse" &&
+          probe.worktreeHead !== undefined &&
+          cwd !== undefined &&
+          (() => {
+            try {
+              return realpathSync(cwd) === realpathSync(probe.worktreeHead.path);
+            } catch {
+              return resolve(cwd) === resolve(probe.worktreeHead.path);
+            }
+          })() &&
+          args[1] === "--verify" &&
+          args[2] === "--quiet" &&
+          args[3] === "HEAD"
+        ) {
           return `${probe.worktreeHead.sha}\n`;
         }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") mutations.push("remove-worktree");

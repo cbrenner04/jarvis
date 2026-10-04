@@ -761,6 +761,148 @@ export async function resolveRef(
   }
 }
 
+const ABSENT_REF_PATH_PATTERN =
+  /not a valid object name|does not exist in|not a valid tree|path .* does not exist|bad revision|ambiguous argument/i;
+
+/** True when git rejected a ref:path or tree read because the object or path is missing. */
+function absentRefPathFailure(error: unknown): boolean {
+  const failure = failureOf(error);
+  if (failure.timeout || failure.tooLarge) return false;
+  const text = `${failure.message}\n${failure.stderr}`;
+  return failure.status === 128 || (failure.status === 1 && ABSENT_REF_PATH_PATTERN.test(text));
+}
+
+export type TreeChildAtRef = {
+  mode: string;
+  type: "blob" | "tree" | "commit";
+  oid: string;
+  name: string;
+};
+
+function parseLsTreeZEntries(output: string): TreeChildAtRef[] {
+  const entries: TreeChildAtRef[] = [];
+  for (const entry of output.split("\0")) {
+    if (entry.length === 0) continue;
+    const tab = entry.indexOf("\t");
+    if (tab < 0) continue;
+    const meta = entry.slice(0, tab).split(" ");
+    const mode = meta[0];
+    const type = meta[1];
+    const oid = meta[2];
+    if (mode === undefined || type === undefined || oid === undefined) continue;
+    if (type !== "blob" && type !== "tree" && type !== "commit") continue;
+    entries.push({ mode, type, oid, name: entry.slice(tab + 1) });
+  }
+  return entries;
+}
+
+/** Non-recursive `git ls-tree` at `ref:treePath`; `undefined` when that tree is absent. */
+export async function listTreeChildrenAtRef(
+  cwd: string,
+  ref: string,
+  treePath: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<TreeChildAtRef[] | undefined> {
+  const object = treePath.length === 0 ? ref : `${ref}:${treePath}`;
+  try {
+    const output = await runner.runAsync("git", ["ls-tree", "-z", object], cwd, runOptions(options));
+    return parseLsTreeZEntries(output);
+  } catch (error) {
+    if (absentRefPathFailure(error)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** Recursive `git ls-tree --name-only` under `prefix` at `ref`; `undefined` when unreadable. */
+export async function listRecursivePathsAtRef(
+  cwd: string,
+  ref: string,
+  prefix: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[] | undefined> {
+  try {
+    const output = await runner.runAsync(
+      "git",
+      ["ls-tree", "-r", "-z", "--name-only", ref, "--", prefix],
+      cwd,
+      runOptions(options),
+    );
+    return output.split("\0").filter((line) => line.length > 0);
+  } catch (error) {
+    if (absentRefPathFailure(error)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** `git show ref:path` as UTF-8 text; `undefined` when the blob is absent. */
+export async function readBlobAtRef(
+  cwd: string,
+  ref: string,
+  path: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string | undefined> {
+  try {
+    return await runner.runAsync("git", ["show", `${ref}:${path}`], cwd, runOptions(options));
+  } catch (error) {
+    if (absentRefPathFailure(error)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** `git rev-list --count base..head` as a non-negative integer. */
+export async function countCommitsBetween(
+  cwd: string,
+  baseRef: string,
+  headRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<number> {
+  try {
+    const output = await runner.runAsync(
+      "git",
+      ["rev-list", "--count", `${baseRef}..${headRef}`],
+      cwd,
+      runOptions(options),
+    );
+    return Number.parseInt(output.trim(), 10);
+  } catch (error) {
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+export type LocalBranchHead = { branch: string; oid: string };
+
+/** Local `refs/heads/*` short names with tip OIDs. */
+export async function listLocalBranchHeads(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<LocalBranchHead[]> {
+  let output: string;
+  try {
+    output = await runner.runAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
+      cwd,
+      runOptions(options),
+    );
+  } catch (error) {
+    throw gitError("ref-query", error, [], options);
+  }
+  const heads: LocalBranchHead[] = [];
+  for (const line of output.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const space = trimmed.lastIndexOf(" ");
+    if (space <= 0) continue;
+    heads.push({ branch: trimmed.slice(0, space), oid: trimmed.slice(space + 1) });
+  }
+  return heads;
+}
+
 /**
  * `git update-ref <ref> <newOid> [<oldOid>]`. Stateful; with `oldOid` it is a
  * compare-and-swap that rejects `precondition` when the ref moved. Lock-file contention

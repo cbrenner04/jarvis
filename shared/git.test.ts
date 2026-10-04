@@ -12,6 +12,7 @@ import {
   branchExistsLocal,
   branchExistsOnOrigin,
   branchExistsOnOriginAsync,
+  countCommitsBetween,
   createBranch,
   DIFF_MAX_BUFFER,
   type DiffRange,
@@ -32,11 +33,15 @@ import {
   isNotGitRepositoryDiagnostic,
   isRetryableGitError,
   isWorktreeDirty,
+  listLocalBranchHeads,
+  listRecursivePathsAtRef,
+  listTreeChildrenAtRef,
   listWorktrees,
   mergeBase,
   type PushResult,
   pruneWorktrees,
   pushBranch,
+  readBlobAtRef,
   remoteUrl,
   type RemoteUrlResult,
   type RefDeleteResult,
@@ -705,6 +710,58 @@ describe("deleteBranch", () => {
       ["git", "branch", "-d", "nope"],
       ["git", "branch", "-d", "unmerged"],
       ["git", "branch", "-D", "live"],
+    ]);
+  });
+});
+
+describe("ref object reads at commits", () => {
+  test("tree children, recursive paths, blob read, commit count, and local heads", async () => {
+    const treeListing = `100644 blob ${OID_A}\tindex.md\0${`040000 tree ${OID_B}\tspec-dir\0`}`;
+    const runner = fakeAsync({
+      [`git ls-tree -z main:v2/spec`]: treeListing,
+      "git ls-tree -z missing:path": gitFailure("fatal: Not a valid object name missing:path\n", 128),
+      [`git ls-tree -r -z --name-only main -- v2/spec/spec-dir`]: `v2/spec/spec-dir/index.md\0v2/spec/spec-dir/task.md\0`,
+      "git ls-tree -r -z --name-only main -- gone": gitFailure("fatal: path 'gone' does not exist in 'main'\n", 128),
+      [`git show main:v2/spec/spec-dir/index.md`]: "# spec\n",
+      "git show main:missing": gitFailure("fatal: path 'missing' does not exist in 'main'\n", 128),
+      "git rev-list --count main..feature": "3\n",
+      "git rev-list --count main..broken": gitFailure("fatal: bad revision broken\n", 128),
+      "git for-each-ref --format=%(refname:short) %(objectname) refs/heads/": `main ${OID_A}\nfeature ${OID_B}\n`,
+    });
+    const children = await listTreeChildrenAtRef("/repo", "main", "v2/spec", runner);
+    expect(children).toEqual([
+      { mode: "100644", type: "blob", oid: OID_A, name: "index.md" },
+      { mode: "040000", type: "tree", oid: OID_B, name: "spec-dir" },
+    ]);
+    expect(await listTreeChildrenAtRef("/repo", "missing", "path", runner)).toBeUndefined();
+    expect(await listRecursivePathsAtRef("/repo", "main", "v2/spec/spec-dir", runner)).toEqual([
+      "v2/spec/spec-dir/index.md",
+      "v2/spec/spec-dir/task.md",
+    ]);
+    expect(await listRecursivePathsAtRef("/repo", "main", "gone", runner)).toBeUndefined();
+    expect(await readBlobAtRef("/repo", "main", "v2/spec/spec-dir/index.md", runner)).toBe("# spec\n");
+    expect(await readBlobAtRef("/repo", "main", "missing", runner)).toBeUndefined();
+    expect(await countCommitsBetween("/repo", "main", "feature", runner)).toBe(3);
+    expectFailure(
+      await rejection(countCommitsBetween("/repo", "main", "broken", runner)),
+      "ref-query",
+      "failed",
+      false,
+    );
+    expect(await listLocalBranchHeads("/repo", runner)).toEqual([
+      { branch: "main", oid: OID_A },
+      { branch: "feature", oid: OID_B },
+    ]);
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "ls-tree", "-z", "main:v2/spec"],
+      ["git", "ls-tree", "-z", "missing:path"],
+      ["git", "ls-tree", "-r", "-z", "--name-only", "main", "--", "v2/spec/spec-dir"],
+      ["git", "ls-tree", "-r", "-z", "--name-only", "main", "--", "gone"],
+      ["git", "show", "main:v2/spec/spec-dir/index.md"],
+      ["git", "show", "main:missing"],
+      ["git", "rev-list", "--count", "main..feature"],
+      ["git", "rev-list", "--count", "main..broken"],
+      ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
     ]);
   });
 });

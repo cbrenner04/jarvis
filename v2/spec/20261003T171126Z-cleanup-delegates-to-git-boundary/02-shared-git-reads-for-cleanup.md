@@ -20,10 +20,10 @@ Cleanup reads committed spec trees via inline `git ls-tree`, `git show`, `git re
 
 ## Acceptance criteria
 
-- [ ] `shared/git.test.ts` adds cases for the new read helpers (tree listing, blob read, commit count, local heads); at least one fails against the pre-fix boundary missing those exports.
-- [ ] `cleanup.test.ts` adds `delegates spec-at-ref reads to shared git tree/blob operations` (or extends an in-repo ready-intent / stranded-spec test) asserting `cleanup.ts` no longer spawns `git show` / `git ls-tree` for that path; fails against pre-migration inline spawns in `specTreeFsAtRef` / `openInRepoSpecDirNamesOnRef`.
-- [ ] `cleanup.ts` contains no `runAsync("git", ["show"` or `["ls-tree"` or `["for-each-ref"` or `["rev-list", "--count"` — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:v2` pass.
+- [x] `shared/git.test.ts` adds cases for the new read helpers (tree listing, blob read, commit count, local heads); at least one fails against the pre-fix boundary missing those exports.
+- [x] `cleanup.test.ts` adds `delegates spec-at-ref reads to shared git tree/blob operations` (or extends an in-repo ready-intent / stranded-spec test) asserting `cleanup.ts` no longer spawns `git show` / `git ls-tree` for that path; fails against pre-migration inline spawns in `specTreeFsAtRef` / `openInRepoSpecDirNamesOnRef`.
+- [x] `cleanup.ts` contains no `runAsync("git", ["show"` or `["ls-tree"` or `["for-each-ref"` or `["rev-list", "--count"` — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

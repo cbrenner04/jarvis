@@ -16,19 +16,25 @@ import { gzipSync } from "node:zlib";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
   deleteBranch,
+  countCommitsBetween,
   deleteRef,
   getBaseBranch,
   getCurrentBranchAsync,
   getGitStatusInventory,
   gitCommonDir,
+  GitOperationError,
   isGitRepoAsync,
   isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
+  listLocalBranchHeads,
+  listRecursivePathsAtRef,
+  listTreeChildrenAtRef,
   listWorktrees,
   mergeBase,
   originTrackingRefResolvesAsync,
   pruneWorktrees,
   pushBranch,
+  readBlobAtRef,
   remoteUrl,
   removeWorktree,
   resolveRef,
@@ -511,20 +517,7 @@ function checkedOutBranchesFromWorktreeEntries(entries: ReadonlyArray<{ branch?:
 }
 
 async function listLocalHeads(repoRoot: string, runner: AsyncSubprocessRunner): Promise<LocalHead[]> {
-  const output = await runner.runAsync(
-    "git",
-    ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
-    repoRoot,
-  );
-  const heads: LocalHead[] = [];
-  for (const line of output.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const space = trimmed.lastIndexOf(" ");
-    if (space <= 0) continue;
-    heads.push({ branch: trimmed.slice(0, space), oid: trimmed.slice(space + 1) });
-  }
-  return heads;
+  return listLocalBranchHeads(repoRoot, runner);
 }
 
 async function ghPrHeadRecordsForBranch(
@@ -1492,10 +1485,7 @@ async function archivePublicationCommitCount(
   }
   const baseRef = await getBaseBranch(target.projectRoot, runner);
   try {
-    const count = (
-      await runner.runAsync("git", ["rev-list", "--count", `${baseRef}..${target.branch}`], target.projectRoot)
-    ).trim();
-    const parsed = Number.parseInt(count, 10);
+    const parsed = await countCommitsBetween(target.projectRoot, baseRef, target.branch, runner);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
   } catch {
     return 1;
@@ -1807,17 +1797,17 @@ async function openInRepoSpecDirNamesOnRef(
   ref: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string[]> {
-  let listing: string;
+  let listing;
   try {
-    listing = await runner.runAsync("git", ["ls-tree", "-z", `${ref}:${relHome}`], projectRoot);
+    listing = await listTreeChildrenAtRef(projectRoot, ref, relHome, runner);
   } catch {
     return [];
   }
+  if (listing === undefined) return [];
   const names: string[] = [];
-  for (const entry of listing.split("\0")) {
-    const tab = entry.indexOf("\t");
-    if (tab < 0 || entry.slice(0, tab).split(" ")[1] !== "tree") continue;
-    const name = entry.slice(tab + 1);
+  for (const entry of listing) {
+    if (entry.type !== "tree") continue;
+    const name = entry.name;
     if (QUEUE_DIR_NAMES.includes(name) || name === "completed" || name.startsWith(".")) continue;
     if (isHarnessWorkflowStagingPath(name)) continue;
     names.push(name);
@@ -1986,25 +1976,20 @@ async function specTreeFsAtRef(
   runner: AsyncSubprocessRunner,
 ): Promise<ArtifactFs | undefined> {
   const relSource = relative(projectRoot, source);
-  let listing: string;
+  let relPaths;
   try {
-    listing = await runner.runAsync("git", ["ls-tree", "-r", "-z", "--name-only", ref, "--", relSource], projectRoot);
+    relPaths = await listRecursivePathsAtRef(projectRoot, ref, relSource, runner);
   } catch {
     return undefined;
   }
-  const relPaths = listing.split("\0").filter((line) => line.length > 0);
-  if (relPaths.length === 0) return undefined;
+  if (relPaths === undefined || relPaths.length === 0) return undefined;
 
   const root = resolve(projectRoot);
   const files = new Map<string, Buffer>();
   const dirs = new Set<string>();
   for (const relPath of relPaths) {
-    let content: string;
-    try {
-      content = await runner.runAsync("git", ["show", `${ref}:${relPath}`], projectRoot);
-    } catch {
-      return undefined;
-    }
+    const content = await readBlobAtRef(projectRoot, ref, relPath, runner);
+    if (content === undefined) return undefined;
     const absPath = resolve(root, relPath);
     files.set(absPath, Buffer.from(content, "utf8"));
     for (let dir = dirname(absPath); dir.startsWith(root); dir = dirname(dir)) dirs.add(dir);
@@ -3403,11 +3388,7 @@ async function readGitFileAtRef(
   relPath: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
-  try {
-    return await runner.runAsync("git", ["show", `${baseRef}:${relPath}`], projectRoot);
-  } catch {
-    return undefined;
-  }
+  return readBlobAtRef(projectRoot, baseRef, relPath, runner);
 }
 
 async function resolveStaleResetRef(
@@ -3415,7 +3396,11 @@ async function resolveStaleResetRef(
   gitRef: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string> {
-  return (await runner.runAsync("git", ["rev-parse", gitRef], projectRoot)).trim();
+  const resolved = await resolveRef(projectRoot, gitRef, runner);
+  if (resolved.status === "absent") {
+    throw new GitOperationError("ref-query", "failed", `ref not found: ${gitRef}`, "", 1);
+  }
+  return resolved.oid;
 }
 
 /** A commit's diff hunk for one path, split from a multi-commit `git log -p --format=%H` run. */
@@ -3861,8 +3846,7 @@ async function unlandedCommitCount(
   baseRef: string,
   runner: AsyncSubprocessRunner,
 ): Promise<number> {
-  const output = await runner.runAsync("git", ["rev-list", "--count", `${baseRef}..${branch}`], projectRoot);
-  return Number.parseInt(output.trim(), 10);
+  return countCommitsBetween(projectRoot, baseRef, branch, runner);
 }
 
 /** True when `absPath` resolves inside `root` (or is `root` itself). */

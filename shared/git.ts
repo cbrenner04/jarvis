@@ -537,6 +537,13 @@ export async function diffStat(
   return (await runDiff(cwd, ["--stat", range.from, range.to], runner, options)).trim();
 }
 
+function sortedNonemptyDiffPaths(output: string): string[] {
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
 /** Changed paths between `from` and `to`, sorted by code unit (deterministic across runs). */
 export async function diffNameOnly(
   cwd: string,
@@ -544,11 +551,7 @@ export async function diffNameOnly(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions = {},
 ): Promise<string[]> {
-  const output = await runDiff(cwd, ["--name-only", range.from, range.to], runner, options);
-  return output
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return sortedNonemptyDiffPaths(await runDiff(cwd, ["--name-only", range.from, range.to], runner, options));
 }
 
 /** Changed paths for a single revision range token (e.g. `base..head` or `base...head`). */
@@ -558,11 +561,7 @@ export async function diffNameOnlyRevision(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions = {},
 ): Promise<string[]> {
-  const output = await runDiff(cwd, ["--name-only", revision], runner, options);
-  return output
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return sortedNonemptyDiffPaths(await runDiff(cwd, ["--name-only", revision], runner, options));
 }
 
 /** Unmerged paths in the index/worktree (`git diff --name-only --diff-filter=U`). */

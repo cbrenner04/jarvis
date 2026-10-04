@@ -295,19 +295,13 @@ export async function viewPrState(
     );
   }
   const mergedAt = typeof record.mergedAt === "string" ? record.mergedAt : null;
-  const isCrossRepository =
-    record.isCrossRepository === true ? true : record.isCrossRepository === false ? false : undefined;
+  const isCrossRepository = typeof record.isCrossRepository === "boolean" ? record.isCrossRepository : undefined;
   return {
     state,
     merged: state === "MERGED",
     mergedAt,
     ...(isCrossRepository !== undefined ? { isCrossRepository } : {}),
   };
-}
-
-/** Adapts an injected subprocess runner to the raw gh seam publication uses when tests inject `runner`. */
-export function ghSubprocessSeamFromRunner(runner: AsyncSubprocessRunner): GhCommandSeam {
-  return (cwd, args, options) => runner.runAsync("gh", [...args], cwd, { ...networkSubprocessOptions(), ...options });
 }
 
 export type PrReviewActivity = {

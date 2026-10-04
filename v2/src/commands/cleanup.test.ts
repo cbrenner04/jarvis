@@ -111,10 +111,8 @@ function ghPrListRunner(projectRoot: string, prs: OpenPr[]): AsyncSubprocessRunn
   };
 }
 
-const cleanupModuleSource = () => readFileSync(join(import.meta.dir, "cleanup.ts"), "utf8");
-
 function cleanupFunctionBody(functionHead: string): string {
-  const src = cleanupModuleSource();
+  const src = readFileSync(join(import.meta.dir, "cleanup.ts"), "utf8");
   const start = src.indexOf(functionHead);
   if (start < 0) throw new Error(`missing ${functionHead}`);
   const open = src.indexOf("{", start);

@@ -73,7 +73,6 @@ import { publishArchiveReady } from "../execution/completion-publisher.ts";
 import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
 import {
   closePr,
-  ghSubprocessSeamFromRunner,
   GitHubOperationError,
   listPrs,
   viewPrReviewActivity,
@@ -506,12 +505,8 @@ export function parseCheckedOutBranchesFromWorktreePorcelain(porcelain: string):
   return checkedOut;
 }
 
-function checkedOutBranchesFromWorktreeEntries(entries: ReadonlyArray<{ branch?: string }>): Set<string> {
-  const checkedOut = new Set<string>();
-  for (const entry of entries) {
-    if (entry.branch !== undefined) checkedOut.add(entry.branch);
-  }
-  return checkedOut;
+function checkedOutBranchSet(entries: ReadonlyArray<{ branch?: string }>): Set<string> {
+  return new Set(entries.map((entry) => entry.branch).filter((branch): branch is string => branch !== undefined));
 }
 
 async function ghPrHeadRecordsForBranch(branch: string, repoRoot: string, runner: AsyncSubprocessRunner) {
@@ -823,7 +818,7 @@ async function discoverMergedBranchRefCandidatesForRepo(
     listWorktrees(root, runner),
     listLocalBranchHeads(root, runner),
   ]);
-  const checkedOut = checkedOutBranchesFromWorktreeEntries(worktrees);
+  const checkedOut = checkedOutBranchSet(worktrees);
   const candidates: MergedBranchRefCandidate[] = [];
 
   for (const head of localHeads) {
@@ -964,7 +959,7 @@ export async function revalidateMergedBranchRefCandidate(
   const [baseBranch, currentBranch, checkedOut] = await Promise.all([
     getBaseBranch(root, runner),
     getCurrentBranchAsync(root, runner),
-    listWorktrees(root, runner).then(checkedOutBranchesFromWorktreeEntries),
+    listWorktrees(root, runner).then(checkedOutBranchSet),
   ]);
   if (branch === baseBranch) return { status: "ineligible", reason: "base branch" };
   if (currentBranch !== "HEAD" && branch === currentBranch) {
@@ -1545,7 +1540,11 @@ async function applyEndArchivePublication(
     try {
       const result = await publishArchiveReady(
         { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },
-        { git, gh: ghSubprocessSeamFromRunner(runner) },
+        {
+          git,
+          gh: (cwd, args, options) =>
+            runner.runAsync("gh", [...args], cwd, { ...networkSubprocessOptions(), ...options }),
+        },
       );
       io.stdout(`${result.prUrl}\n`);
     } catch (failure: unknown) {
@@ -3705,13 +3704,10 @@ async function evaluateCommittedLaneContinuation(args: {
 
   if (skipLandedCriteriaGate) return undefined;
 
-  const rewrite = hasOpenPr
-    ? await (async () => {
-        const conflictPaths = await abortableWorktreeMergeNoEdit(worktreePath, baseHead, runner);
-        if (conflictPaths === undefined) await deleteRef(worktreePath, "ORIG_HEAD", runner);
-        return conflictPaths;
-      })()
+  let rewrite = hasOpenPr
+    ? await abortableWorktreeMergeNoEdit(worktreePath, baseHead, runner)
     : await abortableWorktreeRebase(worktreePath, baseHead, runner);
+  if (hasOpenPr && rewrite === undefined) await deleteRef(worktreePath, "ORIG_HEAD", runner);
   if (rewrite !== undefined) {
     return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, rewrite) };
   }

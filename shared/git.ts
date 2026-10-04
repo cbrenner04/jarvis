@@ -541,7 +541,7 @@ function sortedNonemptyDiffPaths(output: string): string[] {
   return output
     .split("\n")
     .filter((line) => line.length > 0)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    .sort();
 }
 
 /** Changed paths between `from` and `to`, sorted by code unit (deterministic across runs). */

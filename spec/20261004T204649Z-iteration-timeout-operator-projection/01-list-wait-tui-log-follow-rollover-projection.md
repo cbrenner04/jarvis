@@ -13,16 +13,16 @@ During in-loop rollover the run stays `in-progress` with attempt `outcomeKind: "
 
 ## Task checklist
 
-- [ ] Extend `stoppedOutcomeForRun` / `workflowStepSnapshot` (or equivalent list wiring) for `iteration_timeout_continued` in-progress rollover.
-- [ ] Add or adjust daemon list/wait tests for in-progress rollover and for terminal `iteration_timeout` resume projection aligned with subspec 00.
+- [x] Extend `stoppedOutcomeForRun` / `workflowStepSnapshot` (or equivalent list wiring) for `iteration_timeout_continued` in-progress rollover.
+- [x] Add or adjust daemon list/wait tests for in-progress rollover and for terminal `iteration_timeout` resume projection aligned with subspec 00.
 
 ## Acceptance criteria
 
-- [ ] `workflow-list-snapshot.test.ts` asserts an `in-progress` durable step whose last attempt is `iteration_timeout_continued` projects `status: "in_progress"` with no `terminalOutcome` when `liveRunIds` is empty; it fails against the pre-fix code (stopped / `invocation_failure` today).
-- [ ] `daemon-wait-run-completion.test.ts` adds a case asserting `list`/`wait` keep `status: "in-progress"` with no `error` when the store row is `in-progress`, the last attempt is `iteration_timeout_continued`, and no terminal `loop_finished` exists; it fails against the pre-fix code.
-- [ ] `tui-log-follow-entry.test.tsx` `formatLogFollowLine` `projects per-kind fields from decisions` stays green (passthrough formatter unchanged unless this subspec edits it).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:agent` passes for touched `src/daemon/**` and `src/tui/**` surfaces.
+- [x] `workflow-list-snapshot.test.ts` asserts an `in-progress` durable step whose last attempt is `iteration_timeout_continued` projects `status: "in_progress"` with no `terminalOutcome` when `liveRunIds` is empty; it fails against the pre-fix code (stopped / `invocation_failure` today).
+- [x] `daemon-wait-run-completion.test.ts` adds a case asserting `list`/`wait` keep `status: "in-progress"` with no `error` when the store row is `in-progress`, the last attempt is `iteration_timeout_continued`, and no terminal `loop_finished` exists; it fails against the pre-fix code.
+- [x] `tui-log-follow-entry.test.tsx` `formatLogFollowLine` `projects per-kind fields from decisions` stays green (passthrough formatter unchanged unless this subspec edits it).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:agent` passes for touched `src/daemon/**` and `src/tui/**` surfaces.
 
 ## Documentation updates
 

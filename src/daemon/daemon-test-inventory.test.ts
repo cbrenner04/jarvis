@@ -351,6 +351,8 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "timer fire aborts a write-loop dispatch, settles killed/run_timeout resumable, and logs run_timeout",
   "is live when a workflow row is active alongside a write-loop row",
   "is not live when only a write-loop row is active",
+  "list and wait project non-resumable iteration_timeout as stop",
+  "iteration_timeout recovery copy directs resume when terminal row is resumable",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

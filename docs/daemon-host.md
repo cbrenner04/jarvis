@@ -262,9 +262,7 @@ Result fields:
   the run's publication confirmed a PR.
 - Omitted when resolving from `run_execution_failed`, kill-before-log, or a
   durable terminal row without a persisted `loop_finished`.
-- Optional `error` — stable operator stop detail; omitted on in-progress runs and
-  successful `completed` terminals. Same object shape and composition rules as
-  `list` rows.
+- Optional `error` — stable operator stop detail; omitted on in-progress runs (including in-loop `iteration_timeout_continued` rollover with no terminal `loop_finished`) and successful `completed` terminals. Same object shape and composition rules as `list` rows.
 
 ### Operator error on list and wait
 
@@ -304,8 +302,7 @@ For `ready_gate_failed`, terminal command evidence adds optional `message`: it n
 | `role_timeout` | review-step `invocation_failure` + `failureKind: "timeout"`, not exhausted | `true` | `retry_later` |
 | `role_timeout` (exhausted) | review-step `invocation_failure` + `failureKind: "timeout"` + `exhaustedRoleTimeout: true` (every configured rung timed out) | `false` | `stop` |
 | `role_stalled` | review-step `invocation_failure` + `failureKind: "stall"` (role-layer idle kill or successor-shell pre-agent stall) | `true` | `retry_later` |
-| `iteration_timeout` | failed terminal `loopOutcomeKind: "iteration_timeout"` with `loop_finished.resumable: true` (current harness wall/ceiling stall; in-loop checkpoint rollover commits non-terminal `iteration_timeout_continued` and stays `in-progress` without projecting here) | `true` | `resume` |
-| `iteration_timeout` (legacy) | failed `loopOutcomeKind: "iteration_timeout"` with `resumable: false` on pre-change terminal rows | `false` | `stop` |
+| `iteration_timeout` | failed terminal `loopOutcomeKind: "iteration_timeout"` (wall/ceiling stall; always `retryable: true` / `nextAction: "resume"` — not gated on terminal `loop_finished.resumable` or completion-inventory fields) | `true` | `resume` |
 | `idle_output_timeout` | failed `loopOutcomeKind: "idle_output_timeout"` with `resumable: false`, or store-only attempt `outcome_kind: "idle_output_timeout"` without a matching terminal `loop_finished` | `false` | `stop` |
 | `idle_output_timeout` (resumable) | failed `loopOutcomeKind: "idle_output_timeout"` with `resumable: true` (boundary checkpoint produced a fresh `iteration_commit` `commitSha`) | `true` | `resume` |
 | `harness_failure` | terminal `run_execution_failed` without a post-boundary lock message, or `failed` without mappable attempt detail | `false` | `stop` |

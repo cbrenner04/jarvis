@@ -247,8 +247,8 @@ test("composeRunOperatorError projects iteration_timeout inventoryError", () => 
     ),
   ).toEqual({
     reason: "iteration_timeout",
-    retryable: false,
-    nextAction: "stop",
+    retryable: true,
+    nextAction: "resume",
     completedSubspecPaths: [],
     remainingSubspecPaths: [],
     inventoryError,
@@ -388,7 +388,7 @@ test("composeRunOperatorError maps enriched resumable iteration_timeout to resum
 test("composeRunOperatorError maps iteration_timeout as a failed terminal", () => {
   expect(
     composeRunOperatorError(runWith("failed", [attempt("iteration_timeout")]), loopFinished("iteration_timeout")),
-  ).toEqual(err("iteration_timeout", "stop"));
+  ).toEqual(err("iteration_timeout", "resume", true));
 });
 
 test("composeRunOperatorError maps resumable iteration_timeout with completion inventory", () => {
@@ -415,11 +415,9 @@ test("composeRunOperatorError maps resumable iteration_timeout with completion i
   });
 });
 
-test("iteration_timeout recovery copy directs resume when terminal row is resumable", () => {
+test("iteration_timeout recovery copy directs resume on the retained workspace", () => {
   expect(RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout).toContain("jarvis run resume");
-  expect(RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout).not.toEqual(
-    "inspect the stall in jarvis run log, then re-dispatch the workflow",
-  );
+  expect(RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout).not.toContain("re-dispatch");
 });
 
 test("composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal", () => {
@@ -935,7 +933,7 @@ test("resolveFailedBlockedAttemptPrecedence prefers resumable iteration_timeout 
       attempt("blocked"),
       loopFinishedEvent("iteration_timeout", { resumable: false }),
     ),
-  ).toEqual(err("agent_blocked", "inspect_spec"));
+  ).toEqual(err("iteration_timeout", "resume", true));
 });
 
 test("composeRunOperatorError and resolveFailedBlockedAttemptPrecedence prefer resumable idle_output_timeout over mappable attempt detail", () => {

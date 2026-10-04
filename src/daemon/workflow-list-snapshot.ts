@@ -117,7 +117,8 @@ function workflowStepSnapshot(
     };
   }
 
-  if (run.status === "in-progress" && liveRunIds.has(run.id)) {
+  const lastOutcome = run.attempts[run.attempts.length - 1]?.outcomeKind;
+  if (run.status === "in-progress" && (liveRunIds.has(run.id) || lastOutcome === "iteration_timeout_continued")) {
     return {
       stepId: step.stepId,
       role: step.role,

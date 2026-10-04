@@ -264,15 +264,16 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
 }
 
 function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinishedEvent | undefined): boolean {
-  if (event === undefined || !event.resumable) return false;
+  if (event === undefined) return false;
+  if (!event.resumable && event.loopOutcomeKind !== "iteration_timeout") return false;
   switch (event.loopOutcomeKind) {
+    case "iteration_timeout":
     case "ready_gate_failed":
     case "ready_gate_out_of_scope":
     case "surviving_mutation_failed":
     case "non_terminating_mutation_failed":
     case "completion_commit_failed":
     case "iteration_commit_failed":
-    case "iteration_timeout":
     case "gate_invocation_refused":
     case "idle_output_timeout":
     case "landing_failed":
@@ -347,7 +348,7 @@ function mapFromLoopFinished(
         // A landing failure is reissuable only when the settlement said so. Plan-tree shape checks
         // settle `resumable: false` because direct-landing recovery re-validates the same on-disk
         // bytes, so an unmodified reissue re-fails identically; intent finalization still settles
-        // `true` and keeps its documented resume path. Same shape as `iteration_timeout` below.
+        // `true` and keeps its documented resume path.
         ...(event.resumable ? op("landing_failed", "resume", true) : op("landing_failed", "stop")),
         ...(typeof event.message === "string" ? { message: event.message } : {}),
       };
@@ -433,16 +434,14 @@ function mapFromLoopFinished(
         : op("contract_miss", "inspect_spec");
     case "invocation_failure":
       return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
-    case "iteration_timeout": {
-      const base = event.resumable ? op("iteration_timeout", "resume", true) : op("iteration_timeout", "stop");
+    case "iteration_timeout":
       return {
-        ...base,
+        ...op("iteration_timeout", "resume", true),
         ...(event.completedSubspecPaths !== undefined ? { completedSubspecPaths: event.completedSubspecPaths } : {}),
         ...(event.remainingSubspecPaths !== undefined ? { remainingSubspecPaths: event.remainingSubspecPaths } : {}),
         ...(event.inventoryError !== undefined ? { inventoryError: event.inventoryError } : {}),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
-    }
     case "gate_invocation_refused":
       return mapGateInvocationRefused(event, gateRefusal);
     case "idle_output_timeout":
@@ -488,8 +487,7 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   non_terminating_mutation_failed:
     "inspect the mutation site and killing-test timeout, then jarvis run resume to re-run finalization",
   mutation_repair_exhausted: "manually fix and publish the worktree, or untick criteria before re-running implement",
-  iteration_timeout:
-    "run jarvis run resume when nextAction is resume, otherwise inspect the stall in jarvis run log and re-dispatch the workflow",
+  iteration_timeout: "run jarvis run resume on the retained workspace after an iteration timeout",
   gate_invocation_refused: "run jarvis run resume when the gate slot or ceiling headroom clears",
   idle_output_timeout:
     "run jarvis run resume when nextAction is resume, otherwise inspect the stall in jarvis run log and re-dispatch the workflow",

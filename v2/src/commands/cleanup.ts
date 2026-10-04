@@ -1497,20 +1497,28 @@ async function runArchivePublicationGit(
     const tip = await lsRemoteRef(cwd, "origin", ref, runner);
     return tip === undefined ? "" : `${tip}\t${ref}\n`;
   }
-  if (command === "push") {
-    if (args.length === 3 && args[1] === "origin" && args[2]?.startsWith("HEAD:")) {
-      await pushBranch(cwd, { remote: "origin", branch: args[2] }, runner, {});
-      return "";
+  if (command === "push") return await runArchivePublicationPush(cwd, args, runner);
+  throw new Error(`unsupported archive publication git argv: ${args.join(" ")}`);
+}
+
+/** The two push shapes archive publication issues: a plain `HEAD:` refspec and a `--force-with-lease` refresh. */
+async function runArchivePublicationPush(
+  cwd: string,
+  args: readonly string[],
+  runner: AsyncSubprocessRunner,
+): Promise<string> {
+  if (args.length === 3 && args[1] === "origin" && args[2]?.startsWith("HEAD:")) {
+    await pushBranch(cwd, { remote: "origin", branch: args[2] }, runner, {});
+    return "";
+  }
+  if (args.length === 4 && args[1]?.startsWith("--force-with-lease=") && args[2] === "origin") {
+    const refspec = args[3];
+    const lease = args[1]?.slice("--force-with-lease=".length);
+    if (refspec === undefined || lease === undefined || lease.length === 0) {
+      throw new Error(`invalid push argv: ${args.join(" ")}`);
     }
-    if (args.length === 4 && args[1]?.startsWith("--force-with-lease=") && args[2] === "origin") {
-      const refspec = args[3];
-      const lease = args[1]?.slice("--force-with-lease=".length);
-      if (refspec === undefined || lease === undefined || lease.length === 0) {
-        throw new Error(`invalid push argv: ${args.join(" ")}`);
-      }
-      await pushBranch(cwd, { remote: "origin", branch: refspec, forceWithLease: lease }, runner, {});
-      return "";
-    }
+    await pushBranch(cwd, { remote: "origin", branch: refspec, forceWithLease: lease }, runner, {});
+    return "";
   }
   throw new Error(`unsupported archive publication git argv: ${args.join(" ")}`);
 }
@@ -1819,7 +1827,7 @@ async function openInRepoSpecDirNamesOnRef(
   ref: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string[]> {
-  let listing;
+  let listing: Awaited<ReturnType<typeof listTreeChildrenAtRef>>;
   try {
     listing = await listTreeChildrenAtRef(projectRoot, ref, relHome, runner);
   } catch {
@@ -1998,7 +2006,7 @@ async function specTreeFsAtRef(
   runner: AsyncSubprocessRunner,
 ): Promise<ArtifactFs | undefined> {
   const relSource = relative(projectRoot, source);
-  let relPaths;
+  let relPaths: Awaited<ReturnType<typeof listRecursivePathsAtRef>>;
   try {
     relPaths = await listRecursivePathsAtRef(projectRoot, ref, relSource, runner);
   } catch {

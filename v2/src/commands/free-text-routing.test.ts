@@ -361,4 +361,14 @@ describe("runFreeTextRouting", () => {
     expectRoutingStderr(io, "routing-error");
     expect(loadConfigCalls).toBe(0);
   });
+
+  test("rejects empty machine agent order before routing invocation", async () => {
+    const io = captureIo();
+    const exit = await runFreeTextRouting("start pipeline", io, makeCliDeps(), "s", {
+      loadMachineAgents: () => [],
+      loadAgentModelConfig: () => AGENT_MODEL_CONFIG,
+    });
+    expect(exit).toBe(1);
+    expectRoutingStderr(io, "routing-error");
+  });
 });

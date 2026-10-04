@@ -27,15 +27,15 @@
 
 ## Acceptance criteria
 
-- [ ] `github-operations.test.ts` adds `viewPrState accepts branch PrSelector` asserting branch-shaped `viewPrState` issues `gh pr view` with the branch selector; fails against pre-fix `viewPrState` limited to numeric PR numbers (~`github-operations.ts` `viewPrState`).
-- [ ] `cleanup.test.ts` adds `isMerged requires MERGED state and mergedAt` asserting a boundary `viewPrState` response with `state !== "MERGED"` or absent `mergedAt` yields `merged: false`; fails if delegation treats `MERGED` without `mergedAt` as merged.
-- [ ] `cleanup.test.ts` adds `ghSuccessorPrMergedInRepo rejects cross-repository successor` asserting `isCrossRepository: true` yields `false` even when state is `MERGED` with `mergedAt`; fails if cross-repo guard is dropped.
-- [ ] `cleanup.test.ts` adds `planSubsumedPrGateAllows delegates listPrs for head state` asserting `listPrs` with head filter and no `runAsync("gh"` inside `planSubsumedPrGateAllows`; fails against pre-fix inline `gh pr list` (~line 633).
-- [ ] `cleanup.test.ts` adds `listOpenPrsForBranch delegates listPrs` asserting open head listing uses the boundary with `{ state: "open" }` (or equivalent) and no inline `runAsync("gh"` in `listOpenPrsForBranch`; fails against pre-fix spawn (~line 1262).
-- [ ] `cleanup.test.ts` test `runCleanupCommand confirms and removes eligible worktree via git worktree remove + prune + branch -D` stays green after mocks move to boundary-shaped `gh` responses (behavior unchanged).
-- [ ] `cleanup.test.ts` adds `mergedPrHeadAuthorityMatches delegates listPrs for head authority` asserting `listPrs` with `{ branch, state: "all" }` and no `runAsync("gh"` in `mergedPrHeadAuthorityMatches`; fails against pre-fix inline `gh pr list` in `ghPrHeadRecordsForBranch`.
-- [ ] `cleanup.ts` contains no `runAsync("gh"` in GitHub helpers owned by this subspec (`isMerged`, `ghPrHeadRecordsForBranch`, `listGhPrCommentBodies`, `ghSuccessorPrMergedInRepo`, `planSubsumedPrGateAllows`, `listOpenPrsForBranch`, `applyEndArchivePublication`, abandon close) — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `github-operations.test.ts` adds `viewPrState accepts branch PrSelector` asserting branch-shaped `viewPrState` issues `gh pr view` with the branch selector; fails against pre-fix `viewPrState` limited to numeric PR numbers (~`github-operations.ts` `viewPrState`).
+- [x] `cleanup.test.ts` adds `isMerged requires MERGED state and mergedAt` asserting a boundary `viewPrState` response with `state !== "MERGED"` or absent `mergedAt` yields `merged: false`; fails if delegation treats `MERGED` without `mergedAt` as merged.
+- [x] `cleanup.test.ts` adds `ghSuccessorPrMergedInRepo rejects cross-repository successor` asserting `isCrossRepository: true` yields `false` even when state is `MERGED` with `mergedAt`; fails if cross-repo guard is dropped.
+- [x] `cleanup.test.ts` adds `planSubsumedPrGateAllows delegates listPrs for head state` asserting `listPrs` with head filter and no `runAsync("gh"` inside `planSubsumedPrGateAllows`; fails against pre-fix inline `gh pr list` (~line 633).
+- [x] `cleanup.test.ts` adds `listOpenPrsForBranch delegates listPrs` asserting open head listing uses the boundary with `{ state: "open" }` (or equivalent) and no inline `runAsync("gh"` in `listOpenPrsForBranch`; fails against pre-fix spawn (~line 1262).
+- [x] `cleanup.test.ts` test `runCleanupCommand confirms and removes eligible worktree via git worktree remove + prune + branch -D` stays green after mocks move to boundary-shaped `gh` responses (behavior unchanged).
+- [x] `cleanup.test.ts` adds `mergedPrHeadAuthorityMatches delegates listPrs for head authority` asserting `listPrs` with `{ branch, state: "all" }` and no `runAsync("gh"` in `mergedPrHeadAuthorityMatches`; fails against pre-fix inline `gh pr list` in `ghPrHeadRecordsForBranch`.
+- [x] `cleanup.ts` contains no `runAsync("gh"` in GitHub helpers owned by this subspec (`isMerged`, `ghPrHeadRecordsForBranch`, `listGhPrCommentBodies`, `ghSuccessorPrMergedInRepo`, `planSubsumedPrGateAllows`, `listOpenPrsForBranch`, `applyEndArchivePublication`, abandon close) — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

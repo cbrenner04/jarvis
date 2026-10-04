@@ -55,6 +55,7 @@ import {
   type RefResolution,
   type RemoteUrlResult,
   readBlobAtRef,
+  readLocalGitConfig,
   remoteUrl,
   removeWorktree,
   resolveRef,
@@ -1073,6 +1074,17 @@ describe("pushBranch", () => {
     }
     const timeout = fakeAsync({ "git push origin feature": timeoutFailure() });
     expectFailure(await rejection(pushBranch("/repo", { branch: "feature" }, timeout)), "push", "timeout", true);
+  });
+});
+
+describe("readLocalGitConfig", () => {
+  test("returns the trimmed value when set and undefined when the value is blank", async () => {
+    const set = fakeAsync({ "git config --get user.name": "Operator\n" });
+    expect(await readLocalGitConfig("/repo", "user.name", set)).toBe("Operator");
+    expect(set.calls[0]).toMatchObject({ args: ["git", "config", "--get", "user.name"], cwd: "/repo" });
+    // Mutation checkpoint: a flipped length guard would return undefined for a set key and the blank for a blank one.
+    const blank = fakeAsync({ "git config --get user.name": "\n" });
+    expect(await readLocalGitConfig("/repo", "user.name", blank)).toBeUndefined();
   });
 });
 

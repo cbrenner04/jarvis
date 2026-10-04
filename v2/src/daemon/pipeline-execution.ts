@@ -3,8 +3,8 @@ import { basename, resolve } from "node:path";
 import {
   abortableWorktreeRebaseOnto,
   fetchRemoteRef,
-  getCurrentHeadAsync,
   GitOperationError,
+  getCurrentHeadAsync,
   isAncestorOrThrow,
   pushHeadToRemoteBranchWithLease,
   readBlobAtRef,

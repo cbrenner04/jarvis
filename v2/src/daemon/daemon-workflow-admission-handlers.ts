@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { resolveRef } from "../../../shared/git.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,

@@ -323,6 +323,47 @@ describe("cleanup archive publication session", () => {
     expect(readFileSync(readyIntent, "utf8")).toBe(intent);
   });
 
+  test("publishConsumedReadyIntentOnly commit passes jarvis cleanup identity when worktree user.email is unset", async () => {
+    const intent = "---\nname: prune-identity\n---\n";
+    const { spec } = inRepoSpec("20261004T110000Z-prune-fallback-identity", "[x] Done", intent, intent);
+    await commitFixtures(projectRoot);
+    const pruneCommitArgs: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (
+          cmd === "git" &&
+          args[0] === "config" &&
+          args[1] === "--get" &&
+          args[2] === "user.email" &&
+          typeof cwd === "string" &&
+          cwd.includes("worktrees")
+        ) {
+          throw new AsyncSubprocessError("not set", 1, "", "has no value", undefined);
+        }
+        if (cmd === "git" && args.includes("commit")) {
+          pruneCommitArgs.push([...args]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    const session = createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261004T110000Z",
+    });
+    expect(await session.publishConsumedReadyIntentOnly(spec)).toMatchObject({ status: "intentPruned" });
+    const pruneCommit = pruneCommitArgs.find((commitArgs) => {
+      const messageIndex = commitArgs.indexOf("-m");
+      const message = messageIndex >= 0 ? commitArgs[messageIndex + 1] : undefined;
+      return typeof message === "string" && message.startsWith("spec: prune consumed ready-intent");
+    });
+    expect(pruneCommit).toBeDefined();
+    expect(pruneCommit).toContain("user.name=jarvis cleanup");
+    expect(pruneCommit).toContain("user.email=jarvis-cleanup@localhost");
+  });
+
   async function stageSpecOnCleanupBranch(stagedBranch: string, specName: string): Promise<string> {
     const worktreePath = join(jarvisRoot, "worktrees", "project", stagedBranch);
     mkdirSync(dirname(worktreePath), { recursive: true });

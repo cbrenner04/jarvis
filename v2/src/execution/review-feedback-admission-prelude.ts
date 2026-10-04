@@ -1,7 +1,7 @@
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import type { HarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
-import { viewPrAdmission } from "./github-operations.ts";
+import { GitHubOperationError, viewPrAdmission } from "./github-operations.ts";
 import {
   hasSubmittedPrReview,
   type PrReviewInputCaptureArtifact,
@@ -30,7 +30,7 @@ function refuse(code: ReviewFeedbackAdmissionRefusalCode, message: string): Revi
 }
 
 function captureFailedMessage(context: string, error: unknown): string {
-  if (error instanceof AsyncSubprocessError) {
+  if (error instanceof GitHubOperationError || error instanceof AsyncSubprocessError) {
     const detail = error.stderr.trim() || error.stdout.trim() || error.message;
     return `${context}: ${detail}`;
   }

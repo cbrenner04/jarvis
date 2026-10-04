@@ -28,7 +28,7 @@
 - [x] `write-loop-coverage-and-iteration-commit.test.ts` stays green.
 - [x] `github-operations.test.ts` stays green.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

@@ -1,7 +1,14 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
-import { blobExistsAtRef, fetchRemoteRef, isAncestor, resolveAbbrevRef, resolveRef } from "../../../shared/git.ts";
+import {
+  blobExistsAtRef,
+  fetchRemoteRef,
+  GitOperationError,
+  isAncestorOrThrow,
+  resolveAbbrevRef,
+  resolveRef,
+} from "../../../shared/git.ts";
 import {
   hasUncheckedNonHumanOnlyCriteria,
   resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
@@ -163,7 +170,7 @@ export async function checkBaseFreshness(
     const localSha = localResolved.oid;
     const upstreamSha = upstreamResolved.oid;
     if (localSha === upstreamSha) return { ok: true };
-    const ancestor = await isAncestor(projectRoot, localSha, upstreamSha, runner);
+    const ancestor = await isAncestorOrThrow(projectRoot, localSha, upstreamSha, runner);
     if (!ancestor) {
       return { ok: true }; // ahead or diverged: not the stale-checkout shape
     }
@@ -172,7 +179,10 @@ export async function checkBaseFreshness(
       upstream,
       error: `base_behind_origin: ${baseRef} is at ${localSha.slice(0, 12)}, ${upstream} is at ${upstreamSha.slice(0, 12)}; run git pull or pass --base ${upstream}`,
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof GitOperationError && error.operation === "merge-base" && error.reason === "timeout") {
+      warn?.("base freshness not checked: merge-base timed out");
+    }
     return { ok: true };
   }
 }

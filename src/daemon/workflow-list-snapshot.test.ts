@@ -142,6 +142,10 @@ test("settled review projection requires attemptCount after agent invocation was
 });
 
 test("in-progress iteration_timeout_continued durable step projects in_progress without liveRunIds", () => {
+  const inverted = (status: Run["status"], outcomeKind: Attempt["outcomeKind"]) =>
+    status !== "in-progress" || outcomeKind !== "iteration_timeout_continued";
+  expect(inverted("in-progress", "iteration_timeout_continued")).toBe(false);
+
   const snapshot: WorkflowSnapshot = {
     invocationId: "inv-rollover",
     steps: [{ stepId: "implement", role: "implement", durable: true }],
@@ -161,30 +165,6 @@ test("in-progress iteration_timeout_continued durable step projects in_progress 
     status: "in_progress",
     attemptCount: 1,
   });
-});
-
-test("iteration_timeout_continued in-progress guard inversion", () => {
-  const matchesRollover = (status: Run["status"], outcomeKind: Attempt["outcomeKind"]) =>
-    status === "in-progress" && outcomeKind === "iteration_timeout_continued";
-  const inverted = (status: Run["status"], outcomeKind: Attempt["outcomeKind"]) =>
-    status !== "in-progress" || outcomeKind !== "iteration_timeout_continued";
-  expect(inverted("in-progress", "iteration_timeout_continued")).toBe(false);
-  expect(matchesRollover("in-progress", "iteration_timeout_continued")).toBe(true);
-
-  const snapshot: WorkflowSnapshot = {
-    invocationId: "inv-rollover-inversion",
-    steps: [{ stepId: "implement", role: "implement", durable: true }],
-  };
-  const stepRun: LoadedRun = {
-    ...runFixture("in-progress", [{ outcomeKind: "iteration_timeout_continued" }]),
-    workflowSnapshot: snapshot,
-    stepId: "implement",
-  };
-  const workflowRuns = new Map<string, Map<string, LoadedRun>>([
-    [snapshot.invocationId, new Map([["implement", stepRun]])],
-  ]);
-  const row = workflowRowSnapshot(stepRun, workflowRuns, new Set(), new Map(), "in-progress");
-  expect(row?.steps[0]?.status).toBe("in_progress");
   expect(row?.steps[0]?.terminalOutcome).toBeUndefined();
 });
 

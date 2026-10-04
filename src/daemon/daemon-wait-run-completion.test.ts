@@ -676,12 +676,6 @@ test("list and wait keep in-progress without error during iteration_timeout_cont
     runStatus: "in-progress",
     outcomeKind: "iteration_timeout_continued",
   });
-  logSink.append(runId, {
-    kind: "boundary_committed",
-    attemptId,
-    outcomeKind: "iteration_timeout_continued",
-    runStatus: "in-progress",
-  });
 
   const list = await expectResponse(await listDirect());
   const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(

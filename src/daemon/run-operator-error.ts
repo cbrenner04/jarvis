@@ -265,9 +265,9 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
 
 function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinishedEvent | undefined): boolean {
   if (event === undefined) return false;
-  if (event.loopOutcomeKind === "iteration_timeout") return true;
-  if (!event.resumable) return false;
+  if (!event.resumable && event.loopOutcomeKind !== "iteration_timeout") return false;
   switch (event.loopOutcomeKind) {
+    case "iteration_timeout":
     case "ready_gate_failed":
     case "ready_gate_out_of_scope":
     case "surviving_mutation_failed":
@@ -434,16 +434,14 @@ function mapFromLoopFinished(
         : op("contract_miss", "inspect_spec");
     case "invocation_failure":
       return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
-    case "iteration_timeout": {
-      const base = op("iteration_timeout", "resume", true);
+    case "iteration_timeout":
       return {
-        ...base,
+        ...op("iteration_timeout", "resume", true),
         ...(event.completedSubspecPaths !== undefined ? { completedSubspecPaths: event.completedSubspecPaths } : {}),
         ...(event.remainingSubspecPaths !== undefined ? { remainingSubspecPaths: event.remainingSubspecPaths } : {}),
         ...(event.inventoryError !== undefined ? { inventoryError: event.inventoryError } : {}),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
-    }
     case "gate_invocation_refused":
       return mapGateInvocationRefused(event, gateRefusal);
     case "idle_output_timeout":

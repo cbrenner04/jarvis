@@ -631,6 +631,29 @@ describe("v2 cli dispatch", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: "" });
   });
 
+  test("unregistered first token with trailing argv joins into one free-text body", async () => {
+    const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
+    const argv = ["pipelin", "start", "for", "v2/spec/seeds/x.md"];
+
+    const code = await main(argv, cap.io, deps);
+
+    expect(code).toBe(0);
+    expect(calls()).toEqual(["pipelin start for v2/spec/seeds/x.md"]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
+  test("single unregistered argv token invokes free-text routing once with that body", async () => {
+    const cap = captureIo();
+    const { deps, calls } = freeTextRoutingDeps(() => 0);
+
+    const code = await main(["pipelin"], cap.io, deps);
+
+    expect(code).toBe(0);
+    expect(calls()).toEqual(["pipelin"]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
   test("classifyFreeTextArgv guard inversions", () => {
     expect(classifyFreeTextArgv(["pipeline", "start"])).toBeUndefined();
     expect(classifyFreeTextArgv(["request", "go"])).toEqual({ kind: "body", body: "go" });

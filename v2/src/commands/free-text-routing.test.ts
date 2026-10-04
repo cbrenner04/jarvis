@@ -181,7 +181,10 @@ async function expectRejectsWithReason(
 ): Promise<void> {
   const harness = makeAdmissionHarness();
   const io = captureIo();
-  const exit = await runFreeTextRouting("?", io, cliDeps, operatorSessionId, seams);
+  const exit = await runFreeTextRouting("?", io, cliDeps, operatorSessionId, {
+    ...seams,
+    admitPipelineStart: seams.admitPipelineStart ?? (async (input) => admitPipelineStart(input, harness.deps)),
+  });
   expect(exit).toBe(1);
   expectRoutingStderr(io, reason);
   expectNoDaemonRpc(harness);

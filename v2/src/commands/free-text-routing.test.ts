@@ -346,4 +346,19 @@ describe("runFreeTextRouting", () => {
     expectRoutingStderr(io, "unknown-action");
     expectNoDaemonRpc(harness);
   });
+
+  test("rejects missing machine agents before loading agent model config", async () => {
+    let loadConfigCalls = 0;
+    const io = captureIo();
+    const exit = await runFreeTextRouting("start pipeline", io, makeCliDeps(), "s", {
+      loadMachineAgents: () => undefined,
+      loadAgentModelConfig: () => {
+        loadConfigCalls += 1;
+        return { errors: ["injected load should not run"] };
+      },
+    });
+    expect(exit).toBe(1);
+    expectRoutingStderr(io, "routing-error");
+    expect(loadConfigCalls).toBe(0);
+  });
 });

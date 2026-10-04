@@ -43,6 +43,7 @@ import {
   listRecursiveBlobOidsAtRef,
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
+  listUntrackedPaths,
   listWorktrees,
   logPatchForPathInRange,
   lsRemoteRef,
@@ -501,6 +502,17 @@ const PORCELAIN = [
   `worktree /wt/detached\nHEAD ${OID_B}\ndetached\nlocked\n`,
   "worktree /bare.git\nbare\n",
 ].join("\n");
+
+describe("listUntrackedPaths", () => {
+  test("returns trimmed non-empty paths and omits blank lines from ls-files output", async () => {
+    const runner = fakeAsync({
+      "git ls-files --others --exclude-standard": "path/a\n\npath/b\n",
+    });
+    expect(await listUntrackedPaths("/repo", runner)).toEqual(["path/a", "path/b"]);
+    const emptyOnly = fakeAsync({ "git ls-files --others --exclude-standard": "\n" });
+    expect(await listUntrackedPaths("/repo", emptyOnly)).toEqual([]);
+  });
+});
 
 describe("listWorktrees", () => {
   test("parses every porcelain attribute into typed entries", async () => {

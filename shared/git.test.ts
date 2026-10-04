@@ -312,6 +312,7 @@ function fakeAsync(results: Record<string, string | Error>): AsyncSubprocessRunn
 
 const OID_A = "a".repeat(40);
 const OID_B = "b".repeat(40);
+const OID_C = "c".repeat(40);
 
 function gitFailure(stderr: string, status = 128): AsyncSubprocessError {
   return new AsyncSubprocessError("Command failed: git", status, "", stderr, undefined);
@@ -812,6 +813,22 @@ describe("ref object reads at commits", () => {
       "git show main:gone": gitFailure("error: path 'gone' does not exist in 'main'\n", 1),
     });
     expect(await readBlobAtRef("/repo", "main", "gone", runner)).toBeUndefined();
+  });
+
+  test("listTreeChildrenAtRef keeps blob tree and commit entries only", async () => {
+    const treeListing =
+      `100644 blob ${OID_A}\tblob.md\0` +
+      `040000 tree ${OID_B}\tdir\0` +
+      `160000 commit ${OID_C}\tgitlink\0` +
+      `120000 submodule ${OID_A}\tskipped\0`;
+    const runner = fakeAsync({
+      [`git ls-tree -z main:.`]: treeListing,
+    });
+    expect(await listTreeChildrenAtRef("/repo", "main", ".", runner)).toEqual([
+      { mode: "100644", type: "blob", oid: OID_A, name: "blob.md" },
+      { mode: "040000", type: "tree", oid: OID_B, name: "dir" },
+      { mode: "160000", type: "commit", oid: OID_C, name: "gitlink" },
+    ]);
   });
 
   test("tree children, recursive paths, blob read, commit count, and local heads", async () => {

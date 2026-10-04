@@ -14,6 +14,7 @@ import {
   branchExistsLocal,
   branchExistsOnOrigin,
   branchExistsOnOriginAsync,
+  commitInWorktree,
   countCommitsBetween,
   createBranch,
   DIFF_MAX_BUFFER,
@@ -1262,6 +1263,27 @@ describe("isInsideWorkTree", () => {
     expect(isNotGitRepositoryDiagnostic("fatal: gitfile does not point to a valid repository: /x/.git")).toBe(true);
     expect(isNotGitRepositoryDiagnostic("fatal: ambiguous argument 'HEAD'")).toBe(false);
     expect(isNotGitRepositoryDiagnostic("")).toBe(false);
+  });
+});
+
+describe("commitInWorktree", () => {
+  test("omits -c user.* overrides when identity is undefined", async () => {
+    const runner = fakeAsyncRunner("");
+    await commitInWorktree("/wt", "subject", runner);
+    expect(runner.calls).toEqual([{ args: ["git", "commit", "-m", "subject"], cwd: "/wt" }]);
+  });
+
+  test("prepends -c user.name and user.email when identity is set", async () => {
+    const runner = fakeAsyncRunner("");
+    await commitInWorktree("/wt", "subject", runner, {
+      identity: { name: "Jarvis", email: "jarvis@example.com" },
+    });
+    expect(runner.calls).toEqual([
+      {
+        args: ["git", "-c", "user.name=Jarvis", "-c", "user.email=jarvis@example.com", "commit", "-m", "subject"],
+        cwd: "/wt",
+      },
+    ]);
   });
 });
 

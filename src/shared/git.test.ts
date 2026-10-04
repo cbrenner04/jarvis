@@ -885,7 +885,7 @@ describe("ref object reads at commits", () => {
       "git rev-list --count main..broken": gitFailure("fatal: bad revision broken\n", 128),
       "git for-each-ref --format=%(refname:short) %(objectname) refs/heads/": `main ${OID_A}\nfeature ${OID_B}\n`,
     });
-    const children = await listTreeChildrenAtRef("/repo", "main", "v2/spec", runner);
+    const children = await listTreeChildrenAtRef("/repo", "main", "spec", runner);
     expect(children).toEqual([
       { mode: "100644", type: "blob", oid: OID_A, name: "index.md" },
       { mode: "040000", type: "tree", oid: OID_B, name: "spec-dir" },

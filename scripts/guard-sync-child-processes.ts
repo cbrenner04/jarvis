@@ -98,10 +98,7 @@ export function findSyncChildProcessViolations(files: readonly GuardFile[]): Gua
 }
 
 export function runSyncChildProcessGuard(cwd: string): GuardViolation[] {
-  return findSyncChildProcessViolations([
-    ...collectSourceFiles(join(cwd, "v2"), cwd),
-    ...collectSourceFiles(join(cwd, "shared"), cwd),
-  ]);
+  return findSyncChildProcessViolations([...collectSourceFiles(join(cwd, "v2"), cwd)]);
 }
 
 if (import.meta.main) {

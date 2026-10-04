@@ -269,7 +269,7 @@ describe("plan draft normalization", () => {
       "orderModuleBoundariesForSplit",
       "splitResiduePattern",
     ];
-    const offenders = [resolve("shared"), resolve("v2/src")]
+    const offenders = [resolve("v2/src")]
       .flatMap(typescriptFiles)
       .filter((file) => file !== resolve("v2/src/shared/module-boundary-surfaces.ts"))
       .flatMap((file) => {

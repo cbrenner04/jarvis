@@ -38,7 +38,7 @@
 - [x] `scripts/ci-test-scope.test.ts` stays green with `v2/src/shared/` substituted for the former `shared/`-only scope case.
 - [x] `test/test-slices.test.ts` stays green after shared test discovery roots move to `v2/src/shared`.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

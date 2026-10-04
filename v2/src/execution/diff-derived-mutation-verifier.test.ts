@@ -1125,15 +1125,15 @@ placeholders: []
 
   it("completes shared multi-candidate verification within MAX_VERIFICATION_MS", async () => {
     const diff =
-      `diff --git a/shared/fixture/a.ts b/shared/fixture/a.ts
+      `diff --git a/v2/src/shared/fixture/a.ts b/v2/src/shared/fixture/a.ts
 index 1234567..abcdefg 100644
---- a/shared/fixture/a.ts
-+++ b/shared/fixture/a.ts
+--- a/v2/src/shared/fixture/a.ts
++++ b/v2/src/shared/fixture/a.ts
 @@ -1,1 +1,2 @@
 +  if (!x0) return null;
 ` +
       Array.from({ length: 12 }, (_, index) => {
-        const file = `shared/fixture/b${index}.ts`;
+        const file = `v2/src/shared/fixture/b${index}.ts`;
         return `diff --git a/${file} b/${file}
 index 1234567..abcdefg 100644
 --- a/${file}
@@ -1172,16 +1172,16 @@ index 1234567..abcdefg 100644
   });
 
   it("invokes only the co-located killing test file per candidate", async () => {
-    const diff = `diff --git a/shared/fixture/alpha.ts b/shared/fixture/alpha.ts
+    const diff = `diff --git a/v2/src/shared/fixture/alpha.ts b/v2/src/shared/fixture/alpha.ts
 index 1234567..abcdefg 100644
---- a/shared/fixture/alpha.ts
-+++ b/shared/fixture/alpha.ts
+--- a/v2/src/shared/fixture/alpha.ts
++++ b/v2/src/shared/fixture/alpha.ts
 @@ -1,1 +1,2 @@
 +  if (!a) return null;
-diff --git a/shared/fixture/beta.ts b/shared/fixture/beta.ts
+diff --git a/v2/src/shared/fixture/beta.ts b/v2/src/shared/fixture/beta.ts
 index 1234567..abcdefg 100644
---- a/shared/fixture/beta.ts
-+++ b/shared/fixture/beta.ts
+--- a/v2/src/shared/fixture/beta.ts
++++ b/v2/src/shared/fixture/beta.ts
 @@ -1,1 +1,2 @@
 +  if (!b) return null;
 diff --git a/v2/src/other/surface.ts b/v2/src/other/surface.ts
@@ -1221,9 +1221,9 @@ index 1234567..abcdefg 100644
       expect(scope[0]).not.toContain("test:v1");
     }
     expect(invoked.map((scope) => scope[0]).sort()).toEqual([
+      "v2/src/other/surface.test.ts",
       "v2/src/shared/fixture/alpha.test.ts",
       "v2/src/shared/fixture/beta.test.ts",
-      "v2/src/other/surface.test.ts",
     ]);
   });
 
@@ -1282,7 +1282,7 @@ index f424d7da..be281d02 100644
 
     const all = Promise.all(
       Array.from({ length: 8 }, (_, index) =>
-        runDiffDerivedScopedTests("/test/path", [`shared/fixture/p${index}.test.ts`], mockRunner),
+        runDiffDerivedScopedTests("/test/path", [`v2/src/shared/fixture/p${index}.test.ts`], mockRunner),
       ),
     );
 
@@ -4637,7 +4637,7 @@ index 1234567..abcdefg 100644
     promptSource: string,
   ): void {
     mkdirSync(join(dir, promptPath.split("/").slice(0, -1).join("/")), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, "v2/src/shared/prompts"), { recursive: true });
     mkdirSync(join(dir, observerRelativePath.split("/").slice(0, -1).join("/")), { recursive: true });
     writeFileSync(join(dir, promptPath), promptSource);
     writeFileSync(join(dir, "prompts", "registry.txt"), `${promptPath.slice("prompts/".length)}\n`);
@@ -4718,7 +4718,7 @@ index 1234567..abcdefg 100644
     const dir = initWorktreeRepo();
     const daemonMappedPrompt = "prompts/implement/review-critic.md";
     mkdirSync(join(dir, "prompts", "implement"), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, "v2/src/shared/prompts"), { recursive: true });
     writeFileSync(
       join(dir, daemonMappedPrompt),
       `---
@@ -4861,7 +4861,7 @@ ${keptBodyLine}
   it("fails closed for absolute, traversing, non-normalized, and worktree-escaping observer paths without running them", async () => {
     const dir = initWorktreeRepo();
     mkdirSync(join(dir, "prompts", "write"), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, "v2/src/shared/prompts"), { recursive: true });
     writeFileSync(join(dir, branchPromptPath), branchPromptSource);
     writeFileSync(join(dir, "prompts", "registry.txt"), "write/branch-only-prompt.md\n");
     const outside = trackedMkdtempSync(join(tmpdir(), "render-observer-outside-"));
@@ -4909,7 +4909,7 @@ describe("registered prompt path discovery", () => {
     // Presence: the verifier imports the registry module's manifest surface.
     const importLine = locateMarkerSlice({
       text: source,
-      pattern: /^import \{[^}]*\} from "\.\.\/\.\.\/\.\.\/shared\/prompts\/registry\.ts";$/m,
+      pattern: /^import \{[^}]*\} from "\.\.\/shared\/prompts\/registry\.ts";$/m,
       searchKey: "v2/src/shared/prompts/registry.ts import",
     });
     expect(importLine).toContain("parsePromptRegistryManifest");
@@ -4939,7 +4939,7 @@ describe("verifier spawn process-group recording", () => {
     };
     const scope = Array.from(
       { length: MAX_CONCURRENT_VERIFIER_TEST_RUNS + 2 },
-      (_, i) => `shared/fixture/p${i}.test.ts`,
+      (_, i) => `v2/src/shared/fixture/p${i}.test.ts`,
     );
     const passed = await runDiffDerivedScopedTests("/test/path", scope, mockRunner, {
       processGroups: { record: (pgid) => recorded.push(pgid), clear: (pgid) => cleared.push(pgid) },

@@ -34,7 +34,7 @@ export function findUntrackedTempDirs(files: readonly SourceFile[]): TempDirViol
 
 if (import.meta.main) {
   const cwd = process.cwd();
-  const files = ["v2", "shared", "test", "scripts"].flatMap((root) => collectSourceFiles(join(cwd, root), cwd));
+  const files = ["v2", "test", "scripts"].flatMap((root) => collectSourceFiles(join(cwd, root), cwd));
   const violations = findUntrackedTempDirs(files);
   for (const { file, line } of violations) {
     console.error(`${file}:${line}: test temp dir without registered cleanup; use ${TRACKED_TEMP_DIR_MODULE}`);

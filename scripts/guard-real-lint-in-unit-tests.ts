@@ -164,7 +164,7 @@ export function exitCodeForLintCallViolations(violations: readonly LintCallViola
 
 if (import.meta.main) {
   const cwd = process.cwd();
-  const files = [...collectSourceFiles(join(cwd, "v2"), cwd), ...collectSourceFiles(join(cwd, "shared"), cwd)];
+  const files = collectSourceFiles(join(cwd, "v2"), cwd);
   const violations = findRealLintCallViolations(files);
   for (const violation of violations) {
     console.error(

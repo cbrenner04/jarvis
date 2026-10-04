@@ -306,7 +306,7 @@ index 1234567..abcdefg 100644
             ? ["v2/src/a.test.ts", "v2/src/a.sandbox-unrunnable.test.ts"]
             : ["v2/src/shared/b.test.ts"],
       );
-      expect([...scope]).toEqual(["./shared/b.test.ts", "./v2/src/a.test.ts"]);
+      expect([...scope]).toEqual(["./v2/src/a.test.ts", "./v2/src/shared/b.test.ts"]);
     });
 
     it("skips the coverage run when no killing tests resolve", async () => {

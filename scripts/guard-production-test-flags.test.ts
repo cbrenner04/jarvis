@@ -13,7 +13,7 @@ function violations(source: string, file = "v2/src/example.ts") {
   return findProductionInvertHookViolations([{ file, source }]);
 }
 
-const ROOTS = ["v2/src", "shared"] as const;
+const ROOTS = ["v2/src"] as const;
 
 describe("production invert-hook guard", () => {
   describe("set*ForTest exports", () => {

@@ -32,8 +32,8 @@ import {
   getGitStatusInventory,
   gitCommonDir,
   gitDir,
-  isInsideWorkTree,
   isAncestor,
+  isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
   isRetryableGitError,
   isWorktreeDirty,
@@ -41,18 +41,18 @@ import {
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
   listWorktrees,
-  lsRemoteRef,
   logPatchForPathInRange,
+  lsRemoteRef,
   mergeBase,
   mergeTreeWriteTree,
   type PushResult,
   pruneWorktrees,
   pushBranch,
-  readBlobAtRef,
-  remoteUrl,
-  type RemoteUrlResult,
   type RefDeleteResult,
   type RefResolution,
+  type RemoteUrlResult,
+  readBlobAtRef,
+  remoteUrl,
   removeWorktree,
   resolveRef,
   unmergedPathNames,
@@ -770,11 +770,11 @@ describe("graph reads for stale-reset", () => {
     const runner = fakeAsync({
       "git merge-base --is-ancestor main feature": "",
       "git merge-base --is-ancestor main stale": gitFailure("", 1),
-      [`git merge-tree --write-tree main feature`]: `${OID_A}\n`,
+      "git merge-tree --write-tree main feature": `${OID_A}\n`,
       "git merge-tree --write-tree main broken": gitFailure("fatal: bad revision\n", 128),
       "git diff --name-only --diff-filter=U": "a.txt\nb.txt\n",
       "git diff --name-only --diff-filter=U empty": "",
-      [`git log main..feature -p --format=%H -- v2/spec/task.md`]: `${OID_A}\n+tick\n`,
+      "git log main..feature -p --format=%H -- v2/spec/task.md": `${OID_A}\n+tick\n`,
       "git log main..feature -p --format=%H -- missing": gitFailure("fatal: bad revision\n", 128),
     });
     expect(await isAncestor("/repo", "main", "feature", runner)).toBe(true);
@@ -823,7 +823,7 @@ describe("ref object reads at commits", () => {
       `160000 commit ${OID_C}\tgitlink\0` +
       `120000 submodule ${OID_A}\tskipped\0`;
     const runner = fakeAsync({
-      [`git ls-tree -z main:.`]: treeListing,
+      "git ls-tree -z main:.": treeListing,
     });
     expect(await listTreeChildrenAtRef("/repo", "main", ".", runner)).toEqual([
       { mode: "100644", type: "blob", oid: OID_A, name: "blob.md" },
@@ -835,11 +835,11 @@ describe("ref object reads at commits", () => {
   test("tree children, recursive paths, blob read, commit count, and local heads", async () => {
     const treeListing = `100644 blob ${OID_A}\tindex.md\0${`040000 tree ${OID_B}\tspec-dir\0`}`;
     const runner = fakeAsync({
-      [`git ls-tree -z main:v2/spec`]: treeListing,
+      "git ls-tree -z main:v2/spec": treeListing,
       "git ls-tree -z missing:path": gitFailure("fatal: Not a valid object name missing:path\n", 128),
-      [`git ls-tree -r -z --name-only main -- v2/spec/spec-dir`]: `v2/spec/spec-dir/index.md\0v2/spec/spec-dir/task.md\0`,
+      "git ls-tree -r -z --name-only main -- v2/spec/spec-dir": `v2/spec/spec-dir/index.md\0v2/spec/spec-dir/task.md\0`,
       "git ls-tree -r -z --name-only main -- gone": gitFailure("fatal: path 'gone' does not exist in 'main'\n", 128),
-      [`git show main:v2/spec/spec-dir/index.md`]: "# spec\n",
+      "git show main:v2/spec/spec-dir/index.md": "# spec\n",
       "git show main:missing": gitFailure("fatal: path 'missing' does not exist in 'main'\n", 128),
       "git rev-list --count main..feature": "3\n",
       "git rev-list --count main..broken": gitFailure("fatal: bad revision broken\n", 128),

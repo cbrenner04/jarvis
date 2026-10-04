@@ -17,21 +17,21 @@ import { errorMessage } from "../../../shared/error-message.ts";
 import {
   abortableWorktreeMergeNoEdit,
   abortableWorktreeRebase,
+  countCommitsBetween,
   deleteBranch,
+  deleteRef,
   diffNameOnly,
   diffNameOnlyRevision,
-  countCommitsBetween,
-  deleteRef,
+  GitOperationError,
   getBaseBranch,
   getCurrentBranchAsync,
   getCurrentHeadAsync,
   getGitStatusInventory,
   gitCommonDir,
-  GitOperationError,
+  isAncestor,
   isGitRepoAsync,
   isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
-  isAncestor,
   type LocalBranchHead,
   listLocalBranchHeads,
   listRecursivePathsAtRef,
@@ -3700,7 +3700,7 @@ async function evaluateCommittedLaneContinuation(args: {
 
   if (skipLandedCriteriaGate) return undefined;
 
-  let rewrite = hasOpenPr
+  const rewrite = hasOpenPr
     ? await abortableWorktreeMergeNoEdit(worktreePath, baseHead, runner)
     : await abortableWorktreeRebase(worktreePath, baseHead, runner);
   if (hasOpenPr && rewrite === undefined) await deleteRef(worktreePath, "ORIG_HEAD", runner);

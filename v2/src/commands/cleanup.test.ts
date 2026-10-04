@@ -30,6 +30,7 @@ import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-help
 import { ghRefusingRealRunner as realAsyncSubprocessRunner } from "../testing/gh-refusing-runner.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
+  checkEligibility,
   classifyNeverLandedLane,
   createAbsentDaemonClient,
   createBulkCleanupDaemonClient,
@@ -42,7 +43,6 @@ import {
   discoverStrandedArtifacts,
   evaluateImplementLandedElsewhereReport,
   exactOriginTrackingRefOid,
-  checkEligibility,
   gateOnOpenPrs,
   handLandedArtifactArchivability,
   hasBranchKeyedArtifactOwner,

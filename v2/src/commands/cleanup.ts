@@ -572,7 +572,7 @@ async function ghSuccessorPrMergedInRepo(
 ): Promise<boolean> {
   try {
     const view = await viewPrState(runner, repoRoot, successorPrNumber, networkSubprocessOptions());
-    if (view.isCrossRepository === true) return false;
+    if (view.isCrossRepository !== true) return false;
     return view.state === "MERGED" && Boolean(view.mergedAt);
   } catch {
     return false;

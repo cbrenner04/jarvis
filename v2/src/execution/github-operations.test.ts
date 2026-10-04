@@ -91,6 +91,21 @@ describe("listPrs", () => {
     expect(runner.calls[0]?.options?.env?.GIT_TERMINAL_PROMPT).toBe("0");
   });
 
+  test("preserves mergedAt when null or ISO string and omits non-string non-null shapes", async () => {
+    const runner = fakeGh({
+      [LIST_OPEN]: JSON.stringify([
+        { number: 1, baseRefName: "main", mergedAt: null },
+        { number: 2, baseRefName: "main", mergedAt: "2024-01-01T00:00:00Z" },
+        { number: 3, baseRefName: "main", mergedAt: 12345 },
+      ]),
+    });
+    expect(await listPrs(runner, "/repo", { branch: "feat", state: "open" })).toEqual([
+      { number: 1, baseRefName: "main", mergedAt: null },
+      { number: 2, baseRefName: "main", mergedAt: "2024-01-01T00:00:00Z" },
+      { number: 3, baseRefName: "main" },
+    ]);
+  });
+
   test("includes closed and merged history under state all and omits null optionals", async () => {
     const runner = fakeGh({
       [LIST_ALL]: JSON.stringify([

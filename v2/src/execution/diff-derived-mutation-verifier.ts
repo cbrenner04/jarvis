@@ -8,7 +8,12 @@ import {
   parsePromptRegistryManifest,
   readRegisteredPromptPaths,
 } from "../../../shared/prompts/registry.ts";
-import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
+import { readBlobAtRef } from "../../../shared/git.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessOptions,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import {
   type ChangedLine,
   changedPathsFromDiff,
@@ -874,8 +879,6 @@ async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promi
     // Fall through to the base-ref manifest.
   }
   try {
-    const { readBlobAtRef } = await import("../../../shared/git.ts");
-    const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
     const manifest = await readBlobAtRef(cwd, baseRef, PROMPT_REGISTRY_MANIFEST_PATH, realAsyncSubprocessRunner);
     if (manifest === undefined) return [];
     return parsePromptRegistryManifest(manifest);

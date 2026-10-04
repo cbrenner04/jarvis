@@ -7,4 +7,4 @@ Prerequisites (intent): `shared-git-operations-boundary`, `github-operations-bou
 - [x] [00-guard-git-spawn-bypass-script.md](./00-guard-git-spawn-bypass-script.md) — exported scanner, co-located tests, allowlisted `github-operations.ts` `gh` owner, per-call `guard-git-spawn-bypass:` marker
 - [ ] [01-migrate-daemon-and-commands-inline-spawns.md](./01-migrate-daemon-and-commands-inline-spawns.md) — zero forbidden spawns under `v2/src/commands/` and `v2/src/daemon/` production modules
 - [x] [02-migrate-execution-inline-git-gh-spawns.md](./02-migrate-execution-inline-git-gh-spawns.md) — zero forbidden spawns under `v2/src/execution/` except `github-operations.ts`
-- [ ] [03-wire-check-and-document-guard.md](./03-wire-check-and-document-guard.md) — `package.json` `check`, ready-script pin, `AGENTS.md`, `v2/docs/v2-architecture.md`
+- [x] [03-wire-check-and-document-guard.md](./03-wire-check-and-document-guard.md) — `package.json` `check`, ready-script pin, `AGENTS.md`, `v2/docs/v2-architecture.md`

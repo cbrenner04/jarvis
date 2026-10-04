@@ -1079,7 +1079,7 @@ export async function blobExistsAtRef(
   }
 }
 
-export type BlobOidAtPath = { path: string; oid: string };
+type BlobOidAtPath = { path: string; oid: string };
 
 /** Recursive `git ls-tree` blob oids under `relPaths` at `ref`; `undefined` when unreadable. */
 export async function listRecursiveBlobOidsAtRef(
@@ -1410,20 +1410,6 @@ export async function resetWorktreeKeep(
 ): Promise<void> {
   try {
     await runner.runAsync("git", ["reset", "--keep", ref], cwd, runOptions(options));
-  } catch (error) {
-    throw gitError("worktree-reset", error, [], options);
-  }
-}
-
-/** `git reset --hard <ref>` in a worktree. */
-export async function resetWorktreeHardToRef(
-  cwd: string,
-  ref: string,
-  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
-  options: OperationOptions = {},
-): Promise<void> {
-  try {
-    await runner.runAsync("git", ["reset", "--hard", ref], cwd, runOptions(options));
   } catch (error) {
     throw gitError("worktree-reset", error, [], options);
   }

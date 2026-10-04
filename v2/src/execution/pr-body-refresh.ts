@@ -1,10 +1,5 @@
-import { spawn } from "node:child_process";
 import { errorMessage } from "../../../shared/error-message.ts";
-import {
-  NETWORK_SUBPROCESS_TIMEOUT_MS,
-  nonInteractiveNetworkEnv,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+import { NETWORK_SUBPROCESS_TIMEOUT_MS, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { editPrBodyFromStdin, editPrTitle, viewPrTextField } from "./github-operations.ts";
 import { renderAttribution } from "./pr-attribution.ts";
 import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
@@ -87,7 +82,7 @@ export function defaultWritePrTitle(
   command = "gh",
   signal?: AbortSignal,
 ): Promise<void> {
-  return editPrTitle(ghRunnerForCommand(command), cwd, branch, title, { signal }).then(() => {});
+  return editPrTitle(ghRunnerForCommand(command), cwd, branch, title, { signal });
 }
 
 /** Kills a stdin-fed `gh pr edit` that outlives the network bound; rejects as a retryable timeout. */
@@ -99,39 +94,10 @@ export function defaultWritePrBody(
   command = "gh",
   signal?: AbortSignal,
 ): Promise<void> {
-  if (command === "gh") {
-    return editPrBodyFromStdin(cwd, branch, body, { signal, timeoutMs });
-  }
-  const args = ["pr", "edit", branch, "--body-file", "-"];
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: nonInteractiveNetworkEnv(),
-      stdio: ["pipe", "pipe", "pipe"],
-      ...(signal !== undefined ? { signal } : {}),
-    });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
-    child.stdin?.on("error", () => {});
-    child.stdin?.write(body);
-    child.stdin?.end();
-    let stderr = "";
-    child.stderr?.on("data", (chunk: string | Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (timedOut) reject(new Error(`Command timed out after ${timeoutMs}ms: ${command} ${args.join(" ")}`));
-      else if (code === 0) resolve();
-      else reject(new Error(stderr.trim() || `gh pr edit exited ${code ?? "unknown"}`));
-    });
+  return editPrBodyFromStdin(cwd, branch, body, {
+    signal,
+    timeoutMs,
+    ...(command === "gh" ? {} : { ghCommand: command }),
   });
 }
 

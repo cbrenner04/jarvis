@@ -1112,7 +1112,6 @@ describe("readLocalGitConfig", () => {
     const set = fakeAsync({ "git config --get user.name": "Operator\n" });
     expect(await readLocalGitConfig("/repo", "user.name", set)).toBe("Operator");
     expect(set.calls[0]).toMatchObject({ args: ["git", "config", "--get", "user.name"], cwd: "/repo" });
-    // Mutation checkpoint: a flipped length guard would return undefined for a set key and the blank for a blank one.
     const blank = fakeAsync({ "git config --get user.name": "\n" });
     expect(await readLocalGitConfig("/repo", "user.name", blank)).toBeUndefined();
   });

@@ -3,7 +3,6 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
   addWorktreeWithNewBranch,
-  type BlobOidAtPath,
   blobExistsAtRef,
   cleanWorktreeUntracked,
   commitInWorktree,
@@ -102,7 +101,7 @@ export async function committedBlobIdsAtRef(
   ref: string,
   relPaths: readonly string[],
 ): Promise<CommittedBlobIds | undefined> {
-  let listing: BlobOidAtPath[] | undefined;
+  let listing: Awaited<ReturnType<typeof listRecursiveBlobOidsAtRef>>;
   try {
     listing = await listRecursiveBlobOidsAtRef(cwd, ref, relPaths, runner);
   } catch {

@@ -1681,14 +1681,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           "timed_out",
           settled.activeGateAtTimeout,
           sessionLog,
-          maxIterations,
         );
+        closeSessionLog(sessionLog, "timeout");
         if (lossResult === undefined) {
-          closeSessionLog(sessionLog, "timeout");
           iterationsConsumed += 1;
           continue;
         }
-        closeSessionLog(sessionLog, "timeout");
         return lossResult;
       }
       if (settled.kind === "threw") {
@@ -2998,7 +2996,6 @@ async function finishIterationTimeout(
   activeGateAtTimeout?: IterationActiveGate,
 ): Promise<WriteLoopResult> {
   const inventory = buildSubspecCompletionInventory(worktreePath, args.worktree.projectRoot, args.specPath);
-  const resumable = true;
   const endedAtMs = (args.clock ?? (() => new Date()))().getTime();
   const gateTimeoutFields =
     activeGateAtTimeout !== undefined
@@ -3022,7 +3019,7 @@ async function finishIterationTimeout(
     outcomeKind: "iteration_timeout",
     runStatus: "failed",
   });
-  const loopResult = finishLoop(args, runId, "iteration_timeout", iterationsConsumed, resumable, undefined, false);
+  const loopResult = finishLoop(args, runId, "iteration_timeout", iterationsConsumed, true, undefined, false);
   const inventoryFields = {
     completedSubspecPaths: [...inventory.completedSubspecPaths],
     remainingSubspecPaths: [...inventory.remainingSubspecPaths],
@@ -3032,7 +3029,7 @@ async function finishIterationTimeout(
     kind: "loop_finished",
     loopOutcomeKind: "iteration_timeout",
     iterationsConsumed,
-    resumable,
+    resumable: true,
     ...inventoryFields,
     ...gateTimeoutFields,
   });
@@ -3122,8 +3119,7 @@ async function finishGateInvocationRefused(
  * status — checked here ahead of any race-kind distinction, since a watchdog can also fire after
  * a kill has landed. That case is logged for resume diagnostics and returns the ordinary
  * resumable loss result without writing a boundary or starting publication. Any other checkpoint
- * failure resumes like any other `iteration_commit_failed`. Returns `undefined` on a successful
- * checkpoint (or nothing to checkpoint), leaving the loss outcome to the caller.
+ * failure resumes like any other `iteration_commit_failed`.
  */
 type ControlledLossCheckpoint =
   | { status: "ok"; commitOutcome: ProgressIterationCommitOutcome }
@@ -3166,34 +3162,6 @@ async function checkpointBeforeControlledLoss(
   }
 }
 
-function shouldRolloverIterationTimeout(
-  quiesced: QuiescedExecutionOutcome,
-  commitOutcome: ProgressIterationCommitOutcome,
-): boolean {
-  if (quiesced.kind !== "settled") return false;
-  if (quiesced.result.result.kind === "stall") return false;
-  return commitOutcome.kind === "committed";
-}
-
-function commitIterationTimeoutContinuedBoundary(
-  args: WriteLoopInput,
-  store: StateStore,
-  runId: string,
-  attemptId: string,
-): void {
-  store.commitCompletionBoundary({
-    attemptId,
-    runStatus: "in-progress",
-    outcomeKind: "iteration_timeout_continued",
-  });
-  args.logSink?.append(runId, {
-    kind: "boundary_committed",
-    attemptId,
-    outcomeKind: "iteration_timeout_continued",
-    runStatus: "in-progress",
-  });
-}
-
 /**
  * Handles a controlled loss (abort/kill or watchdog) once the raced-away invocation has quiesced.
  * When it settled with a real step result, that result is checkpointed before the loss is declared
@@ -3211,7 +3179,6 @@ async function finishControlledLoss(
   race: "aborted" | "timed_out",
   activeGateAtTimeout?: IterationActiveGate,
   sessionLog?: SessionLog,
-  maxIterations?: number,
 ): Promise<WriteLoopResult | undefined> {
   if (quiesced.kind !== "settled") {
     return race === "aborted"
@@ -3243,9 +3210,23 @@ async function finishControlledLoss(
     return finishLoop(args, runId, "progress", iterationsConsumed, true);
   }
 
-  const iterationCap = maxIterations ?? args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-  if (shouldRolloverIterationTimeout(quiesced, checkpoint.commitOutcome) && iterationsConsumed < iterationCap) {
-    commitIterationTimeoutContinuedBoundary(args, store, runId, attemptId);
+  const iterationCap = args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  if (
+    quiesced.result.result.kind !== "stall" &&
+    checkpoint.commitOutcome.kind === "committed" &&
+    iterationsConsumed < iterationCap
+  ) {
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "in-progress",
+      outcomeKind: "iteration_timeout_continued",
+    });
+    args.logSink?.append(runId, {
+      kind: "boundary_committed",
+      attemptId,
+      outcomeKind: "iteration_timeout_continued",
+      runStatus: "in-progress",
+    });
     sessionLog?.append("harness", "iteration timeout progress rollover (checkpoint retained)");
     return undefined;
   }
@@ -3615,12 +3596,17 @@ function committedResult(
       outcomeKind === "iteration_timeout" && resumeContext !== undefined
         ? buildSubspecCompletionInventory(resumeContext.worktreePath, resumeContext.projectRoot, resumeContext.specPath)
         : { completedSubspecPaths: [], remainingSubspecPaths: [] };
-    if (outcomeKind === "iteration_timeout" && resumeContext !== undefined) {
-      const durableResumable = durableLoopResumable(resumeContext.priorLogRecords ?? [], "iteration_timeout", true);
-      const expectedArtifactPath = resumeContext.expectedArtifactPath;
-      if (expectedArtifactPath !== undefined && expectedArtifactPath.length > 0 && durableResumable) {
-        return null;
-      }
+    const iterationTimeoutResumable =
+      outcomeKind === "iteration_timeout"
+        ? durableLoopResumable(resumeContext?.priorLogRecords ?? [], "iteration_timeout", true)
+        : false;
+    if (
+      outcomeKind === "iteration_timeout" &&
+      resumeContext !== undefined &&
+      (resumeContext.expectedArtifactPath?.length ?? 0) > 0 &&
+      iterationTimeoutResumable
+    ) {
+      return null;
     }
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     return {
@@ -3632,7 +3618,7 @@ function committedResult(
       iterationsConsumed: 0,
       resumable:
         outcomeKind === "iteration_timeout"
-          ? durableLoopResumable(resumeContext?.priorLogRecords ?? [], "iteration_timeout", true)
+          ? iterationTimeoutResumable
           : outcomeKind === "idle_output_timeout"
             ? durableLoopResumable(resumeContext?.priorLogRecords ?? [], "idle_output_timeout", false)
             : false,

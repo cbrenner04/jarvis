@@ -2001,6 +2001,40 @@ describe.serial("write loop", () => {
       });
     }
 
+    function sessionLogFiles(sessionsDir: string): string[] {
+      const paths: string[] = [];
+      for (const entry of readdirSync(sessionsDir)) {
+        if (entry.endsWith(".log")) {
+          paths.push(join(sessionsDir, entry));
+          continue;
+        }
+        for (const name of readdirSync(join(sessionsDir, entry))) {
+          if (name.endsWith(".log")) {
+            paths.push(join(sessionsDir, entry, name));
+          }
+        }
+      }
+      return paths.sort();
+    }
+
+    async function waitForCondition(check: () => boolean, timeoutMs = 5_000): Promise<void> {
+      const deadline = Date.now() + timeoutMs;
+      while (!check()) {
+        if (Date.now() > deadline) throw new Error("waitForCondition timed out");
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
+    }
+
+    function liveOutputProgressOnAbort(
+      input: WriteExecuteInput,
+      worktreePath: string,
+      writeCheckpoint: () => void,
+    ): Promise<ReturnType<typeof progressWrite>> {
+      writeCheckpoint();
+      input.onInvocationOutputProgress?.();
+      return resolveOnAbort(input, progressWrite(worktreePath));
+    }
+
     test("a non-progress result that settles before abort still checkpoints", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
@@ -2985,13 +3019,13 @@ describe.serial("write loop", () => {
           iterLoopInput(jarvisRoot, branchName, store, {
             worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
             specPath: "spec/implement/index.md",
-            expectedArtifactPath: undefined,
             logSink: replaySink,
             maxIterations: 1,
             iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
             schedule: fastCeilingSchedule(),
             clock: () => new Date("2026-09-08T06:00:00.000Z"),
-          }),
+            expectedArtifactPath: undefined,
+          } as unknown as Partial<WriteLoopInput>),
         );
         expect(replay).toMatchObject({ kind: "iteration_timeout", resumable: true });
         expect(executeCalls).toBe(0);
@@ -3111,11 +3145,11 @@ describe.serial("write loop", () => {
           iterLoopInput(jarvisRoot, branchName, store, {
             worktree: divergentWorktree,
             specPath,
-            expectedArtifactPath: undefined,
             logSink: replaySink,
             maxIterations: 1,
             iterationTimeoutMs: 15,
-          }),
+            expectedArtifactPath: undefined,
+          } as unknown as Partial<WriteLoopInput>),
         );
         expect(replay).toMatchObject({
           kind: "iteration_timeout",
@@ -3243,40 +3277,6 @@ describe.serial("write loop", () => {
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
       }
     });
-
-    function sessionLogFiles(sessionsDir: string): string[] {
-      const paths: string[] = [];
-      for (const entry of readdirSync(sessionsDir)) {
-        if (entry.endsWith(".log")) {
-          paths.push(join(sessionsDir, entry));
-          continue;
-        }
-        for (const name of readdirSync(join(sessionsDir, entry))) {
-          if (name.endsWith(".log")) {
-            paths.push(join(sessionsDir, entry, name));
-          }
-        }
-      }
-      return paths.sort();
-    }
-
-    async function waitForCondition(check: () => boolean, timeoutMs = 5_000): Promise<void> {
-      const deadline = Date.now() + timeoutMs;
-      while (!check()) {
-        if (Date.now() > deadline) throw new Error("waitForCondition timed out");
-        await new Promise<void>((resolve) => setTimeout(resolve, 10));
-      }
-    }
-
-    function liveOutputProgressOnAbort(
-      input: WriteExecuteInput,
-      worktreePath: string,
-      writeCheckpoint: () => void,
-    ): Promise<ReturnType<typeof progressWrite>> {
-      writeCheckpoint();
-      input.onInvocationOutputProgress?.();
-      return resolveOnAbort(input, progressWrite(worktreePath));
-    }
 
     test("live-output wall timeout with checkpoint rolls into the next iteration", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();

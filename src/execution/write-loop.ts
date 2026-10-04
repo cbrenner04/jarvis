@@ -61,7 +61,7 @@ import { renderPromptForStep } from "../shared/prompts/assemble.ts";
 import { INTENT_SPLIT_PROMPT_ID } from "../shared/prompts/intent-split.ts";
 import { PLAN_DRAFT_PROMPT_ID } from "../shared/prompts/plan-draft.ts";
 import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../shared/prompts/review-feedback-write.ts";
-import { isHumanOnlyCriterion, parseSpec } from "../shared/spec-parser.ts";
+import { parseSpec } from "../shared/spec-parser.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   biomeEligiblePaths,
@@ -243,52 +243,6 @@ type SubspecCompletionInventory = {
   remainingSubspecPaths: readonly string[];
   inventoryError?: string;
 };
-
-function hasCompletedSubspec(inventory: SubspecCompletionInventory): boolean {
-  return inventory.completedSubspecPaths.length > 0;
-}
-
-function extractBacktickCommandTokens(criterionText: string): string[] {
-  const tokens: string[] = [];
-  const pattern = /`([^`]+)`/g;
-  let match = pattern.exec(criterionText);
-  while (match !== null) {
-    const token = match[1];
-    if (token !== undefined) tokens.push(token);
-    match = pattern.exec(criterionText);
-  }
-  return tokens;
-}
-
-function isGateAcceptanceCriterion(criterionText: string): boolean {
-  return extractBacktickCommandTokens(criterionText).some((token) => isReadyTestCommand(token));
-}
-
-function isGateOnlyOutstandingForSubspecBody(body: string): boolean {
-  let hasUncheckedGate = false;
-  for (const criterion of parseSpec(body).acceptanceCriteria) {
-    if (criterion.humanOnly || isHumanOnlyCriterion(criterion.text)) continue;
-    if (criterion.checked) continue;
-    if (isGateAcceptanceCriterion(criterion.text)) {
-      hasUncheckedGate = true;
-      continue;
-    }
-    return false;
-  }
-  return hasUncheckedGate;
-}
-
-function isIterationTimeoutResumable(
-  inventory: SubspecCompletionInventory,
-  worktreePath: string,
-  expectedArtifactPath?: string,
-): boolean {
-  if (hasCompletedSubspec(inventory)) return true;
-  if (expectedArtifactPath === undefined || expectedArtifactPath.length === 0) return false;
-  const resolved = isAbsolute(expectedArtifactPath) ? expectedArtifactPath : join(worktreePath, expectedArtifactPath);
-  if (!existsSync(resolved)) return false;
-  return isGateOnlyOutstandingForSubspecBody(readFileSync(resolved, "utf8"));
-}
 
 function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
   const message = error?.message || fallbackMessage || "harness failure";
@@ -1651,7 +1605,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       );
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
-        return finishControlledLoss(
+        const lossResult = await finishControlledLoss(
           args,
           store,
           prepared,
@@ -1662,6 +1616,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           settled.quiesced,
           "aborted",
         );
+        if (lossResult === undefined) {
+          throw new Error("aborted controlled loss must not roll over");
+        }
+        return lossResult;
       }
       if (settled.kind === "gate_invocation_refused") {
         if (settled.gateRefusalCause === "iteration_gate_budget") {
@@ -1673,7 +1631,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             admittedCount: settled.gateBudgetAdmittedCount ?? 0,
           });
           if (settled.quiesced.kind === "settled") {
-            const failure = await checkpointBeforeControlledLoss(
+            const checkpoint = await checkpointBeforeControlledLoss(
               args,
               prepared,
               store,
@@ -1683,7 +1641,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               iterationsConsumed + 1,
               settled.quiesced.result.result,
             );
-            if (failure !== undefined) return failure;
+            if (checkpoint.status === "failed") return checkpoint.result;
           }
           store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
           args.logSink?.append(runId, {
@@ -1711,8 +1669,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         );
       }
       if (settled.kind === "timed_out") {
-        closeSessionLog(sessionLog, "timeout");
-        return finishControlledLoss(
+        const lossResult = await finishControlledLoss(
           args,
           store,
           prepared,
@@ -1723,7 +1680,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           settled.quiesced,
           "timed_out",
           settled.activeGateAtTimeout,
+          sessionLog,
         );
+        closeSessionLog(sessionLog, "timeout");
+        if (lossResult === undefined) {
+          iterationsConsumed += 1;
+          continue;
+        }
+        return lossResult;
       }
       if (settled.kind === "threw") {
         if (args.signal?.aborted) {
@@ -1750,7 +1714,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       // Non-progress: abort before terminal boundary when the signal fired mid-step, but the
       // settled result still checkpoints first, same as any other settled iteration.
       if (args.signal?.aborted && result.kind !== "progress") {
-        const failure = await checkpointBeforeControlledLoss(
+        const checkpoint = await checkpointBeforeControlledLoss(
           args,
           prepared,
           store,
@@ -1760,7 +1724,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           iterationsConsumed,
           result,
         );
-        return failure ?? finishLoop(args, runId, "progress", iterationsConsumed, true);
+        return checkpoint.status === "failed"
+          ? checkpoint.result
+          : finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
 
       if (result.reprompt !== undefined) {
@@ -3030,7 +2996,6 @@ async function finishIterationTimeout(
   activeGateAtTimeout?: IterationActiveGate,
 ): Promise<WriteLoopResult> {
   const inventory = buildSubspecCompletionInventory(worktreePath, args.worktree.projectRoot, args.specPath);
-  const resumable = isIterationTimeoutResumable(inventory, worktreePath, args.expectedArtifactPath);
   const endedAtMs = (args.clock ?? (() => new Date()))().getTime();
   const gateTimeoutFields =
     activeGateAtTimeout !== undefined
@@ -3045,7 +3010,7 @@ async function finishIterationTimeout(
     outcomeKind: "iteration_timeout",
     ...completionBoundarySettlementFields(
       "iteration_timeout",
-      resumable ? terminalFailureDetailFromError(undefined, "iteration timeout") : undefined,
+      terminalFailureDetailFromError(undefined, "iteration timeout"),
     ),
   });
   args.logSink?.append(runId, {
@@ -3054,7 +3019,7 @@ async function finishIterationTimeout(
     outcomeKind: "iteration_timeout",
     runStatus: "failed",
   });
-  const loopResult = finishLoop(args, runId, "iteration_timeout", iterationsConsumed, resumable, undefined, false);
+  const loopResult = finishLoop(args, runId, "iteration_timeout", iterationsConsumed, true, undefined, false);
   const inventoryFields = {
     completedSubspecPaths: [...inventory.completedSubspecPaths],
     remainingSubspecPaths: [...inventory.remainingSubspecPaths],
@@ -3064,7 +3029,7 @@ async function finishIterationTimeout(
     kind: "loop_finished",
     loopOutcomeKind: "iteration_timeout",
     iterationsConsumed,
-    resumable,
+    resumable: true,
     ...inventoryFields,
     ...gateTimeoutFields,
   });
@@ -3098,7 +3063,7 @@ async function finishGateInvocationRefused(
   quiesced: QuiescedExecutionOutcome,
 ): Promise<WriteLoopResult> {
   if (gateRefusalCause === "slot_contention" && quiesced.kind === "settled") {
-    const failure = await checkpointBeforeControlledLoss(
+    const checkpoint = await checkpointBeforeControlledLoss(
       args,
       prepared,
       store,
@@ -3108,7 +3073,7 @@ async function finishGateInvocationRefused(
       iterationsConsumed,
       quiesced.result.result,
     );
-    if (failure !== undefined) return failure;
+    if (checkpoint.status === "failed") return checkpoint.result;
   }
   const slotRedriveCount = store.loadRun(runId)?.gateRefusalRecoveryState?.slotRedriveCount ?? 0;
   store.commitCompletionBoundary({
@@ -3154,9 +3119,12 @@ async function finishGateInvocationRefused(
  * status — checked here ahead of any race-kind distinction, since a watchdog can also fire after
  * a kill has landed. That case is logged for resume diagnostics and returns the ordinary
  * resumable loss result without writing a boundary or starting publication. Any other checkpoint
- * failure resumes like any other `iteration_commit_failed`. Returns `undefined` on a successful
- * checkpoint (or nothing to checkpoint), leaving the loss outcome to the caller.
+ * failure resumes like any other `iteration_commit_failed`.
  */
+type ControlledLossCheckpoint =
+  | { status: "ok"; commitOutcome: ProgressIterationCommitOutcome }
+  | { status: "failed"; result: WriteLoopResult };
+
 async function checkpointBeforeControlledLoss(
   args: WriteLoopInput,
   prepared: { creationTitle?: string },
@@ -3166,10 +3134,18 @@ async function checkpointBeforeControlledLoss(
   attemptId: string,
   iterationsConsumed: number,
   result: StepRunResult,
-): Promise<WriteLoopResult | undefined> {
+): Promise<ControlledLossCheckpoint> {
   try {
-    await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
-    return undefined;
+    const commitOutcome = await checkpointSettledIteration(
+      args,
+      prepared,
+      store,
+      runId,
+      worktreePath,
+      attemptId,
+      result,
+    );
+    return { status: "ok", commitOutcome };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     if (store.loadRun(runId)?.status === "killed") {
@@ -3177,9 +3153,12 @@ async function checkpointBeforeControlledLoss(
         kind: "run_execution_failed",
         message: `checkpoint after kill failed: ${err.message}`,
       });
-      return finishLoop(args, runId, "progress", iterationsConsumed, true);
+      return { status: "failed", result: finishLoop(args, runId, "progress", iterationsConsumed, true) };
     }
-    return iterationCommitFailed(args, store, runId, attemptId, iterationsConsumed, err);
+    return {
+      status: "failed",
+      result: iterationCommitFailed(args, store, runId, attemptId, iterationsConsumed, err),
+    };
   }
 }
 
@@ -3199,7 +3178,8 @@ async function finishControlledLoss(
   quiesced: QuiescedExecutionOutcome,
   race: "aborted" | "timed_out",
   activeGateAtTimeout?: IterationActiveGate,
-): Promise<WriteLoopResult> {
+  sessionLog?: SessionLog,
+): Promise<WriteLoopResult | undefined> {
   if (quiesced.kind !== "settled") {
     return race === "aborted"
       ? finishLoop(args, runId, "progress", iterationsConsumed, true)
@@ -3214,7 +3194,7 @@ async function finishControlledLoss(
         );
   }
 
-  const failure = await checkpointBeforeControlledLoss(
+  const checkpoint = await checkpointBeforeControlledLoss(
     args,
     prepared,
     store,
@@ -3224,19 +3204,42 @@ async function finishControlledLoss(
     iterationsConsumed,
     quiesced.result.result,
   );
-  if (failure !== undefined) return failure;
+  if (checkpoint.status === "failed") return checkpoint.result;
 
-  return race === "aborted"
-    ? finishLoop(args, runId, "progress", iterationsConsumed, true)
-    : await finishIterationTimeout(
-        args,
-        store,
-        runId,
-        attemptId,
-        iterationsConsumed,
-        worktreePath,
-        activeGateAtTimeout,
-      );
+  if (race === "aborted") {
+    return finishLoop(args, runId, "progress", iterationsConsumed, true);
+  }
+
+  const iterationCap = args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  if (
+    quiesced.result.result.kind !== "stall" &&
+    checkpoint.commitOutcome.kind === "committed" &&
+    iterationsConsumed < iterationCap
+  ) {
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "in-progress",
+      outcomeKind: "iteration_timeout_continued",
+    });
+    args.logSink?.append(runId, {
+      kind: "boundary_committed",
+      attemptId,
+      outcomeKind: "iteration_timeout_continued",
+      runStatus: "in-progress",
+    });
+    sessionLog?.append("harness", "iteration timeout progress rollover (checkpoint retained)");
+    return undefined;
+  }
+
+  return await finishIterationTimeout(
+    args,
+    store,
+    runId,
+    attemptId,
+    iterationsConsumed,
+    worktreePath,
+    activeGateAtTimeout,
+  );
 }
 
 /** Agent rewrote lane history and `reset --keep` refused: settle resumable `completion_commit_failed`, push nothing. */
@@ -3593,10 +3596,15 @@ function committedResult(
       outcomeKind === "iteration_timeout" && resumeContext !== undefined
         ? buildSubspecCompletionInventory(resumeContext.worktreePath, resumeContext.projectRoot, resumeContext.specPath)
         : { completedSubspecPaths: [], remainingSubspecPaths: [] };
+    const iterationTimeoutResumable =
+      outcomeKind === "iteration_timeout"
+        ? durableLoopResumable(resumeContext?.priorLogRecords ?? [], "iteration_timeout", true)
+        : false;
     if (
       outcomeKind === "iteration_timeout" &&
       resumeContext !== undefined &&
-      isIterationTimeoutResumable(inventory, resumeContext.worktreePath, resumeContext.expectedArtifactPath)
+      (resumeContext.expectedArtifactPath?.length ?? 0) > 0 &&
+      iterationTimeoutResumable
     ) {
       return null;
     }
@@ -3610,11 +3618,7 @@ function committedResult(
       iterationsConsumed: 0,
       resumable:
         outcomeKind === "iteration_timeout"
-          ? isIterationTimeoutResumable(
-              inventory,
-              resumeContext?.worktreePath ?? "",
-              resumeContext?.expectedArtifactPath,
-            )
+          ? iterationTimeoutResumable
           : outcomeKind === "idle_output_timeout"
             ? durableLoopResumable(resumeContext?.priorLogRecords ?? [], "idle_output_timeout", false)
             : false,

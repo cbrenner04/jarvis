@@ -4064,6 +4064,7 @@ test("resume after iteration_timeout retains worktree commits without stale rese
       stepId: "step-1",
       workflowSnapshot,
       iterationTimeoutMs: 15,
+      maxIterations: 1,
       publishCompletion: false,
       stagedMarkdownLintRunner: runner,
     });

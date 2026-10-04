@@ -5,6 +5,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   symlinkSync,
@@ -2000,6 +2001,40 @@ describe.serial("write loop", () => {
       });
     }
 
+    function sessionLogFiles(sessionsDir: string): string[] {
+      const paths: string[] = [];
+      for (const entry of readdirSync(sessionsDir)) {
+        if (entry.endsWith(".log")) {
+          paths.push(join(sessionsDir, entry));
+          continue;
+        }
+        for (const name of readdirSync(join(sessionsDir, entry))) {
+          if (name.endsWith(".log")) {
+            paths.push(join(sessionsDir, entry, name));
+          }
+        }
+      }
+      return paths.sort();
+    }
+
+    async function waitForCondition(check: () => boolean, timeoutMs = 5_000): Promise<void> {
+      const deadline = Date.now() + timeoutMs;
+      while (!check()) {
+        if (Date.now() > deadline) throw new Error("waitForCondition timed out");
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
+    }
+
+    function liveOutputProgressOnAbort(
+      input: WriteExecuteInput,
+      worktreePath: string,
+      writeCheckpoint: () => void,
+    ): Promise<ReturnType<typeof progressWrite>> {
+      writeCheckpoint();
+      input.onInvocationOutputProgress?.();
+      return resolveOnAbort(input, progressWrite(worktreePath));
+    }
+
     test("a non-progress result that settles before abort still checkpoints", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
@@ -2099,7 +2134,7 @@ describe.serial("write loop", () => {
         );
 
         expect(result.kind).toBe("iteration_timeout");
-        expect(result.resumable).toBe(false);
+        expect(result.resumable).toBe(true);
         expect(gitIn(worktreePath, ["show", "HEAD:watchdog-proof.txt"])).toBe("watchdog-work");
         expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
 
@@ -2955,6 +2990,7 @@ describe.serial("write loop", () => {
             specPath: "spec/implement/index.md",
             expectedArtifactPath: subspecFile,
             logSink: sink,
+            maxIterations: 1,
             iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
             schedule: fastCeilingSchedule(),
             clock: () => new Date("2026-09-08T06:00:00.000Z"),
@@ -2969,6 +3005,7 @@ describe.serial("write loop", () => {
             specPath: "spec/implement/index.md",
             expectedArtifactPath: subspecFile,
             logSink: sink,
+            maxIterations: 1,
             iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
             schedule: fastCeilingSchedule(),
             clock: () => new Date("2026-09-08T06:00:00.000Z"),
@@ -2983,12 +3020,14 @@ describe.serial("write loop", () => {
             worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
             specPath: "spec/implement/index.md",
             logSink: replaySink,
+            maxIterations: 1,
             iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
             schedule: fastCeilingSchedule(),
             clock: () => new Date("2026-09-08T06:00:00.000Z"),
-          }),
+            expectedArtifactPath: undefined,
+          } as unknown as Partial<WriteLoopInput>),
         );
-        expect(replay).toMatchObject({ kind: "iteration_timeout", resumable: false });
+        expect(replay).toMatchObject({ kind: "iteration_timeout", resumable: true });
         expect(executeCalls).toBe(0);
         expect(replaySink.getEventsForRun(first.runId)).toHaveLength(0);
       } finally {
@@ -3024,6 +3063,7 @@ describe.serial("write loop", () => {
             worktree: { projectRoot: jarvisRoot, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
             specPath,
             logSink: sink,
+            maxIterations: 1,
             iterationTimeoutMs: 15,
           }),
         );
@@ -3087,12 +3127,13 @@ describe.serial("write loop", () => {
             worktree: divergentWorktree,
             specPath,
             logSink: sink,
+            maxIterations: 1,
             iterationTimeoutMs: 15,
           }),
         );
         expect(first).toMatchObject({
           kind: "iteration_timeout",
-          resumable: false,
+          resumable: true,
           completedSubspecPaths: [],
           remainingSubspecPaths: [],
           inventoryError: `cannot relativize subspec path: ${outsidePath}`,
@@ -3105,12 +3146,14 @@ describe.serial("write loop", () => {
             worktree: divergentWorktree,
             specPath,
             logSink: replaySink,
+            maxIterations: 1,
             iterationTimeoutMs: 15,
-          }),
+            expectedArtifactPath: undefined,
+          } as unknown as Partial<WriteLoopInput>),
         );
         expect(replay).toMatchObject({
           kind: "iteration_timeout",
-          resumable: false,
+          resumable: true,
           completedSubspecPaths: [],
           remainingSubspecPaths: [],
           inventoryError: `cannot relativize subspec path: ${outsidePath}`,
@@ -3192,7 +3235,7 @@ describe.serial("write loop", () => {
       }
     });
 
-    test("iteration_timeout with no completed subspec stays non-resumable", async () => {
+    test("iteration_timeout with no completed subspec is resumable", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "timeout-none-complete";
@@ -3220,15 +3263,205 @@ describe.serial("write loop", () => {
           }),
         );
 
-        expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+        expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
         const finished = sink
           .getEventsForRun(result.runId)
           .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "iteration_timeout");
         expect(finished).toMatchObject({
-          resumable: false,
+          resumable: true,
           completedSubspecPaths: [],
           remainingSubspecPaths: subspecPaths,
         });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("live-output wall timeout with checkpoint rolls into the next iteration", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-progress-rollover";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const sessionsDir = join(jarvisRoot, "sessions");
+      const controller = new AbortController();
+      let calls = 0;
+      let releaseSecond: () => void = () => {};
+      const secondGate = new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      });
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          calls += 1;
+          if (calls === 1) {
+            return liveOutputProgressOnAbort(input, worktreePath, () => {
+              writeFileSync(join(worktreePath, "rollover-checkpoint.txt"), "x\n");
+            });
+          }
+          return secondGate.then(() => completeWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const runPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            logSink: sink,
+            sessionsDir,
+            signal: controller.signal,
+            resetIterationWallOnOutput: false,
+            iterationTimeoutMs: 25,
+            maxIterations: 4,
+          }),
+        );
+
+        let runId: string | undefined;
+        await waitForCondition(() => {
+          const started = sink.events.filter((entry) => entry.event.kind === "iteration_started");
+          if (started.length === 0) return false;
+          runId = started[0]?.runId;
+          if (runId === undefined) return false;
+          const events = sink.getEventsForRun(runId);
+          const continued = events.some(
+            (event) => event.kind === "boundary_committed" && event.outcomeKind === "iteration_timeout_continued",
+          );
+          const iterations = events.filter((event) => event.kind === "iteration_started").length;
+          const finished = events.some((event) => event.kind === "loop_finished");
+          return continued && iterations >= 2 && !finished;
+        });
+
+        expect(runId).toBeDefined();
+        const run = loadRunOnce(stateDbPath, runId ?? "");
+        expect(run?.status).toBe("in-progress");
+        expect(run?.attempts[0]?.outcomeKind).toBe("iteration_timeout_continued");
+        const sessionText = sessionLogFiles(sessionsDir)
+          .map((path) => readFileSync(path, "utf8"))
+          .join("\n");
+        expect(sessionText).toContain("iteration timeout progress rollover (checkpoint retained)");
+
+        controller.abort();
+        releaseSecond();
+        await runPromise;
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("wall timeout rollover at maxIterations settles terminal iteration_timeout", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-rollover-cap";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) =>
+          liveOutputProgressOnAbort(input, worktreePath, () => {
+            writeFileSync(join(worktreePath, "rollover-cap.txt"), "x\n");
+          }),
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            logSink: sink,
+            resetIterationWallOnOutput: false,
+            iterationTimeoutMs: 25,
+            maxIterations: 1,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
+        const finished = sink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
+        expect(finished).toHaveLength(1);
+        expect(finished[0]).toMatchObject({ loopOutcomeKind: "iteration_timeout", resumable: true });
+        expect(
+          sink
+            .getEventsForRun(result.runId)
+            .some(
+              (event) => event.kind === "boundary_committed" && event.outcomeKind === "iteration_timeout_continued",
+            ),
+        ).toBe(false);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("committedResult re-dispatches after iteration_timeout_continued without terminal loop_finished", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-continued-redispatch";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      let executeCalls = 0;
+      let releaseSecond: () => void = () => {};
+      const secondGate = new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      });
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          executeCalls += 1;
+          if (executeCalls === 1) {
+            return liveOutputProgressOnAbort(input, worktreePath, () => {
+              writeFileSync(join(worktreePath, "redispatch-checkpoint.txt"), "x\n");
+            });
+          }
+          return secondGate.then(() => progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const firstPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            logSink: sink,
+            resetIterationWallOnOutput: false,
+            iterationTimeoutMs: 25,
+            maxIterations: 4,
+          }),
+        );
+
+        let runId: string | undefined;
+        await waitForCondition(() => {
+          const started = sink.events.filter((entry) => entry.event.kind === "iteration_started");
+          if (started.length < 2) return false;
+          runId = started[0]?.runId;
+          if (runId === undefined) return false;
+          return sink
+            .getEventsForRun(runId)
+            .some(
+              (event) => event.kind === "boundary_committed" && event.outcomeKind === "iteration_timeout_continued",
+            );
+        });
+
+        const callsBeforeReplay = executeCalls;
+        const replaySink = new TestLogSink();
+        const replayPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            logSink: replaySink,
+            iterationTimeoutMs: 25,
+            iterationCeilingMs: 80,
+            maxIterations: 4,
+          }),
+        );
+
+        await waitForCondition(() => executeCalls > callsBeforeReplay);
+        expect(replaySink.getEventsForRun(runId ?? "").some((event) => event.kind === "loop_finished")).toBe(false);
+
+        releaseSecond();
+        const replay = await replayPromise;
+        expect(replay.kind).not.toBe("iteration_timeout");
+        await firstPromise;
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

@@ -382,7 +382,7 @@ describe.serial("write loop idle-output watchdog", () => {
         iterationTimeoutMs: 10,
       });
 
-      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
       const run = loadRunOnce(stateDbPath, result.runId);
       expect(run?.status).toBe("failed");
       expect(run?.attempts[0]?.outcomeKind).toBe("iteration_timeout");

@@ -54,15 +54,19 @@ function listDaemonTestFilesAtRef(ref: string): string[] {
 
 /** Returns undefined when the path is absent at `ref`; a file that is not there has no titles to preserve. */
 function loadAtRef(ref: string, repoPath: string): string | undefined {
-  try {
-    return execFileSync("git", ["show", `${ref}:${repoPath}`], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch {
-    return undefined;
+  // The base ref may predate the `v2/` → top-level move; read the pre-move path when the new one is absent.
+  for (const candidate of [repoPath, `v2/${repoPath}`]) {
+    try {
+      return execFileSync("git", ["show", `${ref}:${candidate}`], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch {
+      // try the next candidate
+    }
   }
+  return undefined;
 }
 
 function readQuotedString(source: string, start: number): { value: string; end: number } | null {

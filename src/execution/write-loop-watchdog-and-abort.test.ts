@@ -139,7 +139,7 @@ describe("write loop", () => {
     expect(completed).toMatchObject({ kind: "complete", iterationsConsumed: 1 });
 
     const timedOut = await runWithWallReset(false, "wall-reset-stall");
-    expect(timedOut).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+    expect(timedOut).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
   });
 
   test("progress output cancels the prior wall-segment schedule and registers a new one via the injected seam", async () => {
@@ -331,7 +331,7 @@ describe("write loop", () => {
       });
 
       const elapsed = Date.now() - startedAt;
-      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
       expect(elapsed).toBeGreaterThanOrEqual(ceilingMs - 15);
       expect(elapsed).toBeLessThan(ceilingMs + 150);
     } finally {
@@ -366,7 +366,7 @@ describe("write loop", () => {
         iterationTimeoutMs: 10,
       });
 
-      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
       const run = loadRunOnce(stateDbPath, result.runId);
       expect(run?.status).toBe("failed");
       expect(run?.attempts[0]?.outcomeKind).toBe("iteration_timeout");
@@ -430,7 +430,7 @@ describe("write loop", () => {
         iterationTimeoutMs: 25,
       });
 
-      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 2, resumable: false });
+      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 2, resumable: true });
       expect(calls).toBe(2);
       expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished")).toHaveLength(1);
       expect(loadRunOnce(stateDbPath, result.runId)?.attempts.map((attempt) => attempt.outcomeKind)).toEqual([
@@ -483,7 +483,7 @@ describe("write loop", () => {
           iteration: i,
           subcase: "late",
           kind: "iteration_timeout",
-          resumable: false,
+          resumable: true,
         });
       }
     } finally {

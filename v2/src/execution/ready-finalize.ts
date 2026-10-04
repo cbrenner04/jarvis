@@ -32,7 +32,6 @@ import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   isSubprocessTimeout,
-  networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";

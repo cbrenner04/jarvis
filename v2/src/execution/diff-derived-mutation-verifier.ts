@@ -3,12 +3,12 @@ import { mkdirSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
+import { readBlobAtRef } from "../../../shared/git.ts";
 import {
   PROMPT_REGISTRY_MANIFEST_PATH,
   parsePromptRegistryManifest,
   readRegisteredPromptPaths,
 } from "../../../shared/prompts/registry.ts";
-import { readBlobAtRef } from "../../../shared/git.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessOptions,

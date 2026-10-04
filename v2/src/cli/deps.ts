@@ -52,7 +52,6 @@ export type CliDeps = {
   machineConfigPath: string;
   /** Digest-keyed private endpoint `daemon start` binds alongside the public `socketPath`. */
   privateSocketPath?: string;
-  /** Injectable free-text router; defaults to production `runFreeTextRouting` from `cli.ts`. */
   runFreeTextRouting?: (requestText: string, io: Io, cliDeps: CliDeps, operatorSessionId: string) => Promise<number>;
 };
 

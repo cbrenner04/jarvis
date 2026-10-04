@@ -1,7 +1,3 @@
-/**
- * Tool-free routing prompt: catalog excerpt is supplied by the v2 consumer so `shared` never
- * imports the closed action catalog from `v2`.
- */
 export function buildRoutingTranslatePrompt(opts: {
   cwd: string;
   requestText: string;

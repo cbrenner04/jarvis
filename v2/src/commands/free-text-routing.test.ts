@@ -15,7 +15,12 @@ import {
   type PipelineStartAdmissionInput,
 } from "./pipeline-start-admission.ts";
 import { type RoutingAuditLine, routingAuditFilePath } from "./free-text-routing-audit.ts";
-import { routingCatalogExcerpt, runFreeTextRouting } from "./free-text-routing.ts";
+import {
+  FREE_TEXT_ROUTING_STDERR_PREFIX,
+  routingCatalogExcerpt,
+  runFreeTextRouting,
+  type FreeTextRoutingSeams,
+} from "./free-text-routing.ts";
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
   claude: {
@@ -157,7 +162,29 @@ function expectNoDaemonRpc(harness: AdmissionHarness): void {
 }
 
 function expectRoutingStderr(io: ReturnType<typeof captureIo>, reason: string): void {
-  expect(io.read().stderr).toBe(`free-text-routing: ${reason}\n`);
+  expect(io.read().stderr).toBe(`${FREE_TEXT_ROUTING_STDERR_PREFIX} ${reason}\n`);
+}
+
+function pipelineStartRoutingJson(overrides: { project?: string; seedPath?: string } = {}): string {
+  return JSON.stringify({
+    action: "pipeline.start",
+    seedPath: overrides.seedPath ?? seedRelativePath,
+    ...("project" in overrides ? { project: overrides.project } : {}),
+  });
+}
+
+async function expectRejectsWithReason(
+  reason: string,
+  seams: FreeTextRoutingSeams,
+  cliDeps: CliDeps = makeCliDeps(),
+  operatorSessionId = "s",
+): Promise<void> {
+  const harness = makeAdmissionHarness();
+  const io = captureIo();
+  const exit = await runFreeTextRouting("?", io, cliDeps, operatorSessionId, seams);
+  expect(exit).toBe(1);
+  expectRoutingStderr(io, reason);
+  expectNoDaemonRpc(harness);
 }
 
 describe("routingCatalogExcerpt", () => {
@@ -182,13 +209,8 @@ describe("runFreeTextRouting", () => {
     const admitInputs: PipelineStartAdmissionInput[] = [];
     const io = captureIo();
     const cliDeps = makeCliDeps();
-    const routingJson = JSON.stringify({
-      action: "pipeline.start",
-      seedPath: seedRelativePath,
-      project: "demo",
-    });
     const routingExit = await runFreeTextRouting("start pipeline for seed", io, cliDeps, "session-1", {
-      invokeRouting: async () => routingOk(routingJson),
+      invokeRouting: async () => routingOk(pipelineStartRoutingJson({ project: "demo" })),
       admitPipelineStart: async (input) => {
         admitInputs.push(input);
         return admitPipelineStart(input, routingHarness.deps);
@@ -203,123 +225,58 @@ describe("runFreeTextRouting", () => {
   });
 
   test("rejects unknown action with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+    await expectRejectsWithReason("unknown-action", {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.restart", pipelineId: "x" })),
-      admitPipelineStart: async (input, deps) => {
-        const { admitPipelineStart } = await import("./pipeline-start-admission.ts");
-        return admitPipelineStart(input, harness.deps);
-      },
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "unknown-action");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects extra field with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+    await expectRejectsWithReason("extra-field", {
       invokeRouting: async () =>
         routingOk(JSON.stringify({ action: "run.log", runId: "00000000-0000-4000-8000-000000000001", extra: "x" })),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "extra-field");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects missing field with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+    await expectRejectsWithReason("missing-field", {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "run.log" })),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "missing-field");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects wrong type with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+    await expectRejectsWithReason("wrong-type", {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "run.log", runId: 42 })),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "wrong-type");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects command-payload with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+    await expectRejectsWithReason("command-payload", {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "run.log", runId: "run 42" })),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "command-payload");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects routing tool_call with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
-      invokeRouting: async () => ({
-        kind: "error",
-        exitCode: -1,
-        stderr: "tool",
-        routingFailure: "tool_call",
-      }),
+    await expectRejectsWithReason("tool_call", {
+      invokeRouting: async () => ({ kind: "error", exitCode: -1, stderr: "tool", routingFailure: "tool_call" }),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "tool_call");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects routing malformed_output with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
-      invokeRouting: async () => ({
-        kind: "error",
-        exitCode: -1,
-        stderr: "bad",
-        routingFailure: "malformed_output",
-      }),
+    await expectRejectsWithReason("malformed_output", {
+      invokeRouting: async () => ({ kind: "error", exitCode: -1, stderr: "bad", routingFailure: "malformed_output" }),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "malformed_output");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects routing timeout with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
-      invokeRouting: async () => ({
-        kind: "error",
-        exitCode: -1,
-        stderr: "slow",
-        routingFailure: "timeout",
-      }),
+    await expectRejectsWithReason("timeout", {
+      invokeRouting: async () => ({ kind: "error", exitCode: -1, stderr: "slow", routingFailure: "timeout" }),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "timeout");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects unregistered project with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
-      invokeRouting: async () =>
-        routingOk(JSON.stringify({ action: "pipeline.start", seedPath: seedRelativePath, project: "missing" })),
+    await expectRejectsWithReason("unregistered-project", {
+      invokeRouting: async () => routingOk(pipelineStartRoutingJson({ project: "missing" })),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "unregistered-project");
-    expectNoDaemonRpc(harness);
   });
 
   test("pipeline.start without project resolves registry from cwd", async () => {
@@ -327,12 +284,8 @@ describe("runFreeTextRouting", () => {
     const admitInputs: PipelineStartAdmissionInput[] = [];
     const io = captureIo();
     const cliDeps = makeCliDeps();
-    const routingJson = JSON.stringify({
-      action: "pipeline.start",
-      seedPath: seedRelativePath,
-    });
     const routingExit = await runFreeTextRouting("start pipeline for seed", io, cliDeps, "session-1", {
-      invokeRouting: async () => routingOk(routingJson),
+      invokeRouting: async () => routingOk(pipelineStartRoutingJson()),
       admitPipelineStart: async (input) => {
         admitInputs.push(input);
         return admitPipelineStart(input, routingHarness.deps);
@@ -345,26 +298,19 @@ describe("runFreeTextRouting", () => {
   });
 
   test("pipeline.start without project rejects when cwd matches no registry root", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps({ cwd: () => join(fixtureRoot, "..") }), "s", {
-      invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.start", seedPath: seedRelativePath })),
-    });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "unregistered-project");
-    expectNoDaemonRpc(harness);
+    await expectRejectsWithReason(
+      "unregistered-project",
+      { invokeRouting: async () => routingOk(pipelineStartRoutingJson()) },
+      makeCliDeps({ cwd: () => join(fixtureRoot, "..") }),
+    );
   });
 
   test("rejects bad seed path with no daemon RPC", async () => {
     const harness = makeAdmissionHarness();
     const io = captureIo();
     const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
-      invokeRouting: async () =>
-        routingOk(JSON.stringify({ action: "pipeline.start", seedPath: "missing.md", project: "demo" })),
-      admitPipelineStart: async (input) => {
-        const { admitPipelineStart } = await import("./pipeline-start-admission.ts");
-        return admitPipelineStart(input, harness.deps);
-      },
+      invokeRouting: async () => routingOk(pipelineStartRoutingJson({ project: "demo", seedPath: "missing.md" })),
+      admitPipelineStart: async (input) => admitPipelineStart(input, harness.deps),
     });
     expect(exit).toBe(1);
     expect(harness.connectCalls.value).toBe(0);
@@ -427,14 +373,9 @@ describe("runFreeTextRouting", () => {
   });
 
   test("rejects unsupported routing output with no daemon RPC", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+    await expectRejectsWithReason("unknown-action", {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "not.real", id: "x" })),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "unknown-action");
-    expectNoDaemonRpc(harness);
   });
 
   test("rejects missing machine agents before loading agent model config", async () => {
@@ -463,18 +404,13 @@ describe("runFreeTextRouting", () => {
   });
 
   test("maps no-routable-agent stderr from non-ok routing invocation", async () => {
-    const harness = makeAdmissionHarness();
-    const io = captureIo();
-    const exit = await runFreeTextRouting("start pipeline", io, makeCliDeps(), "s", {
+    await expectRejectsWithReason("no-routable-agent", {
       invokeRouting: async () => ({
         kind: "error",
         exitCode: -1,
         stderr: "no agent in the order can run the routing role: cursor (missing routing rung)",
       }),
     });
-    expect(exit).toBe(1);
-    expectRoutingStderr(io, "no-routable-agent");
-    expectNoDaemonRpc(harness);
   });
 
   describe("routing execution audit", () => {
@@ -483,16 +419,16 @@ describe("runFreeTextRouting", () => {
     });
 
     test("appends validation-rejected audit line with operatorSessionId", async () => {
-      const harness = makeAdmissionHarness();
-      const io = captureIo();
       const operatorSessionId = "audit-session-validation";
-      const exit = await runFreeTextRouting("?", io, makeCliDeps(), operatorSessionId, {
-        invokeRouting: async () =>
-          routingOk(JSON.stringify({ action: "run.log", runId: "00000000-0000-4000-8000-000000000001", extra: "x" })),
-      });
-      expect(exit).toBe(1);
-      expectRoutingStderr(io, "extra-field");
-      expectNoDaemonRpc(harness);
+      await expectRejectsWithReason(
+        "extra-field",
+        {
+          invokeRouting: async () =>
+            routingOk(JSON.stringify({ action: "run.log", runId: "00000000-0000-4000-8000-000000000001", extra: "x" })),
+        },
+        makeCliDeps(),
+        operatorSessionId,
+      );
       const lines = readRoutingAuditLines();
       expect(lines).toHaveLength(1);
       expect(lines[0]?.operatorSessionId).toBe(operatorSessionId);
@@ -504,13 +440,8 @@ describe("runFreeTextRouting", () => {
       const routingHarness = makeAdmissionHarness();
       const io = captureIo();
       const operatorSessionId = "audit-session-dispatch";
-      const routingJson = JSON.stringify({
-        action: "pipeline.start",
-        seedPath: seedRelativePath,
-        project: "demo",
-      });
       const exit = await runFreeTextRouting("start pipeline for seed", io, makeCliDeps(), operatorSessionId, {
-        invokeRouting: async () => routingOk(routingJson),
+        invokeRouting: async () => routingOk(pipelineStartRoutingJson({ project: "demo" })),
         admitPipelineStart: async (input) => admitPipelineStart(input, routingHarness.deps),
       });
       expect(exit).toBe(0);
@@ -531,13 +462,8 @@ describe("runFreeTextRouting", () => {
         },
       });
       const io = captureIo();
-      const routingJson = JSON.stringify({
-        action: "pipeline.start",
-        seedPath: seedRelativePath,
-        project: "demo",
-      });
       const exit = await runFreeTextRouting("start pipeline for seed", io, makeCliDeps(), "audit-session-transport", {
-        invokeRouting: async () => routingOk(routingJson),
+        invokeRouting: async () => routingOk(pipelineStartRoutingJson({ project: "demo" })),
         admitPipelineStart: async (input) => admitPipelineStart(input, routingHarness.deps),
       });
       expect(exit).toBe(1);

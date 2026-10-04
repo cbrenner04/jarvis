@@ -11,7 +11,7 @@ import { createRuntimeDeps } from "./cli/deps.ts";
 import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
 import type { Io } from "./cli/io.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
-import { runFreeTextRouting } from "./commands/free-text-routing.ts";
+import { FREE_TEXT_ROUTING_STDERR_PREFIX, runFreeTextRouting } from "./commands/free-text-routing.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
 import { runInitCommand } from "./commands/init.ts";
 import { runNotificationsCommand } from "./commands/notifications.ts";
@@ -92,14 +92,11 @@ export function findCommand(name: string): CommandEntry | undefined {
   return commandEntries.find((entry) => entry.name === name);
 }
 
-const FREE_TEXT_STDERR_PREFIX = "free-text-routing:";
-
 export type FreeTextArgvClassification =
   | { kind: "body"; body: string }
   | { kind: "empty-request" }
   | { kind: "unknown-flag"; flag: string };
 
-/** Classifies argv for the free-text entry path; returns undefined when the first token is a registered command. */
 export function classifyFreeTextArgv(argv: readonly string[]): FreeTextArgvClassification | undefined {
   if (argv.length === 0) return undefined;
   const first = argv[0];
@@ -157,7 +154,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
       return 1;
     }
     if (freeText.kind === "empty-request") {
-      out.stderr(`${FREE_TEXT_STDERR_PREFIX} empty-request\n`);
+      out.stderr(`${FREE_TEXT_ROUTING_STDERR_PREFIX} empty-request\n`);
       return 1;
     }
     const routeFreeText = runtimeDeps.runFreeTextRouting ?? runFreeTextRouting;

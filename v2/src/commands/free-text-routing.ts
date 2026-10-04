@@ -6,7 +6,6 @@ import { findProjectMatch } from "../../../shared/project-registry.ts";
 import {
   ROUTING_ACTION_CATALOG,
   type RoutingAction,
-  type RoutingRejection,
   validateRoutingRequest,
 } from "../cli/free-text-routing-actions.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -38,7 +37,7 @@ import {
 import { runPipelineCommand } from "./pipeline.ts";
 import { runRunCommand } from "./run.ts";
 
-const ROUTING_STDERR_PREFIX = "free-text-routing:";
+export const FREE_TEXT_ROUTING_STDERR_PREFIX = "free-text-routing:";
 
 const TARGET_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -75,16 +74,12 @@ function routingCatalogExcerpt(): string {
 }
 
 function routingStderrError(io: Io, reason: string): number {
-  io.stderr(`${ROUTING_STDERR_PREFIX} ${reason}\n`);
+  io.stderr(`${FREE_TEXT_ROUTING_STDERR_PREFIX} ${reason}\n`);
   return 1;
 }
 
-function rejectionReason(rejection: RoutingRejection): string {
-  return rejection.reason;
-}
-
-function isTargetId(id: string): boolean {
-  return TARGET_ID_PATTERN.test(id);
+function dispatchedResult(exitCode: number, action: string): DispatchResult {
+  return { exitCode, audit: { outcome: "dispatched", action, dispatchExitCode: exitCode } };
 }
 
 function pipelineStartAdmissionDeps(cliDeps: CliDeps): PipelineStartAdmissionDeps {
@@ -181,7 +176,7 @@ async function translateRequest(
   }
   const validation = validateRoutingRequest(parsed);
   if (!validation.ok) {
-    return translateFailure(io, "validation-rejected", rejectionReason(validation.rejection));
+    return translateFailure(io, "validation-rejected", validation.rejection.reason);
   }
   return { ok: true, action: validation.action };
 }
@@ -196,12 +191,6 @@ function resolvePipelineStartProjectKey(
   }
   const match = findProjectMatch(cliDeps.cwd(), registry);
   return match === undefined ? { ok: false } : { ok: true, projectKey: match.key };
-}
-
-function admissionFailureReason(
-  admission: Extract<PipelineStartAdmissionResult, { kind: "admission-failure" }>,
-): string {
-  return admission.failure;
 }
 
 async function dispatchPipelineStart(
@@ -234,26 +223,15 @@ async function dispatchPipelineStart(
     io.stderr(admission.detail);
     return {
       exitCode: 1,
-      audit: {
-        outcome: "dispatched",
-        reason: admissionFailureReason(admission),
-        action: actionName,
-        dispatchExitCode: 1,
-      },
+      audit: { outcome: "dispatched", reason: admission.failure, action: actionName, dispatchExitCode: 1 },
     };
   }
   io.stdout(`${admission.pipelineId}\n`);
-  return {
-    exitCode: 0,
-    audit: { outcome: "dispatched", action: actionName, dispatchExitCode: 0 },
-  };
+  return dispatchedResult(0, actionName);
 }
 
 function requireTargetId(io: Io, id: string): number | undefined {
-  if (!isTargetId(id)) {
-    return routingStderrError(io, "invalid-target-id");
-  }
-  return undefined;
+  return TARGET_ID_PATTERN.test(id) ? undefined : routingStderrError(io, "invalid-target-id");
 }
 
 function resolutionRejected(exitCode: number, reason: string, action?: string): DispatchResult {
@@ -263,15 +241,31 @@ function resolutionRejected(exitCode: number, reason: string, action?: string): 
   };
 }
 
-async function dispatchRunAction(
-  actionName: RoutingAction["action"],
-  targetArgv: string[],
+async function dispatchPipelineIdVerb(
+  action: Extract<RoutingAction, { action: "pipeline.approve" | "pipeline.reject" | "pipeline.resume" }>,
+  subcommand: "approve" | "reject" | "resume",
   io: Io,
   cliDeps: CliDeps,
-  run: typeof runRunCommand,
+  seams: FreeTextRoutingSeams,
 ): Promise<DispatchResult> {
-  const exitCode = await run(targetArgv, io, cliDeps);
-  return { exitCode, audit: { outcome: "dispatched", action: actionName, dispatchExitCode: exitCode } };
+  const invalid = requireTargetId(io, action.pipelineId);
+  if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
+  const runPipeline = seams.runPipelineCommand ?? runPipelineCommand;
+  return dispatchedResult(await runPipeline([subcommand, action.pipelineId], io, cliDeps), action.action);
+}
+
+async function dispatchRunIdVerb(
+  action: Extract<RoutingAction, { action: "run.kill" | "run.resume" | "run.log" }>,
+  subcommand: "kill" | "resume" | "log",
+  io: Io,
+  cliDeps: CliDeps,
+  seams: FreeTextRoutingSeams,
+): Promise<DispatchResult> {
+  const targetId = action.runId;
+  const invalid = requireTargetId(io, targetId);
+  if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
+  const run = seams.runRunCommand ?? runRunCommand;
+  return dispatchedResult(await run([subcommand, targetId], io, cliDeps), action.action);
 }
 
 async function dispatchAction(
@@ -283,54 +277,18 @@ async function dispatchAction(
   switch (action.action) {
     case "pipeline.start":
       return dispatchPipelineStart(action, io, cliDeps, seams);
-    case "pipeline.approve": {
-      const invalid = requireTargetId(io, action.pipelineId);
-      if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
-      const runPipeline = seams.runPipelineCommand ?? runPipelineCommand;
-      const exitCode = await runPipeline(["approve", action.pipelineId], io, cliDeps);
-      return { exitCode, audit: { outcome: "dispatched", action: action.action, dispatchExitCode: exitCode } };
-    }
-    case "pipeline.reject": {
-      const invalid = requireTargetId(io, action.pipelineId);
-      if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
-      const runPipeline = seams.runPipelineCommand ?? runPipelineCommand;
-      const exitCode = await runPipeline(["reject", action.pipelineId], io, cliDeps);
-      return { exitCode, audit: { outcome: "dispatched", action: action.action, dispatchExitCode: exitCode } };
-    }
-    case "pipeline.resume": {
-      const invalid = requireTargetId(io, action.pipelineId);
-      if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
-      const runPipeline = seams.runPipelineCommand ?? runPipelineCommand;
-      const exitCode = await runPipeline(["resume", action.pipelineId], io, cliDeps);
-      return { exitCode, audit: { outcome: "dispatched", action: action.action, dispatchExitCode: exitCode } };
-    }
-    case "run.kill": {
-      const invalid = requireTargetId(io, action.runId);
-      if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
-      return dispatchRunAction(
-        action.action,
-        ["kill", action.runId],
-        io,
-        cliDeps,
-        seams.runRunCommand ?? runRunCommand,
-      );
-    }
-    case "run.resume": {
-      const invalid = requireTargetId(io, action.runId);
-      if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
-      return dispatchRunAction(
-        action.action,
-        ["resume", action.runId],
-        io,
-        cliDeps,
-        seams.runRunCommand ?? runRunCommand,
-      );
-    }
-    case "run.log": {
-      const invalid = requireTargetId(io, action.runId);
-      if (invalid !== undefined) return resolutionRejected(invalid, "invalid-target-id", action.action);
-      return dispatchRunAction(action.action, ["log", action.runId], io, cliDeps, seams.runRunCommand ?? runRunCommand);
-    }
+    case "pipeline.approve":
+      return dispatchPipelineIdVerb(action, "approve", io, cliDeps, seams);
+    case "pipeline.reject":
+      return dispatchPipelineIdVerb(action, "reject", io, cliDeps, seams);
+    case "pipeline.resume":
+      return dispatchPipelineIdVerb(action, "resume", io, cliDeps, seams);
+    case "run.kill":
+      return dispatchRunIdVerb(action, "kill", io, cliDeps, seams);
+    case "run.resume":
+      return dispatchRunIdVerb(action, "resume", io, cliDeps, seams);
+    case "run.log":
+      return dispatchRunIdVerb(action, "log", io, cliDeps, seams);
     default: {
       const exitCode = routingStderrError(io, "unknown-action");
       return resolutionRejected(exitCode, "unknown-action");
@@ -338,24 +296,6 @@ async function dispatchAction(
   }
 }
 
-async function recordRoutingAudit(
-  normalizedBody: string,
-  operatorSessionId: string,
-  auditFields: RoutingAuditFields,
-  io: Io,
-  seams: FreeTextRoutingSeams,
-): Promise<void> {
-  const digest = normalizedRequestDigest(normalizedBody);
-  const line: RoutingAuditLine = {
-    at: new Date().toISOString(),
-    operatorSessionId,
-    ...digest,
-    ...auditFields,
-  };
-  await appendRoutingAuditLine(line, io, seams.routingAuditPath);
-}
-
-/** Single orchestration entry for free-text routing: translate, validate, resolve, dispatch. */
 export async function runFreeTextRouting(
   requestText: string,
   io: Io,
@@ -380,7 +320,16 @@ export async function runFreeTextRouting(
       exitCode = dispatched.exitCode;
     }
   }
-  await recordRoutingAudit(normalizedBody, operatorSessionId, auditFields, io, seams);
+  await appendRoutingAuditLine(
+    {
+      at: new Date().toISOString(),
+      operatorSessionId,
+      ...normalizedRequestDigest(normalizedBody),
+      ...auditFields,
+    },
+    io,
+    seams.routingAuditPath,
+  );
   return exitCode;
 }
 

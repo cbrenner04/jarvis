@@ -21,11 +21,11 @@ Typed boundaries in `shared/git.ts` and `v2/src/execution/github-operations.ts` 
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `rejects runAsync git literal in production fixture` fails against an empty pre-fix guard (no exported matcher) and passes once the guard flags `runner.runAsync("git", ["status"], cwd)` in a synthetic `v2/src/execution/example.ts` record.
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `allows github-operations gh owner` passes when the only `runAsync("gh"` in `v2/src/execution/github-operations.ts` is allowlisted and fails if the same literal appears in another production path.
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `allows per-call guard-git-spawn-bypass marker` passes with the marker on the line above the spawn and fails without it for the same source.
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `repository walk reports reachable inline git spawn` fails when `runGitSpawnBypassGuard` scans the current tree where `v2/src/execution/write-loop.ts` still contains `realAsyncSubprocessRunner.runAsync("git",`; reachable on the prerequisite base.
-- [ ] `bun run typecheck` passes.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `rejects runAsync git literal in production fixture` fails against an empty pre-fix guard (no exported matcher) and passes once the guard flags `runner.runAsync("git", ["status"], cwd)` in a synthetic `v2/src/execution/example.ts` record.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `allows github-operations gh owner` passes when the only `runAsync("gh"` in `v2/src/execution/github-operations.ts` is allowlisted and fails if the same literal appears in another production path.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `allows per-call guard-git-spawn-bypass marker` passes with the marker on the line above the spawn and fails without it for the same source.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `repository walk reports reachable inline git spawn` fails when `runGitSpawnBypassGuard` scans the current tree where `v2/src/execution/write-loop.ts` still contains `realAsyncSubprocessRunner.runAsync("git",`; reachable on the prerequisite base.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

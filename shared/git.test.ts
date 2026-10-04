@@ -799,6 +799,13 @@ describe("graph reads for stale-reset", () => {
 });
 
 describe("ref object reads at commits", () => {
+  test("exit 1 with missing-path stderr is absent like exit 128", async () => {
+    const runner = fakeAsync({
+      "git show main:gone": gitFailure("error: path 'gone' does not exist in 'main'\n", 1),
+    });
+    expect(await readBlobAtRef("/repo", "main", "gone", runner)).toBeUndefined();
+  });
+
   test("tree children, recursive paths, blob read, commit count, and local heads", async () => {
     const treeListing = `100644 blob ${OID_A}\tindex.md\0${`040000 tree ${OID_B}\tspec-dir\0`}`;
     const runner = fakeAsync({

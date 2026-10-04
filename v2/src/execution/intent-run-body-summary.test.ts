@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { DEFAULT_PUBLICATION_TITLE, deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 

@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 
 type LandImplementSpecTreeInput = {

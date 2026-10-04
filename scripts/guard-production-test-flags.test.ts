@@ -240,10 +240,10 @@ describe("production invert-hook guard", () => {
   });
 
   describe("scope and skips", () => {
-    test("skips shared/prompts/step-rules.ts", () => {
+    test("skips v2/src/shared/prompts/step-rules.ts", () => {
       const source =
         'export const DEFAULT_WRITE_STEP_RULES = "Do not add `*ForTest`/`*ForTests` type members, function parameters, module variables, or exported functions/variables, nor `invert*` function parameters, in production code.";';
-      expect(violations(source, "shared/prompts/step-rules.ts")).toEqual([]);
+      expect(violations(source, "v2/src/shared/prompts/step-rules.ts")).toEqual([]);
     });
 
     test("does not scan paths outside scan roots", () => {

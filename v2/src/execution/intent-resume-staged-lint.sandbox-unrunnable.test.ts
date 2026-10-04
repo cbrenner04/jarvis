@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import {

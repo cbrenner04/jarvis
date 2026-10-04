@@ -3,7 +3,7 @@ import {
   findSnapshotStepForRunStepId,
   isHiddenShrinkStepId,
   matchesLinkedSiblingStepId,
-} from "../../../shared/write-sibling-step-id.ts";
+} from "../shared/write-sibling-step-id.ts";
 import {
   FILTERED_LIST_DEFAULT_LIMIT,
   type ListRpcParams,

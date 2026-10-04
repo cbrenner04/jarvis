@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import { resolveRef } from "../../../shared/git.ts";
-import { findProjectMatch } from "../../../shared/project-registry.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { resolveRef } from "../shared/git.ts";
+import { findProjectMatch } from "../shared/project-registry.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";

@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import {
   abortableWorktreeMergeNoEdit,
   abortableWorktreeRebase,
@@ -48,19 +48,19 @@ import {
   remoteUrl,
   removeWorktree,
   resolveRef,
-} from "../../../shared/git.ts";
-import { isRecord } from "../../../shared/is-record.ts";
-import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
-import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import { type AcceptanceCriterion, parseSpec } from "../../../shared/spec-parser.ts";
+} from "../shared/git.ts";
+import { isRecord } from "../shared/is-record.ts";
+import { resolvePlanTargetDir } from "../shared/plan-target-dir.ts";
+import type { ProjectRegistryEntry } from "../shared/project-registry.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { type AcceptanceCriterion, parseSpec } from "../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
+} from "../shared/subprocess.ts";
+import { isProcessAlive, type WorktreeLock } from "../shared/worktree-lock.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { request } from "../cli/ipc.ts";
 import {

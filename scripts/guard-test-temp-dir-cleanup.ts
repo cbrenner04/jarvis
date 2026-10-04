@@ -4,7 +4,7 @@ import { collectSourceFiles, isTestCodePath, type SourceFile } from "./productio
 export type TempDirViolation = { file: string; line: number };
 
 /** The one module allowed to call `mkdtemp`/`mkdtempSync` directly: it registers every dir for removal. */
-export const TRACKED_TEMP_DIR_MODULE = "shared/tracked-temp-dir.test-support.ts";
+export const TRACKED_TEMP_DIR_MODULE = "v2/src/shared/tracked-temp-dir.test-support.ts";
 
 /** Test code: test files, `*.test-support.ts`, the v2 test harness, and the bun test preload. */
 export function isTestTempDirScope(file: string): boolean {

@@ -3,9 +3,9 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import {

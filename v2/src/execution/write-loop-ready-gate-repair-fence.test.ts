@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { deriveOperatorIncidents } from "../daemon/operator-incidents.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import { openStateStore } from "../persistence/state-store.ts";

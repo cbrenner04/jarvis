@@ -1,4 +1,4 @@
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 
 /** Holds the first call to `inner` until `release()`; later calls pass through immediately. */
 export function createHoldableAsyncFn<A extends unknown[], R>(

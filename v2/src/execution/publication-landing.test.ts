@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { landPublication, PlanTreeLandingError } from "./publication-landing.ts";
 
 function repo(): string {

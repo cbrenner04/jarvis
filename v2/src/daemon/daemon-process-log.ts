@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
-import { errorMessage } from "../../../shared/error-message.ts";
-import { sleep } from "../../../shared/sleep.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { sleep } from "../shared/sleep.ts";
 
 /** stdout/stderr sink for `jarvis daemon log`. */
 type DaemonLogIo = {

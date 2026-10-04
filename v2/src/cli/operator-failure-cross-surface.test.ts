@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import {

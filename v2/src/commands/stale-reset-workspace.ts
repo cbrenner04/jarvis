@@ -1,4 +1,4 @@
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import type { WorkflowPresetBuilderResult } from "../execution/workflow-presets.ts";

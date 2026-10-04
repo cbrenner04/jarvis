@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationResult } from "../../../shared/invocation/execute.ts";
+import type { InvocationResult } from "../shared/invocation/execute.ts";
 import type { ListRpcParams } from "../commands/run-list-rpc.ts";
 import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";

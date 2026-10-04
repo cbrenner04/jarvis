@@ -1,9 +1,9 @@
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import {
   REVIEW_FEEDBACK_RESPONSE_SIDECAR,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
   resolveReviewFeedbackStepRules,
-} from "../../../shared/prompts/review-feedback-write.ts";
+} from "../shared/prompts/review-feedback-write.ts";
 import type {
   ReviewFeedbackLaneKind,
   ReviewFeedbackLaneTarget,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { locateDiscoveredFile, locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
+import { locateDiscoveredFile, locateSymbolSlice } from "../shared/structural-test-locator.ts";
 
 type ModuleSet = Readonly<Record<string, string>>;
 

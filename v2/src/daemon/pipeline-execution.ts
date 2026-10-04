@@ -9,13 +9,9 @@ import {
   pushHeadToRemoteBranchWithLease,
   readBlobAtRef,
   resolveRef,
-} from "../../../shared/git.ts";
-import { isRecord } from "../../../shared/is-record.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+} from "../shared/git.ts";
+import { isRecord } from "../shared/is-record.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { classifyNeverLandedLane, listDirtyWorktreePathsForStaleReset } from "../commands/cleanup.ts";

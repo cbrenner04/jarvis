@@ -1,4 +1,4 @@
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { WaitRunCompletionResult, WorkflowStepListStatus } from "./daemon.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";

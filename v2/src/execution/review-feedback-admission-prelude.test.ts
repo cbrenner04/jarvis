@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import { PrReviewInputTruncatedError, resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 import { runReviewFeedbackAdmissionPrelude } from "./review-feedback-admission-prelude.ts";

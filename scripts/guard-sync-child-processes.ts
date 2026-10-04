@@ -12,7 +12,7 @@ const SYNC_GIT_HELPERS = [
 ] as const;
 const ALLOWLISTED_FILES = new Map([
   // The CLI-only synchronous runner lives here; daemon-reachable code uses AsyncSubprocessRunner.
-  ["shared/subprocess.ts", "CLI seam"],
+  ["v2/src/shared/subprocess.ts", "CLI seam"],
 ]);
 
 export type GuardViolation = { file: string; line: number; construct: string };

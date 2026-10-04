@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../execution/write-loop-input.ts";
 import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
 import { PromptRenderingError } from "./render.ts";

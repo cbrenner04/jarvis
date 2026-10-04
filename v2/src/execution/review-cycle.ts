@@ -1,11 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type {
-  InvocationBinding,
-  InvocationOk,
-  InvocationTelemetryContext,
-} from "../../../shared/invocation/execute.ts";
-import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
+import type { InvocationBinding, InvocationOk, InvocationTelemetryContext } from "../shared/invocation/execute.ts";
+import type { ReviewPromptProfile } from "../shared/prompts/review-profile.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { cycleProfileContext } from "./review-profile-context.ts";
 import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";

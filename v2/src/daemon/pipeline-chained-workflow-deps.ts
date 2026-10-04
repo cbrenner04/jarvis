@@ -1,5 +1,5 @@
 import { join, resolve, sep } from "node:path";
-import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import { type ResolveSpecsHomeResult, resolveSpecsHome } from "../config/specs-home.ts";
 import type { BuildImplementWorkflowStepsDeps } from "../execution/implement-workflow-steps.ts";

@@ -1,7 +1,4 @@
-import {
-  type OperatorFailureRecord,
-  operatorFailureRecordFromUnknown,
-} from "../../../shared/operator-failure-record.ts";
+import { type OperatorFailureRecord, operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import { formatOperatorFailureBlock } from "../cli/operator-failure-presentation.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { mergePipelineSnapshots } from "../daemon/merge-pipeline-snapshots.ts";

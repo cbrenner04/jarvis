@@ -17,7 +17,7 @@ import {
   runV2TestFiles,
   type SpawnOutcome,
 } from "../../../scripts/run-v2-tests.ts";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import {
   addWorktreeDetach,
   diffNameOnlyThreeDotAcm,
@@ -27,13 +27,13 @@ import {
   listUntrackedPathsZ,
   mergeBase,
   removeWorktree,
-} from "../../../shared/git.ts";
+} from "../shared/git.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   isSubprocessTimeout,
   realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+} from "../shared/subprocess.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";

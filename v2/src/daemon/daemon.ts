@@ -1,14 +1,14 @@
 import { dirname, join } from "node:path";
-import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
-import { getCurrentHeadAsync } from "../../../shared/git.ts";
+import { getExecutableTreeDigest } from "../shared/executable-tree.ts";
+import { getCurrentHeadAsync } from "../shared/git.ts";
 import {
   createResolvedAgentBinding,
   type ResolvedAgentBinding,
   type ResolvedAgentBindingOptions,
-} from "../../../shared/invocation/agents.ts";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+} from "../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   isLoadError,

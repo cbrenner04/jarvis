@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { remoteUrl } from "../../../shared/git.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { remoteUrl } from "../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { getDaemonStatus } from "../daemon/daemon-lifecycle.ts";

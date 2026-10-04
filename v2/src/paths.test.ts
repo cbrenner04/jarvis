@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { projectSafeId } from "../../shared/project-safe-id.ts";
+import { projectSafeId } from "./shared/project-safe-id.ts";
 import { defaultTelemetrySinkPath } from "./execution/work-boundary-telemetry.ts";
 import {
   DAEMON_PID_PATH,

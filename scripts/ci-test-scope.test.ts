@@ -11,7 +11,7 @@ describe("resolveCiTestScope", () => {
   });
 
   test("shared-only change runs v2 + shared slices", () => {
-    expect(resolveCiTestScope(["shared/git.ts"], true)).toEqual([
+    expect(resolveCiTestScope(["v2/src/shared/git.ts"], true)).toEqual([
       "test:v2",
       "test:integration:v2",
       "test:shared",

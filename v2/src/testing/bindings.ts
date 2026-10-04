@@ -1,10 +1,6 @@
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type {
-  InvocationBinding,
-  InvocationCompletedRecord,
-  InvocationResult,
-} from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding, InvocationCompletedRecord, InvocationResult } from "../shared/invocation/execute.ts";
 
 export const unrestrictedBindingConfinement = {
   confinementPolicy: "unrestricted",

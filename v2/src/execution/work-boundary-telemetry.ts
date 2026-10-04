@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import { jarvisHome } from "../paths.ts";
 import type { Attempt, OutcomeKind, Run, RunStatus } from "../persistence/state-store.ts";
 import { appendTelemetryJsonlLine } from "./telemetry-sink.ts";

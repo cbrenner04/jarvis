@@ -11,7 +11,7 @@ import { join } from "node:path";
 import {
   locateParseOnlyInventoryArrayBody,
   PARSE_ONLY_INVENTORY_MARKER_COMMENT,
-} from "../../../shared/structural-test-locator.ts";
+} from "../shared/structural-test-locator.ts";
 
 const EXECUTION_DIR = import.meta.dir;
 const REPO_ROOT = join(EXECUTION_DIR, "..", "..", "..");

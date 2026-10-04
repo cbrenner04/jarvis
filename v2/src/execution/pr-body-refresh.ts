@@ -1,5 +1,5 @@
-import { errorMessage } from "../../../shared/error-message.ts";
-import { NETWORK_SUBPROCESS_TIMEOUT_MS, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { NETWORK_SUBPROCESS_TIMEOUT_MS, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { editPrBodyFromStdin, editPrTitle, viewPrTextField } from "./github-operations.ts";
 import { renderAttribution } from "./pr-attribution.ts";
 import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";

@@ -1,5 +1,5 @@
-import { findProjectMatch } from "../../../shared/project-registry.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { findProjectMatch } from "../shared/project-registry.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";

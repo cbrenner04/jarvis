@@ -1,4 +1,4 @@
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 
 const NAMED_ESCAPES: Readonly<Record<string, string>> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n", "\r": "\\r" };
 

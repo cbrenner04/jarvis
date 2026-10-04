@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";

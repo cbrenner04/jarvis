@@ -1,5 +1,5 @@
-import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
-import { routingRefusalReason } from "../../../shared/invocation/routing.ts";
+import type { ResolvedAgentBinding } from "../shared/invocation/agents.ts";
+import { routingRefusalReason } from "../shared/invocation/routing.ts";
 
 /** Workflow-step roles: the closed subset a workflow source may declare and full-tool bindings serve. */
 const EXECUTABLE_ROLES = [

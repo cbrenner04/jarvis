@@ -11,7 +11,7 @@ export type DiscoveryManifestRow = {
   rule: DiscoveryRationale;
 };
 
-const SCAN_ROOTS = ["v2/src", "shared"] as const;
+const SCAN_ROOTS = ["v2/src"] as const;
 const STRUCTURAL_NAME_PATTERN = /(?:^|[-.])(?:inventory|structure|guard|boundary|parity)(?:\.|[-_]|$)/i;
 // Substring tokens, not anchored suffixes: a mirror named `..._BASELINES` or `..._BODY_LENGTH`
 // is the same defect as one named `..._BASELINE`, and anchoring on the exact ending is itself the

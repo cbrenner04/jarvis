@@ -22,12 +22,12 @@ function productionSources(): Array<[string, string]> {
   return out;
 }
 
-/** Helper family → the one v2 file allowed to define it (shared homes live outside v2/src). */
+/** Helper family → the one v2/src file allowed to define it. */
 const CANONICAL_V2_HOMES: Readonly<Record<string, string | undefined>> = {
-  isRecord: undefined,
+  isRecord: "shared/is-record.ts",
   isLoadError: "config/agent-model-config.ts",
-  errorMessage: undefined,
-  sleep: undefined,
+  errorMessage: "shared/error-message.ts",
+  sleep: "shared/sleep.ts",
   throwIfAborted: "execution/throw-if-aborted.ts",
   resolveTargetDir: undefined,
   listMarkdownFiles: undefined,

@@ -5,7 +5,7 @@ import {
   type InvocationExecution,
   type InvocationTelemetryContext,
   type InvocationTelemetryFailure,
-} from "../../../shared/invocation/execute.ts";
+} from "../shared/invocation/execute.ts";
 import { DEFAULT_REVIEW_ROLE_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import type { BindingAttemptSummary, InvocationFailureDetail, InvocationFailureKind } from "./invocation-failure.ts";
 

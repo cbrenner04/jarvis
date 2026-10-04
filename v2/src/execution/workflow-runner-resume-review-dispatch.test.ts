@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";

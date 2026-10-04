@@ -5,7 +5,7 @@ import {
   RATING_DIMENSIONS,
   type RatingDimension,
   type SeedMetadata,
-} from "../../../shared/seed-metadata.ts";
+} from "../shared/seed-metadata.ts";
 import { formatConnectionError, formatLifecycleError, formatRpcError } from "../cli/ipc.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { isLoadError } from "../config/agent-model-config.ts";

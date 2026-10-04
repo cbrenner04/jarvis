@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {

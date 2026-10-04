@@ -4,11 +4,11 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync,
 import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { originTrackingRefResolvesAsync } from "../shared/git.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { locateSymbolSlice } from "../shared/structural-test-locator.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";

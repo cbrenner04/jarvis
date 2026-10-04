@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { seedFailedIntentReviewResumeRun, writeLintCleanIntentStageFile } from "./workflow-runner.test-support.ts";
 import { DEFAULT_STAGED_MARKDOWN_LINT_RUNNER } from "./workflow-runner-resume.test-support.ts";

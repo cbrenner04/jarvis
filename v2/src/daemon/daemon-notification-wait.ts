@@ -1,4 +1,4 @@
-import { isRecord } from "../../../shared/is-record.ts";
+import { isRecord } from "../shared/is-record.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import {
   encodeNotificationDeliveryCursor,

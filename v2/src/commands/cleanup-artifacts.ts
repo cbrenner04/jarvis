@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { parseSpec } from "../../../shared/spec-parser.ts";
+import { parseSpec } from "../shared/spec-parser.ts";
 import { jarvisHome, specsRoot } from "../paths.ts";
 
 export type ArtifactSpec = {

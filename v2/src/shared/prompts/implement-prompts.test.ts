@@ -69,7 +69,7 @@ describe("implement-owned prompt artifacts", () => {
   });
 
   test("the migrated jarvis-specific rules live in this repo's injected guidance", async () => {
-    const guidance = await Bun.file(new URL("../../AGENTS.md", import.meta.url)).text();
+    const guidance = await Bun.file(new URL("../../../../AGENTS.md", import.meta.url)).text();
     expect(guidance).toContain("`JARVIS_TEST_CONCURRENCY=1 bun run test:v2`");
     expect(guidance).toContain("Reserve `bun run test:confirm:live` for hand confirmation outside the sandbox");
     expect(guidance).toContain("never read the ambient machine config");
@@ -79,12 +79,12 @@ describe("implement-owned prompt artifacts", () => {
 
 describe("implement prompt id wiring", () => {
   test("execution-loop and review-implement production paths carry no retired patch ids", () => {
-    const root = new URL("../../", import.meta.url).pathname;
+    const root = new URL("../../../../", import.meta.url).pathname;
     const executionDir = join(root, "v2/src/execution");
     const production = readdirSync(executionDir)
       .filter((name) => name.endsWith(".ts") && !name.includes(".test.") && !name.endsWith(".test-support.ts"))
       .map((name) => join(executionDir, name));
-    production.push(join(root, "shared/prompts/review-implement.ts"));
+    production.push(join(root, "v2/src/shared/prompts/review-implement.ts"));
     expect(production.length).toBeGreaterThan(1);
     for (const file of production) {
       const source = readFileSync(file, "utf8");

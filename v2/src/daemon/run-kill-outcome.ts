@@ -1,4 +1,4 @@
-import { isRecord } from "../../../shared/is-record.ts";
+import { isRecord } from "../shared/is-record.ts";
 import { isRunStatus, type RunStatus } from "../persistence/state-store.ts";
 
 /** Wall-clock bound a plain kill waits for durable settlement; matches the write loop's iteration quiescence bound. */

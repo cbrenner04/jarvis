@@ -16,13 +16,13 @@ const SEED_EXAMPLE_FILES: readonly string[] = [
   "v2/src/execution/workflow-runner-resume-structure.test.ts",
   "v2/src/execution/diff-derived-mutation-verifier.test.ts",
   "v2/src/daemon/daemon-workflow-start.test.ts",
-  "shared/module-boundary-surfaces.test.ts",
+  "v2/src/shared/module-boundary-surfaces.test.ts",
 ];
 
 // Reads its production path through a variable (`readFileSync(sourcePath, "utf8")`) and mirrors a
 // production registry under a plural name. Both shapes were missed by the first implementation,
 // which required a literal production path inside the call text and an exact `BASELINE` suffix.
-const COMPUTED_PATH_READ_FILE = "shared/prompts/review-implement-growth-budget.test.ts";
+const COMPUTED_PATH_READ_FILE = "v2/src/shared/prompts/review-implement-growth-budget.test.ts";
 
 describe("discover structural invariant tests", () => {
   test("discovery emits in-scope for a source-reading test file", () => {
@@ -59,8 +59,8 @@ import { add } from "./math.ts";
 test("adds numbers", () => {
   expect(add(1, 2)).toBe(3);
 });`;
-    expect(classifyStructuralInvariantTestFile("shared/math.test.ts", source)).toEqual({
-      "test-path": "shared/math.test.ts",
+    expect(classifyStructuralInvariantTestFile("v2/src/shared/math.test.ts", source)).toEqual({
+      "test-path": "v2/src/shared/math.test.ts",
       scope: "out-of-scope",
       rule: "no-structural-signal",
     });

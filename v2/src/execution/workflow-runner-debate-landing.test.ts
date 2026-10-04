@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationResult } from "../../../shared/invocation/execute.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { InvocationResult } from "../shared/invocation/execute.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import {

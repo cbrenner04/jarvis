@@ -2,7 +2,7 @@ import { describe, expect, mock, setSystemTime, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";

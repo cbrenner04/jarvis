@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";

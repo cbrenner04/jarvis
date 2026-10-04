@@ -4,7 +4,7 @@ import {
   type AsyncSubprocessOptions,
   type AsyncSubprocessRunner,
   NETWORK_SUBPROCESS_TIMEOUT_MS,
-} from "../../../shared/subprocess.ts";
+} from "../shared/subprocess.ts";
 import {
   checkAuthStatus,
   closePr,

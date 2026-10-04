@@ -1,4 +1,4 @@
-import { isForeignProcessGroup, ownProcessGroupIds } from "../../../shared/process-group-predicate.ts";
+import { isForeignProcessGroup, ownProcessGroupIds } from "../shared/process-group-predicate.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 
 export { isForeignProcessGroup, ownProcessGroupIds };

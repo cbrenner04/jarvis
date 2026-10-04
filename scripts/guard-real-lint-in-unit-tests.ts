@@ -47,7 +47,7 @@ const LINT_ENTRY_POINTS: readonly { modulePattern: RegExp; functionName: string;
  * does not re-check them, so a new lint-reaching call in one of these files goes unflagged.
  */
 const ALLOWLISTED_FILES = new Map<string, string>([
-  ["shared/intent-stage.test.ts", "direct real-binary landing-repair (autofix) assertions"],
+  ["v2/src/shared/intent-stage.test.ts", "direct real-binary landing-repair (autofix) assertions"],
   ["v2/src/execution/staged-markdown-lint.test.ts", "direct real-binary violation/clean assertions"],
   ["v2/src/daemon/daemon-start-list.test.ts", "write-loop stages contain no .md files; never spawns (trap-verified)"],
   [

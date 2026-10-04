@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { sleep } from "../../../shared/sleep.ts";
+import { sleep } from "../shared/sleep.ts";
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import type {

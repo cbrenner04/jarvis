@@ -16,7 +16,7 @@
       "!**/.git",
       "!**/v1",
       "!**/v2/test/fixtures",
-      "!**/shared/fixtures"
+      "!**/v2/src/shared/fixtures"
     ]
   },
   "formatter": {
@@ -71,38 +71,6 @@
                   {
                     "group": ["**/v1/**"],
                     "message": "v2 code must not import from v1."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["shared/**/*.ts", "!shared/**/*.test.ts"],
-      "linter": {
-        "rules": {
-          "complexity": {
-            "noExcessiveCognitiveComplexity": {
-              "level": "error",
-              "options": {
-                "maxAllowedComplexity": 24
-              }
-            }
-          },
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": ["**/v1/**"],
-                    "message": "shared code must not import from v1."
-                  },
-                  {
-                    "group": ["**/v2/**"],
-                    "message": "shared code must not import from v2."
                   }
                 ]
               }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
+import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../shared/prompts/review-feedback-write.ts";
 import { resolveWorkflowCompletionPublicationSpecPath } from "./workflow-runner.ts";
 
 describe("resolveWorkflowCompletionPublicationSpecPath", () => {

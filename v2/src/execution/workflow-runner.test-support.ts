@@ -2,16 +2,12 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  InvocationBinding,
-  InvocationCompletedRecord,
-  InvocationResult,
-} from "../../../shared/invocation/execute.ts";
-import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
-import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
-import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { InvocationBinding, InvocationCompletedRecord, InvocationResult } from "../shared/invocation/execute.ts";
+import { resolveHarnessRoot } from "../shared/markdownlint-repair.ts";
+import { implementReviewPromptProfile } from "../shared/prompts/review-implement.ts";
+import { StructuralTestLocatorError } from "../shared/structural-test-locator.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";

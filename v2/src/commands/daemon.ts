@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
-import { isProcessAlive } from "../../../shared/worktree-lock.ts";
+import { isProcessAlive } from "../shared/worktree-lock.ts";
 import { DAEMON_LOG_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";

@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
-import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
+import { locateSymbolSlice } from "../shared/structural-test-locator.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
@@ -26,7 +26,7 @@ import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-
 
 ensureWorkflowRunnerResumeDepsWired();
 
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type {
   Pipeline,

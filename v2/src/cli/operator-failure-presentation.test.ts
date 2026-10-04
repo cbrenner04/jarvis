@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import { formatOperatorFailureBlock } from "./operator-failure-presentation.ts";
 
 function record(overrides: Partial<OperatorFailureRecord> = {}): OperatorFailureRecord {

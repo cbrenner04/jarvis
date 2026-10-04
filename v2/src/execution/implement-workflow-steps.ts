@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import {
   blobExistsAtRef,
   fetchRemoteRef,
@@ -8,24 +8,24 @@ import {
   isAncestorOrThrow,
   resolveAbbrevRef,
   resolveRef,
-} from "../../../shared/git.ts";
+} from "../shared/git.ts";
 import {
   hasUncheckedNonHumanOnlyCriteria,
   resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
-} from "../../../shared/linked-subspec-routing.ts";
-import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
+} from "../shared/linked-subspec-routing.ts";
+import { findProjectMatch, type ProjectMatch } from "../shared/project-registry.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
 import {
   implementReviewPromptProfile,
   PATCH_REVIEW_CRITIC_PROMPT_ID,
   PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
-} from "../../../shared/prompts/review-implement.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
+} from "../shared/prompts/review-implement.ts";
+import { parseSpec } from "../shared/spec-parser.ts";
 import {
   type AsyncSubprocessRunner,
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+} from "../shared/subprocess.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import {
   readProjectConfigRecord,

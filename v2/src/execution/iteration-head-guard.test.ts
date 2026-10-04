@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { AgentHistoryRewriteRevertedEvent } from "../persistence/log-stream.ts";
 import { guardIterationHead, isHistoryRewrite, readIterationHead } from "./iteration-head-guard.ts";
 

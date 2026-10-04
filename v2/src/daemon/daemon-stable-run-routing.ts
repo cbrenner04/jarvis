@@ -1,4 +1,4 @@
-import { isRecord } from "../../../shared/is-record.ts";
+import { isRecord } from "../shared/is-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";

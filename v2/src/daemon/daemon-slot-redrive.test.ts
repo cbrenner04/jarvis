@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { runHarnessFullSuiteGateWithSlot } from "../execution/gate-invocation-lease.ts";
 import { acquireGateInvocationLease, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type LogEvent, openLogReader } from "../persistence/log-stream.ts";

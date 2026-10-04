@@ -1,8 +1,8 @@
-import { createRoutingAgentBinding, type RoutingInvocationResult } from "../../../shared/invocation/agents.ts";
-import { executeWithQuotaFallback } from "../../../shared/invocation/execute.ts";
-import { routingFailureOf } from "../../../shared/invocation/routing.ts";
-import { findProjectMatch } from "../../../shared/project-registry.ts";
-import { buildRoutingTranslatePrompt } from "../../../shared/prompts/routing-translate.ts";
+import { createRoutingAgentBinding, type RoutingInvocationResult } from "../shared/invocation/agents.ts";
+import { executeWithQuotaFallback } from "../shared/invocation/execute.ts";
+import { routingFailureOf } from "../shared/invocation/routing.ts";
+import { findProjectMatch } from "../shared/project-registry.ts";
+import { buildRoutingTranslatePrompt } from "../shared/prompts/routing-translate.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import {
   ROUTING_ACTION_CATALOG,

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { type LogSink, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -726,7 +726,7 @@ describe("executeWorkflow completion publication", () => {
         readyFinalizer: async () => ({
           runtimeSmokeOutcome: {
             kind: "not-runnable",
-            inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+            inspectedPaths: ["v2/src/execution/write-loop.ts", "v2/src/shared/subprocess.ts"],
             discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
           },
         }),
@@ -735,7 +735,7 @@ describe("executeWorkflow completion publication", () => {
       expect(logSink.getEventsForRun(result.runId)).toContainEqual({
         kind: "runtime_smoke_outcome",
         outcome: "not-runnable",
-        inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+        inspectedPaths: ["v2/src/execution/write-loop.ts", "v2/src/shared/subprocess.ts"],
         discoveryReason: "no changed runnable entrypoint found",
       });
     });

@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../shared/prompts/step-rules.ts";
 import { WRITE_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "./write-loop.ts";

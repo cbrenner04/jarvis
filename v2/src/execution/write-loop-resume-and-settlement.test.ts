@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import {
   REVIEW_FEEDBACK_RESPONSE_SIDECAR,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
-} from "../../../shared/prompts/review-feedback-write.ts";
+} from "../shared/prompts/review-feedback-write.ts";
 import type { LogEvent } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";

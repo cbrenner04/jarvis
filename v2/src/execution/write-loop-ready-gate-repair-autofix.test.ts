@@ -3,12 +3,8 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readyStepCompletionRecord, readyStepStartRecord } from "../../../scripts/ready.ts";
-import { FixCommandError } from "../../../shared/fix-command.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+import { FixCommandError } from "../shared/fix-command.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";

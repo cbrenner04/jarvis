@@ -1,4 +1,4 @@
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { prepareReviewFeedbackWorkflowAdmissionForLaneRequest } from "../commands/review-feedback-workflow-admission.ts";
 import type { WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";

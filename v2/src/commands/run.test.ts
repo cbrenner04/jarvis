@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { RUN_DISMISS_USAGE, RUN_RESUME_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import { acquireGateInvocationLease } from "../execution/gate-invocation-lease.ts";

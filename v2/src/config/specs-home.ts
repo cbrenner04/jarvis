@@ -1,4 +1,4 @@
-import { isRecord } from "../../../shared/is-record.ts";
+import { isRecord } from "../shared/is-record.ts";
 
 type SpecsHome = "repo" | "external";
 export type ResolveSpecsHomeResult = { ok: true; specsHome: SpecsHome } | { ok: false; error: string };

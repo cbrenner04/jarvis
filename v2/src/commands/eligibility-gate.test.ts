@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { AsyncSubprocessError } from "../shared/subprocess.ts";
 import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
 import { type RunStatus, type StateStore, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { checkEligibility, type DaemonClient, type DiscoveredWorktree } from "./cleanup.ts";

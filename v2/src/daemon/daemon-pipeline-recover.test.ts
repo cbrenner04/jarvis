@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { createCompletionPublisher } from "../execution/completion-publisher.ts";
@@ -20,7 +20,7 @@ import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-
 
 ensureWorkflowRunnerResumeDepsWired();
 
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type PipelineContext, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";

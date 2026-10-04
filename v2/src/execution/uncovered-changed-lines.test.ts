@@ -2,9 +2,9 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AsyncSubprocessOptions, AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { AsyncSubprocessOptions, AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { AsyncSubprocessError } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { coverageTestScope } from "./test-scope.ts";
 import {
   COVERAGE_ADVISORY_TIMEOUT_MS,
@@ -299,10 +299,12 @@ index 1234567..abcdefg 100644
 
     it("scope is killing-test files only: no directories, no sandbox-unrunnable suites, no test-file inputs", async () => {
       const scope = await resolveCoverageScope(
-        ["v2/src/a.ts", "v2/src/a.test.ts", "shared/b.ts"],
+        ["v2/src/a.ts", "v2/src/a.test.ts", "v2/src/shared/b.ts"],
         "/wt",
         async (file) =>
-          file === "v2/src/a.ts" ? ["v2/src/a.test.ts", "v2/src/a.sandbox-unrunnable.test.ts"] : ["shared/b.test.ts"],
+          file === "v2/src/a.ts"
+            ? ["v2/src/a.test.ts", "v2/src/a.sandbox-unrunnable.test.ts"]
+            : ["v2/src/shared/b.test.ts"],
       );
       expect([...scope]).toEqual(["./shared/b.test.ts", "./v2/src/a.test.ts"]);
     });

@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";

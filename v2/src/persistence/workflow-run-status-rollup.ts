@@ -3,7 +3,7 @@ import {
   isHiddenShrinkStepId,
   LINK_STEP_ID_INFIX,
   resolveAuthoredStepId,
-} from "../../../shared/write-sibling-step-id.ts";
+} from "../shared/write-sibling-step-id.ts";
 import type { Run, RunStatus, WorkflowSnapshot } from "./state-store.ts";
 
 type RollupArgs = {

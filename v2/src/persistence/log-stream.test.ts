@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtemp } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtemp } from "../shared/tracked-temp-dir.test-support.ts";
 import { type LogEvent, openLogReader, openLogSink, type PersistedRecord } from "./log-stream.ts";
 
 /** Short poll interval for tests, well below any per-test timeout. */

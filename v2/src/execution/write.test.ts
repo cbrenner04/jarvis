@@ -13,10 +13,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
-import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
+import { renderPromptForStep } from "../shared/prompts/assemble.ts";
+import { readSpecGuidance } from "../shared/spec-guidance-path.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { landPublication } from "./publication-landing.ts";
@@ -770,7 +770,7 @@ describe("write behavior", () => {
   test("plan-draft completion keeps the authored staged fixture after shape validation", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
-    const fixtureDir = join(import.meta.dir, "../../../shared/fixtures/module-boundary-surfaces/k2");
+    const fixtureDir = join(import.meta.dir, "../shared/fixtures/module-boundary-surfaces/k2");
     const specPath = "v2/spec/2099-01-01T00-00-01Z-normalized";
     const branchName = "plan-normalization";
     const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
@@ -815,7 +815,7 @@ describe("write behavior", () => {
   test("plan-draft completion keeps authored durable output before recovery", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
-    const fixtureDir = join(import.meta.dir, "../../../shared/fixtures/module-boundary-surfaces/k2");
+    const fixtureDir = join(import.meta.dir, "../shared/fixtures/module-boundary-surfaces/k2");
     const specPath = "v2/spec/2099-01-01T00-00-02Z-recovered";
     const branchName = "plan-recovery-normalization";
     const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");

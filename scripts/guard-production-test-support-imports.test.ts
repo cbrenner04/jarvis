@@ -41,7 +41,7 @@ describe("production test-support import guard", () => {
 
   test("production predicate excludes tests, test support, and the testing harness", () => {
     expect(isProductionSourceFile("v2/src/execution/workflow-runner.ts")).toBe(true);
-    expect(isProductionSourceFile("shared/git.ts")).toBe(true);
+    expect(isProductionSourceFile("v2/src/shared/git.ts")).toBe(true);
     expect(isProductionSourceFile("v2/src/tui/app.tsx")).toBe(true);
     expect(isProductionSourceFile("v2/src/execution/workflow-runner.test.ts")).toBe(false);
     expect(isProductionSourceFile("v2/src/execution/workflow-runner.test-support.ts")).toBe(false);

@@ -1,4 +1,4 @@
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { readProjectRegistry, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";

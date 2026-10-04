@@ -4,13 +4,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";

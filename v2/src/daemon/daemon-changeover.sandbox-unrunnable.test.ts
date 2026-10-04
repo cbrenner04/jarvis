@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { existsSync, linkSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import type { IpcFrame, ResponseFrame } from "../ipc/types";

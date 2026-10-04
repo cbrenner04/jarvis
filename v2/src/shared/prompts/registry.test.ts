@@ -226,7 +226,7 @@ describe("prompt registry manifest surface", () => {
   });
 
   test("readRegisteredPromptPaths reads the checked-in manifest and matches the loaded registry", () => {
-    const repoRoot = join(import.meta.dir, "..", "..");
+    const repoRoot = join(import.meta.dir, "..", "..", "..", "..");
     const paths = readRegisteredPromptPaths(repoRoot);
     const loaded = loadPromptRegistry()
       .all()

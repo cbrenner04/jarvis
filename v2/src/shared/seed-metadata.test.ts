@@ -55,7 +55,7 @@ describe("parseSeedMetadata", () => {
   });
 
   test("every checked-in seed under v2/spec/seeds/ still parses", () => {
-    const seedsDir = join(import.meta.dir, "..", "v2", "spec", "seeds");
+    const seedsDir = join(import.meta.dir, "..", "..", "..", "spec", "seeds");
     const files = existsSync(seedsDir) ? readdirSync(seedsDir).filter((file) => file.endsWith(".md")) : [];
     for (const file of files) {
       const result = parseSeedMetadata(readFileSync(join(seedsDir, file), "utf8"));

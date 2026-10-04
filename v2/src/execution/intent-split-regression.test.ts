@@ -5,14 +5,14 @@ import {
   listIntentStageMarkdownFiles,
   validateIntentFilenames,
   validateIntentStageContent,
-} from "../../../shared/intent-stage.ts";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+} from "../shared/intent-stage.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_DECLARATION_PIN,
   INTENT_SPLIT_SURFACE_PIN,
-} from "../../../shared/prompts/intent-split.ts";
-import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
+} from "../shared/prompts/intent-split.ts";
+import { StructuralTestLocatorError } from "../shared/structural-test-locator.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { buildIntentWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";

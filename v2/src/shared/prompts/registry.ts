@@ -10,7 +10,7 @@ import type {
   PromptVariantSubstitution,
 } from "./types.ts";
 
-const PROMPTS_DIR = join(import.meta.dir, "..", "..", "prompts");
+const PROMPTS_DIR = join(import.meta.dir, "..", "..", "..", "..", "prompts");
 const REGISTRY_MANIFEST = join(PROMPTS_DIR, "registry.txt");
 
 export const PROMPT_REGISTRY_MANIFEST_PATH = "prompts/registry.txt";

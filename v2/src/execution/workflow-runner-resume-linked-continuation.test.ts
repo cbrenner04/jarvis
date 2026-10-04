@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { deriveOperatorIncidents } from "../daemon/operator-incidents.ts";
 import { resolveWorkflowRunRollup } from "../persistence/workflow-run-status-rollup.ts";

@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { trackedMkdtempSync } from "../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "./shared/tracked-temp-dir.test-support.ts";
 import { runEntrypoint } from "./cli.ts";
 import { type IpcServer, startIpcServer } from "./ipc/server.ts";
 import { canUseUnixSockets } from "./testing/unix-socket.ts";

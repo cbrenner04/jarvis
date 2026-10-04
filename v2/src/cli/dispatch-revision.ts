@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { getExecutableTreeDigest } from "../shared/executable-tree.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 
 const jarvisRepoRoot = resolve(import.meta.dir, "../../..");
 

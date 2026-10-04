@@ -7,8 +7,8 @@ import {
   isGitRepoAsync,
   listWorktrees,
   pruneWorktrees,
-} from "../../../shared/git.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+} from "../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import {

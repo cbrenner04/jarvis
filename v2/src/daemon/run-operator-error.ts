@@ -1,6 +1,6 @@
-import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
-import { isConfinementRefusalMessage } from "../../../shared/invocation/confinement-policy.ts";
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
+import type { GateRefusalRecoveryCause } from "../shared/gate-refusal-recovery-state.ts";
+import { isConfinementRefusalMessage } from "../shared/invocation/confinement-policy.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import { harnessGateSlotWaitListMessage } from "../execution/gate-invocation-lease.ts";
 import {

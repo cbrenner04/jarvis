@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 
 class PublicationTitleResolutionError extends Error {
   constructor(specPath: string, cause: unknown) {

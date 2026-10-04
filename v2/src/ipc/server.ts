@@ -2,7 +2,7 @@ import { lstatSync, rmSync } from "node:fs";
 import { createServer, type Server, Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { isRecord } from "../../../shared/is-record.ts";
+import { isRecord } from "../shared/is-record.ts";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFrame } from "./types.ts";
 

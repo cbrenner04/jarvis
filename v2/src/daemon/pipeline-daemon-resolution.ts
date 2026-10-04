@@ -1,4 +1,4 @@
-import { isRecord } from "../../../shared/is-record.ts";
+import { isRecord } from "../shared/is-record.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";

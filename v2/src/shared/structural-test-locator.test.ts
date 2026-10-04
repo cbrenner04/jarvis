@@ -103,18 +103,18 @@ describe("structural test locators", () => {
 
   test("discovered-file fails loudly when the path is missing", () => {
     const discovered = {
-      "shared/prompts/plan-draft.ts": "export function renderPlanDraft() {}",
+      "v2/src/shared/prompts/plan-draft.ts": "export function renderPlanDraft() {}",
     };
-    expect(locateDiscoveredFile(discovered, "shared/prompts/plan-draft.ts")).toContain("renderPlanDraft");
+    expect(locateDiscoveredFile(discovered, "v2/src/shared/prompts/plan-draft.ts")).toContain("renderPlanDraft");
 
-    const absent = silentDiscoveredFile(discovered, "shared/prompts/missing.ts");
+    const absent = silentDiscoveredFile(discovered, "v2/src/shared/prompts/missing.ts");
     expect(absent).toBe("");
     expect(absent).not.toContain("never-here");
 
     expectLocatorMiss(
-      () => locateDiscoveredFile(discovered, "shared/prompts/missing.ts"),
+      () => locateDiscoveredFile(discovered, "v2/src/shared/prompts/missing.ts"),
       "discovered-file",
-      "shared/prompts/missing.ts",
+      "v2/src/shared/prompts/missing.ts",
     );
   });
 

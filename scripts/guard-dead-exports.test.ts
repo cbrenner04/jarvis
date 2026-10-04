@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../v2/src/shared/tracked-temp-dir.test-support.ts";
 import {
   DEAD_EXPORT_ALLOWLIST,
   DEAD_EXPORT_REPAIR_SUFFIX,
@@ -88,7 +88,7 @@ describe("dead-export gate", () => {
       "v2/src/execution/example.test.ts": "export const helper = 1;\n",
       "v2/src/execution/example.test-support.ts": "export const support = 1;\n",
       "v2/src/testing/fixture.ts": "export const fixture = 1;\n",
-      "shared/util.ts": "export const util = 1;\n",
+      "v2/src/shared/util.ts": "export const util = 1;\n",
     });
     expect(findDeadExports(files, REPO_ROOT, NO_ALLOWLIST)).toEqual([]);
   });

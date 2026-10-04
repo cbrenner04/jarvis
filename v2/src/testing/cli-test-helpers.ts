@@ -1,7 +1,7 @@
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { main as runtimeMain } from "../cli.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";

@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
+import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import {
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
   PIPELINE_RECOVER_PARSE_ARG_OPTIONS,

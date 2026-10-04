@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { createCompletionPublisher } from "../execution/completion-publisher.ts";
 import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";
 import { createReadyFinalizer } from "../execution/ready-finalize.ts";

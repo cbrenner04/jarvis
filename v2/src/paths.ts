@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { jarvisHome } from "../../shared/paths.ts";
-import { projectSafeId } from "../../shared/project-safe-id.ts";
+import { jarvisHome } from "./shared/paths.ts";
+import { projectSafeId } from "./shared/project-safe-id.ts";
 
 export { jarvisHome };
 

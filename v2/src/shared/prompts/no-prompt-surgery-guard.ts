@@ -1,8 +1,8 @@
 import { locateDiscoveredFile } from "../structural-test-locator.ts";
 
 export const PROMPT_SURGERY_GUARDED_ASSEMBLY_PATHS = [
-  "shared/prompts/plan-draft.ts",
-  "shared/prompts/review-implement.ts",
+  "v2/src/shared/prompts/plan-draft.ts",
+  "v2/src/shared/prompts/review-implement.ts",
 ] as const;
 
 export const FORBIDDEN_PROMPT_SURGERY_TOKENS = [

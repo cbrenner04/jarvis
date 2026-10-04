@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { isRecord } from "../../../shared/is-record.ts";
+import { isRecord } from "../shared/is-record.ts";
 import type { CompletionCommitter } from "../execution/completion-commit.ts";
 import type { PipelineStage } from "../execution/pipeline-definition.ts";
 import type { PublicationInputs } from "../execution/publication-landing.ts";

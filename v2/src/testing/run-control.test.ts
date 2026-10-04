@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { createHeldWorkflowBindings, withWorkflowStepSeam, workflowWriteStep } from "./run-control.ts";

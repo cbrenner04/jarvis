@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding, InvocationResult } from "../shared/invocation/execute.ts";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { unrestrictedBindingConfinement } from "./bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "./write-fixtures.ts";

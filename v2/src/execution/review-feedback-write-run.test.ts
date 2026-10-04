@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
+import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../shared/prompts/review-feedback-write.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";

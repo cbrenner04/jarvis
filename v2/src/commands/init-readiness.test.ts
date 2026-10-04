@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import * as sharedGit from "../../../shared/git.ts";
+import * as sharedGit from "../shared/git.ts";
 import { evaluateReadiness, type ReadinessContext, type ReadinessProbes } from "./init-readiness.ts";
 
 const context: ReadinessContext = {

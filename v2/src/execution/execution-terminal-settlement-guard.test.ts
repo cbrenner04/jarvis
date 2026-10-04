@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { locateDiscoveredFile } from "../../../shared/structural-test-locator.ts";
+import { locateDiscoveredFile } from "../shared/structural-test-locator.ts";
 import {
   listProductionExecutionSources,
   scanExecutionTerminalSettlement,

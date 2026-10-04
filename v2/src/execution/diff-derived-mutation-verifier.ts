@@ -3,17 +3,13 @@ import { mkdirSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
-import { readBlobAtRef } from "../../../shared/git.ts";
+import { readBlobAtRef } from "../shared/git.ts";
 import {
   PROMPT_REGISTRY_MANIFEST_PATH,
   parsePromptRegistryManifest,
   readRegisteredPromptPaths,
-} from "../../../shared/prompts/registry.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessOptions,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+} from "../shared/prompts/registry.ts";
+import { AsyncSubprocessError, type AsyncSubprocessOptions, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   type ChangedLine,
   changedPathsFromDiff,
@@ -228,10 +224,9 @@ const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
  */
 const IMPORTER_SCAN_SURFACES = [
   { prefix: "v2/src/", scanRoots: ["v2/src/"] },
-  { prefix: "shared/", scanRoots: ["shared/"] },
   { prefix: "scripts/", scanRoots: ["scripts/", "test/"] },
 ] as const;
-const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.ts";
+const RENDER_OBSERVER_MAP_RELATIVE_PATH = "v2/src/shared/prompts/render-observer-tests.ts";
 const RENDER_OBSERVER_MAP_BINDING = "RENDER_OBSERVER_TESTS";
 const MUTATION_RECORD_DIR = ".jarvis-diff-derived-mutations";
 
@@ -588,7 +583,7 @@ export async function runDiffDerivedScopedTests(
   options?: RunScopedTestsOptions,
 ): Promise<boolean> {
   if (scope.length === 0) return true;
-  const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
+  const subprocess = runner ?? (await import("../shared/subprocess.ts")).realAsyncSubprocessRunner;
   const semaphore = getVerifierTestRunSemaphore();
   const timeoutMs = options?.timeoutMs ?? MAX_KILLING_TEST_MS;
   const batchAbort = new AbortController();

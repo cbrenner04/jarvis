@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { simulatedBindings, unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";

@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
-import { resetWorktreeKeep, tryMergeBase } from "../../../shared/git.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { resetWorktreeKeep, tryMergeBase } from "../shared/git.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { AgentHistoryRewriteRevertedEvent } from "../persistence/log-stream.ts";
 
 /** `HEAD` as recorded on disk: its SHA and symbolic ref (undefined when detached). */

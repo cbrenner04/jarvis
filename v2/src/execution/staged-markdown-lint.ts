@@ -1,11 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+import { resolveHarnessRoot } from "../shared/markdownlint-repair.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
 /** Wall-clock bound on one markdownlint run; a timeout fails closed as `invocation_error`. */

@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { CLEANUP_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";

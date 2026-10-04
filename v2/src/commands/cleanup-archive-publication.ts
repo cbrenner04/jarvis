@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import {
   addWorktreeWithNewBranch,
   blobExistsAtRef,
@@ -16,8 +16,8 @@ import {
   resolveRef,
   stagePathMove,
   stagePathRemove,
-} from "../../../shared/git.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+} from "../shared/git.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { managedWorktreePath } from "../paths.ts";
 import { type ArtifactFs, type ArtifactSpec, resolveConsumedReadyIntent } from "./cleanup-artifacts.ts";
 

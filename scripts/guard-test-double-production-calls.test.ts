@@ -38,14 +38,14 @@ function double2() {
 
     test("rejects production call from shared directory", () => {
       const source = `
-import { sharedHelper } from "../../../shared/helpers.ts";
+import { sharedHelper } from "../shared/helpers.ts";
 
 export function fixture() {
   const result = sharedHelper();
   return result;
 }
 `;
-      expect(violations(source)).toMatchObject([{ module: "../../../shared/helpers.ts", export: "sharedHelper" }]);
+      expect(violations(source)).toMatchObject([{ module: "../shared/helpers.ts", export: "sharedHelper" }]);
     });
 
     test("rejects production call with await", () => {
@@ -236,7 +236,7 @@ const x = helper(
   describe("Scope filtering", () => {
     test("allows calls into shared test-support modules", () => {
       const source = `
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 
 export function fixture() {
   return trackedMkdtempSync("x-");
@@ -256,7 +256,7 @@ export function fixture() {
       expect(violations(source, "v2/src/cli/example.ts")).toHaveLength(0);
       expect(violations(source, "v2/src/daemon/example.ts")).toHaveLength(0);
       expect(violations(source, "v1/src/testing/example.ts")).toHaveLength(0);
-      expect(violations(source, "shared/testing/example.ts")).toHaveLength(0);
+      expect(violations(source, "v2/src/shared/testing/example.ts")).toHaveLength(0);
     });
 
     test("guards all file types under v2/src/testing/", () => {

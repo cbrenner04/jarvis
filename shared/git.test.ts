@@ -59,6 +59,7 @@ import {
   readLocalGitConfig,
   remoteUrl,
   removeWorktree,
+  resolveParentCommit,
   resolveRef,
   unmergedPathNames,
   updateRef,
@@ -919,6 +920,22 @@ describe("ref object reads at commits", () => {
       ["git", "rev-list", "--count", "main..feature"],
       ["git", "rev-list", "--count", "main..broken"],
       ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
+    ]);
+  });
+});
+
+describe("resolveParentCommit", () => {
+  test("returns parent OID when rev-parse resolves commit^; undefined when parent is absent", async () => {
+    const commitSha = OID_B;
+    const runner = fakeAsync({
+      [`git rev-parse --verify --quiet ${commitSha}^`]: `${OID_A}\n`,
+      [`git rev-parse --verify --quiet ${OID_A}^`]: gitFailure("", 1),
+    });
+    expect(await resolveParentCommit("/repo", commitSha, runner)).toBe(OID_A);
+    expect(await resolveParentCommit("/repo", OID_A, runner)).toBeUndefined();
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "rev-parse", "--verify", "--quiet", `${commitSha}^`],
+      ["git", "rev-parse", "--verify", "--quiet", `${OID_A}^`],
     ]);
   });
 });

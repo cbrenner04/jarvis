@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -15,6 +15,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
+import * as sharedGit from "../../../shared/git.ts";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
@@ -338,8 +339,11 @@ describe("cleanup: GitHub operations boundary", () => {
     expect(cleanupFunctionBody("export async function isDescendantOfBase")).not.toMatch(
       /runAsync\(\s*["']git["'],\s*\[["']merge-base["'],\s*\[["']--is-ancestor["']/,
     );
-    expect(cleanupFunctionBody("async function listRebaseConflictPaths")).not.toMatch(
-      /runAsync\(\s*["']git["'],\s*\[["']diff["'],\s*\[["']--name-only["'],\s*\[["']--diff-filter=U["']/,
+    expect(cleanupFunctionBody("async function evaluateCommittedLaneContinuation")).not.toMatch(
+      /runAsync\(\s*["']git["'],\s*\[["']rebase["']/,
+    );
+    expect(cleanupFunctionBody("async function evaluateCommittedLaneContinuation")).not.toMatch(
+      /runAsync\(\s*["']git["'],\s*\[["']merge["'],\s*\[["']--no-edit["']/,
     );
     expect(cleanupFunctionBody("async function carriesNoUnlandedCommits")).not.toMatch(
       /runAsync\(\s*["']git["'],\s*\[["']merge-tree["']/,
@@ -6909,6 +6913,35 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(statusOutput.trim()).toBe("");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
+  });
+
+  test("stale reset rebase delegates to typed worktree rewrite operations", async () => {
+    const branch = "impl/rebase-delegate-spy";
+    const subspecRel = "v2/spec/rebase-delegate-spy/00-task.md";
+    const indexRel = await setupSpecTree("rebase-delegate-spy", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] done differently\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "reword criterion on base"], projectRoot);
+
+    const rebaseSpy = spyOn(sharedGit, "abortableWorktreeRebase");
+    try {
+      const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      });
+      expect(result.status).toBe("refused");
+      expect(rebaseSpy).toHaveBeenCalled();
+      expect(rebaseSpy.mock.calls.some((call) => call[0] === worktreePath)).toBe(true);
+    } finally {
+      rebaseSpy.mockRestore();
+    }
   });
 
   test("maybeResetStaleWorkspace sets leaseFromSha on rebase-continue only", async () => {

@@ -18,11 +18,11 @@ Stale-reset continuation logic in `cleanup.ts` uses abortable `rebase`/`merge` a
 
 ## Acceptance criteria
 
-- [ ] `shared/git.test.ts` covers abortable rebase/merge rewrite helpers; fails against pre-fix missing exports.
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace aborts a conflicting rebase and refuses, leaving the lane unchanged` stays green (behavior unchanged by delegation).
-- [ ] `cleanup.test.ts` adds `stale reset rebase delegates to typed worktree rewrite operations` that spies on shared git rewrite exports during the conflicting rebase path; fails against pre-fix `abortableWorktreeGitRewrite` inline `runAsync("git", ["rebase"`.
-- [ ] `cleanup.ts` contains no `runAsync("git", ["rebase"` or `["merge", "--no-edit"` — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:v2` pass.
+- [x] `shared/git.test.ts` covers abortable rebase/merge rewrite helpers; fails against pre-fix missing exports.
+- [x] `cleanup.test.ts` test `resetStaleWorkspace aborts a conflicting rebase and refuses, leaving the lane unchanged` stays green (behavior unchanged by delegation).
+- [x] `cleanup.test.ts` adds `stale reset rebase delegates to typed worktree rewrite operations` that spies on shared git rewrite exports during the conflicting rebase path; fails against pre-fix `abortableWorktreeGitRewrite` inline `runAsync("git", ["rebase"`.
+- [x] `cleanup.ts` contains no `runAsync("git", ["rebase"` or `["merge", "--no-edit"` — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -15,6 +15,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { gzipSync } from "node:zlib";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
+  abortableWorktreeMergeNoEdit,
+  abortableWorktreeRebase,
   deleteBranch,
   countCommitsBetween,
   deleteRef,
@@ -41,7 +43,6 @@ import {
   remoteUrl,
   removeWorktree,
   resolveRef,
-  unmergedPathNames,
 } from "../../../shared/git.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
@@ -3530,67 +3531,6 @@ async function hasCommonAncestor(
   }
 }
 
-async function listRebaseConflictPaths(worktreePath: string, runner: AsyncSubprocessRunner): Promise<string[]> {
-  try {
-    return await unmergedPathNames(worktreePath, runner);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Rebase the worktree's checked-out branch onto `baseHead`; a conflict is aborted, leaving the
- * worktree unchanged. Returns `undefined` on a clean rebase, or the conflicting paths otherwise.
- */
-async function abortableWorktreeGitRewrite(
-  worktreePath: string,
-  runner: AsyncSubprocessRunner,
-  runArgs: string[],
-  abortArgs: string[],
-): Promise<string[] | undefined> {
-  try {
-    await runner.runAsync("git", runArgs, worktreePath);
-    return undefined;
-  } catch {
-    const conflictPaths = await listRebaseConflictPaths(worktreePath, runner);
-    try {
-      await runner.runAsync("git", abortArgs, worktreePath);
-    } catch {
-      // best effort — conflictPaths were already captured before the abort attempt
-    }
-    return conflictPaths;
-  }
-}
-
-async function rebaseWorktreeOntoBase(
-  worktreePath: string,
-  baseHead: string,
-  runner: AsyncSubprocessRunner,
-): Promise<string[] | undefined> {
-  return abortableWorktreeGitRewrite(worktreePath, runner, ["rebase", baseHead], ["rebase", "--abort"]);
-}
-
-async function mergeWorktreeWithBase(
-  worktreePath: string,
-  baseHead: string,
-  runner: AsyncSubprocessRunner,
-): Promise<string[] | undefined> {
-  const conflictPaths = await abortableWorktreeGitRewrite(
-    worktreePath,
-    runner,
-    ["merge", "--no-edit", baseHead],
-    ["merge", "--abort"],
-  );
-  if (conflictPaths === undefined) {
-    try {
-      await runner.runAsync("git", ["update-ref", "-d", "ORIG_HEAD"], worktreePath);
-    } catch {
-      // absent or already cleared
-    }
-  }
-  return conflictPaths;
-}
-
 /** `undefined` means no verdict — the caller falls through to the pre-continuation gates unchanged. */
 /** `preRebaseSha` is set only when this call rebased the lane: the lane tip before the rewrite, which authorizes the publisher's lease push. */
 type CommittedLaneContinuationResult =
@@ -3734,8 +3674,12 @@ async function evaluateCommittedLaneContinuation(args: {
   if (skipLandedCriteriaGate) return undefined;
 
   const rewrite = hasOpenPr
-    ? await mergeWorktreeWithBase(worktreePath, baseHead, runner)
-    : await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
+    ? await (async () => {
+        const conflictPaths = await abortableWorktreeMergeNoEdit(worktreePath, baseHead, runner);
+        if (conflictPaths === undefined) await deleteRef(worktreePath, "ORIG_HEAD", runner);
+        return conflictPaths;
+      })()
+    : await abortableWorktreeRebase(worktreePath, baseHead, runner);
   if (rewrite !== undefined) {
     return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, rewrite) };
   }

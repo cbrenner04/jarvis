@@ -4,6 +4,8 @@ import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  abortableWorktreeMergeNoEdit,
+  abortableWorktreeRebase,
   addWorktree,
   type BranchCreateResult,
   type BranchDeleteResult,
@@ -714,6 +716,41 @@ describe("deleteBranch", () => {
       ["git", "branch", "-d", "nope"],
       ["git", "branch", "-d", "unmerged"],
       ["git", "branch", "-D", "live"],
+    ]);
+  });
+});
+
+describe("abortable worktree rewrites", () => {
+  test("rebase and merge abort on conflict and return unmerged paths", async () => {
+    const runner = fakeAsync({
+      "git rebase main": gitFailure("CONFLICT\n", 1),
+      "git diff --name-only --diff-filter=U": "a.txt\n",
+      "git rebase --abort": "",
+      "git merge --no-edit main": gitFailure("CONFLICT\n", 1),
+      "git merge --abort": gitFailure("fatal: no merge in progress\n", 128),
+    });
+    expect(await abortableWorktreeRebase("/wt", "main", runner)).toEqual(["a.txt"]);
+    expect(await abortableWorktreeMergeNoEdit("/wt", "main", runner)).toEqual(["a.txt"]);
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "rebase", "main"],
+      ["git", "diff", "--name-only", "--diff-filter=U"],
+      ["git", "rebase", "--abort"],
+      ["git", "merge", "--no-edit", "main"],
+      ["git", "diff", "--name-only", "--diff-filter=U"],
+      ["git", "merge", "--abort"],
+    ]);
+  });
+
+  test("clean rebase and merge return undefined", async () => {
+    const runner = fakeAsync({
+      "git rebase main": "",
+      "git merge --no-edit feature": "",
+    });
+    expect(await abortableWorktreeRebase("/wt", "main", runner)).toBeUndefined();
+    expect(await abortableWorktreeMergeNoEdit("/wt", "feature", runner)).toBeUndefined();
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "rebase", "main"],
+      ["git", "merge", "--no-edit", "feature"],
     ]);
   });
 });

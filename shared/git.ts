@@ -564,6 +564,56 @@ export async function unmergedPathNames(
     .filter((line) => line.length > 0);
 }
 
+/**
+ * Stateful worktree rewrite: run `runArgs`, then on failure list unmerged paths and best-effort
+ * `abortArgs` (abort failure does not change the returned conflict paths).
+ */
+async function abortableWorktreeRewrite(
+  cwd: string,
+  runArgs: string[],
+  abortArgs: string[],
+  runner: AsyncSubprocessRunner,
+  options: OperationOptions,
+): Promise<string[] | undefined> {
+  try {
+    await runner.runAsync("git", runArgs, cwd, runOptions(options));
+    return undefined;
+  } catch {
+    let conflictPaths: string[];
+    try {
+      conflictPaths = await unmergedPathNames(cwd, runner, options);
+    } catch {
+      conflictPaths = [];
+    }
+    try {
+      await runner.runAsync("git", abortArgs, cwd, runOptions(options));
+    } catch {
+      // best effort — conflictPaths were captured before abort
+    }
+    return conflictPaths;
+  }
+}
+
+/** `git rebase <onto>` in `cwd`; `undefined` on success, conflicting paths after abort on failure. */
+export async function abortableWorktreeRebase(
+  cwd: string,
+  onto: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[] | undefined> {
+  return abortableWorktreeRewrite(cwd, ["rebase", onto], ["rebase", "--abort"], runner, options);
+}
+
+/** `git merge --no-edit <ref>` in `cwd`; `undefined` on success, conflicting paths after abort on failure. */
+export async function abortableWorktreeMergeNoEdit(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[] | undefined> {
+  return abortableWorktreeRewrite(cwd, ["merge", "--no-edit", ref], ["merge", "--abort"], runner, options);
+}
+
 /** Raw unified diff between `from` and `to` (not trimmed: the trailing newline is part of the patch). */
 export async function diffUnified(
   cwd: string,

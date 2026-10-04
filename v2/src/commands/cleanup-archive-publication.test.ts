@@ -198,6 +198,37 @@ describe("cleanup archive publication session", () => {
     expect(session.commits()).toBe(0);
   });
 
+  test("archive worktree add starts from local default branch when it resolves, not HEAD", async () => {
+    const specName = "20261003T220000Z-archive-base-ref";
+    const { spec } = inRepoSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "feature"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "feature"], projectRoot);
+    writeFileSync(join(projectRoot, "feature-only.txt"), "on feature\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "feature-only.txt"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "feature tip"], projectRoot);
+
+    const worktreeStartPoints: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add" && args[2] === "-b") {
+          const startPoint = args[5];
+          if (typeof startPoint === "string") worktreeStartPoints.push(startPoint);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    const session = createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261003T220000Z",
+    });
+    expect(await session.publish(spec)).toMatchObject({ status: "archived" });
+    expect(worktreeStartPoints).toEqual(["main"]);
+  });
+
   test("publishConsumedReadyIntentOnly commits ready-intent prune on the cleanup branch", async () => {
     const intent = "---\nname: prune-only\n---\n";
     const { spec, readyIntent } = inRepoSpec("20260930T000001Z-prune-only", "[x] Done", intent, intent);

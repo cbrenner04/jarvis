@@ -24,12 +24,12 @@ The spawn-bypass guard must run in the same `bun run check` sequence as other st
 
 ## Acceptance criteria
 
-- [ ] `bun run check` runs `scripts/guard-git-spawn-bypass.ts` and exits 0 on the migrated tree; fails if a production `v2/src/execution/example.ts` with `runAsync("git",` is temporarily introduced (reachable via guard test fixture or local edit — verify via `runGitSpawnBypassGuard` non-zero).
-- [ ] `v1/test/ready-script.sandbox-unrunnable.test.ts` pins the `check` script including `guard-git-spawn-bypass.ts` when that file asserts the check string.
-- [ ] `AGENTS.md` names the guard, `v2/src` scope, and the `guard-git-spawn-bypass:` exception marker.
-- [ ] `v2/docs/v2-architecture.md` documents the guard as enforcement for Git/GitHub spawn boundaries and lists no unmarked inline `runAsync("git"`/`gh` sites in `v2/src` production code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run check` runs `scripts/guard-git-spawn-bypass.ts` and exits 0 on the migrated tree; fails if a production `v2/src/execution/example.ts` with `runAsync("git",` is temporarily introduced (reachable via guard test fixture or local edit — verify via `runGitSpawnBypassGuard` non-zero).
+- [x] `v1/test/ready-script.sandbox-unrunnable.test.ts` pins the `check` script including `guard-git-spawn-bypass.ts` when that file asserts the check string.
+- [x] `AGENTS.md` names the guard, `v2/src` scope, and the `guard-git-spawn-bypass:` exception marker.
+- [x] `v2/docs/v2-architecture.md` documents the guard as enforcement for Git/GitHub spawn boundaries and lists no unmarked inline `runAsync("git"`/`gh` sites in `v2/src` production code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

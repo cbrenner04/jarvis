@@ -11331,7 +11331,11 @@ describe("fan-out serial chained lanes", () => {
 
   type GitCall = { args: string[]; cwd: string };
   const TIP = "alphatip";
-  const RESOLVE_TIP: GitCall = { args: ["rev-parse", "--verify", "implement/alpha^{commit}"], cwd: "/repo" };
+  const RESOLVE_TIP: GitCall = {
+    args: ["rev-parse", "--verify", "--quiet", "implement/alpha^{commit}"],
+    cwd: "/repo",
+  };
+  const FETCH_HEAD_REF: GitCall["args"] = ["rev-parse", "--verify", "--quiet", "FETCH_HEAD"];
   const FETCH_BASE: GitCall = { args: ["fetch", "origin", "main"], cwd: "/repo" };
   const STATUS = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
 
@@ -11356,11 +11360,13 @@ describe("fan-out serial chained lanes", () => {
         if (cmd !== "git") throw new Error(`unexpected ${cmd}`);
         calls.push({ args: [...args], cwd });
         if (args[0] === "status") return options.dirty?.includes(cwd) ? " M src/x.ts\0" : "";
-        if (args[0] === "rev-parse" && args[1] === "--verify") return `${TIP}\n`;
-        if (args[0] === "rev-parse" && args[1] === "FETCH_HEAD") {
-          return options.diverged?.includes(cwd) ? "remotetip\n" : "headtip\n";
+        if (args[0] === "rev-parse" && args.includes("--verify")) {
+          if (args.includes("FETCH_HEAD")) {
+            return options.diverged?.includes(cwd) ? "remotetip\n" : "headtip\n";
+          }
+          return `${TIP}\n`;
         }
-        if (args[0] === "rev-parse") return "headtip\n";
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "headtip\n";
         if (args[0] === "merge-base" && options.notStacked?.includes(cwd)) throw gitExit("", 1);
         if (args[0] === "merge-base" && options.ancestryError?.includes(cwd)) {
           throw gitExit(`fatal: Not a valid commit name ${TIP}`, 128);
@@ -11385,9 +11391,10 @@ describe("fan-out serial chained lanes", () => {
       { args: ANCESTRY, cwd: worktree },
       { args: STATUS, cwd: worktree },
       { args: ["fetch", "origin", branch], cwd: worktree },
-      { args: ["rev-parse", "FETCH_HEAD"], cwd: worktree },
+      { args: FETCH_HEAD_REF, cwd: worktree },
       { args: ["rev-parse", "HEAD"], cwd: worktree },
       FETCH_BASE,
+      { args: FETCH_HEAD_REF, cwd: "/repo" },
       { args: ["rebase", "--onto", "origin/main", TIP], cwd: worktree },
       {
         args: ["push", `--force-with-lease=refs/heads/${branch}:headtip`, "origin", `HEAD:refs/heads/${branch}`],
@@ -11491,13 +11498,18 @@ describe("fan-out serial chained lanes", () => {
 
     await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
 
-    const expected = rebaseCalls("/wt/beta-plan", "plan/beta").slice(0, 7);
-    expect(calls).toEqual([RESOLVE_TIP, ...expected, { args: ["rebase", "--abort"], cwd: "/wt/beta-plan" }]);
+    const expected = rebaseCalls("/wt/beta-plan", "plan/beta").slice(0, 8);
+    expect(calls).toEqual([
+      RESOLVE_TIP,
+      ...expected,
+      { args: ["diff", "--name-only", "--diff-filter=U"], cwd: "/wt/beta-plan" },
+      { args: ["rebase", "--abort"], cwd: "/wt/beta-plan" },
+    ]);
     expect(dispatched.filter((entry) => entry.branchKey === "beta").map((entry) => entry.stageId)).toEqual(["plan"]);
     const { observation, detail } = failedBetaImplement(stages());
     expect(observation).toContain(`predecessor lane "alpha" merged (#${ALPHA_PR})`);
     expect(observation).toContain('lane "beta" branch "plan/beta"');
-    expect(observation).toContain("conflicted and was aborted: CONFLICT (content): Merge conflict in src/x.ts");
+    expect(observation).toContain("conflicted and was aborted");
     expect(detail).toMatchObject({ retryable: true, code: "chained_lane_rebase_refused" });
     expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
     expect(rebaseStamp(stages(), "plan")).toBeUndefined();
@@ -11734,7 +11746,8 @@ describe("fan-out serial chained lanes", () => {
 
     expect(calls).toEqual([RESOLVE_TIP, { args: ANCESTRY, cwd: "/wt/beta-plan" }]);
     const { observation, detail } = failedBetaImplement(stages());
-    expect(observation).toContain(`git merge-base --is-ancestor ${TIP} HEAD failed: fatal: Not a valid commit name`);
+    expect(observation).toContain(`git merge-base --is-ancestor ${TIP} HEAD failed:`);
+    expect(observation).toContain("Not a valid commit name");
     expect(detail).toMatchObject({ retryable: true, code: "chained_lane_rebase_refused" });
     expect(rebaseStamp(stages(), "plan")).toBeUndefined();
   });

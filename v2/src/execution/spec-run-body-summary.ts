@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { runGitArgv } from "../../../shared/git.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { resolveSpecIndexPath } from "./spec-creation-title.ts";
 
@@ -159,7 +159,7 @@ export async function deriveSpecRunBodySummary(
       return "";
     }
   });
-  const git = input.git ?? ((cwd, args) => realAsyncSubprocessRunner.runAsync("git", [...args], cwd));
+  const git = input.git ?? ((cwd, args) => runGitArgv(cwd, args));
   const diffs = await readDiffStats(input.worktreePath, input.baseRef, git, input);
   return renderTemplate(
     {

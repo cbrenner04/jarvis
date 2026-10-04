@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolveRef } from "../../../shared/git.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
@@ -704,14 +705,15 @@ export function createImplementRecoverHandler(
         message: `Recovery worktree missing: ${resolved.context.worktreePath}`,
       };
     }
-    try {
-      await realAsyncSubprocessRunner.runAsync(
-        "git",
-        ["rev-parse", "--verify", `refs/heads/${resolved.context.branch}`],
-        resolved.context.worktreePath,
-        { stdio: "ignore" },
-      );
-    } catch {
+    if (
+      (
+        await resolveRef(
+          resolved.context.worktreePath,
+          `refs/heads/${resolved.context.branch}`,
+          realAsyncSubprocessRunner,
+        )
+      ).status === "absent"
+    ) {
       return {
         kind: "error",
         code: "implement.recovery_target_missing",

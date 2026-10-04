@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
+import { resolveRef } from "../../../shared/git.ts";
 import { findProjectMatch } from "../../../shared/project-registry.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -419,9 +420,13 @@ async function validateExplicitPlanBase(
   const project = findProjectMatch(deps.cwd(), deps.readProjectRegistry());
   if (project === undefined) return { ok: true };
   const runner = deps.subprocessRunner ?? realAsyncSubprocessRunner;
+  let baseTreeResolves = false;
   try {
-    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{tree}`], project.root);
+    baseTreeResolves = (await resolveRef(project.root, `${baseRef}^{tree}`, runner)).status === "resolved";
   } catch {
+    baseTreeResolves = false;
+  }
+  if (!baseTreeResolves) {
     return {
       ok: false,
       message: `plan: --base ref '${baseRef}' does not resolve to a tree-ish in the local clone at ${project.root}`,

@@ -61,6 +61,9 @@ import {
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
+const MOCK_MERGE_BASE_OID = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+const MOCK_MISMATCH_HEAD_OID = "cafebabecafebabecafebabecafebabecafebabe";
+
 // Finalizer calls here await the shared gate slot: if the slot stops admitting a free acquire (or a release stops
 // freeing it), every finalizer await would hang to the slot-wait timeout. Assert the free slot admits and frees
 // first so such a lease-module regression fails each test fast instead of stalling the file.
@@ -796,9 +799,9 @@ describe("ready gate untouched-path classification", () => {
     const mockRunner: AsyncSubprocessRunner = {
       async runAsync(cmd, args, _cwd, options) {
         if (cmd === "git") {
-          if (args?.[0] === "merge-base") return "abc123\n";
+          if (args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
           if (args?.[0] === "worktree") return "";
-          if (args?.[0] === "rev-parse") return "abc123\n";
+          if (args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
           if (args?.[0] === "diff" && args?.[1] === "--name-only") return "v2/src/changed.ts\n";
           if (args?.[0] === "ls-files") return "";
         }
@@ -841,13 +844,13 @@ describe("ready gate untouched-path classification", () => {
       async runAsync(cmd, args, _cwd, options) {
         if (cmd === "git") {
           if (args?.[0] === "merge-base") {
-            return "abc123\n";
+            return `${MOCK_MERGE_BASE_OID}\n`;
           }
           if (args?.[0] === "worktree") {
             return "";
           }
           if (args?.[0] === "rev-parse") {
-            return "abc123\n";
+            return `${MOCK_MERGE_BASE_OID}\n`;
           }
           if (args?.[0] === "diff" && args?.[1] === "--name-only") {
             return "v2/src/changed.ts\n";
@@ -925,8 +928,8 @@ describe("ready gate untouched-path classification", () => {
     };
     const mockRunner: AsyncSubprocessRunner = {
       async runAsync(cmd, args, _cwd, options) {
-        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
-        if (cmd === "git" && args?.[0] === "rev-parse") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
         if (cmd === "bun") {
           // The probe spawn must be detached and bound: without a processGroup option this never fires.
           options?.processGroup?.onGroupId?.(777);
@@ -1270,8 +1273,8 @@ describe("base-ref probe conclusive reproduction", () => {
   it("treats a base-ref probe timeout as inconclusive, not a conclusive fail", async () => {
     const classified = await classifyWithBaseRefProbeRunner({
       async runAsync(cmd, args) {
-        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
-        if (cmd === "git" && args?.[0] === "rev-parse") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
         if (cmd === "git" && args?.[0] === "worktree") return "";
         if (cmd === "bun") {
           throw new AsyncSubprocessError("Command timed out", undefined, "", "", "ETIMEDOUT");
@@ -1287,8 +1290,8 @@ describe("base-ref probe conclusive reproduction", () => {
   it("appends the probe output's tail to the no-failing-test-evidence reason when output is present", async () => {
     const classified = await classifyWithBaseRefProbeRunner({
       async runAsync(cmd, args) {
-        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
-        if (cmd === "git" && args?.[0] === "rev-parse") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
         if (cmd === "git" && args?.[0] === "worktree") return "";
         if (cmd === "bun") {
           throw new AsyncSubprocessError("Command failed", 1, "crash-marker-output", "", undefined);
@@ -1303,14 +1306,14 @@ describe("base-ref probe conclusive reproduction", () => {
   it("treats a probe tree that failed to verify against the merge-base as inconclusive", async () => {
     const classified = await classifyWithBaseRefProbeRunner({
       async runAsync(cmd, args) {
-        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
         if (cmd === "git" && args?.[0] === "worktree") return "";
-        if (cmd === "git" && args?.[0] === "rev-parse") return "mismatched-sha\n";
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MISMATCH_HEAD_OID}\n`;
         return "";
       },
     });
     expect(classified.kind).toBe("ready_gate_failed");
-    expect(classified.baseRefProbeError).toContain("mismatched-sha");
+    expect(classified.baseRefProbeError).toContain(MOCK_MISMATCH_HEAD_OID);
   });
 });
 

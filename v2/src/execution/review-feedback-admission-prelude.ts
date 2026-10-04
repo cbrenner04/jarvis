@@ -1,10 +1,7 @@
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  networkSubprocessOptions,
-} from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import type { HarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
+import { GitHubOperationError, viewPrAdmission } from "./github-operations.ts";
 import {
   hasSubmittedPrReview,
   type PrReviewInputCaptureArtifact,
@@ -24,14 +21,6 @@ type ReviewFeedbackAdmissionPreludeResult =
   | { ok: true; artifact: PrReviewInputCaptureArtifact; artifactPath: string }
   | { ok: false; code: ReviewFeedbackAdmissionRefusalCode; message: string };
 
-type GhPrAdmissionView = {
-  state?: string;
-  headRefName?: string;
-  url?: string;
-  isDraft?: boolean;
-  reviews?: Array<{ submittedAt?: string | null }>;
-};
-
 type ReviewFeedbackAdmissionPreludeOptions = {
   findHarnessReadyFlipEvidenceInLineage?: HarnessReadyFlipEvidenceLookup;
 };
@@ -41,7 +30,7 @@ function refuse(code: ReviewFeedbackAdmissionRefusalCode, message: string): Revi
 }
 
 function captureFailedMessage(context: string, error: unknown): string {
-  if (error instanceof AsyncSubprocessError) {
+  if (error instanceof GitHubOperationError || error instanceof AsyncSubprocessError) {
     const detail = error.stderr.trim() || error.stdout.trim() || error.message;
     return `${context}: ${detail}`;
   }
@@ -49,28 +38,14 @@ function captureFailedMessage(context: string, error: unknown): string {
   return `${context}: ${String(error)}`;
 }
 
-async function fetchPrAdmissionView(
-  runner: AsyncSubprocessRunner,
-  worktreePath: string,
-  prNumber: number,
-): Promise<GhPrAdmissionView> {
-  const stdout = await runner.runAsync(
-    "gh",
-    ["pr", "view", String(prNumber), "--json", "state,headRefName,url,reviews,isDraft"],
-    worktreePath,
-    networkSubprocessOptions(),
-  );
-  return JSON.parse(stdout) as GhPrAdmissionView;
-}
-
 export async function runReviewFeedbackAdmissionPrelude(
   target: ReviewFeedbackLaneTarget,
   runner: AsyncSubprocessRunner,
   options?: ReviewFeedbackAdmissionPreludeOptions,
 ): Promise<ReviewFeedbackAdmissionPreludeResult> {
-  let view: GhPrAdmissionView;
+  let view: Awaited<ReturnType<typeof viewPrAdmission>>;
   try {
-    view = await fetchPrAdmissionView(runner, target.worktreePath, target.prNumber);
+    view = await viewPrAdmission(runner, target.worktreePath, target.prNumber);
   } catch (error) {
     return refuse(
       "review_feedback_capture_failed",

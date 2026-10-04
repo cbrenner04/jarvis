@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { restoreWorktreePaths } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
@@ -179,7 +180,7 @@ export async function discardEphemeralReviewVerdictDrift(worktreePath: string, v
   const relativePath = relative(worktreePath, verdictPath);
   if (relativePath.startsWith("..")) return;
   try {
-    await realAsyncSubprocessRunner.runAsync("git", ["restore", relativePath], worktreePath);
+    await restoreWorktreePaths(worktreePath, [relativePath], realAsyncSubprocessRunner);
   } catch {
     if (existsSync(verdictPath)) rmSync(verdictPath, { force: true });
   }

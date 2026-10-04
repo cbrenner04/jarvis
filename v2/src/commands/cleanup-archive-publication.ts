@@ -1,7 +1,22 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
-import { getBaseBranch } from "../../../shared/git.ts";
+import {
+  addWorktreeWithNewBranch,
+  blobExistsAtRef,
+  cleanWorktreeUntracked,
+  commitInWorktree,
+  deleteBranch,
+  getBaseBranch,
+  listLocalBranchHeads,
+  listRecursiveBlobOidsAtRef,
+  readLocalGitConfig,
+  removeWorktree,
+  resetWorktreeHard,
+  resolveRef,
+  stagePathMove,
+  stagePathRemove,
+} from "../../../shared/git.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { managedWorktreePath } from "../paths.ts";
 import { type ArtifactFs, type ArtifactSpec, resolveConsumedReadyIntent } from "./cleanup-artifacts.ts";
@@ -86,19 +101,16 @@ export async function committedBlobIdsAtRef(
   ref: string,
   relPaths: readonly string[],
 ): Promise<CommittedBlobIds | undefined> {
-  let listing: string;
+  let listing: Awaited<ReturnType<typeof listRecursiveBlobOidsAtRef>>;
   try {
-    listing = await runner.runAsync("git", ["ls-tree", "-r", "-z", ref, "--", ...relPaths], cwd);
+    listing = await listRecursiveBlobOidsAtRef(cwd, ref, relPaths, runner);
   } catch {
     return undefined;
   }
+  if (listing === undefined) return undefined;
   const ids = new Map<string, Buffer>();
-  for (const entry of listing.split("\0")) {
-    const tab = entry.indexOf("\t");
-    if (tab < 0) continue;
-    const [, type, oid] = entry.slice(0, tab).split(" ");
-    if (type !== "blob" || oid === undefined) continue;
-    ids.set(resolve(projectRoot, entry.slice(tab + 1)), Buffer.from(oid));
+  for (const { path, oid } of listing) {
+    ids.set(resolve(projectRoot, path), Buffer.from(oid));
   }
   const readOnly = (): never => {
     throw new Error("a committed blob-id snapshot is read-only");
@@ -127,25 +139,14 @@ export async function cleanupBranchCarryingArchive(
 ): Promise<string | undefined> {
   let branches: string[];
   try {
-    const listed = await runner.runAsync(
-      "git",
-      ["for-each-ref", "--format=%(refname:short)", `refs/heads/${CLEANUP_ARCHIVE_BRANCH_PREFIX}*`],
-      projectRoot,
-    );
-    branches = listed
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    branches = (await listLocalBranchHeads(projectRoot, runner))
+      .map((head) => head.branch)
+      .filter((branch) => branch.startsWith(CLEANUP_ARCHIVE_BRANCH_PREFIX));
   } catch {
     return undefined;
   }
   for (const branch of branches) {
-    try {
-      await runner.runAsync("git", ["cat-file", "-e", `${branch}:${relDest}`], projectRoot);
-      return branch;
-    } catch {
-      // not on this branch
-    }
+    if (await blobExistsAtRef(projectRoot, branch, relDest, runner)) return branch;
   }
   return undefined;
 }
@@ -162,13 +163,15 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
   let materialized = deps.adoptedBranch !== undefined && existsSync(worktreePath);
   let commits = 0;
 
-  const git = (args: string[], cwd: string) => deps.runner.runAsync("git", args, cwd);
-
   async function materialize(): Promise<ArchivePublicationResult | undefined> {
     if (materialized) return undefined;
     try {
       const baseRef = await resolveArchiveBaseRef();
-      await git(["worktree", "add", "-b", branch, worktreePath, baseRef], deps.projectRoot);
+      await addWorktreeWithNewBranch(
+        deps.projectRoot,
+        { path: worktreePath, branch, startPoint: baseRef },
+        deps.runner,
+      );
       materialized = true;
       return undefined;
     } catch (error) {
@@ -179,35 +182,29 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
   /** The project's default branch when it resolves locally, else the checkout's HEAD. */
   async function resolveArchiveBaseRef(): Promise<string> {
     const baseBranch = await getBaseBranch(deps.projectRoot, deps.runner);
-    try {
-      await git(["rev-parse", "--verify", "--quiet", `refs/heads/${baseBranch}`], deps.projectRoot);
+    if ((await resolveRef(deps.projectRoot, `refs/heads/${baseBranch}`, deps.runner)).status === "resolved") {
       return baseBranch;
-    } catch {
-      return "HEAD";
     }
+    return "HEAD";
   }
 
   /** A checkout with no committer identity (CI, fresh machines) still gets a committed archive. */
-  async function commitIdentityFlags(): Promise<string[]> {
-    try {
-      await git(["config", "user.email"], worktreePath);
-      return [];
-    } catch {
-      return ["-c", "user.name=jarvis cleanup", "-c", "user.email=jarvis-cleanup@localhost"];
-    }
+  async function commitIdentity(): Promise<{ name: string; email: string } | undefined> {
+    if ((await readLocalGitConfig(worktreePath, "user.email", deps.runner)) !== undefined) return undefined;
+    return { name: "jarvis cleanup", email: "jarvis-cleanup@localhost" };
   }
 
   async function rollback(step: ArchivePublicationStep, error: unknown): Promise<ArchivePublicationResult> {
     try {
-      await git(["reset", "--hard", "HEAD"], worktreePath);
-      await git(["clean", "-fd"], worktreePath);
+      await resetWorktreeHard(worktreePath, deps.runner);
+      await cleanWorktreeUntracked(worktreePath, deps.runner);
     } catch {
       // the worktree is disposable; removal below is the stronger reset
     }
     if (commits === 0) {
       try {
-        await git(["worktree", "remove", "--force", worktreePath], deps.projectRoot);
-        await git(["branch", "-D", branch], deps.projectRoot);
+        await removeWorktree(deps.projectRoot, worktreePath, deps.runner, { force: true });
+        await deleteBranch(deps.projectRoot, branch, deps.runner, { force: true });
         removeIfEmpty(dirname(worktreePath));
         materialized = false;
       } catch {
@@ -248,20 +245,24 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
       if (materializeFailure !== undefined) return materializeFailure;
       try {
         mkdirSync(dirname(join(worktreePath, relDest)), { recursive: true });
-        await git(["mv", relSource, relDest], worktreePath);
+        await stagePathMove(worktreePath, relSource, relDest, deps.runner);
       } catch (error) {
         return rollback("git mv", error);
       }
       if (relReadyIntent !== undefined) {
         try {
-          await git(["rm", "--quiet", relReadyIntent], worktreePath);
+          await stagePathRemove(worktreePath, relReadyIntent, deps.runner);
         } catch (error) {
           return rollback("ready-intent prune", error);
         }
       }
       try {
         const subject = `spec: archive ${spec.name}${relReadyIntent !== undefined ? " and prune its consumed ready-intent" : ""}`;
-        await git([...(await commitIdentityFlags()), "commit", "--quiet", "-m", subject], worktreePath);
+        const identity = await commitIdentity();
+        await commitInWorktree(worktreePath, subject, deps.runner, {
+          quiet: true,
+          ...(identity === undefined ? {} : { identity }),
+        });
       } catch (error) {
         return rollback("commit", error);
       }
@@ -309,21 +310,16 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
       const materializeFailure = await materialize();
       if (materializeFailure !== undefined) return materializeFailure;
       try {
-        await git(["rm", "--quiet", relReadyIntent], worktreePath);
+        await stagePathRemove(worktreePath, relReadyIntent, deps.runner);
       } catch (error) {
         return rollback("ready-intent prune", error);
       }
       try {
-        await git(
-          [
-            ...(await commitIdentityFlags()),
-            "commit",
-            "--quiet",
-            "-m",
-            `spec: prune consumed ready-intent for ${spec.name}`,
-          ],
-          worktreePath,
-        );
+        const identity = await commitIdentity();
+        await commitInWorktree(worktreePath, `spec: prune consumed ready-intent for ${spec.name}`, deps.runner, {
+          quiet: true,
+          ...(identity === undefined ? {} : { identity }),
+        });
       } catch (error) {
         return rollback("commit", error);
       }

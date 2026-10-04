@@ -2,6 +2,14 @@ import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
+  blobExistsAtRef,
+  fetchRemoteRef,
+  GitOperationError,
+  isAncestorOrThrow,
+  resolveAbbrevRef,
+  resolveRef,
+} from "../../../shared/git.ts";
+import {
   hasUncheckedNonHumanOnlyCriteria,
   resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
 } from "../../../shared/linked-subspec-routing.ts";
@@ -15,7 +23,6 @@ import {
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import {
   type AsyncSubprocessRunner,
-  isSubprocessTimeout,
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
@@ -117,8 +124,7 @@ async function isSpecAvailableInBaseRef(
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    await runner.runAsync("git", ["cat-file", "-e", `${baseRef}:${specPath}`], projectRoot, { stdio: "ignore" });
-    return true;
+    return await blobExistsAtRef(projectRoot, baseRef, specPath, runner);
   } catch {
     return false;
   }
@@ -127,10 +133,6 @@ async function isSpecAvailableInBaseRef(
 /** Default sink for non-fatal preflight notes; the CLI and daemon both surface stderr. */
 function warnToStderr(message: string): void {
   console.error(message);
-}
-
-async function gitStdout(runner: AsyncSubprocessRunner, projectRoot: string, args: string[]): Promise<string> {
-  return (await runner.runAsync("git", args, projectRoot)).trim();
 }
 
 /**
@@ -147,7 +149,7 @@ export async function checkBaseFreshness(
 ): Promise<{ ok: true } | { ok: false; error: string; upstream: string }> {
   let upstream: string;
   try {
-    upstream = await gitStdout(runner, projectRoot, ["rev-parse", "--abbrev-ref", `${baseRef}@{upstream}`]);
+    upstream = await resolveAbbrevRef(projectRoot, `${baseRef}@{upstream}`, runner);
   } catch {
     return { ok: true };
   }
@@ -156,34 +158,31 @@ export async function checkBaseFreshness(
   const remote = upstream.slice(0, slash);
   const remoteBranch = upstream.slice(slash + 1);
   try {
-    await runner.runAsync("git", ["fetch", "--quiet", remote, remoteBranch], projectRoot, {
-      ...networkSubprocessOptions(),
-      stdio: "ignore",
-    });
+    await fetchRemoteRef(projectRoot, remote, remoteBranch, runner, networkSubprocessOptions());
   } catch (error) {
     warn?.(`base freshness not checked: could not fetch ${upstream} (${errorMessage(error)})`);
     return { ok: true };
   }
   try {
-    const localSha = await gitStdout(runner, projectRoot, ["rev-parse", baseRef]);
-    const upstreamSha = await gitStdout(runner, projectRoot, ["rev-parse", upstream]);
+    const localResolved = await resolveRef(projectRoot, baseRef, runner);
+    const upstreamResolved = await resolveRef(projectRoot, upstream, runner);
+    if (localResolved.status !== "resolved" || upstreamResolved.status !== "resolved") return { ok: true };
+    const localSha = localResolved.oid;
+    const upstreamSha = upstreamResolved.oid;
     if (localSha === upstreamSha) return { ok: true };
-    try {
-      await runner.runAsync("git", ["merge-base", "--is-ancestor", localSha, upstreamSha], projectRoot, {
-        stdio: "ignore",
-      });
-    } catch (error) {
-      if (isSubprocessTimeout(error)) {
-        warn?.(`base freshness not checked: merge-base timed out (${errorMessage(error)})`);
-      }
-      return { ok: true }; // ahead or diverged (or inconclusive): not the stale-checkout shape
+    const ancestor = await isAncestorOrThrow(projectRoot, localSha, upstreamSha, runner);
+    if (!ancestor) {
+      return { ok: true }; // ahead or diverged: not the stale-checkout shape
     }
     return {
       ok: false,
       upstream,
       error: `base_behind_origin: ${baseRef} is at ${localSha.slice(0, 12)}, ${upstream} is at ${upstreamSha.slice(0, 12)}; run git pull or pass --base ${upstream}`,
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof GitOperationError && error.operation === "merge-base" && error.reason === "timeout") {
+      warn?.("base freshness not checked: merge-base timed out");
+    }
     return { ok: true };
   }
 }

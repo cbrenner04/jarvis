@@ -16,16 +16,16 @@ Typed boundaries in `shared/git.ts` and `v2/src/execution/github-operations.ts` 
 ## Task checklist
 
 - Add `scripts/guard-git-spawn-bypass.ts` exporting `findGitSpawnBypassViolations(files)` and `runGitSpawnBypassGuard(cwd)` walking `v2/src` production files.
-- Add `scripts/guard-git-spawn-bypass.test.ts` with synthetic `{ file, source }` fixtures (reject/allow/marker/github-operations allowlist) and one repository-walk assertion against a known reachable violation.
+- Add `scripts/guard-git-spawn-bypass.test.ts` with synthetic `{ file, source }` fixtures (reject/allow/marker/github-operations allowlist) and one repository-walk assertion that execution is clean plus a synthetic pin at `v2/src/execution/write-loop.ts`.
 - Extend `shared/git.ts` only when a migration subspec needs a missing typed export; defer new argv shapes to the migration subspec that first needs them.
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `rejects runAsync git literal in production fixture` fails against an empty pre-fix guard (no exported matcher) and passes once the guard flags `runner.runAsync("git", ["status"], cwd)` in a synthetic `v2/src/execution/example.ts` record.
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `allows github-operations gh owner` passes when the only `runAsync("gh"` in `v2/src/execution/github-operations.ts` is allowlisted and fails if the same literal appears in another production path.
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `allows per-call guard-git-spawn-bypass marker` passes with the marker on the line above the spawn and fails without it for the same source.
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `repository walk reports reachable inline git spawn` fails when `runGitSpawnBypassGuard` scans the current tree where `v2/src/execution/write-loop.ts` still contains `realAsyncSubprocessRunner.runAsync("git",`; reachable on the prerequisite base.
-- [ ] `bun run typecheck` passes.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `rejects runAsync git literal in production fixture` fails against an empty pre-fix guard (no exported matcher) and passes once the guard flags `runner.runAsync("git", ["status"], cwd)` in a synthetic `v2/src/execution/example.ts` record.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `allows github-operations gh owner` passes when the only `runAsync("gh"` in `v2/src/execution/github-operations.ts` is allowlisted and fails if the same literal appears in another production path.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `allows per-call guard-git-spawn-bypass marker` passes with the marker on the line above the spawn and fails without it for the same source.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `rejects deliberate new git spawn fixture on repository walk` passes when `runGitSpawnBypassGuard` reports zero violations under `v2/src/execution/` and `findGitSpawnBypassViolations` flags a synthetic `runAsync("git"` record at `v2/src/execution/write-loop.ts`.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

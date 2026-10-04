@@ -14,7 +14,13 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
 import { errorMessage } from "../../../shared/error-message.ts";
 import { FixCommandError, type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
-import { getCurrentHeadAsync, getGitStatusInventory } from "../../../shared/git.ts";
+import {
+  diffNameOnly,
+  getCurrentHeadAsync,
+  getGitStatusInventory,
+  logSubjectsInRange,
+  runGitArgv,
+} from "../../../shared/git.ts";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,
@@ -955,12 +961,8 @@ async function shouldPublishSettledHead(worktreePath: string, baseRef: string, c
   if (commitSha !== undefined) return true;
   if (!existsSync(join(worktreePath, ".git"))) return false;
   try {
-    const output = await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["diff", "--name-only", baseRef, "HEAD"],
-      worktreePath,
-    );
-    return output.split("\n").some((line) => line.trim().length > 0);
+    const paths = await diffNameOnly(worktreePath, { from: baseRef, to: "HEAD" }, realAsyncSubprocessRunner);
+    return paths.length > 0;
   } catch {
     return true;
   }
@@ -1049,7 +1051,7 @@ async function shouldEnforceReadyGateRepairFence(worktreePath: string): Promise<
 }
 
 async function runRepairFenceGit(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
-  return realAsyncSubprocessRunner.runAsync("git", [...args], cwd, {
+  return runGitArgv(cwd, args, realAsyncSubprocessRunner, {
     ...(env !== undefined ? { env: { ...process.env, ...env } } : {}),
   });
 }
@@ -5647,11 +5649,7 @@ function phaseSubjectOrdinal(subject: string, base: string): number | undefined 
 
 async function countPhaseSubjectsInRun(worktreePath: string, baseRef: string, phaseSubject: string): Promise<number> {
   try {
-    const output = await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["log", "--format=%s", `${baseRef}..HEAD`],
-      worktreePath,
-    );
+    const output = await logSubjectsInRange(worktreePath, `${baseRef}..HEAD`, realAsyncSubprocessRunner);
     return output.split("\n").filter((line) => phaseSubjectOrdinal(line, phaseSubject) !== undefined).length;
   } catch {
     return 0;

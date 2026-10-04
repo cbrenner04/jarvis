@@ -1,10 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import {
+  abortableWorktreeRebaseOnto,
+  fetchRemoteRef,
+  GitOperationError,
+  getCurrentHeadAsync,
+  isAncestorOrThrow,
+  pushHeadToRemoteBranchWithLease,
+  readBlobAtRef,
+  resolveRef,
+} from "../../../shared/git.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
-  networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -2244,16 +2253,15 @@ async function recordPredecessorForkSha(
   cwd: string,
 ): Promise<string | ChainedLaneRefusal> {
   if (tip.sha !== undefined) return tip.sha;
-  let sha: string;
-  try {
-    sha = (await git.runner.runAsync("git", ["rev-parse", "--verify", `${tip.run.branch}^{commit}`], cwd)).trim();
-  } catch (error) {
+  const resolved = await resolveRef(cwd, `${tip.run.branch}^{commit}`, git.runner);
+  if (resolved.status === "absent") {
     return {
       ok: false,
       reason: "tip_unresolved",
-      message: `predecessor lane "${predecessor}" is unmerged and its tip ${tip.run.branch} cannot be resolved in ${cwd}: ${errorText(error)}`,
+      message: `predecessor lane "${predecessor}" is unmerged and its tip ${tip.run.branch} cannot be resolved in ${cwd}`,
     };
   }
+  const sha = resolved.oid;
   const { store } = git;
   store.updateStage({
     pipelineId,
@@ -2361,7 +2369,10 @@ async function chainPredecessorMerged(
 type LaneBranchRebase = { ok: true } | { ok: false; reason: ChainedLaneRefusalReason; detail: string };
 
 function isRemoteRefMissing(error: unknown): boolean {
-  const text = error instanceof AsyncSubprocessError ? `${error.message}\n${error.stderr}` : errorText(error);
+  const text =
+    error instanceof GitOperationError || error instanceof AsyncSubprocessError
+      ? `${error.message}\n${error.stderr}`
+      : errorText(error);
   return /couldn't find remote ref|remote ref does not exist/i.test(text);
 }
 
@@ -2373,8 +2384,7 @@ async function fetchedRemoteTipMatchingHead(
   const cwd = lane.worktreePath;
   let remoteTip: string;
   try {
-    await runner.runAsync("git", ["fetch", "origin", lane.branch], cwd, networkSubprocessOptions());
-    remoteTip = (await runner.runAsync("git", ["rev-parse", "FETCH_HEAD"], cwd)).trim();
+    remoteTip = await fetchRemoteRef(cwd, "origin", lane.branch, runner);
   } catch (error) {
     if (isRemoteRefMissing(error)) {
       return {
@@ -2385,7 +2395,7 @@ async function fetchedRemoteTipMatchingHead(
     }
     return { ok: false, reason: "fetch_failed", detail: `git fetch origin ${lane.branch} failed: ${errorText(error)}` };
   }
-  const head = (await runner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
+  const head = await getCurrentHeadAsync(cwd, runner);
   if (head !== remoteTip) {
     return {
       ok: false,
@@ -2403,10 +2413,8 @@ async function branchStacksOnTip(
   tipRef: string,
 ): Promise<boolean | { ok: false; reason: "ancestry_check_failed"; detail: string }> {
   try {
-    await runner.runAsync("git", ["merge-base", "--is-ancestor", tipRef, "HEAD"], lane.worktreePath);
-    return true;
+    return await isAncestorOrThrow(lane.worktreePath, tipRef, "HEAD", runner);
   } catch (error) {
-    if (error instanceof AsyncSubprocessError && error.status === 1) return false;
     return {
       ok: false,
       reason: "ancestry_check_failed",
@@ -2439,28 +2447,16 @@ async function rebaseLaneBranch(
   if (!remote.ok) return remote;
   const base = await fetchBase(lane.baseRef);
   if (!base.ok) return base;
-  try {
-    await runner.runAsync("git", ["rebase", "--onto", `origin/${lane.baseRef}`, tipRef], cwd);
-  } catch (error) {
-    await runner.runAsync("git", ["rebase", "--abort"], cwd).catch(() => undefined);
+  const conflicts = await abortableWorktreeRebaseOnto(cwd, `origin/${lane.baseRef}`, tipRef, runner);
+  if (conflicts !== undefined) {
     return {
       ok: false,
       reason: "rebase_conflict",
-      detail: `git rebase --onto origin/${lane.baseRef} ${tipRef.slice(0, 12)} conflicted and was aborted: ${errorText(error)}`,
+      detail: `git rebase --onto origin/${lane.baseRef} ${tipRef.slice(0, 12)} conflicted and was aborted`,
     };
   }
   try {
-    await runner.runAsync(
-      "git",
-      [
-        "push",
-        `--force-with-lease=refs/heads/${lane.branch}:${remote.remoteTip}`,
-        "origin",
-        `HEAD:refs/heads/${lane.branch}`,
-      ],
-      cwd,
-      networkSubprocessOptions(),
-    );
+    await pushHeadToRemoteBranchWithLease(cwd, { branch: lane.branch, leaseOid: remote.remoteTip }, runner);
   } catch (error) {
     return {
       ok: false,
@@ -2477,8 +2473,7 @@ function baseFetcher(runner: AsyncSubprocessRunner, cwd: string): (baseRef: stri
   return (baseRef) => {
     let pending = fetched.get(baseRef);
     if (pending === undefined) {
-      pending = runner
-        .runAsync("git", ["fetch", "origin", baseRef], cwd, networkSubprocessOptions())
+      pending = fetchRemoteRef(cwd, "origin", baseRef, runner)
         .then((): LaneBranchRebase => ({ ok: true }))
         .catch(
           (error: unknown): LaneBranchRebase => ({
@@ -3293,12 +3288,9 @@ async function operatorBlockerCommittedOnBase(
   intentPath: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
-  try {
-    const content = await runner.runAsync("git", ["show", `${baseRef}:${PLAN_STAGE_INTENT_REL}`], projectRoot);
-    return operatorBlockerMessageInIntentContent(content, intentPath);
-  } catch {
-    return undefined;
-  }
+  const content = await readBlobAtRef(projectRoot, baseRef, PLAN_STAGE_INTENT_REL, runner);
+  if (content === undefined) return undefined;
+  return operatorBlockerMessageInIntentContent(content, intentPath);
 }
 
 function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | undefined {

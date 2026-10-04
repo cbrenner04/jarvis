@@ -23,11 +23,11 @@ After prerequisite migrations, `v2/src/commands/` and `v2/src/daemon/` productio
 
 ## Acceptance criteria
 
-- [ ] `runGitSpawnBypassGuard` reports zero violations under `v2/src/commands/` and `v2/src/daemon/` production modules; fails against the pre-fix tree where `v2/src/daemon/pipeline-execution.ts` still calls `runner.runAsync("git",`.
-- [ ] `pipeline-execution.test.ts` stays green (daemon pipeline git behavior unchanged aside from delegation).
-- [ ] `workflow.test.ts` stays green where workflow admission git probes are covered.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `runGitSpawnBypassGuard` reports zero violations under `v2/src/commands/` and `v2/src/daemon/` production modules; fails against the pre-fix tree where `v2/src/daemon/pipeline-execution.ts` still calls `runner.runAsync("git",`.
+- [x] `pipeline-execution.test.ts` stays green (daemon pipeline git behavior unchanged aside from delegation).
+- [x] `workflow.test.ts` stays green where workflow admission git probes are covered.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

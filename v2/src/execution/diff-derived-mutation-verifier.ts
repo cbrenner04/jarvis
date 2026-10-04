@@ -3,12 +3,17 @@ import { mkdirSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
+import { readBlobAtRef } from "../../../shared/git.ts";
 import {
   PROMPT_REGISTRY_MANIFEST_PATH,
   parsePromptRegistryManifest,
   readRegisteredPromptPaths,
 } from "../../../shared/prompts/registry.ts";
-import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessOptions,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import {
   type ChangedLine,
   changedPathsFromDiff,
@@ -874,12 +879,8 @@ async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promi
     // Fall through to the base-ref manifest.
   }
   try {
-    const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-    const manifest = await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["show", `${baseRef}:${PROMPT_REGISTRY_MANIFEST_PATH}`],
-      cwd,
-    );
+    const manifest = await readBlobAtRef(cwd, baseRef, PROMPT_REGISTRY_MANIFEST_PATH, realAsyncSubprocessRunner);
+    if (manifest === undefined) return [];
     return parsePromptRegistryManifest(manifest);
   } catch {
     return [];

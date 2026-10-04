@@ -11,7 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
-import { getGitStatusInventory, isGitRepoAsync } from "../../../shared/git.ts";
+import {
+  cleanWorktreeUntracked,
+  getGitStatusInventory,
+  isGitRepoAsync,
+  restoreWorktreeFromIndex,
+} from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { listRelativeFiles } from "./fs-walk.ts";
 import type { ReviewCycleInput, ReviewCycleResult } from "./review-cycle.ts";
@@ -111,8 +116,8 @@ export async function restoreWorkingTree(
 ): Promise<void> {
   if (before.kind === "git") {
     try {
-      await runner.runAsync("git", ["checkout", "--", "."], cwd, { stdio: "ignore" });
-      await runner.runAsync("git", ["clean", "-fd"], cwd, { stdio: "ignore" });
+      await restoreWorktreeFromIndex(cwd, runner);
+      await cleanWorktreeUntracked(cwd, runner);
     } catch {
       // Ignore restore failures; we'll fail the review on boundary violation detection.
     }

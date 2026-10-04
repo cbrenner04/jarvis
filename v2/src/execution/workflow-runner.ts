@@ -1,7 +1,13 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
-import { getCurrentHeadAsync } from "../../../shared/git.ts";
+import {
+  diffNameOnly,
+  getCurrentHeadAsync,
+  resetWorktreeMixed,
+  resolveParentCommit,
+  runGitArgv,
+} from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { isRecord } from "../../../shared/is-record.ts";
@@ -2485,7 +2491,7 @@ async function gitOutput(
 ): Promise<string> {
   if (!existsSync(join(worktreePath, ".git"))) return "";
   try {
-    return (await runner.runAsync("git", [...args], worktreePath, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
+    return (await runGitArgv(worktreePath, args, runner, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
   } catch {
     return "";
   }
@@ -2503,13 +2509,8 @@ async function readDiffOutcome(
   toRef: string,
 ): Promise<"empty" | "changed" | "unreadable"> {
   try {
-    const output = await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["diff", "--name-only", fromRef, toRef],
-      worktreePath,
-      { maxBuffer: GIT_OUTPUT_MAX_BUFFER },
-    );
-    return output.split("\n").some((line) => line.trim().length > 0) ? "changed" : "empty";
+    const paths = await diffNameOnly(worktreePath, { from: fromRef, to: toRef }, realAsyncSubprocessRunner);
+    return paths.length > 0 ? "changed" : "empty";
   } catch {
     return "unreadable";
   }
@@ -2532,16 +2533,12 @@ async function suppressContentEmptyCompletionCommit(
   commitSha: string,
   headBeforeCompletionCommit: string | undefined,
 ): Promise<void> {
-  let parent: string | undefined;
-  try {
-    parent = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `${commitSha}^`], worktreePath)).trim();
-  } catch {
-    parent = headBeforeCompletionCommit;
-  }
+  let parent = await resolveParentCommit(worktreePath, commitSha, realAsyncSubprocessRunner);
+  if (parent === undefined) parent = headBeforeCompletionCommit;
   if (parent === undefined) return;
   if ((await readDiffOutcome(worktreePath, parent, commitSha)) !== "empty") return;
   try {
-    await realAsyncSubprocessRunner.runAsync("git", ["reset", "--mixed", parent], worktreePath);
+    await resetWorktreeMixed(worktreePath, parent, realAsyncSubprocessRunner);
   } catch {
     // A failed rollback still must not publish; the marker commit (empty vs base) stays local.
   }

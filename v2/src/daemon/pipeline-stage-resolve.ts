@@ -1,6 +1,13 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { getBaseBranch, isGitRepoAsync } from "../../../shared/git.ts";
+import {
+  addWorktreeCheckout,
+  blobExistsAtRef,
+  getBaseBranch,
+  isGitRepoAsync,
+  listWorktrees,
+  pruneWorktrees,
+} from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
@@ -190,8 +197,7 @@ function neverLandedDownstreamInputError(relativePath: string): string {
 
 async function gitPathExistsOnBranch(projectRoot: string, branch: string, relativePath: string): Promise<boolean> {
   try {
-    await realAsyncSubprocessRunner.runAsync("git", ["cat-file", "-e", `${branch}:${relativePath}`], projectRoot);
-    return true;
+    return await blobExistsAtRef(projectRoot, branch, relativePath, realAsyncSubprocessRunner);
   } catch {
     return false;
   }
@@ -199,11 +205,9 @@ async function gitPathExistsOnBranch(projectRoot: string, branch: string, relati
 
 async function isRegisteredWorktreePath(projectRoot: string, worktreePath: string): Promise<boolean> {
   try {
-    const output = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot);
     const resolved = resolve(worktreePath);
-    return output
-      .split("\n")
-      .some((line) => line.startsWith("worktree ") && resolve(line.slice("worktree ".length)) === resolved);
+    const entries = await listWorktrees(projectRoot, realAsyncSubprocessRunner);
+    return entries.some((entry) => resolve(entry.path) === resolved);
   } catch {
     return true;
   }
@@ -228,12 +232,8 @@ async function rematerializeWorktreeFromBranch(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     mkdirSync(dirname(worktreePath), { recursive: true });
-    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "prune"], projectRoot);
-    await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["worktree", "add", "--checkout", worktreePath, branch],
-      projectRoot,
-    );
+    await pruneWorktrees(projectRoot, realAsyncSubprocessRunner);
+    await addWorktreeCheckout(projectRoot, { path: worktreePath, branch }, realAsyncSubprocessRunner);
     if (!(await isGitRepoAsync(worktreePath))) {
       throw new Error("created path is not a git worktree");
     }

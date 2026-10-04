@@ -14,6 +14,7 @@ import {
   branchExistsLocal,
   branchExistsOnOrigin,
   branchExistsOnOriginAsync,
+  commitInWorktree,
   countCommitsBetween,
   createBranch,
   DIFF_MAX_BUFFER,
@@ -24,6 +25,7 @@ import {
   diffNameOnlyRevision,
   diffStat,
   diffUnified,
+  fetchRemoteRef,
   type GitFailureReason,
   type GitOperation,
   GitOperationError,
@@ -33,13 +35,16 @@ import {
   gitCommonDir,
   gitDir,
   isAncestor,
+  isAncestorOrThrow,
   isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
   isRetryableGitError,
   isWorktreeDirty,
   listLocalBranchHeads,
+  listRecursiveBlobOidsAtRef,
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
+  listUntrackedPaths,
   listWorktrees,
   logPatchForPathInRange,
   lsRemoteRef,
@@ -52,8 +57,10 @@ import {
   type RefResolution,
   type RemoteUrlResult,
   readBlobAtRef,
+  readLocalGitConfig,
   remoteUrl,
   removeWorktree,
+  resolveParentCommit,
   resolveRef,
   unmergedPathNames,
   updateRef,
@@ -498,6 +505,17 @@ const PORCELAIN = [
   "worktree /bare.git\nbare\n",
 ].join("\n");
 
+describe("listUntrackedPaths", () => {
+  test("returns trimmed non-empty paths and omits blank lines from ls-files output", async () => {
+    const runner = fakeAsync({
+      "git ls-files --others --exclude-standard": "path/a\n\npath/b\n",
+    });
+    expect(await listUntrackedPaths("/repo", runner)).toEqual(["path/a", "path/b"]);
+    const emptyOnly = fakeAsync({ "git ls-files --others --exclude-standard": "\n" });
+    expect(await listUntrackedPaths("/repo", emptyOnly)).toEqual([]);
+  });
+});
+
 describe("listWorktrees", () => {
   test("parses every porcelain attribute into typed entries", async () => {
     const runner = fakeAsync({ "git worktree list --porcelain": PORCELAIN });
@@ -770,6 +788,7 @@ describe("graph reads for stale-reset", () => {
     const runner = fakeAsync({
       "git merge-base --is-ancestor main feature": "",
       "git merge-base --is-ancestor main stale": gitFailure("", 1),
+      "git merge-base --is-ancestor main broken": gitFailure("fatal: bad revision\n", 128),
       "git merge-tree --write-tree main feature": `${OID_A}\n`,
       "git merge-tree --write-tree main broken": gitFailure("fatal: bad revision\n", 128),
       "git diff --name-only --diff-filter=U": "a.txt\nb.txt\n",
@@ -779,6 +798,9 @@ describe("graph reads for stale-reset", () => {
     });
     expect(await isAncestor("/repo", "main", "feature", runner)).toBe(true);
     expect(await isAncestor("/repo", "main", "stale", runner)).toBe(false);
+    expect(await isAncestorOrThrow("/repo", "main", "feature", runner)).toBe(true);
+    expect(await isAncestorOrThrow("/repo", "main", "stale", runner)).toBe(false);
+    expectFailure(await rejection(isAncestorOrThrow("/repo", "main", "broken", runner)), "merge-base", "failed", false);
     expect(await mergeTreeWriteTree("/repo", "main", "feature", runner)).toBe(OID_A);
     expectFailure(
       await rejection(mergeTreeWriteTree("/repo", "main", "broken", runner)),
@@ -799,6 +821,9 @@ describe("graph reads for stale-reset", () => {
     expect(runner.calls.map((call) => call.args)).toEqual([
       ["git", "merge-base", "--is-ancestor", "main", "feature"],
       ["git", "merge-base", "--is-ancestor", "main", "stale"],
+      ["git", "merge-base", "--is-ancestor", "main", "feature"],
+      ["git", "merge-base", "--is-ancestor", "main", "stale"],
+      ["git", "merge-base", "--is-ancestor", "main", "broken"],
       ["git", "merge-tree", "--write-tree", "main", "feature"],
       ["git", "merge-tree", "--write-tree", "main", "broken"],
       ["git", "diff", "--name-only", "--diff-filter=U"],
@@ -814,6 +839,23 @@ describe("ref object reads at commits", () => {
       "git show main:gone": gitFailure("error: path 'gone' does not exist in 'main'\n", 1),
     });
     expect(await readBlobAtRef("/repo", "main", "gone", runner)).toBeUndefined();
+  });
+
+  test("listRecursiveBlobOidsAtRef returns without git when relPaths is empty", async () => {
+    const runner = fakeAsyncRunner("");
+    expect(await listRecursiveBlobOidsAtRef("/repo", "main", [], runner)).toEqual([]);
+    expect(runner.calls).toEqual([]);
+  });
+
+  test("listRecursiveBlobOidsAtRef parses blob oids from recursive ls-tree", async () => {
+    const listing = `100644 blob ${OID_A}\tpath/a.md\0` + `100644 blob ${OID_B}\tpath/b.md\0`;
+    const runner = fakeAsync({
+      "git ls-tree -r -z main -- path/a.md path/b.md": listing,
+    });
+    expect(await listRecursiveBlobOidsAtRef("/repo", "main", ["path/a.md", "path/b.md"], runner)).toEqual([
+      { path: "path/a.md", oid: OID_A },
+      { path: "path/b.md", oid: OID_B },
+    ]);
   });
 
   test("listTreeChildrenAtRef keeps blob tree and commit entries only", async () => {
@@ -883,6 +925,22 @@ describe("ref object reads at commits", () => {
   });
 });
 
+describe("resolveParentCommit", () => {
+  test("returns parent OID when rev-parse resolves commit^; undefined when parent is absent", async () => {
+    const commitSha = OID_B;
+    const runner = fakeAsync({
+      [`git rev-parse --verify --quiet ${commitSha}^`]: `${OID_A}\n`,
+      [`git rev-parse --verify --quiet ${OID_A}^`]: gitFailure("", 1),
+    });
+    expect(await resolveParentCommit("/repo", commitSha, runner)).toBe(OID_A);
+    expect(await resolveParentCommit("/repo", OID_A, runner)).toBeUndefined();
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "rev-parse", "--verify", "--quiet", `${commitSha}^`],
+      ["git", "rev-parse", "--verify", "--quiet", `${OID_A}^`],
+    ]);
+  });
+});
+
 describe("resolveRef", () => {
   test("resolved OID, silent exit 1 as absent, anything else inconclusive", async () => {
     const runner = fakeAsync({
@@ -897,6 +955,26 @@ describe("resolveRef", () => {
     expectFailure(await rejection(resolveRef("/repo", "broken", runner)), "ref-query", "failed", false);
     expectFailure(await rejection(resolveRef("/repo", "slow", runner)), "ref-query", "timeout", true);
     expect(runner.calls[0]?.args).toEqual(["git", "rev-parse", "--verify", "--quiet", "feature"]);
+  });
+});
+
+describe("fetchRemoteRef", () => {
+  test("returns FETCH_HEAD OID after fetch; absent FETCH_HEAD is a ref-query failure", async () => {
+    const resolved = fakeAsync({
+      "git fetch origin main": "",
+      "git rev-parse --verify --quiet FETCH_HEAD": `${OID_A}\n`,
+    });
+    expect(await fetchRemoteRef("/repo", "origin", "main", resolved)).toBe(OID_A);
+    expect(resolved.calls.map((call) => call.args)).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "--verify", "--quiet", "FETCH_HEAD"],
+    ]);
+
+    const absent = fakeAsync({
+      "git fetch origin gone": "",
+      "git rev-parse --verify --quiet FETCH_HEAD": gitFailure("", 1),
+    });
+    expectFailure(await rejection(fetchRemoteRef("/repo", "origin", "gone", absent)), "ref-query", "failed", false);
   });
 });
 
@@ -1026,6 +1104,20 @@ describe("pushBranch", () => {
     }
     const timeout = fakeAsync({ "git push origin feature": timeoutFailure() });
     expectFailure(await rejection(pushBranch("/repo", { branch: "feature" }, timeout)), "push", "timeout", true);
+  });
+});
+
+describe("readLocalGitConfig", () => {
+  test("returns the trimmed value when set and undefined when the value is blank", async () => {
+    const set = fakeAsync({ "git config --get user.name": "Operator\n" });
+    expect(await readLocalGitConfig("/repo", "user.name", set)).toBe("Operator");
+    expect(set.calls[0]).toMatchObject({ args: ["git", "config", "--get", "user.name"], cwd: "/repo" });
+    const blank = fakeAsync({ "git config --get user.name": "\n" });
+    expect(await readLocalGitConfig("/repo", "user.name", blank)).toBeUndefined();
+    const unset = fakeAsync({ "git config --get user.name": gitFailure("", 1) });
+    expect(await readLocalGitConfig("/repo", "user.name", unset)).toBeUndefined();
+    const broken = fakeAsync({ "git config --get user.name": gitFailure("fatal: not a git repository\n", 128) });
+    await expect(readLocalGitConfig("/repo", "user.name", broken)).rejects.toMatchObject({ operation: "ref-query" });
   });
 });
 
@@ -1174,6 +1266,27 @@ describe("isInsideWorkTree", () => {
     expect(isNotGitRepositoryDiagnostic("fatal: gitfile does not point to a valid repository: /x/.git")).toBe(true);
     expect(isNotGitRepositoryDiagnostic("fatal: ambiguous argument 'HEAD'")).toBe(false);
     expect(isNotGitRepositoryDiagnostic("")).toBe(false);
+  });
+});
+
+describe("commitInWorktree", () => {
+  test("omits -c user.* overrides when identity is undefined", async () => {
+    const runner = fakeAsyncRunner("");
+    await commitInWorktree("/wt", "subject", runner);
+    expect(runner.calls).toEqual([{ args: ["git", "commit", "-m", "subject"], cwd: "/wt" }]);
+  });
+
+  test("prepends -c user.name and user.email when identity is set", async () => {
+    const runner = fakeAsyncRunner("");
+    await commitInWorktree("/wt", "subject", runner, {
+      identity: { name: "Jarvis", email: "jarvis@example.com" },
+    });
+    expect(runner.calls).toEqual([
+      {
+        args: ["git", "-c", "user.name=Jarvis", "-c", "user.email=jarvis@example.com", "commit", "-m", "subject"],
+        cwd: "/wt",
+      },
+    ]);
   });
 });
 

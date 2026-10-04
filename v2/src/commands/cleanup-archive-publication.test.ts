@@ -5,7 +5,7 @@ import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../share
 import type { StateStore } from "../persistence/state-store.ts";
 import { ghRefusingRealRunner as realAsyncSubprocessRunner } from "../testing/gh-refusing-runner.ts";
 import { createArchivePublicationSessions, inspectStrandedArtifacts, runCleanupCommand } from "./cleanup.ts";
-import { createArchivePublicationSession } from "./cleanup-archive-publication.ts";
+import { committedBlobIdsAtRef, createArchivePublicationSession } from "./cleanup-archive-publication.ts";
 import type { ArtifactSpec } from "./cleanup-artifacts.ts";
 
 function isCleanupArchiveBranchProbe(cmd: string, args: readonly string[]): boolean {
@@ -111,6 +111,20 @@ function archivePublicationRunner(
   };
 }
 
+describe("committedBlobIdsAtRef", () => {
+  test("unreadable ref listing is soft (undefined, not thrown)", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "git" && args[0] === "ls-tree") {
+          throw new AsyncSubprocessError("spawn failed", undefined, "", "", "ENOENT");
+        }
+        throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+      },
+    };
+    expect(await committedBlobIdsAtRef(runner, "/missing", "/missing", "main", ["v2/spec"])).toBeUndefined();
+  });
+});
+
 describe("cleanup archive publication session", () => {
   let tempRoot: string;
   let projectRoot: string;
@@ -184,6 +198,94 @@ describe("cleanup archive publication session", () => {
     expect(session.commits()).toBe(0);
   });
 
+  test("archive commit keeps configured user.email instead of jarvis cleanup fallback", async () => {
+    const { spec } = inRepoSpec("20261004T000000Z-archive-identity", "[x] Done");
+    await commitFixtures(projectRoot);
+    const session = createArchivePublicationSession({
+      runner: realAsyncSubprocessRunner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261004T000000Z",
+    });
+    expect(await session.publish(spec)).toMatchObject({ status: "archived" });
+    const authorEmail = (
+      await realAsyncSubprocessRunner.runAsync("git", ["log", "-1", "--format=%ae", session.branch], projectRoot)
+    ).trim();
+    expect(authorEmail).toBe("test@test.com");
+  });
+
+  test("archive publish commit passes jarvis cleanup identity when worktree user.email is unset", async () => {
+    const { spec } = inRepoSpec("20261004T100000Z-archive-fallback-identity", "[x] Done");
+    await commitFixtures(projectRoot);
+    const archiveCommitArgs: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (
+          cmd === "git" &&
+          args[0] === "config" &&
+          args[1] === "--get" &&
+          args[2] === "user.email" &&
+          typeof cwd === "string" &&
+          cwd.includes("worktrees")
+        ) {
+          throw new AsyncSubprocessError("not set", 1, "", "has no value", undefined);
+        }
+        if (cmd === "git" && args.includes("commit")) {
+          archiveCommitArgs.push([...args]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    const session = createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261004T100000Z",
+    });
+    expect(await session.publish(spec)).toMatchObject({ status: "archived" });
+    const archiveCommit = archiveCommitArgs.find((commitArgs) => {
+      const messageIndex = commitArgs.indexOf("-m");
+      const message = messageIndex >= 0 ? commitArgs[messageIndex + 1] : undefined;
+      return typeof message === "string" && message.startsWith("spec: archive");
+    });
+    expect(archiveCommit).toBeDefined();
+    expect(archiveCommit).toContain("user.name=jarvis cleanup");
+    expect(archiveCommit).toContain("user.email=jarvis-cleanup@localhost");
+  });
+
+  test("archive worktree add starts from local default branch when it resolves, not HEAD", async () => {
+    const specName = "20261003T220000Z-archive-base-ref";
+    const { spec } = inRepoSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "feature"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "feature"], projectRoot);
+    writeFileSync(join(projectRoot, "feature-only.txt"), "on feature\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "feature-only.txt"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "feature tip"], projectRoot);
+
+    const worktreeStartPoints: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add" && args[2] === "-b") {
+          const startPoint = args[5];
+          if (typeof startPoint === "string") worktreeStartPoints.push(startPoint);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    const session = createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261003T220000Z",
+    });
+    expect(await session.publish(spec)).toMatchObject({ status: "archived" });
+    expect(worktreeStartPoints).toEqual(["main"]);
+  });
+
   test("publishConsumedReadyIntentOnly commits ready-intent prune on the cleanup branch", async () => {
     const intent = "---\nname: prune-only\n---\n";
     const { spec, readyIntent } = inRepoSpec("20260930T000001Z-prune-only", "[x] Done", intent, intent);
@@ -219,6 +321,47 @@ describe("cleanup archive publication session", () => {
     );
     expect(log.trim()).toBe("spec: prune consumed ready-intent for 20260930T000001Z-prune-only");
     expect(readFileSync(readyIntent, "utf8")).toBe(intent);
+  });
+
+  test("publishConsumedReadyIntentOnly commit passes jarvis cleanup identity when worktree user.email is unset", async () => {
+    const intent = "---\nname: prune-identity\n---\n";
+    const { spec } = inRepoSpec("20261004T110000Z-prune-fallback-identity", "[x] Done", intent, intent);
+    await commitFixtures(projectRoot);
+    const pruneCommitArgs: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (
+          cmd === "git" &&
+          args[0] === "config" &&
+          args[1] === "--get" &&
+          args[2] === "user.email" &&
+          typeof cwd === "string" &&
+          cwd.includes("worktrees")
+        ) {
+          throw new AsyncSubprocessError("not set", 1, "", "has no value", undefined);
+        }
+        if (cmd === "git" && args.includes("commit")) {
+          pruneCommitArgs.push([...args]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    const session = createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261004T110000Z",
+    });
+    expect(await session.publishConsumedReadyIntentOnly(spec)).toMatchObject({ status: "intentPruned" });
+    const pruneCommit = pruneCommitArgs.find((commitArgs) => {
+      const messageIndex = commitArgs.indexOf("-m");
+      const message = messageIndex >= 0 ? commitArgs[messageIndex + 1] : undefined;
+      return typeof message === "string" && message.startsWith("spec: prune consumed ready-intent");
+    });
+    expect(pruneCommit).toBeDefined();
+    expect(pruneCommit).toContain("user.name=jarvis cleanup");
+    expect(pruneCommit).toContain("user.email=jarvis-cleanup@localhost");
   });
 
   async function stageSpecOnCleanupBranch(stagedBranch: string, specName: string): Promise<string> {

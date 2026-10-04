@@ -569,6 +569,18 @@ export async function diffNameOnlyRevision(
   return sortedNonemptyDiffPaths(await runDiff(cwd, ["--name-only", revision], runner, options));
 }
 
+/** `git diff --name-only --diff-filter=ACM` for `baseRef...HEAD`. */
+export async function diffNameOnlyThreeDotAcm(
+  cwd: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  return sortedNonemptyDiffPaths(
+    await runDiff(cwd, ["--name-only", "--diff-filter=ACM", `${baseRef}...HEAD`], runner, options),
+  );
+}
+
 /** Unmerged paths in the index/worktree (`git diff --name-only --diff-filter=U`). */
 export async function unmergedPathNames(
   cwd: string,
@@ -1345,6 +1357,214 @@ export async function cleanWorktreeUntracked(
   } catch (error) {
     throw gitError("worktree-clean", error, [], options);
   }
+}
+
+export type RunGitArgvOptions = OperationOptions & AsyncSubprocessOptions;
+
+/** Raw `git` argv at the shared boundary; prefer typed exports when one exists. */
+export async function runGitArgv(
+  cwd: string,
+  args: readonly string[],
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: RunGitArgvOptions = {},
+): Promise<string> {
+  const { signal, ...extra } = options;
+  return runner.runAsync("git", [...args], cwd, runOptions({ signal }, extra));
+}
+
+/** `git merge-base a b`, or `undefined` when histories do not share an ancestor or refs fail. */
+export async function tryMergeBase(
+  cwd: string,
+  a: string,
+  b: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string | undefined> {
+  try {
+    return await mergeBase(cwd, a, b, runner, options);
+  } catch {
+    return undefined;
+  }
+}
+
+/** `git reset --mixed <ref>` in a worktree. */
+export async function resetWorktreeMixed(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["reset", "--mixed", ref], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-reset", error, [], options);
+  }
+}
+
+/** `git reset --keep <ref>` in a worktree. */
+export async function resetWorktreeKeep(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["reset", "--keep", ref], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-reset", error, [], options);
+  }
+}
+
+/** `git reset --hard <ref>` in a worktree. */
+export async function resetWorktreeHardToRef(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["reset", "--hard", ref], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-reset", error, [], options);
+  }
+}
+
+/** `git checkout -- .` in a worktree (discard unstaged tracked edits). */
+export async function restoreWorktreeFromIndex(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["checkout", "--", "."], cwd, runOptions(options, { stdio: "ignore" }));
+  } catch (error) {
+    throw gitError("worktree-reset", error, [], options);
+  }
+}
+
+/** `git restore` for one or more worktree-relative paths. */
+export async function restoreWorktreePaths(
+  cwd: string,
+  paths: readonly string[],
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["restore", ...paths], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-reset", error, [], options);
+  }
+}
+
+/** `git worktree add --detach <path> <commit>`. */
+export async function addWorktreeDetach(
+  cwd: string,
+  target: { path: string; commit: string },
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["worktree", "add", "--detach", target.path, target.commit], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-add", error, WORKTREE_ADD_RULES, options);
+  }
+}
+
+/** Untracked paths (`git ls-files --others --exclude-standard`), one per line. */
+export async function listUntrackedPaths(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  try {
+    const output = await runner.runAsync(
+      "git",
+      ["ls-files", "--others", "--exclude-standard"],
+      cwd,
+      runOptions(options),
+    );
+    return output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch (error) {
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** NUL-delimited untracked inventory (`git ls-files --others --exclude-standard -z`). */
+export async function listUntrackedPathsZ(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  return await runner.runAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], cwd, runOptions(options));
+}
+
+/** `git diff --name-status -z` for `baseRef...HEAD` with the ready-gate filter set. */
+export async function diffNameStatusThreeDotZ(
+  cwd: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions & { maxBuffer?: number } = {},
+): Promise<string> {
+  const { maxBuffer, ...rest } = options;
+  return await runner.runAsync(
+    "git",
+    ["diff", "--name-status", "-z", "--diff-filter=ACDMRTUXB", `${baseRef}...HEAD`],
+    cwd,
+    runOptions(rest, { maxBuffer: maxBuffer ?? DIFF_MAX_BUFFER }),
+  );
+}
+
+/** Changed paths between `baseRef` and the working tree (`git diff --name-only baseRef --`). */
+export async function diffNameOnlyVsWorktree(
+  cwd: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  return sortedNonemptyDiffPaths(await runDiff(cwd, ["--name-only", baseRef, "--"], runner, options));
+}
+
+/** `git log --format=%s` over a revision range (e.g. `base..HEAD`). */
+export async function logSubjectsInRange(
+  cwd: string,
+  range: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  return await runner.runAsync("git", ["log", "--format=%s", range], cwd, runOptions(options));
+}
+
+/** Parent commit OID of `commitSha`, or `undefined` when it has no parent. */
+export async function resolveParentCommit(
+  cwd: string,
+  commitSha: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string | undefined> {
+  const resolved = await resolveRef(cwd, `${commitSha}^`, runner, options);
+  return resolved.status === "resolved" ? resolved.oid : undefined;
+}
+
+/** Worktree-relative `.git` directory (`git rev-parse --git-dir`). */
+export async function gitWorkTreeDir(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  return (await runner.runAsync("git", ["rev-parse", "--git-dir"], cwd, runOptions(options))).trim();
+}
+
+/** `git rev-parse --abbrev-ref <ref>` (e.g. `main@{upstream}`). */
+export async function resolveAbbrevRef(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  return (await runner.runAsync("git", ["rev-parse", "--abbrev-ref", ref], cwd, runOptions(options))).trim();
 }
 
 /** `git mv <from> <to>` relative to `cwd`. */

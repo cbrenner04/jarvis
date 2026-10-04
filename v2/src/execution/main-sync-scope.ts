@@ -1,3 +1,4 @@
+import { tryMergeBase } from "../../../shared/git.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 /** Blob id placeholder for paths absent at a git object; callers and `selectMainSyncPaths` must agree. */
@@ -48,10 +49,5 @@ export async function resolveLaneMergeBase(
   baseRef: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
-  try {
-    const mergeBase = (await runner.runAsync("git", ["merge-base", baseRef, "HEAD"], worktreePath)).trim();
-    return mergeBase.length > 0 ? mergeBase : undefined;
-  } catch {
-    return undefined;
-  }
+  return await tryMergeBase(worktreePath, baseRef, "HEAD", runner);
 }

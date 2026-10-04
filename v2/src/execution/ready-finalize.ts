@@ -19,6 +19,16 @@ import {
 } from "../../../scripts/run-v2-tests.ts";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
+  addWorktreeDetach,
+  diffNameOnlyThreeDotAcm,
+  diffNameStatusThreeDotZ,
+  getCurrentHeadAsync,
+  listUntrackedPaths,
+  listUntrackedPathsZ,
+  mergeBase,
+  removeWorktree,
+} from "../../../shared/git.ts";
+import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   isSubprocessTimeout,
@@ -35,6 +45,7 @@ import {
   runPublicationWithRetry,
 } from "./publication-retry.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
+import { markPrReady } from "./github-operations.ts";
 import type { SmokePass, VerificationResult } from "./runtime-smoke-verifier.ts";
 import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
@@ -594,7 +605,7 @@ async function removeDetachedWorktree(
   worktreeDir: string,
 ): Promise<void> {
   try {
-    await runner.runAsync("git", ["worktree", "remove", "--force", worktreeDir], projectRoot);
+    await removeWorktree(projectRoot, worktreeDir, runner, { force: true });
   } catch {
     if (existsSync(worktreeDir)) {
       rmSync(worktreeDir, { recursive: true, force: true });
@@ -660,14 +671,12 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
   return async (scope, terminalCommand, path) => {
     let worktreeDir: string | undefined;
     try {
-      const baseCommit = (
-        await runner.runAsync("git", ["merge-base", scope.baseRef, "HEAD"], scope.worktreePath)
-      ).trim();
+      const baseCommit = await mergeBase(scope.worktreePath, scope.baseRef, "HEAD", runner);
       worktreeDir = mkdtempSync(join(tmpdir(), "jarvis-ready-base-ref-probe-"));
-      await runner.runAsync("git", ["worktree", "add", "--detach", worktreeDir, baseCommit], scope.worktreePath);
+      await addWorktreeDetach(scope.worktreePath, { path: worktreeDir, commit: baseCommit }, runner);
       // Defense-in-depth: `git worktree add --detach` either lands on `baseCommit` or throws
       // (already reported as inconclusive below), so this should never actually mismatch.
-      const probeHead = (await runner.runAsync("git", ["rev-parse", "HEAD"], worktreeDir)).trim();
+      const probeHead = await getCurrentHeadAsync(worktreeDir, runner);
       if (probeHead !== baseCommit) {
         return {
           kind: "error",
@@ -917,12 +926,9 @@ export async function deriveGateAllowedPaths(
     diffOutput =
       seams?.gitDiffNameStatus !== undefined
         ? await seams.gitDiffNameStatus(scope.worktreePath, scope.baseRef)
-        : await runner.runAsync(
-            "git",
-            ["diff", "--name-status", "-z", "--diff-filter=ACDMRTUXB", `${scope.baseRef}...HEAD`],
-            scope.worktreePath,
-            { maxBuffer: READY_GATE_MAX_BUFFER },
-          );
+        : await diffNameStatusThreeDotZ(scope.worktreePath, scope.baseRef, runner, {
+            maxBuffer: READY_GATE_MAX_BUFFER,
+          });
   } catch {
     return { reason: "diff_unavailable" };
   }
@@ -935,7 +941,7 @@ export async function deriveGateAllowedPaths(
     untrackedOutput =
       seams?.gitUntracked !== undefined
         ? await seams.gitUntracked(scope.worktreePath)
-        : await runner.runAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], scope.worktreePath);
+        : await listUntrackedPathsZ(scope.worktreePath, runner);
   } catch {
     return { reason: "untracked_inventory_unavailable" };
   }
@@ -1285,26 +1291,9 @@ async function getChangedPathsWithResolvability(
   baseRef: string,
 ): Promise<{ paths: string[]; baseResolvable: boolean }> {
   try {
-    const result = await runner.runAsync(
-      "git",
-      ["diff", "--name-only", "--diff-filter=ACM", `${baseRef}...HEAD`],
-      worktreePath,
-      { maxBuffer: 10 * 1024 * 1024 },
-    );
-    const paths = result
-      .split("\n")
-      .map((p) => p.trim())
-      .filter(Boolean);
+    const paths = await diffNameOnlyThreeDotAcm(worktreePath, baseRef, runner);
     try {
-      const untrackedResult = await runner.runAsync(
-        "git",
-        ["ls-files", "--others", "--exclude-standard"],
-        worktreePath,
-      );
-      const untrackedPaths = untrackedResult
-        .split("\n")
-        .map((p) => p.trim())
-        .filter(Boolean);
+      const untrackedPaths = await listUntrackedPaths(worktreePath, runner);
       return { paths: [...paths, ...untrackedPaths], baseResolvable: true };
     } catch {
       return { paths, baseResolvable: true };
@@ -1429,12 +1418,7 @@ async function defaultGhReadyFlip(
   worktreePath: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  await realAsyncSubprocessRunner.runAsync(
-    "gh",
-    ["pr", "ready", String(prNumber)],
-    worktreePath,
-    networkSubprocessOptions({ signal }),
-  );
+  await markPrReady(realAsyncSubprocessRunner, worktreePath, prNumber ?? "", { signal });
 }
 
 function ghFlipCombinedOutput(error: unknown): string {

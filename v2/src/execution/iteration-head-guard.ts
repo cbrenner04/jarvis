@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
+import { resetWorktreeKeep, tryMergeBase } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentHistoryRewriteRevertedEvent } from "../persistence/log-stream.ts";
 
@@ -19,10 +20,6 @@ type GuardInput = {
   log: (event: AgentHistoryRewriteRevertedEvent) => void;
   runner?: AsyncSubprocessRunner;
 };
-
-async function git(runner: AsyncSubprocessRunner, cwd: string, args: string[]): Promise<string> {
-  return (await runner.runAsync("git", args, cwd)).trim();
-}
 
 /** Pure: a move is a rewrite unless `HEAD` is unchanged or the pre-iteration SHA is its merge base. */
 export function isHistoryRewrite(preSha: string, postSha: string, mergeBase: string | undefined): boolean {
@@ -99,10 +96,10 @@ async function checkIterationHead(
     };
   }
   if (post.sha === pre.sha) return { kind: "unchanged" };
-  const mergeBase = await git(runner, cwd, ["merge-base", pre.sha, post.sha]).catch(() => undefined);
+  const mergeBase = await tryMergeBase(cwd, pre.sha, post.sha, runner);
   if (!isHistoryRewrite(pre.sha, post.sha, mergeBase)) return { kind: "descendant" };
   try {
-    await git(runner, cwd, ["reset", "--keep", pre.sha]);
+    await resetWorktreeKeep(cwd, pre.sha, runner);
   } catch (error) {
     return {
       kind: "guard_failed",

@@ -23,12 +23,18 @@
 
 ## Acceptance criteria
 
-- [ ] `runGitSpawnBypassGuard` reports zero violations across all `v2/src/execution/` production modules; fails against the pre-fix tree where `v2/src/execution/write-loop.ts` still contains `runAsync("git",`.
-- [ ] `scripts/guard-git-spawn-bypass.test.ts` test `rejects deliberate new git spawn fixture` (or equivalent) fails when a synthetic production record adds a fresh `runAsync("git"` line and passes when the guard flags it — pins regression detection for new bypasses.
-- [ ] `write-loop-coverage-and-iteration-commit.test.ts` stays green.
-- [ ] `github-operations.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
+- [x] `runGitSpawnBypassGuard` reports zero violations across all `v2/src/execution/` production modules; fails against the pre-fix tree where `v2/src/execution/write-loop.ts` still contains `runAsync("git",`.
+- [x] `scripts/guard-git-spawn-bypass.test.ts` test `rejects deliberate new git spawn fixture` (or equivalent) fails when a synthetic production record adds a fresh `runAsync("git"` line and passes when the guard flags it — pins regression detection for new bypasses.
+- [x] `write-loop-coverage-and-iteration-commit.test.ts` stays green.
+- [x] `github-operations.test.ts` stays green.
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
+
+## Blocker
+
+`bun run test:v2` fails only `workflow.test.ts` > `plan --base validation > rejects a --base strictly behind its upstream`: stderr is daemon socket connect timeout (`Failed to connect to daemon on socket … after starting it (5000ms deadline exceeded)`), not `base_behind_origin`; reproduces serially (`JARVIS_TEST_CONCURRENCY=1`); `implement-workflow-steps.test.ts` `base_behind_origin` unit test passes.
+
+blocked
 
 ## Documentation updates
 

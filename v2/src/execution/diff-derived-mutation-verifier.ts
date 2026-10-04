@@ -874,12 +874,10 @@ async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promi
     // Fall through to the base-ref manifest.
   }
   try {
+    const { readBlobAtRef } = await import("../../../shared/git.ts");
     const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-    const manifest = await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["show", `${baseRef}:${PROMPT_REGISTRY_MANIFEST_PATH}`],
-      cwd,
-    );
+    const manifest = await readBlobAtRef(cwd, baseRef, PROMPT_REGISTRY_MANIFEST_PATH, realAsyncSubprocessRunner);
+    if (manifest === undefined) return [];
     return parsePromptRegistryManifest(manifest);
   } catch {
     return [];

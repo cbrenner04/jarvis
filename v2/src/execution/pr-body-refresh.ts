@@ -2,10 +2,10 @@ import { spawn } from "node:child_process";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
   NETWORK_SUBPROCESS_TIMEOUT_MS,
-  networkSubprocessOptions,
   nonInteractiveNetworkEnv,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { editPrBodyFromStdin, editPrTitle, viewPrTextField } from "./github-operations.ts";
 import { renderAttribution } from "./pr-attribution.ts";
 import { formatPublicationSpecPathForPrBody } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
@@ -63,18 +63,20 @@ function buildHeaderBlock(specPath: string, worktreePath: string, bodySummary?: 
   return summary ? `${header}\n\n${summary}` : header;
 }
 
+function ghRunnerForCommand(command: string): typeof realAsyncSubprocessRunner {
+  if (command === "gh") return realAsyncSubprocessRunner;
+  return {
+    runAsync: (_cmd, args, cwd, options) => realAsyncSubprocessRunner.runAsync(command, args, cwd, options),
+  };
+}
+
 function defaultFetchPrField(
   field: "body" | "title",
   branch: string,
   cwd: string,
   signal: AbortSignal | undefined,
 ): Promise<string> {
-  return realAsyncSubprocessRunner.runAsync(
-    "gh",
-    ["pr", "view", branch, "--json", field, "-q", `.${field}`],
-    cwd,
-    networkSubprocessOptions({ signal }),
-  );
+  return viewPrTextField(realAsyncSubprocessRunner, cwd, branch, field, { signal });
 }
 
 /** Default title-write seam: `gh pr edit <branch> --title <new>`. */
@@ -85,9 +87,7 @@ export function defaultWritePrTitle(
   command = "gh",
   signal?: AbortSignal,
 ): Promise<void> {
-  return realAsyncSubprocessRunner
-    .runAsync(command, ["pr", "edit", branch, "--title", title], cwd, networkSubprocessOptions({ signal }))
-    .then(() => {});
+  return editPrTitle(ghRunnerForCommand(command), cwd, branch, title, { signal }).then(() => {});
 }
 
 /** Kills a stdin-fed `gh pr edit` that outlives the network bound; rejects as a retryable timeout. */
@@ -99,6 +99,9 @@ export function defaultWritePrBody(
   command = "gh",
   signal?: AbortSignal,
 ): Promise<void> {
+  if (command === "gh") {
+    return editPrBodyFromStdin(cwd, branch, body, { signal, timeoutMs });
+  }
   const args = ["pr", "edit", branch, "--body-file", "-"];
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {

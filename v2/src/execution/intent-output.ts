@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { isGitRepoAsync } from "../../../shared/git.ts";
+import { diffNameOnlyVsWorktree, getGitStatusInventory, gitWorkTreeDir, isGitRepoAsync } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
@@ -41,17 +41,11 @@ async function listWorktreeChangedPaths(
 ): Promise<string[]> {
   if (await isGitRepoAsync(worktreePath)) {
     try {
-      const status = await runner.runAsync("git", ["status", "--short", "--untracked-files=all"], worktreePath);
-      return status
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => line.slice(3).trim())
-        .filter(Boolean);
+      const inventory = await getGitStatusInventory(worktreePath, runner);
+      return inventory.map((entry) => entry.currentPath).filter(Boolean);
     } catch {
       try {
-        return (await runner.runAsync("git", ["diff", "--name-only", baseRef, "--"], worktreePath))
-          .split("\n")
-          .filter(Boolean);
+        return await diffNameOnlyVsWorktree(worktreePath, baseRef, runner);
       } catch {
         // fall through to a plain filesystem listing
       }
@@ -118,7 +112,7 @@ async function ownershipPath(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<string> {
   try {
-    const gitDir = (await runner.runAsync("git", ["rev-parse", "--git-dir"], worktreePath)).trim();
+    const gitDir = await gitWorkTreeDir(worktreePath, runner);
     return join(resolve(worktreePath, gitDir), "jarvis-intent-output.json");
   } catch {
     return join(worktreePath, ".jarvis-intent-output.json");

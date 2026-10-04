@@ -1,14 +1,15 @@
 /** Shared diff plumbing for the completion verifiers (mutation + runtime smoke). */
 import { readFileSync } from "node:fs";
+import { listUntrackedPaths, runGitArgv } from "../../../shared/git.ts";
 import { isTestCodePath } from "../../../scripts/production-files.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 export async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
-    return await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["diff", `${baseRef}...HEAD`, "--no-ext-diff", "--no-color"],
+    return await runGitArgv(
       cwd,
+      ["diff", `${baseRef}...HEAD`, "--no-ext-diff", "--no-color"],
+      realAsyncSubprocessRunner,
     );
   } catch {
     return "";
@@ -151,16 +152,9 @@ export async function defaultReadFile(path: string): Promise<string> {
 
 /** Untracked production paths under `cwd` (`git ls-files --others --exclude-standard`), optionally code paths only. */
 export async function defaultUntrackedFiles(cwd: string, options?: { codeOnly?: boolean }): Promise<string[]> {
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
-    const output = await realAsyncSubprocessRunner.runAsync("git", ["ls-files", "--others", "--exclude-standard"], cwd);
-    return output
-      .trim()
-      .split("\n")
-      .filter((line) => {
-        const trimmed = line.trim();
-        return trimmed && isProductionFile(trimmed) && (options?.codeOnly !== true || isCodePath(trimmed));
-      });
+    const paths = await listUntrackedPaths(cwd, realAsyncSubprocessRunner);
+    return paths.filter((trimmed) => isProductionFile(trimmed) && (options?.codeOnly !== true || isCodePath(trimmed)));
   } catch {
     return [];
   }

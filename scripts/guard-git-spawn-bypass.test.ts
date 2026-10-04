@@ -34,11 +34,15 @@ describe("git spawn bypass guard", () => {
     expect(violations(spawn)).toEqual([{ file: EXAMPLE_FILE, line: 1, command: "git" }]);
   });
 
-  test("repository walk reports reachable inline git spawn", () => {
-    const found = runGitSpawnBypassGuard(process.cwd()).some(
-      (violation) => violation.file === "v2/src/execution/write-loop.ts" && violation.command === "git",
+  test("rejects deliberate new git spawn fixture on repository walk", () => {
+    const executionViolations = runGitSpawnBypassGuard(process.cwd()).filter((violation) =>
+      violation.file.startsWith("v2/src/execution/"),
     );
-    expect(found).toBe(true);
+    expect(executionViolations).toEqual([]);
+    const synthetic = 'await runner.runAsync("git", ["status"], cwd);';
+    expect(violations(synthetic, "v2/src/execution/write-loop.ts")).toEqual([
+      { file: "v2/src/execution/write-loop.ts", line: 1, command: "git" },
+    ]);
   });
 
   test("ignores non-production paths under v2/src", () => {

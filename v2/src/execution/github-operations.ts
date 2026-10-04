@@ -1,10 +1,13 @@
+import { spawn } from "node:child_process";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessOptions,
   type AsyncSubprocessRunner,
   isSubprocessTimeout,
+  NETWORK_SUBPROCESS_TIMEOUT_MS,
   networkSubprocessOptions,
+  nonInteractiveNetworkEnv,
 } from "../../../shared/subprocess.ts";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +28,7 @@ export type GitHubOperation =
   | "pr-close"
   | "pr-merge"
   | "pr-comment"
+  | "pr-edit"
   | "repo-view"
   | "graphql"
   | "auth-status";
@@ -320,6 +324,52 @@ export type PrReviewActivity = {
   }>;
 };
 
+/** One PR field (`body` or `title`) by branch name or number. */
+export async function viewPrTextField(
+  runner: AsyncSubprocessRunner,
+  cwd: string,
+  selector: PrSelector,
+  field: "body" | "title",
+  options: GitHubOperationOptions = {},
+): Promise<string> {
+  return await gh(
+    runner,
+    cwd,
+    "pr-view",
+    ["pr", "view", String(selector), "--json", field, "-q", `.${field}`],
+    options,
+  );
+}
+
+export type PrAdmissionView = {
+  state?: PrState;
+  headRefName?: string;
+  url?: string;
+  isDraft?: boolean;
+  reviews?: Array<{ submittedAt?: string | null }>;
+};
+
+/** Admission prelude fields for an open PR by number. */
+export async function viewPrAdmission(
+  runner: AsyncSubprocessRunner,
+  cwd: string,
+  prNumber: number,
+  options: GitHubOperationOptions = {},
+): Promise<PrAdmissionView> {
+  const stdout = await gh(
+    runner,
+    cwd,
+    "pr-view",
+    ["pr", "view", String(prNumber), "--json", "state,headRefName,url,reviews,isDraft"],
+    options,
+  );
+  const record = parseJson("pr-view", stdout);
+  if (record === null || typeof record !== "object" || Array.isArray(record)) {
+    throw malformed("pr-view", `gh pr view ${prNumber} admission fields returned a non-object`, stdout);
+  }
+  return record as PrAdmissionView;
+}
+
 /** Reviews and top-level comments on a PR, as gh reports them (nullable fields preserved). */
 export async function viewPrReviewActivity(
   runner: AsyncSubprocessRunner,
@@ -428,6 +478,79 @@ export async function commentPr(
   options: GitHubOperationOptions = {},
 ): Promise<void> {
   await gh(runner, cwd, "pr-comment", ["pr", "comment", String(prNumber), "--body", body], options);
+}
+
+/** `gh pr edit <selector> --title <title>`. */
+export async function editPrTitle(
+  runner: AsyncSubprocessRunner,
+  cwd: string,
+  selector: PrSelector,
+  title: string,
+  options: GitHubOperationOptions = {},
+): Promise<void> {
+  await gh(runner, cwd, "pr-edit", ["pr", "edit", String(selector), "--title", title], options);
+}
+
+/** Stdin-fed `gh pr edit --body-file -` with a network bound (matches publication refresh semantics). */
+export async function editPrBodyFromStdin(
+  cwd: string,
+  selector: PrSelector,
+  body: string,
+  options: GitHubOperationOptions & { ghCommand?: string } = {},
+): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? NETWORK_SUBPROCESS_TIMEOUT_MS;
+  const args = ["pr", "edit", String(selector), "--body-file", "-"];
+  const command = options.ghCommand ?? "gh";
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: nonInteractiveNetworkEnv(),
+      stdio: ["pipe", "pipe", "pipe"],
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    child.stdin?.on("error", () => {});
+    child.stdin?.write(body);
+    child.stdin?.end();
+    let stderr = "";
+    child.stderr?.on("data", (chunk: string | Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(ghError("pr-edit", error, options));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(
+          new GitHubOperationError(
+            "pr-edit",
+            "timeout",
+            `Command timed out after ${timeoutMs}ms: ${command} ${args.join(" ")}`,
+            "",
+            stderr,
+            undefined,
+          ),
+        );
+      } else if (code === 0) resolve();
+      else
+        reject(
+          new GitHubOperationError(
+            "pr-edit",
+            "failed",
+            stderr.trim() || `gh pr edit exited ${code ?? "unknown"}`,
+            "",
+            stderr,
+            code ?? undefined,
+          ),
+        );
+    });
+  });
 }
 
 // --- Repository and session queries ----------------------------------------------

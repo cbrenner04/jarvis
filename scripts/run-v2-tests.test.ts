@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+// biome-ignore assist/source/organizeImports: SUPPORTED_… vs spawn… sorts differently on the macOS and Linux biome builds
 import {
   aggregateExitCode,
   defaultConcurrency,

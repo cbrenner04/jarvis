@@ -620,7 +620,7 @@ describe("removeWorktree", () => {
   test("removes, honours force, and treats an unregistered path as absent", async () => {
     const runner = fakeAsync({
       "git worktree remove /wt/feature": "",
-      "git worktree remove --force --force /wt/feature": "",
+      "git worktree remove --force /wt/feature": "",
       "git worktree remove /wt/gone": gitFailure("fatal: '/wt/gone' is not a working tree\n"),
     });
     const removed: WorktreeRemoveResult = await removeWorktree("/repo", "/wt/feature", runner);
@@ -629,15 +629,15 @@ describe("removeWorktree", () => {
     expect(await removeWorktree("/repo", "/wt/gone", runner)).toEqual({ status: "absent" });
     expect(runner.calls.map((call) => call.args)).toEqual([
       ["git", "worktree", "remove", "/wt/feature"],
-      ["git", "worktree", "remove", "--force", "--force", "/wt/feature"],
+      ["git", "worktree", "remove", "--force", "/wt/feature"],
       ["git", "worktree", "remove", "/wt/gone"],
     ]);
   });
 
-  test("force is passed twice so a lock is overridable", async () => {
-    const runner = fakeAsync({ "git worktree remove --force --force /wt/a": "" });
+  test("force overrides a dirty or locked worktree", async () => {
+    const runner = fakeAsync({ "git worktree remove --force /wt/a": "" });
     expect(await removeWorktree("/repo", "/wt/a", runner, { force: true })).toEqual({ status: "removed" });
-    expect(runner.calls[0]?.args).toEqual(["git", "worktree", "remove", "--force", "--force", "/wt/a"]);
+    expect(runner.calls[0]?.args).toEqual(["git", "worktree", "remove", "--force", "/wt/a"]);
   });
 
   test("dirty and locked worktrees are precondition failures", async () => {

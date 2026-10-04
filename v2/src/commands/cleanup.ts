@@ -1004,7 +1004,7 @@ async function deleteExactRef(
     }
     return { ok: true };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: cleanupOperationErrorMessage(err) };
   }
 }
 
@@ -1034,7 +1034,7 @@ export async function pruneVerifiedMergedBranchRef(
       io.stdout(`Pruned ref: ${candidate.project} ${ref}\n`);
     } else {
       failed = true;
-      io.stderr(`Failed to prune ref ${ref} (${candidate.project}): ${cleanupOperationErrorMessage(result.message)}\n`);
+      io.stderr(`Failed to prune ref ${ref} (${candidate.project}): ${result.message}\n`);
     }
   }
   return failed ? 1 : 0;
@@ -1540,11 +1540,7 @@ async function applyEndArchivePublication(
     try {
       const result = await publishArchiveReady(
         { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },
-        {
-          git,
-          gh: (cwd, args, options) =>
-            runner.runAsync("gh", [...args], cwd, { ...networkSubprocessOptions(), ...options }),
-        },
+        { git, subprocessRunner: runner },
       );
       io.stdout(`${result.prUrl}\n`);
     } catch (failure: unknown) {
@@ -4349,7 +4345,7 @@ async function pruneStaleOriginRemoteTrackingRef(
     io.stdout(`Pruned stale remote-tracking ref: ${label}\n`);
     return { ok: true, pruned: label };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: cleanupOperationErrorMessage(err) };
   }
 }
 
@@ -4378,7 +4374,7 @@ async function deleteRemoteBranch(
     }
     return { ok: true };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: cleanupOperationErrorMessage(err) };
   }
 }
 

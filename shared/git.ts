@@ -770,10 +770,9 @@ const WORKTREE_REMOVE_RULES: readonly ReasonRule[] = [
 ];
 
 /**
- * `git worktree remove [--force --force] <path>`. Idempotent: an unregistered path resolves
+ * `git worktree remove [--force] <path>`. Idempotent: an unregistered path resolves
  * `absent`; a registered path whose directory is already gone resolves `removed`. A dirty
- * or locked worktree rejects with `precondition` unless `force` is set (passed twice: git
- * needs the second `--force` to override a lock).
+ * or locked worktree rejects with `precondition` unless `force` is set.
  */
 export async function removeWorktree(
   cwd: string,
@@ -781,7 +780,7 @@ export async function removeWorktree(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions & { force?: boolean } = {},
 ): Promise<WorktreeRemoveResult> {
-  const args = options.force ? ["worktree", "remove", "--force", "--force", path] : ["worktree", "remove", path];
+  const args = options.force ? ["worktree", "remove", "--force", path] : ["worktree", "remove", path];
   try {
     await runner.runAsync("git", args, cwd, runOptions(options));
     return { status: "removed" };

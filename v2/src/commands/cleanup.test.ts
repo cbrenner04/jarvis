@@ -4145,7 +4145,7 @@ describe("cleanup: runAbandonCommand", () => {
     const removeInvocation = invocations.find(
       (i) => i.cmd === "git" && i.args[0] === "worktree" && i.args[1] === "remove",
     );
-    expect(removeInvocation?.args).toEqual(["worktree", "remove", "--force", "--force", worktreePath]);
+    expect(removeInvocation?.args).toEqual(["worktree", "remove", "--force", worktreePath]);
 
     const branchDeleteInvocation = invocations.find(
       (i) => i.cmd === "git" && i.args[0] === "branch" && i.args[1] === "-D",
@@ -6794,6 +6794,31 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     });
 
     expect(result.status).toBe("continue");
+  });
+
+  test("tick-backing delegates log-patch read to shared git", async () => {
+    const branch = "impl/log-patch-delegate";
+    const subspecRel = "v2/spec/log-patch-delegate/00-task.md";
+    const indexRel = await setupSpecTree("log-patch-delegate", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] one\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] one\n- [ ] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete one"], worktreePath);
+
+    const logSpy = spyOn(sharedGit, "logPatchForPathInRange");
+    try {
+      const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      });
+      expect(result.status).toBe("continue");
+      expect(logSpy).toHaveBeenCalled();
+      expect(logSpy.mock.calls.some((call) => call[3] === subspecRel)).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   test("resetStaleWorkspace rebases a lane past a non-conflicting moved base and continues", async () => {

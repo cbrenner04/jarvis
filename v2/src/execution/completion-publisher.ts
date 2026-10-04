@@ -231,10 +231,13 @@ async function pushBranch(git: Git, cwd: string, branch: string, leaseFromSha: s
 
 export async function publishArchiveReady(
   input: ArchiveReadyPublicationInput,
-  seams?: Partial<Pick<PublisherSeams, "git" | "gh">>,
+  seams?: Partial<Pick<PublisherSeams, "git" | "gh" | "subprocessRunner">>,
 ): Promise<ArchiveReadyPublicationResult> {
   const git: Git = seams?.git ?? ((cwd, args, env) => defaultCommand("git", cwd, args, env, input.signal));
-  const gh = ghSession(seams?.gh, input.signal);
+  const gh =
+    seams?.subprocessRunner !== undefined
+      ? { runner: seams.subprocessRunner, options: { signal: input.signal } }
+      : ghSession(seams?.gh, input.signal);
 
   await pushBranch(git, input.worktreePath, input.branch, undefined);
   const pushSha = await git(input.worktreePath, ["rev-parse", "HEAD"]);

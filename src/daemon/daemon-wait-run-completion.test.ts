@@ -703,8 +703,8 @@ test("list and wait project resumable iteration_timeout as resume", async () => 
   });
 });
 
-test("list and wait project non-resumable iteration_timeout as stop", async () => {
-  const runId = createRun();
+test("list and wait project iteration_timeout as resume when loop_finished omits resumable", async () => {
+  const runId = createImplementRun();
   stateStore.setRunStatus(runId, "failed");
   logSink.append(runId, {
     kind: "loop_finished",
@@ -717,8 +717,8 @@ test("list and wait project non-resumable iteration_timeout as stop", async () =
 
   const expectedError = {
     reason: "iteration_timeout",
-    retryable: false,
-    nextAction: "stop",
+    retryable: true,
+    nextAction: "resume",
     completedSubspecPaths: [],
     remainingSubspecPaths: [TIMEOUT_FIRST_SUBSPEC, TIMEOUT_SECOND_SUBSPEC],
   };
@@ -727,13 +727,13 @@ test("list and wait project non-resumable iteration_timeout as stop", async () =
   const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
     (candidate) => candidate.runId === runId,
   );
-  expect(row).toMatchObject({ status: "failed", resumable: false, error: expectedError });
+  expect(row).toMatchObject({ status: "failed", resumable: true, error: expectedError });
 
-  expect(await expectResponse(await waitDirect("timeout-non-resumable", runId))).toMatchObject({
+  expect(await expectResponse(await waitDirect("timeout-legacy-non-resumable-row", runId))).toMatchObject({
     runStatus: "failed",
     loopOutcomeKind: "iteration_timeout",
     iterationsConsumed: 1,
-    resumable: false,
+    resumable: true,
     error: expectedError,
   });
 });

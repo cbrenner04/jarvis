@@ -19,12 +19,12 @@
 
 ## Acceptance criteria
 
-- [ ] `run-operator-error.test.ts` `composeRunOperatorError maps iteration_timeout as a failed terminal` expects `nextAction: "resume"` and `retryable: true` when `loop_finished` omits `resumable`; it fails against the pre-fix code (`stop` today).
-- [ ] `run-operator-error.test.ts` `composeRunOperatorError projects iteration_timeout inventoryError` keeps `inventoryError` on the projected error but expects `nextAction: "resume"` and `retryable: true`; it fails against the pre-fix code (`stop` today).
-- [ ] `daemon-wait-run-completion.test.ts` `list and wait project non-resumable iteration_timeout as stop` is removed or rewritten to expect resume projection for terminal `iteration_timeout` even when `loop_finished.resumable` is `false`; the rewritten assertion fails against the pre-fix code.
-- [ ] `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout` no longer contains a re-dispatch-first branch for terminal stall (inventory and legacy `resumable: false` on the log row do not change the string contract).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:agent` passes for touched `src/daemon/**` surfaces.
+- [x] `run-operator-error.test.ts` `composeRunOperatorError maps iteration_timeout as a failed terminal` expects `nextAction: "resume"` and `retryable: true` when `loop_finished` omits `resumable`; it fails against the pre-fix code (`stop` today).
+- [x] `run-operator-error.test.ts` `composeRunOperatorError projects iteration_timeout inventoryError` keeps `inventoryError` on the projected error but expects `nextAction: "resume"` and `retryable: true`; it fails against the pre-fix code (`stop` today).
+- [x] `daemon-wait-run-completion.test.ts` `list and wait project non-resumable iteration_timeout as stop` is removed or rewritten to expect resume projection for terminal `iteration_timeout` even when `loop_finished.resumable` is `false`; the rewritten assertion fails against the pre-fix code.
+- [x] `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout` no longer contains a re-dispatch-first branch for terminal stall (inventory and legacy `resumable: false` on the log row do not change the string contract).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:agent` passes for touched `src/daemon/**` surfaces.
 
 ## Documentation updates
 

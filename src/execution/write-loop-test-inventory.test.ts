@@ -14,7 +14,7 @@ import {
 } from "../shared/structural-test-locator.ts";
 
 const EXECUTION_DIR = import.meta.dir;
-const REPO_ROOT = join(EXECUTION_DIR, "..", "..", "..");
+const REPO_ROOT = join(EXECUTION_DIR, "..", "..");
 const INVENTORY_FILE = "write-loop-test-inventory.test.ts";
 const INVENTORY_REPO_PATH = "src/execution/write-loop-test-inventory.test.ts";
 

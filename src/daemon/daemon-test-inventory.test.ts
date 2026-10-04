@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const DAEMON_DIR = import.meta.dir;
-const REPO_ROOT = join(DAEMON_DIR, "..", "..", "..");
+const REPO_ROOT = join(DAEMON_DIR, "..", "..");
 const DAEMON_TEST_GLOB_PREFIX = "src/daemon/";
 const INVENTORY_REPO_PATH = `${DAEMON_TEST_GLOB_PREFIX}daemon-test-inventory.test.ts`;
 

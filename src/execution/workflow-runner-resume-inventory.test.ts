@@ -15,7 +15,7 @@ import {
 } from "../shared/structural-test-locator.ts";
 
 const EXECUTION_DIR = import.meta.dir;
-const REPO_ROOT = join(EXECUTION_DIR, "..", "..", "..");
+const REPO_ROOT = join(EXECUTION_DIR, "..", "..");
 const INVENTORY_FILE = "workflow-runner-resume-inventory.test.ts";
 
 type ScanOptions = {

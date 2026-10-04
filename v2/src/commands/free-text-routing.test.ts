@@ -439,6 +439,29 @@ describe("runFreeTextRouting", () => {
       expect(lines[0]?.reason).toBe("extra-field");
     });
 
+    test("resolution-rejected audit lines carry the action only when one was validated", async () => {
+      const io = captureIo();
+      const exit = await runFreeTextRouting("?", io, makeCliDeps(), "audit-session-resolution", {
+        invokeRouting: async () => routingOk(JSON.stringify({ action: "run.kill", runId: "run-42" })),
+      });
+      expect(exit).toBe(1);
+      const rejected = readRoutingAuditLines();
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]?.outcome).toBe("resolution-rejected");
+      expect(rejected[0]?.reason).toBe("invalid-target-id");
+      // Mutation checkpoint: flipping the action guard drops the action here and adds `action: undefined` below.
+      expect((rejected[0] as { action?: string }).action).toBe("run.kill");
+      await expectRejectsWithReason(
+        "unknown-action",
+        { invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.wait", pipelineId: "p" })) },
+        makeCliDeps(),
+        "audit-session-resolution-2",
+      );
+      const unknown = readRoutingAuditLines().filter((line) => line.operatorSessionId === "audit-session-resolution-2");
+      expect(unknown).toHaveLength(1);
+      expect("action" in (unknown[0] as object)).toBe(false);
+    });
+
     test("appends dispatched audit line after successful pipeline.start", async () => {
       const routingHarness = makeAdmissionHarness();
       const io = captureIo();

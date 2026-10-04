@@ -36,6 +36,7 @@ import {
   PIPELINE_UNDISMISS_USAGE,
   PIPELINE_USAGE,
   PIPELINE_WAIT_USAGE,
+  REQUEST_USAGE,
   RUN_DISMISS_USAGE,
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
@@ -274,6 +275,11 @@ export const commandTree: CommandNode = {
       summary: "Retire completed worktrees and specs.",
       usage: CLEANUP_USAGE,
       flags: CLEANUP_HELP_FLAGS,
+    },
+    {
+      name: "request",
+      summary: "Route a natural-language request through the action catalog.",
+      usage: REQUEST_USAGE,
     },
     {
       name: "help",

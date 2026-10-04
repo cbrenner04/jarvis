@@ -22,9 +22,9 @@
 
 ## Acceptance criteria
 
-- [ ] `cli.test.ts`: `jarvis pipeline start` (missing required seed flags) exits non-zero and does not invoke `runFreeTextRouting` under injection; fails against current code (no free-text branch).
-- [ ] Same file: `jarvis request create a pipeline for v2/spec/seeds/x.md` (or equivalent joined argv) invokes `runFreeTextRouting` exactly once with the joined body; fails against current code.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `cli.test.ts`: `jarvis pipeline start` (missing required seed flags) exits non-zero and does not invoke `runFreeTextRouting` under injection; fails against current code (no free-text branch).
+- [x] Same file: `jarvis request create a pipeline for v2/spec/seeds/x.md` (or equivalent joined argv) invokes `runFreeTextRouting` exactly once with the joined body; fails against current code.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -44,3 +44,4 @@ export const NOTIFICATIONS_LIST_USAGE =
   "usage: jarvis notifications list [--since <cursor|duration|timestamp>] [--kind <incident-kind>]... [--project <name>]\n";
 export const NOTIFICATIONS_USAGE = "usage: jarvis notifications <wait|list> [args]\n";
 export const HELP_USAGE = "usage: jarvis help\n";
+export const REQUEST_USAGE = "usage: jarvis request <text…>\n";

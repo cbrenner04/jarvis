@@ -34,7 +34,7 @@ describe("deriveSpecRunBodySummary", () => {
       git: async (_cwd, args) =>
         args[0] === "log"
           ? "a\x1folder subject\x1fClaude Opus 4.8\x1f\x1f\x1eb\x1fnew subject\x1fCodex GPT-5.3\x1f\x1f\x1e"
-          : "10\t2\tsrc/a.ts\n-\t-\tv2/assets/logo.bin\n3\t1\tdocs/a.md\n",
+          : "10\t2\tsrc/execution/a.ts\n-\t-\tscripts/assets/logo.bin\n3\t1\tdocs/guide/a.md\n",
     });
     const overviewIndex = summary.indexOf("## Overview");
     const subspecsIndex = summary.indexOf("## Subspecs");
@@ -51,9 +51,9 @@ describe("deriveSpecRunBodySummary", () => {
     expect(summary).not.toContain("- older subject \u2014 Claude Opus 4.8");
     expect(summary).toContain("## Risk cues\n- no test changes");
     expect(summary).toContain("3 files changed (+13/-3)");
-    expect(summary).toContain("- src: 1 file (+10/-2)");
-    expect(summary).toContain("- docs: 1 file (+3/-1)");
-    expect(summary).toContain("- v2/assets: 1 file (+0/-0)");
+    expect(summary).toContain("- src/execution: 1 file (+10/-2)");
+    expect(summary).toContain("- docs/guide: 1 file (+3/-1)");
+    expect(summary).toContain("- scripts/assets: 1 file (+0/-0)");
   });
 
   test("omits the overview paragraph but keeps subspec-title bullets when the index has no opening paragraph", async () => {

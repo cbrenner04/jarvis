@@ -1,16 +1,10 @@
 import { aggregateExitCode, defaultSpawn, resolveConcurrency, runV2TestFiles, v2Tests } from "./run-v2-tests.ts";
-import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 
 /** Aggregate suite: agent and integration tests both run through the pooled per-file seam. */
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
-  const sharedAndHarness = partitionTestFiles([
-    ...walkTestFiles("v2/src/shared"),
-    ...walkTestFiles("test"),
-    ...walkTestFiles("scripts"),
-  ]);
   return {
-    agent: [...v2Tests("agent"), ...sharedAndHarness.agent],
-    integration: [...v2Tests("integration"), ...sharedAndHarness.integration],
+    agent: v2Tests("agent"),
+    integration: v2Tests("integration"),
   };
 }
 

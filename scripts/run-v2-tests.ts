@@ -26,8 +26,8 @@ export function validatePerFileTimeout(timeout: number): void {
   }
 }
 
-export function walkV2TestFiles(root = "v2"): string[] {
-  return walkTestFiles(root).filter((file) => !file.startsWith("v2/src/shared/"));
+export function walkV2TestFiles(): string[] {
+  return [...walkTestFiles("v2"), ...walkTestFiles("test"), ...walkTestFiles("scripts")].sort();
 }
 
 export function v2Tests(mode: TestSliceMode): string[] {

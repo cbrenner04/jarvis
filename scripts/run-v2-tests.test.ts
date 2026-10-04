@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+// biome-ignore assist/source/organizeImports: SUPPORTED_… vs spawn… sorts differently on the macOS and Linux biome builds
 import {
   aggregateExitCode,
   defaultConcurrency,
@@ -12,18 +13,40 @@ import {
   runV2TestFiles,
   SUPPORTED_HEALTHY_FILE_BUDGET_MS,
   spawnTimeoutMessage,
+  v2Tests,
   validatePerFileTimeout,
   walkV2TestFiles,
 } from "./run-v2-tests.ts";
+import { sliceTestFiles, walkTestFiles } from "./test-slice.ts";
+
+const formerSharedRoster = [...walkTestFiles("v2/src/shared"), ...walkTestFiles("test"), ...walkTestFiles("scripts")];
+
+function formerSharedTests(mode: "agent" | "integration"): string[] {
+  return sliceTestFiles(formerSharedRoster, mode);
+}
 
 const POLL_UNTIL_DONE_FILE = "v2/src/commands/workflow.test.ts";
 const SUBPROCESS_SPAWNING_FILE = "v2/src/execution/diff-derived-mutation-verifier.test.ts";
 
 describe("walkV2TestFiles", () => {
-  test("excludes v2/src/shared so shared-runtime tests stay on test:shared", () => {
-    const files = walkV2TestFiles();
-    expect(files.every((file) => !file.startsWith("v2/src/shared/"))).toBe(true);
-    expect(files.some((file) => file.startsWith("v2/src/") && !file.startsWith("v2/src/shared/"))).toBe(true);
+  test("v2 discovery includes former shared slice roster", () => {
+    const expected = [...walkTestFiles("v2"), ...walkTestFiles("test"), ...walkTestFiles("scripts")].sort();
+    expect(walkV2TestFiles()).toEqual(expected);
+  });
+
+  test("v2 discovery roster matches former sharedTests baseline", () => {
+    const baselineAgent = formerSharedTests("agent");
+    const baselineIntegration = formerSharedTests("integration");
+    const v2Agent = v2Tests("agent");
+    const v2Integration = v2Tests("integration");
+    for (const file of baselineAgent) {
+      expect(v2Agent).toContain(file);
+      expect(v2Integration).not.toContain(file);
+    }
+    for (const file of baselineIntegration) {
+      expect(v2Integration).toContain(file);
+      expect(v2Agent).not.toContain(file);
+    }
   });
 });
 

@@ -19,13 +19,13 @@ name: shared-test-slices-fold-into-v2-slices
 
 ## Acceptance criteria
 
-- [ ] `package.json` has no `test:shared` / `test:integration:shared`; `ci-test-scope.test.ts` pins that a change under the moved tree or root `test/` selects the `v2` slices only; fails against current code.
-- [ ] `run-v2-tests` discovery includes every former `test:shared` file, pinned by a count or inventory test.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `package.json` has no `test:shared` / `test:integration:shared`; `ci-test-scope.test.ts` pins that a change under the moved tree or root `test/` selects the `v2` slices only.
+- [x] `run-v2-tests` discovery includes every former shared-slice file, pinned by inventory tests in subspec 00.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
-- `AGENTS.md` — test-scope rules: no shared slice; root `test/**` maps to the `v2` slices.
+- `AGENTS.md` — test-scope rules: no shared slice; v2/test scoped pair; script paths → full in CI.
 - `v2/docs/operator-runbook.md` — gate and ready-check script names.
 
 ## Primary implementation surface

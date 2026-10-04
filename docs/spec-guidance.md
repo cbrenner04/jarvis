@@ -51,7 +51,7 @@ Do not bundle spec authoring and implementation in one PR. The merge-first rule 
 
 ## Subspec sizing and iteration timeout
 
-- A subspec that rewrites more than a few hundred lines in one file, or that carries an open-ended touched-file list, is an implement iteration-timeout hazard and must be split or explicitly sized before implement dispatch.
+- A subspec rewriting more than a few hundred lines in one file, or with an open-ended touched-file list, is an implement iteration-timeout hazard and must be split or explicitly sized before implement dispatch.
 
 ## Plan same-seam siblings serially
 

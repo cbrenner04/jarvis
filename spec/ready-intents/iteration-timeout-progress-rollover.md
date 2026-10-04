@@ -11,7 +11,8 @@ name: iteration-timeout-progress-rollover
 ## Decisions
 
 - When wall-segment or ceiling watchdog wins after quiescence, classify progress before terminal settlement: live output within the idle-output window **and** a non-empty iteration boundary commit on that attempt → progress rollover (next main-loop iteration, same active subspec); otherwise → terminal stall (today's watchdog stall).
-- Rollover commits the attempt boundary with `outcomeKind: iteration_timeout_continued`, does **not** emit terminal `loop_finished`, and consumes one iteration toward `maxIterations` (plan confirms cap accounting if tests need a different rule).
+- Rollover commits the attempt boundary with `outcomeKind: iteration_timeout_continued`, does **not** emit terminal `loop_finished`, and consumes one `maxIterations` slot (same attempt accounting as a settled iteration that does not finish the subspec).
+- If rollover would start an iteration at or past `maxIterations`, do not continue the loop: settle terminal stall (`outcomeKind: iteration_timeout` or existing `iteration_budget` terminal path, whichever the write loop already uses at the cap) with `loop_finished` and unconditional `resumable: true`.
 - Terminal stall keeps `outcomeKind: iteration_timeout` on the boundary, emits terminal `loop_finished`, sets `loop_finished.resumable: true` unconditionally (replacing `isIterationTimeoutResumable` gating), and leaves checkpointed work on the branch.
 - Progress detection reuses existing idle-output attribution and the same checkpoint committer seam as controlled-loss (`checkpointBeforeControlledLoss`); plan names the operator-visible log line for rollover vs stall.
 

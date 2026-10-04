@@ -2,7 +2,7 @@
 name: iteration-timeout-operator-projection
 ---
 
-# Daemon list, wait, log follow, and recovery copy match iteration-timeout rollover and resumable stalls
+# Terminal list/wait/TUI projection, log follow, and recovery copy match iteration-timeout rollover and resumable stalls
 
 ## Problem
 
@@ -11,7 +11,7 @@ Operator surfaces hard-code `iteration_timeout` terminal semantics (`resumable` 
 ## Decisions
 
 - `composeRunOperatorError`, `RUN_OPERATOR_ERROR_RECOVERY`, and list/wait/TUI projection treat terminal `iteration_timeout` as `retryable: true` / `nextAction: resume` per the execution intent (inventory fields remain diagnostic, not resumability gates).
-- Non-terminal `boundary_committed` / log follow lines expose `iteration_timeout_continued` distinctly from terminal `iteration_timeout` so `jarvis run log` and `jarvis tui log` show rollover without a failed rollup row.
+- `list` / `wait` rows stay in-progress through non-terminal `iteration_timeout_continued`; only log follow changes for rollover (`boundary_committed` / follow lines expose `iteration_timeout_continued` distinctly from terminal `iteration_timeout` so `jarvis run log` and `jarvis tui log` show rollover without a failed rollup row).
 - Plan aligns `docs/operator-runbook.md` recovery section with unconditional resume on terminal stall and notes that in-loop rollover needs no operator action.
 
 ## Prerequisites

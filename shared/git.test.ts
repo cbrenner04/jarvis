@@ -33,6 +33,7 @@ import {
   gitCommonDir,
   gitDir,
   isAncestor,
+  isAncestorOrThrow,
   isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
   isRetryableGitError,
@@ -770,6 +771,7 @@ describe("graph reads for stale-reset", () => {
     const runner = fakeAsync({
       "git merge-base --is-ancestor main feature": "",
       "git merge-base --is-ancestor main stale": gitFailure("", 1),
+      "git merge-base --is-ancestor main broken": gitFailure("fatal: bad revision\n", 128),
       "git merge-tree --write-tree main feature": `${OID_A}\n`,
       "git merge-tree --write-tree main broken": gitFailure("fatal: bad revision\n", 128),
       "git diff --name-only --diff-filter=U": "a.txt\nb.txt\n",
@@ -779,6 +781,9 @@ describe("graph reads for stale-reset", () => {
     });
     expect(await isAncestor("/repo", "main", "feature", runner)).toBe(true);
     expect(await isAncestor("/repo", "main", "stale", runner)).toBe(false);
+    expect(await isAncestorOrThrow("/repo", "main", "feature", runner)).toBe(true);
+    expect(await isAncestorOrThrow("/repo", "main", "stale", runner)).toBe(false);
+    expectFailure(await rejection(isAncestorOrThrow("/repo", "main", "broken", runner)), "merge-base", "failed", false);
     expect(await mergeTreeWriteTree("/repo", "main", "feature", runner)).toBe(OID_A);
     expectFailure(
       await rejection(mergeTreeWriteTree("/repo", "main", "broken", runner)),
@@ -799,6 +804,9 @@ describe("graph reads for stale-reset", () => {
     expect(runner.calls.map((call) => call.args)).toEqual([
       ["git", "merge-base", "--is-ancestor", "main", "feature"],
       ["git", "merge-base", "--is-ancestor", "main", "stale"],
+      ["git", "merge-base", "--is-ancestor", "main", "feature"],
+      ["git", "merge-base", "--is-ancestor", "main", "stale"],
+      ["git", "merge-base", "--is-ancestor", "main", "broken"],
       ["git", "merge-tree", "--write-tree", "main", "feature"],
       ["git", "merge-tree", "--write-tree", "main", "broken"],
       ["git", "diff", "--name-only", "--diff-filter=U"],

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { remoteUrl } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
@@ -132,11 +133,8 @@ async function defaultCheckGithubAuth(): Promise<{ ok: boolean; detail?: string 
 
 async function defaultCurrentOrigin(projectRoot: string): Promise<string | undefined> {
   try {
-    const stdout = await realAsyncSubprocessRunner.runAsync("git", ["remote", "get-url", "origin"], projectRoot, {
-      timeoutMs: 5_000,
-    });
-    const origin = stdout.trim();
-    return origin.length > 0 ? origin : undefined;
+    const result = await remoteUrl(projectRoot, "origin", realAsyncSubprocessRunner);
+    return result.status === "resolved" ? result.url : undefined;
   } catch {
     return undefined;
   }

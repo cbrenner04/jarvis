@@ -303,9 +303,14 @@ export type GitOperation =
   | "ref-query"
   | "update-ref"
   | "push"
+  | "fetch"
   | "remote-url"
   | "git-dir"
-  | "work-tree-query";
+  | "work-tree-query"
+  | "worktree-reset"
+  | "worktree-clean"
+  | "stage"
+  | "commit";
 
 /**
  * Why an operation failed. `timeout`, `network`, and `lock` (ref lock-file contention with
@@ -617,6 +622,43 @@ export async function abortableWorktreeRebase(
   return abortableWorktreeRewrite(cwd, ["rebase", onto], ["rebase", "--abort"], runner, options);
 }
 
+/** `git rebase --onto <newbase> <upstream>` in `cwd`; conflicting paths after abort on failure. */
+export async function abortableWorktreeRebaseOnto(
+  cwd: string,
+  newBase: string,
+  upstream: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[] | undefined> {
+  return abortableWorktreeRewrite(cwd, ["rebase", "--onto", newBase, upstream], ["rebase", "--abort"], runner, options);
+}
+
+/**
+ * `git merge-base --is-ancestor`: `true` when stacked, `false` on git's silent exit 1; any other
+ * failure rejects so a broken probe is not mistaken for "not an ancestor".
+ */
+export async function isAncestorOrThrow(
+  cwd: string,
+  ancestor: string,
+  descendant: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<boolean> {
+  try {
+    await runner.runAsync(
+      "git",
+      ["merge-base", "--is-ancestor", ancestor, descendant],
+      cwd,
+      runOptions(options, { stdio: "ignore" }),
+    );
+    return true;
+  } catch (error) {
+    const failure = failureOf(error);
+    if (failure.status === 1 && !failure.timeout && failure.stderr.trim() === "") return false;
+    throw gitError("merge-base", error, [], options);
+  }
+}
+
 /** `git merge --no-edit <ref>` in `cwd`; `undefined` on success, conflicting paths after abort on failure. */
 export async function abortableWorktreeMergeNoEdit(
   cwd: string,
@@ -759,6 +801,44 @@ export async function addWorktree(
       return { status: "already-registered" };
     }
     throw failure;
+  }
+}
+
+/** `git worktree add -b <branch> <path> <startPoint>` (new local branch at `startPoint`). */
+export async function addWorktreeWithNewBranch(
+  cwd: string,
+  target: { path: string; branch: string; startPoint: string },
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync(
+      "git",
+      ["worktree", "add", "-b", target.branch, target.path, target.startPoint],
+      cwd,
+      runOptions(options),
+    );
+  } catch (error) {
+    throw gitError("worktree-add", error, WORKTREE_ADD_RULES, options);
+  }
+}
+
+/** `git worktree add --checkout <path> <branch>` for an existing local branch. */
+export async function addWorktreeCheckout(
+  cwd: string,
+  target: { path: string; branch: string },
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync(
+      "git",
+      ["worktree", "add", "--checkout", target.path, target.branch],
+      cwd,
+      runOptions(options),
+    );
+  } catch (error) {
+    throw gitError("worktree-add", error, WORKTREE_ADD_RULES, options);
   }
 }
 
@@ -970,6 +1050,56 @@ export async function readBlobAtRef(
   }
 }
 
+/** Soft `git cat-file -e ref:path` (missing blob → false). */
+export async function blobExistsAtRef(
+  cwd: string,
+  ref: string,
+  path: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<boolean> {
+  try {
+    await runner.runAsync("git", ["cat-file", "-e", `${ref}:${path}`], cwd, runOptions(options, { stdio: "ignore" }));
+    return true;
+  } catch (error) {
+    if (absentRefPathFailure(error)) return false;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+export type BlobOidAtPath = { path: string; oid: string };
+
+/** Recursive `git ls-tree` blob oids under `relPaths` at `ref`; `undefined` when unreadable. */
+export async function listRecursiveBlobOidsAtRef(
+  cwd: string,
+  ref: string,
+  relPaths: readonly string[],
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<BlobOidAtPath[] | undefined> {
+  if (relPaths.length === 0) return [];
+  try {
+    const listing = await runner.runAsync(
+      "git",
+      ["ls-tree", "-r", "-z", ref, "--", ...relPaths],
+      cwd,
+      runOptions(options),
+    );
+    const blobs: BlobOidAtPath[] = [];
+    for (const entry of listing.split("\0")) {
+      const tab = entry.indexOf("\t");
+      if (tab < 0) continue;
+      const [, type, oid] = entry.slice(0, tab).split(" ");
+      if (type !== "blob" || oid === undefined) continue;
+      blobs.push({ path: entry.slice(tab + 1), oid });
+    }
+    return blobs;
+  } catch (error) {
+    if (absentRefPathFailure(error)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
 /** `git rev-list --count base..head` as a non-negative integer. */
 export async function countCommitsBetween(
   cwd: string,
@@ -1125,6 +1255,143 @@ export async function pushBranch(
   } catch (error) {
     if (target.delete && failureMatches(error, /remote ref does not exist/i)) return { status: "already-absent" };
     throw gitError("push", error, PUSH_RULES, options);
+  }
+}
+
+/** `git push --force-with-lease=refs/heads/<branch>:<oid> <remote> HEAD:refs/heads/<branch>`. */
+export async function pushHeadToRemoteBranchWithLease(
+  cwd: string,
+  target: { branch: string; remote?: string; leaseOid: string },
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  const remote = target.remote ?? "origin";
+  const lease = `refs/heads/${target.branch}:${target.leaseOid}`;
+  const refspec = `HEAD:refs/heads/${target.branch}`;
+  try {
+    await runner.runAsync(
+      "git",
+      ["push", `--force-with-lease=${lease}`, remote, refspec],
+      cwd,
+      networkSubprocessOptions({ signal: options.signal }),
+    );
+  } catch (error) {
+    throw gitError("push", error, PUSH_RULES, options);
+  }
+}
+
+const FETCH_RULES: readonly ReasonRule[] = [
+  [/couldn't find remote ref|remote ref does not exist/i, "failed"],
+  ...PUSH_RULES,
+];
+
+/** `git fetch <remote> <ref>` then resolve `FETCH_HEAD` to a full OID. */
+export async function fetchRemoteRef(
+  cwd: string,
+  remote: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  try {
+    await runner.runAsync("git", ["fetch", remote, ref], cwd, networkSubprocessOptions({ signal: options.signal }));
+  } catch (error) {
+    throw gitError("fetch", error, FETCH_RULES, options);
+  }
+  const fetched = await resolveRef(cwd, "FETCH_HEAD", runner, options);
+  if (fetched.status === "absent") {
+    throw new GitOperationError("ref-query", "failed", "FETCH_HEAD missing after fetch", "", 0);
+  }
+  return fetched.oid;
+}
+
+/** `git config --get <key>` in `cwd`; `undefined` when unset. */
+export async function readLocalGitConfig(
+  cwd: string,
+  key: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string | undefined> {
+  try {
+    const value = (await runner.runAsync("git", ["config", "--get", key], cwd, runOptions(options))).trim();
+    return value.length > 0 ? value : undefined;
+  } catch (error) {
+    if (failureMatches(error, /has no value|not found/i)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** `git reset --hard HEAD` in a worktree (discards index and working-tree changes). */
+export async function resetWorktreeHard(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["reset", "--hard", "HEAD"], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-reset", error, [], options);
+  }
+}
+
+/** `git clean -fd` in a worktree (untracked files and directories). */
+export async function cleanWorktreeUntracked(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["clean", "-fd"], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("worktree-clean", error, [], options);
+  }
+}
+
+/** `git mv <from> <to>` relative to `cwd`. */
+export async function stagePathMove(
+  cwd: string,
+  from: string,
+  to: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["mv", from, to], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("stage", error, [], options);
+  }
+}
+
+/** `git rm --quiet <path>` relative to `cwd`. */
+export async function stagePathRemove(
+  cwd: string,
+  path: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["rm", "--quiet", path], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("stage", error, [], options);
+  }
+}
+
+/** `git commit` with optional quiet flag and one-shot `-c user.*` identity overrides. */
+export async function commitInWorktree(
+  cwd: string,
+  message: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions & { quiet?: boolean; identity?: { name: string; email: string } } = {},
+): Promise<void> {
+  const prefix =
+    options.identity === undefined
+      ? []
+      : ["-c", `user.name=${options.identity.name}`, "-c", `user.email=${options.identity.email}`];
+  const args = [...prefix, "commit", ...(options.quiet === true ? ["--quiet"] : []), "-m", message];
+  try {
+    await runner.runAsync("git", args, cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("commit", error, [], options);
   }
 }
 

@@ -21,6 +21,7 @@ import {
   deleteBranch,
   deleteRef,
   diffNameOnly,
+  diffNameOnlyRevision,
   diffStat,
   diffUnified,
   type GitFailureReason,
@@ -421,6 +422,13 @@ describe("diff operations", () => {
   test("a diff failure is the diff operation, never merge-base", async () => {
     const runner = fakeAsync({ [`git diff --name-only ${OID_A} HEAD`]: gitFailure("fatal: ambiguous argument\n") });
     expectFailure(await rejection(diffNameOnly("/repo", range, runner)), "diff", "failed", false);
+  });
+
+  test("diffNameOnlyRevision drops blank lines and sorts paths", async () => {
+    const runner = fakeAsync({
+      "git diff --name-only main..HEAD": "src/b.ts\n\nsrc/a.ts\n",
+    });
+    expect(await diffNameOnlyRevision("/repo", "main..HEAD", runner)).toEqual(["src/a.ts", "src/b.ts"]);
   });
 });
 

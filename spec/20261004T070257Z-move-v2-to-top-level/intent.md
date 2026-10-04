@@ -23,10 +23,10 @@ Unsplit rationale: a tree move is atomic; half-moved code does not typecheck, so
 
 ## Acceptance criteria
 
-- [ ] No tracked path under `v2/` remains; imports, tsconfig paths, scripts, guards, lint globs, and CI scope rules resolve at the top-level paths.
-- [ ] `package.json` has no `*:v2` script; `scripts/ci-test-scope.test.ts` pins the renamed slices for a change under `src/`.
-- [ ] `plan-target-dir` tests pin the `spec` default; the install doc names the operator re-point of `plan.targetDir`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] No tracked path under `v2/` remains; imports, tsconfig paths, scripts, guards, lint globs, and CI scope rules resolve at the top-level paths.
+- [x] `package.json` has no `*:v2` script; `scripts/ci-test-scope.test.ts` pins the renamed slices for a change under `src/`.
+- [x] `plan-target-dir` tests pin the `spec` default; the install doc names the operator re-point of `plan.targetDir`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

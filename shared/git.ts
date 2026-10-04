@@ -1328,6 +1328,8 @@ export async function readLocalGitConfig(
     const value = (await runner.runAsync("git", ["config", "--get", key], cwd, runOptions(options))).trim();
     return value.length > 0 ? value : undefined;
   } catch (error) {
+    // `git config --get` exits 1 with empty stderr when the key is unset; only other failures are errors.
+    if (error instanceof AsyncSubprocessError && error.status === 1) return undefined;
     if (failureMatches(error, /has no value|not found/i)) return undefined;
     throw gitError("ref-query", error, [], options);
   }

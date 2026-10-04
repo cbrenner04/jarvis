@@ -1114,6 +1114,10 @@ describe("readLocalGitConfig", () => {
     expect(set.calls[0]).toMatchObject({ args: ["git", "config", "--get", "user.name"], cwd: "/repo" });
     const blank = fakeAsync({ "git config --get user.name": "\n" });
     expect(await readLocalGitConfig("/repo", "user.name", blank)).toBeUndefined();
+    const unset = fakeAsync({ "git config --get user.name": gitFailure("", 1) });
+    expect(await readLocalGitConfig("/repo", "user.name", unset)).toBeUndefined();
+    const broken = fakeAsync({ "git config --get user.name": gitFailure("fatal: not a git repository\n", 128) });
+    await expect(readLocalGitConfig("/repo", "user.name", broken)).rejects.toMatchObject({ operation: "ref-query" });
   });
 });
 

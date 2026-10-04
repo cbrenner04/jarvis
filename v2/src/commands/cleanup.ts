@@ -22,6 +22,7 @@ import {
   deleteRef,
   getBaseBranch,
   getCurrentBranchAsync,
+  getCurrentHeadAsync,
   getGitStatusInventory,
   gitCommonDir,
   GitOperationError,
@@ -1499,6 +1500,84 @@ async function archivePublicationCommitCount(
 
 type ArchivePublicationStepFailure = { step: "push" | "pr"; error: unknown };
 
+async function lsRemoteOriginRef(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner,
+  env?: Record<string, string>,
+): Promise<string | undefined> {
+  const output = (
+    await runner.runAsync(
+      "git",
+      ["ls-remote", "origin", ref],
+      cwd,
+      networkSubprocessOptions({ env: { ...process.env, ...env } }),
+    )
+  ).trim();
+  const tip = output.split(/\s+/)[0];
+  return tip !== undefined && tip.length > 0 ? tip : undefined;
+}
+
+async function runArchivePublicationGit(
+  cwd: string,
+  args: readonly string[],
+  runner: AsyncSubprocessRunner,
+  env?: Record<string, string>,
+): Promise<string> {
+  const command = args[0];
+  if (command === "rev-parse" && args[1] === "HEAD") {
+    return await getCurrentHeadAsync(cwd, runner);
+  }
+  if (command === "merge-base" && args[1] === "--is-ancestor") {
+    const ancestor = args[2];
+    const descendant = args[3];
+    if (ancestor === undefined || descendant === undefined) {
+      throw new Error(`invalid merge-base --is-ancestor argv: ${args.join(" ")}`);
+    }
+    if (!(await isAncestor(cwd, ancestor, descendant, runner))) {
+      throw new AsyncSubprocessError("not an ancestor", 1, "", "", undefined);
+    }
+    return "";
+  }
+  if (command === "ls-remote" && args[1] === "origin") {
+    const ref = args[2];
+    if (ref === undefined) {
+      throw new Error(`invalid ls-remote argv: ${args.join(" ")}`);
+    }
+    const tip = await lsRemoteOriginRef(cwd, ref, runner, env);
+    return tip === undefined ? "" : `${tip}\t${ref}\n`;
+  }
+  if (command === "push") {
+    const networkOpts = networkSubprocessOptions({ env: { ...process.env, ...env } });
+    if (args.length === 3 && args[1] === "origin" && args[2]?.startsWith("HEAD:")) {
+      await pushBranch(cwd, { remote: "origin", branch: args[2] }, runner, {});
+      return "";
+    }
+    if (args.length === 4 && args[1]?.startsWith("--force-with-lease=") && args[2] === "origin") {
+      await runner.runAsync("git", [...args], cwd, networkOpts);
+      return "";
+    }
+  }
+  throw new Error(`unsupported archive publication git argv: ${args.join(" ")}`);
+}
+
+function archivePublicationGitSeam(
+  runner: AsyncSubprocessRunner,
+  onPush: () => void,
+  onError: (error: unknown) => void,
+): (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string> {
+  return async (cwd, args, env) => {
+    try {
+      const out = await runArchivePublicationGit(cwd, args, runner, env);
+      if (args[0] === "push") onPush();
+      return out;
+    } catch (error) {
+      onError(error);
+      throw error;
+    }
+  };
+}
+
 async function applyEndArchivePublication(
   sessions: ArchivePublicationSessions,
   runner: AsyncSubprocessRunner,
@@ -1512,16 +1591,19 @@ async function applyEndArchivePublication(
     const title = archivePublicationTitle(target.project);
     const body = `Branch ${target.branch} at ${target.worktreePath}.`;
     let pastPush = false;
-    const git = async (cwd: string, args: readonly string[]) => {
-      try {
-        const out = await runner.runAsync("git", [...args], cwd);
-        if (args[0] === "push") pastPush = true;
-        return out;
-      } catch (error) {
-        const failure: ArchivePublicationStepFailure = { step: pastPush ? "pr" : "push", error };
-        throw failure;
-      }
-    };
+    const failureForStep = (error: unknown): ArchivePublicationStepFailure => ({
+      step: pastPush ? "pr" : "push",
+      error,
+    });
+    const git = archivePublicationGitSeam(
+      runner,
+      () => {
+        pastPush = true;
+      },
+      (error) => {
+        throw failureForStep(error);
+      },
+    );
     try {
       const result = await publishArchiveReady(
         { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },

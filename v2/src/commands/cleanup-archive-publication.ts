@@ -9,6 +9,7 @@ import {
   deleteBranch,
   getBaseBranch,
   listLocalBranchHeads,
+  type BlobOidAtPath,
   listRecursiveBlobOidsAtRef,
   readLocalGitConfig,
   removeWorktree,
@@ -101,7 +102,12 @@ export async function committedBlobIdsAtRef(
   ref: string,
   relPaths: readonly string[],
 ): Promise<CommittedBlobIds | undefined> {
-  const listing = await listRecursiveBlobOidsAtRef(cwd, ref, relPaths, runner);
+  let listing: BlobOidAtPath[] | undefined;
+  try {
+    listing = await listRecursiveBlobOidsAtRef(cwd, ref, relPaths, runner);
+  } catch {
+    return undefined;
+  }
   if (listing === undefined) return undefined;
   const ids = new Map<string, Buffer>();
   for (const { path, oid } of listing) {

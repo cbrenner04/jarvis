@@ -27,7 +27,7 @@ After prerequisite migrations, `v2/src/commands/` and `v2/src/daemon/` productio
 - [x] `pipeline-execution.test.ts` stays green (daemon pipeline git behavior unchanged aside from delegation).
 - [x] `workflow.test.ts` stays green where workflow admission git probes are covered.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

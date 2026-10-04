@@ -5,7 +5,7 @@ import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../share
 import type { StateStore } from "../persistence/state-store.ts";
 import { ghRefusingRealRunner as realAsyncSubprocessRunner } from "../testing/gh-refusing-runner.ts";
 import { createArchivePublicationSessions, inspectStrandedArtifacts, runCleanupCommand } from "./cleanup.ts";
-import { createArchivePublicationSession } from "./cleanup-archive-publication.ts";
+import { committedBlobIdsAtRef, createArchivePublicationSession } from "./cleanup-archive-publication.ts";
 import type { ArtifactSpec } from "./cleanup-artifacts.ts";
 
 function isCleanupArchiveBranchProbe(cmd: string, args: readonly string[]): boolean {
@@ -110,6 +110,20 @@ function archivePublicationRunner(
     },
   };
 }
+
+describe("committedBlobIdsAtRef", () => {
+  test("unreadable ref listing is soft (undefined, not thrown)", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "git" && args[0] === "ls-tree") {
+          throw new AsyncSubprocessError("spawn failed", undefined, "", "", "ENOENT");
+        }
+        throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+      },
+    };
+    expect(await committedBlobIdsAtRef(runner, "/missing", "/missing", "main", ["v2/spec"])).toBeUndefined();
+  });
+});
 
 describe("cleanup archive publication session", () => {
   let tempRoot: string;

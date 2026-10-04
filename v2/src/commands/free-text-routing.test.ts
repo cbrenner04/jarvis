@@ -371,4 +371,19 @@ describe("runFreeTextRouting", () => {
     expect(exit).toBe(1);
     expectRoutingStderr(io, "routing-error");
   });
+
+  test("maps no-routable-agent stderr from non-ok routing invocation", async () => {
+    const harness = makeAdmissionHarness();
+    const io = captureIo();
+    const exit = await runFreeTextRouting("start pipeline", io, makeCliDeps(), "s", {
+      invokeRouting: async () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "no agent in the order can run the routing role: cursor (missing routing rung)",
+      }),
+    });
+    expect(exit).toBe(1);
+    expectRoutingStderr(io, "no-routable-agent");
+    expectNoDaemonRpc(harness);
+  });
 });

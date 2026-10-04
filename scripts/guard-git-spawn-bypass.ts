@@ -46,6 +46,10 @@ export function runGitSpawnBypassGuard(cwd: string): GitSpawnBypassViolation[] {
   );
 }
 
+export function exitCodeForGitSpawnBypassViolations(violations: readonly GitSpawnBypassViolation[]): number {
+  return violations.length > 0 ? 1 : 0;
+}
+
 if (import.meta.main) {
   const violations = runGitSpawnBypassGuard(process.cwd());
   for (const violation of violations) {
@@ -53,5 +57,5 @@ if (import.meta.main) {
       `${violation.file}:${violation.line}: inline runAsync("${violation.command}") (use shared/git or github-operations, or mark \`// ${ALLOW_MARKER} <reason>\`)`,
     );
   }
-  if (violations.length > 0) process.exitCode = 1;
+  process.exitCode = exitCodeForGitSpawnBypassViolations(violations);
 }

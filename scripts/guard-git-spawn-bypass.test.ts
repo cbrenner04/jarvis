@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { findGitSpawnBypassViolations, GH_OWNER_FILE, runGitSpawnBypassGuard } from "./guard-git-spawn-bypass.ts";
+import {
+  exitCodeForGitSpawnBypassViolations,
+  findGitSpawnBypassViolations,
+  GH_OWNER_FILE,
+  runGitSpawnBypassGuard,
+} from "./guard-git-spawn-bypass.ts";
 
 const EXAMPLE_FILE = "v2/src/execution/example.ts";
 
@@ -39,5 +44,10 @@ describe("git spawn bypass guard", () => {
   test("ignores non-production paths under v2/src", () => {
     const source = 'await runner.runAsync("git", ["status"], cwd);';
     expect(violations(source, "v2/src/execution/example.test.ts")).toEqual([]);
+  });
+
+  test("exit code is 1 when violations exist, 0 otherwise", () => {
+    expect(exitCodeForGitSpawnBypassViolations([])).toBe(0);
+    expect(exitCodeForGitSpawnBypassViolations([{ file: EXAMPLE_FILE, line: 1, command: "git" }])).toBe(1);
   });
 });

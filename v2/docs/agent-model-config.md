@@ -27,9 +27,9 @@ The top-level `codexSandboxMode` key in `~/.jarvis/config.json` selects the sand
 
 ## Confinement policy
 
-`confinementPolicy` is the vendor-agnostic confinement a write/implement invocation runs under: `sandbox` (filesystem writes confined to the workspace) or `unrestricted` (the adapter's standing flags, unchanged from v1). The vocabulary lives in [`shared/invocation/confinement-policy.ts`](../../shared/invocation/confinement-policy.ts) (`CONFINEMENT_POLICIES`, default `unrestricted`). Resolution cascades `projects.<projectKey>.overrides.confinementPolicy` → top-level `confinementPolicy` → `unrestricted` (`readConfinementPolicy` in [`machine-config-loader.ts`](../src/config/machine-config-loader.ts)); an unrecognized value throws naming the config path. The daemon's `productionAgentBindingFactory` resolves the policy per project (`worktree.projectName`) and stamps it onto every write/implement binding alongside `codexSandboxMode`, so fresh and rehydrated paths agree; an invalid value fails binding resolution (`Unable to resolve bindings: …`).
+`confinementPolicy` is the vendor-agnostic confinement a write/implement invocation runs under: `sandbox` (filesystem writes confined to the workspace) or `unrestricted` (the adapter's standing flags, unchanged from v1). The vocabulary lives in [`v2/src/shared/invocation/confinement-policy.ts`](../../v2/src/shared/invocation/confinement-policy.ts) (`CONFINEMENT_POLICIES`, default `unrestricted`). Resolution cascades `projects.<projectKey>.overrides.confinementPolicy` → top-level `confinementPolicy` → `unrestricted` (`readConfinementPolicy` in [`machine-config-loader.ts`](../src/config/machine-config-loader.ts)); an unrecognized value throws naming the config path. The daemon's `productionAgentBindingFactory` resolves the policy per project (`worktree.projectName`) and stamps it onto every write/implement binding alongside `codexSandboxMode`, so fresh and rehydrated paths agree; an invalid value fails binding resolution (`Unable to resolve bindings: …`).
 
-`createResolvedAgentBinding` ([`shared/invocation/agents.ts`](../../shared/invocation/agents.ts)) takes the policy through `ResolvedAgentBindingOptions.confinementPolicy` and consults one pure `translate<Vendor>Confinement` per wired adapter, each returning the argv fragment plus the applied mechanism (`binding.confinementMechanism`) or a refusal. A vendor with no flag that confines writes while keeping shell tools usable refuses: the binding's `invoke` throws `ConfinementRefusalError` (`vendor`, `policy`) before any spawn, `executeWithQuotaFallback` records the attempt as `model_config` without echoing the prompt to the session log or writing a telemetry row (one `harness` line names the refusal), and always advances to the next agent in the order. When every rung refuses, the run's `model_config` operator error carries the refusal text (vendor, policy, and the config keys to change) instead of the generic remedy. Unwired agents stay unwired; they are never reported as refusals.
+`createResolvedAgentBinding` ([`v2/src/shared/invocation/agents.ts`](../../v2/src/shared/invocation/agents.ts)) takes the policy through `ResolvedAgentBindingOptions.confinementPolicy` and consults one pure `translate<Vendor>Confinement` per wired adapter, each returning the argv fragment plus the applied mechanism (`binding.confinementMechanism`) or a refusal. A vendor with no flag that confines writes while keeping shell tools usable refuses: the binding's `invoke` throws `ConfinementRefusalError` (`vendor`, `policy`) before any spawn, `executeWithQuotaFallback` records the attempt as `model_config` without echoing the prompt to the session log or writing a telemetry row (one `harness` line names the refusal), and always advances to the next agent in the order. When every rung refuses, the run's `model_config` operator error carries the refusal text (vendor, policy, and the config keys to change) instead of the generic remedy. Unwired agents stay unwired; they are never reported as refusals.
 
 | Adapter | `unrestricted` (default) | `sandbox` | Mechanism |
 | --- | --- | --- | --- |
@@ -151,7 +151,7 @@ Misconfigured `rungs[0]` that returns `model_config` is terminal. Remedy: reorde
 
 ## Flat binding construction
 
-Per step invocation, build a fresh ordered binding list in [`v2/src/config/agent-model-config.ts`](../src/config/agent-model-config.ts) via `resolveInvocationBindings(...)`, using one-rung-at-a-time binding construction from [`shared/invocation/agents.ts`](../../shared/invocation/agents.ts) `createResolvedAgentBinding(...)`. No rung cursor carries across invocations or steps. The workflow boundary first rejects non-executable roles with `resolveExecutableRole(...)`; `operator` does not enter this path.
+Per step invocation, build a fresh ordered binding list in [`v2/src/config/agent-model-config.ts`](../src/config/agent-model-config.ts) via `resolveInvocationBindings(...)`, using one-rung-at-a-time binding construction from [`v2/src/shared/invocation/agents.ts`](../../v2/src/shared/invocation/agents.ts) `createResolvedAgentBinding(...)`. No rung cursor carries across invocations or steps. The workflow boundary first rejects non-executable roles with `resolveExecutableRole(...)`; `operator` does not enter this path.
 
 **Algorithm** (given `agents`, `role`, and loaded `AgentModelConfig`):
 
@@ -202,7 +202,7 @@ Head-only `actuator` matches v1 `reviewActuator` verdict-tier semantics: inner r
 
 At load, `routing` rungs are required only for agents that can run tool-free (`routingRefusalReason(agent) === null`); refusing vendors carry no routing rung. Both shipped profiles bind it to the cheapest model already listed for claude and codex.
 
-Bindings come from `createRoutingAgentBinding` in [`shared/invocation/agents.ts`](../../shared/invocation/agents.ts), not `createResolvedAgentBinding`. The routing invocation receives only the prompt and its `cwd`.
+Bindings come from `createRoutingAgentBinding` in [`v2/src/shared/invocation/agents.ts`](../../v2/src/shared/invocation/agents.ts), not `createResolvedAgentBinding`. The routing invocation receives only the prompt and its `cwd`.
 
 ### Tool-free invocation contract
 
@@ -213,7 +213,7 @@ Bindings come from `createRoutingAgentBinding` in [`shared/invocation/agents.ts`
 | `cursor` | **refused** | `cursor-agent` has no tool-disabling flag; `--mode ask` keeps read tools and requires a workspace grant. |
 | `opencode` | **refused** | No tool-disabling flag; tool sets live only in project agent config. |
 
-The tool-free vendor set has one source of truth: `resolveToolFreeVendor(agentId)` in [`shared/invocation/routing.ts`](../../shared/invocation/routing.ts) returns the narrowed vendor or a refusal reason; `routingRefusalReason` derives from it, `resolveRoutingBindings` filters with it, and `createRoutingAgentBinding` throws `RoutingRefusalError` (naming the agent) from it before any process starts — a vendor that cannot run tool-free never runs degraded.
+The tool-free vendor set has one source of truth: `resolveToolFreeVendor(agentId)` in [`v2/src/shared/invocation/routing.ts`](../../v2/src/shared/invocation/routing.ts) returns the narrowed vendor or a refusal reason; `routingRefusalReason` derives from it, `resolveRoutingBindings` filters with it, and `createRoutingAgentBinding` throws `RoutingRefusalError` (naming the agent) from it before any process starts — a vendor that cannot run tool-free never runs degraded.
 
 ### Bounds and named failures
 

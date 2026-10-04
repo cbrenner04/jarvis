@@ -1,6 +1,6 @@
 # Quota Signals & Transient Errors
 
-The shared invocation layer (`shared/invocation/agents.ts`) classifies each agent CLI exit as `ok`, `quota`, `model_config`, or `error` (plus `stall` from the idle watchdog). Vendors do not document stable exit codes, so the exit code is a guard and stderr/stdout text patterns decide. Fallback semantics — which kinds advance the agent order or the model rungs — live in [`agent-model-config.md`](./agent-model-config.md) and [`shared-invocation.md`](./shared-invocation.md); this doc owns the signal catalog and the real-sample record.
+The shared invocation layer (`v2/src/shared/invocation/agents.ts`) classifies each agent CLI exit as `ok`, `quota`, `model_config`, or `error` (plus `stall` from the idle watchdog). Vendors do not document stable exit codes, so the exit code is a guard and stderr/stdout text patterns decide. Fallback semantics — which kinds advance the agent order or the model rungs — live in [`agent-model-config.md`](./agent-model-config.md) and [`shared-invocation.md`](./shared-invocation.md); this doc owns the signal catalog and the real-sample record.
 
 ## Classification order
 
@@ -50,7 +50,7 @@ Doc-only workflow is intentional: low friction beats extra tooling here.
 
 ## Claude
 
-Claude runs with `--output-format stream-json --verbose --include-partial-messages`. On exit `0` the runner checks for a verified quota error envelope (`isClaudeZeroExitQuotaEnvelope`, `shared/invocation/claude-json.ts`): `is_error: true`, `api_error_status: 429`, and a quota message in `result` matched by `claudeQuotaPatterns`. When all three hold the result is `kind: "quota"` with the full stdout JSON preserved as diagnostics. Other zero-exit envelopes stay non-quota.
+Claude runs with `--output-format stream-json --verbose --include-partial-messages`. On exit `0` the runner checks for a verified quota error envelope (`isClaudeZeroExitQuotaEnvelope`, `v2/src/shared/invocation/claude-json.ts`): `is_error: true`, `api_error_status: 429`, and a quota message in `result` matched by `claudeQuotaPatterns`. When all three hold the result is `kind: "quota"` with the full stdout JSON preserved as diagnostics. Other zero-exit envelopes stay non-quota.
 
 Because Claude streams, a null `last_output_age_ms` on a stall means the agent produced no observed output during that window — not that the harness could not see Claude. Before stream-json, batch JSON arrived only at exit and the idle watchdog was structurally blind to a live Claude.
 
@@ -65,7 +65,7 @@ sample below is exit-`0` JSON on stdout.
   {"type":"result","subtype":"error","is_error":true,"api_error_status":429,"duration_ms":842,"duration_api_ms":0,"ttft_ms":0,"num_turns":0,"result":"You've hit your monthly spend limit","stop_reason":null,"session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{},"permission_denials":[],"terminal_reason":"error","fast_mode_state":"off","uuid":"c8d9e0f1-2345-6789-abcd-ef0123456789"}
   ```
 
-  Fixture: `shared/fixtures/claude/2.1.142-monthly-spend-limit.json`.
+  Fixture: `v2/src/shared/fixtures/claude/2.1.142-monthly-spend-limit.json`.
 
 ## Codex
 
@@ -121,7 +121,7 @@ opencode classification is **scoped to stderr** (`classifierDiagnostics`): its `
 
 - No real samples recorded yet.
 
-## Pattern audit (`shared/invocation/agents.ts`)
+## Pattern audit (`v2/src/shared/invocation/agents.ts`)
 
 Status key: `Matched` — verified against a real sample in this doc; `Unverified` — retained as a best-effort detector, no real sample yet.
 

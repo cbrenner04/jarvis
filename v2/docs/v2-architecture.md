@@ -26,14 +26,14 @@ Root keeps only the pinned entrypoints and cross-cutting modules: `cli.ts`, `dae
 
 | From | May import |
 | --- | --- |
-| Hosts (`cli`, `daemon`, `tui`) | Libraries + `ipc/` + `shared/` + sibling hosts (composition) |
-| Execution library | Persistence + `shared/` |
-| Persistence library | `shared/` only (type-only → execution/config: committed exceptions) |
-| `ipc/` | `shared/` only |
+| Hosts (`cli`, `daemon`, `tui`) | Libraries + `ipc/` + `v2/src/shared/` + sibling hosts (composition) |
+| Execution library | Persistence + `v2/src/shared/` |
+| Persistence library | `v2/src/shared/` only (type-only → execution/config: committed exceptions) |
+| `ipc/` | `v2/src/shared/` only |
 | `testing/` | Anything |
 | Production code | Not `testing/` |
 
-**Committed exceptions:** persistence may **type-import** from execution/config (e.g. `state-store.ts` ← `InvocationFailureDetail`, `WriteLoopInput`; `log-stream.ts` ← `WriteLoopOutcomeKind`, `PublicationFailure`) — never value imports. `log-stream` ↔ `write-loop` is a mutual type-only dependency (execution imports `LogSink` from persistence). Hoist shared types to `shared/` before adding new cross-library edges; no silent value imports across libraries.
+**Committed exceptions:** persistence may **type-import** from execution/config (e.g. `state-store.ts` ← `InvocationFailureDetail`, `WriteLoopInput`; `log-stream.ts` ← `WriteLoopOutcomeKind`, `PublicationFailure`) — never value imports. `log-stream` ↔ `write-loop` is a mutual type-only dependency (execution imports `LogSink` from persistence). Hoist shared types to `v2/src/shared/` before adding new cross-library edges; no silent value imports across libraries.
 
 ### Entrypoints
 
@@ -78,7 +78,7 @@ Decided:
 
 Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the override syntax, and the rendered-prompt snapshot test standard (a prompt edit shifts rendered output, so changes are kept visible via the `revision` field and render-observer tests). The canonical contract is [`prompt-governance.md`](./prompt-governance.md).
 
-**v2's own renderer (`v2/src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.** It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`). This means `plan.prompt.draft` renders two different ways depending on caller: through `shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments. Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
+**v2's own renderer (`v2/src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.** It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`). This means `plan.prompt.draft` renders two different ways depending on caller: through `v2/src/shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments. Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
 
 ## Pipelines
 
@@ -452,7 +452,7 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
   attempt. Kill/crash stopped *interrupted* (last attempt still in-progress) →
   resume re-runs the interrupted step over the dirty worktree (same code path as
   crash recovery).
-- **Process-group kill is opt-in.** `shared/subprocess.ts`'s `runAsync` is always
+- **Process-group kill is opt-in.** `v2/src/shared/subprocess.ts`'s `runAsync` is always
   bounded (default 10 min timeout, see [write-behavior.md § Subprocess bounds](./write-behavior.md#subprocess-bounds))
   but normally kills only the direct child on abort/timeout, which leaves grandchildren (e.g.
   `bun test` pool workers under a gate command) running. Passing
@@ -557,7 +557,7 @@ Most of v1's git/GitHub machinery is sound and carries forward unchanged: harnes
 
 ### Git operation ownership
 
-`shared/git.ts` is the canonical owner of Git for Jarvis-owned code: command construction, output parsing, and error semantics live there, and callers pass semantic arguments (refs, paths, branch names) rather than argv. Every operation takes an injected runner (`AsyncSubprocessRunner`; `SubprocessRunner` only for the sync `gitDir` used by root scripts) and an optional `signal`, so callers test against a fake runner and never reach ambient Git. `scripts/guard-git-spawn-bypass.ts` (part of `bun run check`) walks `v2/src` production modules and fails on `runAsync("git"|"gh", …)` except allowlisted `gh` in `v2/src/execution/github-operations.ts`; a rare bypass carries `// guard-git-spawn-bypass: <reason>` on the spawn line or the line above. The execution library's worktree materialization (`v2/src/execution/external-worktree.ts`) enters Git through this boundary: `resolveRef` on `refs/heads/<branch>` (an existing local branch skips the network probe), else an origin probe and `createBranch` with explicit start-point precedence (origin head, which must already be fetched as `refs/remotes/origin/<branch>` or materialization fails by name; else `forkRef`; else `baseRef`), then `addWorktree`, with the caller's `signal` passed to every operation and a `GitOperationError` (`aborted`, `path-exists`, `branch-in-use`, …) surfaced as the `WorktreeMaterializationError` cause; an `aborted` probe propagates rather than reading as an unvalidated path. Read-only checkout extraction pipes `git archive` through `sh` (not `runAsync("git", …)`), so it stays outside the guard's literal match while still routing branch/worktree setup through `shared/git.ts`.
+`v2/src/shared/git.ts` is the canonical owner of Git for Jarvis-owned code: command construction, output parsing, and error semantics live there, and callers pass semantic arguments (refs, paths, branch names) rather than argv. Every operation takes an injected runner (`AsyncSubprocessRunner`; `SubprocessRunner` only for the sync `gitDir` used by root scripts) and an optional `signal`, so callers test against a fake runner and never reach ambient Git. `scripts/guard-git-spawn-bypass.ts` (part of `bun run check`) walks `v2/src` production modules and fails on `runAsync("git"|"gh", …)` except allowlisted `gh` in `v2/src/execution/github-operations.ts`; a rare bypass carries `// guard-git-spawn-bypass: <reason>` on the spawn line or the line above. The execution library's worktree materialization (`v2/src/execution/external-worktree.ts`) enters Git through this boundary: `resolveRef` on `refs/heads/<branch>` (an existing local branch skips the network probe), else an origin probe and `createBranch` with explicit start-point precedence (origin head, which must already be fetched as `refs/remotes/origin/<branch>` or materialization fails by name; else `forkRef`; else `baseRef`), then `addWorktree`, with the caller's `signal` passed to every operation and a `GitOperationError` (`aborted`, `path-exists`, `branch-in-use`, …) surfaced as the `WorktreeMaterializationError` cause; an `aborted` probe propagates rather than reading as an unvalidated path. Read-only checkout extraction pipes `git archive` through `sh` (not `runAsync("git", …)`), so it stays outside the guard's literal match while still routing branch/worktree setup through `v2/src/shared/git.ts`.
 
 Entry points, by family:
 
@@ -568,11 +568,11 @@ Failures are `GitOperationError` with `operation` (which command family), `reaso
 
 The boundary throws; it has no soft fallbacks. Callers that had one keep it at the call site when they migrate: `scripts/ready.ts` falls back to `<repo>/.git` when `gitDir` throws outside a repository (test temp dirs), and `review-implement.ts` (migrated) renders a `(failed to generate diff: …)` placeholder when `branchDiff` throws.
 
-Unmarked inline `runAsync("git", …)` in `v2/src` production code: none (guard-enforced). Git argv outside that walk remains in `shared/git.ts` and `shared/executable-tree.ts`.
+Unmarked inline `runAsync("git", …)` in `v2/src` production code: none (guard-enforced). Git argv outside that walk remains in `v2/src/shared/git.ts` and `v2/src/shared/executable-tree.ts`.
 
 ### GitHub operation ownership
 
-`v2/src/execution/github-operations.ts` is the canonical owner of `gh` for Jarvis-owned code, the GitHub counterpart of `shared/git.ts`: command construction, JSON parsing, and error classification live there, and callers pass semantic arguments (branch, PR number, base, title) and get structured results. Every operation takes an injected `AsyncSubprocessRunner` plus `GitHubOperationOptions` (`signal`, optional `timeoutMs` over the network-bounded default), so callers test against a fake runner and never reach the ambient CLI; `ghCommandRunner` adapts the raw `(cwd, args) => stdout` seam the publication tests inject.
+`v2/src/execution/github-operations.ts` is the canonical owner of `gh` for Jarvis-owned code, the GitHub counterpart of `v2/src/shared/git.ts`: command construction, JSON parsing, and error classification live there, and callers pass semantic arguments (branch, PR number, base, title) and get structured results. Every operation takes an injected `AsyncSubprocessRunner` plus `GitHubOperationOptions` (`signal`, optional `timeoutMs` over the network-bounded default), so callers test against a fake runner and never reach the ambient CLI; `ghCommandRunner` adapts the raw `(cwd, args) => stdout` seam the publication tests inject.
 
 Entry points, by family:
 

@@ -1,6 +1,6 @@
 # Shared step-runner contract
 
-`v2/src/execution/step-runner.ts` owns the behavior-agnostic step execution seam above `shared/invocation/execute.ts`.
+`v2/src/execution/step-runner.ts` owns the behavior-agnostic step execution seam above `v2/src/shared/invocation/execute.ts`.
 
 Contract:
 
@@ -17,7 +17,7 @@ Contract:
 - When `blockerTextContract` is set and the token is `blocked`, the runner checks
   that the spec file gained a new non-empty `## Blocker` section (before/after
   against `specBefore`, same shape as `hasGenuineBlocker` in
-  `shared/spec-parser.ts`) **or** already carries a non-empty agent-authored
+  `v2/src/shared/spec-parser.ts`) **or** already carries a non-empty agent-authored
   `## Blocker` at settle time (`agentAuthoredBlockerBody`; a section authored in
   an earlier iteration counts, a harness-marker section `Artifact contract check
   failed:` does not). Pass → ordinary `blocked` carrying that section's body as

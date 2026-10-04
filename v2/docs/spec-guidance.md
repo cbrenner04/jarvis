@@ -61,7 +61,7 @@ For an independent intent with no prerequisites, leave the `## Prerequisites` bo
 
 ### Seed ratings
 
-A seed's frontmatter carries `name:` plus `risk:` and `effort:` ratings. New seeds should include both; each is a separate judgment and neither substitutes for the other. One closed scale serves both dimensions (`shared/seed-metadata.ts`: `RATING_LEVELS`, `parseSeedMetadata`). The same vocabulary is what project minimums and `jarvis pipeline start --risk` / `--effort` use.
+A seed's frontmatter carries `name:` plus `risk:` and `effort:` ratings. New seeds should include both; each is a separate judgment and neither substitutes for the other. One closed scale serves both dimensions (`v2/src/shared/seed-metadata.ts`: `RATING_LEVELS`, `parseSeedMetadata`). The same vocabulary is what project minimums and `jarvis pipeline start --risk` / `--effort` use.
 
 ```markdown
 ---

@@ -20,7 +20,7 @@ Hours sum recorded `duration_ms` across subprocesses. They are neither end-to-en
 
 ### Token valuation
 
-Use each binding's final `binding_id` component as its price key. Compute `(uncached input × input rate + output × output rate + cache reads × read rate + cache writes × write rate) / 1,000,000`, matching [computeCost](../../../shared/prices/cost.ts). Telemetry's Codex input is already uncached; do not subtract cache reads again.
+Use each binding's final `binding_id` component as its price key. Compute `(uncached input × input rate + output × output rate + cache reads × read rate + cache writes × write rate) / 1,000,000`, matching [computeCost](../../../v2/src/shared/prices/cost.ts). Telemetry's Codex input is already uncached; do not subtract cache reads again.
 
 All-null usage stays unpriced. For partially reported usage, arithmetic follows the repo's null-as-zero rule but retains coverage separately: 2,037 calls report all four fields; 162 Codex calls omit cache creation, so their valuation covers known tokens only. Unknown usage is never inferred from time. Token sums below include only reported values; coverage distinguishes missing fields from measured zero.
 

@@ -4,6 +4,8 @@ import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  abortableWorktreeMergeNoEdit,
+  abortableWorktreeRebase,
   addWorktree,
   type BranchCreateResult,
   type BranchDeleteResult,
@@ -12,12 +14,14 @@ import {
   branchExistsLocal,
   branchExistsOnOrigin,
   branchExistsOnOriginAsync,
+  countCommitsBetween,
   createBranch,
   DIFF_MAX_BUFFER,
   type DiffRange,
   deleteBranch,
   deleteRef,
   diffNameOnly,
+  diffNameOnlyRevision,
   diffStat,
   diffUnified,
   type GitFailureReason,
@@ -28,19 +32,30 @@ import {
   getGitStatusInventory,
   gitCommonDir,
   gitDir,
+  isAncestor,
   isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
   isRetryableGitError,
   isWorktreeDirty,
+  listLocalBranchHeads,
+  listRecursivePathsAtRef,
+  listTreeChildrenAtRef,
   listWorktrees,
+  logPatchForPathInRange,
+  lsRemoteRef,
   mergeBase,
+  mergeTreeWriteTree,
   type PushResult,
   pruneWorktrees,
   pushBranch,
   type RefDeleteResult,
   type RefResolution,
+  type RemoteUrlResult,
+  readBlobAtRef,
+  remoteUrl,
   removeWorktree,
   resolveRef,
+  unmergedPathNames,
   updateRef,
   type WorktreeAddResult,
   type WorktreeEntry,
@@ -298,6 +313,7 @@ function fakeAsync(results: Record<string, string | Error>): AsyncSubprocessRunn
 
 const OID_A = "a".repeat(40);
 const OID_B = "b".repeat(40);
+const OID_C = "c".repeat(40);
 
 function gitFailure(stderr: string, status = 128): AsyncSubprocessError {
   return new AsyncSubprocessError("Command failed: git", status, "", stderr, undefined);
@@ -408,6 +424,13 @@ describe("diff operations", () => {
   test("a diff failure is the diff operation, never merge-base", async () => {
     const runner = fakeAsync({ [`git diff --name-only ${OID_A} HEAD`]: gitFailure("fatal: ambiguous argument\n") });
     expectFailure(await rejection(diffNameOnly("/repo", range, runner)), "diff", "failed", false);
+  });
+
+  test("diffNameOnlyRevision drops blank lines and sorts paths", async () => {
+    const runner = fakeAsync({
+      "git diff --name-only main..HEAD": "src/b.ts\n\nsrc/a.ts\n",
+    });
+    expect(await diffNameOnlyRevision("/repo", "main..HEAD", runner)).toEqual(["src/a.ts", "src/b.ts"]);
   });
 });
 
@@ -597,7 +620,7 @@ describe("removeWorktree", () => {
   test("removes, honours force, and treats an unregistered path as absent", async () => {
     const runner = fakeAsync({
       "git worktree remove /wt/feature": "",
-      "git worktree remove --force --force /wt/feature": "",
+      "git worktree remove --force /wt/feature": "",
       "git worktree remove /wt/gone": gitFailure("fatal: '/wt/gone' is not a working tree\n"),
     });
     const removed: WorktreeRemoveResult = await removeWorktree("/repo", "/wt/feature", runner);
@@ -606,15 +629,15 @@ describe("removeWorktree", () => {
     expect(await removeWorktree("/repo", "/wt/gone", runner)).toEqual({ status: "absent" });
     expect(runner.calls.map((call) => call.args)).toEqual([
       ["git", "worktree", "remove", "/wt/feature"],
-      ["git", "worktree", "remove", "--force", "--force", "/wt/feature"],
+      ["git", "worktree", "remove", "--force", "/wt/feature"],
       ["git", "worktree", "remove", "/wt/gone"],
     ]);
   });
 
-  test("force is passed twice so a lock is overridable", async () => {
-    const runner = fakeAsync({ "git worktree remove --force --force /wt/a": "" });
+  test("force overrides a dirty or locked worktree", async () => {
+    const runner = fakeAsync({ "git worktree remove --force /wt/a": "" });
     expect(await removeWorktree("/repo", "/wt/a", runner, { force: true })).toEqual({ status: "removed" });
-    expect(runner.calls[0]?.args).toEqual(["git", "worktree", "remove", "--force", "--force", "/wt/a"]);
+    expect(runner.calls[0]?.args).toEqual(["git", "worktree", "remove", "--force", "/wt/a"]);
   });
 
   test("dirty and locked worktrees are precondition failures", async () => {
@@ -703,6 +726,159 @@ describe("deleteBranch", () => {
       ["git", "branch", "-d", "nope"],
       ["git", "branch", "-d", "unmerged"],
       ["git", "branch", "-D", "live"],
+    ]);
+  });
+});
+
+describe("abortable worktree rewrites", () => {
+  test("rebase and merge abort on conflict and return unmerged paths", async () => {
+    const runner = fakeAsync({
+      "git rebase main": gitFailure("CONFLICT\n", 1),
+      "git diff --name-only --diff-filter=U": "a.txt\n",
+      "git rebase --abort": "",
+      "git merge --no-edit main": gitFailure("CONFLICT\n", 1),
+      "git merge --abort": gitFailure("fatal: no merge in progress\n", 128),
+    });
+    expect(await abortableWorktreeRebase("/wt", "main", runner)).toEqual(["a.txt"]);
+    expect(await abortableWorktreeMergeNoEdit("/wt", "main", runner)).toEqual(["a.txt"]);
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "rebase", "main"],
+      ["git", "diff", "--name-only", "--diff-filter=U"],
+      ["git", "rebase", "--abort"],
+      ["git", "merge", "--no-edit", "main"],
+      ["git", "diff", "--name-only", "--diff-filter=U"],
+      ["git", "merge", "--abort"],
+    ]);
+  });
+
+  test("clean rebase and merge return undefined", async () => {
+    const runner = fakeAsync({
+      "git rebase main": "",
+      "git merge --no-edit feature": "",
+    });
+    expect(await abortableWorktreeRebase("/wt", "main", runner)).toBeUndefined();
+    expect(await abortableWorktreeMergeNoEdit("/wt", "feature", runner)).toBeUndefined();
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "rebase", "main"],
+      ["git", "merge", "--no-edit", "feature"],
+    ]);
+  });
+});
+
+describe("graph reads for stale-reset", () => {
+  test("isAncestor, merge-tree write-tree, unmerged paths, and log patch for path", async () => {
+    const runner = fakeAsync({
+      "git merge-base --is-ancestor main feature": "",
+      "git merge-base --is-ancestor main stale": gitFailure("", 1),
+      "git merge-tree --write-tree main feature": `${OID_A}\n`,
+      "git merge-tree --write-tree main broken": gitFailure("fatal: bad revision\n", 128),
+      "git diff --name-only --diff-filter=U": "a.txt\nb.txt\n",
+      "git diff --name-only --diff-filter=U empty": "",
+      "git log main..feature -p --format=%H -- v2/spec/task.md": `${OID_A}\n+tick\n`,
+      "git log main..feature -p --format=%H -- missing": gitFailure("fatal: bad revision\n", 128),
+    });
+    expect(await isAncestor("/repo", "main", "feature", runner)).toBe(true);
+    expect(await isAncestor("/repo", "main", "stale", runner)).toBe(false);
+    expect(await mergeTreeWriteTree("/repo", "main", "feature", runner)).toBe(OID_A);
+    expectFailure(
+      await rejection(mergeTreeWriteTree("/repo", "main", "broken", runner)),
+      "merge-tree",
+      "failed",
+      false,
+    );
+    expect(await unmergedPathNames("/repo", runner)).toEqual(["a.txt", "b.txt"]);
+    expect(await logPatchForPathInRange("/repo", "main", "feature", "v2/spec/task.md", runner)).toBe(
+      `${OID_A}\n+tick\n`,
+    );
+    expectFailure(
+      await rejection(logPatchForPathInRange("/repo", "main", "feature", "missing", runner)),
+      "ref-query",
+      "failed",
+      false,
+    );
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "merge-base", "--is-ancestor", "main", "feature"],
+      ["git", "merge-base", "--is-ancestor", "main", "stale"],
+      ["git", "merge-tree", "--write-tree", "main", "feature"],
+      ["git", "merge-tree", "--write-tree", "main", "broken"],
+      ["git", "diff", "--name-only", "--diff-filter=U"],
+      ["git", "log", "main..feature", "-p", "--format=%H", "--", "v2/spec/task.md"],
+      ["git", "log", "main..feature", "-p", "--format=%H", "--", "missing"],
+    ]);
+  });
+});
+
+describe("ref object reads at commits", () => {
+  test("exit 1 with missing-path stderr is absent like exit 128", async () => {
+    const runner = fakeAsync({
+      "git show main:gone": gitFailure("error: path 'gone' does not exist in 'main'\n", 1),
+    });
+    expect(await readBlobAtRef("/repo", "main", "gone", runner)).toBeUndefined();
+  });
+
+  test("listTreeChildrenAtRef keeps blob tree and commit entries only", async () => {
+    const treeListing =
+      `100644 blob ${OID_A}\tblob.md\0` +
+      `040000 tree ${OID_B}\tdir\0` +
+      `160000 commit ${OID_C}\tgitlink\0` +
+      `120000 submodule ${OID_A}\tskipped\0`;
+    const runner = fakeAsync({
+      "git ls-tree -z main:.": treeListing,
+    });
+    expect(await listTreeChildrenAtRef("/repo", "main", ".", runner)).toEqual([
+      { mode: "100644", type: "blob", oid: OID_A, name: "blob.md" },
+      { mode: "040000", type: "tree", oid: OID_B, name: "dir" },
+      { mode: "160000", type: "commit", oid: OID_C, name: "gitlink" },
+    ]);
+  });
+
+  test("tree children, recursive paths, blob read, commit count, and local heads", async () => {
+    const treeListing = `100644 blob ${OID_A}\tindex.md\0${`040000 tree ${OID_B}\tspec-dir\0`}`;
+    const runner = fakeAsync({
+      "git ls-tree -z main:v2/spec": treeListing,
+      "git ls-tree -z missing:path": gitFailure("fatal: Not a valid object name missing:path\n", 128),
+      "git ls-tree -r -z --name-only main -- v2/spec/spec-dir": `v2/spec/spec-dir/index.md\0v2/spec/spec-dir/task.md\0`,
+      "git ls-tree -r -z --name-only main -- gone": gitFailure("fatal: path 'gone' does not exist in 'main'\n", 128),
+      "git show main:v2/spec/spec-dir/index.md": "# spec\n",
+      "git show main:missing": gitFailure("fatal: path 'missing' does not exist in 'main'\n", 128),
+      "git rev-list --count main..feature": "3\n",
+      "git rev-list --count main..broken": gitFailure("fatal: bad revision broken\n", 128),
+      "git for-each-ref --format=%(refname:short) %(objectname) refs/heads/": `main ${OID_A}\nfeature ${OID_B}\n`,
+    });
+    const children = await listTreeChildrenAtRef("/repo", "main", "v2/spec", runner);
+    expect(children).toEqual([
+      { mode: "100644", type: "blob", oid: OID_A, name: "index.md" },
+      { mode: "040000", type: "tree", oid: OID_B, name: "spec-dir" },
+    ]);
+    expect(await listTreeChildrenAtRef("/repo", "missing", "path", runner)).toBeUndefined();
+    expect(await listRecursivePathsAtRef("/repo", "main", "v2/spec/spec-dir", runner)).toEqual([
+      "v2/spec/spec-dir/index.md",
+      "v2/spec/spec-dir/task.md",
+    ]);
+    expect(await listRecursivePathsAtRef("/repo", "main", "gone", runner)).toBeUndefined();
+    expect(await readBlobAtRef("/repo", "main", "v2/spec/spec-dir/index.md", runner)).toBe("# spec\n");
+    expect(await readBlobAtRef("/repo", "main", "missing", runner)).toBeUndefined();
+    expect(await countCommitsBetween("/repo", "main", "feature", runner)).toBe(3);
+    expectFailure(
+      await rejection(countCommitsBetween("/repo", "main", "broken", runner)),
+      "ref-query",
+      "failed",
+      false,
+    );
+    expect(await listLocalBranchHeads("/repo", runner)).toEqual([
+      { branch: "main", oid: OID_A },
+      { branch: "feature", oid: OID_B },
+    ]);
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "ls-tree", "-z", "main:v2/spec"],
+      ["git", "ls-tree", "-z", "missing:path"],
+      ["git", "ls-tree", "-r", "-z", "--name-only", "main", "--", "v2/spec/spec-dir"],
+      ["git", "ls-tree", "-r", "-z", "--name-only", "main", "--", "gone"],
+      ["git", "show", "main:v2/spec/spec-dir/index.md"],
+      ["git", "show", "main:missing"],
+      ["git", "rev-list", "--count", "main..feature"],
+      ["git", "rev-list", "--count", "main..broken"],
+      ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
     ]);
   });
 });
@@ -850,6 +1026,55 @@ describe("pushBranch", () => {
     }
     const timeout = fakeAsync({ "git push origin feature": timeoutFailure() });
     expectFailure(await rejection(pushBranch("/repo", { branch: "feature" }, timeout)), "push", "timeout", true);
+  });
+});
+
+describe("lsRemoteRef", () => {
+  test("returns the tip sha when ls-remote reports the ref, undefined when absent", async () => {
+    const present = fakeAsync({ "git ls-remote origin refs/heads/feature": "abc123def\trefs/heads/feature\n" });
+    expect(await lsRemoteRef("/repo", "origin", "refs/heads/feature", present)).toBe("abc123def");
+    expect(present.calls[0]).toMatchObject({
+      args: ["git", "ls-remote", "origin", "refs/heads/feature"],
+      cwd: "/repo",
+    });
+    expect(present.calls[0]?.options?.timeoutMs).toBe(NETWORK_SUBPROCESS_TIMEOUT_MS);
+
+    const absent = fakeAsync({ "git ls-remote origin refs/heads/missing": "" });
+    expect(await lsRemoteRef("/repo", "origin", "refs/heads/missing", absent)).toBeUndefined();
+  });
+
+  test("ls-remote failures are ref-query errors", async () => {
+    const failed = fakeAsync({
+      "git ls-remote origin refs/heads/x": gitFailure("fatal: could not read from remote\n"),
+    });
+    expectFailure(
+      await rejection(lsRemoteRef("/repo", "origin", "refs/heads/x", failed)),
+      "ref-query",
+      "failed",
+      false,
+    );
+  });
+});
+
+describe("remoteUrl", () => {
+  test("returns the trimmed URL and absent when the remote is missing", async () => {
+    const runner = fakeAsync({
+      "git remote get-url origin": "https://github.com/o/r.git\n",
+      "git remote get-url upstream": gitFailure("fatal: No such remote 'upstream'\n", 2),
+    });
+    const resolved: RemoteUrlResult = await remoteUrl("/repo", "origin", runner);
+    expect(resolved).toEqual({ status: "resolved", url: "https://github.com/o/r.git" });
+    expect(await remoteUrl("/repo", "upstream", runner)).toEqual({ status: "absent" });
+    expect(runner.calls[0]).toEqual({
+      args: ["git", "remote", "get-url", "origin"],
+      cwd: "/repo",
+      options: {},
+    });
+  });
+
+  test("other failures are remote-url errors", async () => {
+    const failed = fakeAsync({ "git remote get-url origin": gitFailure("fatal: not a git repository\n") });
+    expectFailure(await rejection(remoteUrl("/nowhere", "origin", failed)), "remote-url", "failed", false);
   });
 });
 

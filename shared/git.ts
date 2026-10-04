@@ -292,6 +292,7 @@ export async function getCurrentHeadAsync(
 
 export type GitOperation =
   | "merge-base"
+  | "merge-tree"
   | "diff"
   | "worktree-add"
   | "worktree-remove"
@@ -302,6 +303,7 @@ export type GitOperation =
   | "ref-query"
   | "update-ref"
   | "push"
+  | "remote-url"
   | "git-dir"
   | "work-tree-query";
 
@@ -470,6 +472,48 @@ export async function mergeBase(
   return oid;
 }
 
+/** Soft boolean matching `git merge-base --is-ancestor` (exit 1 → false; stdio ignored). */
+export async function isAncestor(
+  cwd: string,
+  ancestor: string,
+  descendant: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<boolean> {
+  try {
+    await runner.runAsync(
+      "git",
+      ["merge-base", "--is-ancestor", ancestor, descendant],
+      cwd,
+      runOptions(options, { stdio: "ignore" }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** First-line tree OID from `git merge-tree --write-tree base head`. */
+export async function mergeTreeWriteTree(
+  cwd: string,
+  baseRef: string,
+  headRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  let output: string;
+  try {
+    output = await runner.runAsync("git", ["merge-tree", "--write-tree", baseRef, headRef], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("merge-tree", error, [], options);
+  }
+  const oid = output.split("\n")[0]?.trim() ?? "";
+  if (!OID_PATTERN.test(oid)) {
+    throw new GitOperationError("merge-tree", "failed", `unexpected merge-tree output ${JSON.stringify(oid)}`, "", 0);
+  }
+  return oid;
+}
+
 async function runDiff(
   cwd: string,
   args: string[],
@@ -493,6 +537,13 @@ export async function diffStat(
   return (await runDiff(cwd, ["--stat", range.from, range.to], runner, options)).trim();
 }
 
+function sortedNonemptyDiffPaths(output: string): string[] {
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .sort();
+}
+
 /** Changed paths between `from` and `to`, sorted by code unit (deterministic across runs). */
 export async function diffNameOnly(
   cwd: string,
@@ -500,11 +551,80 @@ export async function diffNameOnly(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions = {},
 ): Promise<string[]> {
-  const output = await runDiff(cwd, ["--name-only", range.from, range.to], runner, options);
+  return sortedNonemptyDiffPaths(await runDiff(cwd, ["--name-only", range.from, range.to], runner, options));
+}
+
+/** Changed paths for a single revision range token (e.g. `base..head` or `base...head`). */
+export async function diffNameOnlyRevision(
+  cwd: string,
+  revision: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  return sortedNonemptyDiffPaths(await runDiff(cwd, ["--name-only", revision], runner, options));
+}
+
+/** Unmerged paths in the index/worktree (`git diff --name-only --diff-filter=U`). */
+export async function unmergedPathNames(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  const output = await runDiff(cwd, ["--name-only", "--diff-filter=U"], runner, options);
   return output
     .split("\n")
-    .filter((line) => line.length > 0)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Stateful worktree rewrite: run `runArgs`, then on failure list unmerged paths and best-effort
+ * `abortArgs` (abort failure does not change the returned conflict paths).
+ */
+async function abortableWorktreeRewrite(
+  cwd: string,
+  runArgs: string[],
+  abortArgs: string[],
+  runner: AsyncSubprocessRunner,
+  options: OperationOptions,
+): Promise<string[] | undefined> {
+  try {
+    await runner.runAsync("git", runArgs, cwd, runOptions(options));
+    return undefined;
+  } catch {
+    let conflictPaths: string[];
+    try {
+      conflictPaths = await unmergedPathNames(cwd, runner, options);
+    } catch {
+      conflictPaths = [];
+    }
+    try {
+      await runner.runAsync("git", abortArgs, cwd, runOptions(options));
+    } catch {
+      // best effort — conflictPaths were captured before abort
+    }
+    return conflictPaths;
+  }
+}
+
+/** `git rebase <onto>` in `cwd`; `undefined` on success, conflicting paths after abort on failure. */
+export async function abortableWorktreeRebase(
+  cwd: string,
+  onto: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[] | undefined> {
+  return abortableWorktreeRewrite(cwd, ["rebase", onto], ["rebase", "--abort"], runner, options);
+}
+
+/** `git merge --no-edit <ref>` in `cwd`; `undefined` on success, conflicting paths after abort on failure. */
+export async function abortableWorktreeMergeNoEdit(
+  cwd: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[] | undefined> {
+  return abortableWorktreeRewrite(cwd, ["merge", "--no-edit", ref], ["merge", "--abort"], runner, options);
 }
 
 /** Raw unified diff between `from` and `to` (not trimmed: the trailing newline is part of the patch). */
@@ -650,10 +770,9 @@ const WORKTREE_REMOVE_RULES: readonly ReasonRule[] = [
 ];
 
 /**
- * `git worktree remove [--force --force] <path>`. Idempotent: an unregistered path resolves
+ * `git worktree remove [--force] <path>`. Idempotent: an unregistered path resolves
  * `absent`; a registered path whose directory is already gone resolves `removed`. A dirty
- * or locked worktree rejects with `precondition` unless `force` is set (passed twice: git
- * needs the second `--force` to override a lock).
+ * or locked worktree rejects with `precondition` unless `force` is set.
  */
 export async function removeWorktree(
   cwd: string,
@@ -661,7 +780,7 @@ export async function removeWorktree(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions & { force?: boolean } = {},
 ): Promise<WorktreeRemoveResult> {
-  const args = options.force ? ["worktree", "remove", "--force", "--force", path] : ["worktree", "remove", path];
+  const args = options.force ? ["worktree", "remove", "--force", path] : ["worktree", "remove", path];
   try {
     await runner.runAsync("git", args, cwd, runOptions(options));
     return { status: "removed" };
@@ -760,6 +879,169 @@ export async function resolveRef(
   }
 }
 
+const ABSENT_REF_PATH_PATTERN =
+  /not a valid object name|does not exist in|not a valid tree|path .* does not exist|bad revision|ambiguous argument/i;
+
+/** True when git rejected a ref:path or tree read because the object or path is missing. */
+function absentRefPathFailure(error: unknown): boolean {
+  const failure = failureOf(error);
+  if (failure.timeout || failure.tooLarge) return false;
+  const text = `${failure.message}\n${failure.stderr}`;
+  return failure.status === 128 || (failure.status === 1 && ABSENT_REF_PATH_PATTERN.test(text));
+}
+
+export type TreeChildAtRef = {
+  mode: string;
+  type: "blob" | "tree" | "commit";
+  oid: string;
+  name: string;
+};
+
+function parseLsTreeZEntries(output: string): TreeChildAtRef[] {
+  const entries: TreeChildAtRef[] = [];
+  for (const entry of output.split("\0")) {
+    if (entry.length === 0) continue;
+    const tab = entry.indexOf("\t");
+    if (tab < 0) continue;
+    const meta = entry.slice(0, tab).split(" ");
+    const mode = meta[0];
+    const type = meta[1];
+    const oid = meta[2];
+    if (mode === undefined || type === undefined || oid === undefined) continue;
+    if (type !== "blob" && type !== "tree" && type !== "commit") continue;
+    entries.push({ mode, type, oid, name: entry.slice(tab + 1) });
+  }
+  return entries;
+}
+
+/** Non-recursive `git ls-tree` at `ref:treePath`; `undefined` when that tree is absent. */
+export async function listTreeChildrenAtRef(
+  cwd: string,
+  ref: string,
+  treePath: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<TreeChildAtRef[] | undefined> {
+  const object = treePath.length === 0 ? ref : `${ref}:${treePath}`;
+  try {
+    const output = await runner.runAsync("git", ["ls-tree", "-z", object], cwd, runOptions(options));
+    return parseLsTreeZEntries(output);
+  } catch (error) {
+    if (absentRefPathFailure(error)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** Recursive `git ls-tree --name-only` under `prefix` at `ref`; `undefined` when unreadable. */
+export async function listRecursivePathsAtRef(
+  cwd: string,
+  ref: string,
+  prefix: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[] | undefined> {
+  try {
+    const output = await runner.runAsync(
+      "git",
+      ["ls-tree", "-r", "-z", "--name-only", ref, "--", prefix],
+      cwd,
+      runOptions(options),
+    );
+    return output.split("\0").filter((line) => line.length > 0);
+  } catch (error) {
+    if (absentRefPathFailure(error)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** `git show ref:path` as UTF-8 text; `undefined` when the blob is absent. */
+export async function readBlobAtRef(
+  cwd: string,
+  ref: string,
+  path: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string | undefined> {
+  try {
+    return await runner.runAsync("git", ["show", `${ref}:${path}`], cwd, runOptions(options));
+  } catch (error) {
+    if (absentRefPathFailure(error)) return undefined;
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** `git rev-list --count base..head` as a non-negative integer. */
+export async function countCommitsBetween(
+  cwd: string,
+  baseRef: string,
+  headRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<number> {
+  try {
+    const output = await runner.runAsync(
+      "git",
+      ["rev-list", "--count", `${baseRef}..${headRef}`],
+      cwd,
+      runOptions(options),
+    );
+    return Number.parseInt(output.trim(), 10);
+  } catch (error) {
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** `git log base..head -p --format=%H -- path` for path-scoped patch history (tick-backing). */
+export async function logPatchForPathInRange(
+  cwd: string,
+  baseRef: string,
+  headRef: string,
+  path: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  try {
+    return await runner.runAsync(
+      "git",
+      ["log", `${baseRef}..${headRef}`, "-p", "--format=%H", "--", path],
+      cwd,
+      runOptions(options, { maxBuffer: DIFF_MAX_BUFFER }),
+    );
+  } catch (error) {
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+export type LocalBranchHead = { branch: string; oid: string };
+
+/** Local `refs/heads/*` short names with tip OIDs. */
+export async function listLocalBranchHeads(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<LocalBranchHead[]> {
+  let output: string;
+  try {
+    output = await runner.runAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
+      cwd,
+      runOptions(options),
+    );
+  } catch (error) {
+    throw gitError("ref-query", error, [], options);
+  }
+  const heads: LocalBranchHead[] = [];
+  for (const line of output.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const space = trimmed.lastIndexOf(" ");
+    if (space <= 0) continue;
+    heads.push({ branch: trimmed.slice(0, space), oid: trimmed.slice(space + 1) });
+  }
+  return heads;
+}
+
 /**
  * `git update-ref <ref> <newOid> [<oldOid>]`. Stateful; with `oldOid` it is a
  * compare-and-swap that rejects `precondition` when the ref moved. Lock-file contention
@@ -821,20 +1103,70 @@ const PUSH_RULES: readonly ReasonRule[] = [
  */
 export async function pushBranch(
   cwd: string,
-  target: { branch: string; remote?: string; setUpstream?: boolean; delete?: boolean },
+  target: {
+    branch: string;
+    remote?: string;
+    setUpstream?: boolean;
+    delete?: boolean;
+    forceWithLease?: string;
+  },
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions = {},
 ): Promise<PushResult> {
   const remote = target.remote ?? "origin";
   const args = target.delete
     ? ["push", remote, "--delete", target.branch]
-    : ["push", ...(target.setUpstream ? ["-u"] : []), remote, target.branch];
+    : target.forceWithLease !== undefined
+      ? ["push", `--force-with-lease=${target.forceWithLease}`, remote, target.branch]
+      : ["push", ...(target.setUpstream ? ["-u"] : []), remote, target.branch];
   try {
     await runner.runAsync("git", args, cwd, networkSubprocessOptions({ signal: options.signal }));
     return { status: "pushed" };
   } catch (error) {
     if (target.delete && failureMatches(error, /remote ref does not exist/i)) return { status: "already-absent" };
     throw gitError("push", error, PUSH_RULES, options);
+  }
+}
+
+/** `git ls-remote <remote> <ref>`; `undefined` when the ref is absent (empty output). */
+export async function lsRemoteRef(
+  cwd: string,
+  remote: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string | undefined> {
+  try {
+    const output = (
+      await runner.runAsync(
+        "git",
+        ["ls-remote", remote, ref],
+        cwd,
+        networkSubprocessOptions({ signal: options.signal }),
+      )
+    ).trim();
+    const tip = output.split(/\s+/)[0];
+    return tip !== undefined && tip.length > 0 ? tip : undefined;
+  } catch (error) {
+    throw gitError("ref-query", error, PUSH_RULES, options);
+  }
+}
+
+export type RemoteUrlResult = { status: "resolved"; url: string } | { status: "absent" };
+
+/** `git remote get-url <name>`; `absent` when the remote is missing or git reports no URL. */
+export async function remoteUrl(
+  cwd: string,
+  remote: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<RemoteUrlResult> {
+  try {
+    const url = (await runner.runAsync("git", ["remote", "get-url", remote], cwd, runOptions(options))).trim();
+    return url.length > 0 ? { status: "resolved", url } : { status: "absent" };
+  } catch (error) {
+    if (failureMatches(error, /No such remote/i)) return { status: "absent" };
+    throw gitError("remote-url", error, [], options);
   }
 }
 

@@ -20,9 +20,9 @@
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` archive-publication tests that exercise end-to-end `applyEndArchivePublication` (search `mergeArchivePublicationRunner` / archive PR stdout cases) stay green after adapter migration.
-- [ ] `cleanup.ts` contains no `runAsync("git"` inside `applyEndArchivePublication` — reachable on main today via the local `git` async wrapper (~line 1543); staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `cleanup.test.ts` archive-publication tests that exercise end-to-end `applyEndArchivePublication` (search `mergeArchivePublicationRunner` / archive PR stdout cases) stay green after adapter migration.
+- [x] `cleanup.ts` contains no `runAsync("git"` inside `applyEndArchivePublication` — reachable on main today via the local `git` async wrapper (~line 1543); staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

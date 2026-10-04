@@ -2728,7 +2728,7 @@ describe("implement preflight stale workspace reset", () => {
         const intercepted = intercept ? await intercept(cmd, args) : undefined;
         if (intercepted !== undefined) return intercepted;
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 55, isDraft: true }]);
+          return JSON.stringify([{ number: 55, isDraft: true, baseRefName: "main", state: "OPEN" }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           return "";
@@ -3311,7 +3311,7 @@ describe("implement preflight stale workspace reset", () => {
     ).trim();
     expect(branchTipAfter).toBe(branchTipBefore);
     const prListAfter = await subprocessRunner.runAsync("gh", ["pr", "list"], resetProjectRoot);
-    expect(JSON.parse(prListAfter)).toEqual([{ number: 55, isDraft: true }]);
+    expect(JSON.parse(prListAfter)).toEqual([{ number: 55, isDraft: true, baseRefName: "main", state: "OPEN" }]);
   });
 
   test("run workflow implement resets stale code worktree for an incomplete external plan", async () => {
@@ -3609,7 +3609,7 @@ describe("implement preflight stale workspace reset", () => {
     const subprocessRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 56, isDraft: true }]);
+          return JSON.stringify([{ number: 56, isDraft: true, baseRefName: "main", state: "OPEN" }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           return "";
@@ -3860,7 +3860,7 @@ describe("implement preflight stale workspace reset", () => {
           subprocessRunner: {
             runAsync: async (cmd, args) => {
               if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-                return JSON.stringify([{ number: 77, isDraft: true }]);
+                return JSON.stringify([{ number: 77, isDraft: true, baseRefName: "main", state: "OPEN" }]);
               }
               return realAsyncSubprocessRunner.runAsync(cmd, args, resetProjectRoot);
             },
@@ -3889,7 +3889,7 @@ describe("implement preflight stale workspace reset", () => {
           subprocessRunner: {
             runAsync: async (cmd, args, cwd) => {
               if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-                return JSON.stringify([{ number: 88, isDraft: true }]);
+                return JSON.stringify([{ number: 88, isDraft: true, baseRefName: "main", state: "OPEN" }]);
               }
               if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
               if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");

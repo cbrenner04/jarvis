@@ -55,7 +55,7 @@ function ghResolvesOpenDraft(
       args[1] === "view" &&
       args[2] === String(prNumber) &&
       args[3] === "--json" &&
-      args[4] === "state,mergedAt"
+      args[4] === "state,mergedAt,isCrossRepository"
     ) {
       if (probeState === "probe_throw") {
         throw new Error("gh pr view state probe failed");
@@ -63,10 +63,11 @@ function ghResolvesOpenDraft(
       return JSON.stringify({
         state: probeState,
         mergedAt: probeState === "MERGED" ? "2024-01-01T00:00:00Z" : null,
+        isCrossRepository: false,
       });
     }
     if (args[0] === "pr" && args[1] === "list") {
-      return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: true }]);
+      return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: true, state: "OPEN" }]);
     }
     if (args[0] === "pr" && args[1] === "view") {
       return JSON.stringify({ number: prNumber, url: prUrl, baseRefName: baseRef });
@@ -89,7 +90,7 @@ function ghResolvesNoOpenPr() {
 function ghResolvesOpenNonDraft(prNumber: number, baseRef = "main") {
   return async (_cwd: string, args: readonly string[]) => {
     if (args[0] === "pr" && args[1] === "list") {
-      return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: false }]);
+      return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: false, state: "OPEN" }]);
     }
     throw new Error(`unexpected gh args: ${args.join(" ")}`);
   };
@@ -790,8 +791,8 @@ describe("createDefaultSupersedeGh", () => {
   it("prState returns gh state when state is a string", async () => {
     const supersede = createDefaultSupersedeGh({
       gh: async (_cwd, args) => {
-        expect(args).toEqual(["pr", "view", "7", "--json", "state,mergedAt"]);
-        return JSON.stringify({ state: "OPEN" });
+        expect(args).toEqual(["pr", "view", "7", "--json", "state,mergedAt,isCrossRepository"]);
+        return JSON.stringify({ state: "OPEN", mergedAt: null, isCrossRepository: false });
       },
     });
     await expect(supersede.prState("/repo", 7)).resolves.toEqual({ state: "OPEN" });
@@ -801,6 +802,6 @@ describe("createDefaultSupersedeGh", () => {
     const supersede = createDefaultSupersedeGh({
       gh: async () => JSON.stringify({ state: 1 }),
     });
-    await expect(supersede.prState("/repo", 7)).rejects.toThrow("unexpected gh pr view state for #7");
+    await expect(supersede.prState("/repo", 7)).rejects.toThrow("unexpected gh pr view state for 7");
   });
 });

@@ -104,7 +104,7 @@ describe("checkEligibility: eligibility gate", () => {
       expect(capturedArgs[1] === "view").toBe(true);
       expect(capturedArgs[2] === "test-branch").toBe(true);
       expect(capturedArgs[3] === "--json").toBe(true);
-      expect(capturedArgs[4] === "state,mergedAt").toBe(true);
+      expect(capturedArgs[4] === "state,mergedAt,isCrossRepository").toBe(true);
 
       // Verify reverting to gh pr list --head (without --state merged) would fail
       // This is a conceptual check — a test with gh pr list --head wouldn't see merged PRs
@@ -279,10 +279,18 @@ describe("checkEligibility: eligibility gate", () => {
       return {
         runAsync: async (cmd, args) => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args[2] === branch) {
-            return JSON.stringify({ state: "CLOSED", mergedAt: null });
+            return JSON.stringify({ state: "CLOSED", mergedAt: null, isCrossRepository: false });
           }
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-            return JSON.stringify([{ number: closedPrNumber, state: "CLOSED", mergedAt: null, headRefOid: headOid }]);
+            return JSON.stringify([
+              {
+                number: closedPrNumber,
+                baseRefName: "main",
+                state: "CLOSED",
+                mergedAt: null,
+                headRefOid: headOid,
+              },
+            ]);
           }
           if (cmd === "git" && args[0] === "diff") {
             return "";

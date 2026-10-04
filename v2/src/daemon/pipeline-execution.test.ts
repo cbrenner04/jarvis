@@ -8348,7 +8348,9 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   function ghPrListRunner(prs: { number: number; isDraft: boolean }[]): AsyncSubprocessRunner {
     return {
       runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return JSON.stringify(prs);
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify(prs.map((pr) => ({ ...pr, baseRefName: "main", state: "OPEN" as const })));
+        }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };

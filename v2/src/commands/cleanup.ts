@@ -15,12 +15,39 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { gzipSync } from "node:zlib";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
+  abortableWorktreeMergeNoEdit,
+  abortableWorktreeRebase,
+  countCommitsBetween,
+  deleteBranch,
+  deleteRef,
+  diffNameOnly,
+  diffNameOnlyRevision,
+  GitOperationError,
   getBaseBranch,
   getCurrentBranchAsync,
+  getCurrentHeadAsync,
   getGitStatusInventory,
+  gitCommonDir,
+  isAncestor,
   isGitRepoAsync,
+  isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
+  type LocalBranchHead,
+  listLocalBranchHeads,
+  listRecursivePathsAtRef,
+  listTreeChildrenAtRef,
+  listWorktrees,
+  logPatchForPathInRange,
+  lsRemoteRef,
+  mergeBase,
+  mergeTreeWriteTree,
   originTrackingRefResolvesAsync,
+  pruneWorktrees,
+  pushBranch,
+  readBlobAtRef,
+  remoteUrl,
+  removeWorktree,
+  resolveRef,
 } from "../../../shared/git.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
@@ -44,7 +71,13 @@ import {
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
 import { publishArchiveReady } from "../execution/completion-publisher.ts";
 import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
-import { GitHubOperationError } from "../execution/github-operations.ts";
+import {
+  closePr,
+  GitHubOperationError,
+  listPrs,
+  viewPrReviewActivity,
+  viewPrState,
+} from "../execution/github-operations.ts";
 import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
@@ -185,8 +218,7 @@ async function resolveWorktreeBranch(worktreePath: string, runner: AsyncSubproce
 async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<boolean> {
   if (!existsSync(worktreePath)) return false;
   try {
-    const result = await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], worktreePath);
-    return result.trim() === "true";
+    return await isInsideWorkTree(worktreePath, runner);
   } catch {
     return false;
   }
@@ -409,20 +441,14 @@ type MergedCheckResult = { merged: true } | { merged: false; reason: string };
  */
 async function isMerged(branch: string, runner: AsyncSubprocessRunner, cwd = "."): Promise<MergedCheckResult> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "view", branch, "--json", "state,mergedAt"],
-      cwd,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output);
-    if (parsed.state === "MERGED" && parsed.mergedAt) {
+    const view = await viewPrState(runner, cwd, branch, networkSubprocessOptions());
+    if (view.state === "MERGED" && view.mergedAt) {
       return { merged: true };
     }
-    return { merged: false, reason: `PR state is ${parsed.state}` };
+    return { merged: false, reason: `PR state is ${view.state}` };
   } catch (err) {
-    if (err instanceof AsyncSubprocessError) {
-      return { merged: false, reason: `gh failed: ${err.message}` };
+    if (err instanceof GitHubOperationError || err instanceof AsyncSubprocessError) {
+      return { merged: false, reason: `gh failed: ${err instanceof Error ? err.message : String(err)}` };
     }
     return { merged: false, reason: `Unexpected error: ${String(err)}` };
   }
@@ -467,18 +493,6 @@ export type DiscoverMergedBranchRefCandidatesOptions = {
   retiredBranches?: ReadonlySet<string>;
 };
 
-type LocalHead = {
-  branch: string;
-  oid: string;
-};
-
-type GhPrHeadRecord = {
-  number?: number;
-  state?: string;
-  mergedAt?: string | null;
-  headRefOid?: string;
-};
-
 /** Parse `git worktree list --porcelain` for checked-out branch short names. */
 export function parseCheckedOutBranchesFromWorktreePorcelain(porcelain: string): Set<string> {
   const checkedOut = new Set<string>();
@@ -491,43 +505,13 @@ export function parseCheckedOutBranchesFromWorktreePorcelain(porcelain: string):
   return checkedOut;
 }
 
-async function resolveGitCommonDir(repoRoot: string, runner: AsyncSubprocessRunner): Promise<string> {
-  return resolve(
-    (await runner.runAsync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], repoRoot)).trim(),
-  );
+function checkedOutBranchSet(entries: ReadonlyArray<{ branch?: string }>): Set<string> {
+  return new Set(entries.map((entry) => entry.branch).filter((branch): branch is string => branch !== undefined));
 }
 
-async function listLocalHeads(repoRoot: string, runner: AsyncSubprocessRunner): Promise<LocalHead[]> {
-  const output = await runner.runAsync(
-    "git",
-    ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
-    repoRoot,
-  );
-  const heads: LocalHead[] = [];
-  for (const line of output.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const space = trimmed.lastIndexOf(" ");
-    if (space <= 0) continue;
-    heads.push({ branch: trimmed.slice(0, space), oid: trimmed.slice(space + 1) });
-  }
-  return heads;
-}
-
-async function ghPrHeadRecordsForBranch(
-  branch: string,
-  repoRoot: string,
-  runner: AsyncSubprocessRunner,
-): Promise<GhPrHeadRecord[] | undefined> {
+async function ghPrHeadRecordsForBranch(branch: string, repoRoot: string, runner: AsyncSubprocessRunner) {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "list", "--head", branch, "--state", "all", "--json", "number,state,mergedAt,headRefOid"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as GhPrHeadRecord[];
-    return Array.isArray(parsed) ? parsed : undefined;
+    return await listPrs(runner, repoRoot, { branch, state: "all" }, networkSubprocessOptions());
   } catch {
     return undefined;
   }
@@ -553,19 +537,9 @@ async function listGhPrCommentBodies(
   runner: AsyncSubprocessRunner,
 ): Promise<string[] | undefined> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "view", String(prNumber), "--json", "comments"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as { comments?: { body?: string }[] };
-    if (!Array.isArray(parsed.comments)) return undefined;
-    const bodies: string[] = [];
-    for (const comment of parsed.comments) {
-      if (typeof comment.body === "string") bodies.push(comment.body);
-    }
-    return bodies;
+    const activity = await viewPrReviewActivity(runner, repoRoot, prNumber, networkSubprocessOptions());
+    if (!Array.isArray(activity.comments)) return undefined;
+    return activity.comments.flatMap((comment) => (typeof comment.body === "string" ? [comment.body] : []));
   } catch {
     return undefined;
   }
@@ -577,19 +551,9 @@ async function ghSuccessorPrMergedInRepo(
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "view", String(successorPrNumber), "--json", "state,mergedAt,isCrossRepository"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as {
-      state?: string;
-      mergedAt?: string | null;
-      isCrossRepository?: boolean;
-    };
-    if (parsed.isCrossRepository === true) return false;
-    return parsed.state === "MERGED" && Boolean(parsed.mergedAt);
+    const view = await viewPrState(runner, repoRoot, successorPrNumber, networkSubprocessOptions());
+    if (view.isCrossRepository === true) return false;
+    return view.state === "MERGED" && Boolean(view.mergedAt);
   } catch {
     return false;
   }
@@ -630,15 +594,8 @@ export async function planSubsumedPrGateAllows(
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "list", "--head", branch, "--state", "all", "--json", "state"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as GhPrHeadRecord[];
-    if (!Array.isArray(parsed)) return false;
-    return !parsed.some((pr) => pr.state === "OPEN");
+    const rows = await listPrs(runner, repoRoot, { branch, state: "all" }, networkSubprocessOptions());
+    return !rows.some((pr) => pr.state === "OPEN");
   } catch {
     return false;
   }
@@ -689,11 +646,11 @@ async function inferShallowestPlanSpecDirFromDiff(
   targetDir: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
-  const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}...${branch}`], projectRoot);
+  const paths = await diffNameOnlyRevision(projectRoot, `${baseRef}...${branch}`, runner);
   const prefix = targetDir.endsWith("/") ? targetDir : `${targetDir}/`;
   let best: string | undefined;
   let bestDepth = Number.POSITIVE_INFINITY;
-  for (const line of output.split("\n")) {
+  for (const line of paths) {
     const trimmed = line.trim();
     if (!trimmed.startsWith(prefix) || !trimmed.endsWith("index.md")) continue;
     const specDir = dirname(trimmed);
@@ -799,7 +756,7 @@ async function evaluatePlanLaneSubsumedEligibility(
 }
 
 function shouldSkipLocalHeadForRefPrune(
-  head: LocalHead,
+  head: LocalBranchHead,
   baseBranch: string,
   currentBranch: string,
   checkedOut: ReadonlySet<string>,
@@ -832,7 +789,7 @@ async function mapRegisteredProjectsToDistinctRepos(
     }
     let commonDir: string;
     try {
-      commonDir = await resolveGitCommonDir(root, runner);
+      commonDir = await gitCommonDir(root, runner);
     } catch (err) {
       unusableProjects.push({
         project,
@@ -855,13 +812,13 @@ async function discoverMergedBranchRefCandidatesForRepo(
   retiredBranches: ReadonlySet<string>,
   runner: AsyncSubprocessRunner,
 ): Promise<MergedBranchRefCandidate[]> {
-  const [baseBranch, currentBranch, worktreePorcelain, localHeads] = await Promise.all([
+  const [baseBranch, currentBranch, worktrees, localHeads] = await Promise.all([
     getBaseBranch(root, runner),
     getCurrentBranchAsync(root, runner),
-    runner.runAsync("git", ["worktree", "list", "--porcelain"], root),
-    listLocalHeads(root, runner),
+    listWorktrees(root, runner),
+    listLocalBranchHeads(root, runner),
   ]);
-  const checkedOut = parseCheckedOutBranchesFromWorktreePorcelain(worktreePorcelain);
+  const checkedOut = checkedOutBranchSet(worktrees);
   const candidates: MergedBranchRefCandidate[] = [];
 
   for (const head of localHeads) {
@@ -927,8 +884,8 @@ export async function resolveExactRefOid(
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
   try {
-    const output = await runner.runAsync("git", ["rev-parse", "--verify", ref], repoRoot);
-    return output.trim();
+    const resolved = await resolveRef(repoRoot, ref, runner);
+    return resolved.status === "resolved" ? resolved.oid : undefined;
   } catch {
     return undefined;
   }
@@ -1002,9 +959,7 @@ export async function revalidateMergedBranchRefCandidate(
   const [baseBranch, currentBranch, checkedOut] = await Promise.all([
     getBaseBranch(root, runner),
     getCurrentBranchAsync(root, runner),
-    runner
-      .runAsync("git", ["worktree", "list", "--porcelain"], root)
-      .then(parseCheckedOutBranchesFromWorktreePorcelain),
+    listWorktrees(root, runner).then(checkedOutBranchSet),
   ]);
   if (branch === baseBranch) return { status: "ineligible", reason: "base branch" };
   if (currentBranch !== "HEAD" && branch === currentBranch) {
@@ -1043,13 +998,13 @@ async function deleteExactRef(
   runner: AsyncSubprocessRunner,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    await runner.runAsync("git", ["update-ref", "-d", ref], repoRoot);
-    if ((await resolveExactRefOid(repoRoot, ref, runner)) !== undefined) {
+    await deleteRef(repoRoot, ref, runner);
+    if ((await resolveRef(repoRoot, ref, runner)).status === "resolved") {
       return { ok: false, message: "ref still resolves after deletion" };
     }
     return { ok: true };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: cleanupOperationErrorMessage(err) };
   }
 }
 
@@ -1259,18 +1214,8 @@ type OpenPr = { number: number; isDraft: boolean };
 
 /** List open PRs whose head is <branch> via `gh pr list`. Throws on gh failure or malformed output. */
 async function listOpenPrsForBranch(branch: string, cwd: string, runner: AsyncSubprocessRunner): Promise<OpenPr[]> {
-  const output = await runner.runAsync(
-    "gh",
-    ["pr", "list", "--head", branch, "--state", "open", "--json", "number,isDraft"],
-    cwd,
-    networkSubprocessOptions(),
-  );
-  const parsed: unknown = JSON.parse(output);
-  if (!Array.isArray(parsed)) throw new Error("unexpected gh response");
-  return parsed.map((item: unknown) => {
-    const pr = item as { number?: number; isDraft?: boolean };
-    return { number: pr.number ?? 0, isDraft: pr.isDraft ?? false };
-  });
+  const rows = await listPrs(runner, cwd, { branch, state: "open" }, networkSubprocessOptions());
+  return rows.map((row) => ({ number: row.number, isDraft: row.isDraft ?? false }));
 }
 
 function hasInRepoArtifactOwner(
@@ -1515,10 +1460,7 @@ async function archivePublicationCommitCount(
   }
   const baseRef = await getBaseBranch(target.projectRoot, runner);
   try {
-    const count = (
-      await runner.runAsync("git", ["rev-list", "--count", `${baseRef}..${target.branch}`], target.projectRoot)
-    ).trim();
-    const parsed = Number.parseInt(count, 10);
+    const parsed = await countCommitsBetween(target.projectRoot, baseRef, target.branch, runner);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
   } catch {
     return 1;
@@ -1526,6 +1468,60 @@ async function archivePublicationCommitCount(
 }
 
 type ArchivePublicationStepFailure = { step: "push" | "pr"; error: unknown };
+
+async function runArchivePublicationGit(
+  cwd: string,
+  args: readonly string[],
+  runner: AsyncSubprocessRunner,
+): Promise<string> {
+  const command = args[0];
+  if (command === "rev-parse" && args[1] === "HEAD") {
+    return await getCurrentHeadAsync(cwd, runner);
+  }
+  if (command === "merge-base" && args[1] === "--is-ancestor") {
+    const ancestor = args[2];
+    const descendant = args[3];
+    if (ancestor === undefined || descendant === undefined) {
+      throw new Error(`invalid merge-base --is-ancestor argv: ${args.join(" ")}`);
+    }
+    if (!(await isAncestor(cwd, ancestor, descendant, runner))) {
+      throw new AsyncSubprocessError("not an ancestor", 1, "", "", undefined);
+    }
+    return "";
+  }
+  if (command === "ls-remote" && args[1] === "origin") {
+    const ref = args[2];
+    if (ref === undefined) {
+      throw new Error(`invalid ls-remote argv: ${args.join(" ")}`);
+    }
+    const tip = await lsRemoteRef(cwd, "origin", ref, runner);
+    return tip === undefined ? "" : `${tip}\t${ref}\n`;
+  }
+  if (command === "push") return await runArchivePublicationPush(cwd, args, runner);
+  throw new Error(`unsupported archive publication git argv: ${args.join(" ")}`);
+}
+
+/** The two push shapes archive publication issues: a plain `HEAD:` refspec and a `--force-with-lease` refresh. */
+async function runArchivePublicationPush(
+  cwd: string,
+  args: readonly string[],
+  runner: AsyncSubprocessRunner,
+): Promise<string> {
+  if (args.length === 3 && args[1] === "origin" && args[2]?.startsWith("HEAD:")) {
+    await pushBranch(cwd, { remote: "origin", branch: args[2] }, runner, {});
+    return "";
+  }
+  if (args.length === 4 && args[1]?.startsWith("--force-with-lease=") && args[2] === "origin") {
+    const refspec = args[3];
+    const lease = args[1]?.slice("--force-with-lease=".length);
+    if (refspec === undefined || lease === undefined || lease.length === 0) {
+      throw new Error(`invalid push argv: ${args.join(" ")}`);
+    }
+    await pushBranch(cwd, { remote: "origin", branch: refspec, forceWithLease: lease }, runner, {});
+    return "";
+  }
+  throw new Error(`unsupported archive publication git argv: ${args.join(" ")}`);
+}
 
 async function applyEndArchivePublication(
   sessions: ArchivePublicationSessions,
@@ -1542,26 +1538,26 @@ async function applyEndArchivePublication(
     let pastPush = false;
     const git = async (cwd: string, args: readonly string[]) => {
       try {
-        const out = await runner.runAsync("git", [...args], cwd);
+        const out = await runArchivePublicationGit(cwd, args, runner);
         if (args[0] === "push") pastPush = true;
         return out;
       } catch (error) {
-        const failure: ArchivePublicationStepFailure = { step: pastPush ? "pr" : "push", error };
-        throw failure;
+        throw { step: pastPush ? "pr" : "push", error } satisfies ArchivePublicationStepFailure;
       }
     };
-    const gh = async (cwd: string, args: readonly string[]) => runner.runAsync("gh", [...args], cwd);
     try {
       const result = await publishArchiveReady(
         { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },
-        { git, gh },
+        { git, subprocessRunner: runner },
       );
       io.stdout(`${result.prUrl}\n`);
     } catch (failure: unknown) {
       exit = 1;
       const stepFailure = failure as Partial<ArchivePublicationStepFailure>;
       const step = failure instanceof GitHubOperationError || stepFailure.step === "pr" ? "pr" : "push";
-      io.stderr(`Archive publication failed at ${step}: ${errorMessage(stepFailure.error ?? failure)}\n`);
+      io.stderr(
+        `Archive publication failed at ${step}: ${cleanupOperationErrorMessage(stepFailure.error ?? failure)}\n`,
+      );
       const commitCount = await archivePublicationCommitCount(target, sessions, runner);
       reportArchivePublicationManualFallback(target, commitCount, io);
     }
@@ -1831,17 +1827,17 @@ async function openInRepoSpecDirNamesOnRef(
   ref: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string[]> {
-  let listing: string;
+  let listing: Awaited<ReturnType<typeof listTreeChildrenAtRef>>;
   try {
-    listing = await runner.runAsync("git", ["ls-tree", "-z", `${ref}:${relHome}`], projectRoot);
+    listing = await listTreeChildrenAtRef(projectRoot, ref, relHome, runner);
   } catch {
     return [];
   }
+  if (listing === undefined) return [];
   const names: string[] = [];
-  for (const entry of listing.split("\0")) {
-    const tab = entry.indexOf("\t");
-    if (tab < 0 || entry.slice(0, tab).split(" ")[1] !== "tree") continue;
-    const name = entry.slice(tab + 1);
+  for (const entry of listing) {
+    if (entry.type !== "tree") continue;
+    const name = entry.name;
     if (QUEUE_DIR_NAMES.includes(name) || name === "completed" || name.startsWith(".")) continue;
     if (isHarnessWorkflowStagingPath(name)) continue;
     names.push(name);
@@ -2010,25 +2006,20 @@ async function specTreeFsAtRef(
   runner: AsyncSubprocessRunner,
 ): Promise<ArtifactFs | undefined> {
   const relSource = relative(projectRoot, source);
-  let listing: string;
+  let relPaths: Awaited<ReturnType<typeof listRecursivePathsAtRef>>;
   try {
-    listing = await runner.runAsync("git", ["ls-tree", "-r", "-z", "--name-only", ref, "--", relSource], projectRoot);
+    relPaths = await listRecursivePathsAtRef(projectRoot, ref, relSource, runner);
   } catch {
     return undefined;
   }
-  const relPaths = listing.split("\0").filter((line) => line.length > 0);
-  if (relPaths.length === 0) return undefined;
+  if (relPaths === undefined || relPaths.length === 0) return undefined;
 
   const root = resolve(projectRoot);
   const files = new Map<string, Buffer>();
   const dirs = new Set<string>();
   for (const relPath of relPaths) {
-    let content: string;
-    try {
-      content = await runner.runAsync("git", ["show", `${ref}:${relPath}`], projectRoot);
-    } catch {
-      return undefined;
-    }
+    const content = await readBlobAtRef(projectRoot, ref, relPath, runner);
+    if (content === undefined) return undefined;
     const absPath = resolve(root, relPath);
     files.set(absPath, Buffer.from(content, "utf8"));
     for (let dir = dirname(absPath); dir.startsWith(root); dir = dirname(dir)) dirs.add(dir);
@@ -3227,14 +3218,11 @@ async function removeWorktreeAndPruneRefs(
     const plan = await planMergedWorktreeRemoval(candidate, projectRoot, runner, preflight.store, preflight.registry);
     forceRemove = plan.action === "force-remove";
   }
-  const removeArgs = forceRemove
-    ? ["worktree", "remove", "--force", worktree.path]
-    : ["worktree", "remove", worktree.path];
-  await runner.runAsync("git", removeArgs, projectRoot);
+  await removeWorktree(projectRoot, worktree.path, runner, { force: forceRemove });
   io.stdout(`Removed worktree: ${worktree.path}\n`);
 
   try {
-    await runner.runAsync("git", ["worktree", "prune"], projectRoot);
+    await pruneWorktrees(projectRoot, runner);
   } catch {
     // Prune may fail but shouldn't block the operation
   }
@@ -3293,7 +3281,7 @@ export async function performWorktreeRemovals(
       if (err instanceof MergedWorktreeRetirementRefusal) {
         io.stdout(mergedWorktreeRetirementRefusalLine(worktree.path, worktree.branch, err.dirtyPaths));
       } else {
-        io.stderr(`Failed to retire ${worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`);
+        io.stderr(`Failed to retire ${worktree.path}: ${cleanupOperationErrorMessage(err)}\n`);
       }
     }
   }
@@ -3320,6 +3308,16 @@ export const STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG = "--reset-despite-la
 export const OPEN_PR_PROBE_UNREACHABLE_REASON =
   "could not determine open PR state: gh is unreachable from this environment; retry outside the agent sandbox";
 
+function cleanupOperationErrorMessage(error: unknown): string {
+  if (error instanceof GitOperationError) {
+    return `${error.message} (retryable: ${error.retryable})`;
+  }
+  if (error instanceof GitHubOperationError) {
+    return `gh ${error.operation} ${error.reason}: ${error.message} (retryable: ${error.retryable})`;
+  }
+  return errorMessage(error);
+}
+
 const staleResetDirtyRecovery = `commit, discard local changes, pass ${STALE_RESET_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
 const staleResetLandedCriteriaRecovery = `pass ${STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
 const staleResetListingErrorRecovery = `commit, discard local changes, or run \`jarvis cleanup --abandon <branch>\``;
@@ -3330,14 +3328,7 @@ export async function isDescendantOfBase(
   projectRoot: string,
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
-  try {
-    await runner.runAsync("git", ["merge-base", "--is-ancestor", baseRef, worktreeHead], projectRoot, {
-      stdio: "ignore",
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return isAncestor(projectRoot, baseRef, worktreeHead, runner);
 }
 
 /** True when `head` carries nothing unlanded: an ancestor of base, or every `base..head` commit patch-equivalent in base (squash-merged). */
@@ -3352,10 +3343,11 @@ async function carriesNoUnlandedCommits(
     // Merging the lane into base changes nothing: every lane change already landed, including a
     // multi-commit lane squash-merged into one base commit (which `git cherry` reports as unlanded).
     const [mergedTree, baseTree] = await Promise.all([
-      runner.runAsync("git", ["merge-tree", "--write-tree", baseRef, head], projectRoot),
-      runner.runAsync("git", ["rev-parse", `${baseRef}^{tree}`], projectRoot),
+      mergeTreeWriteTree(projectRoot, baseRef, head, runner),
+      resolveRef(projectRoot, `${baseRef}^{tree}`, runner),
     ]);
-    return mergedTree.split("\n")[0]?.trim() === baseTree.trim();
+    if (baseTree.status === "absent") return false;
+    return mergedTree === baseTree.oid;
   } catch {
     return false;
   }
@@ -3430,11 +3422,7 @@ async function readGitFileAtRef(
   relPath: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
-  try {
-    return await runner.runAsync("git", ["show", `${baseRef}:${relPath}`], projectRoot);
-  } catch {
-    return undefined;
-  }
+  return readBlobAtRef(projectRoot, baseRef, relPath, runner);
 }
 
 async function resolveStaleResetRef(
@@ -3442,7 +3430,11 @@ async function resolveStaleResetRef(
   gitRef: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string> {
-  return (await runner.runAsync("git", ["rev-parse", gitRef], projectRoot)).trim();
+  const resolved = await resolveRef(projectRoot, gitRef, runner);
+  if (resolved.status === "absent") {
+    throw new GitOperationError("ref-query", "failed", `ref not found: ${gitRef}`, "", 1);
+  }
+  return resolved.oid;
 }
 
 /** A commit's diff hunk for one path, split from a multi-commit `git log -p --format=%H` run. */
@@ -3499,11 +3491,7 @@ async function checkedCriterionBackedByCommit(
 ): Promise<boolean> {
   let log: string;
   try {
-    log = await runner.runAsync(
-      "git",
-      ["log", `${baseRef}..${branch}`, "-p", "--format=%H", "--", relPath],
-      projectRoot,
-    );
+    log = await logPatchForPathInRange(projectRoot, baseRef, branch, relPath, runner);
   } catch {
     return false;
   }
@@ -3571,76 +3559,11 @@ async function hasCommonAncestor(
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    await runner.runAsync("git", ["merge-base", a, b], projectRoot);
+    await mergeBase(projectRoot, a, b, runner);
     return true;
   } catch {
     return false;
   }
-}
-
-async function listRebaseConflictPaths(worktreePath: string, runner: AsyncSubprocessRunner): Promise<string[]> {
-  try {
-    const output = await runner.runAsync("git", ["diff", "--name-only", "--diff-filter=U"], worktreePath);
-    return output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Rebase the worktree's checked-out branch onto `baseHead`; a conflict is aborted, leaving the
- * worktree unchanged. Returns `undefined` on a clean rebase, or the conflicting paths otherwise.
- */
-async function abortableWorktreeGitRewrite(
-  worktreePath: string,
-  runner: AsyncSubprocessRunner,
-  runArgs: string[],
-  abortArgs: string[],
-): Promise<string[] | undefined> {
-  try {
-    await runner.runAsync("git", runArgs, worktreePath);
-    return undefined;
-  } catch {
-    const conflictPaths = await listRebaseConflictPaths(worktreePath, runner);
-    try {
-      await runner.runAsync("git", abortArgs, worktreePath);
-    } catch {
-      // best effort — conflictPaths were already captured before the abort attempt
-    }
-    return conflictPaths;
-  }
-}
-
-async function rebaseWorktreeOntoBase(
-  worktreePath: string,
-  baseHead: string,
-  runner: AsyncSubprocessRunner,
-): Promise<string[] | undefined> {
-  return abortableWorktreeGitRewrite(worktreePath, runner, ["rebase", baseHead], ["rebase", "--abort"]);
-}
-
-async function mergeWorktreeWithBase(
-  worktreePath: string,
-  baseHead: string,
-  runner: AsyncSubprocessRunner,
-): Promise<string[] | undefined> {
-  const conflictPaths = await abortableWorktreeGitRewrite(
-    worktreePath,
-    runner,
-    ["merge", "--no-edit", baseHead],
-    ["merge", "--abort"],
-  );
-  if (conflictPaths === undefined) {
-    try {
-      await runner.runAsync("git", ["update-ref", "-d", "ORIG_HEAD"], worktreePath);
-    } catch {
-      // absent or already cleared
-    }
-  }
-  return conflictPaths;
 }
 
 /** `undefined` means no verdict — the caller falls through to the pre-continuation gates unchanged. */
@@ -3786,8 +3709,9 @@ async function evaluateCommittedLaneContinuation(args: {
   if (skipLandedCriteriaGate) return undefined;
 
   const rewrite = hasOpenPr
-    ? await mergeWorktreeWithBase(worktreePath, baseHead, runner)
-    : await rebaseWorktreeOntoBase(worktreePath, baseHead, runner);
+    ? await abortableWorktreeMergeNoEdit(worktreePath, baseHead, runner)
+    : await abortableWorktreeRebase(worktreePath, baseHead, runner);
+  if (hasOpenPr && rewrite === undefined) await deleteRef(worktreePath, "ORIG_HEAD", runner);
   if (rewrite !== undefined) {
     return { status: "refused", reason: staleResetRebaseConflictGateReason(baseHead, rewrite) };
   }
@@ -3869,10 +3793,11 @@ async function unlandedNonStagingPaths(
 ): Promise<string[]> {
   // Plan-lane scope diffs from the merge-base (`...`) so default-branch commits after the lane cut
   // do not read as lane paths; stale-reset callers keep the tree diff (`..`).
-  const range = options?.mergeBase === true ? `${baseRef}...${branch}` : `${baseRef}..${branch}`;
-  const output = await runner.runAsync("git", ["diff", "--name-only", range], projectRoot);
-  return output
-    .split("\n")
+  const paths =
+    options?.mergeBase === true
+      ? await diffNameOnlyRevision(projectRoot, `${baseRef}...${branch}`, runner)
+      : await diffNameOnly(projectRoot, { from: baseRef, to: branch }, runner);
+  return paths
     .map((line) => line.trim())
     .filter((line) => {
       if (line.length === 0) return false;
@@ -3888,8 +3813,7 @@ async function unlandedCommitCount(
   baseRef: string,
   runner: AsyncSubprocessRunner,
 ): Promise<number> {
-  const output = await runner.runAsync("git", ["rev-list", "--count", `${baseRef}..${branch}`], projectRoot);
-  return Number.parseInt(output.trim(), 10);
+  return countCommitsBetween(projectRoot, baseRef, branch, runner);
 }
 
 /** True when `absPath` resolves inside `root` (or is `root` itself). */
@@ -4201,10 +4125,9 @@ async function resolveBranchTip(
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
   try {
-    const sha = (
-      await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], projectRoot)
-    ).trim();
-    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+    const resolved = await resolveRef(projectRoot, `${ref}^{commit}`, runner);
+    if (resolved.status !== "resolved") return undefined;
+    return /^[0-9a-f]{40}$/.test(resolved.oid) ? resolved.oid : undefined;
   } catch {
     return undefined;
   }
@@ -4249,7 +4172,10 @@ async function staleResetBaseRefusalReason(
     return `base '${baseRef}' names the branch '${branch}' being retired; retirement would destroy it before rematerialization`;
   }
   try {
-    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`], projectRoot);
+    const resolved = await resolveRef(projectRoot, `${baseRef}^{commit}`, runner);
+    if (resolved.status === "absent") {
+      return `base '${baseRef}' does not resolve to a commit in ${projectRoot}`;
+    }
   } catch {
     return `base '${baseRef}' does not resolve to a commit in ${projectRoot}`;
   }
@@ -4419,7 +4345,7 @@ async function pruneStaleOriginRemoteTrackingRef(
     return { ok: true };
   }
   try {
-    await runner.runAsync("git", ["update-ref", "-d", `refs/remotes/origin/${branch}`], cwd);
+    await deleteRef(cwd, `refs/remotes/origin/${branch}`, runner);
     if (await originTrackingRefResolvesAsync(cwd, branch, runner)) {
       return { ok: false, message: "remote-tracking ref still resolves after prune" };
     }
@@ -4427,22 +4353,8 @@ async function pruneStaleOriginRemoteTrackingRef(
     io.stdout(`Pruned stale remote-tracking ref: ${label}\n`);
     return { ok: true, pruned: label };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: cleanupOperationErrorMessage(err) };
   }
-}
-
-/**
- * True when `git push origin --delete` failed because the remote branch is
- * already gone — the goal state, not a failure.
- */
-function isRemoteRefAlreadyAbsent(err: unknown): boolean {
-  const text =
-    err instanceof AsyncSubprocessError
-      ? `${err.message}\n${err.stderr}`
-      : err instanceof Error
-        ? err.message
-        : String(err);
-  return /remote ref does not exist/i.test(text);
 }
 
 /**
@@ -4456,23 +4368,21 @@ async function deleteRemoteBranch(
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void },
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await runner.runAsync("git", ["remote", "get-url", "origin"], cwd);
-  } catch {
+  if ((await remoteUrl(cwd, "origin", runner)).status === "absent") {
     io.stdout(`No origin remote; remote branch ${branch} already absent\n`);
     return { ok: true };
   }
 
   try {
-    await runner.runAsync("git", ["push", "origin", "--delete", branch], cwd, networkSubprocessOptions());
-    io.stdout(`Deleted remote branch: ${branch}\n`);
+    const push = await pushBranch(cwd, { branch, delete: true }, runner);
+    if (push.status === "pushed") {
+      io.stdout(`Deleted remote branch: ${branch}\n`);
+    } else {
+      io.stdout(`Remote branch ${branch} already absent\n`);
+    }
     return { ok: true };
   } catch (err) {
-    if (isRemoteRefAlreadyAbsent(err)) {
-      io.stdout(`Remote branch ${branch} already absent\n`);
-      return { ok: true };
-    }
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: cleanupOperationErrorMessage(err) };
   }
 }
 
@@ -4488,26 +4398,26 @@ async function performAbandonmentSteps(
   const destroyed: DestroyedArtifacts = {};
 
   try {
-    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], cwd);
+    await removeWorktree(cwd, worktreePath, runner, { force: true });
     io.stdout(`Removed worktree: ${worktreePath}\n`);
     destroyed.worktreePath = worktreePath;
   } catch (err) {
-    io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
+    io.stderr(`Failed to remove worktree: ${cleanupOperationErrorMessage(err)}\n`);
     return { ok: false, step: "worktree removal", destroyed };
   }
 
   try {
-    await runner.runAsync("git", ["worktree", "prune"], cwd);
+    await pruneWorktrees(cwd, runner);
   } catch {
     // Prune may fail but shouldn't block the operation
   }
 
   try {
-    await runner.runAsync("git", ["branch", "-D", branch], cwd);
+    await deleteBranch(cwd, branch, runner, { force: true });
     io.stdout(`Deleted local branch: ${branch}\n`);
     destroyed.localBranch = branch;
   } catch (err) {
-    io.stderr(`Failed to delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`);
+    io.stderr(`Failed to delete local branch ${branch}: ${cleanupOperationErrorMessage(err)}\n`);
     return { ok: false, step: "local branch deletion", destroyed };
   }
 
@@ -4529,11 +4439,11 @@ async function performAbandonmentSteps(
 
   if (prNumber !== undefined) {
     try {
-      await runner.runAsync("gh", ["pr", "close", String(prNumber)], cwd, networkSubprocessOptions());
+      await closePr(runner, cwd, prNumber, networkSubprocessOptions());
       io.stdout(`Closed PR #${prNumber}\n`);
       destroyed.closedPrNumber = prNumber;
     } catch (err) {
-      io.stderr(`Failed to close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`);
+      io.stderr(`Failed to close PR #${prNumber}: ${cleanupOperationErrorMessage(err)}\n`);
       return { ok: false, step: "PR closure", destroyed };
     }
   }
